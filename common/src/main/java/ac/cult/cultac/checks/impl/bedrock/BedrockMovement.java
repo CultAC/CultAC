@@ -21,7 +21,7 @@ public final class BedrockMovement extends Check implements CheckListener {
                 CheckInfo.builder()
                         .name("BedrockMovement")
                         .stableKey("cult.bedrock.movement")
-                        .description("Bedrock player moved in a way the game does not allow")
+                        .description("Impossible Bedrock movement")
                         .build());
     }
 

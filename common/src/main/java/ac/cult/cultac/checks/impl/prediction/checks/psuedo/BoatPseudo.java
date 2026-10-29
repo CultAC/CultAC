@@ -11,7 +11,7 @@ public class BoatPseudo extends Check implements PostPredictionListener {
                 cultPlayer,
                 CheckInfo.builder()
                         .name("BoatOffset")
-                        .description("Moved a boat in a way the normal game does not allow")
+                        .description("Impossible boat movement")
                         .build());
     }
 }

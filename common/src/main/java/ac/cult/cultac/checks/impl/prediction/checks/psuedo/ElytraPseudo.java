@@ -11,7 +11,7 @@ public class ElytraPseudo extends Check implements PostPredictionListener {
                 cultPlayer,
                 CheckInfo.builder()
                         .name("Elytra")
-                        .description("Moved wrong while gliding with an elytra")
+                        .description("Impossible elytra movement")
                         .build());
     }
 }

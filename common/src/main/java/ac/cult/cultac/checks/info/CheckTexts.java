@@ -8,19 +8,14 @@ import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.yaml.snakeyaml.Yaml;
 
-/** The plain-language explanation of every check, shipped in the jar rather than copied to the data folder. */
+/** Check explanations from {@code check-info/en.yml} in the jar; servers cannot override them. */
 public final class CheckTexts {
-    public static final String RESOURCE = "/check-info/en.yml";
+    private static final String RESOURCE = "/check-info/en.yml";
 
-    /**
-     * @param summary what the player did, short enough for a hover
-     * @param details what kind of cheat or client behavior causes it
-     */
-    public record Text(@NotNull String summary, @NotNull String details) {}
+    public record Text(String summary, String details) {}
 
     private static volatile @Nullable CheckTexts loaded;
 
@@ -32,22 +27,22 @@ public final class CheckTexts {
         this.categories = categories;
     }
 
-    public static @NotNull CheckTexts get() {
+    public static CheckTexts get() {
         CheckTexts texts = loaded;
         if (texts == null) loaded = texts = load();
         return texts;
     }
 
-    static @NotNull CheckTexts load() {
+    static CheckTexts load() {
         try (InputStream stream = CheckTexts.class.getResourceAsStream(RESOURCE)) {
             if (stream == null) throw new IllegalStateException(RESOURCE + " is missing from the jar");
             return parse(new String(stream.readAllBytes(), StandardCharsets.UTF_8));
-        } catch (IOException failure) {
-            throw new UncheckedIOException(failure);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
         }
     }
 
-    static @NotNull CheckTexts parse(@NotNull String yaml) {
+    static CheckTexts parse(String yaml) {
         Map<?, ?> root = new Yaml().load(yaml);
         Map<String, Text> checks = new HashMap<>();
         if (root.get("checks") instanceof Map<?, ?> entries) {
@@ -72,17 +67,15 @@ public final class CheckTexts {
         return value == null ? "" : value.toString().strip();
     }
 
-    /** The explanation of the check named {@code name}, or {@code null} when the file has none. */
-    public @Nullable Text text(@NotNull String name) {
+    public @Nullable Text text(String name) {
         return checks.get(name);
     }
 
-    /** Every check name the file explains. */
-    public @NotNull Set<String> names() {
+    public Set<String> names() {
         return checks.keySet();
     }
 
-    public @NotNull String label(@NotNull CheckCategory category) {
+    public String label(CheckCategory category) {
         String label = categories.get(category);
         return label == null || label.isEmpty() ? category.id() : label;
     }

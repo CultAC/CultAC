@@ -11,7 +11,7 @@ public class VehicleOffset extends Check implements PostPredictionListener {
                 player,
                 CheckInfo.builder()
                         .name("VehicleOffset")
-                        .description("Moved a vehicle in a way the normal game does not allow")
+                        .description("Impossible vehicle movement")
                         .build());
     }
 }

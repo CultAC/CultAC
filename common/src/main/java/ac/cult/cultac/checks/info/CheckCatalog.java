@@ -15,32 +15,17 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * Every check a player's {@code CheckManager} builds, known without a player so {@code /cult info} can list and
- * explain them. {@code CheckCatalogTest} keeps it equal to what a player builds.
- */
+/** Every check a player builds, listed without a player. {@code CheckCatalogTest} fails when the two differ. */
 public final class CheckCatalog {
-    /**
-     * One check's identity as its {@code @CheckData} or {@code CheckInfo} declares it.
-     *
-     * @param name the check name punishments match and alerts show by default
-     * @param configName the prefix of the check's own config keys
-     * @param altName the second name punishments match, if any
-     */
     public record Entry(
-            @NotNull String name,
-            @NotNull String configName,
-            @Nullable String altName,
-            boolean experimental,
-            @NotNull CheckCategory category) {
-        Entry config(@NotNull String configName) {
+            String name, String configName, @Nullable String altName, boolean experimental, CheckCategory category) {
+        Entry config(String configName) {
             return new Entry(name, configName, altName, experimental, category);
         }
 
-        Entry alt(@NotNull String altName) {
+        Entry alt(String altName) {
             return new Entry(name, configName, altName, experimental, category);
         }
 
@@ -50,7 +35,6 @@ public final class CheckCatalog {
         }
     }
 
-    /** Checks declared through {@code CheckInfo}, which report a missing alternative name as null. */
     private static final Set<String> FROM_CHECK_INFO = Set.of(
             "AntiExplosion",
             "AntiKB",
@@ -269,8 +253,7 @@ public final class CheckCatalog {
         return new Entry(name, name, null, true, category);
     }
 
-    /** The check whose name, config name or alternative name is {@code query}, ignoring case. */
-    public static @Nullable Entry find(@NotNull String query) {
+    public static @Nullable Entry find(String query) {
         for (Entry entry : ENTRIES) {
             if (entry.name().equalsIgnoreCase(query)
                     || entry.configName().equalsIgnoreCase(query)
@@ -279,8 +262,7 @@ public final class CheckCatalog {
         return null;
     }
 
-    /** The checks in {@code category}, in catalog order. */
-    public static @NotNull List<Entry> in(@NotNull CheckCategory category) {
+    public static List<Entry> byCategory(CheckCategory category) {
         List<Entry> entries = new ArrayList<>();
         for (Entry entry : ENTRIES) {
             if (entry.category() == category) entries.add(entry);
@@ -288,8 +270,7 @@ public final class CheckCatalog {
         return entries;
     }
 
-    /** The checks whose name contains {@code query}, ignoring case. */
-    public static @NotNull List<Entry> containing(@NotNull String query) {
+    public static List<Entry> containing(String query) {
         String lower = query.toLowerCase(Locale.ROOT);
         List<Entry> entries = new ArrayList<>();
         for (Entry entry : ENTRIES) {

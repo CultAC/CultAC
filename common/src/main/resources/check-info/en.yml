@@ -1,5 +1,6 @@
 # What each check catches, in plain language for staff, shown by /cult info.
 # Say what a check catches, never how it decides: no numbers, limits, tolerances or timings.
+# Write it the way you would explain it to a new moderator: short sentences, everyday words.
 # CheckTextsTest fails when a check has no entry here.
 
 categories:
@@ -17,527 +18,527 @@ categories:
 checks:
   # Combat
   AimDuplicateLook:
-    summary: "Sent aim updates the normal game does not send"
-    details: "This catches look updates that come from software rather than the player's mouse. Aim cheats and modified clients that control where the player looks cause it."
+    summary: "Sent aim updates that Minecraft never sends"
+    details: "Their aim was coming from software, not from a hand on a mouse. Aim cheats and other cheats that turn the player's view for them do this."
   AimModulo360:
-    summary: "Reported their view in a way the normal game cannot"
-    details: "Some aim cheats change how the player's view is reported to the server, which the normal game never does. The camera may still look smooth to someone spectating."
+    summary: "Reported their aim in a way Minecraft never does"
+    details: "Some aim cheats report where the player is looking in a form normal Minecraft never uses. Their camera can still look smooth when you spectate them."
   AntiExplosion:
     summary: "Ignored or reduced knockback from an explosion"
-    details: "Explosions like TNT, creepers and end crystals, and a ravager's roar, push players away. Velocity and AntiKB features let a player take less of that push or none at all."
+    details: "TNT, creepers, end crystals and a ravager's roar all push players back. Velocity (also called AntiKB) cheats shrink that push or cancel it."
   AntiKB:
     summary: "Ignored or reduced knockback"
-    details: "Getting hit, shot or pushed by the server knocks a player back. Velocity and AntiKB features let a player take less knockback or none at all."
+    details: "Getting hit or shot knocks you back, and so do server pushes like launch pads. Velocity (also called AntiKB) cheats shrink that knockback or cancel it, so the player barely moves when hit."
   AttackMobVisibility:
     summary: "Attacked a mob through blocks"
-    details: "The normal game only lets you hit a mob with no blocks in the way. KillAura and other cheats that attack through walls cause this."
+    details: "Blocks between you and a mob stop your hits. KillAura and other cheats that attack through walls ignore that."
   AttackPlayerVisibility:
     summary: "Attacked a player through blocks"
-    details: "The normal game only lets you hit a player with no blocks in the way. KillAura and other cheats that attack through walls cause this."
+    details: "Blocks between you and another player stop your hits. KillAura and other cheats that attack through walls ignore that."
   AutoClickerLimit:
     summary: "Clicked too fast"
-    details: "This catches clicking that is too fast for normal play. AutoClicker features and click macros cause this."
+    details: "Their clicking was too fast for normal play. Autoclickers and click macros do this, including the macro tools that come with some gaming mice."
   EntityHitboxes:
     summary: "Hit a mob without aiming at it"
-    details: "The normal game only hits a mob when the crosshair is on it. Hitboxes features that make targets bigger, and KillAura that attacks without aiming, cause this."
+    details: "Your crosshair has to be on a mob to hit it. Hitbox cheats make the target's hitbox bigger so it's easier to hit, and KillAura can hit without aiming at all."
   EntityReach:
     summary: "Hit a mob from too far away"
-    details: "The normal game limits how far away you can hit a mob. Reach features let players hit mobs from farther than that."
+    details: "You can only hit a mob that's close enough. Reach cheats let the player hit from farther away."
   FairReach:
     summary: "Hit a player who was out of reach"
-    details: "Some Reach cheats fake a laggy connection so other players seem closer to them than they really are. This check blocks those hits."
+    details: "Some reach cheats fake lag so other players seem closer to them than they really are. Hits like that are blocked."
   InteractEntityVisibility:
     summary: "Right-clicked a mob or player through blocks or from too far"
-    details: "The normal game only lets you use or right-click a mob or player you can see and reach. A cheat client that interacts with mobs or players through walls or from too far away causes this."
+    details: "You can only right-click a mob or player you can see and reach, like when you trade with a villager. Cheat clients can do it through walls or from too far away."
   KeepSprint:
-    summary: "Did not slow down after a sprinting hit"
-    details: "In the normal game, hitting something while sprinting slows the player down. KeepSprint features skip that slowdown so the player keeps full speed while fighting."
+    summary: "Kept full speed after a sprinting hit"
+    details: "Hitting something while sprinting slows you down. KeepSprint cheats skip that, so the player keeps chasing and hitting at full speed."
   MultiActionsA:
     summary: "Attacked while using an item"
-    details: "In the normal game you can't attack while eating, drinking, blocking or drawing a bow. Cheat clients that attack for the player while an item stays in use cause this."
+    details: "You can't attack while eating, drinking, blocking or drawing a bow. Cheat clients that fight for the player keep attacking while the item is still in use."
   MultiActionsE:
     summary: "Swung their arm while using an item"
-    details: "In the normal game you can't punch or attack while eating, drinking, blocking or drawing a bow. Arm swings while an item is in use point to a cheat client that attacks or clicks for the player."
+    details: "You can't punch while eating, drinking, blocking or drawing a bow. A swing during item use points to a cheat client attacking or clicking for the player."
   MultiActionsF:
-    summary: "Used a block and a mob or player at the same moment"
-    details: "In the normal game your crosshair points at a block or at a mob or player, never both, so you can't hit or use both at the same moment. Cheat clients that attack or build for the player can do both."
+    summary: "Clicked a block and a mob or player at the same moment"
+    details: "Your crosshair is on a block or on a mob or player, never both. Cheat clients that fight and build for the player at the same time can click both at once."
   MultiInteractA:
-    summary: "Interacted with several targets at once"
-    details: "The normal game cannot hit or use more than one mob or player at once. Multi-target KillAura modes and other modified clients can."
+    summary: "Hit or used several mobs or players at once"
+    details: "You can only hit or use what's under your crosshair. Multi-target KillAura modes and other cheat clients hit several mobs or players at the same moment."
   MultiInteractB:
-    summary: "Sent impossible clicks on a mob or player"
-    details: "This catches right-clicks on a mob or player that the normal game cannot send. A modified client that sends extra clicks of its own causes it."
+    summary: "Sent extra right-clicks on a mob or player"
+    details: "A modified client that adds right-clicks of its own does this. Minecraft can't send clicks like these."
   PlayerHitboxes:
     summary: "Hit a player without aiming at them"
-    details: "The normal game only hits a player when the crosshair is on them. Hitboxes features that make players bigger, and KillAura that attacks without aiming, cause this."
+    details: "Your crosshair has to be on a player to hit them. Hitbox cheats make other players' hitboxes bigger so they're easier to hit, and KillAura can hit without aiming at all."
   PlayerReach:
     summary: "Hit a player from too far away"
-    details: "The normal game limits how far away you can hit another player. Reach features let players hit from farther than that."
+    details: "You can only hit a player who's close enough. Reach cheats let the player hit from farther than anyone else can."
   SelfInteract:
-    summary: "Attacked or interacted with themselves"
-    details: "The normal game has no way for a player to hit or right-click themselves. A modified client sending made-up actions causes this."
+    summary: "Attacked or right-clicked themselves"
+    details: "There's no way to hit or right-click yourself in Minecraft. This comes from a modified client sending fake actions."
   # Movement
   Angle:
-    summary: "Moved in a direction the normal game does not allow"
-    details: "This catches walking or running in a direction the player's controls cannot produce. Speed and Strafe cheats, and cheats that secretly turn the player, cause it."
+    summary: "Moved in an impossible direction"
+    details: "Speed and Strafe cheats do this. So do cheats that turn the player without moving their camera."
   BedrockMovement:
-    summary: "Bedrock player moved in a way the game does not allow"
-    details: "Catches movement by a player on Bedrock Edition that does not match how the game would really move them. Movement cheats on a modified Bedrock client, like Fly, Speed or NoFall, cause this."
+    summary: "Moved in an impossible way on Bedrock Edition"
+    details: "Their movement on Bedrock Edition didn't match how the game really moves a player. Fly, Speed, NoFall and other cheats on a modified Bedrock client do this."
   GroundSpoof:
     summary: "Faked whether they were touching the ground"
-    details: "Their game claimed to be on the ground while in the air, or claimed to be in the air after landing. NoFall cheats fake this to skip fall damage, and other movement cheats can fake it too."
+    details: "Their game said they were on the ground while in the air, or in the air after landing. NoFall cheats lie about this to skip fall damage, and some other movement cheats do too."
   InputKeys:
-    summary: "Sent movement controls the normal game cannot produce"
-    details: "A cheat client that moves the player by itself or fakes its controls causes this, as some Speed features do."
+    summary: "Sent movement controls that Minecraft can't produce"
+    details: "A cheat client that moves the player on its own, or fakes which keys they're holding, does this. Some Speed cheats work this way."
   InvalidStep:
-    summary: "Stepped up a ledge the normal game would not step up"
-    details: "The normal game lets you walk up small ledges like slabs and stairs without jumping. This catches a step-up the normal game would not make, which is what Step cheats do to climb taller ledges without jumping."
+    summary: "Stepped up a ledge Minecraft wouldn't step up"
+    details: "You can walk up slabs and stairs without jumping. Step cheats let the player walk straight up taller ledges the same way."
   ItemUseBurst:
     summary: "Skipped the slowdown from using an item"
-    details: "Eating, drinking, blocking or drawing a bow slows you down while you do it. This catches a player who kept moving at full speed while using an item, which NoSlow and Timer features cause."
+    details: "Eating, drinking, blocking or drawing a bow slows you down while you do it. NoSlow and Timer cheats let the player dodge that slowdown."
   NegativeTimer:
     summary: "Their game ran slower than normal"
-    details: "Their game sent movement as if it were running slower than the normal game speed. A cheat client that holds back its movement to release it later, like Blink, causes this."
+    details: "Their game sent movement as if it was running in slow motion. Blink and similar cheats hold movement back and send it all later, which looks like this."
   NoFall:
-    summary: "Avoided fall damage in a way the game does not allow"
-    details: "Their game sent false ground or movement information. NoFall cheats do this to cancel fall damage."
+    summary: "Avoided fall damage they should have taken"
+    details: "Their game sent false ground or movement information to cancel fall damage. That's what NoFall cheats do."
   NoSlow:
     summary: "Moved too fast while using an item"
-    details: "The normal game slows you down while eating, drinking, blocking with a shield, drawing a bow or using other items. NoSlow cheats remove that slowdown so the player keeps full speed."
+    details: "Eating, drinking, blocking with a shield, drawing a bow and using other items slow you down. NoSlow cheats remove that, so the player can, for example, run at full speed while eating a golden apple."
   NoSneakSlow:
     summary: "Moved too fast while sneaking"
-    details: "The normal game slows you down while sneaking or crawling. This catches a sneaking player moving faster than that, which NoSlow-style cheats that remove the sneak slowdown cause."
+    details: "Sneaking and crawling slow you down. Some NoSlow cheats remove that slowdown as well."
   OmniSprint:
     summary: "Sprinted sideways or backward"
-    details: "The normal game only lets you sprint while moving forward. OmniSprint cheats let a player sprint in any direction, such as sideways or backward."
+    details: "You can only sprint forward in Minecraft. OmniSprint cheats let the player sprint in any direction."
   Phase:
     summary: "Moved into a solid block"
-    details: "Their movement put them inside a solid block. Phase and NoClip cheats do this to walk through walls, floors and doors."
+    details: "Phase and NoClip cheats let the player pass through walls, floors and doors."
   RiptideOffset:
-    summary: "Used a Riptide trident in a way the game does not allow"
-    details: "A Riptide trident only launches you in the right conditions, such as in water or rain. This catches a launch the normal game would not give, which a modified client can send to fly with a trident."
+    summary: "Launched with a Riptide trident when they couldn't"
+    details: "A Riptide trident only launches you under the right conditions, like being in water or rain. A modified client can fake the launch to fly around with a trident."
   Simulation:
-    summary: "Moved in a way the normal game does not allow"
-    details: "Catches movement that does not match how the normal game would move them. Most movement cheats cause this, like Fly, Speed, Step and NoSlow."
+    summary: "Moved in a way that isn't possible in Minecraft"
+    details: "Their movement didn't match how Minecraft would move them. It's the main movement check, so most movement cheats trigger it: Fly, Speed, Step, NoSlow and many more."
   Speed:
     summary: "Moved too fast on the ground"
-    details: "Their movement along the ground was faster than the normal game allows. Speed cheats and similar movement features cause this."
+    details: "Speed cheats do this, along with other cheats that make the player run faster than they should."
   SprintA:
     summary: "Sprinted with too little hunger"
-    details: "The normal game stops you from sprinting when your hunger bar is too low. Sprint features in cheat clients that force sprinting on can skip that rule."
+    details: "You can't sprint when your hunger bar is too low. Sprint cheats that force sprinting on ignore that rule."
   SprintB:
     summary: "Kept sprinting while sneaking"
-    details: "Kept sprinting while sneaking at a time the normal game would have ended the sprint. Sprint features in cheat clients that force sprinting on can cause this."
+    details: "Sneaking normally ends your sprint. Sprint cheats that force sprinting on keep it going."
   SprintC:
     summary: "Sprinted while using an item"
-    details: "The normal game stops or blocks a sprint while you eat, drink, block or draw a bow. A cheat client that keeps sprinting during item use, as NoSlow and sprint features can, causes this."
+    details: "You can't sprint while you eat, drink, block or draw a bow. NoSlow and sprint cheats keep the player sprinting anyway."
   SprintD:
     summary: "Sprinted while blinded"
-    details: "The normal game does not let you start a sprint while you have the Blindness effect. Sprint features in cheat clients, like AutoSprint and OmniSprint, often skip that rule."
+    details: "You can't start sprinting while you have Blindness. Sprint cheats like AutoSprint and OmniSprint often ignore that."
   SprintE:
     summary: "Kept sprinting while running into a wall"
-    details: "In the normal game, running into a wall ends your sprint. This catches a player who kept sprinting against a wall, which sprint features in cheat clients that force sprinting on can cause."
+    details: "Running into a wall ends your sprint. Cheats that force sprinting on keep the player sprinting into it."
   SprintF:
     summary: "Sprinted while gliding with an elytra"
-    details: "In the normal game, a sprint ends while you glide with an elytra. A cheat client that keeps the sprint on while gliding causes this."
+    details: "Gliding with an elytra ends your sprint. A cheat client that forces sprinting on keeps it going mid-flight."
   SprintG:
     summary: "Sprinted in water without swimming"
-    details: "In the normal game, wading through water without swimming ends a sprint. A cheat client that keeps sprinting there causes this."
+    details: "Wading through water without swimming ends your sprint. Sprint cheats keep the player sprinting there anyway."
   SprintH:
     summary: "Sprinted with an inventory open"
-    details: "The normal game does not let you start or hold a sprint from an inventory or container screen. InvMove cheats, which let a player move with a menu open, cause this."
+    details: "You can't start or keep sprinting with an inventory or chest open. InvMove cheats let the player keep running around while a menu is open."
   Strafe:
-    summary: "Changed their movement in the air in a way the game does not allow"
-    details: "In the normal game, you have only limited control over your movement in the air. This catches a jump or fall where they sped up or changed direction beyond that, which Strafe and Speed cheats cause."
+    summary: "Changed direction or sped up in midair"
+    details: "Once you're in the air, you only have limited control over where you go. Strafe and Speed cheats let the player turn sharply or speed up mid-jump."
   TickTimer:
-    summary: "Sent movement the normal game does not send"
-    details: "This catches movement updates that break how the normal game reports movement. Timer cheats and modified clients that send extra movement cause it."
+    summary: "Sent extra movement, like a sped-up game"
+    details: "Their game sent movement in a way normal Minecraft never does. Timer cheats, and other cheats that slip in extra movement, do this."
   Timer:
     summary: "Their game ran faster than normal"
-    details: "Their game sent movement as if it were running faster than the normal game speed. Timer cheats speed up their game so they move faster than everyone else."
+    details: "Timer cheats speed up the player's game, like fast-forward, so they move faster than everyone else."
   VerticalOffset:
-    summary: "Moved up or down in a way the normal game does not allow"
-    details: "Their up or down movement did not match how the normal game moves a player when jumping, falling, climbing or swimming. Fly, HighJump, Spider and fast-fall cheats cause this."
+    summary: "Moved up or down in a way Minecraft doesn't allow"
+    details: "Their rising or falling didn't match how Minecraft moves a player who is jumping, falling, climbing or swimming. Fly, HighJump, Spider (wall climbing) and fast-fall cheats do this."
   # Elytra
   Elytra:
-    summary: "Flew with an elytra in a way the normal game does not allow"
-    details: "While gliding with an elytra, their movement did not match how the normal game moves a gliding player. Elytra Fly, elytra speed and boost features in cheat clients cause this."
+    summary: "Flew with an elytra in a way Minecraft doesn't allow"
+    details: "Their elytra flight didn't match how Minecraft moves a gliding player. ElytraFly, elytra speed and boost cheats do this."
   ElytraA:
     summary: "Started gliding while already gliding"
-    details: "Their game asked to start an elytra glide while they were already gliding. The normal game never asks for this mid-glide. A modified client that sends extra glide requests, as some Elytra Fly features do, causes this."
+    details: "Minecraft never asks to start a glide when you're already gliding. Some ElytraFly cheats send extra glide requests like this."
   ElytraB:
     summary: "Started gliding without pressing jump"
-    details: "In the normal game, a glide only starts when the player presses jump in midair. This catches a glide that started without that key press, which happens when a cheat client starts the glide by itself."
+    details: "A glide only starts when you press jump in midair. A cheat client that starts the glide by itself skips the key press."
   ElytraC:
     summary: "Started gliding again too quickly"
-    details: "Their game asked to start gliding again sooner than the normal game can. Cheat clients that keep restarting the glide, as some Elytra Fly features do, cause this."
+    details: "Their game tried to restart the glide sooner than Minecraft can. Some ElytraFly cheats keep restarting the glide like this."
   ElytraD:
     summary: "Started gliding without a working elytra"
-    details: "Their game asked to start gliding while they had no usable elytra or other glider item on. The normal game only lets you glide with an elytra or glider equipped that is not broken. A modified client faking a glide causes this."
+    details: "You can only glide with an unbroken elytra or other glider equipped. Asking to glide without one usually comes from a modified client faking the glide."
   ElytraE:
     summary: "Started gliding while flying"
-    details: "Their game asked to start an elytra glide while they were already flying, like in creative mode or with flight allowed. The normal game does not start a glide during flight, so a modified client sent the request."
+    details: "Their game asked to start a glide while they were already flying, like in creative mode or with flight allowed. Normal Minecraft never does that, but a modified client can."
   ElytraF:
     summary: "Started gliding while standing on the ground"
-    details: "Their game asked to start gliding while it also said they were standing on the ground. The normal game only starts a glide in midair. A modified client starting the glide early or faking its ground state causes this."
+    details: "A glide only starts in midair, but their game asked to glide while saying they were on the ground. A modified client that starts the glide early or fakes being on the ground does this."
   ElytraG:
-    summary: "Started gliding while having levitation"
-    details: "The normal game does not let you start an elytra glide while you have the Levitation effect. A modified client that ignores that rule causes this."
+    summary: "Started gliding while levitating"
+    details: "You can't start an elytra glide while you have Levitation. A modified client that ignores that rule does this."
   ElytraH:
     summary: "Started gliding while riding something"
-    details: "The normal game does not let you start an elytra glide while riding a boat, horse, minecart or other mount. A modified client that sends the glide request anyway causes this."
+    details: "Minecraft won't let you start a glide while riding a boat, horse, minecart or anything else. This usually comes from a modified client sending the glide request anyway."
   ElytraI:
     summary: "Started gliding while in water"
-    details: "The normal game does not let you start an elytra glide while you are touching water. A modified client that ignores that rule causes this."
+    details: "You can't start an elytra glide while you're touching water. A modified client can send the request anyway."
   ElytraJ:
     summary: "Started gliding with an inventory open"
-    details: "Their game asked to start gliding while an inventory or container screen was open. The normal game cannot start a glide from a menu. InvMove cheats, which let a player move and jump with a menu open, cause this."
+    details: "A glide can't start from inside a menu. InvMove cheats, which let the player move and jump with a menu open, do this."
   # Vehicles & Mounts
   BoatOffset:
-    summary: "Moved a boat in a way the normal game does not allow"
-    details: "This catches boat movement that the normal game would not produce, which a cheat client causes."
+    summary: "Moved a boat in an impossible way"
+    details: "A cheat client controlling the boat does this."
   EntityControl:
-    summary: "Controlled a ridden mob in a way the normal game does not allow"
-    details: "This covers controlling a ridden mob, such as a horse or pig, in ways the normal game does not allow. A cheat client causes this."
+    summary: "Steered a ridden mob in an impossible way"
+    details: "This covers horses, pigs and other mobs you can ride. It comes from a cheat client controlling the mob in ways Minecraft doesn't allow."
   HappyGhastOffset:
-    summary: "Flew a happy ghast in a way the normal game does not allow"
-    details: "This catches happy ghast flying that the normal game would not produce, which a cheat client causes."
+    summary: "Flew a happy ghast in an impossible way"
+    details: "A cheat client steering the happy ghast does this."
   MultiActionsG:
     summary: "Attacked or used an item while rowing a boat"
-    details: "In the normal game your hands are busy while you row a boat, so you can't attack, use items or place blocks until you stop rowing. A cheat client acting for the player can do these anyway."
+    details: "Rowing a boat keeps your hands busy, so you can't attack, use items or place blocks until you stop. A cheat client acting for the player does these anyway."
   TimerVehicle:
-    summary: "Sped up their game while riding a vehicle"
-    details: "Timer features make the player's game run faster than everyone else's, so they move more often. This catches that while riding a boat, horse or other vehicle."
+    summary: "Their game ran faster than normal while riding"
+    details: "Like Timer, but while riding a boat, horse or other vehicle. Timer cheats make the player's game run faster than everyone else's."
   VehicleA:
-    summary: "Sent movement key values the normal game cannot send"
-    details: "Their game tells the server which movement keys are held. This catches key values a real keyboard or controller cannot produce, which a modified client can send."
+    summary: "Sent movement keys no keyboard or controller can press"
+    details: "Their game tells the server which movement keys are held, and these values don't match any real keyboard or controller. A modified client sends values like this."
   VehicleB:
     summary: "Sent vehicle steering while not riding anything"
-    details: "The normal game only sends vehicle steering while the player rides something. A modified client that sends it on foot causes this."
+    details: "Your game only sends vehicle steering while you're riding something. A modified client can send it on foot."
   VehicleC:
     summary: "Steered a pig or strider without holding its steering item"
-    details: "In the normal game you need a carrot or warped fungus on a stick in hand to steer a pig or strider. A cheat client that steers them without it causes this."
+    details: "You need a carrot on a stick to steer a pig, or a warped fungus on a stick for a strider. A cheat client can steer them without it."
   VehicleD:
     summary: "Jumped as if on a horse while not on a mob that can jump"
-    details: "The normal game only sends a horse-style jump while riding a horse or similar mob, or a nautilus. A modified client that sends it on foot or on another vehicle causes this."
+    details: "Your game only sends a horse jump while you ride a horse or similar mob, or a nautilus. A modified client can send it on foot or on another vehicle."
   VehicleE:
     summary: "Rowed a boat while not in a boat"
-    details: "The normal game only sends boat paddling while the player sits in a boat. A modified client that sends it anywhere else causes this."
+    details: "Your game only sends boat paddling while you're sitting in a boat. A modified client can send it anywhere."
   VehicleF:
-    summary: "Rowed a boat in a way the normal game does not allow"
-    details: "This catches boat controls the normal game cannot produce, which a modified client or boat cheat sends."
+    summary: "Rowed a boat in an impossible way"
+    details: "A modified client or boat cheat sends boat controls like these, which Minecraft can't produce."
   VehicleOffset:
-    summary: "Moved a vehicle in a way the normal game does not allow"
-    details: "This catches a ridden boat, horse or other vehicle moving faster, higher or in other ways the normal game does not allow. BoatFly and vehicle Speed or Fly features cause this."
+    summary: "Moved a vehicle in an impossible way"
+    details: "Their boat, horse or other ride moved faster, higher or in other ways Minecraft doesn't allow. BoatFly and vehicle Speed or Fly cheats do this."
   # Building & Mining
   AirLiquidBreak:
     summary: "Tried to break air, liquid or an unbreakable block"
-    details: "The normal game cannot break air, water or lava, cannot finish breaking blocks like bedrock, and does not mine while holding a spear. Block-breaking cheats and modified clients can send these breaks anyway."
+    details: "Air, water and lava can't be broken, blocks like bedrock can't be finished, and a spear doesn't mine at all. Block-breaking cheats and modified clients send these breaks anyway."
   AirLiquidPlace:
     summary: "Placed a block against air or liquid"
-    details: "In the normal game you place a block by clicking on another block. AirPlace features and some Scaffold features place blocks against empty air or against water or lava instead."
+    details: "To place a block, you have to click on another block. AirPlace and some Scaffold cheats place blocks against empty air, water or lava instead."
   BreakVisibility:
-    summary: "Broke a block they could not see"
-    details: "The normal game only lets you mine a block side you can actually see. This catches mining through walls or on a side hidden behind other blocks, which Nuker and other block-breaking cheats do."
+    summary: "Broke a block they couldn't see"
+    details: "You can only mine a block side you can actually see. Nuker and other block-breaking cheats mine through walls or on sides hidden behind other blocks."
   DuplicateRotPlace:
     summary: "Aimed in a robotic way while placing blocks"
-    details: "Scaffold features turn the player's view in a robotic pattern while placing blocks, which a real hand on a mouse does not do."
+    details: "Scaffold cheats turn the player's view in a robotic way while bridging. A real hand on a mouse doesn't move like that."
   FabricatedPlace:
     summary: "Clicked a spot outside the block they placed against"
-    details: "When placing a block, their game reports where on the clicked block they pointed. This catches a spot outside that block, which the normal game cannot report. Building cheats that make up their clicks can send it."
+    details: "When you place a block, your game reports the exact spot you clicked on the block under your crosshair. Building cheats that make up their clicks can report a spot outside that block."
   FarBreak:
     summary: "Broke a block from too far away"
-    details: "The normal game limits how far away you can mine blocks. Reach and Nuker features let players break blocks from farther than that."
+    details: "You can only mine blocks that are close enough. Reach and Nuker cheats break blocks from farther away."
   FarPlace:
     summary: "Placed a block from too far away"
-    details: "The normal game limits how far away you can place blocks. Reach and Scaffold features can place blocks from farther than that."
+    details: "You can only place blocks within reach. Reach and Scaffold cheats can place them from farther away."
   FastBreak:
-    summary: "Broke blocks faster than the normal game allows"
-    details: "Each block takes a certain time to mine with the tool in hand. FastBreak features finish mining blocks sooner than the normal game allows."
+    summary: "Broke blocks faster than Minecraft allows"
+    details: "How long a block takes to mine depends on the block and the tool in your hand. FastBreak cheats finish it sooner."
   InvalidBreak:
-    summary: "Reported mining a block side that does not exist"
-    details: "When mining, their game reports which side of the block they hit. This catches a side that cannot exist, which the normal game never sends but a modified client can."
+    summary: "Reported mining a block side that doesn't exist"
+    details: "When you mine, your game reports which side of the block you hit. A side that doesn't exist comes from a modified client."
   InvalidPlaceA:
-    summary: "Reported a broken click position while placing a block"
-    details: "When placing a block, their game reports where on the block they clicked. This catches a position that is not a real spot at all, which the normal game cannot send but a modified client can."
+    summary: "Reported an impossible click spot while placing a block"
+    details: "When you place a block, your game reports where on the block you clicked. A spot that isn't a real position at all comes from a modified client."
   InvalidPlaceB:
-    summary: "Reported placing on a block side that does not exist"
-    details: "When placing a block, their game reports which side of the block they clicked. This catches a side that cannot exist, which the normal game never sends but a modified client can."
+    summary: "Reported placing on a block side that doesn't exist"
+    details: "When you place a block, your game reports which side of the block you clicked. A side that doesn't exist comes from a modified client."
   MultiActionsB:
-    summary: "Broke blocks while using an item"
-    details: "In the normal game you can't mine while eating, drinking, blocking or drawing a bow. A cheat client that mines or acts for the player can do both at the same moment."
+    summary: "Mined while using an item"
+    details: "You can't mine while eating, drinking, blocking or drawing a bow. A cheat client that mines or acts for the player can do both at once."
   MultiBreak:
     summary: "Mined different blocks at the same moment"
-    details: "The normal game cannot mine different blocks at the same moment. Nuker features break many blocks around the player at once, which this catches."
+    details: "You can only mine the block you're looking at. Nuker cheats break lots of blocks around the player at once."
   MultiPlace:
-    summary: "Placed different blocks at the same moment"
-    details: "The normal game cannot place blocks in different spots at the same moment. Scaffold and other building cheats can place many blocks at once."
+    summary: "Placed blocks in different spots at the same moment"
+    details: "Each click places a block where you're looking. Scaffold and other building cheats can place blocks in several spots at once."
   NoSwingBreak:
     summary: "Broke a block without swinging their arm"
-    details: "The normal game swings the player's arm while they mine a block. NoSwing features and some Nuker features mine blocks without the swing."
+    details: "Your arm swings while you mine. NoSwing and some Nuker cheats mine without the swing, so other players can't see it happening."
   PlaceVisibility:
-    summary: "Placed or used a block they could not see"
-    details: "The normal game only lets you click a block side you can actually see. This catches placing blocks, or using blocks like chests and buttons, through walls or on a hidden side, which Scaffold and other cheats can do."
+    summary: "Placed or used a block they couldn't see"
+    details: "You can only click a block side you can actually see. Scaffold and other cheats can place blocks, or use chests and buttons, through walls or on hidden sides."
   PositionBreakA:
     summary: "Mined a side of a block that faced away from them"
-    details: "You can only hit the sides of a block that face toward you. Block-breaking cheats can report a side the player could not have been looking at from where they stood."
+    details: "You can only hit the sides of a block that face you. Block-breaking cheats can report a side the player couldn't have been looking at from where they stood."
   PositionBreakB:
-    summary: "Stopped mining a block in a way the normal game does not"
-    details: "When a player stops mining a block early, the normal game reports it in a set way. This catches a stop reported differently, which a modified client or block-breaking cheat can send."
+    summary: "Stopped mining a block in a way Minecraft doesn't"
+    details: "When you stop mining a block partway, your game reports it in a set way. A modified client or block-breaking cheat can report it differently."
   RotationBreak:
-    summary: "Broke a block they were not looking at"
-    details: "The normal game only mines the block under the player's crosshair. Nuker and other cheats that mine blocks without aiming at them cause this."
+    summary: "Broke a block they weren't looking at"
+    details: "You can only mine the block under your crosshair. Nuker and other cheats mine blocks without aiming at them."
   RotationPlace:
-    summary: "Placed a block they were not looking at"
-    details: "The normal game only places blocks against the block under the player's crosshair. Scaffold features that place blocks without turning the player's view toward them cause this."
+    summary: "Placed a block they weren't looking at"
+    details: "You can only place against the block under your crosshair. Scaffold cheats place blocks without turning the player's view toward them."
   WrongBreak:
     summary: "Finished or stopped mining a different block than they started"
-    details: "The normal game finishes or cancels mining on the block it started on. Block-breaking cheats that jump between blocks can report a different block instead."
+    details: "Mining always finishes or stops on the block you started on. Block-breaking cheats that jump between blocks can report a different one."
   # Inventory & Items
   MultiActionsC:
     summary: "Clicked in an inventory while moving"
-    details: "The normal game stops your movement keys while an inventory is open. Clicking items while still walking or sprinting points to InvMove, or to AutoArmor and similar features that move items on their own."
+    details: "Opening an inventory stops your movement keys. Clicking items while still walking or sprinting points to InvMove, or to AutoArmor and similar cheats that move items on their own."
   MultiActionsD:
     summary: "Closed an inventory while moving"
-    details: "The normal game stops your movement keys while an inventory is open. Closing it while still walking or sprinting points to InvMove, or to AutoArmor and similar features that open and close the inventory on their own."
+    details: "Opening an inventory stops your movement keys. Closing it while still walking or sprinting points to InvMove, or to AutoArmor and similar cheats that open and close the inventory by themselves."
   MultiActionsH:
     summary: "Moved while an inventory was open"
-    details: "The normal game stops your movement keys while an inventory or chest is open. Walking or jumping around with it open is what InvMove features do."
+    details: "Your movement keys stop working while an inventory or chest is open. InvMove cheats let the player walk and jump around anyway."
   MultiActionsI:
     summary: "Hit or used a mob or player with an inventory open"
-    details: "In the normal game you can't attack or interact with mobs or players while an inventory or chest is open. Combat cheats that attack on their own, such as KillAura, cause this."
+    details: "You can't attack or right-click mobs or players while an inventory or chest is open. Combat cheats that attack on their own, like KillAura, do this."
   MultiActionsJ:
     summary: "Used an item with an inventory open"
-    details: "In the normal game you can't use the item in your hand while an inventory or chest is open. Cheat features that use items on their own, such as AutoPot, cause this."
+    details: "The item in your hand can't be used while an inventory or chest is open. AutoPot and similar cheats use items for the player anyway."
   MultiActionsK:
     summary: "Placed a block with an inventory open"
-    details: "In the normal game you can't place blocks while an inventory or chest is open. Cheat features that place blocks on their own, such as Scaffold, cause this."
+    details: "You can't place blocks while an inventory or chest is open. Cheats that place blocks for the player, like Scaffold, do this."
   MultiActionsL:
-    summary: "Broke a block with an inventory open"
-    details: "In the normal game you can't mine while an inventory or chest is open. Cheat features that mine on their own, such as Nuker, cause this."
+    summary: "Mined with an inventory open"
+    details: "Mining doesn't work while an inventory or chest is open. Cheats that mine for the player, like Nuker, keep going anyway."
   MultiActionsM:
     summary: "Pressed or released sneak with an inventory open"
-    details: "The normal game ignores the sneak key while an inventory or chest is open. Changing sneak with it open points to InvMove or another cheat that controls the player's movement."
+    details: "Minecraft ignores the sneak key while an inventory or chest is open. Toggling sneak with it open points to InvMove or another cheat that controls the player's movement."
   MultiActionsN:
     summary: "Opened an inventory while another was already open"
-    details: "In the normal game, pressing the inventory key with an inventory open just closes it. Asking to open the storage of a horse or boat they ride while another inventory is still open comes from a modified client."
+    details: "With an inventory open, pressing the inventory key just closes it. A modified client can ask to open the storage of the horse or chest boat they ride while another inventory is still open."
   MultiActionsO:
     summary: "Turned their view with an inventory open"
-    details: "The normal game doesn't let you look around while an inventory or chest is open. Turning with it open points to InvMove or to cheats that aim for the player."
+    details: "Your view stays still while an inventory or chest is open. Turning with it open points to InvMove or to cheats that aim for the player."
   MultiActionsP:
     summary: "Dropped their held item the wrong way with an inventory open"
-    details: "Inside an inventory, the normal game drops items through clicks on the inventory itself. Dropping the held item the way it is done outside an inventory, while still inside it, comes from a modified client or a cheat that throws items on its own."
+    details: "Inside an inventory, dropping an item goes through the inventory screen. Their game dropped the held item the way it does with no screen open, which usually comes from a modified client or a cheat that throws items on its own."
   MultiActionsQ:
     summary: "Swapped to their offhand the wrong way with an inventory open"
-    details: "Inside an inventory, the normal game swaps items with the offhand through clicks on the inventory itself. Swapping the way it is done outside an inventory, while still inside it, comes from a modified client or a cheat that moves items on its own."
+    details: "Inside an inventory, swapping an item to your offhand goes through the inventory screen. Their game swapped the way it does with no screen open, which usually comes from a modified client or a cheat that moves items on its own."
   MultiActionsR:
     summary: "Clicked in an inventory while standing in a nether portal"
-    details: "In the normal game, standing in a nether portal closes any open inventory. Clicking items there anyway points to a modified client that keeps screens open inside portals."
+    details: "Standing in a nether portal closes any open inventory. Clicking items there anyway points to a modified client that keeps screens open inside portals."
   MultiActionsS:
     summary: "Swung their arm with an inventory open"
-    details: "In the normal game you can't punch or attack while an inventory or chest is open. Arm swings with it open point to a cheat that attacks or clicks on its own."
+    details: "Punching and attacking don't work while an inventory or chest is open. A swing with it open points to a cheat that attacks or clicks on its own."
   MultiActionsT:
     summary: "Switched hotbar slot with an inventory open"
-    details: "The normal game does not let you change your held hotbar slot while an inventory or chest is open. Switching it anyway comes from a cheat client handling items on its own, as AutoArmor and AutoPot features do."
+    details: "You can't change your held hotbar slot while an inventory or chest is open. Switching anyway usually comes from a cheat handling items on its own, like AutoArmor or AutoPot."
   # Chat
   ChatA:
     summary: "Asked for command suggestions with nothing typed"
-    details: "Pressing Tab in chat asks the server for suggestions for what was typed. The normal game does not send that request for an empty line or a lone slash, so this comes from a modified client or tool."
+    details: "Pressing Tab in chat asks the server for suggestions. Minecraft doesn't send that for an empty line or a lone slash, so this usually comes from a modified client or tool."
   ChatB:
-    summary: "Sent a chat message or command the normal game can't send"
-    details: "This catches malformed chat messages or commands, which come from a modified client or spam tool, often to get around spam filters."
+    summary: "Sent a chat message or command that Minecraft can't send"
+    details: "Modified clients and spam bots send broken messages and commands like this, often to slip past spam filters."
   ChatC:
     summary: "Sent a chat message or command while moving"
-    details: "In the normal game, the chat box takes over your keys, so you stop walking while you type. Messages sent while still walking or sprinting point to a cheat client that sends chat on its own, such as AutoGG."
+    details: "Typing in chat takes over your keys, so you stop walking. Chatting while still walking or sprinting points to a cheat that sends messages on its own, like AutoGG."
   ChatD:
     summary: "Sent a chat message or command with chat turned off"
-    details: "Players can hide chat in their settings, and the normal game then won't let them type messages or commands. Chat from a player who has it hidden points to a modified client or bot that sends messages on its own."
+    details: "If you hide chat in your settings, Minecraft won't let you type messages or commands. Chat from a player with it hidden points to a modified client or bot sending messages on its own."
   ChatE:
     summary: "Sent a chat message or command with an inventory open"
-    details: "In the normal game, an open inventory or chest has to close before the chat box can open. Messages sent while it is still open point to a cheat client or bot that sends chat on its own."
+    details: "An open inventory or chest has to close before the chat box can open. Messages sent with it still open point to a cheat client or bot that chats on its own."
   # Packets & Connection
   BadPacketsA:
-    summary: "Sent a hotbar switch the normal game does not send"
-    details: "This catches invalid hotbar switches, which come from a cheat client switching items on its own."
+    summary: "Sent a hotbar switch that Minecraft never sends"
+    details: "A cheat client that switches items for the player, for example to grab a weapon or a potion, can send hotbar switches normal Minecraft never would."
   BadPacketsB:
     summary: "Ignored the server turning their camera"
-    details: "Servers can turn a player's camera to face a new direction, and the normal game always confirms it. This catches a game that never confirmed the turn, which is what cheat features that block the server from moving your camera (often called NoRotate) do."
+    details: "The server can turn a player's camera, and normal Minecraft always goes along with it. Cheats that stop the server from moving the camera, often called NoRotate, ignore the turn."
   BadPacketsC:
     summary: "Left a bed while not in one"
-    details: "The normal game only sends the leave-bed action while the player is in a bed. This catches that action when they were not in bed, which comes from a modified client or an exploit tool."
+    details: "Your game only sends a leave-bed action when you're actually in a bed. Sending it out of bed usually comes from a modified client or an exploit tool."
   BadPacketsD:
-    summary: "Looked further up or down than the game allows"
-    details: "The normal game stops the camera at straight up and straight down. This catches a head angle past that, which comes from a cheat client, such as a Derp feature that bends the head into impossible positions."
+    summary: "Looked further up or down than Minecraft allows"
+    details: "Your camera stops at straight up and straight down. Looking past that comes from a cheat client, like a Derp feature that twists the head into impossible positions."
   BadPacketsE:
     summary: "Sent incomplete movement updates"
-    details: "This catches incomplete movement updates, which come from a modified client hiding where it is."
+    details: "Their movement updates left out where they were. A modified client hiding the player's real position does this."
   BadPacketsF:
-    summary: "Sent sprint changes the normal game does not send"
-    details: "This catches invalid sprint changes, which come from a cheat client changing sprint on its own."
+    summary: "Sent sprint changes that Minecraft doesn't send"
+    details: "A cheat client turning sprint on and off by itself sends sprint changes like this."
   BadPacketsG:
-    summary: "Sent sneak changes the normal game does not send"
-    details: "This catches invalid sneak changes, which come from a cheat client changing sneak on its own."
+    summary: "Sent sneak changes that Minecraft doesn't send"
+    details: "A cheat client toggling sneak by itself sends sneak changes like this."
   BadPacketsH:
-    summary: "Sent block actions the normal game does not send"
-    details: "This catches invalid breaking, placing or using of blocks, which comes from a cheat client sending its own block actions."
+    summary: "Sent block actions that Minecraft doesn't send"
+    details: "A cheat client that breaks, places or clicks blocks on its own sends actions like this."
   BadPacketsI:
     summary: "Claimed to be flying while not allowed to fly"
-    details: "Their game tells the server when the player starts flying, which is only allowed in creative or spectator mode or when the server grants flight. This catches a flying claim without that permission, which is what some Fly features do."
+    details: "You can only fly in creative or spectator mode, or when the server lets you. Their game said it started flying without that, which is what some Fly cheats do."
   BadPacketsJ:
     summary: "Used an item in an impossible direction"
-    details: "Cheats that secretly aim a thrown pearl, potion or other item for the player cause this."
+    details: "Cheats that aim a pearl, potion or other item for the player, without moving their camera, do this."
   BadPacketsK:
     summary: "Used the spectator teleport while not a spectator"
-    details: "Spectators can teleport to other players from the spectator menu. This catches a request for that teleport from a player who was not in spectator mode, which only a modified client or an exploit tool sends."
+    details: "Spectators can teleport to other players from the spectator menu. Asking for that teleport outside spectator mode comes from a modified client or an exploit tool."
   BadPacketsL:
     summary: "Dropped, swapped or released an item with impossible details"
-    details: "Actions like dropping an item, swapping it to the offhand or letting go of a bow are always filled in the same plain way by the normal game. This catches such an action filled in differently, which comes from a modified client building its own actions."
+    details: "Dropping an item, swapping it to your offhand and letting go of a bow are always sent the same simple way. Their game filled one in differently, which comes from a modified client building its own actions."
   BadPacketsM:
     summary: "Asked to respawn while still alive"
-    details: "The normal game only asks to respawn from the death screen or after the end credits. This catches a respawn request while the player was alive, which comes from a modified client or an exploit tool."
+    details: "Your game only asks to respawn from the death screen or after the end credits. Asking while alive usually comes from a modified client or an exploit tool."
   BadPacketsN:
-    summary: "Did not go where the server teleported them"
-    details: "When the server moves a player, for example to pull them back after an illegal move, their game has to go to the new spot. This catches a game that did not follow the move, which modified clients do to escape being pulled back."
+    summary: "Didn't go where the server teleported them"
+    details: "When the server moves a player, like pulling them back after an illegal move, their game has to follow. Modified clients ignore the move to avoid being pulled back."
   BadPacketsO:
     summary: "Answered a connection check the server never sent"
-    details: "The server keeps checking the connection, and their game answers each check. This catches an answer to a check the server never sent or that was already answered, which comes from a modified client faking these answers, such as a ping spoofer."
+    details: "The server keeps checking the connection, and the player's game answers each check. Fake answers like this come from a modified client, such as a ping spoofer."
   BadPacketsP:
     summary: "Clicked in an inventory in a way no mouse or key can"
-    details: "Every inventory click tells the server what kind of click it was. This catches a click no real mouse button or key could make, which comes from a modified client or an exploit tool."
+    details: "Every inventory click tells the server what kind of click it was. This one matched no real mouse button or key, which usually comes from a modified client or an exploit tool."
   BadPacketsQ:
-    summary: "Sent a sprint, sneak or horse jump action the game cannot send"
-    details: "This catches malformed sprint, sneak or mount actions, which only a modified client or an exploit tool sends."
+    summary: "Sent a sprint, sneak or horse jump action that Minecraft can't send"
+    details: "Broken sprint, sneak or horse jump actions like these come from a modified client or an exploit tool."
   BadPacketsR:
     summary: "Held back their movement from the server"
-    details: "This catches a game that holds back its movement, which happens when a cheat client delays where the player is, like some Blink or Freecam features."
+    details: "Blink and some Freecam cheats hold back the player's movement, so the server doesn't see where they really are."
   BadPacketsS:
-    summary: "Sent a connection reply the normal game cannot send"
-    details: "This catches an invalid reply to the server's background checks, which only a modified client sends."
+    summary: "Sent a connection reply that Minecraft can't send"
+    details: "Their game gave an invalid answer to one of the server's connection checks, which comes from a modified client."
   BadPacketsT:
     summary: "Right-clicked a player at a spot outside their body"
-    details: "When you right-click a player, their game reports the exact spot on that player's body that was clicked. This catches a spot outside the other player's body or a spot that makes no sense, which comes from a cheat client making its own right-clicks."
+    details: "When you right-click a player, your game reports the spot on their body you clicked. A spot outside their body, or one that makes no sense, comes from a cheat client making its own right-clicks."
   BadPacketsU:
-    summary: "Used an item with details the normal game never sends"
-    details: "When their game uses an item without aiming at a block, it fills in the request in a fixed way. This catches a request filled in differently, which comes from a modified client building its own actions."
+    summary: "Used an item with details that Minecraft never sends"
+    details: "When your game uses an item without aiming at a block, it fills in the request the same way every time. Their game filled it in differently, which comes from a modified client building its own actions."
   BadPacketsV:
-    summary: "Sent movement updates the normal game does not send"
-    details: "This catches unnatural position updates, which come from a modified client sending its own movement."
+    summary: "Sent position updates that Minecraft never sends"
+    details: "This usually means a modified client is faking its movement."
   BadPacketsVehicle:
-    summary: "Moved a ride they were not allowed to control"
-    details: "Their game may only steer a ride when it is in control of it, like the driver of a boat or the rider of a saddled horse. This catches movement sent for a ride their game did not control, which comes from a modified client steering rides on its own."
+    summary: "Moved a ride they weren't allowed to control"
+    details: "A ride can only be steered by whoever controls it, like the driver of a boat or the rider of a saddled horse. Their game moved a ride it didn't control, which usually comes from a modified client."
   BadPacketsW:
-    summary: "Attacked or used a mob or player that does not exist"
-    details: "Their game can only attack, right-click or spectate mobs and players the server has shown it. This catches a target the server never showed their game, which comes from a modified client making up its own targets."
+    summary: "Attacked or used a mob or player that doesn't exist"
+    details: "Your game can only attack, right-click or spectate mobs and players the server has shown it. A target the server never showed usually comes from a modified client making up targets."
   BadPacketsWindow:
-    summary: "Clicked in an inventory or container that was not open"
-    details: "Their game can only click in a container while it is open on their screen. This catches clicks in a container that was never opened or was already closed, which comes from a cheat client moving items behind the scenes."
+    summary: "Clicked in an inventory or container that wasn't open"
+    details: "You can only click in a container while it's open on your screen. Clicks in one that was never opened, or was already closed, come from a cheat client moving items without showing a screen."
   BadPacketsX:
-    summary: "Toggled sprint or sneak in a way the game cannot"
-    details: "This catches sprint or sneak changes the normal game cannot make. Features like SuperKnockback cause this."
+    summary: "Toggled sprint or sneak in a way Minecraft can't"
+    details: "SuperKnockback cheats flip sprint on and off in ways the game can't, so every hit deals extra knockback."
   BadPacketsY:
-    summary: "Picked a hotbar slot that does not exist"
-    details: "The normal game can only select a slot that is on the hotbar. This catches a selection outside the hotbar, which only a modified client or an exploit tool sends."
+    summary: "Picked a hotbar slot that doesn't exist"
+    details: "You can only pick a slot that's on your hotbar. Picking one outside it comes from a modified client or an exploit tool."
   BadPacketsZ:
-    summary: "Sent movement controls the normal game does not send"
-    details: "This catches invalid movement control updates, which come from a cheat client changing its controls on its own."
+    summary: "Sent movement control updates that Minecraft never sends"
+    details: "A cheat client changing the player's controls by itself sends updates like this."
   ExploitF:
     summary: "Turned their view by an impossible amount in an instant"
-    details: "Their client reported a sudden, impossible jump in which way they were facing. This comes from a modified client sending made-up look directions, not from moving a mouse."
+    details: "Their game reported a sudden, impossible jump in which way they were facing. That comes from a modified client making up look directions, not from moving a mouse."
   PacketOrderA:
-    summary: "Clicked in an inventory in a way the game cannot"
-    details: "This catches inventory clicks the normal game cannot combine, which points to a cheat client moving items for the player."
+    summary: "Clicked in an inventory in a way Minecraft can't"
+    details: "This points to a cheat client moving items for the player."
   PacketOrderB:
     summary: "Attacked without swinging their arm"
-    details: "In the normal game, every attack swings the player's arm. This catches attacks without a normal swing, which is what NoSwing features and some KillAura modes do."
+    details: "Every attack swings your arm. NoSwing cheats and some KillAura modes attack without a normal swing."
   PacketOrderC:
-    summary: "Right-clicked a mob or player in a way the normal game never does"
-    details: "When you right-click a mob or player, the normal game reports it in a fixed pattern. This catches a right-click that breaks that pattern, which comes from a cheat client making its own right-clicks."
+    summary: "Right-clicked a mob or player in a way Minecraft never does"
+    details: "Right-clicking a mob or player is always reported in the same pattern. Breaking that pattern points to a cheat client making its own right-clicks."
   PacketOrderD:
-    summary: "Right-clicked with their offhand in a way the game cannot"
-    details: "This catches offhand right-clicks on a mob or player that the normal game cannot send, which come from a cheat client making its own right-clicks."
+    summary: "Right-clicked with their offhand in a way Minecraft can't"
+    details: "This usually comes from a cheat client making its own right-clicks on mobs or players."
   PacketOrderE:
-    summary: "Switched hotbar slot in a way the game cannot"
-    details: "This catches a hotbar switch mixed with other actions in a way the normal game cannot, which is what AutoPot-style features that switch, use and switch back do."
+    summary: "Switched hotbar slots in the middle of other actions"
+    details: "AutoPot-style cheats do this when they switch to a potion, throw it and switch back."
   PacketOrderF:
     summary: "Mixed sprint or sneak with other actions in an impossible way"
-    details: "This catches sprint or sneak changes combined with attacks or clicks in a way the normal game cannot, which is what features like SuperKnockback do."
+    details: "Their sprint or sneak changes were mixed with attacks or clicks in a way the game can't produce. SuperKnockback cheats do this to deal extra knockback."
   PacketOrderG:
-    summary: "Dropped or swapped an item in a way the game cannot"
-    details: "This catches item drops or offhand swaps combined with other actions in a way the normal game cannot, which comes from a cheat client handling items on its own."
+    summary: "Dropped or swapped an item in a way Minecraft can't"
+    details: "This points to a cheat client handling items on its own, dropping or swapping them in the middle of other actions."
   PacketOrderH:
     summary: "Mixed sprint and sneak changes in an impossible way"
-    details: "This catches sprint and sneak changes the normal game cannot combine, which comes from a cheat client changing sprint or sneak on its own."
+    details: "A cheat client toggling sprint or sneak by itself does this."
   PacketOrderI:
     summary: "Attacked, used items or mined in an impossible way"
-    details: "This catches attacks, right-clicks, item use and mining combined in a way the normal game cannot, which comes from a cheat client doing them on its own."
+    details: "A cheat client attacking, clicking, using items or mining for the player does this."
   PacketOrderJ:
-    summary: "Used an item right after attacking in an impossible way"
-    details: "This catches an attack and item use combined in a way the normal game cannot, which is what KillAura AutoBlock features do."
+    summary: "Attacked and used an item in an impossible way"
+    details: "KillAura's AutoBlock mode does this, mixing attacks with blocking or other item use."
   PacketOrderK:
-    summary: "Clicked or closed an inventory in an impossible way"
-    details: "This catches inventory opening, clicking and closing that the normal game cannot do, which comes from a cheat client handling inventories on its own."
+    summary: "Opened, clicked or closed an inventory in an impossible way"
+    details: "A cheat client opening, clicking and closing inventories by itself does this."
   PacketOrderL:
     summary: "Swapped and dropped items in an impossible way"
-    details: "This catches offhand swaps and item drops combined in a way the normal game cannot, which comes from a cheat client handling items on its own."
+    details: "A cheat client managing items for the player does this."
   PacketOrderM:
-    summary: "Right-clicked a mob or player in an impossible way"
-    details: "This catches right-clicks on a mob or player combined with item use in a way the normal game cannot, which comes from a cheat client making its own right-clicks."
+    summary: "Mixed right-clicks on a mob or player with item use"
+    details: "A cheat client making its own right-clicks while using items does this."
   PacketOrderN:
-    summary: "Placed a block in an impossible way"
-    details: "This catches block placing combined with item use in a way the normal game cannot, which comes from a cheat client placing blocks or using items on its own."
+    summary: "Mixed block placing with item use in an impossible way"
+    details: "A cheat client placing blocks or using items for the player does this."
   PacketOrderO:
-    summary: "Sent actions in a way the normal game cannot"
-    details: "This catches actions sent in a way the normal game never does, which comes from a cheat client acting on its own."
+    summary: "Sent actions in a way Minecraft can't"
+    details: "This is a sign of a cheat client acting on its own."
   PingA:
     summary: "Held back answers to the server's connection checks"
-    details: "The server keeps checking the connection, and the normal game answers right away. This catches answers that are held back on purpose, which is what PingSpoof and fake-lag features do to make their connection look worse than it is."
+    details: "The server keeps checking the connection, and the player's game answers each check. PingSpoof and fake-lag cheats hold the answers back on purpose to make their connection look worse than it is."
   SkinBlinker:
     summary: "Changed their skin layers while moving"
-    details: "Skin layers like the jacket or hat can only be changed from the skin settings screen, which stops the player's movement. Changing them while walking is what SkinBlinker features do to make the skin flicker."
+    details: "Skin layers like the jacket or hat can only be changed from the skin settings screen, which stops your movement. SkinBlinker cheats flip them while walking to make the skin flicker."
   Post:
-    summary: "Acted in a way the normal game cannot"
-    details: "This catches attacks, clicks, item use or hotbar switches sent in a way the normal game never does, which comes from a cheat client acting on its own, as many combat and building cheats do."
+    summary: "Acted in a way Minecraft can't"
+    details: "Many combat and building cheats do this when they attack, click, use items or switch hotbar slots for the player."
   TransactionOrder:
-    summary: "Answered the server's background checks in an invalid way"
-    details: "The server regularly checks in with their game in the background. This catches invalid answers, which come from a modified client dropping or holding back these answers, as Disabler features often do."
+    summary: "Answered the server's connection checks in a way Minecraft can't"
+    details: "The server checks in with the player's game all the time. Disabler cheats often drop or hold back the answers to try to switch the anticheat off."
   # Crashes & Exploits
   CrashA:
     summary: "Reported a position past the edge of the world"
-    details: "Every Minecraft world has a hard outer edge that players can never pass. Reporting a position beyond it is a known trick of crash tools and modified clients to lag or crash the server."
+    details: "Every world has an outer edge that players can never pass. Crash tools and modified clients report positions beyond it to lag or crash the server."
   CrashB:
     summary: "Used the creative item menu while not in creative mode"
-    details: "Only players in creative mode can take items from the creative menu. A modified client sending these actions in other game modes is a known way to try to spawn items or crash the server."
+    details: "Only players in creative mode can take items from the creative menu. Modified clients do this in other game modes to try to spawn items or crash the server."
   CrashC:
     summary: "Reported a broken position or look direction"
-    details: "Their client reported a position or facing direction that isn't a valid number, which the normal game never sends. Crash tools and modified clients send this to break the server or other players' games."
+    details: "Their game reported a position or facing direction that isn't a valid number, which normal Minecraft never sends. Crash tools send this to break the server or other players' games."
   CrashD:
     summary: "Clicked an item slot in a lectern"
-    details: "A lectern's book screen in the normal game has page buttons but no item slots to click. Clicking slots there is a known exploit that crash tools use against servers."
+    details: "A lectern's book screen has page buttons but no item slots. Clicking slots there is an exploit crash tools use against servers."
   CrashE:
-    summary: "Reported a view distance lower than the game allows"
-    details: "The normal game's video settings stop at a minimum view distance. A modified client or crash tool reports a lower value to cause errors on the server."
+    summary: "Reported a view distance lower than Minecraft allows"
+    details: "Video settings won't let you set your view distance below a certain point. A modified client or crash tool reports a lower value to cause errors on the server."
   CrashF:
-    summary: "Sent an inventory click the normal game can't make"
-    details: "Their client reported a shift-click or hotbar-swap click in an inventory with values the normal game never sends. Crash tools send clicks like this to try to break the server."
+    summary: "Sent an inventory click that Minecraft can't make"
+    details: "Their game sent a shift-click or hotbar-swap click with values normal Minecraft never uses. Crash tools send clicks like this to try to break the server."
   CrashG:
     summary: "Sent a broken item or block action"
-    details: "This catches malformed item use or block actions, which come from a modified client or crash tool trying to cause server errors."
+    details: "Broken item-use or block actions like this come from a modified client or crash tool trying to cause server errors."
   CrashH:
     summary: "Sent a command suggestion request that was too long"
-    details: "Pressing Tab in chat asks the server for suggestions. Crash tools send oversized or malformed requests like this to lag or crash the server."
+    details: "Pressing Tab in chat asks the server for suggestions. Crash tools send oversized or broken requests to lag or crash the server."
   CrashI:
     summary: "Picked an item slot inside a bundle that can't exist"
-    details: "When a player scrolls through a bundle, their game reports which item inside it they picked. This catches a choice that cannot exist, which crash tools send to cause server errors."
+    details: "When you scroll through a bundle, your game reports which item inside it you picked. Crash tools send a pick that can't exist to cause server errors."
   ExploitA:
     summary: "Renamed an item in an anvil with a name that's too long"
-    details: "The normal anvil screen limits how long an item name can be. A modified client sends a longer name to get around that limit."
+    details: "The anvil only lets you type a name up to a certain length. A modified client sends a longer name to get around that."
   ExploitB:
-    summary: "Edited or signed a book in a way the normal game can't"
-    details: "The normal book screen only works with a book and quill in hand and limits what can be written in it. A modified client that breaks those rules is often making oversized books, a known way to crash servers or kick players."
+    summary: "Edited or signed a book in a way Minecraft can't"
+    details: "You can only write in a book and quill you're holding, and there's a limit to how much fits. Modified clients that break those rules are often making oversized books, a known way to crash servers or kick players."
   ExploitC:
     summary: "Sent too much data over mod message channels"
-    details: "Mods and the game itself can send extra messages to the server on named channels. Sending oversized messages or using too many channels is a known way for crash tools to try to overload the server."
+    details: "Mods and the game itself can send extra messages to the server on named channels. Crash tools send oversized messages or use too many channels to try to overload the server."
   # Cloud Review
   Cloud:
     summary: "Flagged by the cloud review"
-    details: "The player's recent play was sent to the cloud anticheat service for a deeper review, and the review found it matches cheating. The alert names the kind of cheat it found."
+    details: "A cloud review of how they played found signs of cheating. The alert names the kind of cheat it found."

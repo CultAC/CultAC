@@ -42,7 +42,7 @@ webhook-test-failed: "Discord webhook test failed!"
 # %vl% - violations
 # %verbose% - extra information from the check such as offsets, not all checks will add information
 # The check name links to /%command% info check.
-alerts-format: "%prefix% &f%player% &bfailed <hover:show_text:\"&b%check_name%%experimental%\n&8Description: &f%description%\n&7Click to learn more\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
+alerts-format: "%prefix% &f%player% &bfailed <hover:show_text:\"&b%check_name%%experimental%\n&8Description: &f%description%\n&7Click for more info\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
 alerts-format-proxy: "%prefix% &f[&cproxy&f] &f%player% &bfailed &f%check_name%%experimental% &f(x&c%vl%&f) &7%verbose%"
 experimental-symbol: "*"
 
@@ -87,8 +87,8 @@ help:
     - "/%command% brands &f- &7Toggle brands"
     - "/%command% profile <player> &f- &7View player info"
     - "/%command% help &f- &7View this help message"
-    - "/%command% info check <check> &f- &7Explain what a check catches"
-    - "/%command% info checks [group] &f- &7List the checks by group"
+    - "/%command% info check <check> &f- &7Explain a check"
+    - "/%command% info checks [group] &f- &7List all checks"
     - "/%command% debug <player> &f- &7Developer Prediction output"
     - "/%command% perf &f- &7Developer ms/prediction"
     - "/%command% reload &f- &7Reloads the config"
@@ -108,55 +108,54 @@ help:
 
 # === /cult info ===
 # What each check catches ships inside the plugin; these lines only lay it out.
-# info-check placeholders: %check% %experimental% %category% %summary% %details% %status% %advice% %buttons%
+# info-check placeholders: %check% %experimental% %category% %summary% %details% %punishments% %buttons%
 info-check:
     - "&7======================"
-    - "%prefix% &b%check%%experimental% &8· &7%category%"
+    - "%prefix% &b%check%%experimental%"
     - "&f%summary%"
     - "&7%details%"
-    - "&bOn this server: %status%"
-    - "&bWhat to do: &7%advice%"
+    - "&bPunishments: &f%punishments%"
     - "%buttons%"
     - "&7======================"
-info-experimental: " &8· &eExperimental"
-# %status% is built from these, from punishments.yml and observe-only mode. %count% %action% %window%
-info-status-none: "&8No alerts or commands are set up for it here"
-info-status-experimental-off: "&8Off, because experimental checks are turned off"
-info-status-recorded: "&7Recorded in the player's history, no staff alerts"
-info-status-webhook: "&7Sent to the staff webhook, no staff alerts in game"
-info-status-alerts: "&eStaff alerts from %count% flags"
-info-status-no-punishment: "&7no automatic punishment"
-info-status-action: "&c%action% &7runs at &f%count% &7flags"
-info-status-window: "&8(flags from related checks add up over %window%)"
-info-status-observe-only: "&8(observe-only mode: nothing is punished now)"
-info-advice-off: "Nothing. Experimental checks are turned off here."
-info-advice-none: "Nothing. This server does not alert staff about it."
-info-advice-experimental: "This check is still being tested and can flag players who aren't cheating. Never punish for it alone: look for other checks flagging too, or spectate the player."
-info-advice-automatic: "The server runs the commands above by itself. If the player keeps flagging, spectate them or look at their history."
-info-advice-observe-only: "Nothing is punished automatically right now. If the player keeps flagging, spectate them or look at their history."
-info-advice-alerts: "One flag alone is not proof. Many flags, or flags from other checks too, are worth spectating and reporting."
-info-advice-recorded: "Nothing right away. It helps when reviewing the player's flags later."
+info-experimental: " &7(experimental)"
+# %punishments% lists the alert and each command from punishments.yml, lowest flag count first, each once.
+# A command containing "ban" or "kick" shows as info-punishment-ban or -kick; any other shows as /command.
+info-punishment: "%action% at %count% flags"
+info-punishment-first: "%action% on the first flag"
+info-punishment-alert: "alert"
+info-punishment-ban: "ban"
+info-punishment-kick: "kick"
+# Actions at the same count share one entry, joined by info-punishment-and.
+info-punishment-and: " and "
+info-punishments-none: "None"
+info-punishments-off: "None, experimental checks are off"
+info-punishments-logged: "Logged to their history only"
+info-punishments-webhook: "Sent to Discord only"
 info-button-group: "&8[&b%category% checks&8]"
-info-button-group-hover: "&7Show every %category% check"
+info-button-group-hover: "&7Click to see the %category% checks"
 info-button-all: "&8[&bAll checks&8]"
-info-button-all-hover: "&7Show every group of checks"
+info-button-all-hover: "&7Click to see all check groups"
 # /cult info checks [group] — %category% %count%
-info-groups-header: "%prefix% &bAnticheat checks &7· click a group to see its checks"
-info-group: "&8» &b%category% &7(%count%)"
-info-group-hover: "&7Show the %category% checks"
-info-group-header: "%prefix% &b%category% &7· %count% checks, click one to learn more"
-# A check's colour in a group says what its flags lead to here. %check% %experimental% %summary%
-info-entry-automatic: "&c%check%"
-info-entry-alerts: "&e%check%"
-info-entry-recorded: "&7%check%"
-info-entry-none: "&8%check%"
-info-entry-hover: "&b%check%%experimental%<newline>&f%summary%<newline>&7Click to learn more"
-# %symbol% is experimental-symbol
-info-legend: "&c■ &7runs commands &e■ &7alerts staff &7■ recorded only &8■ &7no alerts &f%symbol% &7experimental"
+info-groups-header: "%prefix% &bCheck groups &7- click one to see its checks"
+info-group: "&8» &f%category% &7(%count%)"
+info-group-hover: "&7Click to see the %category% checks"
+info-group-header: "%prefix% &b%category% checks &7(%count%) - click one for info"
+# A group lists its checks by what their flags lead to here. %checks%
+info-handling-automatic: "&bAuto-punish: &f%checks%"
+info-handling-alerts: "&bAlerts only: &f%checks%"
+info-handling-recorded: "&bLogged only: &f%checks%"
+info-handling-none: "&bNo alerts or punishment: &f%checks%"
+info-handling-off: "&bOff: &f%checks%"
+# Each listed check. %check% %experimental% %summary%
+info-entry: "&f%check%%experimental%"
+info-entry-hover: "&b%check%%experimental%<newline>&f%summary%<newline>&7Click for more info"
+info-entry-separator: "&7, "
+# Shown under a group that has experimental checks. %symbol% is experimental-symbol
+info-experimental-note: "&7%symbol% Experimental (still in testing)"
 # %query%; %checks% lists the checks whose names contain it
-info-unknown: "%prefix% &cNo check is called &f%query%&c."
+info-unknown: "%prefix% &cUnknown check: &f%query%"
 info-did-you-mean: "&7Did you mean: %checks%"
-info-see-all: "&7Run &f/%command% info checks &7to see every check."
+info-see-all: "&7Try &f/%command% info checks &7for the full list."
 
 # === /cult history ===
 # Session-based history UI. All lines below are configurable MiniMessage templates.

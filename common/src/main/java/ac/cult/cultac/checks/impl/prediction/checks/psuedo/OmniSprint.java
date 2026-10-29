@@ -13,7 +13,7 @@ public class OmniSprint extends Check implements PostPredictionListener {
                 cultPlayer,
                 CheckInfo.builder()
                         .name("OmniSprint")
-                        .description("Sprinted in a direction other than forward")
+                        .description("Sprinted sideways or backward")
                         .build());
     }
 

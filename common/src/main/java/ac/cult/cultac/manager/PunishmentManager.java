@@ -41,7 +41,7 @@ public class PunishmentManager implements ConfigReloadable {
 
         alertString = config.getStringElse(
                 "alerts-format",
-                "%prefix% &f%player% &bfailed <hover:show_text:\"&b%check_name%%experimental%\n&8Description: &f%description%\n&7Click to learn more\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%");
+                "%prefix% &f%player% &bfailed <hover:show_text:\"&b%check_name%%experimental%\n&8Description: &f%description%\n&7Click for more info\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%");
 
         testMode = config.getBooleanElse("test-mode", false);
 
@@ -166,7 +166,10 @@ public class PunishmentManager implements ConfigReloadable {
                                     replaceAlertPlaceholders(command.command, vl, check, verboseForListeners);
                             verboseListeners = CultAPI.INSTANCE
                                     .getAlertManager()
-                                    .sendVerbose(player, MessageUtil.miniMessage(listenerCmd), null);
+                                    .sendVerbose(
+                                            player,
+                                            CultInfo.linkCheckName(MessageUtil.miniMessage(listenerCmd), check),
+                                            null);
                         } catch (RuntimeException e) {
                             logDeliveryFailure(command, check, e);
                         }

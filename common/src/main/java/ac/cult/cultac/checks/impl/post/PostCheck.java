@@ -40,7 +40,7 @@ public class PostCheck extends Check implements CheckListener, PostPredictionLis
                 playerData,
                 CheckInfo.builder()
                         .name("Post")
-                        .description("Acted in a way the normal game cannot")
+                        .description("Impossible attacks, clicks or item use")
                         .build());
     }
 

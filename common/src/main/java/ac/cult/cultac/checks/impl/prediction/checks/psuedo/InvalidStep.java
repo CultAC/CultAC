@@ -11,7 +11,7 @@ public class InvalidStep extends Check implements PostPredictionListener {
                 cultPlayer,
                 CheckInfo.builder()
                         .name("InvalidStep")
-                        .description("Stepped up a ledge the normal game cannot step")
+                        .description("Made an impossible step up")
                         .build());
     }
 }

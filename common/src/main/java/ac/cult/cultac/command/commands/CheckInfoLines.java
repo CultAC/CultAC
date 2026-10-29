@@ -6,14 +6,17 @@ import ac.cult.cultac.checks.info.CheckPolicy;
 import ac.cult.cultac.checks.info.CheckPolicy.Handling;
 import ac.cult.cultac.checks.info.CheckTexts;
 import ac.cult.cultac.command.CloudCommandService;
-import ac.cult.cultac.command.render.HistoryComponentRenderer;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.grim.grimac.api.config.ConfigManager;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
+import java.util.Set;
+import java.util.TreeMap;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.ComponentLike;
 import net.kyori.adventure.text.JoinConfiguration;
@@ -21,45 +24,34 @@ import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * How {@code /cult info} reads in chat. Every line is a {@code messages.yml} template with an English default; values
- * go into a template as plain text after it is parsed, so they never format or expand.
- */
 final class CheckInfoLines {
-    static final List<String> DEFAULT_CHECK = List.of(
+    private static final List<String> DEFAULT_CHECK = List.of(
             "&7======================",
-            "%prefix% &b%check%%experimental% &8· &7%category%",
+            "%prefix% &b%check%%experimental%",
             "&f%summary%",
             "&7%details%",
-            "&bOn this server: %status%",
-            "&bWhat to do: &7%advice%",
+            "&bPunishments: &f%punishments%",
             "%buttons%",
             "&7======================");
-    static final int MAX_MATCHES = 10;
+    private static final int MAX_MATCHES = 10;
 
-    /** The server's settings a view reads, taken once per command. */
-    record View(
-            @NotNull ConfigManager config,
-            @NotNull CheckPolicy policy,
-            @NotNull CheckTexts texts,
-            boolean observeOnly,
-            boolean experimentalChecks) {
-        @NotNull
-        String displayName(@NotNull CheckCatalog.Entry entry) {
+    record View(ConfigManager config, CheckPolicy policy, CheckTexts texts, boolean experimentalChecks) {
+        String displayName(CheckCatalog.Entry entry) {
             return config.getStringElse(entry.configName() + ".displayname", entry.name());
         }
 
-        @NotNull
-        Handling handling(@NotNull CheckCatalog.Entry entry) {
-            return policy.status(entry).handling(!entry.experimental() || experimentalChecks);
+        Handling handling(CheckCatalog.Entry entry) {
+            return policy.status(entry).handling(running(entry));
         }
 
-        /** The check named {@code query} by its name, config name, alternative name or display name, ignoring case. */
+        boolean running(CheckCatalog.Entry entry) {
+            return !entry.experimental() || experimentalChecks;
+        }
+
         @Nullable
-        CheckCatalog.Entry find(@NotNull String query) {
+        CheckCatalog.Entry find(String query) {
             CheckCatalog.Entry entry = CheckCatalog.find(query);
             if (entry != null) return entry;
             for (CheckCatalog.Entry each : CheckCatalog.ENTRIES) {
@@ -83,32 +75,31 @@ final class CheckInfoLines {
                 button(
                         sender,
                         view.template("info-button-group", "&8[&b%category% checks&8]"),
-                        view.template("info-button-group-hover", "&7Show every %category% check"),
+                        view.template("info-button-group-hover", "&7Click to see the %category% checks"),
                         Map.of("category", category),
                         "info checks " + entry.category().id()),
                 button(
                         sender,
                         view.template("info-button-all", "&8[&bAll checks&8]"),
-                        view.template("info-button-all-hover", "&7Show every group of checks"),
+                        view.template("info-button-all-hover", "&7Click to see all check groups"),
                         Map.of(),
                         "info checks"));
+        Component experimental = entry.experimental()
+                ? render(sender, view.template("info-experimental", " &7(experimental)"))
+                : Component.empty();
         Map<String, Object> values = Map.of(
                 "check",
                 view.displayName(entry),
                 "experimental",
-                entry.experimental()
-                        ? render(sender, view.template("info-experimental", " &8· &eExperimental"), Map.of())
-                        : Component.empty(),
+                experimental,
                 "category",
                 category,
                 "summary",
                 text == null ? "" : text.summary(),
                 "details",
                 text == null ? "" : text.details(),
-                "status",
-                render(sender, status(view, entry), Map.of()),
-                "advice",
-                render(sender, advice(view, entry), Map.of()),
+                "punishments",
+                render(sender, punishments(view, entry)),
                 "buttons",
                 buttons);
         List<String> template = view.config().getStringList("info-check");
@@ -120,183 +111,149 @@ final class CheckInfoLines {
         return lines;
     }
 
-    /** The groups of checks, each with how many it holds. */
-    static List<Component> groups(Sender sender, View view) {
+    static List<Component> overview(Sender sender, View view) {
         List<Component> lines = new ArrayList<>();
         lines.add(render(
                 sender,
-                view.template("info-groups-header", "%prefix% &bAnticheat checks &7· click a group to see its checks"),
-                Map.of()));
+                view.template("info-groups-header", "%prefix% &bCheck groups &7- click one to see its checks")));
         for (CheckCategory category : CheckCategory.values()) {
             Map<String, Object> values = Map.of(
                     "category", view.texts().label(category),
-                    "count", CheckCatalog.in(category).size());
+                    "count", CheckCatalog.byCategory(category).size());
             lines.add(button(
                     sender,
-                    view.template("info-group", "&8» &b%category% &7(%count%)"),
-                    view.template("info-group-hover", "&7Show the %category% checks"),
+                    view.template("info-group", "&8» &f%category% &7(%count%)"),
+                    view.template("info-group-hover", "&7Click to see the %category% checks"),
                     values,
                     "info checks " + category.id()));
         }
         return lines;
     }
 
-    /** The checks of one group, coloured by what this server does with their flags. */
     static List<Component> group(Sender sender, View view, CheckCategory category) {
-        List<CheckCatalog.Entry> entries = CheckCatalog.in(category);
+        List<CheckCatalog.Entry> entries = CheckCatalog.byCategory(category);
         List<Component> lines = new ArrayList<>();
         lines.add(render(
                 sender,
-                view.template("info-group-header", "%prefix% &b%category% &7· %count% checks, click one to learn more"),
+                view.template("info-group-header", "%prefix% &b%category% checks &7(%count%) - click one for info"),
                 Map.of("category", view.texts().label(category), "count", entries.size())));
-        lines.add(entries(sender, view, entries));
-        lines.add(render(
-                sender,
-                view.template(
-                        "info-legend",
-                        "&c■ &7runs commands &e■ &7alerts staff &7■ recorded only &8■ &7no alerts &f%symbol%"
-                                + " &7experimental"),
-                Map.of("symbol", symbol(sender, view))));
+        Map<Handling, List<CheckCatalog.Entry>> byHandling = byHandling(view, entries);
+        for (Map.Entry<Handling, List<CheckCatalog.Entry>> each : byHandling.entrySet()) {
+            String template = switch (each.getKey()) {
+                case AUTOMATIC -> view.template("info-handling-automatic", "&bAuto-punish: &f%checks%");
+                case ALERTS -> view.template("info-handling-alerts", "&bAlerts only: &f%checks%");
+                case RECORDED -> view.template("info-handling-recorded", "&bLogged only: &f%checks%");
+                case NONE -> view.template("info-handling-none", "&bNo alerts or punishment: &f%checks%");
+                case OFF -> view.template("info-handling-off", "&bOff: &f%checks%");
+            };
+            lines.add(render(sender, template, Map.of("checks", checkLinks(sender, view, each.getValue(), true))));
+        }
+        if (entries.stream().anyMatch(CheckCatalog.Entry::experimental)) {
+            lines.add(render(
+                    sender,
+                    view.template("info-experimental-note", "&7%symbol% Experimental (still in testing)"),
+                    Map.of("symbol", experimentalSymbol(sender, view))));
+        }
         return lines;
     }
 
-    /** Why nothing matched {@code query}, with the checks whose names contain it. */
+    static Map<Handling, List<CheckCatalog.Entry>> byHandling(View view, List<CheckCatalog.Entry> entries) {
+        Map<Handling, List<CheckCatalog.Entry>> byHandling = new EnumMap<>(Handling.class);
+        for (CheckCatalog.Entry entry : entries) {
+            byHandling
+                    .computeIfAbsent(view.handling(entry), ignored -> new ArrayList<>())
+                    .add(entry);
+        }
+        return byHandling;
+    }
+
     static List<Component> unknown(Sender sender, View view, String query) {
         List<Component> lines = new ArrayList<>();
         lines.add(render(
-                sender,
-                view.template("info-unknown", "%prefix% &cNo check is called &f%query%&c."),
-                Map.of("query", query)));
+                sender, view.template("info-unknown", "%prefix% &cUnknown check: &f%query%"), Map.of("query", query)));
         List<CheckCatalog.Entry> matches = CheckCatalog.containing(query);
         if (matches.isEmpty()) {
             lines.add(render(
-                    sender,
-                    view.template("info-see-all", "&7Run &f/%command% info checks &7to see every check."),
-                    Map.of()));
+                    sender, view.template("info-see-all", "&7Try &f/%command% info checks &7for the full list.")));
         } else {
-            Component shown = entries(sender, view, matches.subList(0, Math.min(matches.size(), MAX_MATCHES)));
+            Component shown =
+                    checkLinks(sender, view, matches.subList(0, Math.min(matches.size(), MAX_MATCHES)), false);
             lines.add(render(
                     sender, view.template("info-did-you-mean", "&7Did you mean: %checks%"), Map.of("checks", shown)));
         }
         return lines;
     }
 
-    /** What this server does with the check's flags, from its punishments and observe-only setting. */
-    static String status(View view, CheckCatalog.Entry entry) {
+    static String punishments(View view, CheckCatalog.Entry entry) {
         CheckPolicy.Status status = view.policy().status(entry);
-        Handling handling = status.handling(!entry.experimental() || view.experimentalChecks());
-        switch (handling) {
-            case OFF -> {
-                return view.template(
-                        "info-status-experimental-off", "&8Off, because experimental checks are turned off");
-            }
-            case NONE -> {
-                return view.template("info-status-none", "&8No alerts or commands are set up for it here");
-            }
-            case RECORDED -> {
-                return status.recorded()
-                        ? view.template("info-status-recorded", "&7Recorded in the player's history, no staff alerts")
-                        : view.template("info-status-webhook", "&7Sent to the staff webhook, no staff alerts in game");
-            }
-            default -> {}
-        }
-        List<String> parts = new ArrayList<>();
-        for (CheckPolicy.Group group : status.groups()) {
-            List<String> thresholds = new ArrayList<>();
-            if (group.alertAt() != null) {
-                thresholds.add(view.template("info-status-alerts", "&eStaff alerts from %count% flags")
-                        .replace("%count%", Integer.toString(group.alertAt())));
-            }
-            for (CheckPolicy.Action action : group.actions()) {
-                thresholds.add(view.template("info-status-action", "&c%action% &7runs at &f%count% &7flags")
-                        .replace("%action%", action.command())
-                        .replace("%count%", Integer.toString(action.threshold())));
-            }
-            if (thresholds.isEmpty()) continue;
-            parts.add(String.join("&7, ", thresholds) + " "
-                    + view.template("info-status-window", "&8(flags from related checks add up over %window%)")
-                            .replace(
-                                    "%window%",
-                                    HistoryComponentRenderer.formatDuration(
-                                            TimeUnit.SECONDS.toMillis(group.expireSeconds()))));
-        }
-        if (handling == Handling.ALERTS) {
-            parts.add(view.template("info-status-no-punishment", "&7no automatic punishment"));
-        }
-        String line = String.join(" &8· ", parts);
-        if (handling == Handling.AUTOMATIC && view.observeOnly()) {
-            line += " " + view.template("info-status-observe-only", "&8(observe-only mode: nothing is punished now)");
-        }
-        return line;
-    }
-
-    /** What a moderator does about a flag of this check here. */
-    static String advice(View view, CheckCatalog.Entry entry) {
-        Handling handling = view.handling(entry);
+        Handling handling = status.handling(view.running(entry));
         if (handling == Handling.OFF) {
-            return view.template("info-advice-off", "Nothing. Experimental checks are turned off here.");
+            return view.template("info-punishments-off", "None, experimental checks are off");
         }
         if (handling == Handling.NONE) {
-            return view.template("info-advice-none", "Nothing. This server does not alert staff about it.");
+            return view.template("info-punishments-none", "None");
         }
-        if (entry.experimental()) {
-            return view.template(
-                    "info-advice-experimental",
-                    "This check is still being tested and can flag players who aren't cheating. Never punish for it"
-                            + " alone: look for other checks flagging too, or spectate the player.");
+        if (handling == Handling.RECORDED) {
+            return status.recorded()
+                    ? view.template("info-punishments-logged", "Logged to their history only")
+                    : view.template("info-punishments-webhook", "Sent to Discord only");
         }
-        return switch (handling) {
-            case AUTOMATIC ->
-                view.observeOnly()
-                        ? view.template(
-                                "info-advice-observe-only",
-                                "Nothing is punished automatically right now. If the player keeps flagging, spectate"
-                                        + " them or look at their history.")
-                        : view.template(
-                                "info-advice-automatic",
-                                "The server runs the commands above by itself. If the player keeps flagging, spectate"
-                                        + " them or look at their history.");
-            case ALERTS ->
-                view.template(
-                        "info-advice-alerts",
-                        "One flag alone is not proof. Many flags, or flags from other checks too, are worth spectating"
-                                + " and reporting.");
-            default ->
-                view.template(
-                        "info-advice-recorded",
-                        "Nothing right away. It helps when reviewing the player's flags later.");
-        };
+        Map<Integer, List<String>> byFlags = new TreeMap<>();
+        if (status.alertAt() != null) {
+            byFlags.computeIfAbsent(status.alertAt(), flags -> new ArrayList<>())
+                    .add(view.template("info-punishment-alert", "alert"));
+        }
+        List<CheckPolicy.Action> actions = new ArrayList<>(status.actions());
+        actions.sort(Comparator.comparingInt(CheckPolicy.Action::threshold));
+        Set<String> listed = new HashSet<>();
+        for (CheckPolicy.Action action : actions) {
+            String name = commandName(view, action.command());
+            if (listed.add(name))
+                byFlags.computeIfAbsent(action.threshold(), flags -> new ArrayList<>())
+                        .add(name);
+        }
+        List<String> parts = new ArrayList<>();
+        for (Map.Entry<Integer, List<String>> names : byFlags.entrySet()) {
+            String template = names.getKey() == 1
+                    ? view.template("info-punishment-first", "%action% on the first flag")
+                    : view.template("info-punishment", "%action% at %count% flags");
+            String action = String.join(view.template("info-punishment-and", " and "), names.getValue());
+            parts.add(template.replace("%action%", action).replace("%count%", Integer.toString(names.getKey())));
+        }
+        return LabelLines.capitalized(String.join("&7, &f", parts));
     }
 
-    private static Component entries(Sender sender, View view, List<CheckCatalog.Entry> entries) {
-        Component symbol = symbol(sender, view);
+    private static String commandName(View view, String command) {
+        if (command.contains("ban")) return view.template("info-punishment-ban", "ban");
+        if (command.contains("kick")) return view.template("info-punishment-kick", "kick");
+        return command;
+    }
+
+    private static Component checkLinks(
+            Sender sender, View view, List<CheckCatalog.Entry> entries, boolean markExperimental) {
+        Component symbol = experimentalSymbol(sender, view);
         List<Component> names = new ArrayList<>();
         for (CheckCatalog.Entry entry : entries) {
-            String template = switch (view.handling(entry)) {
-                case AUTOMATIC -> view.template("info-entry-automatic", "&c%check%");
-                case ALERTS -> view.template("info-entry-alerts", "&e%check%");
-                case RECORDED -> view.template("info-entry-recorded", "&7%check%");
-                case NONE, OFF -> view.template("info-entry-none", "&8%check%");
-            };
             CheckTexts.Text text = view.texts().text(entry.name());
             Map<String, Object> values = Map.of(
                     "check", view.displayName(entry),
-                    "experimental", entry.experimental() ? symbol : Component.empty(),
+                    "experimental", markExperimental && entry.experimental() ? symbol : Component.empty(),
                     "summary", text == null ? "" : text.summary());
             names.add(button(
                     sender,
-                    template + "%experimental%",
+                    view.template("info-entry", "&f%check%%experimental%"),
                     view.template(
                             "info-entry-hover",
-                            "&b%check%%experimental%<newline>&f%summary%<newline>&7Click to learn more"),
+                            "&b%check%%experimental%<newline>&f%summary%<newline>&7Click for more info"),
                     values,
                     "info check " + entry.name()));
         }
-        return Component.join(JoinConfiguration.separator(Component.text(", ")), names);
+        Component separator = render(sender, view.template("info-entry-separator", "&7, "));
+        return Component.join(JoinConfiguration.separator(separator), names);
     }
 
-    private static Component symbol(Sender sender, View view) {
-        return render(sender, view.template("experimental-symbol", "*"), Map.of());
+    private static Component experimentalSymbol(Sender sender, View view) {
+        return render(sender, view.template("experimental-symbol", "*"));
     }
 
     private static Component button(
@@ -306,20 +263,21 @@ final class CheckInfoLines {
                 .clickEvent(ClickEvent.runCommand(CloudCommandService.command(arguments)));
     }
 
-    /**
-     * {@code template} with each {@code %key%} replaced by its value: a component as it is, anything else as plain
-     * text.
-     */
+    private static Component render(Sender sender, String template) {
+        return render(sender, template, Map.of());
+    }
+
+    // Values go in unparsed: a typed query or a display name never applies tags, colors or placeholders.
     private static Component render(Sender sender, String template, Map<String, ?> values) {
         String raw = template;
         TagResolver.Builder resolver = TagResolver.builder();
-        for (Map.Entry<String, ?> value : values.entrySet()) {
-            String key = value.getKey();
+        for (Map.Entry<String, ?> placeholder : values.entrySet()) {
+            String key = placeholder.getKey();
             raw = raw.replace("%" + key + "%", "<" + key + ">");
             resolver.resolver(
-                    value.getValue() instanceof ComponentLike component
+                    placeholder.getValue() instanceof ComponentLike component
                             ? Placeholder.component(key, component)
-                            : Placeholder.unparsed(key, String.valueOf(value.getValue())));
+                            : Placeholder.unparsed(key, String.valueOf(placeholder.getValue())));
         }
         return MessageUtil.miniMessage(MessageUtil.replacePlaceholders(sender, raw), resolver.build());
     }
