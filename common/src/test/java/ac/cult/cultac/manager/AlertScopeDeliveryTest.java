@@ -158,6 +158,7 @@ class AlertScopeDeliveryTest {
     }
 
     private boolean peerSeesVerbose() {
+        TestNetworks.sendDelta(service);
         return peer.peersWantVerbose();
     }
 
@@ -344,6 +345,7 @@ class AlertScopeDeliveryTest {
     void verboseGoesOutWhileAPeerWantsItAndItsAlertSaysSo() {
         peer.verbose(() -> true);
         peer.verboseChanged();
+        TestNetworks.sendDelta(peer);
         assertTrue(alerts.hasVerboseListeners());
 
         Recipients verboseRecipients = alerts.sendVerbose(ON_PVP, Component.text("verbose"), null);

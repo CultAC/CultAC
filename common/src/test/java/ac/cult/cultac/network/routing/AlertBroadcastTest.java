@@ -94,6 +94,7 @@ class AlertBroadcastTest {
 
         p7.wantsVerbose.set(true);
         p7.alerts.demandChanged();
+        p7.service.sendDelta();
         assertFalse(p3.alerts.verboseWanted());
         clock.addAndGet(1_000);
         assertTrue(p3.alerts.verboseWanted());
@@ -107,6 +108,7 @@ class AlertBroadcastTest {
 
         p7.wantsVerbose.set(false);
         p7.alerts.demandChanged();
+        p7.service.sendDelta();
         clock.addAndGet(1_000);
         assertFalse(p3.alerts.verboseWanted());
     }

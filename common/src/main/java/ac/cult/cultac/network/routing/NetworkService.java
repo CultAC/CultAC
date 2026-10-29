@@ -11,6 +11,7 @@ import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.reload.api.HostContext;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -38,14 +39,17 @@ import org.jetbrains.annotations.Nullable;
  * This instance's network routing: the roster of every instance, handlers per message type, and messages to one
  * instance, to every other instance, or to this instance's engine generations over the in-process bus. Messages for
  * this instance never reach the broker and need no transport. Only the current generation publishes the roster: a
- * full snapshot every {@value #ROSTER_PERIOD_MILLIS} ms and a delta on each join, quit, backend switch and verbose
- * change. The generation that drew the last roster number sends an empty snapshot when it stops. The generations of
+ * full snapshot every {@value #ROSTER_PERIOD_MILLIS} ms and, at most every {@value #DELTA_PERIOD_MILLIS} ms, one delta
+ * with the joins, quits, backend switches and verbose change reported since the last roster message, the last report
+ * per player winning. The generation that drew the last roster number sends an empty snapshot when it stops, and its
+ * unsent reports are dropped. The generations of
  * one host check that they are current, draw the number and publish one at a time, holding the shared counter's lock.
  * At most {@value #MAX_QUEUED_MESSAGES} received messages of {@value #MAX_QUEUED_BYTES} bytes in all wait to be read;
  * the rest are dropped.
  */
 public final class NetworkService implements NetworkRouting {
-    static final long ROSTER_PERIOD_MILLIS = 15_000;
+    static final long ROSTER_PERIOD_MILLIS = 60_000;
+    static final long DELTA_PERIOD_MILLIS = 2_000;
     static final long SWEEP_PERIOD_MILLIS = 1_000;
     static final int MAX_QUEUED_MESSAGES = 4096;
     static final long MAX_QUEUED_BYTES = 16L * 1024 * 1024;
@@ -100,6 +104,10 @@ public final class NetworkService implements NetworkRouting {
     private volatile boolean verboseSent;
     /** The last roster number this generation drew; guarded by {@link #rosterOrder}. */
     private long rosterDrawn = Long.MIN_VALUE;
+    /** Each player reported since the last roster message, null for a quit; guarded by itself. */
+    private final Map<UUID, @Nullable OnlinePlayer> reported = new LinkedHashMap<>();
+    /** Whether a verbose change was reported since the last roster message; guarded by {@link #reported}. */
+    private boolean verboseReported;
 
     NetworkService(
             NetworkSettings settings,
@@ -234,11 +242,13 @@ public final class NetworkService implements NetworkRouting {
             transport.start(
                     List.of(directChannel, broadcastChannel),
                     (channel, text) -> enqueue(text, channel.equals(broadcastChannel), false));
-            publishRoster(platform.onlinePlayers(), true, List.of());
+            publishRoster();
         }
         if (scheduler != null) {
             scheduler.scheduleAtFixedRate(
                     this::tick, ROSTER_PERIOD_MILLIS, ROSTER_PERIOD_MILLIS, TimeUnit.MILLISECONDS);
+            scheduler.scheduleAtFixedRate(
+                    this::sendDelta, DELTA_PERIOD_MILLIS, DELTA_PERIOD_MILLIS, TimeUnit.MILLISECONDS);
             scheduler.scheduleAtFixedRate(
                     this::sweepCommands, SWEEP_PERIOD_MILLIS, SWEEP_PERIOD_MILLIS, TimeUnit.MILLISECONDS);
         }
@@ -253,6 +263,7 @@ public final class NetworkService implements NetworkRouting {
     synchronized void stop(Executor closing) {
         if (!running) return;
         running = false;
+        drainReports();
         if (bus != null) bus.leave();
         if (transport != null) {
             synchronized (rosterOrder) {
@@ -308,8 +319,12 @@ public final class NetworkService implements NetworkRouting {
         verbose = wanted;
     }
 
+    /** Reports that whether staff here take verbose may have changed; the next delta carries it. Any thread. */
     public void verboseChanged() {
-        if (running && verbose.getAsBoolean() != verboseSent) publishRoster(List.of(), false, List.of());
+        if (transport == null) return;
+        synchronized (reported) {
+            if (running) verboseReported = true;
+        }
     }
 
     /** Whether staff on an instance heard from lately take verbose. */
@@ -319,21 +334,64 @@ public final class NetworkService implements NetworkRouting {
 
     /** Reports a join or a backend switch here. Any thread. */
     public void playerChanged(OnlinePlayer player) {
-        if (running) publishRoster(List.of(player), false, List.of());
+        report(player.uuid(), player);
     }
 
     /** Reports a quit here. Any thread. */
     public void playerLeft(UUID uuid) {
-        if (running) publishRoster(List.of(), false, List.of(uuid));
+        report(uuid, null);
+    }
+
+    private void report(UUID uuid, @Nullable OnlinePlayer player) {
+        if (transport == null) return;
+        synchronized (reported) {
+            if (running) reported.put(uuid, player);
+        }
     }
 
     void tick() {
         try {
             roster.expire(clock.getAsLong());
             if (!running) return;
-            publishRoster(platform.onlinePlayers(), true, List.of());
+            publishRoster();
         } catch (RuntimeException failure) {
             LogUtil.warn("Network roster update failed", failure);
+        }
+    }
+
+    /** Sends what was reported since the last roster message as one delta, when it changes anything. */
+    void sendDelta() {
+        if (transport == null) return;
+        try {
+            boolean wanted = verbose.getAsBoolean();
+            synchronized (rosterOrder) {
+                List<OnlinePlayer> changed = new ArrayList<>();
+                List<UUID> left = new ArrayList<>();
+                boolean verboseChange;
+                synchronized (reported) {
+                    for (Map.Entry<UUID, @Nullable OnlinePlayer> report : reported.entrySet()) {
+                        OnlinePlayer player = report.getValue();
+                        if (player == null) left.add(report.getKey());
+                        else changed.add(player);
+                    }
+                    verboseChange = verboseReported;
+                    reported.clear();
+                    verboseReported = false;
+                }
+                if (!running || !current()) return;
+                if (changed.isEmpty() && left.isEmpty() && (!verboseChange || wanted == verboseSent)) return;
+                verboseSent = wanted;
+                publish(NetworkSettings.ALL, RosterCache.TYPE, rosterBody(changed, false, left, wanted));
+            }
+        } catch (RuntimeException failure) {
+            LogUtil.warn("Network roster update failed", failure);
+        }
+    }
+
+    private void drainReports() {
+        synchronized (reported) {
+            reported.clear();
+            verboseReported = false;
         }
     }
 
@@ -372,13 +430,16 @@ public final class NetworkService implements NetworkRouting {
         }
     }
 
-    private void publishRoster(Collection<OnlinePlayer> players, boolean full, Collection<UUID> left) {
+    /** Publishes a full snapshot, which covers every report so far; one made while it is taken rides the next delta. */
+    private void publishRoster() {
         if (transport == null) return;
         boolean wanted = verbose.getAsBoolean();
         synchronized (rosterOrder) {
+            drainReports();
             if (!running || !current()) return;
+            Collection<OnlinePlayer> players = platform.onlinePlayers();
             verboseSent = wanted;
-            publish(NetworkSettings.ALL, RosterCache.TYPE, rosterBody(players, full, left, wanted));
+            publish(NetworkSettings.ALL, RosterCache.TYPE, rosterBody(players, true, List.of(), wanted));
         }
     }
 

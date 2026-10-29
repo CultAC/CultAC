@@ -24,7 +24,7 @@ import org.jetbrains.annotations.Nullable;
  */
 final class RosterCache {
     static final String TYPE = "roster";
-    static final long EXPIRY_MILLIS = 45_000;
+    static final long EXPIRY_MILLIS = 150_000;
     static final String ORDER = "o";
     static final String NONCE = "nonce";
 

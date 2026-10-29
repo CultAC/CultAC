@@ -61,6 +61,11 @@ public final class TestNetworks {
         NetworkModule.start(service);
     }
 
+    /** Sends what {@code service} was told since its last roster message, as its delta schedule would. */
+    public static void sendDelta(NetworkService service) {
+        service.sendDelta();
+    }
+
     /**
      * A platform reporting the players put online in that order, each held by this generation unless {@link #holders}
      * says else.

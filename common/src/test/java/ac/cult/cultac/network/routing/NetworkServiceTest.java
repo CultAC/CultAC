@@ -125,11 +125,15 @@ class NetworkServiceTest {
         NetworkService b = started("p7", new Players());
 
         b.playerChanged(new OnlinePlayer(ALICE, "Alice", null));
+        assertTrue(a.locate("Alice").isEmpty());
+        b.sendDelta();
         assertNull(a.locate("Alice").orElseThrow().server());
         b.playerChanged(new OnlinePlayer(ALICE, "Alice", "survival"));
+        b.sendDelta();
         assertEquals("survival", a.locate("Alice").orElseThrow().server());
         assertEquals(1, a.roster().size());
         b.playerLeft(ALICE);
+        b.sendDelta();
         assertTrue(a.locate("Alice").isEmpty());
 
         JsonObject quit = rosterBodiesFrom("p7").getLast();
@@ -138,15 +142,77 @@ class NetworkServiceTest {
     }
 
     @Test
-    void aSilentInstanceIsForgottenFortyFiveSecondsAfterItsLastMessage() {
+    void theReportsOfOneWindowGoOutAsOneDelta() {
+        NetworkService a = started("p3", new Players());
+        NetworkService b = started("p7", new Players());
+        int published = rosterBodiesFrom("p7").size();
+
+        b.playerChanged(new OnlinePlayer(ALICE, "Alice", null));
+        b.playerChanged(new OnlinePlayer(BOB, "Bob", "lobby"));
+        b.playerChanged(new OnlinePlayer(ALICE, "Alice", "survival"));
+        assertEquals(published, rosterBodiesFrom("p7").size());
+        b.sendDelta();
+        b.sendDelta();
+
+        assertEquals(published + 1, rosterBodiesFrom("p7").size());
+        JsonObject delta = rosterBodiesFrom("p7").getLast();
+        assertFalse(delta.get("full").getAsBoolean());
+        assertEquals("survival", a.locate("Alice").orElseThrow().server());
+        assertEquals("lobby", a.locate("Bob").orElseThrow().server());
+    }
+
+    @Test
+    void aJoinThenAQuitSendsTheQuitOnlyAndAQuitThenAJoinListsThePlayer() {
+        NetworkService a = started("p3", new Players());
+        NetworkService b = started("p7", new Players());
+
+        b.playerChanged(new OnlinePlayer(ALICE, "Alice", "lobby"));
+        b.playerLeft(ALICE);
+        b.sendDelta();
+        JsonObject quit = rosterBodiesFrom("p7").getLast();
+        assertFalse(quit.get("full").getAsBoolean());
+        assertTrue(quit.getAsJsonObject("servers").isEmpty());
+        assertEquals(1, quit.getAsJsonArray("left").size());
+        assertEquals(ALICE.toString(), quit.getAsJsonArray("left").get(0).getAsString());
+        assertTrue(a.locate("Alice").isEmpty());
+
+        b.playerLeft(ALICE);
+        b.playerChanged(new OnlinePlayer(ALICE, "Alice", "survival"));
+        b.sendDelta();
+        JsonObject join = rosterBodiesFrom("p7").getLast();
+        assertFalse(join.has("left") && !join.getAsJsonArray("left").isEmpty());
+        assertEquals("survival", a.locate("Alice").orElseThrow().server());
+    }
+
+    @Test
+    void aFullRosterTakesWhatIsStillToSend() {
+        Players here = new Players();
+        NetworkService a = started("p3", new Players());
+        NetworkService b = started("p7", here);
+        here.with(ALICE, "Alice", "lobby");
+        b.playerChanged(new OnlinePlayer(ALICE, "Alice", "lobby"));
+        b.verbose(() -> true);
+        b.verboseChanged();
+
+        b.tick();
+        int published = rosterBodiesFrom("p7").size();
+        assertTrue(rosterBodiesFrom("p7").getLast().get("full").getAsBoolean());
+        assertEquals("lobby", a.locate("Alice").orElseThrow().server());
+        assertTrue(a.peersWantVerbose());
+        b.sendDelta();
+        assertEquals(published, rosterBodiesFrom("p7").size());
+    }
+
+    @Test
+    void aSilentInstanceIsForgottenOnceTheExpiryPassesAfterItsLastMessage() {
         NetworkService a = started("p3", new Players());
         a.on("probe", envelope -> {});
         NetworkService b = started("p7", new Players().with(ALICE, "Alice", "lobby"));
         broker.published.clear();
 
-        clock.addAndGet(40_000);
+        clock.addAndGet(RosterCache.EXPIRY_MILLIS - 5_000);
         assertTrue(b.send("p3", "probe", new JsonObject()));
-        clock.addAndGet(45_000);
+        clock.addAndGet(RosterCache.EXPIRY_MILLIS);
         assertTrue(a.locate("Alice").isPresent());
         clock.addAndGet(1);
         assertTrue(a.locate("Alice").isEmpty());
@@ -187,7 +253,14 @@ class NetworkServiceTest {
         draining.tick();
         draining.playerChanged(new OnlinePlayer(BOB, "Bob", "lobby"));
         draining.playerLeft(BOB);
+        draining.verbose(() -> true);
+        draining.verboseChanged();
+        draining.sendDelta();
         assertTrue(rosterBodiesFrom("p3").isEmpty());
+        current.set(true);
+        draining.sendDelta();
+        assertTrue(rosterBodiesFrom("p3").isEmpty());
+        current.set(false);
 
         started("p7", new Players().with(ALICE, "Alice", "lobby"));
         assertEquals("p7", draining.locate("Alice").orElseThrow().instance());
@@ -644,17 +717,21 @@ class NetworkServiceTest {
     }
 
     @Test
-    void whetherStaffTakeVerboseReachesThePeersAtOnceAndWithEachSnapshot() {
+    void whetherStaffTakeVerboseReachesThePeersWithTheNextDeltaAndEachSnapshot() {
         NetworkService a = started("p3", new Players());
         NetworkService b = started("p7", new Players());
         AtomicBoolean wanted = new AtomicBoolean();
         b.verbose(wanted::get);
         int published = rosterBodiesFrom("p7").size();
         b.verboseChanged();
+        b.sendDelta();
         assertEquals(published, rosterBodiesFrom("p7").size());
 
         wanted.set(true);
         b.verboseChanged();
+        assertFalse(a.peersWantVerbose());
+        b.sendDelta();
+        assertEquals(published + 1, rosterBodiesFrom("p7").size());
         assertTrue(a.peersWantVerbose());
         assertTrue(rosterBodiesFrom("p7").getLast().get("verbose").getAsBoolean());
         b.tick();
@@ -666,8 +743,41 @@ class NetworkServiceTest {
         clock.addAndGet(RosterCache.EXPIRY_MILLIS + 1);
         wanted.set(true);
         b.verboseChanged();
+        b.sendDelta();
         clock.addAndGet(RosterCache.EXPIRY_MILLIS + 1);
         assertFalse(a.peersWantVerbose());
+    }
+
+    @Test
+    void aVerboseChangeRidesTheNextDeltaWithThePlayers() {
+        NetworkService a = started("p3", new Players());
+        NetworkService b = started("p7", new Players());
+        b.verbose(() -> true);
+        int published = rosterBodiesFrom("p7").size();
+
+        b.verboseChanged();
+        b.playerChanged(new OnlinePlayer(ALICE, "Alice", "lobby"));
+        b.sendDelta();
+
+        assertEquals(published + 1, rosterBodiesFrom("p7").size());
+        JsonObject delta = rosterBodiesFrom("p7").getLast();
+        assertFalse(delta.get("full").getAsBoolean());
+        assertTrue(delta.get("verbose").getAsBoolean());
+        assertTrue(a.peersWantVerbose());
+        assertEquals("p7", a.locate("Alice").orElseThrow().instance());
+    }
+
+    @Test
+    void aStoppedGenerationDropsWhatItWasStillToSend() {
+        started("p3", new Players());
+        NetworkService b = started("p7", new Players());
+        b.playerChanged(new OnlinePlayer(ALICE, "Alice", "lobby"));
+        b.stop();
+        int published = rosterBodiesFrom("p7").size();
+        b.sendDelta();
+        b.playerChanged(new OnlinePlayer(BOB, "Bob", "lobby"));
+        b.sendDelta();
+        assertEquals(published, rosterBodiesFrom("p7").size());
     }
 
     @Test
