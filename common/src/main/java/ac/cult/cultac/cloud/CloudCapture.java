@@ -277,7 +277,7 @@ public final class CloudCapture implements PlayerObserver {
 
     @Override
     public void flagged(Check check, double violations) {
-        // The service's own findings, which it already has.
+        // Cloud checks' violations are not captured.
         if (channel == null || check instanceof Cloud || check instanceof CloudFlagCheck) return;
         try {
             String name = check.getCheckName();
