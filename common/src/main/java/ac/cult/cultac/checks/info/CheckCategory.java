@@ -1,7 +1,6 @@
 package ac.cult.cultac.checks.info;
 
 import java.util.Locale;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /** The group a moderator finds a check under; the label each shows is in {@code check-info/en.yml}. */
@@ -17,12 +16,11 @@ public enum CheckCategory {
     CRASH,
     CLOUD;
 
-    /** The lower-case id typed in {@code /cult info checks <category>}. */
-    public @NotNull String id() {
+    public String id() {
         return name().toLowerCase(Locale.ROOT);
     }
 
-    public static @Nullable CheckCategory byId(@NotNull String id) {
+    public static @Nullable CheckCategory byId(String id) {
         for (CheckCategory category : values()) {
             if (category.id().equalsIgnoreCase(id)) return category;
         }

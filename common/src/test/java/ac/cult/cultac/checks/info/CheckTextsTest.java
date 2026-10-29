@@ -14,40 +14,30 @@ class CheckTextsTest {
     private static final int MAX_SUMMARY = 70;
     private static final int MAX_DETAILS = 300;
     private static final Pattern DIGIT = Pattern.compile("\\d");
-
-    private final CheckTexts texts = CheckTexts.load();
+    private static final CheckTexts TEXTS = CheckTexts.load();
 
     @Test
-    void explainsEveryCheckInTheCatalog() {
-        List<String> missing = new ArrayList<>();
-        for (CheckCatalog.Entry entry : CheckCatalog.ENTRIES) {
-            CheckTexts.Text text = texts.text(entry.name());
-            if (text == null || text.summary().isBlank() || text.details().isBlank()) missing.add(entry.name());
-        }
-        assertEquals(List.of(), missing);
+    void theTextsCoverExactlyTheCatalog() {
+        Set<String> catalog = new TreeSet<>();
+        for (CheckCatalog.Entry entry : CheckCatalog.ENTRIES) catalog.add(entry.name());
+        assertEquals(catalog, new TreeSet<>(TEXTS.names()));
     }
 
     @Test
-    void explainsNoCheckOutsideTheCatalog() {
-        Set<String> extra = new TreeSet<>(texts.names());
-        for (CheckCatalog.Entry entry : CheckCatalog.ENTRIES) extra.remove(entry.name());
-        assertEquals(Set.of(), extra);
-    }
-
-    @Test
-    void labelsEveryCategory() {
+    void everyCategoryHasALabel() {
         for (CheckCategory category : CheckCategory.values()) {
-            assertNotEquals(category.id(), texts.label(category), category.id());
+            assertNotEquals(category.id(), TEXTS.label(category), category.id());
         }
     }
 
-    /** Explanations are public: a number in one could tell a cheat how far it can go. */
+    /** The texts say what a check catches, never a number it decides by; a cheat could tune to it. */
     @Test
-    void keepsTextsShortAndFreeOfNumbers() {
+    void everyTextIsFilledInShortAndHasNoNumbers() {
         List<String> failures = new ArrayList<>();
         for (CheckCatalog.Entry entry : CheckCatalog.ENTRIES) {
-            CheckTexts.Text text = texts.text(entry.name());
+            CheckTexts.Text text = TEXTS.text(entry.name());
             if (text == null) continue;
+            if (text.summary().isBlank() || text.details().isBlank()) failures.add(entry.name() + " is blank");
             if (text.summary().length() > MAX_SUMMARY) failures.add(entry.name() + " summary is too long");
             if (text.details().length() > MAX_DETAILS) failures.add(entry.name() + " details are too long");
             if (DIGIT.matcher(text.summary() + text.details()).find()) failures.add(entry.name() + " has a number");

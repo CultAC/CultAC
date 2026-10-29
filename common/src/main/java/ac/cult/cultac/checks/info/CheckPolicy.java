@@ -5,53 +5,29 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/** What this server's {@code punishments.yml} does with each check, read the way {@code PunishmentManager} reads it. */
+/** Reads {@code punishments.yml} exactly as {@code PunishmentManager.reload} does; change the two together. */
 public final class CheckPolicy {
-    /**
-     * @param command the console command's first word with a leading slash, as {@code /ban}
-     * @param threshold the group's active flag count it first runs at
-     */
-    public record Action(@NotNull String command, int threshold) {}
+    public record Action(String command, int threshold) {}
 
-    /**
-     * One punishment group holding the check.
-     *
-     * @param selectors the group's {@code checks} entries, lower-cased
-     * @param expireSeconds how long a flag counts toward the group's thresholds
-     * @param alertAt the lowest flag count a staff alert ({@code [alert]} or {@code [proxy]}) runs at, or {@code null}
-     * @param recorded whether {@code [log]} records the flags in the player's history
-     * @param webhook whether {@code [webhook]} sends the flags to the staff webhook
-     * @param actions the console commands the group runs
-     */
     public record Group(
-            @NotNull List<String> selectors,
-            int expireSeconds,
+            List<String> selectors,
             @Nullable Integer alertAt,
             boolean recorded,
             boolean webhook,
-            @NotNull List<Action> actions) {}
+            List<Action> actions) {}
 
-    /** What a check's flags lead to on this server, most severe first. */
     public enum Handling {
-        /** Console commands run. */
         AUTOMATIC,
-        /** Staff get alerts; no console commands run. */
         ALERTS,
-        /** Flags reach only the player's history or the staff webhook. */
         RECORDED,
-        /** Flags lead to nothing configured. */
         NONE,
-        /** The check does not flag: it is experimental and experimental checks are off. */
         OFF
     }
 
-    /** The groups holding a check. */
-    public record Status(@NotNull List<Group> groups) {
-        /** @param running whether the check flags at all, which an experimental check does only when enabled */
-        public @NotNull Handling handling(boolean running) {
+    public record Status(List<Group> groups) {
+        public Handling handling(boolean running) {
             if (!running) return Handling.OFF;
             if (!actions().isEmpty()) return Handling.AUTOMATIC;
             if (alertAt() != null) return Handling.ALERTS;
@@ -75,7 +51,7 @@ public final class CheckPolicy {
             return groups.stream().anyMatch(Group::webhook);
         }
 
-        public @NotNull List<Action> actions() {
+        public List<Action> actions() {
             List<Action> actions = new ArrayList<>();
             for (Group group : groups) actions.addAll(group.actions());
             return actions;
@@ -88,20 +64,20 @@ public final class CheckPolicy {
         this.groups = groups;
     }
 
-    public static @NotNull CheckPolicy of(@NotNull ConfigManager config) {
+    public static CheckPolicy of(ConfigManager config) {
         return parse(config.getStringListElse("Punishments", new ArrayList<>()));
     }
 
-    /** Reads the {@code Punishments} groups up to the first one {@code PunishmentManager} cannot load. */
     @SuppressWarnings("unchecked")
-    public static @NotNull CheckPolicy parse(@NotNull List<?> punishments) {
+    public static CheckPolicy parse(List<?> punishments) {
         List<Group> groups = new ArrayList<>();
         try {
             for (Object element : punishments) {
                 LinkedHashMap<String, Object> map = (LinkedHashMap<String, Object>) element;
                 List<String> checks = (List<String>) map.getOrDefault("checks", new ArrayList<>());
                 List<String> commands = (List<String>) map.getOrDefault("commands", new ArrayList<>());
-                int expireSeconds = (int) map.getOrDefault("remove-violations-after", 300);
+                // Read only to fail where PunishmentManager fails on a window that is not a whole number.
+                int window = (int) map.getOrDefault("remove-violations-after", 300);
 
                 List<String> selectors = new ArrayList<>();
                 for (String check : checks) selectors.add(check.toLowerCase(Locale.ROOT));
@@ -110,29 +86,30 @@ public final class CheckPolicy {
                 boolean webhook = false;
                 List<Action> actions = new ArrayList<>();
                 for (String command : commands) {
-                    int threshold = Integer.parseInt(command.substring(0, command.indexOf(":")));
-                    Integer.parseInt(command.substring(command.indexOf(":"), command.indexOf(" "))
-                            .substring(1));
-                    String run = command.substring(command.indexOf(" ") + 1);
-                    switch (run) {
+                    String firstNum = command.substring(0, command.indexOf(":"));
+                    String secondNum = command.substring(command.indexOf(":"), command.indexOf(" "));
+                    int threshold = Integer.parseInt(firstNum);
+                    // Parsed only to fail where PunishmentManager fails on a bad interval.
+                    Integer.parseInt(secondNum.substring(1));
+                    String commandString = command.substring(command.indexOf(" ") + 1);
+                    switch (commandString) {
                         case "[alert]", "[proxy]" -> {
                             if (alertAt == null || threshold < alertAt) alertAt = threshold;
                         }
                         case "[log]" -> recorded = true;
                         case "[webhook]" -> webhook = true;
-                        default -> actions.add(new Action(commandWord(run), threshold));
+                        default -> actions.add(new Action(commandWord(commandString), threshold));
                     }
                 }
-                groups.add(new Group(
-                        List.copyOf(selectors), expireSeconds, alertAt, recorded, webhook, List.copyOf(actions)));
+                groups.add(new Group(List.copyOf(selectors), alertAt, recorded, webhook, List.copyOf(actions)));
             }
-        } catch (RuntimeException unloadable) {
+        } catch (RuntimeException ignored) {
             // PunishmentManager stops loading at the first group it cannot parse.
         }
         return new CheckPolicy(List.copyOf(groups));
     }
 
-    /** The command's first word as {@code /word}, keeping only characters a command name uses. */
+    // The word lands in a MiniMessage template: strip anything that could be a tag, color code or placeholder.
     private static String commandWord(String command) {
         String word = command.strip();
         int space = word.indexOf(' ');
@@ -141,15 +118,15 @@ public final class CheckPolicy {
         return "/" + word.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}_:.-]", "");
     }
 
-    public @NotNull Status status(@NotNull CheckCatalog.Entry entry) {
+    public Status status(CheckCatalog.Entry entry) {
         String name = entry.name().toLowerCase(Locale.ROOT);
         String altName = entry.runtimeAltName();
         if (altName != null) altName = altName.toLowerCase(Locale.ROOT);
-        List<Group> holding = new ArrayList<>();
+        List<Group> matched = new ArrayList<>();
         for (Group group : groups) {
-            if (inGroup(group.selectors(), name, altName)) holding.add(group);
+            if (inGroup(group.selectors(), name, altName)) matched.add(group);
         }
-        return new Status(List.copyOf(holding));
+        return new Status(List.copyOf(matched));
     }
 
     /**

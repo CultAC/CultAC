@@ -11,7 +11,7 @@ public class RiptideOffset extends Check implements PostPredictionListener {
                 playerData,
                 CheckInfo.builder()
                         .name("RiptideOffset")
-                        .description("Used a Riptide trident in a way the game does not allow")
+                        .description("Impossible Riptide trident launch")
                         .build());
     }
 }

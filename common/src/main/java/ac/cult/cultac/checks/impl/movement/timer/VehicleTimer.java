@@ -20,7 +20,7 @@ public class VehicleTimer extends AbstractTimerCheck {
                 cultPlayer,
                 CheckInfo.builder()
                         .name("TimerVehicle")
-                        .description("Sped up their game while riding a vehicle")
+                        .description("Game ran faster than normal while riding")
                         .configName("TimerVehicle")
                         .setback(5)
                         .build());

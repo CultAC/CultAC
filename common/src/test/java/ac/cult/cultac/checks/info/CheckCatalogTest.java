@@ -1,7 +1,6 @@
 package ac.cult.cultac.checks.info;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -19,50 +18,54 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import java.util.function.Function;
 import org.junit.jupiter.api.Test;
 
 class CheckCatalogTest {
-    record Identity(String name, String configName, String altName, boolean experimental) {}
-
     @Test
     void listsEveryCheckAJavaPlayerBuilds() {
-        assertEquals(catalog(), built(MovementPlatform.JAVA, CheckCatalogTest::identity));
+        assertEquals(catalog(), identities(MovementPlatform.JAVA));
     }
 
     @Test
     void listsEveryCheckABedrockPlayerBuilds() {
-        assertEquals(catalog(), built(MovementPlatform.BEDROCK, CheckCatalogTest::identity));
+        assertEquals(catalog(), identities(MovementPlatform.BEDROCK));
     }
 
     @Test
-    void listsEachCheckOnce() {
+    void noCheckIsListedTwice() {
         Set<String> names = new HashSet<>();
         for (CheckCatalog.Entry entry : CheckCatalog.ENTRIES) assertTrue(names.add(entry.name()), entry.name());
     }
 
     @Test
-    void givesEveryCheckAnAlertDescription() {
+    void everyCheckHasAnAlertDescription() {
         List<String> undescribed = new ArrayList<>();
         for (MovementPlatform platform : MovementPlatform.values()) {
-            built(platform, check -> {
+            for (Check check : checks(platform)) {
                 String description = check.getDescription();
                 if (description == null || description.isBlank() || description.equals(CheckData.DEFAULT_DESCRIPTION))
                     undescribed.add(check.getCheckName());
-                return check.getCheckName();
-            });
+            }
         }
         assertEquals(List.of(), undescribed);
     }
 
     @Test
-    void findsACheckByAnyOfItsNamesIgnoringCase() {
+    void aCheckIsFoundByItsNameConfigNameOrAltName() {
         assertEquals("SprintD", CheckCatalog.find("sprintd").name());
         assertEquals("AntiKB", CheckCatalog.find("KNOCKBACK").name());
         assertEquals("AntiKB", CheckCatalog.find("antiknockback").name());
         assertEquals("Timer", CheckCatalog.find("timera").name());
         assertNull(CheckCatalog.find("Sprint"));
-        assertNotEquals(List.of(), CheckCatalog.containing("badpackets"));
+    }
+
+    @Test
+    void aPartOfANameListsEveryCheckContainingIt() {
+        assertEquals(
+                List.of("NegativeTimer", "TickTimer", "Timer", "TimerVehicle"),
+                CheckCatalog.containing("TIMER").stream()
+                        .map(CheckCatalog.Entry::name)
+                        .toList());
     }
 
     private static Set<Identity> catalog() {
@@ -74,12 +77,16 @@ class CheckCatalogTest {
         return identities;
     }
 
-    private static Identity identity(Check check) {
-        return new Identity(
-                check.getCheckName(), check.getConfigName(), check.getAlternativeName(), check.isExperimental());
+    private static Set<Identity> identities(MovementPlatform platform) {
+        Set<Identity> identities = new HashSet<>();
+        for (Check check : checks(platform)) {
+            identities.add(new Identity(
+                    check.getCheckName(), check.getConfigName(), check.getAlternativeName(), check.isExperimental()));
+        }
+        return identities;
     }
 
-    private static <T> Set<T> built(MovementPlatform platform, Function<Check, T> read) {
+    private static List<Check> checks(MovementPlatform platform) {
         OfflineCultTestBootstrap.installConfig();
         UUID uuid = UUID.randomUUID();
         EmbeddedChannel channel = new EmbeddedChannel();
@@ -88,14 +95,16 @@ class CheckCatalogTest {
                 ? new CultPlayer(user, platform, new BedrockPlayerState(uuid))
                 : new CultPlayer(user);
         try {
-            Set<T> values = new HashSet<>();
+            List<Check> checks = new ArrayList<>();
             for (Check check : player.checkManager.allChecks.values()) {
-                if (check.getConfigName() != null) values.add(read.apply(check));
+                if (check.getConfigName() != null) checks.add(check);
             }
-            return values;
+            return checks;
         } finally {
             player.onRemove();
             channel.finishAndReleaseAll();
         }
     }
+
+    record Identity(String name, String configName, String altName, boolean experimental) {}
 }

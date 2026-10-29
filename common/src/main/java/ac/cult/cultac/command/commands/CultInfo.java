@@ -8,7 +8,6 @@ import ac.cult.cultac.checks.info.CheckPolicy;
 import ac.cult.cultac.checks.info.CheckTexts;
 import ac.cult.cultac.command.BuildableCommand;
 import ac.cult.cultac.command.CloudCommandService;
-import ac.cult.cultac.manager.config.BaseConfigManager;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.grim.grimac.api.config.ConfigManager;
@@ -25,20 +24,14 @@ import org.incendo.cloud.context.CommandContext;
 import org.incendo.cloud.description.Description;
 import org.incendo.cloud.parser.standard.StringParser;
 
-/**
- * {@code /cult info check <check>} explains what a check catches and what this server does about its flags, in plain
- * language for staff; {@code /cult info checks [group]} lists the checks by group.
- */
 public class CultInfo implements BuildableCommand {
-    static final String PERMISSION = "cult.info";
-
     @Override
     public void register(CommandManager<Sender> commandManager, CloudPlatformCommandArguments arguments) {
         var info = BuildableCommand.root(commandManager)
                 .literal("info", Description.of("Explain what the anticheat checks catch"))
-                .permission(PERMISSION);
+                .permission("cult.info");
         commandManager.command(
-                info.handler(context -> send(context.sender(), CheckInfoLines.groups(context.sender(), view()))));
+                info.handler(context -> send(context.sender(), CheckInfoLines.overview(context.sender(), view()))));
         commandManager.command(info.literal("checks")
                 .optional("group", StringParser.stringParser(), CloudArguments.of(CultInfo::groupIds))
                 .handler(context -> show(context, "group")));
@@ -47,17 +40,17 @@ public class CultInfo implements BuildableCommand {
                 .handler(context -> show(context, "check")));
     }
 
-    /** A check or a group, whichever {@code argument} names; every group without one. */
     private static void show(CommandContext<Sender> context, String argument) {
         Sender sender = context.sender();
         CheckInfoLines.View view = view();
-        String query = context.<String>optional(argument).orElse(null);
+        String query = context.getOrDefault(argument, null);
         if (query == null) {
-            send(sender, CheckInfoLines.groups(sender, view));
+            send(sender, CheckInfoLines.overview(sender, view));
             return;
         }
         CheckCatalog.Entry entry = view.find(query);
         CheckCategory category = CheckCategory.byId(query);
+        // Elytra and Cloud are both a check and a group; each subcommand prefers its own kind.
         if (argument.equals("check") && entry != null) send(sender, CheckInfoLines.check(sender, view, entry));
         else if (category != null) send(sender, CheckInfoLines.group(sender, view, category));
         else if (entry != null) send(sender, CheckInfoLines.check(sender, view, entry));
@@ -69,24 +62,20 @@ public class CultInfo implements BuildableCommand {
     }
 
     private static CheckInfoLines.View view() {
-        BaseConfigManager manager = CultAPI.INSTANCE.getConfigManager();
-        ConfigManager config = manager.getConfig();
+        ConfigManager config = CultAPI.INSTANCE.getConfigManager().getConfig();
         return new CheckInfoLines.View(
-                config,
-                CheckPolicy.of(config),
-                CheckTexts.get(),
-                manager.isObserveOnly(),
-                config.getBooleanElse("experimental-checks", false));
+                config, CheckPolicy.of(config), CheckTexts.get(), config.getBooleanElse("experimental-checks", false));
     }
 
-    /** {@code alert} with the check's name, wherever it shows, running {@code /cult info check} for it when clicked. */
+    /** Makes the check's name in a rendered alert run {@code /cult info check} when clicked. */
     public static Component linkCheckName(Component alert, Check check) {
         String name = check.getCheckName();
-        String shown = check.getDisplayName();
-        if (name == null || shown == null || shown.isBlank() || CheckCatalog.find(name) == null) return alert;
+        String displayName = check.getDisplayName();
+        if (name == null || displayName == null || displayName.isBlank() || CheckCatalog.find(name) == null)
+            return alert;
         ClickEvent click = ClickEvent.runCommand(CloudCommandService.command("info check " + name));
         return alert.replaceText(TextReplacementConfig.builder()
-                .match(Pattern.compile("(?<![\\p{L}\\p{N}])" + Pattern.quote(shown) + "(?![\\p{L}\\p{N}])"))
+                .match(Pattern.compile("(?<![\\p{L}\\p{N}_])" + Pattern.quote(displayName) + "(?![\\p{L}\\p{N}_])"))
                 .replacement(text -> text.clickEvent(click))
                 .build());
     }
@@ -97,7 +86,6 @@ public class CultInfo implements BuildableCommand {
         return ids;
     }
 
-    /** Every check's name, and its display name where this server renamed it. */
     static List<String> checkNames() {
         ConfigManager config = CultAPI.INSTANCE.getConfigManager().getConfig();
         Set<String> names = new LinkedHashSet<>();

@@ -11,7 +11,7 @@ public class Angle extends Check implements PostPredictionListener {
                 cultPlayer,
                 CheckInfo.builder()
                         .name("Angle")
-                        .description("Moved in a direction the normal game does not allow")
+                        .description("Moved in an impossible direction")
                         .build());
     }
 }

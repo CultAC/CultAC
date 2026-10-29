@@ -11,7 +11,7 @@ public class HappyGhastPseudo extends Check implements PostPredictionListener {
                 player,
                 CheckInfo.builder()
                         .name("HappyGhastOffset")
-                        .description("Flew a happy ghast in a way the normal game does not allow")
+                        .description("Impossible happy ghast flight")
                         .build());
     }
 }

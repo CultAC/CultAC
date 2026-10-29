@@ -11,7 +11,7 @@ public class Speed extends Check implements PostPredictionListener {
                 cultPlayer,
                 CheckInfo.builder()
                         .name("Speed")
-                        .description("Moved faster than allowed on the ground")
+                        .description("Moved too fast on the ground")
                         .build());
     }
 }

@@ -27,7 +27,7 @@ public class NegativeTimerCheck extends AbstractTimerCheck implements PostPredic
                 cultPlayer,
                 CheckInfo.builder()
                         .name("NegativeTimer")
-                        .description("Game ran slower than normal speed")
+                        .description("Game ran slower than normal")
                         .setback(10)
                         .build());
         this.timerBalanceRealTime = System.nanoTime() + this.clockDrift;

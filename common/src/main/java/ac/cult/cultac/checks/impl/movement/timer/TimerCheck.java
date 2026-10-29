@@ -16,7 +16,7 @@ public class TimerCheck extends AbstractTimerCheck {
                 cultPlayer,
                 CheckInfo.builder()
                         .name("Timer")
-                        .description("Game ran faster than normal speed")
+                        .description("Game ran faster than normal")
                         .configName("TimerA")
                         .setback(5)
                         .build());

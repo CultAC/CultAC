@@ -11,7 +11,7 @@ public class Strafe extends Check implements PostPredictionListener {
                 cultPlayer,
                 CheckInfo.builder()
                         .name("Strafe")
-                        .description("Changed their movement in the air in a way the game does not allow")
+                        .description("Impossible mid-air movement")
                         .build());
     }
 }

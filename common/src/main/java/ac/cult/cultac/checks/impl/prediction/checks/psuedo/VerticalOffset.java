@@ -11,7 +11,7 @@ public class VerticalOffset extends Check implements PostPredictionListener {
                 cultPlayer,
                 CheckInfo.builder()
                         .name("VerticalOffset")
-                        .description("Moved up or down in a way the game does not allow")
+                        .description("Impossible up or down movement")
                         .build());
     }
 }

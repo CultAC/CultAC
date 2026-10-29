@@ -11,7 +11,7 @@ public class InputKeys extends Check implements PostPredictionListener {
                 cultPlayer,
                 CheckInfo.builder()
                         .name("InputKeys")
-                        .description("Sent movement controls the normal game cannot produce")
+                        .description("Sent impossible movement keys")
                         .build());
     }
 }
