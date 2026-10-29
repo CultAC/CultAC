@@ -13,7 +13,6 @@ import ac.cult.cultac.checks.impl.combat.PlayerReach;
 import ac.cult.cultac.checks.impl.combat.ReachCheck.MeasuredAttack;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.network.codec.ObservedPacketValues;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.packet.WorldPackets.TimeUpdate;
@@ -28,7 +27,6 @@ import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.testing.CodecFixture;
 import ac.cult.cultac.protocol.value.EntityPose;
@@ -110,19 +108,19 @@ class CamelReceivedSittingTest {
             for (char ground : IDLE_GROUND.toCharArray())
                 assertExact(ride(f, START, RIDER_YAW, CAMEL_YAW, ground == 'T'));
             f.input(FORWARD_SPRINT);
-            command(f, PlayerCommandAction.START_SPRINTING);
+            f.command(PlayerCommandAction.START_SPRINTING);
             // The root ticked on the idle keys before LocalPlayer#aiStep read the pressed ones.
             assertExact(ride(f, START, RIDER_YAW, CAMEL_YAW, true));
             for (int tick = 0; tick < STAND_UP_GROUND.length(); tick++) {
                 if (tick == 18) {
                     f.input(IDLE);
-                    command(f, PlayerCommandAction.STOP_SPRINTING);
+                    f.command(PlayerCommandAction.STOP_SPRINTING);
                 }
                 assertExact(ride(f, START, RIDER_YAW, CAMEL_YAW, STAND_UP_GROUND.charAt(tick) == 'T'));
             }
 
             f.input(FORWARD_SPRINT);
-            command(f, PlayerCommandAction.START_SPRINTING);
+            f.command(PlayerCommandAction.START_SPRINTING);
             assertExact(ride(f, START, 0F, 0F, true));
             assertExact(ride(f, new Vec3(START.x, START.y, START.z + GROUND_INPUT), 0F, 0F, true));
         }
@@ -218,12 +216,6 @@ class CamelReceivedSittingTest {
 
     private static Vec3 onFloor(double x, double z, double originX, double originZ) {
         return new Vec3(x - originX, FLOOR_Y, z - originZ);
-    }
-
-    private static void command(JavaTickFixture f, PlayerCommandAction action) {
-        var command = new ServerboundPlayerCommand(f.player.entityID, action, 0);
-        new PacketEntityAction()
-                .onPlayerCommand(f.event(ServerboundPackets.PLAYER_COMMAND, command), f.player, command);
     }
 
     /** One client tick: the rider's Rot, the camel's move and the tick end. */

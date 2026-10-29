@@ -14,6 +14,7 @@ import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
+import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerSteer;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.manager.config.BaseConfigManager;
@@ -39,9 +40,11 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAbilities;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.protocol.value.Relative;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer;
@@ -355,6 +358,15 @@ final class JavaTickFixture implements AutoCloseable {
         var packet = new ServerboundPlayerAbilities(flying);
         var event = event(ServerboundPackets.PLAYER_ABILITIES, packet);
         listener.onPlayerAbilities(event, player, packet);
+    }
+
+    void command(PlayerCommandAction action) {
+        command(action, 0);
+    }
+
+    void command(PlayerCommandAction action, int data) {
+        var packet = new ServerboundPlayerCommand(player.entityID, action, data);
+        new PacketEntityAction().onPlayerCommand(event(ServerboundPackets.PLAYER_COMMAND, packet), player, packet);
     }
 
     /** The client answers every ping up to {@code transaction}. */

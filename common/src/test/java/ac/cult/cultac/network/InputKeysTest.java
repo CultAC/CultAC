@@ -15,7 +15,6 @@ import ac.cult.cultac.checks.impl.prediction.OffsetHandler;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InputKeys;
 import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
-import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.events.packets.listeners.PacketSelfMetadataListener;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
@@ -23,8 +22,6 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketType;
-import ac.cult.cultac.protocol.packet.ServerboundPackets;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.AttributeModifier;
 import ac.cult.cultac.protocol.value.AttributeSnapshot;
@@ -458,7 +455,7 @@ class InputKeysTest {
     void sprintingBackwardIsFlagged() throws Exception {
         try (var f = new JavaTickFixture()) {
             startCapturedRun(f, SPRINT_BACK, CAPTURED_BACKWARD_RUN[0], CAPTURED_BACKWARD_RUN[1]);
-            command(f, PlayerCommandAction.START_SPRINTING);
+            f.command(PlayerCommandAction.START_SPRINTING);
             assertRunFlagged(f, CAPTURED_BACKWARD_RUN);
         }
     }
@@ -466,7 +463,7 @@ class InputKeysTest {
     @Test
     void sprintingSidewaysIsFlagged() throws Exception {
         try (var f = new JavaTickFixture()) {
-            command(f, PlayerCommandAction.START_SPRINTING);
+            f.command(PlayerCommandAction.START_SPRINTING);
             startCapturedRun(f, SPRINT_BACK_LEFT, CAPTURED_SIDEWAYS_RUN[0], CAPTURED_SIDEWAYS_RUN[1]);
             f.input(SPRINT_LEFT);
             assertRunFlagged(f, CAPTURED_SIDEWAYS_RUN);
@@ -476,7 +473,7 @@ class InputKeysTest {
     @Test
     void sprintingDiagonallyForwardIsNotFlagged() throws Exception {
         try (var f = new JavaTickFixture()) {
-            command(f, PlayerCommandAction.START_SPRINTING);
+            f.command(PlayerCommandAction.START_SPRINTING);
             startCapturedRun(f, SPRINT_FORWARD_LEFT, CAPTURED_DIAGONAL_RUN[0], CAPTURED_DIAGONAL_RUN[1]);
             for (int row = 2; row < CAPTURED_DIAGONAL_RUN.length; row++) {
                 assertExact(replay(f, CAPTURED_DIAGONAL_RUN[row]));
@@ -490,7 +487,7 @@ class InputKeysTest {
     void sprintStrafingIsNotFlagged() throws Exception {
         try (var f = new JavaTickFixture()) {
             f.place(new Vec3(0.5, FLOOR_Y, -4.5), GROUNDED);
-            command(f, PlayerCommandAction.START_SPRINTING);
+            f.command(PlayerCommandAction.START_SPRINTING);
             f.input(SPRINT_FORWARD);
             Vec3 position = new Vec3(0.5, FLOOR_Y, -4.5);
             Vec3 velocity = Vec3.ZERO;
@@ -1056,10 +1053,5 @@ class InputKeysTest {
 
     private static Vec3 captured(double[] row) {
         return new Vec3(row[0] + CAPTURE_SHIFT_X, FLOOR_Y, row[1] + CAPTURE_SHIFT_Z);
-    }
-
-    private static void command(JavaTickFixture f, PlayerCommandAction action) {
-        var packet = new ServerboundPlayerCommand(f.player.entityID, action, 0);
-        new PacketEntityAction().onPlayerCommand(f.event(ServerboundPackets.PLAYER_COMMAND, packet), f.player, packet);
     }
 }
