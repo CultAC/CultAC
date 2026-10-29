@@ -91,6 +91,25 @@ class ClientBrandReportTest {
     }
 
     @Test
+    void aDifferentObservedBrandReachesThePeersInTheNextDeltaAndTheSameOneSendsNothing() {
+        connected();
+        check.restore("vanilla");
+        check.observe("vanilla");
+        TestNetworks.sendDelta(here);
+        assertEquals("vanilla", peerBrand());
+
+        check.observe("fabric");
+        TestNetworks.sendDelta(here);
+        assertEquals("fabric", peerBrand());
+        assertEquals("vanilla", check.getBrand());
+
+        int sent = rosters();
+        check.observe("fabric");
+        TestNetworks.sendDelta(here);
+        assertEquals(sent, rosters());
+    }
+
+    @Test
     void anOversizedFirstBrandIsReportedCut() {
         connected();
         check.handle(CHANNEL, payload("y".repeat(100)));

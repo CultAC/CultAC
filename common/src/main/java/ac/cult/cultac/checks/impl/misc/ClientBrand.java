@@ -72,18 +72,20 @@ public class ClientBrand extends Check implements CheckListener {
 
     /**
      * Takes a brand the platform read before Cult attached to the connection, such as the one a 1.20.2+ client sends
-     * Velocity on entering configuration. A brand already received on the wire wins.
+     * Velocity on entering configuration. A brand already known wins here; a different one still reaches the network.
      */
     public void observe(String received) {
-        if (hasBrand || received == null) return;
-        // The wire form is a VarInt length and the string; the same 64-byte bound applies.
-        int length = received.getBytes(StandardCharsets.UTF_8).length + 1;
-        if (length > 64) {
-            brand = "sent " + length + " bytes as brand";
-        } else {
-            announce(received);
+        if (received == null) return;
+        if (!hasBrand) {
+            // The wire form is a VarInt length and the string; the same 64-byte bound applies.
+            int length = received.getBytes(StandardCharsets.UTF_8).length + 1;
+            if (length > 64) {
+                brand = "sent " + length + " bytes as brand";
+            } else {
+                announce(received);
+            }
+            hasBrand = true;
         }
-        hasBrand = true;
         report(received);
     }
 

@@ -286,10 +286,6 @@ class NetworkServiceTest {
         draining.verboseChanged();
         draining.sendDelta();
         assertTrue(rosterBodiesFrom("p3").isEmpty());
-        current.set(true);
-        draining.sendDelta();
-        assertTrue(rosterBodiesFrom("p3").isEmpty());
-        current.set(false);
 
         started("p7", new Players().with(ALICE, "Alice", "lobby"));
         assertEquals("p7", draining.locate("Alice").orElseThrow().instance());
@@ -920,12 +916,13 @@ class NetworkServiceTest {
         assertEquals(published + 1, rosterBodiesFrom("p3").size());
     }
 
-    @Test
-    void aSupersededGenerationThatStopsHandsItsUnsentReportsOver() {
+    /** An older and a newer, current generation of p3 sharing one host, and a peer p7 that heard the newer one. */
+    private record Swapped(NetworkService older, NetworkService newer, NetworkService peer) {}
+
+    private Swapped swapped(Players here) {
         Map<String, Object> shared = new HashMap<>();
         AtomicBoolean olderCurrent = new AtomicBoolean(true);
         AtomicBoolean newerCurrent = new AtomicBoolean(false);
-        Players here = new Players().with(BOB, "Bob", "lobby");
         NetworkService older = service("p3", here, host(shared, olderCurrent, "g1"), KEY, true);
         older.start();
         NetworkService peer = started("p7", new Players());
@@ -933,40 +930,66 @@ class NetworkServiceTest {
         newerCurrent.set(true);
         NetworkService newer = service("p3", here, host(shared, newerCurrent, "g2"), KEY, true);
         newer.start();
-
-        here.online.remove(BOB);
-        older.playerLeft(BOB);
-        older.stop();
-        newer.sendDelta();
-        assertTrue(peer.locate("Bob").isEmpty());
+        return new Swapped(older, newer, peer);
     }
 
     @Test
-    void aHandedOverReportThePlatformNoLongerAgreesWithOrTheCurrentGenerationHasIsLeftOut() {
-        Map<String, Object> shared = new HashMap<>();
-        AtomicBoolean olderCurrent = new AtomicBoolean(true);
-        AtomicBoolean newerCurrent = new AtomicBoolean(false);
-        Players here = new Players().with(BOB, "Bob", "lobby");
-        NetworkService older = service("p3", here, host(shared, olderCurrent, "g1"), KEY, true);
-        older.start();
-        NetworkService peer = started("p7", new Players());
-        olderCurrent.set(false);
-        newerCurrent.set(true);
-        NetworkService newer = service("p3", here, host(shared, newerCurrent, "g2"), KEY, true);
-        newer.start();
+    void theLaterOfTwoReportsForOnePlayerWinsWhicheverGenerationMadeThem() {
+        Swapped swapped = swapped(new Players().with(BOB, "Bob", "lobby"));
 
-        older.playerLeft(BOB);
-        older.playerChanged(new OnlinePlayer(ALICE, "Alice", "lobby"));
-        older.sendDelta();
-        newer.sendDelta();
-        assertEquals("lobby", peer.locate("Bob").orElseThrow().server());
-        assertTrue(peer.locate("Alice").isEmpty());
+        swapped.newer().playerChanged(new OnlinePlayer(BOB, "Bob", "survival"));
+        swapped.older().playerChanged(new OnlinePlayer(BOB, "Bob", "hub"));
+        swapped.newer().sendDelta();
+        assertEquals("hub", swapped.peer().locate("Bob").orElseThrow().server());
 
-        newer.playerChanged(new OnlinePlayer(BOB, "Bob", "survival"));
-        older.playerChanged(new OnlinePlayer(BOB, "Bob", "lobby"));
-        older.sendDelta();
-        newer.sendDelta();
-        assertEquals("survival", peer.locate("Bob").orElseThrow().server());
+        swapped.older().playerChanged(new OnlinePlayer(BOB, "Bob", "lobby"));
+        swapped.newer().playerChanged(new OnlinePlayer(BOB, "Bob", "survival"));
+        swapped.newer().sendDelta();
+        assertEquals("survival", swapped.peer().locate("Bob").orElseThrow().server());
+    }
+
+    @Test
+    void anOlderGenerationsTickAndStopKeepItsReportsForTheCurrentOne() {
+        Players here = new Players().with(BOB, "Bob", "lobby").with(ALICE, "Alice", "lobby");
+        Swapped swapped = swapped(here);
+        int published = rosterBodiesFrom("p3").size();
+
+        here.with(BOB, "Bob", "survival");
+        swapped.older().playerChanged(new OnlinePlayer(BOB, "Bob", "survival"));
+        swapped.older().tick();
+        here.online.remove(ALICE);
+        swapped.older().playerLeft(ALICE);
+        swapped.older().stop();
+        assertEquals(published, rosterBodiesFrom("p3").size());
+
+        swapped.newer().sendDelta();
+        assertEquals(published + 1, rosterBodiesFrom("p3").size());
+        assertFalse(rosterBodiesFrom("p3").getLast().get("full").getAsBoolean());
+        assertEquals("survival", swapped.peer().locate("Bob").orElseThrow().server());
+        assertTrue(swapped.peer().locate("Alice").isEmpty());
+    }
+
+    @Test
+    void aReportMadeAfterADrainRidesTheNextDelta() {
+        Players here = new Players().with(BOB, "Bob", "lobby").with(ALICE, "Alice", "lobby");
+        Swapped swapped = swapped(here);
+
+        swapped.older().playerChanged(new OnlinePlayer(BOB, "Bob", "lobby"));
+        swapped.newer().tick();
+        int published = rosterBodiesFrom("p3").size();
+        swapped.newer().sendDelta();
+        assertEquals(published, rosterBodiesFrom("p3").size());
+
+        here.online.remove(ALICE);
+        swapped.older().playerLeft(ALICE);
+        swapped.newer().sendDelta();
+        assertEquals(published + 1, rosterBodiesFrom("p3").size());
+        assertTrue(swapped.peer().locate("Alice").isEmpty());
+
+        swapped.older().playerChanged(new OnlinePlayer(BOB, "Bob", "survival"));
+        swapped.newer().sendDelta();
+        assertEquals(published + 2, rosterBodiesFrom("p3").size());
+        assertEquals("survival", swapped.peer().locate("Bob").orElseThrow().server());
     }
 
     @Test
