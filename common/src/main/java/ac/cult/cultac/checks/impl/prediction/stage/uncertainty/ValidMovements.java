@@ -258,7 +258,8 @@ public class ValidMovements {
         double limit = clip.getResult();
         if (Math.abs(target - limit) > 1.0E-7D) return target;
         double start = xAxis ? initialStartingVel.x : initialStartingVel.z;
-        boolean past = limit > 0.0D ? start >= limit : limit < 0.0D && start <= limit;
+        int side = limit != 0.0D ? (int) Math.signum(limit) : clip.getSide();
+        boolean past = side > 0 ? start >= limit : side < 0 && start <= limit;
         // UncertaintyHelper#handleSpherical moves X/Z through handleCircular.
         return past && closestTrace.position().reasonMovedAxisSince("circular", initialStartingVel, xAxis)
                 ? start
