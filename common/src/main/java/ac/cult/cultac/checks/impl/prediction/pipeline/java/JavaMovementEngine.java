@@ -719,7 +719,7 @@ public final class JavaMovementEngine implements MovementEngine {
         for (var spin : JavaSpinAttack.afterTravel(player, result, end, effects.velocity())) {
             var afterSpin = new JavaInsideBlockEffects.State(
                     effects.fallDistance(), spin.velocity(), effects.stuckSpeed(), effects.powderContact());
-            afterSpin = afterActorTick(player, context, moved.movement(), afterSpin);
+            afterSpin = afterActorTick(player, context, moved, afterSpin);
             afterSpin = GeyserVelocity.applyToState(player, result, end, afterSpin);
             for (Vec3 next : JavaEntityVelocityTicks.afterTravel(
                     player, context, result.getInitialStartingVel(), end, afterSpin.velocity()))
@@ -796,12 +796,14 @@ public final class JavaMovementEngine implements MovementEngine {
     }
 
     private static JavaInsideBlockEffects.State afterActorTick(
-            CultPlayer player, SimulationContext context, Vec3 movement, JavaInsideBlockEffects.State state) {
+            CultPlayer player, SimulationContext context, JavaFallDistance.Moved moved, JavaInsideBlockEffects.State state) {
         // Strider#tick -> floatStrider is AFTER LivingEntity's inside-block callbacks.
+        // From 26.1, checkFallDamage can refresh lava during Entity#move, so the entering move
+        // must already float using that cache rather than the pre-travel WorldData flag.
         if (context.getVehicle() != null
                 && context.getVehicle().isStrider()
-                && context.getWorldData().isInLava()) {
-            Vec3 end = context.getStart().add(movement);
+                && moved.touchingLava()) {
+            Vec3 end = context.getStart().add(moved.movement());
             boolean onSurface = ac.cult.cultac.utils.nmsutil.Above.isAbove(end.y)
                     && !ac.cult.blocksim.data.FluidTags.LAVA.test(
                             ac.cult.cultac.utils.nmsutil.ClientFluidQueries.fluidAt(

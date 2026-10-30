@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.network.packet.EntityMetadata;
@@ -25,6 +26,7 @@ import ac.cult.cultac.utils.data.ClientFluidHeights;
 import ac.cult.blocksim.engine.SimItemStack;
 import java.nio.ByteBuffer;
 import java.util.List;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -221,11 +223,73 @@ class JavaStriderStateVersionsTest {
             double distance = speed * (0.21600002F / (0.6F * 0.6F * 0.6F));
             var result = f.rideTick(START.add(0, 0, version == ClientVersion.V_1_21_5 ? 0 : distance), true);
             assertTrue(exact(result), describe(result));
+            // From 26.1 checkFallDamage refreshes lava during the entering move. Strider#floatStrider
+            // consumes that refreshed cache after travel, so buoyancy already belongs to this tick's carry.
+            assertFalse(result.getSimulationContext().getWorldData().isInLava());
+            boolean entersLava = version.isNewerThanOrEquals(ClientVersion.V_26_1);
+            assertEquals(entersLava, result.getJavaCommittedMove().touchingLava());
+            double drag = (double) (0.6F * 0.91F);
+            Vec3 expectedCarry = version == ClientVersion.V_1_21_5
+                    ? Vec3.ZERO
+                    : new Vec3(0, FALL, distance * drag);
+            if (entersLava) expectedCarry = expectedCarry.scale(0.5D).add(0, 0.05D, 0);
+            var carried = f.player.checkManager.getSimulationProcessor().getValidPlayerStartingVels();
+            assertEquals(1, carried.size());
+            Vec3 actualCarry = carried.iterator().next();
+            assertEquals(expectedCarry.x, actualCarry.x, 1.0E-12);
+            assertEquals(expectedCarry.y, actualCarry.y, 1.0E-12);
+            assertEquals(expectedCarry.z, actualCarry.z, 1.0E-12);
             f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 1), BlockIds.AIR.defaultState());
             f.player.getInventory().inventory.setHeldItem(SimItemStack.EMPTY);
             metadata(f, false, false);
             f.rideTick();
             assertEquals(version.isOlderThan(ClientVersion.V_26_1), strider.isSuffocating());
+        }
+    }
+
+    /** flag-80: the entering move refreshed lava, but its buoyancy was missing from the following tick. */
+    @Test
+    void enteringFlowingLavaCarriesBuoyancyIntoTheReportedMove() throws Exception {
+        try (var f = fixture(ClientVersion.V_26_3)) {
+            // Translate the captured stone floor and falling-lava edge to the fixture's origin.
+            Vec3 start = new Vec3(249.69379455520638 - 249, FLOOR_Y, -33.5473916986739 + 34);
+            f.place(start, Vec3.ZERO);
+            PacketEntityStrider strider = add(f, STRIDER, start);
+            metadata(f, true, true);
+            f.player.compensatedEntities.updateAttributes(STRIDER, List.of(new AttributeSnapshot(
+                    "minecraft:movement_speed", BASE, List.of(new AttributeModifier(
+                            "minecraft:suffocating", (double) -0.34F,
+                            AttributeModifier.Operation.ADD_MULTIPLIED_BASE)))));
+            strider.hasSaddle = true;
+            f.player.getInventory().inventory.setHeldItem(ItemUtil.modelItems().stack("minecraft:warped_fungus_on_a_stick", 1));
+            f.setPassengers(STRIDER, List.of(f.player.entityID));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            strider.onGround = true;
+            f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.TRUE);
+            f.player.checkManager.getSimulationProcessor().seedStartingVelocity(
+                    new Vec3(-0.009263867010203134, FALL, -0.04059946313201133));
+            int fallingLava = DataTables.defaults().registry().with(BlockIds.LAVA.defaultState(), "level", "8");
+            int flowingLava = DataTables.defaults().registry().with(BlockIds.LAVA.defaultState(), "level", "2");
+            for (int x = -2; x <= 4; x++) {
+                for (int y = FLOOR_Y; y <= FLOOR_Y + 4; y++) {
+                    f.player.compensatedWorld.updateBlock(new BlockPos(x, y, -1), fallingLava);
+                    f.player.compensatedWorld.updateBlock(new BlockPos(x, y, -3), fallingLava);
+                }
+                f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y, -2), flowingLava);
+            }
+            f.player.xRot = 189.26958F;
+            var entering = f.rideTick(new Vec3(249.6910405219138 - 249, FLOOR_Y, -33.62788856302265 + 34), true);
+            assertTrue(exact(entering), describe(entering));
+            assertFalse(entering.getSimulationContext().getWorldData().isInLava());
+            assertTrue(entering.getJavaCommittedMove().touchingLava());
+
+            f.player.xRot = 170.21957F;
+            var next = f.rideTick(new Vec3(
+                    249.68764206780045 - 249,
+                    FLOOR_Y + 0.010799999237065094,
+                    -33.67254369091616 + 34), false);
+            assertTrue(exact(next), describe(next));
+            assertEquals(0.0D, next.getOffset(), 1.0E-12, describe(next));
         }
     }
 
