@@ -49,10 +49,12 @@ public final class SectionPool {
             IntUnaryOperator mapper,
             int targetRegistrySize) {
         if (nonUniformSections == null) return null;
+        int copiedAt = PalettedSection.NO_WORD_COPY;
         for (int i = 0, candidates = Math.min(nonUniformSections.size(), WIRE_CANDIDATES); i < candidates; i++) {
             PalettedSection states = nonUniformSections.get(i).states();
-            if (states.skipIfEncodes(input, lengthPrefixed, sourceRegistrySize, mapper, targetRegistrySize))
-                return states.copyOnWrite();
+            copiedAt = states.skipIfEncodes(
+                    input, lengthPrefixed, sourceRegistrySize, mapper, targetRegistrySize, copiedAt);
+            if (copiedAt == PalettedSection.MATCHED) return states.copyOnWrite();
         }
         return null;
     }

@@ -21,7 +21,7 @@ import java.util.Arrays;
 import java.util.function.IntPredicate;
 import java.util.function.IntUnaryOperator;
 
-/** Connection-owned model IDs; shared sections are copied before mutation. */
+/** Model IDs whose storage a section pool may share across connections; shared storage is copied before mutation. */
 public final class PalettedSection {
     private static final int BLOCK_STATES = DataTables.defaults().registry().stateCount();
     private static final int[] VALUES_PER_WORD = new int[33];
@@ -35,6 +35,8 @@ public final class PalettedSection {
     private static final FastThreadLocal<WeakReference<long[]>> CODE_WEIGHTS = new FastThreadLocal<>();
     private static final int SCRATCH_BYTES = 1024 * Long.BYTES;
     private static final int SCRATCH_CODES = 1 << 8;
+    static final int MATCHED = -2;
+    static final int NO_WORD_COPY = -1;
 
     static {
         for (int bits = 1; bits <= 32; bits++) {
@@ -120,7 +122,8 @@ public final class PalettedSection {
 
     /**
      * As {@link #readBlocks(ByteBuf, ProtocolVersion, int, IntUnaryOperator, int)}, sharing the storage of a section in
-     * {@code pool} when the container holds exactly its contents.
+     * {@code pool} when the container holds exactly its contents. {@code mapper} must be pure and non-blocking: it runs
+     * under the pool's lock, possibly once per pooled candidate.
      */
     public static PalettedSection readBlocks(
             ByteBuf input,
@@ -203,14 +206,18 @@ public final class PalettedSection {
      */
     private static byte[] copiedBytes(ByteBuf input, int index, int length) {
         if (length > SCRATCH_BYTES) return null;
-        WeakReference<byte[]> reference = WORD_BYTES.get();
-        byte[] bytes = reference == null ? null : reference.get();
+        byte[] bytes = heldBytes();
         if (bytes == null) {
             bytes = new byte[SCRATCH_BYTES];
             WORD_BYTES.set(new WeakReference<>(bytes));
         }
         input.getBytes(index, bytes, 0, length);
         return bytes;
+    }
+
+    private static byte[] heldBytes() {
+        WeakReference<byte[]> reference = WORD_BYTES.get();
+        return reference == null ? null : reference.get();
     }
 
     /** Pinned 26.3 PalettedContainer.write framing: bits, palette, fixed-length words. */
@@ -585,63 +592,75 @@ public final class PalettedSection {
      * Whether the block container at the reader index, read as {@link #read} then remapped by {@code mapper} into
      * {@code targetRegistrySize} IDs, would equal this local section in every field; the reader index is then past the
      * container, and otherwise unchanged. A container that read would reject never matches.
+     *
+     * <p>{@code copiedAt} is the reader index of the words this thread's scratch holds from an earlier call on the same
+     * container, or {@link #NO_WORD_COPY}; the result is {@link #MATCHED}, or the value to pass to the next such call.
      */
-    boolean skipIfEncodes(
+    int skipIfEncodes(
             ByteBuf input,
             boolean lengthPrefixed,
             int sourceRegistrySize,
             IntUnaryOperator mapper,
-            int targetRegistrySize) {
+            int targetRegistrySize,
+            int copiedAt) {
         int start = input.readerIndex();
+        int result = NO_WORD_COPY;
         try {
-            if (encodedAt(input, lengthPrefixed, sourceRegistrySize, mapper, targetRegistrySize)) return true;
+            result = encodedAt(input, lengthPrefixed, sourceRegistrySize, mapper, targetRegistrySize, copiedAt);
+            if (result == MATCHED) return MATCHED;
         } catch (RuntimeException rejected) {
             // The full read that follows raises the same failure from the same reader index.
         }
         input.readerIndex(start);
-        return false;
+        return result;
     }
 
-    private boolean encodedAt(
+    private int encodedAt(
             ByteBuf input,
             boolean lengthPrefixed,
             int sourceRegistrySize,
             IntUnaryOperator mapper,
-            int targetRegistrySize) {
+            int targetRegistrySize,
+            int copiedAt) {
         if (size != 4096
                 || minimumBits != 4
                 || maximumLocalBits != 8
                 || registrySize != targetRegistrySize
                 || isGlobal()
                 || bits == 0
-                || paletteSize == 0) return false;
+                || paletteSize == 0) return copiedAt;
         int wireBits = input.readByte();
-        if (wireBits < 1 || wireBits > maximumLocalBits || Math.max(minimumBits, wireBits) != bits) return false;
+        if (wireBits < 1 || wireBits > maximumLocalBits || Math.max(minimumBits, wireBits) != bits) return copiedAt;
         int capacity = 1 << bits;
         int entries = Wire.readLength(input, bits <= 4 ? capacity : input.readableBytes());
-        if (entries != paletteSize || palette.length != Math.max(capacity, entries)) return false;
+        if (entries != paletteSize || palette.length != Math.max(capacity, entries)) return copiedAt;
         for (int i = 0; i < entries; i++) {
             int id = Wire.readVarInt(input);
-            if (id < 0 || id >= sourceRegistrySize) return false;
+            if (id < 0 || id >= sourceRegistrySize) return copiedAt;
             int mapped = mapper.applyAsInt(id);
-            if (mapped != palette[i] || mapped < 0 || mapped >= targetRegistrySize) return false;
+            if (mapped != palette[i] || mapped < 0 || mapped >= targetRegistrySize) return copiedAt;
         }
         int perWord = 64 / bits, length = (size + perWord - 1) / perWord;
-        if (words.length != length) return false;
-        if (lengthPrefixed && Wire.readLength(input, input.readableBytes() / Long.BYTES) != length) return false;
+        if (words.length != length) return copiedAt;
+        if (lengthPrefixed && Wire.readLength(input, input.readableBytes() / Long.BYTES) != length) return copiedAt;
         int bytes = length * Long.BYTES;
-        if (input.readableBytes() < bytes) return false;
+        if (input.readableBytes() < bytes) return copiedAt;
         int index = input.readerIndex();
-        byte[] array = input.hasArray() ? input.array() : copiedBytes(input, index, bytes);
+        int held = copiedAt;
+        byte[] array = input.hasArray() ? input.array() : index == copiedAt ? heldBytes() : null;
+        if (array == null && !input.hasArray()) {
+            array = copiedBytes(input, index, bytes);
+            if (array != null) held = index;
+        }
         if (array == null) {
-            for (int i = 0; i < length; i++) if (input.getLong(index + i * Long.BYTES) != words[i]) return false;
+            for (int i = 0; i < length; i++) if (input.getLong(index + i * Long.BYTES) != words[i]) return held;
         } else {
             int offset = input.hasArray() ? input.arrayOffset() + index : 0;
             for (int i = 0; i < length; i++)
-                if ((long) BIG_ENDIAN_LONGS.get(array, offset + i * Long.BYTES) != words[i]) return false;
+                if ((long) BIG_ENDIAN_LONGS.get(array, offset + i * Long.BYTES) != words[i]) return held;
         }
         input.skipBytes(bytes);
-        return true;
+        return MATCHED;
     }
 
     boolean sameContents(PalettedSection other) {

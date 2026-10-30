@@ -50,8 +50,8 @@ class SectionPoolWireMatchTest {
                 try {
                     String expected = outcome(() -> PalettedSection.readBlocks(full, version, SOURCE, mapper, target));
                     boolean hit = candidate != null && matches(pool, input.duplicate(), version, mapper, target);
-                    String actual = outcome(
-                            () -> PalettedSection.readBlocks(input, version, SOURCE, mapper, target, pool));
+                    String actual =
+                            outcome(() -> PalettedSection.readBlocks(input, version, SOURCE, mapper, target, pool));
                     assertEquals(expected, actual, "round " + round);
                     assertEquals(full.readerIndex(), input.readerIndex(), "round " + round);
                     if (hit) shared++;
@@ -99,12 +99,83 @@ class SectionPoolWireMatchTest {
                 shared++;
             long seed = random.nextLong();
             assertEquals(
-                    writes(full, new SplittableRandom(seed)), writes(read, new SplittableRandom(seed)), "round " + round);
+                    writes(full, new SplittableRandom(seed)),
+                    writes(read, new SplittableRandom(seed)),
+                    "round " + round);
             assertArrayEquals(before, written(candidate), "round " + round);
             var again = PalettedSection.readBlocks(Unpooled.wrappedBuffer(wire), pool);
             assertArrayEquals(written(PalettedSection.readBlocks(Unpooled.wrappedBuffer(wire))), written(again));
         }
         assertTrue(shared > 600, "shared " + shared);
+    }
+
+    @Test
+    void aReadAgainstSeveralCandidatesWithTheSamePaletteMatchesTheFullRead() {
+        var random = new SplittableRandom(0x9A11L);
+        IntUnaryOperator mapper = id -> id % STATES;
+        int later = 0, missed = 0;
+        for (int round = 0; round < 1500; round++) {
+            var version = VERSIONS[random.nextInt(VERSIONS.length)];
+            byte[] wire = section(random, version, false);
+            int wordBytes = wordBytes(wire);
+            if (wordBytes == 0) continue;
+            var candidates = new ArrayList<PalettedSection>();
+            var candidateWires = new ArrayList<byte[]>();
+            for (int i = 0, count = 2 + random.nextInt(8); i < count; i++) {
+                byte[] changed = wire.clone();
+                int word = wire.length - wordBytes + random.nextInt(wordBytes / Long.BYTES) * Long.BYTES;
+                changed[word + random.nextInt(Long.BYTES)] ^= (byte) (1 << random.nextInt(8));
+                var states = decoded(changed, version, mapper);
+                if (states == null) continue;
+                candidates.add(states);
+                candidateWires.add(changed);
+            }
+            if (candidates.size() < 2) continue;
+            int matching = random.nextInt(candidates.size() + 1);
+            byte[] input = matching == candidates.size() ? wire : candidateWires.get(matching);
+            var pool = new SectionPool();
+            injected(pool, candidates);
+            var before = new ArrayList<byte[]>();
+            for (var candidate : candidates) before.add(written(candidate));
+            List<ByteBuf> fulls = buffers(input), pooleds = buffers(input);
+            for (int kind = 0; kind < fulls.size(); kind++) {
+                ByteBuf full = fulls.get(kind), pooled = pooleds.get(kind);
+                try {
+                    String expected = outcome(() -> PalettedSection.readBlocks(full, version, SOURCE, mapper, STATES));
+                    if (matching > 0 && matches(pool, pooled.duplicate(), version, mapper, STATES)) later++;
+                    String actual =
+                            outcome(() -> PalettedSection.readBlocks(pooled, version, SOURCE, mapper, STATES, pool));
+                    assertEquals(expected, actual, "round " + round);
+                    assertEquals(full.readerIndex(), pooled.readerIndex(), "round " + round);
+                } finally {
+                    full.release();
+                    pooled.release();
+                }
+            }
+            for (int i = 0; i < candidates.size(); i++)
+                assertArrayEquals(before.get(i), written(candidates.get(i)), "round " + round);
+            if (matching == candidates.size()) missed++;
+        }
+        assertTrue(later > 300, "later " + later);
+        assertTrue(missed > 100, "missed " + missed);
+    }
+
+    /** The length of the stored words that end {@code wire}, 0 for a container without local palette words. */
+    private static int wordBytes(byte[] wire) {
+        int wireBits = wire[0];
+        if (wireBits < 1 || wireBits > 8) return 0;
+        int perWord = 64 / Math.max(4, wireBits);
+        return (4096 + perWord - 1) / perWord * Long.BYTES;
+    }
+
+    /** The decoded section when it decodes and could be pooled, null otherwise. */
+    private static PalettedSection decoded(byte[] wire, ProtocolVersion version, IntUnaryOperator mapper) {
+        try {
+            var states = PalettedSection.readBlocks(Unpooled.wrappedBuffer(wire), version, SOURCE, mapper, STATES);
+            return states.isUniform() || new CachedSection(states).isEmpty() ? null : states;
+        } catch (RuntimeException failure) {
+            return null;
+        }
     }
 
     /** The section a decode of {@code wire} pools, or null when it fails or pools nothing. */
@@ -127,15 +198,21 @@ class SectionPoolWireMatchTest {
     }
 
     private static PalettedSection injected(SectionPool pool, PalettedSection states) {
+        injected(pool, List.of(states));
+        return states;
+    }
+
+    private static void injected(SectionPool pool, List<PalettedSection> states) {
         try {
             var field = SectionPool.class.getDeclaredField("nonUniformSections");
             field.setAccessible(true);
             var sections = new ArrayList<CachedSection>();
-            var section = new CachedSection(states);
-            section.markShared();
-            sections.add(section);
+            for (var candidate : states) {
+                var section = new CachedSection(candidate);
+                section.markShared();
+                sections.add(section);
+            }
             field.set(pool, sections);
-            return states;
         } catch (ReflectiveOperationException failure) {
             throw new AssertionError(failure);
         }
@@ -262,7 +339,8 @@ class SectionPoolWireMatchTest {
 
     private static String hex(byte[] bytes) {
         var text = new StringBuilder(bytes.length * 2);
-        for (byte value : bytes) text.append(Character.forDigit(value >> 4 & 15, 16)).append(Character.forDigit(value & 15, 16));
+        for (byte value : bytes)
+            text.append(Character.forDigit(value >> 4 & 15, 16)).append(Character.forDigit(value & 15, 16));
         return text.toString();
     }
 }
