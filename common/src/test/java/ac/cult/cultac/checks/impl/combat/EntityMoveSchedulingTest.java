@@ -3,7 +3,6 @@ package ac.cult.cultac.checks.impl.combat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
@@ -21,6 +20,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveEntity;
 import ac.cult.cultac.protocol.value.EntityDelta;
 import ac.cult.cultac.protocol.value.Vec3d;
+import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.latency.LatencyUtils;
 import ac.cult.cultac.utils.math.Vec3;
 import io.netty.channel.embedded.EmbeddedChannel;
@@ -33,28 +33,67 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 /**
- * A remote player's relative move on a legacy client without the reach bundle delimiter: the transaction-bound movement queues one task for both of its
- * transactions, and the FairReach move applies once, at whichever of its transaction or its deadline comes first.
+ * A remote player's relative move on a legacy client without the reach bundle delimiter: the transaction-bound movement
+ * applies once at its transaction and settles once at the next, also when one acknowledgement reaches both, and the
+ * FairReach move applies once, at whichever of its transaction or its deadline comes first.
  */
 class EntityMoveSchedulingTest {
     private static final int TARGET = 3000;
 
     @Test
-    void aTransactionBoundMoveQueuesOneTaskForBothTransactions() {
+    void aTransactionBoundMoveAppliesAtItsTransactionAndSettlesAtTheNext() {
         CultPlayer player = trackingPlayer();
         try {
             world(player);
             RecordingLatencyUtils latency = new RecordingLatencyUtils(player);
             player.latencyUtils = latency;
             moveAndAcknowledge(player, move(4096));
-            latency.queued.clear();
+            PacketEntity target = player.compensatedEntities.getEntity(TARGET);
+            latency.clear();
 
             int first = foreignPing(player);
             send(player, move(-4096));
-            Runnable movement = latency.queuedAt(first);
-            acknowledge(player, first);
+            assertEquals(List.of(first), latency.paired, "one movement task for both transactions");
+            assertEquals(List.of(), latency.runs, "nothing runs before the client answers");
+            assertNull(target.oldPacketLocation, "the earlier move settled");
 
-            assertSame(movement, latency.queuedAt(first + 1), "the second half reuses the first half's task");
+            acknowledge(player, first);
+            assertEquals(List.of("apply@" + first), latency.runs);
+            assertNotNull(target.oldPacketLocation, "applying keeps the position before the move possible");
+
+            acknowledge(player, first + 1);
+            assertEquals(List.of("apply@" + first, "settle@" + (first + 1)), latency.runs);
+            assertNull(target.oldPacketLocation, "settling drops the position before the move");
+
+            acknowledge(player, first + 2);
+            assertEquals(List.of("apply@" + first, "settle@" + (first + 1)), latency.runs, "neither half runs again");
+        } finally {
+            close(player);
+        }
+    }
+
+    @Test
+    void oneAcknowledgementPastBothTransactionsAppliesThenSettlesTheMoveOnce() {
+        CultPlayer player = trackingPlayer();
+        try {
+            world(player);
+            RecordingLatencyUtils latency = new RecordingLatencyUtils(player);
+            player.latencyUtils = latency;
+            moveAndAcknowledge(player, move(4096));
+            PacketEntity target = player.compensatedEntities.getEntity(TARGET);
+            latency.clear();
+
+            int first = foreignPing(player);
+            send(player, move(-4096));
+            assertEquals(List.of(first), latency.paired, "one movement task for both transactions");
+
+            acknowledge(player, first + 1);
+            assertEquals(List.of("apply@" + (first + 1), "settle@" + (first + 1)), latency.runs);
+            assertNull(target.oldPacketLocation, "settling drops the position before the move");
+
+            acknowledge(player, first + 2);
+            assertEquals(
+                    List.of("apply@" + (first + 1), "settle@" + (first + 1)), latency.runs, "neither half runs again");
         } finally {
             close(player);
         }
@@ -141,29 +180,35 @@ class EntityMoveSchedulingTest {
                 TARGET, new EntityDelta.Linear((short) dx, (short) 0, (short) 0), 0.0F, 0.0F, true, true, false);
     }
 
+    /** Records paired registrations and, for each half, the transaction the client had answered when it ran. */
     private static final class RecordingLatencyUtils extends LatencyUtils {
-        private final List<Object[]> queued = new ArrayList<>();
+        private final CultPlayer player;
+        private final List<Integer> paired = new ArrayList<>();
+        private final List<String> runs = new ArrayList<>();
 
         private RecordingLatencyUtils(CultPlayer player) {
             super(player);
+            this.player = player;
         }
 
         @Override
-        public void addRealTimeTask(int transaction, Runnable task) {
-            queued.add(new Object[] {transaction, task});
-            super.addRealTimeTask(transaction, task);
+        public void addRealTimeTaskWithNextTransaction(int transaction, Runnable runnable, Runnable next) {
+            paired.add(transaction);
+            super.addRealTimeTaskWithNextTransaction(
+                    transaction,
+                    () -> {
+                        runs.add("apply@" + player.lastTransactionReceived.get());
+                        runnable.run();
+                    },
+                    () -> {
+                        runs.add("settle@" + player.lastTransactionReceived.get());
+                        next.run();
+                    });
         }
 
-        private Runnable queuedAt(int transaction) {
-            Runnable found = null;
-            for (Object[] entry : queued) {
-                if ((int) entry[0] != transaction
-                        || entry[1].getClass().getName().contains("FairReach")) continue;
-                assertNull(found, "one movement task per transaction");
-                found = (Runnable) entry[1];
-            }
-            assertNotNull(found, "a movement task at transaction " + transaction);
-            return found;
+        private void clear() {
+            paired.clear();
+            runs.clear();
         }
     }
 
