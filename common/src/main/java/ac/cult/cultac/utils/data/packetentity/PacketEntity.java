@@ -1224,7 +1224,10 @@ public class PacketEntity {
                 new SimpleCollisionBox(), oldPacketLocation == null ? null : new SimpleCollisionBox());
     }
 
-    /** The bounds of {@link #getPossibleCollisionBoxes()} in {@code out}; {@code scratch} must be distinct. */
+    /**
+     * The bounds of {@link #getPossibleCollisionBoxes()} in {@code out}. {@code scratch} must be distinct; it is read only
+     * when an old location exists and may otherwise be null.
+     */
     public SimpleCollisionBox getPossibleCollisionBoxes(SimpleCollisionBox out, SimpleCollisionBox scratch) {
         if (passengerPhysicalBox != null && riding != null) return out.set(passengerPhysicalBox);
         newPacketLocation.getPossibleLocationCombined(out);
@@ -1238,7 +1241,10 @@ public class PacketEntity {
                 new SimpleCollisionBox(), oldPacketLocation == null ? null : new SimpleCollisionBox());
     }
 
-    /** The bounds of {@link #getPossibleMovementCollisionBoxes()} in {@code out}; {@code scratch} must be distinct. */
+    /**
+     * The bounds of {@link #getPossibleMovementCollisionBoxes()} in {@code out}. {@code scratch} must be distinct; it is read only
+     * when an old location exists and may otherwise be null.
+     */
     public SimpleCollisionBox getPossibleMovementCollisionBoxes(SimpleCollisionBox out, SimpleCollisionBox scratch) {
         if (passengerPhysicalBox != null && riding != null) return out.set(passengerPhysicalBox);
         newPacketLocation.getPossibleMovementLocationCombined(out);

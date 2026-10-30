@@ -1191,7 +1191,10 @@ public class CultPlayer implements GrimUser {
     private final SimpleCollisionBox fitEntityBox = new SimpleCollisionBox();
     private final SimpleCollisionBox fitEntityScratch = new SimpleCollisionBox();
 
-    /** Player#canPlayerFitWithinBlocksAndEntitiesWhen with the player at {@code (x, y, z)}. */
+    /**
+     * Player#canPlayerFitWithinBlocksAndEntitiesWhen with the player at {@code (x, y, z)}.
+     * Call on this player's packet thread only: the query uses per-player scratch boxes.
+     */
     public boolean canPlayerFitWithinBlocksAndEntitiesWhen(Pose newPose, double x, double y, double z) {
         SimpleCollisionBox box = GetBoundingBox.getBoundingBoxFromPosAndSize(
                         fitBox, x, y, z, newPose.width * getScale(), newPose.height * getScale())
@@ -1202,6 +1205,7 @@ public class CultPlayer implements GrimUser {
     /**
      * Whether the {@code newPose} box at the position may fit within blocks and entities: false when blocks or an
      * entity at each of its possible positions overlap it.
+     * Call on this player's packet thread only: the query uses per-player scratch boxes.
      */
     public boolean mayPlayerFitWithinBlocksAndEntitiesWhen(Pose newPose, double x, double y, double z) {
         SimpleCollisionBox box = GetBoundingBox.getBoundingBoxFromPosAndSize(
@@ -1227,6 +1231,7 @@ public class CultPlayer implements GrimUser {
      * Whether at some possible position of each entity the crouching box at the position fits blocks and entities while
      * the standing box does not: the standing box is the crouching one with a band above it, so something must overlap
      * that band without overlapping the crouching box.
+     * Call on this player's packet thread only: the query uses per-player scratch boxes.
      */
     public boolean mayFitOnlyCrouchingWhen(double x, double y, double z) {
         if (!mayPlayerFitWithinBlocksAndEntitiesWhen(Pose.CROUCHING, x, y, z)) return false;
