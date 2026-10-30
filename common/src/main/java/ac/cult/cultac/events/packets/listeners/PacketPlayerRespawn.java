@@ -31,6 +31,7 @@ import ac.cult.cultac.utils.data.KnownInput;
 import ac.cult.cultac.utils.data.SprintingState;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
+import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.FlightToggle;
 
@@ -299,7 +300,9 @@ public class PacketPlayerRespawn {
             final BadPacketsF badPacketsF = player.checkManager.getListener(BadPacketsF.class);
             badPacketsF.exemptNext = true;
             player.lastOnGround = false;
-            player.isGliding = false;
+            // ClientPacketListener#handleRespawn copies the old shared flags, fall flying included, only for
+            // KEEP_ENTITY_DATA.
+            if (!keepEntityData || player.isBedrockMovement()) player.isGliding = false;
             player.isInBed = false;
             // Respawn permits one glide-state re-entry.
             ElytraC elytraC = player.checkManager.getListener(ElytraC.class);
@@ -389,7 +392,14 @@ public class PacketPlayerRespawn {
             player.isSprinting = !player.isBedrockMovement() && player.sprintState.flag();
             player.vehicleData.camelSprintingState = SprintingState.STOPPED;
             badPacketsF.lastSprinting = player.isSprinting;
-            player.refreshPlayerPose();
+            if (player.isBedrockMovement()) {
+                player.refreshPlayerPose();
+            } else {
+                // KEEP_ENTITY_DATA copies the old pose; a fresh LocalPlayer starts STANDING. Player#updatePlayerPose
+                // replaces it only after the first aiStep, so a kept FALL_FLYING pose without fall flying still
+                // makes LocalPlayer#isMovingSlowly crawl for that tick.
+                player.refreshPlayerPose(keepEntityData ? player.pose : Pose.STANDING);
+            }
             // LocalPlayer#isShiftKeyDown reads the fresh KeyboardInput's Input.EMPTY until the first aiStep.
             player.isSneaking = false;
             player.gamemode = ac.cult.cultac.protocol.value.GameMode.valueOf(
