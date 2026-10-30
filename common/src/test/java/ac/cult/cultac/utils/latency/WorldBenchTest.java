@@ -127,7 +127,8 @@ class WorldBenchTest {
         for (int column = 0; column < chunks.size(); column++) {
             SectionSnapshot[] snapshots = decode(chunks.get(column));
             for (int i = 0; i < snapshots.length; i++)
-                SectionPool.forChunk(dimension, column, i, 0).internRetained(new CachedSection(snapshots[i].copyBlocks()));
+                SectionPool.forChunk(dimension, column, i, 0)
+                        .internRetained(new CachedSection(snapshots[i].copyBlocks()));
         }
         long shared = 0;
         for (int column = 0; column < chunks.size(); column++) {
@@ -136,7 +137,9 @@ class WorldBenchTest {
                 bytes.readShort();
                 bytes.readShort();
                 var pool = SectionPool.existing(dimension, column, i, 0);
-                var view = pool == null ? null : pool.sharedBlocks(bytes, false, STATES, IntUnaryOperator.identity(), STATES);
+                var view = pool == null
+                        ? null
+                        : pool.sharedBlocks(bytes, false, STATES, IntUnaryOperator.identity(), STATES);
                 if (view != null) shared++;
                 else PalettedSection.readBlocks(bytes);
                 PalettedSection.readBiomes(bytes, BIOMES);
@@ -145,12 +148,13 @@ class WorldBenchTest {
         }
         String hits = "shared " + shared + " of " + sectionsTotal + " sections";
         System.out.println(System.getenv().getOrDefault("CULT_BENCH_LABEL", "run") + " two-players " + hits);
-        report("decode-first", sectionsTotal, units -> {
+        var bodies = new LinkedHashMap<String, LongUnaryOperator>();
+        bodies.put("decode-first", units -> {
             long seen = 0;
             for (long unit = 0; unit < units; unit++) for (byte[] chunk : chunks) seen += decode(chunk).length;
             return seen;
         });
-        report("decode-second", sectionsTotal, units -> {
+        bodies.put("decode-second", units -> {
             long seen = 0;
             for (long unit = 0; unit < units; unit++)
                 for (int column = 0; column < chunks.size(); column++) {
@@ -172,7 +176,27 @@ class WorldBenchTest {
                 }
             return seen;
         });
-        report("raw-second", sectionsTotal, units -> {
+        bodies.put("raw-first", units -> {
+            long seen = 0;
+            for (long unit = 0; unit < units; unit++)
+                for (byte[] wire : chunks) {
+                    var bytes = Unpooled.wrappedBuffer(wire);
+                    CachedSection[] cached = new CachedSection[SECTIONS_PER_CHUNK];
+                    int[][] biomes = new int[SECTIONS_PER_CHUNK][];
+                    for (int i = 0; i < SECTIONS_PER_CHUNK; i++) {
+                        bytes.readShort();
+                        bytes.readShort();
+                        cached[i] = new CachedSection(PalettedSection.readBlocks(bytes));
+                        biomes[i] = PalettedSection.readBiomeValues(bytes, BIOMES);
+                    }
+                    bytes.release();
+                    var chunk = CachedChunk.received(cached, 0, List.of(), biomes);
+                    for (CachedSection section : cached) if (section.isEmpty() && !section.hasFluid()) seen++;
+                    seen += chunk.biomeAt(0, 0, 0, 0);
+                }
+            return seen;
+        });
+        bodies.put("raw-second", units -> {
             long seen = 0;
             for (long unit = 0; unit < units; unit++)
                 for (int column = 0; column < chunks.size(); column++) {
@@ -193,6 +217,7 @@ class WorldBenchTest {
                 }
             return seen;
         });
+        interleaved(sectionsTotal, bodies);
     }
 
     /** The sections as chunk section data, {@value #SECTIONS_PER_CHUNK} to a column. */
@@ -235,24 +260,43 @@ class WorldBenchTest {
     }
 
     private static void report(String name, int perRun, LongUnaryOperator body) throws Exception {
-        long units = 1;
-        while (cpu(body, units) < 200_000_000L) units *= 2;
-        for (int warm = 0; warm < 3; warm++) sink += body.applyAsLong(units);
-        long[] nanos = new long[REPS], bytes = new long[REPS];
-        for (int rep = 0; rep < REPS; rep++) {
-            long allocated = BEAN.getCurrentThreadAllocatedBytes(), start = BEAN.getCurrentThreadCpuTime();
-            sink += body.applyAsLong(units);
-            nanos[rep] = (BEAN.getCurrentThreadCpuTime() - start) * 1000 / (units * perRun);
-            bytes[rep] = (BEAN.getCurrentThreadAllocatedBytes() - allocated) * 1000 / (units * perRun);
+        interleaved(perRun, Map.of(name, body));
+    }
+
+    /** Each body sized to at least 1 s of thread CPU per rep, their reps alternating so host load falls on all alike. */
+    private static void interleaved(int perRun, Map<String, LongUnaryOperator> bodies) throws Exception {
+        var names = List.copyOf(bodies.keySet());
+        long[] units = new long[names.size()];
+        long[][] nanos = new long[names.size()][REPS], bytes = new long[names.size()][REPS];
+        for (int body = 0; body < names.size(); body++) {
+            units[body] = 1;
+            while (cpu(bodies.get(names.get(body)), units[body]) < 1_000_000_000L) units[body] *= 2;
         }
+        for (int warm = 0; warm < 3; warm++)
+            for (int body = 0; body < names.size(); body++)
+                sink += bodies.get(names.get(body)).applyAsLong(units[body]);
+        for (int rep = 0; rep < REPS; rep++)
+            for (int body = 0; body < names.size(); body++) {
+                long allocated = BEAN.getCurrentThreadAllocatedBytes(), start = BEAN.getCurrentThreadCpuTime();
+                sink += bodies.get(names.get(body)).applyAsLong(units[body]);
+                long work = units[body] * perRun;
+                nanos[body][rep] = (BEAN.getCurrentThreadCpuTime() - start) * 1000 / work;
+                bytes[body][rep] = (BEAN.getCurrentThreadAllocatedBytes() - allocated) * 1000 / work;
+            }
         String label = System.getenv().getOrDefault("CULT_BENCH_LABEL", "run");
-        String line = label + " " + name + " ps/item " + summary(nanos) + " | milli-bytes/item " + summary(bytes)
-                + System.lineSeparator();
-        System.out.print(line);
         String out = System.getenv("CULT_BENCH_OUT");
-        if (out != null)
-            Files.writeString(
-                    Path.of(out), line, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        for (int body = 0; body < names.size(); body++) {
+            String line = label + " " + names.get(body) + " ps/item " + summary(nanos[body]) + " | milli-bytes/item "
+                    + summary(bytes[body]) + System.lineSeparator();
+            System.out.print(line);
+            if (out != null)
+                Files.writeString(
+                        Path.of(out),
+                        line,
+                        StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.APPEND);
+        }
     }
 
     private static long cpu(LongUnaryOperator body, long units) {
