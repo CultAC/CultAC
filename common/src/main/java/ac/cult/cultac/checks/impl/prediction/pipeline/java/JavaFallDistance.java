@@ -42,8 +42,7 @@ public final class JavaFallDistance {
         // handleOnClimbable runs in air travel, not water/lava travel. Use the START block.
         Vec3 start = context.getStart();
         boolean climb = actor.isLivingEntity()
-                && !water
-                && !lava
+                && !world.isInTravelLiquid()
                 && !context.usesFallFlyingMovement()
                 && Collisions.onClimbable(player, start.x, start.y, start.z);
         boolean reset = water

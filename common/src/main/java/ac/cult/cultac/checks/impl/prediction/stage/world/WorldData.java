@@ -23,6 +23,10 @@ public class WorldData {
     @Setter
     boolean inLava;
 
+    /** LivingEntity#canStandOnFluid for the fluid at the actor's starting block, independently of body contact. */
+    @Setter
+    boolean canStandOnStartFluid;
+
     /** Whether that fluid update touched a fluid with a current. */
     @Setter
     boolean inFlowingLiquid;
@@ -236,11 +240,17 @@ public class WorldData {
         copy.eyeFluidContact = eyeFluidContact;
         copy.waterHeight = waterHeight;
         copy.lavaHeight = lavaHeight;
+        copy.canStandOnStartFluid = canStandOnStartFluid;
         return copy;
     }
 
     public boolean isInLiquid() {
         return inWater || inLava;
+    }
+
+    /** Liquid contact that selects fluid travel rather than the actor's air-travel path. */
+    public boolean isInTravelLiquid() {
+        return isInLiquid() && !canStandOnStartFluid;
     }
 
     /** Bedrock's contact on either pose box; for Java the exact contact. */

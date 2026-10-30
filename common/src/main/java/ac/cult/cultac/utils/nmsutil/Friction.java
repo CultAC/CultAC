@@ -82,7 +82,8 @@ public final class Friction {
         }
 
         // Player#isAffectedByFluids is false in flight, so LivingEntity#travel takes travelInAir in water and lava.
-        boolean fluidTravel = context.getVehicle() != null || !player.isFlying;
+        boolean fluidTravel = (context.getVehicle() != null || !player.isFlying)
+                && !context.getWorldData().isCanStandOnStartFluid();
 
         // Water friction - has highest priority
         if (inWater && fluidTravel) {

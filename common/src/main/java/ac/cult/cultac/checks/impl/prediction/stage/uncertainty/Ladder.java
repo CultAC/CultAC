@@ -54,7 +54,7 @@ public class Ladder implements UncertaintyHandler {
         return !previousClimbBoost
                 && (!context.getWorldData().getClimbingAtStart().determineOptimistically()
                         || context.usesFallFlyingMovement()
-                        || context.getWorldData().isInLiquid());
+                        || context.getWorldData().isInTravelLiquid());
     }
 
     @Override
@@ -92,14 +92,15 @@ public class Ladder implements UncertaintyHandler {
                 // AbstractNautilus#travelInWater replaces LivingEntity#travelInWater and its climbing 0.2.
                 if (lastResult.getSimulationContext().getVehicle() instanceof PacketEntityNautilus
                         && lastResult.getSimulationContext().getWorldData().isInWater()) continue;
-                if (lastResult.getSimulationContext().getWorldData().isInWater()) {
+                if (lastResult.getSimulationContext().getWorldData().isInWater()
+                        && !lastResult.getSimulationContext().getWorldData().isCanStandOnStartFluid()) {
                     Vec3 modified = start.withY(0.2D * 0.8F);
                     modified = FluidFallingAdjustedMovement.getFluidFallingAdjustedMovement(
                             player, grav, falling, modified);
                     double carried = afterPacketsThisTick(player, start, modified.y);
                     maximumPossibleY = Math.max(maximumPossibleY, carried);
                     minimumPossibleY = Math.min(minimumPossibleY, carried);
-                } else if (!lastResult.getSimulationContext().getWorldData().isInLiquid()) {
+                } else if (!lastResult.getSimulationContext().getWorldData().isInTravelLiquid()) {
                     double carried = afterPacketsThisTick(player, start, (0.2D - grav) * 0.98F);
                     maximumPossibleY = Math.max(maximumPossibleY, carried);
                     minimumPossibleY = Math.min(minimumPossibleY, carried);
@@ -162,7 +163,7 @@ public class Ladder implements UncertaintyHandler {
         WorldData world = context.getWorldData();
         if (!world.getClimbingAtStart().determineOptimistically()
                 || context.usesFallFlyingMovement()
-                || world.isInLiquid()) return DesyncStatus.FALSE;
+                || world.isInTravelLiquid()) return DesyncStatus.FALSE;
         return world.getClimbingAtStart().isDesync() ? DesyncStatus.UNKNOWN : DesyncStatus.TRUE;
     }
 

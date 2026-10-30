@@ -361,8 +361,9 @@ public class VelocityTransformer {
             return vectors;
         }
 
-        boolean water = simulationContext.getWorldData().isInWater();
-        boolean lava = simulationContext.getWorldData().isInLava();
+        boolean fluidTravel = !simulationContext.getWorldData().isCanStandOnStartFluid();
+        boolean water = fluidTravel && simulationContext.getWorldData().isInWater();
+        boolean lava = fluidTravel && simulationContext.getWorldData().isInLava();
         if (simulationContext.getVehicle() instanceof PacketEntityNautilus) {
             if (water) {
                 addDistinctInputVector(

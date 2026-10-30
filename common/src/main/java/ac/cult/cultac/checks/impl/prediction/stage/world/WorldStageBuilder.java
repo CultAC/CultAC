@@ -318,6 +318,13 @@ public class WorldStageBuilder {
         world.setEyeFluidContact(eyeContact);
         world.setWaterHeight(fluidState.getMaxWaterHeight());
         world.setLavaHeight(fluidState.getMaxLavaHeight());
+        // LivingEntity#shouldTravelInFluid reads the starting block's fluid, not the body-overlap cache.
+        // Strider#canStandOnFluid accepts lava, including flowing lava and fully submerged travel.
+        world.setCanStandOnStartFluid(!player.isBedrockMovement()
+                && simulationContext.getVehicle() instanceof PacketEntityStrider
+                && ClientFluidQueries.is(player,
+                        ClientFluidQueries.fluidAt(player.compensatedWorld,
+                                BlockPos.containing(from.x, from.y, from.z)), FluidTags.LAVA));
         return world;
     }
 

@@ -68,7 +68,8 @@ public final class TravelVelocityTransformer {
             frictions.add(movedVelocity);
         } else {
             var context = result.getSimulationContext();
-            boolean fluidTravel = context.getVehicle() != null || !player.isFlying;
+            boolean fluidTravel = (context.getVehicle() != null || !player.isFlying)
+                    && !context.getWorldData().isCanStandOnStartFluid();
             boolean waterTravel = inWater && fluidTravel;
             boolean lavaTravel = !waterTravel && inLava && fluidTravel;
             // AbstractNautilus#travelInWater replaces LivingEntity#travelInWater: no climbing 0.2 and no fluid hop.

@@ -695,7 +695,7 @@ public class SimulationContext implements Cloneable {
         }
 
         // Player#isAffectedByFluids is false in flight, so LivingEntity#travel takes travelInAir in water and lava.
-        boolean fluidTravel = vehicle != null || !player.isFlying;
+        boolean fluidTravel = (vehicle != null || !player.isFlying) && !worldData.isCanStandOnStartFluid();
         if (water && fluidTravel) {
             float speed = 0.02f;
 
