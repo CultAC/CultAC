@@ -9,6 +9,7 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.StuckSpeedData;
+import ac.cult.cultac.utils.inventory.ItemTypes;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -115,6 +116,26 @@ public final class RiptideUtil {
     public static void startTrackedUse(CultPlayer player, Hand hand) {
         player.packetStateData.riptideUseHand = hand;
         player.packetStateData.riptideUseStartClientTick = player.packetStateData.acceptedClientTick;
+    }
+
+    /**
+     * LocalPlayer#onSyncedDataUpdated on the server's living-entity flags: a cleared using bit stops the client's use,
+     * and a set one starts a use on the flagged hand when {@code clientUsing} is false. Any trident use may charge a
+     * riptide, since LivingEntity#updatingUsingItem keeps it across a switch to a riptide trident.
+     */
+    public static void serverUseFlags(CultPlayer player, byte flags, boolean clientUsing) {
+        if ((flags & 0x01) == 0) {
+            clearTrackedUse(player);
+            return;
+        }
+        Hand hand = (flags & 0x02) != 0 ? Hand.OFF_HAND : Hand.MAIN_HAND;
+        SimItemStack item = player.getInventory().getHandItem(hand);
+        if (!clientUsing
+                && player.packetStateData.riptideUseHand == null
+                && item != null
+                && item.getItem() == ItemTypes.TRIDENT) {
+            startTrackedUse(player, hand);
+        }
     }
 
     public static void clearTrackedUse(CultPlayer player) {

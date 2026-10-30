@@ -12,6 +12,7 @@ import ac.cult.cultac.utils.data.SprintingState;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityUtil;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.RiptideUtil;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import java.util.ArrayList;
 import java.util.List;
@@ -165,7 +166,9 @@ public class PacketSelfMetadataListener {
                         player.latencyUtils.addRealTimeTask(proof.transaction(), () -> {
                             // LivingEntity#onSyncedDataUpdated leaves the pose to Player#updatePlayerPose after aiStep.
                             player.isRiptidePose = isRiptiding;
+                            boolean clientUsing = player.clientItemUse.definitelyUsing();
                             ac.cult.cultac.utils.data.ItemUseInventory.metadata(player, (byte) handValue);
+                            RiptideUtil.serverUseFlags(player, (byte) handValue, clientUsing);
                         });
                     }
                 } else {
