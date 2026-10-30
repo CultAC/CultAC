@@ -250,7 +250,8 @@ public class PacketEntitySelf extends PacketEntity {
             movementEfficiencyAttribute.clearModifiers();
             waterMovementEfficiencyAttribute.clearModifiers();
             refreshAttributeValues();
-            if (scale != keptScale) player.refreshPlayerPose();
+            // AttributeMap#assignBaseValues refreshes dimensions for the current pose; it does not choose another.
+            if (scale != keptScale) player.refreshPlayerPose(player.pose);
         }
     }
 

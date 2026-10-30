@@ -225,16 +225,23 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
     public void onRespawn() {
         resetItemUse();
         player.packetStateData.setSlowedByUsingItem(false);
+        // ClientPacketListener#handleRespawn constructs a new LocalPlayer.
+        if (!player.isBedrockMovement()) newLocalPlayerState();
     }
 
     /** The Java client constructed another player; accumulated anti-abuse accounting survives. */
     public void onJavaPlayerReplacement() {
         player.clientItemUse.reset();
-        player.clientItemUse.onNewLocalPlayer();
-        player.checkManager.getCompensatedCooldown().clearPossibleCooldowns();
+        newLocalPlayerState();
         // A LocalPlayer's FoodData starts full.
         player.food = 20;
         player.packetStateData.setSlowedByUsingItem(false);
+    }
+
+    /** A new LocalPlayer starts with fresh FoodData and empty ItemCooldowns. */
+    private void newLocalPlayerState() {
+        player.clientItemUse.onNewLocalPlayer();
+        player.checkManager.getCompensatedCooldown().clearForNewLocalPlayer();
     }
 
     private void clearMainHandUseAfterSlotChange() {

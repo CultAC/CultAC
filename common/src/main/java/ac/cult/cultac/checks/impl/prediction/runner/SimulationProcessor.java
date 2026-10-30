@@ -139,7 +139,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     boolean lastSneaking = false;
     float lastXRot = 0.0F;
     float lastYRot = 0.0F;
-    boolean lastGliding = false;
     boolean lastMovementWasSetback = false;
     CarriedPush carriedPush = CarriedPush.IDENTITY;
     SimpleCollisionBox pushesWhileLoadingLevel = null;
@@ -1541,7 +1540,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             }
 
             this.lastSneaking = this.player.isSneaking;
-            this.lastGliding = this.player.isGliding;
             if (!this.player.isBedrockMovement()) this.endSpinAttack(result);
             this.player.packetStateData.riptideLevel = 0;
             this.player.packetStateData.riptideAlternativeLevels = List.of();
@@ -2181,7 +2179,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         this.lastOnGround = DesyncStatus.FALSE;
         this.lastFlying.setRaw(20);
         this.lastSneaking = false;
-        this.lastGliding = false;
         this.player.packetStateData.bedrockTranslatedMovement.clear();
         if (this.player.bedrockState != null) {
             this.lastMovementWasSetback = false;

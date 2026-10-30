@@ -183,6 +183,10 @@ public class PacketPlayerRespawn {
                     player.packetStateData.respawnShiftPending = false;
                     player.isGliding = false;
                     player.isInBed = false;
+                    // A fresh LocalPlayer starts with default living flags and no spin attack.
+                    player.isRiptidePose = false;
+                    player.riptideSpinAttackTicks = 0;
+                    player.riptideSpinCertain = false;
                     player.packetStateData.packetPlayerOnGround = false;
                     player.checkManager.getSimulationProcessor().handleRespawn();
                 }
@@ -279,7 +283,6 @@ public class PacketPlayerRespawn {
 
         final boolean keepEntityData = packet.shouldKeep(ClientboundRespawn.KEEP_ENTITY_DATA);
         final boolean keepAttributeModifiers = packet.shouldKeep(ClientboundRespawn.KEEP_ATTRIBUTE_MODIFIERS);
-        // TODO: What does keep all metadata do?
         // A later login replaces this level; its respawn must not touch the new one.
         int level = player.compensatedWorld.level();
         final Runnable applyRespawnState = () -> {
@@ -291,7 +294,8 @@ public class PacketPlayerRespawn {
             }
             player.packetStateData.respawnShiftPending =
                     !player.isBedrockMovement() && player.packetStateData.knownInput.shift();
-            if (!keepEntityData || player.isBedrockMovement()) player.isSneaking = false;
+            // LocalPlayer#isShiftKeyDown reads the fresh KeyboardInput's Input.EMPTY until the first aiStep.
+            player.isSneaking = false;
             if (!keepEntityData) {
                 player.powderSnowFrozenTicks = 0;
             }
@@ -303,7 +307,19 @@ public class PacketPlayerRespawn {
             // ClientPacketListener#handleRespawn copies the old shared flags, fall flying included, only for
             // KEEP_ENTITY_DATA.
             if (!keepEntityData || player.isBedrockMovement()) player.isGliding = false;
-            player.isInBed = false;
+            if (!player.isBedrockMovement()) {
+                // The copied living flags keep a riptide pose, and the copied sleeping position keeps the player
+                // asleep until the server wakes it; LivingEntity only checks the bed on the server. A new
+                // LocalPlayer's autoSpinAttackTicks always start at 0.
+                if (!keepEntityData) {
+                    player.isRiptidePose = false;
+                    player.isInBed = false;
+                }
+                player.riptideSpinAttackTicks = 0;
+                player.riptideSpinCertain = false;
+            } else {
+                player.isInBed = false;
+            }
             // Respawn permits one glide-state re-entry.
             ElytraC elytraC = player.checkManager.getListener(ElytraC.class);
             if (elytraC != null) {
@@ -400,8 +416,6 @@ public class PacketPlayerRespawn {
                 // makes LocalPlayer#isMovingSlowly crawl for that tick.
                 player.refreshPlayerPose(keepEntityData ? player.pose : Pose.STANDING);
             }
-            // LocalPlayer#isShiftKeyDown reads the fresh KeyboardInput's Input.EMPTY until the first aiStep.
-            player.isSneaking = false;
             player.gamemode = ac.cult.cultac.protocol.value.GameMode.valueOf(
                     spawnInfo.gameMode().name());
             player.canInstabuild = player.gamemode == ac.cult.cultac.protocol.value.GameMode.CREATIVE;
