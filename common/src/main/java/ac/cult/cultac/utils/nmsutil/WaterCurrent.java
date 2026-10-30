@@ -40,13 +40,23 @@ public final class WaterCurrent {
             return null;
         }
         SimpleCollisionBox entityBox = getWaterCurrentInteractionBox(player, context, position);
-        double scale = player.compensatedWorld.hasFastLava() ? 0.007D : 0.0023333333333333335D;
-        return calculateFluidCurrent(player, entityBox, vehicle == null, velocityBeforeCurrent, FluidTags.LAVA, scale);
+        return calculateFluidCurrent(
+                player, entityBox, vehicle == null, velocityBeforeCurrent, FluidTags.LAVA, lavaCurrentScale(player));
     }
 
     public static Vec3 calculateNonPlayerWaterCurrent(
             CultPlayer player, SimpleCollisionBox entityBox, Vec3 velocityBeforeCurrent) {
         return calculateWaterCurrent(player, entityBox, false, velocityBeforeCurrent);
+    }
+
+    public static Vec3 calculateNonPlayerLavaCurrent(
+            CultPlayer player, SimpleCollisionBox entityBox, Vec3 velocityBeforeCurrent) {
+        return calculateFluidCurrent(
+                player, entityBox, false, velocityBeforeCurrent, FluidTags.LAVA, lavaCurrentScale(player));
+    }
+
+    private static double lavaCurrentScale(CultPlayer player) {
+        return player.compensatedWorld.hasFastLava() ? 0.007D : 0.0023333333333333335D;
     }
 
     public static Vec3 calculateTouchedNonPlayerWaterCurrent(CultPlayer player, SimpleCollisionBox entityBox) {

@@ -16,6 +16,7 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityRideable;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityTrackXRot;
 import ac.cult.cultac.utils.debug.Debuggable;
 import ac.cult.cultac.utils.math.CultMath;
@@ -115,7 +116,7 @@ public final class CompensatedVehicleState implements Debuggable {
                 && (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)
                         || isItemControlledVehicleType(root))
                 && !canClientAuthoritativelyMoveVisibleRoot(root)) {
-            decayUncontrolledRootVelocity(root);
+            tickUncontrolledRootVelocity(root);
         }
 
         entities.updatePassengerPositions();
@@ -136,21 +137,39 @@ public final class CompensatedVehicleState implements Debuggable {
     }
 
     /**
-     * LivingEntity#aiStep of a living root the client does not move: it scales the delta movement by 0.98 while the
-     * root is not interpolating, then zeroes each component below 0.003.
+     * The client tick of a living root the client does not move. LivingEntity#aiStep scales the delta movement by
+     * 0.98 while the root is not interpolating, then zeroes each component below 0.003. A strider also takes
+     * Entity#baseTick's fluid currents first and Strider#floatStrider last.
      */
-    private void decayUncontrolledRootVelocity(PacketEntity root) {
+    private void tickUncontrolledRootVelocity(PacketEntity root) {
         // Through 26.2 aiStep tests the active path BEFORE stepping it; 26.3 tests AFTER Entity#commonTick.
         boolean interpolating = player.getClientVersion().isOlderThan(ClientVersion.V_26_3)
                 ? root.interpolatedThisClientTick(player) || hasActiveInterpolationTarget(root)
                 : hasActiveInterpolationTarget(root);
-        root.deltaMovement = uncontrolledLivingAiStep(root.deltaMovement, interpolating);
+        // Strider#tick runs floatStrider after LivingEntity#tick whoever controls it. On a lava surface it grounds
+        // the strider; below one it halves the delta movement and adds 0.05Y.
+        PacketEntityStrider strider =
+                root instanceof PacketEntityStrider s && s.isInLavaAfterBaseTick(player) ? s : null;
+        boolean surfaced = strider != null && strider.floatsOnLavaSurface(player);
+        boolean buoyed = strider != null && !surfaced;
+        root.deltaMovement = uncontrolledTick(root, root.deltaMovement, interpolating, buoyed);
         List<Vec3> velocities = new ArrayList<>();
         for (Vec3 velocity : player.checkManager.getSimulationProcessor().getValidPlayerStartingVels()) {
-            Vec3 decayed = uncontrolledLivingAiStep(velocity, interpolating);
-            if (!velocities.contains(decayed)) velocities.add(decayed);
+            Vec3 ticked = uncontrolledTick(root, velocity, interpolating, buoyed);
+            if (!velocities.contains(ticked)) velocities.add(ticked);
         }
         player.checkManager.getSimulationProcessor().seedStartingVelocities(velocities);
+        if (surfaced) {
+            root.onGround = true;
+            player.checkManager.getSimulationProcessor().applyVehiclePacketGround(root, true);
+        }
+    }
+
+    private Vec3 uncontrolledTick(PacketEntity root, Vec3 velocity, boolean interpolating, boolean buoyed) {
+        // Entity#baseTick pushes the strider with the fluid currents before LivingEntity#aiStep.
+        if (root instanceof PacketEntityStrider strider) velocity = strider.withBaseTickCurrents(player, velocity);
+        velocity = uncontrolledLivingAiStep(velocity, interpolating);
+        return buoyed ? velocity.scale(0.5D).add(0.0D, 0.05D, 0.0D) : velocity;
     }
 
     private static Vec3 uncontrolledLivingAiStep(Vec3 velocity, boolean interpolating) {
