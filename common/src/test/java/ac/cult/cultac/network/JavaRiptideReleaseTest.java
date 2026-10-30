@@ -20,12 +20,9 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.events.packets.listeners.PacketPlayerDigging;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.protocol.ProtocolVersion;
-import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
@@ -46,7 +43,6 @@ import org.junit.jupiter.params.provider.EnumSource;
  */
 class JavaRiptideReleaseTest {
     private static final int VEHICLE = 100;
-    private static final Vec3 RESTED = SHALLOWS.add(SETTLED);
 
     @ParameterizedTest
     @EnumSource(
@@ -86,13 +82,7 @@ class JavaRiptideReleaseTest {
 
     /** LivingEntity#releaseUsingItem reads the used hand, so an offhand use spins at the offhand trident's level. */
     @ParameterizedTest
-    @CsvSource({
-        "V_1_21_11, 2, true",
-        "V_1_21_11, 0, false",
-        "V_26_3, 2, true",
-        "V_26_3, 3, false",
-        "V_26_3, 0, false"
-    })
+    @CsvSource({"V_1_21_11, 2, true", "V_1_21_11, 0, false", "V_26_3, 2, true", "V_26_3, 3, false", "V_26_3, 0, false"})
     void anOffhandReleaseSpinsAtTheOffhandTridentsLevel(ClientVersion version, int level, boolean exact)
             throws Exception {
         try (var f = fixture(version)) {
@@ -256,9 +246,7 @@ class JavaRiptideReleaseTest {
             release(f);
             assertEquals(20, f.player.riptideSpinAttackTicks);
             PredictionResult result = f.rideTick(SHALLOWS, true);
-            assertTrue(
-                    result.getSimulationContext().getWorldData().isInWater(),
-                    describe(result));
+            assertTrue(result.getSimulationContext().getWorldData().isInWater(), describe(result));
             assertTrue(exact(result), describe(result));
         }
     }
@@ -305,9 +293,12 @@ class JavaRiptideReleaseTest {
         f.useItem(hand, 0, 0.0F);
     }
 
-    /** Whether the release tick moves exactly by the spin at {@code level}, or resting in the shallows without one. */
+    /**
+     * Whether the release tick moves exactly by the spin at {@code level}, or rests on the floor of the shallows without
+     * one: LivingEntity#travelInWater moves before it applies the fluid's gravity, so the floor keeps the player still.
+     */
     private static void assertRelease(JavaTickFixture f, int level, boolean exact) {
-        PredictionResult result = level == 0 ? f.tick(RESTED, true) : f.tick(lifted(level), false);
+        PredictionResult result = level == 0 ? f.tick(SHALLOWS, true) : f.tick(lifted(level), false);
         assertEquals(exact, exact(result), describe(result));
     }
 }

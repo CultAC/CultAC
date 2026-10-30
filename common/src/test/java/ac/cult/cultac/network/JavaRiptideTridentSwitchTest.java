@@ -11,18 +11,13 @@ import ac.cult.blocksim.data.nbt.CanonicalSnbt;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.events.packets.listeners.PacketPlayerDigging;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSetCarriedItem;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.value.BlockPos;
-import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.Hand;
-import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.math.VanillaMath;
 import ac.cult.cultac.utils.math.Vec3;
@@ -39,7 +34,10 @@ class JavaRiptideTridentSwitchTest {
     private static final ServerboundPlayerInput NONE =
             new ServerboundPlayerInput(false, false, false, false, false, false, false);
     static final Vec3 SHALLOWS = new Vec3(0.5, FLOOR_Y, 0.5);
-    /** LivingEntity#travelInFluid's gravity on a player resting on the floor of the water. */
+    /**
+     * LivingEntity#travelInWater's gravity on a player resting on the floor of the water. It moves before it applies
+     * the gravity, so a player that stays on the floor ends each tick at {@link #SHALLOWS} with this velocity.
+     */
     static final Vec3 SETTLED = new Vec3(0, -0.005, 0);
 
     private static final float LIFT = 1.1999999F;
@@ -75,7 +73,7 @@ class JavaRiptideTridentSwitchTest {
             charge(f, trident(3), trident(1));
             select(f, 1);
             release(f);
-            PredictionResult result = level == 0 ? f.tick(SHALLOWS.add(SETTLED), true) : f.tick(lifted(level), false);
+            PredictionResult result = level == 0 ? f.tick(SHALLOWS, true) : f.tick(lifted(level), false);
             assertTrue(exact(result) == exact, describe(result));
         }
     }
@@ -90,7 +88,7 @@ class JavaRiptideTridentSwitchTest {
             select(f, 1);
             f.tick(SHALLOWS, true);
             release(f);
-            PredictionResult result = f.tick(SHALLOWS.add(SETTLED), true);
+            PredictionResult result = f.tick(SHALLOWS, true);
             assertTrue(exact(result), describe(result));
             assertFalse(f.player.riptideSpinCertain, "the release spins");
         }
@@ -104,7 +102,7 @@ class JavaRiptideTridentSwitchTest {
             charge(f, trident(3), stick());
             select(f, 1);
             release(f);
-            PredictionResult result = level == 0 ? f.tick(SHALLOWS.add(SETTLED), true) : f.tick(lifted(level), false);
+            PredictionResult result = level == 0 ? f.tick(SHALLOWS, true) : f.tick(lifted(level), false);
             assertTrue(exact(result) == exact, describe(result));
         }
     }
@@ -149,7 +147,7 @@ class JavaRiptideTridentSwitchTest {
             f.tick(SHALLOWS, true);
             select(f, 0);
             release(f);
-            PredictionResult result = level == 0 ? f.tick(SHALLOWS.add(SETTLED), true) : f.tick(lifted(level), false);
+            PredictionResult result = level == 0 ? f.tick(SHALLOWS, true) : f.tick(lifted(level), false);
             assertTrue(exact(result) == exact, describe(result));
         }
     }
