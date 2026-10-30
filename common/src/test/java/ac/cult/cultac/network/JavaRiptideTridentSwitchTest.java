@@ -3,7 +3,7 @@ package ac.cult.cultac.network;
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
@@ -23,12 +23,16 @@ import ac.cult.cultac.utils.math.VanillaMath;
 import ac.cult.cultac.utils.math.Vec3;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * A riptide trident charged in shallow water, then the hotbar switched before the release on the ground.
  * LivingEntity#updatingUsingItem keeps the use on another trident and moves it to the held stack in the entity tick,
  * after Minecraft#handleKeybinds; from 1.21.5 LivingEntity#releaseUsingItem moves it there first.
+ *
+ * <p>A hotbar key in Minecraft#handleKeybinds and a scroll back before the next tick's MultiPlayerGameMode#tick leave
+ * the slot that tick's entity tick held unreported, so through 1.21.4 the release may spin with any trident the hotbar
+ * held then. MultiPlayerGameMode#releaseUsingItem reports the selection before the release, which proves the slot the
+ * release reads from 1.21.5.
  */
 class JavaRiptideTridentSwitchTest {
     private static final ServerboundPlayerInput NONE =
@@ -43,8 +47,9 @@ class JavaRiptideTridentSwitchTest {
     private static final float LIFT = 1.1999999F;
     private static final float PITCH = -10.0F;
 
+    /** Through 1.21.4 the previous entity tick may have bound either trident; from 1.21.5 the release reads slot 1. */
     @ParameterizedTest
-    @CsvSource({"V_1_21_4, 1, true", "V_1_21_4, 3, false", "V_26_3, 1, true", "V_26_3, 3, false"})
+    @CsvSource({"V_1_21_4, 1, true", "V_1_21_4, 3, true", "V_26_3, 1, true", "V_26_3, 3, false"})
     void aSwitchBeforeTheReleaseTickSpinsAtTheHeldTridentsLevel(ClientVersion version, int level, boolean exact)
             throws Exception {
         try (var f = new JavaTickFixture(ProtocolVersion.V26_3, version)) {
@@ -78,19 +83,22 @@ class JavaRiptideTridentSwitchTest {
         }
     }
 
+    /**
+     * The tick on the stick would end the use in LivingEntity#updatingUsingItem, so a release after it proves the
+     * client held the trident then. Through 1.21.4 that trident spins; from 1.21.5 the release reads the stick.
+     */
     @ParameterizedTest
-    @EnumSource(
-            value = ClientVersion.class,
-            names = {"V_1_21_4", "V_26_3"})
-    void aSwitchToAnotherItemBeforeTheReleaseTickStopsTheUse(ClientVersion version) throws Exception {
+    @CsvSource({"V_1_21_4, 3", "V_26_3, 0"})
+    void aSwitchToAnotherItemBeforeTheReleaseTickReleasesTheKeptTrident(ClientVersion version, int level)
+            throws Exception {
         try (var f = new JavaTickFixture(ProtocolVersion.V26_3, version)) {
             charge(f, trident(3), stick());
             select(f, 1);
             f.tick(SHALLOWS, true);
             release(f);
-            PredictionResult result = f.tick(SHALLOWS, true);
+            PredictionResult result = level == 0 ? f.tick(SHALLOWS, true) : f.tick(lifted(level), false);
             assertTrue(exact(result), describe(result));
-            assertFalse(f.player.riptideSpinCertain, "the release spins");
+            assertEquals(level > 0, f.player.riptideSpinCertain, "whether the release certainly spins");
         }
     }
 
@@ -122,8 +130,12 @@ class JavaRiptideTridentSwitchTest {
         }
     }
 
+    /**
+     * Through 1.21.4 the previous entity tick may have held slot 2: key 3 in its Minecraft#handleKeybinds, then a scroll
+     * to slot 1 that this tick's MultiPlayerGameMode#tick reports before key 3 again.
+     */
     @ParameterizedTest
-    @CsvSource({"V_1_21_4, 1, true", "V_1_21_4, 3, false", "V_26_3, 3, true", "V_26_3, 1, false"})
+    @CsvSource({"V_1_21_4, 1, true", "V_1_21_4, 3, true", "V_26_3, 3, true", "V_26_3, 1, false"})
     void aSwitchPastAnotherItemInTheReleaseTickSpinsAtTheLevelTheClientReleases(
             ClientVersion version, int level, boolean exact) throws Exception {
         try (var f = new JavaTickFixture(ProtocolVersion.V26_3, version)) {
