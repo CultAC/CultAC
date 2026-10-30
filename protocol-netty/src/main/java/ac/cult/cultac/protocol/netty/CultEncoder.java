@@ -500,7 +500,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                 activeFamilies.addLast(route.type());
                 try {
                     var type = (PacketType<ClientboundPacket>) route.type();
-                    var idleEvent = idleSendEvent;
+                    var idleEvent = route.own() ? idleSendEvent : null;
                     PacketSendEvent<ClientboundPacket> event;
                     if (idleEvent == null) {
                         event = new PacketSendEvent<>(
@@ -516,7 +516,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                     connection.dispatcher().send(event, route.send());
                     if (event.isCancelled()) {
                         promise.trySuccess();
-                        recycle(event);
+                        recycle(route, event);
                         return false;
                     }
                     CultWrite leading = event.leadingPing();
@@ -555,7 +555,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                     }
                     batch.addTasks(event.tasksAfter());
                     requested |= event.isBundleRequested();
-                    recycle(event);
+                    recycle(route, event);
                 } finally {
                     activeFamilies.removeLast();
                 }
@@ -1022,9 +1022,9 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         return frame;
     }
 
-    /** Listeners hold a send event past dispatch only through its tasks after send. */
-    private void recycle(PacketSendEvent<?> event) {
-        if (!event.tasksAfter().isEmpty()) return;
+    /** CultAC's own listeners hold a send event past dispatch only through its tasks after send. */
+    private void recycle(PacketDispatcher.Route route, PacketSendEvent<?> event) {
+        if (!route.own() || !event.tasksAfter().isEmpty()) return;
         event.release();
         idleSendEvent = event;
     }

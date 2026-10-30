@@ -57,7 +57,7 @@ class TransportAllocBenchTest {
         OfflineCultTestBootstrap.installConfig();
         var dispatcher = new PacketDispatcher(
                 CultAPI.INSTANCE.getNetworkManager().dispatcher().runtime());
-        dispatcher.register(registrar -> {
+        dispatcher.registerOwn(registrar -> {
             registrar.registerListener(PacketListenerPriority.NORMAL, new DispatchCpuBenchTest.TrivialA());
             registrar.registerListener(PacketListenerPriority.NORMAL, new DispatchCpuBenchTest.TrivialB());
             registrar.registerListener(PacketListenerPriority.NORMAL, new Proofs());

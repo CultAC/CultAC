@@ -38,7 +38,7 @@ public class PacketManager implements StartableInitable {
 
         networkManager.lifecycleHooks(new PlayerLoginHooks());
 
-        networkManager.dispatcher().register(PacketManager::registerListeners);
+        networkManager.dispatcher().registerOwn(PacketManager::registerListeners);
     }
 
     /** Every packet listener, in the order a priority shares between them. */

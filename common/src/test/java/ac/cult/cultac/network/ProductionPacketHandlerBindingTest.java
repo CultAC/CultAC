@@ -113,7 +113,7 @@ class ProductionPacketHandlerBindingTest {
     @Test
     void theListCoversEveryListenerPacketManagerConstructs() throws IOException {
         String file = Files.readString(Path.of("src/main/java/ac/cult/cultac/manager/init/start/PacketManager.java"));
-        String source = file.substring(file.indexOf("dispatcher().register("));
+        String source = file.substring(file.indexOf("dispatcher().registerOwn("));
         Set<String> constructed = new TreeSet<>();
         Matcher matcher =
                 Pattern.compile("new (?:[a-z]\\w*\\.)*(\\w+)\\(\\)(::)?").matcher(source);

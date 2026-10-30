@@ -174,7 +174,7 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
                 // A debug interaction pause discards before Cult or the server sees the packet.
                 if (pausing != null && pausing.discardsPausedInteraction(original)) return false;
                 connection.prepare();
-                var idleEvent = idleReceiveEvent;
+                var idleEvent = route.own() ? idleReceiveEvent : null;
                 PacketReceiveEvent<ServerboundPacket> event;
                 if (idleEvent == null) event = new PacketReceiveEvent<>(connection.user(), phase, type, original);
                 else {
@@ -209,7 +209,7 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
                     cancelled = false;
                 }
                 if (cancelled) {
-                    recycle(event);
+                    recycle(route, event);
                     return false;
                 }
                 if (packet != original) {
@@ -230,7 +230,7 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
                             && move.hasPosition()
                             && !event.isTeleportPositionResponse()) setbacks.markForwardedPositionThisTick();
                 }
-                recycle(event);
+                recycle(route, event);
                 if (packet instanceof ServerboundMovePlayer move
                         && move.hasPosition()
                         && player != null
@@ -260,7 +260,9 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
         }
     }
 
-    private void recycle(PacketReceiveEvent<?> event) {
+    /** CultAC's own listeners hold no receive event past its dispatch. */
+    private void recycle(PacketDispatcher.Route route, PacketReceiveEvent<?> event) {
+        if (!route.own()) return;
         event.release();
         idleReceiveEvent = event;
     }
