@@ -1,35 +1,107 @@
 package ac.cult.cultac.utils.latency;
 
+/**
+ * Tasks waiting for a transaction, in one list in insertion order. A task waits for the current transaction or the
+ * next one (an update outside a bundle is proven by the next ping), so no task is more than one below a task before
+ * it, and a drain stops at the first task two past the answered transaction. A task's continuation takes its place at
+ * the next transaction once it runs. A task added further below, such as a Bedrock receipt callback for an earlier
+ * Java proof, goes before the first task two or more above it, which keeps that true.
+ */
 final class LatencyTaskQueue {
     private static final int MAX_RECYCLED_TASKS = 256;
-    private static final int RUNS = 4;
-    // Each run keeps its tasks in insertion order with non-decreasing transactions, so its ready tasks are a prefix.
-    private final TaskNode[] runFirst = new TaskNode[RUNS];
-    private final TaskNode[] runLast = new TaskNode[RUNS];
-    // Tasks no run could take, in insertion order with any transactions.
-    private TaskNode firstTask;
-    private TaskNode lastTask;
-    // Insertion order across the runs and the overflow; a continuation keeps its task's sequence.
-    private long nextSequence;
+    private TaskNode head;
+    private TaskNode tail;
+    /** The highest transaction added since the list was last empty. */
+    private int highest = Integer.MIN_VALUE;
     private TaskNode recycledTasks;
     private int recycledTaskCount;
 
     synchronized void add(int transaction, Runnable runnable) {
-        add(acquire(transaction, runnable, null));
+        insert(acquire(transaction, runnable, null));
     }
 
-    synchronized void addWithNextTransaction(int transaction, Runnable runnable, Runnable nextTransactionRunnable) {
-        add(acquire(transaction, runnable, nextTransactionRunnable));
+    /**
+     * Runs {@code runnable} at {@code transaction}, then {@code next} at the one after in {@code runnable}'s place:
+     * right after it when both are ready, otherwise before the tasks added after it.
+     */
+    synchronized void addWithNextTransaction(int transaction, Runnable runnable, Runnable next) {
+        insert(acquire(transaction, runnable, next));
     }
 
-    private TaskNode acquire(int transaction, Runnable runnable, Runnable nextTransactionRunnable) {
+    private void insert(TaskNode task) {
+        int transaction = task.transaction;
+        if (head == null || transaction >= (long) highest - 1) {
+            if (tail == null) head = task;
+            else tail.next = task;
+            tail = task;
+            if (transaction > highest) highest = transaction;
+            return;
+        }
+        TaskNode previous = null;
+        TaskNode current = head;
+        while (current != null && current.transaction < (long) transaction + 2) {
+            previous = current;
+            current = current.next;
+        }
+        task.next = current;
+        if (previous == null) head = task;
+        else previous.next = task;
+        if (current == null) tail = task;
+    }
+
+    synchronized TaskNode drainReady(int transaction) {
+        TaskNode readyHead = null;
+        TaskNode readyTail = null;
+        TaskNode previous = null;
+        TaskNode current = head;
+        // No task behind one two past the answered transaction can be ready.
+        while (current != null && current.transaction <= (long) transaction + 1) {
+            TaskNode next = current.next;
+            if (current.transaction > transaction) {
+                previous = current;
+                current = next;
+                continue;
+            }
+            TaskNode continuation = current.continuation == null
+                    ? null
+                    : acquire(current.transaction + 1, current.continuation, null);
+            current.continuation = null;
+            if (continuation != null && continuation.transaction > transaction) {
+                // Not ready yet: the continuation takes its task's place. Every task left before it is at its
+                // transaction, so the list stays in order.
+                continuation.next = next;
+                if (previous == null) head = continuation;
+                else previous.next = continuation;
+                if (tail == current) tail = continuation;
+                if (continuation.transaction > highest) highest = continuation.transaction;
+                previous = continuation;
+            } else {
+                if (previous == null) head = next;
+                else previous.next = next;
+                if (tail == current) tail = previous;
+            }
+            current.next = null;
+            if (readyHead == null) readyHead = current;
+            else readyTail.next = current;
+            readyTail = current;
+            if (continuation != null && continuation.transaction <= transaction) {
+                readyTail.next = continuation;
+                readyTail = continuation;
+            }
+            current = next;
+        }
+        if (head == null) highest = Integer.MIN_VALUE;
+        return readyHead;
+    }
+
+    private TaskNode acquire(int transaction, Runnable runnable, Runnable continuation) {
         TaskNode task = recycledTasks;
-        if (task == null) return new TaskNode(transaction, runnable, nextTransactionRunnable);
+        if (task == null) return new TaskNode(transaction, runnable, continuation);
         recycledTasks = task.next;
         recycledTaskCount--;
         task.transaction = transaction;
         task.runnable = runnable;
-        task.nextTransactionRunnable = nextTransactionRunnable;
+        task.continuation = continuation;
         task.next = null;
         return task;
     }
@@ -48,216 +120,17 @@ final class LatencyTaskQueue {
         recycledTaskCount += count;
     }
 
-    private TaskNode nextTransactionTask(TaskNode task) {
-        if (task.nextTransactionRunnable == null) return null;
-        TaskNode continuation = acquire(task.transaction + 1, task.nextTransactionRunnable, null);
-        continuation.sequence = task.sequence;
-        task.nextTransactionRunnable = null;
-        return continuation;
-    }
-
-    private void add(TaskNode task) {
-        task.sequence = nextSequence++;
-        for (int run = 0; run < RUNS; run++) {
-            TaskNode last = runLast[run];
-            if (last == null) {
-                runFirst[run] = task;
-                runLast[run] = task;
-                return;
-            }
-            if (last.transaction <= task.transaction) {
-                last.next = task;
-                runLast[run] = task;
-                return;
-            }
-        }
-        if (lastTask == null) {
-            firstTask = task;
-        } else {
-            lastTask.next = task;
-        }
-        lastTask = task;
-    }
-
-    synchronized TaskNode drainReady(int transaction) {
-        if (runFirst[1] == null && runFirst[2] == null && runFirst[3] == null && firstTask == null) {
-            return drainRun(0, transaction);
-        }
-        TaskNode ready = null;
-        for (int run = 0; run < RUNS; run++) ready = merge(ready, drainRun(run, transaction));
-        return merge(ready, drainOverflow(transaction));
-    }
-
-    // Chains never share a sequence: a continuation stays in its task's chain, so merging pairwise keeps the order.
-    private static TaskNode merge(TaskNode a, TaskNode b) {
-        if (a == null) return b;
-        if (b == null) return a;
-        TaskNode first;
-        if (a.sequence < b.sequence) {
-            first = a;
-            a = a.next;
-        } else {
-            first = b;
-            b = b.next;
-        }
-        TaskNode last = first;
-        while (a != null && b != null) {
-            if (a.sequence < b.sequence) {
-                last.next = a;
-                last = a;
-                a = a.next;
-            } else {
-                last.next = b;
-                last = b;
-                b = b.next;
-            }
-        }
-        last.next = a != null ? a : b;
-        return first;
-    }
-
-    /**
-     * The run's ready prefix in order, a continuation that is also ready right after its task. Continuations that are
-     * not ready take their task's place; they are due at transaction + 1, no later than any task left in the run.
-     */
-    private TaskNode drainRun(int run, int transaction) {
-        TaskNode current = runFirst[run];
-        if (current == null || transaction < current.transaction) return null;
-        TaskNode readyFirst = null;
-        TaskNode readyLast = null;
-        TaskNode keptFirst = null;
-        TaskNode keptLast = null;
-        while (current != null && transaction >= current.transaction) {
-            TaskNode next = current.next;
-            current.next = null;
-            if (readyFirst == null) {
-                readyFirst = current;
-            } else {
-                readyLast.next = current;
-            }
-            readyLast = current;
-            TaskNode continuation = nextTransactionTask(current);
-            if (continuation != null) {
-                if (continuation.transaction <= transaction) {
-                    current.next = continuation;
-                    readyLast = continuation;
-                } else if (keptFirst == null) {
-                    keptFirst = continuation;
-                    keptLast = continuation;
-                } else {
-                    keptLast.next = continuation;
-                    keptLast = continuation;
-                }
-            }
-            current = next;
-        }
-        if (keptFirst == null) {
-            runFirst[run] = current;
-            if (current == null) runLast[run] = null;
-        } else {
-            keptLast.next = current;
-            runFirst[run] = keptFirst;
-            if (current == null) runLast[run] = keptLast;
-        }
-        return readyFirst;
-    }
-
-    private TaskNode drainOverflow(int transaction) {
-        TaskNode previous = null;
-        TaskNode current = firstTask;
-        TaskNode readyFirst = null;
-        TaskNode readyLast = null;
-
-        while (current != null) {
-            TaskNode next = current.next;
-            if (transaction < current.transaction) {
-                previous = current;
-                current = next;
-                continue;
-            }
-
-            TaskNode continuation = nextTransactionTask(current);
-            if (continuation != null) {
-                if (continuation.transaction <= transaction) {
-                    if (previous == null) {
-                        firstTask = next;
-                    } else {
-                        previous.next = next;
-                    }
-                    if (lastTask == current) {
-                        lastTask = previous;
-                    }
-
-                    current.next = continuation;
-                    if (readyFirst == null) {
-                        readyFirst = current;
-                    } else {
-                        readyLast.next = current;
-                    }
-                    readyLast = continuation;
-                    current = next;
-                    continue;
-                }
-
-                continuation.next = next;
-                if (previous == null) {
-                    firstTask = continuation;
-                } else {
-                    previous.next = continuation;
-                }
-                if (lastTask == current) {
-                    lastTask = continuation;
-                }
-
-                current.next = null;
-                if (readyFirst == null) {
-                    readyFirst = current;
-                } else {
-                    readyLast.next = current;
-                }
-                readyLast = current;
-                previous = continuation;
-                current = next;
-                continue;
-            }
-
-            if (previous == null) {
-                firstTask = next;
-            } else {
-                previous.next = next;
-            }
-            if (lastTask == current) {
-                lastTask = previous;
-            }
-
-            current.next = null;
-            if (readyFirst == null) {
-                readyFirst = current;
-            } else {
-                readyLast.next = current;
-            }
-            readyLast = current;
-            current = next;
-        }
-
-        if (firstTask == null) {
-            lastTask = null;
-        }
-        if (readyLast != null) readyLast.next = null;
-        return readyFirst;
-    }
-
     static final class TaskNode {
         private int transaction;
-        private long sequence;
         private Runnable runnable;
-        private Runnable nextTransactionRunnable;
+        /** Runs at the next transaction, in this task's place; null when there is none. */
+        private Runnable continuation;
         private TaskNode next;
 
-        private TaskNode(int transaction, Runnable runnable, Runnable nextTransactionRunnable) {
+        private TaskNode(int transaction, Runnable runnable, Runnable continuation) {
             this.transaction = transaction;
             this.runnable = runnable;
-            this.nextTransactionRunnable = nextTransactionRunnable;
+            this.continuation = continuation;
         }
 
         Runnable runnable() {
@@ -270,7 +143,7 @@ final class LatencyTaskQueue {
 
         void clear() {
             runnable = null;
-            nextTransactionRunnable = null;
+            continuation = null;
             next = null;
         }
 
