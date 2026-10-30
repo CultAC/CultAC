@@ -37,11 +37,13 @@ public final class FlightToggle {
 
     /**
      * This client tick's flight stop is the toggle ahead of travel: a press that every timer value the client can
-     * have arms, with no auto-jump or vehicle to block it. Player#updateSwimming never lets a flyer swim.
+     * have arms, with no auto-jump or vehicle to block it. Player#updateSwimming never lets a flyer swim. The toggle
+     * runs once per aiStep, so after a flight start this tick the stop is the landing after travel.
      */
     public static boolean stopsBeforeTravel(CultPlayer player) {
         PacketStateData data = player.packetStateData;
-        return pressReachesToggle(player)
+        return !data.flyingStartBeforeTravel
+                && pressReachesToggle(player)
                 && (data.jumpTriggerTimes & UNARMED) == 0
                 && !data.autoJumpPossible
                 && !vehicleCanBlock(player);

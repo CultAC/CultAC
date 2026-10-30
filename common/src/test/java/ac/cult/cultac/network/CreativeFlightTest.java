@@ -1245,6 +1245,33 @@ class CreativeFlightTest {
     }
 
     /**
+     * LocalPlayer#aiStep runs its double-tap toggle once, before travel, and stops flight after a travel that lands.
+     * An airborne toggle's start and a landing's stop in one tick therefore fly through the landing travel (#182).
+     */
+    @Test
+    void aDoubleTapStartingFlightThatLandsFliesThroughTheLandingTravel() throws Exception {
+        for (ClientVersion version : SPRINT_VERSIONS) {
+            String where = version.toString();
+            // The two falls leave the client 0.003 above the floor; the landing travel's Y is the impulse less 0.1552.
+            Vec3 start = TAKEOFF.add(0, 0.003 - STANDING_Y, 0);
+            try (var f = flying(version, start, false)) {
+                var run = new SprintRun(f, start);
+                f.command(PlayerCommandAction.START_SPRINTING);
+                assertJudgedExact(run.fall(FORWARD_JUMP), where);
+                assertJudgedExact(run.fall(FORWARD), where);
+
+                f.abilities(true);
+                assertUnflagged(f, run.land(FORWARD_JUMP), where);
+                assertFalse(f.player.isFlying, "the landing did not stop flight " + where);
+                // The landing travel's velocity carries into the walk, still exempt after the flight.
+                PredictionResult walk = run.walk(FORWARD, SPRINT_MOVEMENT_SPEED);
+                assertPredicted(walk);
+                assertUnflagged(f, walk, where);
+            }
+        }
+    }
+
+    /**
      * An airborne double-tap stops flight before travel; once out of flight, a sprint flag held without forward
      * impulse is set back like LocalPlayer#shouldStopRunSprinting.
      */
@@ -1764,8 +1791,9 @@ class CreativeFlightTest {
 
         /** The landing's travel in flight; LocalPlayer#aiStep stops flight on the ground after it. */
         PredictionResult land(ServerboundPlayerInput keys) {
-            f.input(keys);
+            // LocalPlayer#aiStep sends the stop; LocalPlayer#tick sends player_input after it.
             f.abilities(false);
+            f.input(keys);
             Vec3 move = travel(keys, SPRINT_FLYING_SPEED, 0.0);
             position = new Vec3(position.x + move.x, FLOOR_Y, position.z + move.z);
             velocity = new Vec3(move.x * 0.91F, 0.0, move.z * 0.91F);
