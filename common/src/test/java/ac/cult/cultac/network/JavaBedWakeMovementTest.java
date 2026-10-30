@@ -23,6 +23,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
+import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import java.nio.ByteBuffer;
@@ -41,11 +42,30 @@ class JavaBedWakeMovementTest {
 
     @Test
     void holdingForwardThroughTheWakeUpIsPredictedExactly() throws Exception {
+        holdsForwardThroughTheWakeUp(false);
+    }
+
+    /**
+     * A ceiling two blocks above the floor leaves no room to stand or crouch at the bed's height, but
+     * LivingEntity#stopSleeping still sets STANDING, so the first travel after the wake-up does not crawl.
+     */
+    @Test
+    void holdingForwardThroughTheWakeUpUnderALowCeilingIsPredictedExactly() throws Exception {
+        holdsForwardThroughTheWakeUp(true);
+    }
+
+    private static void holdsForwardThroughTheWakeUp(boolean lowCeiling) throws Exception {
         try (var f = new JavaTickFixture()) {
             var registry = DataTables.defaults().registry();
             int bed = registry.with(registry.block("minecraft:red_bed").defaultState(), "facing", "south");
             f.player.compensatedWorld.updateBlock(HEAD, registry.with(bed, "part", "head"));
             f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, -1), bed);
+            if (lowCeiling) {
+                int stone = registry.block("minecraft:stone").defaultState();
+                for (int x = -2; x <= 1; x++)
+                    for (int z = -2; z <= 1; z++)
+                        f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y + 2, z), stone);
+            }
             for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
 
             Vec3 standUp = new Vec3(-0.5, FLOOR_Y, 0.5);
@@ -54,6 +74,8 @@ class JavaBedWakeMovementTest {
             Vec3 sleepPosition = new Vec3(0.5, FLOOR_Y + 0.6875, 0.5);
             f.teleport(sleepPosition, new RelativeFlag(0));
             sleepingPos(f, Optional.of(HEAD));
+            // The stripped pose metadata leaves the pose to Player#updatePlayerPose after the next aiStep.
+            assertEquals(Pose.STANDING, f.player.pose);
             f.input(NONE);
             command(f, PlayerCommandAction.STOP_SPRINTING);
             sleepTick(f, sleepPosition, false);
@@ -65,9 +87,11 @@ class JavaBedWakeMovementTest {
             sleepTick(f, new Vec3(0.5, FLOOR_Y + 0.57505219488203, 0.5), false);
             sleepTick(f, new Vec3(0.5, FLOOR_Y + 0.5625, 0.5), true);
             assertTrue(f.player.isInBed);
+            assertEquals(Pose.SLEEPING, f.player.pose);
 
             command(f, PlayerCommandAction.STOP_SLEEPING);
             wakeUp(f);
+            assertEquals(Pose.STANDING, f.player.pose);
             f.teleport(f.player.sendTrailingTransaction(), standUp, new RelativeFlag(0), 0, -90.0F);
             assertFalse(f.player.isInBed);
             f.input(FORWARD_SPRINT);
@@ -81,21 +105,41 @@ class JavaBedWakeMovementTest {
 
     @Test
     void aSleeperStillMovingWhenItsBedArrivesTravelsOnFromTheBed() throws Exception {
-        travelsOnFromTheBed("minecraft:red_bed", 0.6875);
+        travelsOnFromTheBed("minecraft:red_bed", 0.6875, 0.5625);
     }
 
     @Test
-    void aStrawBedSleeperTravelsOnFromTheTopOfItsPillow() throws Exception {
-        // AbstractBedBlock#getSleepHeight: the straw bed head's pillow tops out at 5/16, plus setPosToBed's 0.125.
-        travelsOnFromTheBed("minecraft:straw_bed", 0.4375);
+    void aStrawBedSleeperTravelsOnFromTheTopOfItsFoot() throws Exception {
+        // StrawBedBlock#getSleepHeight measures the head's foot, whose shape tops out at 4/16, under the pillow's
+        // 5/16; LivingEntity#setPosToBed adds 0.125. The sleeper then lands on the head's pillow.
+        travelsOnFromTheBed("minecraft:straw_bed", 0.375, 0.3125);
+    }
+
+    /** StrawBedBlock#getSleepHeight is empty for a head without its foot, so LivingEntity#setPosToBed leaves it. */
+    @Test
+    void aStrawBedHeadWithoutItsFootLeavesTheSleeper() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            var registry = DataTables.defaults().registry();
+            int bed = registry.with(registry.block("minecraft:straw_bed").defaultState(), "facing", "south");
+            f.player.compensatedWorld.updateBlock(HEAD, registry.with(bed, "part", "head"));
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+
+            Vec3 position = new Vec3(-0.5, FLOOR_Y, 0.5);
+            f.place(position, Vec3.ZERO);
+            f.tick(position, true);
+            sleepingPos(f, Optional.of(HEAD));
+            assertTrue(f.player.isInBed);
+            assertEquals(position, new Vec3(f.player.x, f.player.y, f.player.z));
+        }
     }
 
     /**
      * The sleep teleport and the sleeping position arrive in different server ticks. The client travels one tick
      * before it handles the metadata, then LivingEntity#setPosToBed puts it back on the bed while Entity#setPos keeps
-     * the deltaMovement that tick left, so its next travel starts from the bed.
+     * the deltaMovement that tick left, so its next travel starts from the bed and stops on its top at
+     * {@code restHeight}.
      */
-    private static void travelsOnFromTheBed(String block, double sleepHeight) throws Exception {
+    private static void travelsOnFromTheBed(String block, double sleepHeight, double restHeight) throws Exception {
         try (var f = new JavaTickFixture()) {
             var registry = DataTables.defaults().registry();
             int bed = registry.with(registry.block(block).defaultState(), "facing", "south");
@@ -117,7 +161,10 @@ class JavaBedWakeMovementTest {
             assertEquals(sleepPosition, new Vec3(f.player.x, f.player.y, f.player.z));
             f.input(NONE);
             Vec3 carried = new Vec3(airInput.x * (double) 0.91F, -0.08D * (double) 0.98F, airInput.z * (double) 0.91F);
-            PredictionResult result = f.tick(sleepPosition.add(carried), false);
+            Vec3 travelled = sleepPosition.add(carried);
+            boolean lands = travelled.y < FLOOR_Y + restHeight;
+            if (lands) travelled = new Vec3(travelled.x, FLOOR_Y + restHeight, travelled.z);
+            PredictionResult result = f.tick(travelled, lands);
 
             assertTrue(exact(result), describe(result));
         }

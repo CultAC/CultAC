@@ -11,6 +11,7 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.data.SprintingState;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityUtil;
+import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.ClientSleepingPosition;
 import ac.cult.cultac.utils.nmsutil.RiptideUtil;
@@ -147,7 +148,15 @@ public class PacketSelfMetadataListener {
                     } else {
                         player.isInBed = false;
                     }
-                    player.refreshPlayerPose();
+                    // The local pose metadata is stripped above, so a 1.14+ Java client keeps its pose until
+                    // Player#updatePlayerPose after its next aiStep; Entity#setPos boxed it with that pose.
+                    if (player.isBedrockMovement()
+                            || player.getClientVersion()
+                                    .isOlderThan(ac.cult.cultac.network.protocol.ClientVersion.V_1_14)) {
+                        player.refreshPlayerPose();
+                    } else {
+                        player.refreshPlayerPose(player.pose);
+                    }
                 };
                 addTaskAfterPacketProof(event, player, applyBedMetadata);
             }
@@ -241,9 +250,11 @@ public class PacketSelfMetadataListener {
             if (player.isBedrockMovement()) {
                 return;
             }
+            // Player#stopSleepInBed runs LivingEntity#stopSleeping, which sets the STANDING pose whether or not
+            // it fits; Player#updatePlayerPose reconsiders it only after the next aiStep.
             addTaskAfterPacketProof(event, player, () -> {
                 player.isInBed = false;
-                player.refreshPlayerPose();
+                player.refreshPlayerPose(Pose.STANDING);
             });
         }
     }
