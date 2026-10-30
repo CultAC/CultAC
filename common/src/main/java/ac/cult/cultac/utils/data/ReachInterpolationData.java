@@ -43,7 +43,8 @@ public class ReachInterpolationData {
 
     private SimpleCollisionBox targetLocation;
     // The feet position targetLocation is built from, when it moved only by position offsets since.
-    private Vec3 targetFeet;
+    private boolean targetFeetKnown;
+    private double targetFeetX, targetFeetY, targetFeetZ;
     // RC1 SteppedInterpolationHandler state belongs to this interpolation snapshot.
     // Keep exact transforms separately from boxes to avoid coordinate round trips.
     private ArrayDeque<Step> interpolationQueue;
@@ -83,7 +84,10 @@ public class ReachInterpolationData {
 
     private ReachInterpolationData(ReachInterpolationData other) {
         this.targetLocation = other.targetLocation.copy();
-        this.targetFeet = other.targetFeet;
+        this.targetFeetKnown = other.targetFeetKnown;
+        this.targetFeetX = other.targetFeetX;
+        this.targetFeetY = other.targetFeetY;
+        this.targetFeetZ = other.targetFeetZ;
         this.interpolationQueue = other.interpolationQueue == null ? null : new ArrayDeque<>(other.interpolationQueue);
         this.steppedCurrent = other.steppedCurrent;
         this.steppedTarget = other.steppedTarget;
@@ -311,7 +315,10 @@ public class ReachInterpolationData {
                 z,
                 BoundingBoxSize.getWidth(player, entity),
                 BoundingBoxSize.getHeight(player, entity));
-        this.targetFeet = new Vec3(x, y, z);
+        this.targetFeetKnown = true;
+        this.targetFeetX = x;
+        this.targetFeetY = y;
+        this.targetFeetZ = z;
         this.currentYaw = currentYaw;
         this.currentPitch = currentPitch;
         this.targetYaw = targetYaw;
@@ -374,7 +381,7 @@ public class ReachInterpolationData {
         appendSteppedPath(path, yaw, pitch);
         boundsValid = false;
         targetLocation.offset(path.endPosition().subtract(feet(targetLocation)));
-        targetFeet = null;
+        targetFeetKnown = false;
         targetYaw = yaw;
         targetPitch = pitch;
     }
@@ -628,7 +635,7 @@ public class ReachInterpolationData {
     public boolean resetFinished(SimpleCollisionBox finishedLoc) {
         if (reachesUsePacketPositionUncertainty) return false;
         targetLocation.set(finishedLoc);
-        targetFeet = null;
+        targetFeetKnown = false;
         interpolationQueue = null;
         steppedCurrent = null;
         steppedTarget = null;
@@ -824,11 +831,13 @@ public class ReachInterpolationData {
      */
     public Vec3 exactPositionAfterClientTickFromPhysical(Vec3 physical) {
         double lerpAmount = 1.0D / (getInterpolationSteps() - interpolationStepsLowBound);
-        Vec3 target = targetFeet != null ? targetFeet : targetPosition();
+        double targetX = targetFeetKnown ? targetFeetX : targetCenterX();
+        double targetY = targetFeetKnown ? targetFeetY : targetMinY();
+        double targetZ = targetFeetKnown ? targetFeetZ : targetCenterZ();
         return new Vec3(
-                lerp(physical.x, target.x, lerpAmount),
-                lerp(physical.y, target.y, lerpAmount),
-                lerp(physical.z, target.z, lerpAmount));
+                lerp(physical.x, targetX, lerpAmount),
+                lerp(physical.y, targetY, lerpAmount),
+                lerp(physical.z, targetZ, lerpAmount));
     }
 
     public SimpleCollisionBox getExactMovementLocation() {
@@ -970,7 +979,12 @@ public class ReachInterpolationData {
         boundsValid = false;
         startingLocation.offset(stepFrom.apply(feet(startingLocation)));
         targetLocation.offset(stepFrom.apply(feet(targetLocation)));
-        if (targetFeet != null) targetFeet = targetFeet.add(stepFrom.apply(targetFeet));
+        if (targetFeetKnown) {
+            Vec3 step = stepFrom.apply(new Vec3(targetFeetX, targetFeetY, targetFeetZ));
+            targetFeetX += step.x;
+            targetFeetY += step.y;
+            targetFeetZ += step.z;
+        }
         if (heldStep >= 0) heldLocation.offset(stepFrom.apply(feet(heldLocation)));
     }
 
@@ -1019,7 +1033,11 @@ public class ReachInterpolationData {
         if (Collisions.isEmpty(player, shiftedTarget, shiftedTarget.minY)) {
             boundsValid = false;
             targetLocation.offset(movement);
-            if (targetFeet != null) targetFeet = targetFeet.add(movement);
+            if (targetFeetKnown) {
+                targetFeetX += movement.x;
+                targetFeetY += movement.y;
+                targetFeetZ += movement.z;
+            }
             if (interpolationQueue != null) shiftSteppedPath(movement, 0, 0);
         }
     }
@@ -1038,7 +1056,11 @@ public class ReachInterpolationData {
                 player, entity, targetPosition, movement)) {
             boundsValid = false;
             targetLocation.offset(movement);
-            if (targetFeet != null) targetFeet = targetFeet.add(movement);
+            if (targetFeetKnown) {
+                targetFeetX += movement.x;
+                targetFeetY += movement.y;
+                targetFeetZ += movement.z;
+            }
             if (interpolationQueue != null) shiftSteppedPath(movement, 0, 0);
         }
     }
