@@ -82,8 +82,6 @@ public final class SmoketestControlBridge {
         int nonUniformSections = SectionPool.globalNonUniformPoolSize();
         int pooledUniqueSections = uniformSections + nonUniformSections;
         int canonicalAirSections = 1;
-        long wireOffers = SectionPool.wireOfferCounter.sum();
-        long wireHits = SectionPool.wireHitCounter.sum();
         LogUtil.info("SectionPool stats: "
                 + "label=" + safeLabel(label)
                 + " internCalls=" + SectionPool.internCallCounter.get()
@@ -101,12 +99,11 @@ public final class SmoketestControlBridge {
                 + " deduplicatedSections=" + pooledUniqueSections
                 + " mutableCopies="
                 + CompensatedWorld.CachedSection.mutableCopyCounter.get()
-                + " wireOffers=" + wireOffers
-                + " wireHits=" + wireHits
+                + " wireOffers=" + SectionPool.wireOfferCounter.sum()
+                + " wireHits=" + SectionPool.wireHitCounter.sum()
                 + " wireCandidates=" + SectionPool.wireCandidateCounter.sum()
-                + " wireMissFullReads=" + (wireOffers - wireHits)
-                + " nonUniformFullReads=" + SectionPool.nonUniformFullReadCounter.sum()
-                + " postHitClones=" + SectionPool.postHitCloneCounter.sum());
+                + " multiValueFullReads=" + SectionPool.multiValueFullReadCounter.sum()
+                + " sharedClones=" + SectionPool.sharedCloneCounter.sum());
         for (SectionPool.DimensionStats stats : SectionPool.dimensionStats()) {
             LogUtil.info("SectionPool dimension stats: "
                     + "label=" + safeLabel(label)

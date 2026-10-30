@@ -161,39 +161,107 @@ class SectionPoolWireMatchTest {
     }
 
     @Test
-    void wireReadsCountOffersHitsCandidatesFullReadsAndPostHitClones() {
+    void wireReadsCountOffersHitsCandidatesAndMultiValueFullReads() {
         var random = new SplittableRandom(0x57A7L);
-        byte[] wire, other;
-        CachedSection pooled;
         var pool = new SectionPool();
-        do {
-            wire = section(random, ProtocolVersion.V26_3, false);
-            var states = decoded(wire, ProtocolVersion.V26_3, IntUnaryOperator.identity());
-            pooled = states == null ? null : new CachedSection(states);
-        } while (pooled == null);
-        pooled = pool.internRetained(pooled);
+        var pooled = interned(random, pool, false);
+        byte[] other;
         do other = section(random, ProtocolVersion.V26_3, false);
-        while (decoded(other, ProtocolVersion.V26_3, IntUnaryOperator.identity()) == null);
-        long offers = SectionPool.wireOfferCounter.sum(), hits = SectionPool.wireHitCounter.sum();
-        long candidates = SectionPool.wireCandidateCounter.sum();
-        long fullReads = SectionPool.nonUniformFullReadCounter.sum(), clones = SectionPool.postHitCloneCounter.sum();
+        while (other[0] == 0 || decoded(other, ProtocolVersion.V26_3, IntUnaryOperator.identity()) == null);
+        byte[] single = {0, 1};
+        var start = counters();
 
-        PalettedSection.readBlocks(Unpooled.wrappedBuffer(wire), pool);
-        PalettedSection.readBlocks(Unpooled.wrappedBuffer(wire), pool);
+        PalettedSection.readBlocks(Unpooled.wrappedBuffer(pooled.wire()), pool);
+        PalettedSection.readBlocks(Unpooled.wrappedBuffer(pooled.wire()), pool);
         PalettedSection.readBlocks(Unpooled.wrappedBuffer(other), pool);
+        PalettedSection.readBlocks(Unpooled.wrappedBuffer(single), pool);
         PalettedSection.readBlocks(Unpooled.wrappedBuffer(other), null);
-        assertEquals(3, SectionPool.wireOfferCounter.sum() - offers);
-        assertEquals(2, SectionPool.wireHitCounter.sum() - hits);
-        assertEquals(3, SectionPool.wireCandidateCounter.sum() - candidates);
-        assertEquals(2, SectionPool.nonUniformFullReadCounter.sum() - fullReads);
-        assertEquals(0, SectionPool.postHitCloneCounter.sum() - clones);
+        PalettedSection.readBlocks(Unpooled.wrappedBuffer(single), null);
+        assertArrayEquals(new long[] {4, 2, 4, 1, 0}, since(start));
+    }
 
-        assertTrue(pool.detachForSingleReferenceMutation(pooled));
-        var states = pooled.states();
+    @Test
+    void twoHitsThenWritesOnThePooledSectionAndBothViewsCountThreeClones() {
+        var pool = new SectionPool();
+        var pooled = interned(new SplittableRandom(0x57A8L), pool, false);
+        var start = counters();
+
+        var first = PalettedSection.readBlocks(Unpooled.wrappedBuffer(pooled.wire()), pool);
+        var second = PalettedSection.readBlocks(Unpooled.wrappedBuffer(pooled.wire()), pool);
+        assertTrue(pool.detachForSingleReferenceMutation(pooled.owner()));
+        rewrite(pooled.owner().states());
+        rewrite(pooled.owner().states());
+        rewrite(first);
+        rewrite(first);
+        rewrite(second);
+        assertArrayEquals(new long[] {2, 2, 2, 0, 3}, since(start));
+    }
+
+    @Test
+    void aViewWrittenFirstCountsItsCloneAndThePooledSectionsNext() {
+        var pool = new SectionPool();
+        var pooled = interned(new SplittableRandom(0x57A9L), pool, false);
+        var start = counters();
+
+        var view = PalettedSection.readBlocks(Unpooled.wrappedBuffer(pooled.wire()), pool);
+        var copied = PalettedSection.readBlocks(Unpooled.wrappedBuffer(pooled.wire()), pool);
+        var copy = copied.copyOnWrite();
+        rewrite(view);
+        assertEquals(1, since(start)[4]);
+        rewrite(copy);
+        rewrite(copied);
+        assertEquals(1, since(start)[4]);
+        assertTrue(pool.detachForSingleReferenceMutation(pooled.owner()));
+        rewrite(pooled.owner().states());
+        assertArrayEquals(new long[] {2, 2, 2, 0, 2}, since(start));
+    }
+
+    @Test
+    void aPooledSectionSharedBeforeTheHitCountsOnlyTheView() {
+        var pool = new SectionPool();
+        var pooled = interned(new SplittableRandom(0x57AAL), pool, true);
+        var start = counters();
+
+        var view = PalettedSection.readBlocks(Unpooled.wrappedBuffer(pooled.wire()), pool);
+        assertTrue(pool.detachForSingleReferenceMutation(pooled.owner()));
+        rewrite(pooled.owner().states());
+        rewrite(view);
+        assertArrayEquals(new long[] {1, 1, 1, 0, 1}, since(start));
+    }
+
+    private record Pooled(byte[] wire, CachedSection owner) {}
+
+    /** A 26.3 container whose decode {@code pool} holds; {@code shared} pools a copy-on-write view of the decode. */
+    private static Pooled interned(SplittableRandom random, SectionPool pool, boolean shared) {
+        while (true) {
+            var wire = section(random, ProtocolVersion.V26_3, false);
+            var states = decoded(wire, ProtocolVersion.V26_3, IntUnaryOperator.identity());
+            if (states == null) continue;
+            var owner = pool.internRetained(new CachedSection(shared ? states.copyOnWrite() : states));
+            assertEquals(1, pool.nonUniformPoolSize());
+            return new Pooled(wire, owner);
+        }
+    }
+
+    /** Offers, hits, candidates, multi-value full reads and shared clones, process-wide. */
+    private static long[] counters() {
+        return new long[] {
+            SectionPool.wireOfferCounter.sum(),
+            SectionPool.wireHitCounter.sum(),
+            SectionPool.wireCandidateCounter.sum(),
+            SectionPool.multiValueFullReadCounter.sum(),
+            SectionPool.sharedCloneCounter.sum()
+        };
+    }
+
+    private static long[] since(long[] start) {
+        var now = counters();
+        for (int i = 0; i < now.length; i++) now[i] -= start[i];
+        return now;
+    }
+
+    private static void rewrite(PalettedSection states) {
         states.getAndSet(0, states.get(0) == 1 ? 2 : 1);
-        states.getAndSet(1, states.get(1) == 1 ? 2 : 1);
-        assertEquals(1, SectionPool.postHitCloneCounter.sum() - clones);
-        assertEquals(3, SectionPool.wireOfferCounter.sum() - offers);
     }
 
     /** The length of the stored words that end {@code wire}, 0 for a container without local palette words. */

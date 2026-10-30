@@ -18,11 +18,22 @@ public final class SectionPool {
     public static final AtomicLong internCallCounter = new AtomicLong(0);
     public static final AtomicLong internDedupCounter = new AtomicLong(0);
     public static final AtomicLong tryReinternSuccessCounter = new AtomicLong(0);
+    /** Block containers offered to a pool's wire match, each counted once whatever it holds. */
     public static final LongAdder wireOfferCounter = new LongAdder();
+    /** Offered block containers that share the storage of a pooled section. */
     public static final LongAdder wireHitCounter = new LongAdder();
+    /** Pooled sections compared with offered block containers. */
     public static final LongAdder wireCandidateCounter = new LongAdder();
-    public static final LongAdder nonUniformFullReadCounter = new LongAdder();
-    public static final LongAdder postHitCloneCounter = new LongAdder();
+    /**
+     * Offered block containers read in full into storage that is not single-valued. A hit is never single-valued, so
+     * hits / (hits + this) is the share of such containers that share a pooled section's storage.
+     */
+    public static final LongAdder multiValueFullReadCounter = new LongAdder();
+    /**
+     * Storage clones on a write to a section whose storage is shared only through a hit: the pooled section's next
+     * write after any hit, and the first write of a section a hit returned.
+     */
+    public static final LongAdder sharedCloneCounter = new LongAdder();
 
     private List<CachedSection> nonUniformSections;
 

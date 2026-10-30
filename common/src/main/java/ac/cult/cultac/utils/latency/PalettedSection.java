@@ -51,7 +51,8 @@ public final class PalettedSection {
     private int[] palette;
     private Int2IntOpenHashMap indices;
     private long[] words;
-    private boolean sharedStorage, sharedFromPool;
+    private boolean sharedStorage;
+    private boolean sharedByPool;
 
     private PalettedSection(int size, int minimumBits, int maximumLocalBits, int registrySize, int initial) {
         this(size, minimumBits, maximumLocalBits, registrySize, 0, new int[] {initial}, 1, NO_WORDS);
@@ -136,8 +137,9 @@ public final class PalettedSection {
             var shared = pool.sharedBlocks(
                     input, !version.atLeast(ProtocolVersion.V1_21_5), registrySize, mapper, targetRegistrySize);
             if (shared != null) return shared;
+            return countedFullRead(readBlocks(input, version, registrySize, mapper, targetRegistrySize));
         }
-        return countedFullRead(readBlocks(input, version, registrySize, mapper, targetRegistrySize));
+        return readBlocks(input, version, registrySize, mapper, targetRegistrySize);
     }
 
     /** As {@link #readBlocks(ByteBuf)}, sharing the storage of a section in {@code pool} that the container holds. */
@@ -145,12 +147,13 @@ public final class PalettedSection {
         if (pool != null) {
             var shared = pool.sharedBlocks(input, false, BLOCK_STATES, IntUnaryOperator.identity(), BLOCK_STATES);
             if (shared != null) return shared;
+            return countedFullRead(readBlocks(input));
         }
-        return countedFullRead(readBlocks(input));
+        return readBlocks(input);
     }
 
     private static PalettedSection countedFullRead(PalettedSection read) {
-        if (!read.isUniform()) SectionPool.nonUniformFullReadCounter.increment();
+        if (read.bits != 0) SectionPool.multiValueFullReadCounter.increment();
         return read;
     }
 
@@ -406,19 +409,23 @@ public final class PalettedSection {
                 size, minimumBits, maximumLocalBits, registrySize, bits, palette, paletteSize, words);
         result.sharedStorage = true;
         sharedStorage = true;
+        sharedByPool = false;
         return result;
     }
 
     /** As {@link #copyOnWrite}, for a pooled section whose storage a wire read shares. */
     PalettedSection copyOnWriteFromPool() {
-        sharedFromPool = true;
-        return copyOnWrite();
+        boolean byPool = sharedByPool || !sharedStorage;
+        var result = copyOnWrite();
+        result.sharedByPool = true;
+        sharedByPool = byPool;
+        return result;
     }
 
     private void ownStorage() {
-        if (sharedFromPool) {
-            SectionPool.postHitCloneCounter.increment();
-            sharedFromPool = false;
+        if (sharedByPool) {
+            SectionPool.sharedCloneCounter.increment();
+            sharedByPool = false;
         }
         if (palette != null) palette = palette.clone();
         words = words.clone();
