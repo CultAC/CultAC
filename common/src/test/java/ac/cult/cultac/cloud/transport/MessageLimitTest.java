@@ -117,7 +117,8 @@ class MessageLimitTest {
 
         assertEquals(join.length, CloudConnection.nextPart(queue, queuedBytes, 1, limit, MESSAGE_LIMIT, batch, part));
         assertTrue(batch.full, "the JOIN ends the next message, which it opens");
-        assertEquals(List.of(join), part.stream().map(CloudConnection.Queued::record).toList());
+        assertEquals(
+                List.of(join), part.stream().map(CloudConnection.Queued::record).toList());
         assertTrue(queue.isEmpty());
     }
 
