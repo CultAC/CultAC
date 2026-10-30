@@ -496,13 +496,27 @@ public class ReachInterpolationData {
         int size = interpolationQueue.size();
         for (int i = 0; i < size; i++) {
             Step step = interpolationQueue.removeFirst();
-            interpolationQueue.addLast(new Step(step.transform().shift(movement, yaw, pitch), step.ticks()));
+            Transform shifted = step.transform().shift(movement, yaw, pitch);
+            interpolationQueue.addLast(shifted == step.transform() ? step : new Step(shifted, step.ticks()));
         }
     }
 
     public record Transform(Vec3 position, float yaw, float pitch) {
+        /** This transform when every shifted component keeps its bits. */
         private Transform shift(Vec3 delta, float yawDelta, float pitchDelta) {
-            return new Transform(position.add(delta), yaw + yawDelta, pitch + pitchDelta);
+            double x = position.x + delta.x;
+            double y = position.y + delta.y;
+            double z = position.z + delta.z;
+            float shiftedYaw = yaw + yawDelta;
+            float shiftedPitch = pitch + pitchDelta;
+            if (Double.doubleToRawLongBits(x) == Double.doubleToRawLongBits(position.x)
+                    && Double.doubleToRawLongBits(y) == Double.doubleToRawLongBits(position.y)
+                    && Double.doubleToRawLongBits(z) == Double.doubleToRawLongBits(position.z)
+                    && Float.floatToRawIntBits(shiftedYaw) == Float.floatToRawIntBits(yaw)
+                    && Float.floatToRawIntBits(shiftedPitch) == Float.floatToRawIntBits(pitch)) {
+                return this;
+            }
+            return new Transform(new Vec3(x, y, z), shiftedYaw, shiftedPitch);
         }
     }
 
