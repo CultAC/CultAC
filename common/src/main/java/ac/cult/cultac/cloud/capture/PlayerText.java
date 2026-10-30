@@ -577,16 +577,6 @@ public final class PlayerText {
         return kept;
     }
 
-    private static byte[] protocolString(String value) {
-        ByteBuf out = Unpooled.buffer();
-        try {
-            Wire.writeString(out, value, Wire.MAX_STRING_LENGTH);
-            return ByteBufUtil.getBytes(out);
-        } finally {
-            out.release();
-        }
-    }
-
     private static byte[] varInt(int value) {
         ByteBuf out = Unpooled.buffer(5);
         try {
@@ -926,7 +916,7 @@ public final class PlayerText {
         private void team() {
             int start = in.readerIndex();
             String team = Wire.readString(in, Wire.MAX_STRING_LENGTH);
-            cut(start, in.readerIndex(), protocolString(teams.of(team)));
+            cut(start, in.readerIndex(), teams.encoded(team));
             int mode = in.readByte();
             if (mode < 0 || mode > 4) throw new IllegalArgumentException("Unknown team mode " + mode);
             if (mode == 0 || mode == 2) {
@@ -1032,6 +1022,7 @@ public final class PlayerText {
      */
     static final class TeamNames {
         private static final SecureRandom KEYS = new SecureRandom();
+        private static final byte[] HEX_DIGITS = "0123456789abcdef".getBytes(StandardCharsets.US_ASCII);
         /** The most tab list names held; later ones are not. */
         static final int MAX_LISTED = 4096;
         /** The longest profile name a client reads. */
@@ -1066,6 +1057,19 @@ public final class PlayerText {
             if (mac == null) mac = mac(key);
             byte[] hash = mac.doFinal(team.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(hash, 0, 8);
+        }
+
+        /** {@link #of}, as the protocol writes a string: its length, then its digits. */
+        byte[] encoded(String team) {
+            if (mac == null) mac = mac(key);
+            byte[] hash = mac.doFinal(team.getBytes(StandardCharsets.UTF_8));
+            byte[] out = new byte[17];
+            out[0] = 16;
+            for (int i = 0; i < 8; i++) {
+                out[1 + 2 * i] = HEX_DIGITS[(hash[i] >> 4) & 0xF];
+                out[2 + 2 * i] = HEX_DIGITS[hash[i] & 0xF];
+            }
+            return out;
         }
 
         private static Mac mac(byte[] key) {
