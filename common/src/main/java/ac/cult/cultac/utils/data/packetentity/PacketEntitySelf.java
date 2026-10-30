@@ -173,6 +173,18 @@ public class PacketEntitySelf extends PacketEntity {
     }
 
     @Override
+    public void onPositionPath(
+            EntityPositionPath path,
+            boolean hasPosition,
+            boolean hasRotation,
+            float yaw,
+            float pitch,
+            CultPlayer player,
+            boolean bundled) {
+        // please don't send this type of packet to the player self, it's not possible in vanilla
+    }
+
+    @Override
     public void addPotionEffect(MovementEffect effect, int amplifier) {
         // Blindness does not cancel sprinting that began before the effect.
         if (effect == MovementEffect.BLINDNESS
@@ -250,6 +262,20 @@ public class PacketEntitySelf extends PacketEntity {
     }
 
     @Override
+    public void onFirstTransaction(
+            boolean relative,
+            boolean hasPos,
+            double relX,
+            double relY,
+            double relZ,
+            boolean hasRotation,
+            float yaw,
+            float pitch,
+            CultPlayer player) {
+        // Player ignores this
+    }
+
+    @Override
     public void onBundleTransaction(
             boolean relative, boolean hasPos, double relX, double relY, double relZ, CultPlayer player) {
         // Player ignores this
@@ -269,6 +295,20 @@ public class PacketEntitySelf extends PacketEntity {
     }
 
     @Override
+    public void onBundleTransaction(
+            boolean relative,
+            boolean hasPos,
+            double relX,
+            double relY,
+            double relZ,
+            boolean hasRotation,
+            float yaw,
+            float pitch,
+            CultPlayer player) {
+        // Player ignores this
+    }
+
+    @Override
     public void onBundleFirstTransaction(
             boolean relative, boolean hasPos, double relX, double relY, double relZ, CultPlayer player) {
         // Player ignores this
@@ -283,6 +323,20 @@ public class PacketEntitySelf extends PacketEntity {
             double relZ,
             @Nullable Float yaw,
             @Nullable Float pitch,
+            CultPlayer player) {
+        // Player ignores this
+    }
+
+    @Override
+    public void onBundleFirstTransaction(
+            boolean relative,
+            boolean hasPos,
+            double relX,
+            double relY,
+            double relZ,
+            boolean hasRotation,
+            float yaw,
+            float pitch,
             CultPlayer player) {
         // Player ignores this
     }
@@ -295,6 +349,12 @@ public class PacketEntitySelf extends PacketEntity {
     @Override
     public void onBundledPositionSyncTransaction(
             double x, double y, double z, @Nullable Float yaw, @Nullable Float pitch, CultPlayer player) {
+        // Player ignores this
+    }
+
+    @Override
+    public void onBundledPositionSyncTransaction(
+            double x, double y, double z, boolean hasRotation, float yaw, float pitch, CultPlayer player) {
         // Player ignores this
     }
 
