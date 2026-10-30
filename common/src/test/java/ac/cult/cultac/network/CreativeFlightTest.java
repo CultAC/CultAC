@@ -1302,7 +1302,7 @@ class CreativeFlightTest {
         for (ClientVersion version : SPRINT_VERSIONS) {
             for (ServerboundPlayerInput keys : AWAY_FROM_FORWARD) {
                 String where = version + " " + keys;
-                try (var f = flying(version, TAKEOFF, false)) {
+                try (var f = standingInCreative(version)) {
                     var run = new SprintRun(f, TAKEOFF);
                     f.command(PlayerCommandAction.START_SPRINTING);
                     assertJudgedExact(run.walk(FORWARD, SPRINT_MOVEMENT_SPEED), where);
@@ -1317,7 +1317,7 @@ class CreativeFlightTest {
         for (ClientVersion version : SPRINT_VERSIONS) {
             for (ServerboundPlayerInput keys : AWAY_FROM_FORWARD) {
                 String where = version + " " + keys;
-                try (var f = flying(version, TAKEOFF, false)) {
+                try (var f = standingInCreative(version)) {
                     var run = new SprintRun(f, TAKEOFF);
                     f.command(PlayerCommandAction.START_SPRINTING);
                     assertJudgedExact(run.walk(FORWARD, SPRINT_MOVEMENT_SPEED), where);
@@ -1346,6 +1346,19 @@ class CreativeFlightTest {
                 : new JavaTickFixture(ProtocolVersion.V1_21_4, version);
         f.place(position, Vec3.ZERO);
         grantFlight(f, flying);
+        return f;
+    }
+
+    /**
+     * A player the server lets fly, not flying, standing at {@link #TAKEOFF}: the last tick's
+     * LivingEntity#travel left its gravity in deltaMovement, so its next Entity#move collides with the floor.
+     */
+    private static JavaTickFixture standingInCreative(ClientVersion version) throws Exception {
+        JavaTickFixture f = version == ClientVersion.V_26_3
+                ? new JavaTickFixture()
+                : new JavaTickFixture(ProtocolVersion.V1_21_4, version);
+        f.place(TAKEOFF, new Vec3(0, STANDING_Y, 0));
+        grantFlight(f, false);
         return f;
     }
 
