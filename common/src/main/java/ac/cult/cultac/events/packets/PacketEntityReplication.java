@@ -1620,6 +1620,13 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         List<CultWrite> resyncPackets = CultAPI.INSTANCE.getConfigManager().isObserveOnly()
                 ? List.of()
                 : resyncPackets(mountResyncState, dismountResyncState);
+        if (mountResyncState != null && !resyncPackets.isEmpty()) {
+            // ClientPacketListener#handleMoveVehicle answers each resync MoveVehicle. A ping earlier in the flush
+            // bundle is answered before those answers, so only a ping of its own after them proves them.
+            CultPlayer.TrackedTransaction proof = player.appendResponseProofTransaction(event, resyncPackets);
+            if (proof != null) event.bundle();
+            return proof;
+        }
         boolean useDelimiter = !resyncPackets.isEmpty() || useReachBundleDelimiter;
         return appendTrailingProofTransaction(event, resyncPackets, useDelimiter);
     }
@@ -1646,11 +1653,12 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 new ClientboundEntityMotion(entityId, new Vec3d(velocity.x, velocity.y, velocity.z)), false);
     }
 
+    // queueVehicleProtocolResync records this packet's answer, so PacketServerTeleport must not record it again.
     private CultWrite vehicleMovePacket(VehicleMountResyncState resyncState, Vec3 position) {
         return new CultWrite(
                 new ClientboundMoveVehicle(
                         new Vec3d(position.x, position.y, position.z), resyncState.yaw(), resyncState.pitch()),
-                false);
+                true);
     }
 
     private CultWrite selfDismountTeleportPacket(int teleportId, Vec3 position, Vec3 velocity) {
@@ -1673,7 +1681,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         if (isBedrockVehicleResync(resyncState.vehicleId())) {
             player.getSetbackTeleportUtil()
                     .addBedrockVehicleTeleport(resyncState.vehicleId(), transaction, resyncState.position());
-        } else if (player.isBedrockMovement() || player.getClientVersion() != ClientVersion.V_1_21_2) {
+        } else {
             // ClientPacketListener#handleMoveVehicle answers each packet, the snap nudge first.
             if (resyncState.snapNudge() != null) {
                 player.getSetbackTeleportUtil()
@@ -1682,10 +1690,6 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             player.getSetbackTeleportUtil()
                     .addVehicleTeleport(resyncState.vehicleId(), transaction, resyncState.position());
         }
-        // Protocol 768's generated MoveVehicle packet goes through the outbound
-        // PacketServerTeleport listener, which records its exact echo. A second
-        // entry here consumes the following real vehicle tick at the same
-        // position, losing its gravity/ground carry (no onGround wire field).
         player.getSetbackTeleportUtil().updateSafeVehiclePosition(resyncState.position());
     }
 

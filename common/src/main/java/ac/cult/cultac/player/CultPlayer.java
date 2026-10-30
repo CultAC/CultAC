@@ -893,6 +893,13 @@ public class CultPlayer implements GrimUser {
         return writeTrailingProofTransaction(event, List.of());
     }
 
+    /** As {@link #appendResponseProofTransaction(PacketSendEvent)}, after {@code packetsBeforeProof}. */
+    @Nullable
+    public TrackedTransaction appendResponseProofTransaction(
+            PacketSendEvent<?> event, List<CultWrite> packetsBeforeProof) {
+        return writeTrailingProofTransaction(event, packetsBeforeProof);
+    }
+
     @Nullable
     private TrackedTransaction writeTrailingProofTransaction(
             PacketSendEvent<?> event, List<CultWrite> packetsBeforeProof) {
