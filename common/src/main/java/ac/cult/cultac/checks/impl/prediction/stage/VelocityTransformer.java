@@ -355,8 +355,10 @@ public class VelocityTransformer {
     private List<Vec3> exactRideableInputVectors(CultPlayer player, Vec3 riddenInput) {
         List<Vec3> vectors = new ArrayList<>(6);
         if (simulationContext.getVehicle() instanceof PacketEntityHappyGhast happyGhast) {
-            // HappyGhast#tickRidden turns the root 8% toward the controller before LivingEntity#travel.
-            float travelYaw = happyGhast.getRiddenTickYaw(simulationContext.getXRot());
+            // HappyGhast#tickRidden turns the root 8% toward the controller before LivingEntity#travel. The
+            // controller is the rider's Rot, which LocalPlayer#sendChanges sends before MoveVehicle; the context
+            // rotation is the root's reported yaw, already past that turn.
+            float travelYaw = happyGhast.getRiddenTickYaw(player.xRot);
             addDistinctInputVector(vectors, happyGhast.getTravelInputVector(player, riddenInput, travelYaw));
             return vectors;
         }
