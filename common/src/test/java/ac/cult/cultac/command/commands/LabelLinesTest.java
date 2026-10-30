@@ -27,15 +27,15 @@ class LabelLinesTest {
     @Test
     void flagCountsAreSingularAndPlural() {
         Map<String, Integer> flags = Map.of("killaura", 14, "triggerbot", 1, "other", 9);
-        assertEquals("KillAura · 14 flags in the last 7 days", plain(LabelLines.check("killaura", flags, 7)));
-        assertEquals("Triggerbot · 1 flag in the last 1 day", plain(LabelLines.check("triggerbot", flags, 1)));
-        assertEquals("Other", plain(LabelLines.check("other", flags, 7)));
-        assertEquals("Auto Mace", plain(LabelLines.check("automace", flags, 7)));
+        assertEquals("KillAura · 14 flags in the last 7 days", plain(LabelLines.cheat("killaura", flags, 7)));
+        assertEquals("Triggerbot · 1 flag in the last 1 day", plain(LabelLines.cheat("triggerbot", flags, 1)));
+        assertEquals("Other", plain(LabelLines.cheat("other", flags, 7)));
+        assertEquals("Auto Mace", plain(LabelLines.cheat("automace", flags, 7)));
         assertEquals(
                 "Chest Stealer · 2 flags in the last 7 days",
-                plain(LabelLines.check("chest-stealer", Map.of("chest-stealer", 2), 7)));
-        assertEquals("KillAura", plain(LabelLines.check("killaura", Map.of(), 7)));
-        assertEquals("KillAura", plain(LabelLines.check("killaura", null, 7)));
+                plain(LabelLines.cheat("chest-stealer", Map.of("chest-stealer", 2), 7)));
+        assertEquals("KillAura", plain(LabelLines.cheat("killaura", Map.of(), 7)));
+        assertEquals("KillAura", plain(LabelLines.cheat("killaura", null, 7)));
     }
 
     @Test
@@ -48,19 +48,20 @@ class LabelLinesTest {
 
     @Test
     void theCardSaysWhetherTheTargetIsOnline() {
-        Component online = LabelLines.presence("Notch", 42 * 60_000L);
+        Component online = LabelLines.presence("Notch", 42 * 60_000L, null);
         assertEquals("Notch · online 42m", plain(online));
         assertEquals(NamedTextColor.GREEN, online.color());
-        Component offline = LabelLines.presence("Notch", null);
+        Component elsewhere = LabelLines.presence("Notch", null, "Lobby-2");
+        assertEquals("Notch · online on Lobby-2", plain(elsewhere));
+        assertEquals(NamedTextColor.GREEN, elsewhere.color());
+        Component offline = LabelLines.presence("Notch", null, null);
         assertEquals("Notch · offline", plain(offline));
         assertEquals(NamedTextColor.GRAY, offline.color());
-        assertEquals("Online 3h 5m", LabelLines.status(185 * 60_000L));
-        assertEquals("Online 2d 4h", LabelLines.status(52 * 3_600_000L));
-        assertEquals("Offline", LabelLines.status(null));
-        assertEquals(
-                "First joined: Sep 02, 2026",
-                LabelLines.firstJoined(Instant.parse("2026-09-02T10:00:00Z").toEpochMilli()));
-        assertNull(LabelLines.firstJoined(0));
+        assertEquals("Online 3h 5m", LabelLines.status(185 * 60_000L, null));
+        assertEquals("Online 2d 4h", LabelLines.status(52 * 3_600_000L, "Lobby-2"));
+        assertEquals("Online on Lobby-2", LabelLines.status(null, "Lobby-2"));
+        assertEquals("Online", LabelLines.status(null, ""));
+        assertEquals("Offline", LabelLines.status(null, null));
     }
 
     @Test
@@ -97,7 +98,7 @@ class LabelLinesTest {
     void cleanShowsNoSpanAndEveryNextIsPlain() {
         assertEquals("Clean · High confidence", plain(LabelLines.summary(Verdict.CLEAN, true, "high", 7)));
         assertEquals(
-                "Labelled Notch clean across all checks, extreme",
+                "Labelled Notch clean across all cheats, extreme confidence",
                 LabelLines.echo("Notch", Verdict.CLEAN, List.of(), true, "extreme", 7));
         assertEquals("Next ▶", plain(LabelLines.next()));
         assertFalse(LabelLines.next().hasDecoration(TextDecoration.BOLD));
@@ -182,7 +183,7 @@ class LabelLinesTest {
         assertEquals(NamedTextColor.RED, LabelLines.resultColor(0, 2));
         assertEquals("Label failed for Notch: HTTP 409", LabelLines.failed("Notch", "HTTP 409"));
         assertEquals(
-                "Labelled Notch cheating (KillAura, Triggerbot), high (last 7 days)",
+                "Labelled Notch cheating (KillAura, Triggerbot), high confidence (last 7 days)",
                 LabelLines.echo("Notch", Verdict.CHEATING, List.of("killaura", "triggerbot"), true, "high", 7));
         assertEquals(
                 "Labelled Notch suspected (Other) (last 1 day)",

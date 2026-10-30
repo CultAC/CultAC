@@ -3,6 +3,7 @@ package ac.cult.cultac.utils.latency;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.FluidTags;
 import ac.cult.blocksim.data.StateFacts;
+import ac.cult.blocksim.engine.BlockEntityData;
 import ac.cult.cultac.checks.impl.movement.GhostBlockMitigator;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.network.packet.WorldPackets.SectionBlocksUpdate;
@@ -98,6 +99,8 @@ public class CompensatedWorld {
     private boolean levelUnresolved;
     private boolean isCurrentlyPredicting = false;
     private final Long2IntOpenHashMap selectionOriginalStates = new Long2IntOpenHashMap();
+    private final Long2ObjectOpenHashMap<BlockEntityData> selectionOriginalBlockEntities =
+            new Long2ObjectOpenHashMap<>();
     private boolean selectionSnapshotActive;
     private boolean readingSelectionSnapshot;
     private String selectionHeldItemKey;
@@ -488,6 +491,7 @@ public class CompensatedWorld {
 
     public void endSelectionSnapshot() {
         selectionOriginalStates.clear();
+        selectionOriginalBlockEntities.clear();
         selectionSnapshotActive = false;
         selectionHeldItemKey = null;
     }
@@ -899,6 +903,8 @@ public class CompensatedWorld {
         int original = getBlockStateIdAt(asVector);
         if (isCurrentlyPredicting && selectionSnapshotActive) {
             selectionOriginalStates.putIfAbsent(asVector.asLong(), original);
+            if (!selectionOriginalBlockEntities.containsKey(asVector.asLong()))
+                selectionOriginalBlockEntities.put(asVector.asLong(), clientBlockEntities.stored(asVector));
         }
 
         if (isCurrentlyPredicting && !player.isBedrockMovement()) {
@@ -1397,6 +1403,11 @@ public class CompensatedWorld {
     }
 
     public ac.cult.blocksim.engine.BlockEntityData getClientBlockEntityData(BlockPos pos) {
+        long key = pos.asLong();
+        if (readingSelectionSnapshot && selectionOriginalBlockEntities.containsKey(key)) {
+            var original = selectionOriginalBlockEntities.get(key);
+            return original != null ? original : clientBlockEntities.prototype(getBlockStateIdAt(pos));
+        }
         return clientBlockEntities.snapshot(pos, getBlockStateIdAt(pos));
     }
 

@@ -7,6 +7,7 @@ import ac.cult.cultac.bridge.protocol.BridgeMessage.ClientMods;
 import ac.cult.cultac.bridge.protocol.ServerCapability;
 import ac.cult.cultac.command.BuildableCommand;
 import ac.cult.cultac.command.CloudCommandService;
+import ac.cult.cultac.command.NetworkPlayerArguments;
 import ac.cult.cultac.manager.player.SmoketestControlBridge;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.command.PlayerSelector;
@@ -18,6 +19,7 @@ import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.incendo.cloud.Command;
@@ -38,6 +40,7 @@ public class CultDebug implements BuildableCommand {
                 .literal("debug", Description.of("Toggle debug output for a player"))
                 .permission("cult.debug")
                 .optional("target", arguments.singlePlayerSelectorParser())
+                .meta(NetworkPlayerArguments.LOCAL, true)
                 .flag(commandManager
                         .flagBuilder("verbose")
                         .withAliases("v")
@@ -51,6 +54,7 @@ public class CultDebug implements BuildableCommand {
                 .literal("-v", Description.of("Toggle debug output with start and end of tick velocities"), "--verbose")
                 .permission("cult.debug")
                 .optional("target", arguments.singlePlayerSelectorParser())
+                .meta(NetworkPlayerArguments.LOCAL, true)
                 .handler(context -> handleDebug(context, true)));
 
         commandManager.command(cultCommand
@@ -58,6 +62,7 @@ public class CultDebug implements BuildableCommand {
                 .literal("rewind", Description.of("Toggle Bedrock rewind positions and offsets"))
                 .permission("cult.debug")
                 .optional("target", arguments.singlePlayerSelectorParser())
+                .meta(NetworkPlayerArguments.LOCAL, true)
                 .handler(this::handleDebugRewind));
 
         commandManager.command(cultCommand
@@ -65,6 +70,7 @@ public class CultDebug implements BuildableCommand {
                 .literal("places", Description.of("Toggle processed block-state changes for you or a player"))
                 .permission("cult.debug")
                 .optional("target", arguments.singlePlayerSelectorParser())
+                .meta(NetworkPlayerArguments.LOCAL, true)
                 .handler(this::handleDebugPlaces));
 
         commandManager.command(cultCommand
@@ -72,14 +78,14 @@ public class CultDebug implements BuildableCommand {
                 .literal("channels", Description.of("List the plugin channels a player's client opened"))
                 .permission("cult.debug")
                 .required("target", arguments.singlePlayerSelectorParser())
-                .handler(this::handleDebugChannels));
+                .futureHandler(this::handleDebugChannels));
 
         commandManager.command(cultCommand
                 .literal("debug")
                 .literal("mods", Description.of("List a player's Lunar Client mods reported through Apollo"))
                 .permission("cult.debug")
                 .required("target", arguments.singlePlayerSelectorParser())
-                .handler(this::handleDebugMods));
+                .futureHandler(this::handleDebugMods));
 
         commandManager.command(cultCommand
                 .literal("debug")
@@ -92,12 +98,14 @@ public class CultDebug implements BuildableCommand {
                 .literal("itemslow", Description.of("Toggle item-use balance and server-view use tracking"))
                 .permission("cult.debug")
                 .optional("target", arguments.singlePlayerSelectorParser())
+                .meta(NetworkPlayerArguments.LOCAL, true)
                 .handler(this::handleDebugItemSlow));
 
         Command.Builder<Sender> proxyTicksCommand = cultCommand
                 .literal("debug")
                 .literal("proxyticks", Description.of("Show observed proxy tick-end hits and misses"))
-                .permission("cult.debug");
+                .permission("cult.debug")
+                .meta(NetworkPlayerArguments.LOCAL, true);
         commandManager.command(proxyTicksCommand
                 .optional("target", arguments.singlePlayerSelectorParser())
                 .flag(commandManager.flagBuilder("reset"))
@@ -243,16 +251,19 @@ public class CultDebug implements BuildableCommand {
         });
     }
 
-    private void handleDebugChannels(@NotNull CommandContext<Sender> context) {
+    /** Completes once the channels were listed. */
+    private CompletableFuture<Void> handleDebugChannels(@NotNull CommandContext<Sender> context) {
         Sender sender = context.sender();
         PlayerSelector selector = context.get("target");
         CultPlayer target = parseTarget(sender, selector.getSinglePlayer());
-        if (target == null) return;
+        if (target == null) return CompletableFuture.completedFuture(null);
+        CompletableFuture<Void> listed = new CompletableFuture<>();
         target.runSafely(() -> {
             var channels = target.pluginChannelManager.channels();
             if (channels.isEmpty()) {
                 sender.sendMessage(
                         line(target, "debug-channels-none", "%prefix% &f%player% &bhas no plugin channels open"));
+                listed.complete(null);
                 return;
             }
             sender.sendMessage(line(
@@ -264,21 +275,25 @@ public class CultDebug implements BuildableCommand {
             for (String channel : channels) {
                 sender.sendMessage(line(target, "debug-channels-entry", "&8- &f%channel%", "%channel%", channel));
             }
+            listed.complete(null);
         });
+        return listed;
     }
 
-    private void handleDebugMods(@NotNull CommandContext<Sender> context) {
+    /** Completes once the mods were listed. */
+    private CompletableFuture<Void> handleDebugMods(@NotNull CommandContext<Sender> context) {
         Sender sender = context.sender();
         PlayerSelector selector = context.get("target");
         CultPlayer target = parseTarget(sender, selector.getSinglePlayer());
-        if (target == null) return;
+        if (target == null) return CompletableFuture.completedFuture(null);
         PlatformPlayer platformPlayer = target.platformPlayer;
         var request = platformPlayer == null
-                ? java.util.concurrent.CompletableFuture.<ClientMods>completedFuture(null)
+                ? CompletableFuture.<ClientMods>completedFuture(null)
                 : platformPlayer.requestClientMods();
-        request.whenComplete((fresh, failure) -> {
+        return request.handle((fresh, failure) -> {
             if (fresh != null) target.clientMods = fresh;
             sendMods(sender, target, fresh != null ? fresh : target.clientMods);
+            return null;
         });
     }
 

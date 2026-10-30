@@ -204,6 +204,8 @@ class ObserveOnlyCallSiteTest {
             utils/latency/InteractionPause.java#resync() resyncFromServerView
             utils/latency/InteractionPause.java#resync() sendServerStates
             utils/latency/InteractionPause.java#start(long) resync x2
+            [] README: clicks on CultAC's own menus
+            dialog/DialogClickListener.java#onClick(PacketReceiveEvent,CultPlayer,ServerboundCustomClickAction) setCancelled
             [] the model and CultAC's own pings
             bedrock/bridge/GeyserEntityAttributes.java#capture(GeyserSession,CultPlayer,GeyserReplayUpdate) replace
             bedrock/prediction/integration/BedrockReplayAttributeEvent.java#state(BedrockMovementState) replace x2

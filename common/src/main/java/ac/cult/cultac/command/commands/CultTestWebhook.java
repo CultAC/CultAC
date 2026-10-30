@@ -8,6 +8,7 @@ import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.cult.cultac.utils.data.webhook.discord.WebhookMessage;
+import java.util.concurrent.CompletableFuture;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.incendo.cloud.CommandManager;
@@ -21,53 +22,51 @@ public class CultTestWebhook implements BuildableCommand {
                 .literal("testwebhook")
                 .permission("cult.testwebhook")
                 .optional("target", arguments.singlePlayerSelectorParser())
-                .handler(this::handleTestWebhook));
+                .futureHandler(this::handleTestWebhook));
     }
 
-    private void handleTestWebhook(@NotNull CommandContext<Sender> context) {
+    /** Completes once the result was sent. */
+    private CompletableFuture<Void> handleTestWebhook(@NotNull CommandContext<Sender> context) {
         if (CultAPI.INSTANCE.getDiscordManager().isDisabled()) {
             context.sender()
                     .sendMessage(MessageUtil.miniMessage(
                             CultAPI.INSTANCE.getConfigManager().getWebhookNotEnabled()));
-            return;
+            return CompletableFuture.completedFuture(null);
         }
 
         WebhookMessage webhookMessage =
                 new WebhookMessage().content(CultAPI.INSTANCE.getConfigManager().getWebhookTestMessage());
         PlayerSelector selector = context.<PlayerSelector>optional("target").orElse(null);
-        if (selector == null) {
-            send(context, webhookMessage);
-            return;
-        }
+        if (selector == null) return send(context, webhookMessage);
         CultPlayer target = CultAPI.INSTANCE
                 .getPlayerDataManager()
                 .getPlayer(selector.getSinglePlayer().getUniqueId());
         if (target == null) {
             context.sender()
                     .sendMessage(Component.text("That player is exempt or not tracked by Cult.", NamedTextColor.RED));
-            return;
+            return CompletableFuture.completedFuture(null);
         }
+        CompletableFuture<Void> sent = new CompletableFuture<>();
         target.runSafely(() -> send(
-                context,
-                webhookMessage.addEmbeds(
-                        CultAPI.INSTANCE.getDiscordManager().alertEmbed(target, "test=true", "TestWebhook", 1))));
+                        context,
+                        webhookMessage.addEmbeds(CultAPI.INSTANCE
+                                .getDiscordManager()
+                                .alertEmbed(target, "test=true", "TestWebhook", 1)))
+                .whenComplete((ignored, failure) -> sent.complete(null)));
+        return sent;
     }
 
-    private void send(@NotNull CommandContext<Sender> context, WebhookMessage webhookMessage) {
-        CultAPI.INSTANCE
+    private CompletableFuture<Void> send(@NotNull CommandContext<Sender> context, WebhookMessage webhookMessage) {
+        return CultAPI.INSTANCE
                 .getDiscordManager()
                 .sendWebhookMessage(webhookMessage)
-                .whenCompleteAsync(((successful, throwable) -> {
-                    if (successful == true) {
-                        context.sender()
-                                .sendMessage(MessageUtil.miniMessage(
-                                        CultAPI.INSTANCE.getConfigManager().getWebhookTestSucceeded()));
-                        return;
-                    }
-
+                .handleAsync((successful, throwable) -> {
                     context.sender()
                             .sendMessage(MessageUtil.miniMessage(
-                                    CultAPI.INSTANCE.getConfigManager().getWebhookTestFailed()));
-                }));
+                                    Boolean.TRUE.equals(successful)
+                                            ? CultAPI.INSTANCE.getConfigManager().getWebhookTestSucceeded()
+                                            : CultAPI.INSTANCE.getConfigManager().getWebhookTestFailed()));
+                    return null;
+                });
     }
 }

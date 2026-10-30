@@ -44,13 +44,17 @@ public class LabelCatalogTest {
                         "jumpreset",
                         "chest-stealer",
                         "scaffold",
+                        "fastplace",
                         "latency-abuse",
+                        "blink",
+                        "fakelag",
                         "other"),
                 bundled.ids());
         assertEquals(
                 new LabelCatalog.Entry("autostunslam", "Auto Stun Slam"),
                 bundled.cheats().get(8));
         assertEquals("Latency Abuse", bundled.name("latency-abuse"));
+        assertEquals("Fast Place", bundled.name("fastplace"));
         assertEquals(bundled.ids(), LabelCatalog.current().ids());
     }
 

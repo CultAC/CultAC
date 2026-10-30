@@ -19,11 +19,12 @@ import ac.cult.cultac.bridge.protocol.CommandRoots;
 import ac.cult.cultac.command.NetworkPlayerArguments.NetworkTarget;
 import ac.cult.cultac.command.NetworkPlayerArguments.PlayerElsewhereException;
 import ac.cult.cultac.network.NetworkPlayer;
-import ac.cult.cultac.network.NetworkRouting;
-import ac.cult.cultac.network.RoutingHolder;
 import ac.cult.cultac.network.routing.NetworkModule;
 import ac.cult.cultac.network.routing.NetworkPlatform;
+import ac.cult.cultac.network.routing.NetworkService;
 import ac.cult.cultac.network.routing.PlainPlaceholders;
+import ac.cult.cultac.network.routing.TestNetworks;
+import ac.cult.cultac.network.routing.TestNetworks.Players;
 import ac.cult.cultac.platform.api.command.PlayerSelector;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.sender.Sender;
@@ -33,9 +34,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.incendo.cloud.context.CommandContext;
@@ -59,7 +61,13 @@ class NetworkPlayerArgumentsTest {
     private final IsolatedCommandManager manager = new IsolatedCommandManager();
     private final Sender sender = mock(Sender.class);
     private final Local local = new Local("Adam", "Bob");
-    private final Routing routing = new Routing();
+    private final TestNetworks networks = new TestNetworks();
+    private final Players here =
+            new Players().with(UUID.randomUUID(), "Adam", null).with(UUID.randomUUID(), "Bob", null);
+    private final Players onP9 = new Players().with(DANA.uuid(), "Dana", null);
+    private final List<String> ranOnP7 = new CopyOnWriteArrayList<>();
+    private final List<String> ranOnP9 = new CopyOnWriteArrayList<>();
+    private NetworkService p9;
     private CloudCommandService service;
     private PlainPlaceholders placeholders;
 
@@ -116,45 +124,20 @@ class NetworkPlayerArgumentsTest {
         }
     }
 
-    /** A routing whose roster lists this instance's players and others' on p7 and p9; runs are recorded. */
-    private final class Routing implements NetworkRouting {
-        boolean enabled = true;
-        final List<NetworkPlayer> remote = new ArrayList<>(List.of(ALICE, DANA));
-        final List<String> ran = new ArrayList<>();
-        final List<NetworkPlayer> ranOn = new ArrayList<>();
+    /** Runs this instance, p3, as the current routing, with Alice on p7 and Dana on p9. */
+    private void networked() {
+        TestNetworks.install(networks.service("p3").platform(here).start());
+        networks.service("p7")
+                .platform(new Players().with(ALICE.uuid(), "Alice", "lobby"))
+                .recording(ranOnP7)
+                .start();
+        p9 = networks.service("p9").platform(onP9).recording(ranOnP9).start();
+    }
 
-        @Override
-        public boolean enabled() {
-            return enabled;
-        }
-
-        @Override
-        public String instanceId() {
-            return "p3";
-        }
-
-        @Override
-        public Optional<NetworkPlayer> locate(String nameOrUuid) {
-            return roster().stream()
-                    .filter(player -> player.name().equalsIgnoreCase(nameOrUuid))
-                    .findFirst();
-        }
-
-        @Override
-        public Collection<NetworkPlayer> roster() {
-            List<NetworkPlayer> roster = new ArrayList<>();
-            for (Sender player : local.players.values())
-                roster.add(new NetworkPlayer(UUID.randomUUID(), player.getName(), "p3", null));
-            if (enabled) roster.addAll(remote);
-            return roster;
-        }
-
-        @Override
-        public CompletableFuture<Boolean> run(Sender who, String line, NetworkPlayer where) {
-            ran.add(line);
-            ranOn.add(where);
-            return CompletableFuture.completedFuture(true);
-        }
+    /** Runs p3 alone, with no transport. */
+    private void withoutTransport() {
+        TestNetworks.install(
+                networks.service("p3").platform(here).transport(null).start());
     }
 
     /** A proxy with RedisBungee installed. */
@@ -184,14 +167,16 @@ class NetworkPlayerArgumentsTest {
     void setUp() throws ReflectiveOperationException {
         placeholders = new PlainPlaceholders();
         when(sender.hasPermission(anyString())).thenReturn(true);
-        RoutingHolder.install(routing);
+        when(sender.getUniqueId()).thenReturn(UUID.randomUUID());
+        when(sender.getName()).thenReturn("Mod");
+        networked();
         service = new CloudCommandService(() -> manager, local, () -> CommandRoots.DEFAULT);
         service.registerCommands();
     }
 
     @AfterEach
     void tearDown() throws ReflectiveOperationException {
-        RoutingHolder.uninstall(null);
+        NetworkModule.stop();
         NetworkModule.platform(null);
         placeholders.close();
     }
@@ -223,28 +208,68 @@ class NetworkPlayerArgumentsTest {
                 "grim findings alice 5",
                 "cult testwebhook Alice");
         for (String line : lines) execute(sender, line);
-        assertEquals(lines, routing.ran);
-        assertTrue(routing.ranOn.stream().allMatch(ALICE::equals));
+        assertEquals(lines.stream().map(CloudCommandService::onRegisteredRoot).toList(), ranOnP7);
+        assertTrue(ranOnP9.isEmpty());
         verify(sender, never()).sendMessage(any(Component.class));
     }
 
     @Test
-    void theOtherPlayerCommandsSayTheyOnlyWorkOnTheSameProxy() {
+    void theOtherPlayerCommandsSayTheyOnlyWorkOnTheSameServer() {
         for (String line : List.of("cult debug Alice", "cult debug itemslow Alice", "cult debug proxyticks Dana"))
             execute(sender, line);
-        assertTrue(routing.ran.isEmpty());
+        assertTrue(ranOnP7.isEmpty() && ranOnP9.isEmpty());
         assertEquals(
                 List.of(
-                        "Alice is on p7 (lobby); this command only works on the same proxy.",
-                        "Alice is on p7 (lobby); this command only works on the same proxy.",
-                        "Dana is on p9; this command only works on the same proxy."),
+                        "Alice is on p7 (lobby); this command only works on the same server.",
+                        "Alice is on p7 (lobby); this command only works on the same server.",
+                        "Dana is on p9; this command only works on the same server."),
                 messages());
+    }
+
+    @Test
+    void aRoutedCommandAboutAPlayerAnotherGenerationHereHoldsRunsThereWithOrWithoutATransport() {
+        UUID carol = UUID.randomUUID();
+        CloudCommandService commands = new CloudCommandService(
+                IsolatedCommandManager::new, new Local("Adam", "Carol"), () -> CommandRoots.DEFAULT);
+        commands.registerCommands();
+        for (boolean transport : new boolean[] {true, false}) {
+            Map<String, Object> shared = new ConcurrentHashMap<>();
+            List<String> ranOnOlder = new CopyOnWriteArrayList<>();
+            List<String> ranOnCurrent = new CopyOnWriteArrayList<>();
+            Players currentView = new Players().with(carol, "Carol", null);
+            currentView.holders.put(carol, NetworkPlatform.Holder.OTHER);
+            TestNetworks.Builder older = networks.service("p3")
+                    .platform(new Players().with(carol, "Carol", null))
+                    .host(TestNetworks.host(shared, false))
+                    .recording(ranOnOlder);
+            TestNetworks.Builder current = networks.service("p3")
+                    .platform(currentView)
+                    .host(TestNetworks.host(shared, true))
+                    .recording(ranOnCurrent);
+            if (!transport) {
+                older.transport(null);
+                current.transport(null);
+            }
+            NetworkService draining = older.start();
+            TestNetworks.install(current.start());
+
+            commands.execute(sender, "cult debug mods Carol")
+                    .toCompletableFuture()
+                    .handle((ran, failure) -> null)
+                    .join();
+            String variant = transport ? "with a transport" : "without one";
+            assertEquals(List.of(CloudCommandService.onRegisteredRoot("cult debug mods Carol")), ranOnOlder, variant);
+            assertTrue(ranOnCurrent.isEmpty(), variant);
+            NetworkModule.stop();
+            networks.stop(draining);
+        }
+        verify(sender, never()).sendMessage(any(Component.class));
     }
 
     @Test
     void aPlayerOnNoInstanceIsTheUsualParseFailure() {
         execute(sender, "cult debug mods Carol");
-        assertTrue(routing.ran.isEmpty());
+        assertTrue(ranOnP7.isEmpty() && ranOnP9.isEmpty());
         assertEquals(List.of("Invalid argument: Player is not online: Carol"), messages());
     }
 
@@ -259,17 +284,17 @@ class NetworkPlayerArgumentsTest {
     }
 
     @Test
-    void withoutATransportAPlayerWhoIsNotHereGetsTheNetworkDisabledMessageOnANetwork() {
-        routing.enabled = false;
+    void withoutATransportAPlayerWhoIsNotHereIsTheUsualParseFailureEvenWithRedisBungee() {
+        withoutTransport();
         NetworkModule.platform(new Networked());
         execute(sender, "cult debug mods Alice");
-        assertTrue(routing.ran.isEmpty());
-        assertTrue(messages().getFirst().contains("Network-wide commands are not enabled"), messages()::toString);
+        assertTrue(ranOnP7.isEmpty() && ranOnP9.isEmpty());
+        assertEquals(List.of("Invalid argument: Player is not online: Alice"), messages());
     }
 
     @Test
     void withoutATransportOrANetworkAPlayerWhoIsNotHereIsTheUsualParseFailure() {
-        routing.enabled = false;
+        withoutTransport();
         execute(sender, "cult debug mods Alice");
         assertEquals(List.of("Invalid argument: Player is not online: Alice"), messages());
     }
@@ -342,23 +367,23 @@ class NetworkPlayerArgumentsTest {
         when(sender.isPlayer()).thenReturn(false);
         execute(sender, "cult spectate Alice");
         assertTrue(messages().getFirst().contains("can only be used by players"), messages()::toString);
-        assertTrue(routing.ran.isEmpty());
+        assertTrue(ranOnP7.isEmpty() && ranOnP9.isEmpty());
     }
 
     @Test
     void anyInstanceWithoutATransportFailsAsTheSelectorDoes() {
-        routing.enabled = false;
+        withoutTransport();
         NetworkModule.platform(new Networked());
         var parser = NetworkPlayerArguments.anyInstance(new NetworkPlayerArguments(local).singlePlayerSelectorParser())
                 .parser();
 
-        PlayerElsewhereException elsewhere = assertInstanceOf(
-                PlayerElsewhereException.class,
+        assertEquals(
+                "Player is not online: Alice",
                 parser.parseFuture(new CommandContext<>(sender, manager), CommandInput.of("Alice"))
                         .join()
                         .failure()
-                        .orElseThrow());
-        assertNull(elsewhere.where());
+                        .orElseThrow()
+                        .getMessage());
     }
 
     @Test
@@ -386,7 +411,7 @@ class NetworkPlayerArgumentsTest {
                         .orElseThrow());
         assertEquals(ALICE, elsewhere.where());
 
-        routing.enabled = false;
+        withoutTransport();
         NetworkModule.platform(new Networked());
         assertEquals(
                 "Alice",
@@ -399,8 +424,8 @@ class NetworkPlayerArgumentsTest {
     @Test
     void playerSuggestionsAddTheRostersNamesByPrefixWithoutDuplicates() {
         NetworkPlayerArguments arguments = new NetworkPlayerArguments(local);
-        routing.remote.add(new NetworkPlayer(UUID.randomUUID(), "alex", "p9", null));
-        routing.remote.add(new NetworkPlayer(UUID.randomUUID(), "BOB", "p9", null));
+        onP9.with(UUID.randomUUID(), "alex", null).with(UUID.randomUUID(), "BOB", null);
+        networks.tick(p9);
 
         assertEquals(List.of("Alice", "alex"), suggestions(arguments.singlePlayerSelectorParser(), "al"));
         assertEquals(
@@ -408,7 +433,8 @@ class NetworkPlayerArgumentsTest {
                 suggestions(arguments.singlePlayerSelectorParser(), ""));
         assertEquals(List.of("Bob"), suggestions(arguments.onlinePlayerSuggestions(), "b"));
 
-        for (int i = 0; i < 40; i++) routing.remote.add(new NetworkPlayer(UUID.randomUUID(), "Al" + i, "p7", null));
+        for (int i = 0; i < 40; i++) onP9.with(UUID.randomUUID(), "Al" + i, null);
+        networks.tick(p9);
         List<String> many = suggestions(arguments.onlinePlayerSuggestions(), "AL");
         assertEquals(NetworkPlayerArguments.MAX_SUGGESTIONS, many.size());
         assertEquals(List.of("Alice", "alex", "Al0"), many.subList(0, 3));
@@ -416,26 +442,52 @@ class NetworkPlayerArgumentsTest {
 
     @Test
     void withoutATransportSuggestionsAreThisInstancesPlayersOnly() {
-        routing.enabled = false;
+        withoutTransport();
         NetworkPlayerArguments arguments = new NetworkPlayerArguments(local);
         assertEquals(List.of("Adam", "Bob"), suggestions(arguments.singlePlayerSelectorParser(), "a"));
         assertEquals(List.of("Adam", "Bob"), suggestions(arguments.onlinePlayerSuggestions(), ""));
     }
 
+    @Test
+    void commandsThatRunHereSuggestThisInstancesPlayersOnly() {
+        NetworkPlayerArguments arguments = new NetworkPlayerArguments(local);
+        assertEquals(
+                List.of("Adam", "Bob"),
+                suggestions(arguments.singlePlayerSelectorParser(), "cult debug rewind ", ""));
+        assertEquals(
+                List.of("Adam", "Bob", "Alice", "Dana"),
+                suggestions(
+                        NetworkPlayerArguments.anyInstance(arguments.singlePlayerSelectorParser())
+                                .parser()
+                                .suggestionProvider(),
+                        "cult spectate ",
+                        ""));
+    }
+
     private List<String> suggestions(ParserDescriptor<Sender, ?> descriptor, String typed) {
-        return suggestions(descriptor.parser().suggestionProvider(), typed);
+        return suggestions(descriptor, "cult debug mods ", typed);
+    }
+
+    private List<String> suggestions(ParserDescriptor<Sender, ?> descriptor, String command, String typed) {
+        return suggestions(descriptor.parser().suggestionProvider(), command, typed);
     }
 
     private List<String> suggestions(SuggestionProvider<Sender> provider, String typed) {
+        return suggestions(provider, "cult profile ", typed);
+    }
+
+    private List<String> suggestions(SuggestionProvider<Sender> provider, String command, String typed) {
+        CommandContext<Sender> context = new CommandContext<>(true, sender, manager);
+        context.store("__raw_input__", CommandInput.of(command + typed));
         List<String> names = new ArrayList<>();
-        provider.suggestionsFuture(new CommandContext<>(true, sender, manager), CommandInput.of(typed))
+        provider.suggestionsFuture(context, CommandInput.of(typed))
                 .join()
                 .forEach(suggestion -> names.add(suggestion.suggestion()));
         return names;
     }
 
     @Test
-    void theRoutedSubcommandsAreTheAllowlistedLiterals() {
+    void theRoutedSubcommandsAreTheRegisteredOnesWithoutTheLocalMark() {
         for (String line : List.of(
                 "cult debug mods x",
                 "GRIM Debug Channels x",
@@ -451,8 +503,9 @@ class NetworkPlayerArgumentsTest {
                 "cult debug places x",
                 "cult debug itemslow x",
                 "cult debug proxyticks x",
+                "cult debug proxyticks --reset x",
                 "cult spectate x",
-                "cult top")) assertFalse(NetworkPlayerArguments.routed(line), line);
+                "cult nosuchcommand x")) assertFalse(NetworkPlayerArguments.routed(line), line);
     }
 
     @Test

@@ -8,8 +8,13 @@ import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import java.util.function.Supplier;
 
 public class OmniSprint extends Check implements PostPredictionListener {
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("OmniSprint")
+            .description("Sprinted sideways or backward")
+            .build();
+
     public OmniSprint(CultPlayer cultPlayer) {
-        super(cultPlayer, CheckInfo.builder().name("OmniSprint").build());
+        super(cultPlayer, INFO);
     }
 
     double buffer;

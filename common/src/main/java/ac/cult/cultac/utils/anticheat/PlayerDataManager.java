@@ -4,6 +4,7 @@ import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.cloud.CloudModule;
+import ac.cult.cultac.dialog.Dialogs;
 import ac.cult.cultac.network.netty.channel.ChannelHelper;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
@@ -206,6 +207,7 @@ public class PlayerDataManager {
         PlatformPlayer quittingPlayer = user.getPlayer();
         if (!transferred) {
             CultAPI.INSTANCE.getAlertManager().handlePlayerQuit(quittingPlayer);
+            Dialogs.forget(uuid, tracked);
         }
         boolean currentPlayer = !transferred
                 && quittingPlayer != null

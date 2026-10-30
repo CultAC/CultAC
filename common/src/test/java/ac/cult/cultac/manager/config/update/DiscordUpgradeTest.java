@@ -210,6 +210,22 @@ class DiscordUpgradeTest {
     }
 
     @Test
+    void operatorV3LayoutShowsSensitivityInPercent() throws Exception {
+        Map<String, Object> data = upgrade(V3_RAW_SENSITIVITY.replace("**Checks**", "**Flags**"));
+        List<?> content = (List<?>) data.get("violation-content");
+        assertEquals("**xsens**: `%h_sensitivity%%` **ysens**: `%v_sensitivity%%`", content.get(3));
+        assertEquals("**Flags**: %checks%", content.get(4));
+    }
+
+    @Test
+    void rawSensitivityInAV4FileStays() throws Exception {
+        String raw = "**xsens**: `%h_sensitivity_raw%` **ysens**: `%v_sensitivity_raw%`";
+        Map<String, Object> data =
+                upgrade(V4_GRIM.replace("**xsens**: `%h_sensitivity%%` **ysens**: `%v_sensitivity%%`", raw));
+        assertEquals(raw, ((List<?>) data.get("violation-content")).get(3));
+    }
+
+    @Test
     void operatorV2LayoutStays() throws Exception {
         Map<String, Object> data = upgrade(V2_GLADIATOR
                 .replace("**Gladiator Alert**", "**Gladiator** on %server%")

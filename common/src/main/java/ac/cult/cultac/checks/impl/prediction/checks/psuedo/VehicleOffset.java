@@ -6,7 +6,12 @@ import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.player.CultPlayer;
 
 public class VehicleOffset extends Check implements PostPredictionListener {
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("VehicleOffset")
+            .description("Impossible vehicle movement")
+            .build();
+
     public VehicleOffset(CultPlayer player) {
-        super(player, CheckInfo.builder().name("VehicleOffset").build());
+        super(player, INFO);
     }
 }

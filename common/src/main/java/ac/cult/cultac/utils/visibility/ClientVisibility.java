@@ -1,6 +1,5 @@
 package ac.cult.cultac.utils.visibility;
 
-import ac.cult.blocksim.data.BlockFamilies;
 import ac.cult.blocksim.data.ItemComponents;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.blocksim.entity.EntityTypes;
@@ -516,8 +515,7 @@ public final class ClientVisibility {
                     var position = new BlockPos(x, y, z);
                     result.addAll(selectionBoxes(position));
                     int state = player.compensatedWorld.getBlockStateIdAt(position);
-                    if (!BlockFamilies.SHULKER_BOX.test(state))
-                        ClientBlockShapes.movement(player, state, x, y, z).downCast(result);
+                    ClientBlockShapes.movement(player, state, x, y, z).downCast(result);
                 }
         return result;
     }
@@ -534,8 +532,6 @@ public final class ClientVisibility {
 
     private List<SimpleCollisionBox> selectionBoxes(BlockPos position) {
         int state = player.compensatedWorld.getBlockStateIdAt(position);
-        // Shulker boxes count as closed regardless of lid animation.
-        if (BlockFamilies.SHULKER_BOX.test(state)) return List.of(new SimpleCollisionBox(position));
         List<SimpleCollisionBox> result = new ArrayList<>();
         ClientBlockShapes.visual(player, state, position.getX(), position.getY(), position.getZ())
                 .downCast(result);

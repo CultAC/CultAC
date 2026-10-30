@@ -11,14 +11,15 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
 
 @BedrockSupported
 public class TimerCheck extends AbstractTimerCheck {
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("Timer")
+            .description("Game ran faster than normal")
+            .configName("TimerA")
+            .setback(5)
+            .build();
+
     public TimerCheck(CultPlayer cultPlayer) {
-        super(
-                cultPlayer,
-                CheckInfo.builder()
-                        .name("Timer")
-                        .configName("TimerA")
-                        .setback(5)
-                        .build());
+        super(cultPlayer, INFO);
     }
 
     @CultPacketHandler

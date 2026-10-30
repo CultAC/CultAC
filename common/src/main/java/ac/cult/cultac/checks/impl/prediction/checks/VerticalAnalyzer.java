@@ -2,7 +2,6 @@ package ac.cult.cultac.checks.impl.prediction.checks;
 
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InvalidStep;
-import ac.cult.cultac.checks.impl.prediction.checks.psuedo.RiptideOffset;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.VerticalOffset;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
@@ -13,13 +12,6 @@ public class VerticalAnalyzer implements EngineCheck {
     private static final VanillaStepProof VANILLA_STEP_PROOF = new VanillaStepProof();
 
     public void handleResult(CultPlayer player, PredictionResult result, PredictionResult lastResult) {
-        if (player.packetStateData.invalidRiptideRelease) {
-            String reason = player.packetStateData.invalidRiptideReleaseReason;
-            result.addFlag(player.checkManager.getListener(RiptideOffset.class), () -> reason, 1);
-            player.packetStateData.invalidRiptideRelease = false;
-            player.packetStateData.invalidRiptideReleaseReason = "";
-        }
-
         if (result.getSimulationContext().getVehicle() != null) {
             return;
         }

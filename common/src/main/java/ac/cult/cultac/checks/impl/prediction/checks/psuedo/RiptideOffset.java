@@ -6,7 +6,12 @@ import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.player.CultPlayer;
 
 public class RiptideOffset extends Check implements PostPredictionListener {
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("RiptideOffset")
+            .description("Impossible Riptide trident launch")
+            .build();
+
     public RiptideOffset(CultPlayer playerData) {
-        super(playerData, CheckInfo.builder().name("RiptideOffset").build());
+        super(playerData, INFO);
     }
 }

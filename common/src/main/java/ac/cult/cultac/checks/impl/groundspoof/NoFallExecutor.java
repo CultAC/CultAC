@@ -11,15 +11,15 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 
 @BedrockSupported
 public class NoFallExecutor extends Check implements CheckListener {
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("NoFall")
+            .stableKey("cult.groundspoof.no_fall")
+            .description("Sent an on-ground packet while not colliding with the ground")
+            .setback(10)
+            .build();
+
     public NoFallExecutor(CultPlayer cultPlayer) {
-        super(
-                cultPlayer,
-                CheckInfo.builder()
-                        .name("NoFall")
-                        .stableKey("cult.groundspoof.no_fall")
-                        .description("Sent an on-ground packet while not colliding with the ground")
-                        .setback(10)
-                        .build());
+        super(cultPlayer, INFO);
     }
 
     private void handleMovePlayer(PacketReceiveEvent<ServerboundMovePlayer> event, ServerboundMovePlayer packet) {

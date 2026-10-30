@@ -7,9 +7,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.util.Base64;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.Map;
 import java.util.UUID;
 import java.util.function.Predicate;
 import javax.crypto.Mac;
@@ -22,13 +19,14 @@ import org.jetbrains.annotations.Nullable;
  * {@value #REPLAY_WINDOW_MILLIS} ms. Any thread.
  */
 final class EnvelopeCodec {
-    static final int MAX_BYTES = 256 * 1024;
+    /** Under the 1 MiB a NATS server takes by default, with room for its headers. */
+    static final int MAX_BYTES = 768 * 1024;
+
     static final long MAX_SKEW_MILLIS = 30_000;
     static final long REPLAY_WINDOW_MILLIS = 60_000;
 
     private static final String HMAC = "HmacSHA256";
 
-    /** Why a message was dropped. */
     enum Drop {
         TOO_LARGE,
         MALFORMED,
@@ -41,7 +39,7 @@ final class EnvelopeCodec {
         REPLAYED
     }
 
-    /** Exactly one of {@code envelope} and {@code drop} is set. */
+    /** {@code drop} is null when the envelope is accepted; {@code envelope} is set whenever the text parsed. */
     record Result(@Nullable Envelope envelope, @Nullable Drop drop) {
         static Result dropped(Drop drop) {
             return new Result(null, drop);
@@ -51,14 +49,18 @@ final class EnvelopeCodec {
     private final @Nullable SecretKeySpec key;
     private final String self;
     private final Predicate<String> knownType;
-    /** Accepted ids by arrival time, oldest first; guarded by itself. */
-    private final LinkedHashMap<UUID, Long> seen = new LinkedHashMap<>();
+    /** The accepted ids, in a scope of this codec's own. */
+    private final SharedClaims seen;
 
-    /** {@code key} null writes unsigned text, which only {@link #decode} with {@code trusted} accepts. */
-    EnvelopeCodec(byte @Nullable [] key, String self, Predicate<String> knownType) {
+    /**
+     * {@code key} null writes unsigned text, which only {@link #decode} with {@code trusted} accepts. {@code seen}
+     * remembers the accepted ids and is this codec's alone.
+     */
+    EnvelopeCodec(byte @Nullable [] key, String self, Predicate<String> knownType, SharedClaims seen) {
         this.key = key == null || key.length == 0 ? null : new SecretKeySpec(key, HMAC);
         this.self = self;
         this.knownType = knownType;
+        this.seen = seen;
     }
 
     String encode(Envelope envelope) {
@@ -68,9 +70,8 @@ final class EnvelopeCodec {
     }
 
     /**
-     * Reads {@code text} received at {@code now}. {@code broadcast}: it arrived on the broadcast channel, where this
-     * instance's own messages are dropped. {@code trusted}: it came over the in-process bus, whose text needs no
-     * signature and is always this instance's own.
+     * Reads {@code text}; this instance's own are dropped on the {@code broadcast} channel, and {@code trusted} bus
+     * text needs no signature.
      */
     Result decode(String text, boolean broadcast, boolean trusted, long now) {
         if (utf8Length(text) > MAX_BYTES) return Result.dropped(Drop.TOO_LARGE);
@@ -86,10 +87,10 @@ final class EnvelopeCodec {
         }
         if (envelope.v() != Envelope.VERSION) return Result.dropped(Drop.UNSUPPORTED_VERSION);
         if (!envelope.broadcast() && !envelope.to().equals(self)) return Result.dropped(Drop.NOT_ADDRESSED);
-        if (!trusted && broadcast && envelope.from().equals(self)) return Result.dropped(Drop.OWN_BROADCAST);
-        if (Math.abs(now - envelope.ts()) > MAX_SKEW_MILLIS) return Result.dropped(Drop.STALE);
-        if (!knownType.test(envelope.type())) return Result.dropped(Drop.UNKNOWN_TYPE);
-        if (!firstSighting(envelope.id(), now)) return Result.dropped(Drop.REPLAYED);
+        if (!trusted && broadcast && envelope.from().equals(self)) return new Result(envelope, Drop.OWN_BROADCAST);
+        if (Math.abs(now - envelope.ts()) > MAX_SKEW_MILLIS) return new Result(envelope, Drop.STALE);
+        if (!knownType.test(envelope.type())) return new Result(envelope, Drop.UNKNOWN_TYPE);
+        if (!seen.claim(envelope.id().toString(), now)) return Result.dropped(Drop.REPLAYED);
         return new Result(envelope, null);
     }
 
@@ -130,17 +131,6 @@ final class EnvelopeCodec {
     private static String nonEmpty(String value) {
         if (value.isEmpty()) throw new IllegalArgumentException("empty instance");
         return value;
-    }
-
-    private boolean firstSighting(UUID id, long now) {
-        synchronized (seen) {
-            Iterator<Map.Entry<UUID, Long>> oldest = seen.entrySet().iterator();
-            while (oldest.hasNext()) {
-                if (now - oldest.next().getValue() <= REPLAY_WINDOW_MILLIS) break;
-                oldest.remove();
-            }
-            return seen.putIfAbsent(id, now) == null;
-        }
     }
 
     /** The UTF-8 length of {@code text}; past {@link #MAX_BYTES} characters, its character count, already too large. */

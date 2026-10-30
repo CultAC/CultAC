@@ -7,6 +7,7 @@ import ac.cult.cultac.command.NetworkPlayerArguments;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.sender.Sender;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.incendo.cloud.CommandManager;
@@ -28,15 +29,15 @@ public class CultFindings implements BuildableCommand {
                         NetworkPlayerArguments.playerName(StringParser.stringParser()),
                         CloudArguments.players())
                 .optional("count", IntegerParser.integerParser(1, FindingsLog.CAPACITY))
-                .handler(this::handle));
+                .futureHandler(this::handle));
     }
 
-    private void handle(CommandContext<Sender> context) {
+    private CompletableFuture<Void> handle(CommandContext<Sender> context) {
         Sender sender = context.sender();
         FindingsLog log = CloudArguments.findings(sender);
-        if (log == null || !CloudArguments.labelingAllowed(sender)) return;
+        if (log == null || !CloudArguments.labelingAllowed(sender)) return CompletableFuture.completedFuture(null);
         int count = context.getOrDefault("count", DEFAULT_COUNT);
-        CloudArguments.resolve(sender, context.get("player"), target -> show(sender, log, target, count));
+        return CloudArguments.resolve(sender, context.get("player"), target -> show(sender, log, target, count));
     }
 
     private static void show(Sender sender, FindingsLog log, CloudArguments.Target target, int count) {

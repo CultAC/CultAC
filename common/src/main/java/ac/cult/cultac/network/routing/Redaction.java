@@ -1,99 +1,56 @@
 package ac.cult.cultac.network.routing;
 
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Hides the network's secrets from text bound for a log or a reply. A redactor knows the values the settings hold:
- * each broker URL, which becomes its {@link #url} form; the user info and password in each URL, raw and decoded; the
- * NATS token; the network secret. {@link #redact} replaces each of them, longest first, skipping any shorter than
- * {@value #MIN_KNOWN_LENGTH} characters, then masks what is left as {@link #text} does.
+ * Hides the network's secrets from text bound for a log or a reply: the chosen broker's password, token and
+ * {@code user:password}, and the network secret, then any URL's user info. Values under {@value #MIN_KNOWN_LENGTH}
+ * characters stay.
  */
 final class Redaction {
-    /** What stands for a URL that does not parse with a host and has no {@code @}. */
-    static final String HIDDEN = "<hidden URL>";
-
     static final String MASK = "***";
 
     static final int MIN_KNOWN_LENGTH = 4;
 
-    private static final Pattern SCHEME = Pattern.compile("[A-Za-z][A-Za-z0-9+.-]*://");
-
     private static final String SEPARATOR = "://";
 
-    /** Each known value, longest first, with what replaces it. */
-    private final List<Map.Entry<String, String>> known;
+    private final List<String> known;
 
-    private Redaction(Map<String, String> known) {
-        this.known = known.entrySet().stream()
-                .sorted(Comparator.comparingInt((Map.Entry<String, String> value) ->
-                                value.getKey().length())
-                        .reversed())
+    private Redaction(Collection<String> known) {
+        this.known = known.stream()
+                .sorted(Comparator.comparingInt(String::length).reversed())
                 .toList();
     }
 
-    /** A redactor for the Redis URI, the NATS servers, the NATS token and the network secret in {@code settings}. */
     static Redaction of(NetworkSettings settings) {
-        List<String> urls = new ArrayList<>(settings.natsServers());
-        urls.add(settings.redisUri());
-        return of(urls, List.of(settings.natsToken(), settings.secret()));
+        NetworkSettings.Redis redis = settings.redis();
+        NetworkSettings.Nats nats = settings.nats();
+        return of(List.of(
+                settings.secret(),
+                redis.password(),
+                redis.username() + ":" + redis.password(),
+                nats.password(),
+                nats.username() + ":" + nats.password(),
+                nats.token()));
     }
 
-    /** A redactor for {@code urls} and the plain values {@code secrets}. */
-    static Redaction of(Collection<String> urls, Collection<String> secrets) {
-        Map<String, String> known = new LinkedHashMap<>();
-        for (String url : urls) {
-            String stripped = url.strip();
-            know(known, stripped, url(stripped));
-            for (String credential : credentials(stripped)) know(known, credential, MASK);
+    static Redaction of(Collection<String> secrets) {
+        Set<String> known = new LinkedHashSet<>();
+        for (String secret : secrets) {
+            if (secret.length() >= MIN_KNOWN_LENGTH && !secret.equals(MASK)) known.add(secret);
         }
-        for (String secret : secrets) know(known, secret, MASK);
         return new Redaction(known);
-    }
-
-    private static void know(Map<String, String> known, String value, String replacement) {
-        if (value.length() >= MIN_KNOWN_LENGTH && !value.equals(replacement)) known.putIfAbsent(value, replacement);
-    }
-
-    /**
-     * The user info and the password after its first {@code :} in {@code url}, raw and decoded when it parses with a
-     * host, else the raw text between its {@code ://} and its last {@code @}.
-     */
-    private static List<String> credentials(String url) {
-        List<String> found = new ArrayList<>();
-        URI parsed = withHost(SCHEME.matcher(url).lookingAt() ? url : "x://" + url);
-        if (parsed != null) {
-            userInfo(parsed.getRawUserInfo(), found);
-            userInfo(parsed.getUserInfo(), found);
-            return found;
-        }
-        int separator = url.indexOf(SEPARATOR);
-        int from = separator < 0 ? 0 : separator + SEPARATOR.length();
-        int at = url.lastIndexOf('@');
-        if (at >= from) userInfo(url.substring(from, at), found);
-        return found;
-    }
-
-    private static void userInfo(@Nullable String userInfo, List<String> found) {
-        if (userInfo == null) return;
-        found.add(userInfo);
-        int colon = userInfo.indexOf(':');
-        if (colon >= 0) found.add(userInfo.substring(colon + 1));
     }
 
     /** {@code text} with every known value replaced, then masked as {@link #text} does; {@code "null"} for null. */
     String redact(@Nullable String text) {
         if (text == null) return "null";
-        for (Map.Entry<String, String> value : known) text = text.replace(value.getKey(), value.getValue());
+        for (String value : known) text = text.replace(value, MASK);
         return text(text);
     }
 
@@ -140,32 +97,5 @@ final class Redaction {
 
     private static boolean letter(char c) {
         return c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z';
-    }
-
-    /**
-     * {@code url} with its user info replaced by {@value #MASK}. One that does not parse with a host keeps its scheme
-     * and what follows its last {@code @}, or becomes {@value #HIDDEN} without one; an empty one stays empty.
-     */
-    static String url(String url) {
-        if (url.isEmpty()) return url;
-        Matcher scheme = SCHEME.matcher(url);
-        String prefix = scheme.lookingAt() ? scheme.group() : "";
-        String rest = url.substring(prefix.length());
-        URI parsed = withHost(prefix.isEmpty() ? "x://" + rest : url);
-        if (parsed != null) {
-            String userInfo = parsed.getRawUserInfo();
-            return userInfo == null ? url : prefix + MASK + rest.substring(userInfo.length());
-        }
-        int at = rest.lastIndexOf('@');
-        return at < 0 ? HIDDEN : prefix + MASK + rest.substring(at);
-    }
-
-    private static @Nullable URI withHost(String url) {
-        try {
-            URI parsed = new URI(url);
-            return parsed.getHost() == null || parsed.getHost().isEmpty() ? null : parsed;
-        } catch (URISyntaxException malformed) {
-            return null;
-        }
     }
 }

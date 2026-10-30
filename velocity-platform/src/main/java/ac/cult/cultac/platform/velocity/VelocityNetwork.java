@@ -31,6 +31,7 @@ final class VelocityNetwork implements NetworkPlatform {
     private final EventHandler<ServerPostConnectEvent> switched = event -> changed(event.getPlayer());
     private final EventHandler<DisconnectEvent> left = this::left;
     private boolean listening;
+    private volatile @Nullable String redisBungeeId;
 
     VelocityNetwork(ProxyServer proxy, Object plugin, Function<Player, Channel> channels) {
         this.proxy = proxy;
@@ -38,9 +39,11 @@ final class VelocityNetwork implements NetworkPlatform {
         this.channels = channels;
     }
 
+    /** Finds RedisBungee's proxy id and starts reporting joins, quits and backend switches. */
     synchronized void listen() {
         if (listening) return;
         listening = true;
+        redisBungeeId = RedisBungeeTransport.proxyId(proxy);
         proxy.getEventManager().register(plugin, PostLoginEvent.class, joined);
         proxy.getEventManager().register(plugin, ServerPostConnectEvent.class, switched);
         proxy.getEventManager().register(plugin, DisconnectEvent.class, left);
@@ -55,7 +58,8 @@ final class VelocityNetwork implements NetworkPlatform {
     }
 
     private static void changed(Player player) {
-        NetworkModule.playerChanged(player.getUniqueId(), player.getUsername(), server(player));
+        NetworkModule.playerChanged(
+                player.getUniqueId(), player.getUsername(), server(player), player.getClientBrand());
     }
 
     /** Leaves the player listed while Velocity still holds another connection for them. */
@@ -73,7 +77,8 @@ final class VelocityNetwork implements NetworkPlatform {
     @Override
     public Collection<OnlinePlayer> onlinePlayers() {
         return proxy.getAllPlayers().stream()
-                .map(player -> new OnlinePlayer(player.getUniqueId(), player.getUsername(), server(player)))
+                .map(player -> new OnlinePlayer(
+                        player.getUniqueId(), player.getUsername(), server(player), player.getClientBrand()))
                 .toList();
     }
 
@@ -105,7 +110,7 @@ final class VelocityNetwork implements NetworkPlatform {
 
     @Override
     public @Nullable String redisBungeeId() {
-        return RedisBungeeTransport.proxyId(proxy);
+        return redisBungeeId;
     }
 
     @Override

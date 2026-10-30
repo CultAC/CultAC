@@ -289,25 +289,33 @@ cloud:
     # For timed bans. Empty: this server never runs timed panel bans.
     temp-command: ""
 
-# Messaging between the proxies and servers of a network, so commands, the roster and alerts reach players on other
-# instances. Each setting's CULTAC_NETWORK_* environment variable wins when set and not blank; CULTAC_NETWORK_NATS_SERVERS
-# is comma-separated. /cult reload reconnects when this block changes.
+# Face ca comenzile staff-ului, completarea cu Tab și alertele să meargă pe toate proxy-urile și serverele tale.
+# Ghid de configurare: docs/network.md în codul sursă CultAC. /cult reload aplică modificările.
+# Orice setare de aici poate fi dată și printr-o variabilă de mediu CULTAC_NETWORK_*, care are prioritate.
 network:
-  # none | redis | nats | redisbungee. none: commands, tab completion and alerts reach this server only.
-  # redisbungee (Velocity only) uses RedisBungee's own pub/sub and needs no other setting here.
-  transport: none
-  # Unique per instance. Empty: RedisBungee's proxy id when installed, else cloud.proxy-id, else host:port.
-  instance-id: ""
-  # Namespaces channels so several networks can share one broker.
-  network: "default"
-  # HMAC key every instance shares. Empty: Velocity's forwarding secret on a proxy; required on a backend.
-  secret: ""
+  # Cum comunică serverele tale între ele:
+  #   none         Oprit. Comenzile și alertele ajung doar la jucătorii de pe acest server.
+  #   redis        Printr-un server Redis (merg și Valkey, KeyDB și Dragonfly). Completează secțiunea redis.
+  #   nats         Printr-un server NATS. Completează secțiunea nats.
+  #   redisbungee  Proxy-uri Velocity cu RedisBungee. Folosește conexiunea lui la Redis, nu mai e nimic de completat.
+  type: none
   redis:
-    uri: "redis://:password@host:6379/0"   # rediss:// for TLS; Valkey/KeyDB/Dragonfly speak the same protocol
+    address: localhost:6379
+    username: ""
+    password: ""
+    ssl: false
   nats:
-    servers: ["nats://host:4222"]
+    # Ca să pui mai multe servere, desparte-le prin virgule.
+    address: localhost:4222
+    username: ""
+    password: ""
     token: ""
-    credentials-file: ""                   # .creds (JWT + nkey), for NATS accounts
+    # Doar dacă serverul tău NATS folosește conturi: calea către fișierul tău .creds.
+    credentials-file: ""
+    ssl: false
+  # Numele acestui server în rețea. Fiecare server are nevoie de propriul nume.
+  # Lasă gol ca să folosești id-ul de proxy din RedisBungee, apoi cloud.proxy-id, apoi IP-ul și portul acestui server.
+  instance-id: ""
 
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with
 # /cult update builds [branch]. Each setting's CULTAC_UPDATE_* environment variable wins when set and not blank.
@@ -329,4 +337,4 @@ update:
   webhook: ""
 
 config-flavor: V2
-config-version: 15
+config-version: 17

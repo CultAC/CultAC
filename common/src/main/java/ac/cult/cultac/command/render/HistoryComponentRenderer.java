@@ -66,14 +66,11 @@ public final class HistoryComponentRenderer {
 
     /**
      * Whose records a view draws. This server's own draw as its templates say; the cloud's draw every string as plain
-     * text, and the violations {@code confidence} accepts show their value as a confidence, not a violation level.
+     * text.
      */
-    public record Origin(boolean plainText, @NotNull Predicate<ViolationEntry> confidence) {
-        public static final Origin LOCAL = new Origin(false, violation -> false);
-
-        public static @NotNull Origin cloud(@NotNull Predicate<ViolationEntry> confidence) {
-            return new Origin(true, confidence);
-        }
+    public record Origin(boolean plainText) {
+        public static final Origin LOCAL = new Origin(false);
+        public static final Origin CLOUD = new Origin(true);
     }
 
     /**
@@ -315,7 +312,7 @@ public final class HistoryComponentRenderer {
         TemplateValue checksList = origin.plainText()
                 ? TemplateValue.component(checkCounts(sender, cfg, bucket))
                 : TemplateValue.raw(checkCounts(cfg, bucket));
-        Component bucketHoverEntries = buildBucketHoverEntries(sender, cfg, d, bucket, verbose, origin);
+        Component bucketHoverEntries = buildBucketHoverEntries(sender, cfg, d, bucket, verbose);
         String bucketStart = formatDuration(bucket.bucketStartOffsetMs());
         String bucketEnd = formatDuration(bucket.bucketStartOffsetMs() + d.bucketSizeMs());
         RenderedTemplate rendered = parse(
@@ -372,7 +369,7 @@ public final class HistoryComponentRenderer {
     }
 
     private static Component buildBucketHoverEntries(
-            Sender sender, ConfigManager cfg, SessionDetail d, CheckBucket bucket, boolean verbose, Origin origin) {
+            Sender sender, ConfigManager cfg, SessionDetail d, CheckBucket bucket, boolean verbose) {
         long bucketStart = bucket.bucketStartOffsetMs();
         long bucketEnd = bucketStart + d.bucketSizeMs();
         Component body = Component.empty();
@@ -397,16 +394,6 @@ public final class HistoryComponentRenderer {
                                     Map.of("verbose", TemplateValue.text(verboseText)))
                             .component()
                     : Component.empty();
-            if (origin.confidence().test(v)) {
-                verboseComponent = parse(
-                                sender,
-                                cfg,
-                                "cult-history-detail-group-hover-confidence",
-                                " — &7confidence %confidence%",
-                                Map.of("confidence", TemplateValue.text(confidence(v.vl()))))
-                        .component()
-                        .append(verboseComponent);
-            }
             body = body.append(parse(
                             sender,
                             cfg,
@@ -439,7 +426,6 @@ public final class HistoryComponentRenderer {
     private static Component renderViolationLine(
             Sender sender, ConfigManager cfg, ViolationEntry v, boolean verbose, Origin origin) {
         String verboseText = v.verbose() == null ? "" : v.verbose();
-        boolean detection = origin.confidence().test(v);
         // Verbose/check metadata can include user or plugin text; render substitutions as plain text.
         RenderedTemplate rendered = parse(
                 sender,
@@ -450,8 +436,7 @@ public final class HistoryComponentRenderer {
                         "check", recordText(origin, v.displayName(), HistoryComponentRenderer::mmSafe),
                         "description", recordText(origin, v.description(), HistoryComponentRenderer::mmSafe),
                         "offset", TemplateValue.raw(formatDuration(v.offsetFromSessionStartMs())),
-                        "vl", TemplateValue.raw(detection ? "" : Double.toString(v.vl())),
-                        "confidence", TemplateValue.raw(detection ? confidence(v.vl()) : ""),
+                        "vl", TemplateValue.raw(Double.toString(v.vl())),
                         "verbose",
                                 verbose
                                         ? recordText(origin, verboseText, HistoryComponentRenderer::mmSafe)
@@ -464,7 +449,7 @@ public final class HistoryComponentRenderer {
         boolean hasDescription = !v.description().isBlank();
         if (!hasInlineHover(rendered.raw()) && (!verboseText.isBlank() || hasDescription)) {
             line = line.hoverEvent(
-                    HoverEvent.showText(violationHover(sender, cfg, v, verboseText, hasDescription, detection)));
+                    HoverEvent.showText(violationHover(sender, cfg, v, verboseText, hasDescription)));
         }
         return line;
     }
@@ -474,8 +459,7 @@ public final class HistoryComponentRenderer {
             ConfigManager cfg,
             ViolationEntry v,
             String verboseText,
-            boolean hasDescription,
-            boolean detection) {
+            boolean hasDescription) {
         Component description = hasDescription
                 ? parse(
                                 sender,
@@ -494,20 +478,6 @@ public final class HistoryComponentRenderer {
                                 Map.of("verbose", TemplateValue.text(verboseText)))
                         .component()
                 : Component.empty();
-        if (detection) {
-            return parse(
-                            sender,
-                            cfg,
-                            "cult-history-detail-entry-hover-confidence",
-                            "&b%check%%description%<newline>&8@ %offset% — confidence %confidence%%verbose%",
-                            Map.of(
-                                    "check", TemplateValue.text(v.displayName()),
-                                    "description", TemplateValue.component(description),
-                                    "offset", TemplateValue.text(formatDuration(v.offsetFromSessionStartMs())),
-                                    "confidence", TemplateValue.text(confidence(v.vl())),
-                                    "verbose", TemplateValue.component(verbose)))
-                    .component();
-        }
         return parse(
                         sender,
                         cfg,
@@ -598,10 +568,6 @@ public final class HistoryComponentRenderer {
     /** A record's string: plain text when {@code origin} says so, else {@code local}'s template text for it. */
     private static TemplateValue recordText(Origin origin, String value, UnaryOperator<String> local) {
         return origin.plainText() ? TemplateValue.text(value) : TemplateValue.raw(local.apply(value));
-    }
-
-    private static String confidence(double value) {
-        return String.format(Locale.ROOT, "%.2f", value);
     }
 
     private static RenderedTemplate parse(

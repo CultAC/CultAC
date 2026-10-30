@@ -15,9 +15,11 @@ import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.blocksim.entity.PaintingSize;
+import ac.cult.blocksim.interaction.BlockHit;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.checks.Check;
+import ac.cult.cultac.checks.impl.badpackets.BadPacketsH;
 import ac.cult.cultac.checks.impl.combat.EntityReach;
 import ac.cult.cultac.checks.impl.combat.PlayerReach;
 import ac.cult.cultac.checks.impl.visibility.AttackMobVisibility;
@@ -33,6 +35,7 @@ import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundBlockEvent;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
@@ -49,6 +52,7 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityPolarBear;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import ac.cult.cultac.utils.visibility.ClientVisibility;
 import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
@@ -56,10 +60,12 @@ import ac.grim.grimac.api.config.ConfigManager;
 import ac.grim.grimac.api.event.events.FlagEvent;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import net.kyori.adventure.text.Component;
 import org.junit.jupiter.api.Test;
 
@@ -766,12 +772,12 @@ class InteractionVisibilityTest {
     }
 
     @Test
-    void shulkerVisibilityUsesTheClosedBoxWithoutChangingItsAnimation() throws Exception {
+    void shulkerVisibilityUsesTheOpenLidWithoutChangingItsAnimation() throws Exception {
         try (var setup = new Setup()) {
             var player = setup.fixture.player;
             var world = player.compensatedWorld;
             player.pose = ac.cult.cultac.utils.enums.Pose.SWIMMING;
-            player.z = 1.6;
+            player.z = 1.45;
             setup.block(0, 64, 2, "shulker_box[facing=north]");
             var data = new ac.cult.blocksim.engine.BlockEntityData(
                     "minecraft:shulker_box",
@@ -781,7 +787,7 @@ class InteractionVisibilityTest {
                     new ac.cult.blocksim.data.nbt.NbtValue.Compound(java.util.Map.of()));
             world.applyPredictedBlockEntityData(TARGET, data);
 
-            assertEquals(ClientVisibility.BlockVisibility.OUT_OF_RANGE, setup.visibility.blockVisibility(TARGET, .1));
+            assertEquals(ClientVisibility.BlockVisibility.VISIBLE, setup.visibility.blockVisibility(TARGET, .1));
             assertEquals(
                     1.0F,
                     world.getClientBlockEntityData(TARGET)
@@ -793,6 +799,67 @@ class InteractionVisibilityTest {
                             player, world.getBlockStateIdAt(TARGET), 0, 64, 2)
                     .downCast(movement);
             assertEquals(1.5, movement.getFirst().minZ, "Movement still models the real open lid");
+        }
+    }
+
+    /**
+     * ShulkerBoxBlock#getShape is ShulkerBoxBlockEntity#getBoundingBox at the lid's progress, which
+     * ShulkerBoxBlockEntity#updateAnimation steps by 0.1F each client tick from the block event, and Minecraft#tick
+     * picks before ClientLevel#tickBlockEntities. Eight opening ticks and one closing tick leave the side of the lid
+     * above the stone and carpet in front of the box.
+     */
+    @Test
+    void theSideOfAClosingShulkerLidAboveTheBlockInFrontIsSelectable() throws Exception {
+        try (var setup = new Setup()) {
+            var player = setup.fixture.player;
+            var world = player.compensatedWorld;
+            var box = new BlockPos(-126, 72, 435);
+            world.ensureValidationChunkLoaded(-8, 27);
+            setup.block(-126, 72, 435, "shulker_box[facing=up]");
+            setup.block(-126, 72, 436, "stone");
+            setup.block(-126, 73, 436, "white_carpet");
+            player.x = -125.50587410529556;
+            player.y = 72;
+            player.z = 437.30000001192093;
+            var place = setup.check(PlaceVisibility.class);
+            var breaking = setup.check(BreakVisibility.class);
+            var sequence = setup.check(BadPacketsH.class);
+            var top = new Vec3d(0.4860837459564209, 1.0, 0.5524590611457825);
+            int blockId = DataTables.defaults().registry().blockIndex(state("shulker_box[facing=up]"));
+            assertFalse(setup.route(
+                            ServerboundPackets.USE_ITEM_ON,
+                            new ServerboundUseItemOn(Hand.MAIN_HAND, box, Direction.UP, top, false, false, 1))
+                    .isCancelled());
+
+            float progress = 0;
+            world.applyClientBlockEvent("minecraft:overworld", new ClientboundBlockEvent(box, 1, 1, blockId));
+            for (int tick = 0; tick < 8; tick++) {
+                world.onClientTickEnd();
+                progress += 0.1F;
+            }
+            world.applyClientBlockEvent("minecraft:overworld", new ClientboundBlockEvent(box, 1, 0, blockId));
+            world.onClientTickEnd();
+            progress -= 0.1F;
+            assertEquals(
+                    progress,
+                    world.getClientBlockEntityData(box).data().get("progress").getAsFloat());
+
+            var side = new Vec3d(0.48814332485198975, 1.1587804555892944, 1.0);
+            assertFalse(setup.route(
+                            ServerboundPackets.USE_ITEM_ON,
+                            new ServerboundUseItemOn(Hand.MAIN_HAND, box, Direction.SOUTH, side, false, false, 2))
+                    .isCancelled());
+            assertFalse(setup.route(
+                            ServerboundPackets.USE_ITEM_ON,
+                            new ServerboundUseItemOn(Hand.MAIN_HAND, box, Direction.UP, top, false, false, 3))
+                    .isCancelled());
+            assertFalse(setup.route(
+                            ServerboundPackets.PLAYER_ACTION,
+                            new ServerboundPlayerAction(PlayerAction.START_DESTROY_BLOCK, box, Direction.SOUTH, 4))
+                    .isCancelled());
+            assertEquals(0, place.violations);
+            assertEquals(0, breaking.violations);
+            assertEquals(0, sequence.violations);
         }
     }
 
@@ -811,6 +878,32 @@ class InteractionVisibilityTest {
                     world.withSelectionSnapshot(() -> setup.visibility.blockFaceHidden(TARGET, Direction.NORTH, 0)));
             assertNull(world.getClientBlockEntityData(TARGET));
             assertEquals(state("air"), world.getBlockStateIdAt(TARGET));
+        }
+    }
+
+    @Test
+    void aLocallyBrokenOpenShulkerKeepsItsLidInTheSameTicksSelection() throws Exception {
+        try (var setup = new Setup()) {
+            var world = setup.fixture.player.compensatedWorld;
+            setup.block(0, 64, 2, "shulker_box[facing=north]");
+            world.applyPredictedBlockEntityData(
+                    TARGET,
+                    new ac.cult.blocksim.engine.BlockEntityData(
+                            "minecraft:shulker_box",
+                            new ac.cult.blocksim.data.Components(java.util.Map.of(
+                                    "animation_status", new com.google.gson.JsonPrimitive("OPENED"),
+                                    "progress", new com.google.gson.JsonPrimitive(1.0F))),
+                            new ac.cult.blocksim.data.nbt.NbtValue.Compound(java.util.Map.of())));
+            world.beginSelectionSnapshot();
+            world.startPredicting();
+            world.updateBlock(TARGET, state("air"));
+            world.stopPredicting(1);
+
+            var selected = world.withSelectionSnapshot(() -> world.getClientBlockEntityData(TARGET));
+            assertEquals(1.0F, selected.data().get("progress").getAsFloat());
+            assertNull(world.getClientBlockEntityData(TARGET));
+            world.endSelectionSnapshot();
+            assertNull(world.getClientBlockEntityData(TARGET));
         }
     }
 
@@ -930,6 +1023,84 @@ class InteractionVisibilityTest {
             player.y = 63.75;
             assertTrue(setup.visibility.blockFaceHidden(eyeBlock, Direction.UP, 0));
         }
+    }
+
+    @Test
+    void aPoleHitFromInsideScaffoldingReportsTheInteractionShapesInitialSampleFace() throws Exception {
+        try (var setup = new Setup()) {
+            var player = setup.fixture.player;
+            for (int y = 64; y <= 68; y++) setup.block(0, y, 0, "scaffolding");
+            var scaffolding = new BlockPos(0, 65, 0);
+            player.x = .02;
+            player.y = 64;
+            player.z = .14;
+            var eye = new Vec3(player.x, player.y + player.getEyeHeight(), player.z);
+            var pick = pick(setup, eye, new Vec3(.5715, -.6756, -.466).normalize());
+            assertNotNull(pick);
+            assertEquals(new ac.cult.blocksim.engine.BlockPos(0, 65, 0), pick.pos());
+            assertEquals(ac.cult.blocksim.engine.Direction.UP, pick.face());
+            assertFalse(pick.inside());
+            assertFalse(setup.visibility.blockFaceHidden(scaffolding, Direction.UP, 0));
+
+            player.x = -.2;
+            assertTrue(setup.visibility.blockFaceHidden(scaffolding, Direction.UP, 0));
+        }
+    }
+
+    @Test
+    void aFaceNoViewFromInsideScaffoldingReportsStaysHidden() throws Exception {
+        try (var setup = new Setup()) {
+            var player = setup.fixture.player;
+            for (int y = 64; y <= 68; y++) setup.block(0, y, 0, "scaffolding");
+            player.x = .5;
+            player.y = 65.1 - player.getEyeHeight();
+            player.z = .5;
+            assertTrue(setup.visibility.blockFaceHidden(new BlockPos(0, 65, 0), Direction.UP, 0));
+        }
+    }
+
+    @Test
+    void everyFaceVanillaReportsFromInsideScaffoldingIsVisible() throws Exception {
+        try (var setup = new Setup()) {
+            var player = setup.fixture.player;
+            for (int y = 64; y <= 68; y++) setup.block(0, y, 0, "scaffolding");
+            var scaffolding = new BlockPos(0, 65, 0);
+            for (Vec3 eye : List.of(
+                    new Vec3(.5, 65.5, .5),
+                    new Vec3(.14, 65.5, .14),
+                    new Vec3(.5, 65.86, .5),
+                    new Vec3(.02, 65.62, .14))) {
+                player.x = eye.x;
+                player.y = eye.y - player.getEyeHeight();
+                player.z = eye.z;
+                Set<Direction> faces = EnumSet.noneOf(Direction.class);
+                for (double pitch = -90; pitch <= 90; pitch += 1.5)
+                    for (double yaw = -180; yaw < 180; yaw += 1.5) {
+                        double cos = Math.cos(Math.toRadians(pitch));
+                        var look = new Vec3(
+                                -Math.sin(Math.toRadians(yaw)) * cos,
+                                -Math.sin(Math.toRadians(pitch)),
+                                Math.cos(Math.toRadians(yaw)) * cos);
+                        var pick = pick(setup, eye, look);
+                        if (pick != null && pick.pos().equals(new ac.cult.blocksim.engine.BlockPos(0, 65, 0)))
+                            faces.add(Direction.valueOf(pick.face().name()));
+                    }
+                assertFalse(faces.isEmpty(), eye::toString);
+                for (Direction face : faces)
+                    assertFalse(setup.visibility.blockFaceHidden(scaffolding, face, 0), () -> eye + " " + face);
+            }
+        }
+    }
+
+    private static BlockHit pick(Setup setup, Vec3 eye, Vec3 look) {
+        var player = setup.fixture.player;
+        return player.compensatedWorld
+                .geometry()
+                .clipBlocks(
+                        eye,
+                        eye.add(look.scale(4.5)),
+                        (state, pos) ->
+                                NativeBlockCollisionHelper.getSelectionShape(player, state, pos.x(), pos.y(), pos.z()));
     }
 
     private static int state(String key) {

@@ -1,7 +1,6 @@
 package ac.cult.cultac.events.bukkit;
 
 import ac.cult.cultac.CultAPI;
-import ac.cult.cultac.command.commands.CultLabelMenu;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -16,6 +15,5 @@ public class QuitEvent implements Listener {
         CultAPI.INSTANCE
                 .getPlayerDataManager()
                 .clearExemptions(CultAPI.INSTANCE.getNetworkManager().getUser(player.getUniqueId(), player));
-        CultLabelMenu.left(player.getUniqueId());
     }
 }

@@ -6,7 +6,12 @@ import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.player.CultPlayer;
 
 public class Strafe extends Check implements PostPredictionListener {
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("Strafe")
+            .description("Impossible mid-air movement")
+            .build();
+
     public Strafe(CultPlayer cultPlayer) {
-        super(cultPlayer, CheckInfo.builder().name("Strafe").build());
+        super(cultPlayer, INFO);
     }
 }

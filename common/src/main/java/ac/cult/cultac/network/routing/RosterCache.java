@@ -4,71 +4,76 @@ import ac.cult.cultac.network.NetworkPlayer;
 import ac.cult.cultac.network.routing.NetworkPlatform.OnlinePlayer;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
-import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * The other instances' players, as their {@value #TYPE} messages list them. A roster body is
- * {@code {players:[{u,n,s}], full, left:[u], flags:{}, o:[epoch, sequence]}}: a full one replaces the instance's list,
- * a delta adds or updates {@code players} and removes {@code left}. A body whose {@code o} is not greater than the last
- * one applied from its instance, compared epoch first, is dropped and changes nothing; a greater epoch is a restart. A
- * smaller epoch is accepted once nothing from the instance was applied for {@value #EPOCH_YIELD_MILLIS} ms, longer than
- * any envelope stays acceptable, so only a restart whose clock went back gets through. A body without {@code o} is
- * applied. An instance is forgotten {@value #EXPIRY_MILLIS} ms after the last message of any
- * type heard from it. Any thread.
+ * {@code {servers:{server:{uuid:name}}, brands:{brand:[uuid]}, full, left:[u], verbose, verbose-servers:[server],
+ * nonce, o}}, {@code ""} standing for no server and {@code verbose-servers} listing the servers whose players the
+ * instance's verbose staff cover, {@value NetworkService#EVERY_SERVER} for all of them; {@code verbose} alone, true,
+ * stands for all of them. A full one replaces the instance's list, a delta adds or updates players and removes
+ * {@code left}. {@code brands} groups the listed players whose client brand is known by that brand, so a player costs
+ * one UUID there however long the brand; a player it leaves out, or a body without it, has no known brand. A body too
+ * large with {@code brands} goes out without them. A body whose {@code o} is not above the last one applied from its
+ * instance is dropped, unless nothing from it was applied for
+ * {@value #EXPIRY_MILLIS} ms. An instance is forgotten {@value #EXPIRY_MILLIS} ms after the last message of any type
+ * heard from it. Any thread.
  */
 final class RosterCache {
     static final String TYPE = "roster";
-    static final long EXPIRY_MILLIS = 45_000;
-    static final long EPOCH_YIELD_MILLIS = EXPIRY_MILLIS + EnvelopeCodec.REPLAY_WINDOW_MILLIS;
-    /** The roster body's {@code [epoch, sequence]}. */
+    static final long EXPIRY_MILLIS = 150_000;
     static final String ORDER = "o";
+    static final String NONCE = "nonce";
+    static final String BRANDS = "brands";
 
     private static final class Peer {
         final Map<UUID, NetworkPlayer> players = new LinkedHashMap<>();
-        JsonObject flags = new JsonObject();
+        Set<String> verbose = Set.of();
         long heard;
         long applied = Long.MIN_VALUE;
-        long epoch = Long.MIN_VALUE;
-        long sequence = Long.MIN_VALUE;
+        long order = Long.MIN_VALUE;
     }
 
     /** Guarded by itself. */
     private final Map<String, Peer> peers = new HashMap<>();
 
-    /** Notes a message from {@code instance} at {@code now}. */
     void heard(String instance, long now) {
         synchronized (peers) {
             peers.computeIfAbsent(instance, ignored -> new Peer()).heard = now;
         }
     }
 
-    /** Applies a roster body from {@code instance}, heard at {@code now}. */
     void apply(String instance, JsonObject body, long now) {
-        long[] order = order(body);
+        Long order = order(body);
         boolean full = body.has("full") && body.get("full").getAsBoolean();
+        Map<UUID, String> brands = brands(body);
         List<NetworkPlayer> listed = new ArrayList<>();
-        if (body.get("players") instanceof JsonArray players) {
-            for (JsonElement entry : players) {
-                NetworkPlayer player = player(instance, entry);
-                if (player != null) listed.add(player);
+        if (body.get("servers") instanceof JsonObject servers) {
+            for (var server : servers.entrySet()) {
+                if (!(server.getValue() instanceof JsonObject players)) continue;
+                String name = server.getKey().isEmpty() ? null : server.getKey();
+                for (var entry : players.entrySet()) {
+                    NetworkPlayer player = player(instance, name, entry.getKey(), entry.getValue(), brands);
+                    if (player != null) listed.add(player);
+                }
             }
         }
         synchronized (peers) {
             Peer peer = peers.computeIfAbsent(instance, ignored -> new Peer());
             if (order != null) {
-                boolean yields = order[0] < peer.epoch && now - peer.applied > EPOCH_YIELD_MILLIS;
-                if (!yields && (order[0] < peer.epoch || order[0] == peer.epoch && order[1] <= peer.sequence)) return;
-                peer.epoch = order[0];
-                peer.sequence = order[1];
+                if (order <= peer.order && now - peer.applied <= EXPIRY_MILLIS) return;
+                peer.order = order;
             }
             peer.heard = now;
             peer.applied = now;
@@ -83,11 +88,10 @@ final class RosterCache {
                 }
             }
             for (NetworkPlayer player : listed) peer.players.put(player.uuid(), player);
-            if (body.get("flags") instanceof JsonObject flags) peer.flags = flags.deepCopy();
+            peer.verbose = verbose(body);
         }
     }
 
-    /** Every player of every instance heard from within {@value #EXPIRY_MILLIS} ms of {@code now}. */
     List<NetworkPlayer> players(long now) {
         List<NetworkPlayer> players = new ArrayList<>();
         synchronized (peers) {
@@ -106,19 +110,29 @@ final class RosterCache {
         }
     }
 
-    /** Each live instance's roster flags. */
-    Map<String, JsonObject> flags(long now) {
-        Map<String, JsonObject> flags = new HashMap<>();
+    /** The servers whose players the verbose staff on live instances cover. */
+    Set<String> verbose(long now) {
+        Set<String> servers = new HashSet<>();
         synchronized (peers) {
-            for (var entry : peers.entrySet()) {
-                if (live(entry.getValue(), now))
-                    flags.put(entry.getKey(), entry.getValue().flags.deepCopy());
+            for (Peer peer : peers.values()) {
+                if (live(peer, now)) servers.addAll(peer.verbose);
             }
         }
-        return flags;
+        return servers;
     }
 
-    /** Forgets every instance not heard from within {@value #EXPIRY_MILLIS} ms of {@code now}. */
+    private static Set<String> verbose(JsonObject body) {
+        if (body.get("verbose-servers") instanceof JsonArray listed) {
+            Set<String> servers = new HashSet<>();
+            for (JsonElement server : listed) {
+                if (server.isJsonPrimitive()) servers.add(server.getAsString());
+            }
+            return servers;
+        }
+        boolean any = body.get("verbose") instanceof JsonPrimitive flag && flag.isBoolean() && flag.getAsBoolean();
+        return any ? Set.of(NetworkService.EVERY_SERVER) : Set.of();
+    }
+
     void expire(long now) {
         synchronized (peers) {
             peers.values().removeIf(peer -> !live(peer, now));
@@ -129,50 +143,81 @@ final class RosterCache {
         return now - peer.heard <= EXPIRY_MILLIS;
     }
 
-    /** The body's {@code [epoch, sequence]}, or null when it carries none that reads. */
-    private static long @Nullable [] order(JsonObject body) {
-        if (!(body.get(ORDER) instanceof JsonArray order) || order.size() != 2) return null;
+    private static @Nullable Long order(JsonObject body) {
         try {
-            return new long[] {order.get(0).getAsLong(), order.get(1).getAsLong()};
+            return body.has(ORDER) ? body.get(ORDER).getAsLong() : null;
         } catch (RuntimeException malformed) {
             return null;
         }
     }
 
-    private static @Nullable NetworkPlayer player(String instance, JsonElement entry) {
+    private static @Nullable NetworkPlayer player(
+            String instance, @Nullable String server, String uuid, JsonElement name, Map<UUID, String> brands) {
         try {
-            JsonObject player = entry.getAsJsonObject();
-            JsonElement server = player.get("s");
-            return new NetworkPlayer(
-                    UUID.fromString(player.get("u").getAsString()),
-                    player.get("n").getAsString(),
-                    instance,
-                    server == null || server.isJsonNull() ? null : server.getAsString());
+            UUID id = UUID.fromString(uuid);
+            return new NetworkPlayer(id, name.getAsString(), instance, server, brands.get(id));
         } catch (RuntimeException malformed) {
             return null;
         }
     }
 
-    /** A roster body listing {@code players}, a full snapshot or a delta that also drops {@code left}. */
-    static JsonObject body(Collection<OnlinePlayer> players, boolean full, Collection<UUID> left, JsonObject flags) {
-        JsonArray listed = new JsonArray();
+    /** Each player's brand from the body's {@code brands}, without the entries that are not a list of UUIDs. */
+    private static Map<UUID, String> brands(JsonObject body) {
+        if (!(body.get(BRANDS) instanceof JsonObject brands)) return Map.of();
+        Map<UUID, String> parsed = new HashMap<>();
+        for (var entry : brands.entrySet()) {
+            if (!(entry.getValue() instanceof JsonArray players)) continue;
+            for (JsonElement player : players) {
+                if (!(player instanceof JsonPrimitive id) || !id.isString()) continue;
+                try {
+                    parsed.put(UUID.fromString(id.getAsString()), entry.getKey());
+                } catch (IllegalArgumentException malformed) {
+                    // A malformed id names no player.
+                }
+            }
+        }
+        return parsed;
+    }
+
+    static JsonObject body(
+            Collection<OnlinePlayer> players,
+            boolean full,
+            Collection<UUID> left,
+            Set<String> verbose,
+            String nonce) {
+        JsonObject servers = new JsonObject();
+        JsonObject brands = new JsonObject();
         for (OnlinePlayer player : players) {
-            JsonObject entry = new JsonObject();
-            entry.addProperty("u", player.uuid().toString());
-            entry.addProperty("n", player.name());
-            if (player.server() == null) entry.add("s", JsonNull.INSTANCE);
-            else entry.addProperty("s", player.server());
-            listed.add(entry);
+            String server = player.server() == null ? "" : player.server();
+            JsonObject listed = servers.getAsJsonObject(server);
+            if (listed == null) {
+                listed = new JsonObject();
+                servers.add(server, listed);
+            }
+            listed.addProperty(player.uuid().toString(), player.name());
+            if (player.brand() != null) {
+                JsonArray branded = brands.getAsJsonArray(player.brand());
+                if (branded == null) {
+                    branded = new JsonArray();
+                    brands.add(player.brand(), branded);
+                }
+                branded.add(player.uuid().toString());
+            }
         }
         JsonObject body = new JsonObject();
-        body.add("players", listed);
+        body.add("servers", servers);
+        if (!brands.isEmpty()) body.add(BRANDS, brands);
         body.addProperty("full", full);
         if (!left.isEmpty()) {
             JsonArray gone = new JsonArray();
             for (UUID uuid : left) gone.add(uuid.toString());
             body.add("left", gone);
         }
-        body.add("flags", flags);
+        body.addProperty("verbose", !verbose.isEmpty());
+        JsonArray wanted = new JsonArray();
+        for (String server : verbose) wanted.add(server);
+        body.add("verbose-servers", wanted);
+        body.addProperty(NONCE, nonce);
         return body;
     }
 }

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.cultac.cloud.CloudSettings;
+import ac.cult.cultac.cloud.Generation;
 import ac.cult.cultac.platform.api.CommandOutcome;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -69,7 +70,7 @@ class StaffBansTest {
     private volatile Runnable beforeClaim = () -> {};
     private final List<Runnable> held = Collections.synchronizedList(new ArrayList<>());
     private final AtomicLong clock = new AtomicLong(NOW);
-    private final StaffBans.Generation generation = new StaffBans.Generation();
+    private final Generation generation = new Generation();
     private final StaffBans.Handled handled = new StaffBans.Handled(StaffBans.MAX_HANDLED);
 
     private final StaffBans.Host host = new StaffBans.Host() {
@@ -191,10 +192,10 @@ class StaffBansTest {
         }
     }
 
-    private long gets(String serverId) {
+    private long gets(String durations) {
         synchronized (seen) {
             return seen.stream()
-                    .filter(s -> s.uri().startsWith("/api/v1/bans/pending?server=" + serverId + "&"))
+                    .filter(s -> s.uri().equals("/api/v1/bans/pending?durations=" + durations))
                     .count();
         }
     }
@@ -220,7 +221,7 @@ class StaffBansTest {
         assertEquals(List.of("ban Notch fly hacks"), dispatched);
         Seen get = seen.get(0);
         assertEquals("GET", get.method());
-        assertEquals("/api/v1/bans/pending?server=arena-1&durations=all", get.uri());
+        assertEquals("/api/v1/bans/pending?durations=all", get.uri());
         assertEquals("Bearer " + KEY, get.authorization());
         List<Seen> posts = posts();
         assertEquals(2, posts.size());
@@ -462,9 +463,8 @@ class StaffBansTest {
         pending(ban(BAN, PLAYER, null, NOW - 60_000));
 
         bans().pollOnce().get(5, TimeUnit.SECONDS);
-        assertTrue(handled.owes(BAN));
         bans().pollOnce().get(5, TimeUnit.SECONDS);
-        waitFor(() -> !handled.owes(BAN));
+        waitFor(() -> results().size() == 3);
         bans().pollOnce().get(5, TimeUnit.SECONDS);
 
         assertEquals(List.of("ban Notch fly hacks"), dispatched);
@@ -482,7 +482,6 @@ class StaffBansTest {
             resultStatuses.add(statuses[i]);
             pending(ban(ids[i], PLAYER, null, NOW - 60_000));
             bans().pollOnce().get(5, TimeUnit.SECONDS);
-            assertFalse(handled.owes(ids[i]));
         }
         Thread.sleep(StaffBans.RESULT_RETRY_SECONDS * 10 + 200);
 
@@ -564,9 +563,9 @@ class StaffBansTest {
 
         assertEquals(
                 List.of(
-                        "/api/v1/bans/pending?server=perm&durations=permanent",
-                        "/api/v1/bans/pending?server=temp&durations=timed",
-                        "/api/v1/bans/pending?server=both&durations=all"),
+                        "/api/v1/bans/pending?durations=permanent",
+                        "/api/v1/bans/pending?durations=timed",
+                        "/api/v1/bans/pending?durations=all"),
                 seen.stream().map(Seen::uri).toList());
     }
 
@@ -594,17 +593,16 @@ class StaffBansTest {
 
     @Test
     void aReconfigureStopsTheOldChain() throws Exception {
-        StaffBans.Commands commands = new StaffBans.Commands("ban %player%", "");
-        bans("old", commands).start();
-        waitFor(() -> gets("old") >= 3);
-        bans("new", commands).start();
-        waitFor(() -> gets("new") >= 3);
-        long old = gets("old");
+        bans("arena-1", new StaffBans.Commands("ban %player%", "")).start();
+        waitFor(() -> gets("permanent") >= 3);
+        bans("arena-1", new StaffBans.Commands("", "tempban %player%")).start();
+        waitFor(() -> gets("timed") >= 3);
+        long old = gets("permanent");
 
         Thread.sleep(200);
 
-        assertEquals(old, gets("old"));
-        assertTrue(gets("new") > 3);
+        assertEquals(old, gets("permanent"));
+        assertTrue(gets("timed") > 3);
     }
 
     @Test

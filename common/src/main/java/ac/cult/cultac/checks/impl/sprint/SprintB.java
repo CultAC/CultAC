@@ -16,7 +16,7 @@ import ac.cult.cultac.utils.nmsutil.FlightToggle;
 @CheckData(
         name = "SprintB",
         stableKey = "cult.sprint.sneaking",
-        description = "Sprinting while sneaking or crawling",
+        description = "Sprinting while sneaking",
         setback = 5,
         experimental = true)
 public final class SprintB extends Check implements PostPredictionListener {

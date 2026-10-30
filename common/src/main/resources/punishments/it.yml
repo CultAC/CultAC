@@ -86,6 +86,7 @@ Punishments:
       - "Chat"
       - "Exploit"
       - "SkinBlinker"
+      - "!Cloud"
     commands:
       - "10:5 [alert]"
       - "1:1 [log]"
@@ -118,4 +119,4 @@ Punishments:
       - "3:3 [webhook]"
       - "3:3 [proxy]"
 
-cult-config-version: 5
+cult-config-version: 6

@@ -66,6 +66,7 @@ does the following:
 * the Bedrock movement bridge, including disconnecting a session whose bridge hooks fail;
 * while staff `/cult spectate`, their spectator game mode is hidden from the tab list, and staff
   `/cult spectate` and `/cult debug` actions run;
+* clicks on CultAC's own menus, such as `/cult label`, are kept from the server;
 * on Velocity, client plugin messages on `cultac:bridge` are dropped.
 
 ## Updating without a restart

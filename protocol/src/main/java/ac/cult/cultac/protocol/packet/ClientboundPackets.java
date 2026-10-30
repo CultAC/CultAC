@@ -10,6 +10,7 @@ import ac.cult.cultac.protocol.codec.connection.MountScreenOpenCodec;
 import ac.cult.cultac.protocol.codec.connection.OpenScreenCodec;
 import ac.cult.cultac.protocol.codec.connection.PingCodec;
 import ac.cult.cultac.protocol.codec.connection.SetHeldSlotCodec;
+import ac.cult.cultac.protocol.codec.connection.ShowDialogCodec;
 import ac.cult.cultac.protocol.codec.entity.AddEntityCodec;
 import ac.cult.cultac.protocol.codec.entity.AnimateCodec;
 import ac.cult.cultac.protocol.codec.entity.CooldownCodec;
@@ -86,6 +87,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetCamera;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetHealth;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetHeldSlot;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPassengers;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundShowDialog;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSwingAnimation;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundTeleportEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundTickingState;
@@ -125,6 +127,9 @@ public final class ClientboundPackets {
             "custom_payload",
             ClientboundCustomPayload.class,
             new ClientboundCustomPayloadCodec(Set.of(BRIDGE_CHANNEL)));
+    public static final PacketType<ClientboundShowDialog> SHOW_DIALOG =
+            PLAY.add("show_dialog", ClientboundShowDialog.class, new ShowDialogCodec());
+    public static final PacketType<Opaque> CLEAR_DIALOG = PLAY.writableEmpty("clear_dialog");
 
     // Player state.
     public static final PacketType<Opaque> BUNDLE_DELIMITER = PLAY.writableEmpty("bundle_delimiter");

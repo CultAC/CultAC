@@ -111,6 +111,7 @@ public class CloudCommandService implements CommandService {
         new CultProfile().register(commandManager, commandArguments);
         new CultSendAlert().register(commandManager, commandArguments);
         new CultHelp().register(commandManager, commandArguments);
+        new CultInfo().register(commandManager, commandArguments);
         new CultHistory().register(commandManager, commandArguments);
         new CultHistoryMigrate().register(commandManager, commandArguments);
         new CultHistoryCopy().register(commandManager, commandArguments);
@@ -123,12 +124,14 @@ public class CloudCommandService implements CommandService {
         new CultVersion().register(commandManager, commandArguments);
         new CultDump().register(commandManager, commandArguments);
         new CultBrands().register(commandManager, commandArguments);
+        new CultFindPlayer().register(commandManager, commandArguments);
         new CultList().register(commandManager, commandArguments);
         new CultTestWebhook().register(commandManager, commandArguments);
         new CultCloud().register(commandManager, commandArguments);
         new CultFindings().register(commandManager, commandArguments);
         new CultTop().register(commandManager, commandArguments);
         new CultLabel().register(commandManager, commandArguments);
+        NetworkPlayerArguments.register(commandManager.commands());
 
         final RequirementPostprocessor<Sender, SenderRequirement> senderRequirementPostprocessor =
                 RequirementPostprocessor.of(REQUIREMENT_KEY, new CultCommandFailureHandler());

@@ -62,6 +62,7 @@ class CultLabelTest {
         assertEquals(
                 Set.of(
                         "cult label list <player>*",
+                        "cult label <player>*",
                         "cult label revoke <id> [reason]",
                         "cult label <player>* clean <confidence>* [note]",
                         "cult label <player>* <cheat>* <confidence>* <span>* [note]"),
@@ -69,33 +70,20 @@ class CultLabelTest {
     }
 
     @Test
-    void aPlatformWithAMenuOffersItOnThePlayerAlone() {
-        CultLabel.menu(menu(false));
-        try {
-            CommandManager<Sender> manager = manager();
-            assertTrue(syntaxes(manager).contains("cult label <player>*"));
-            assertEquals(
-                    "Steve", parse(manager, sender(true), "cult label Steve").get("player"));
-            assertEquals(
-                    "high",
-                    parse(manager, sender(true), "cult label Steve clean high").get("confidence"));
-        } finally {
-            CultLabel.menu(null);
-        }
-        assertFalse(syntaxes(manager()).contains("cult label <player>*"));
+    void thePlayerAloneOpensTheMenu() {
+        CommandManager<Sender> manager = manager();
+        assertEquals("Steve", parse(manager, sender(true), "cult label Steve").get("player"));
+        assertEquals(
+                "high",
+                parse(manager, sender(true), "cult label Steve clean high").get("confidence"));
     }
 
     @Test
     void aStaffMemberTheMenuCannotBeShownIsPointedAtTheCommand() {
-        CultLabel.menu(menu(false));
-        try {
-            CommandManager<Sender> manager = manager();
-            manager.commandExecutor()
-                    .executeCommand(sender(true), "cult label Steve")
-                    .join();
-        } finally {
-            CultLabel.menu(null);
-        }
+        manager()
+                .commandExecutor()
+                .executeCommand(sender(true), "cult label Steve")
+                .join();
         assertEquals(List.of(LabelLines.javaOnly()), sent);
     }
 
@@ -162,10 +150,10 @@ class CultLabelTest {
     @Test
     void theReplyNamesTheChoices() {
         assertEquals(
-                "Labelled Steve triggerbot, extreme (last 24 hours)",
+                "Labelled Steve triggerbot, extreme confidence (last 24 hours)",
                 CultLabel.labelledMessage("Steve", LabelRequest.cheat("triggerbot", "extreme", "24h", null)));
         assertEquals(
-                "Labelled Steve clean across all checks, high",
+                "Labelled Steve clean across all cheats, high confidence",
                 CultLabel.labelledMessage("Steve", LabelRequest.clean("high", null)));
     }
 
@@ -198,21 +186,6 @@ class CultLabelTest {
             parts.add(component.required() ? "<" + component.name() + ">" + own : "[" + component.name() + "]" + own);
         }
         return String.join(" ", parts);
-    }
-
-    /** A menu that is {@code showable} or not, and that fails the test if it is ever opened. */
-    private static LabelMenu menu(boolean showable) {
-        return new LabelMenu() {
-            @Override
-            public boolean showable(Sender sender) {
-                return showable;
-            }
-
-            @Override
-            public void open(Sender sender, UUID labellerId, LabelClient client, CloudArguments.Target target) {
-                throw new AssertionError("opened");
-            }
-        };
     }
 
     private Sender sender(boolean player) {

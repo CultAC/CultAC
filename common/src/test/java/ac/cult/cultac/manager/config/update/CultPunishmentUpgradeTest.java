@@ -41,8 +41,8 @@ class CultPunishmentUpgradeTest {
         var data = read(file);
         assertTrue(result.migrated);
         assertEquals(1, result.oldVersion);
-        assertEquals(5, result.newVersion);
-        assertEquals(5, data.get("cult-config-version"));
+        assertEquals(6, result.newVersion);
+        assertEquals(6, data.get("cult-config-version"));
         assertEquals(List.of("Knockback", "Explosion", "KeepSprint"), checks(data, "Knockback"));
         assertEquals(
                 List.of("Interact", "Aim", "AttackPlayerVisibility", "AttackMobVisibility"), checks(data, "Combat"));
@@ -162,7 +162,7 @@ class CultPunishmentUpgradeTest {
         var result = upgrade(file);
         assertTrue(result.migrated);
         assertEquals(2, result.oldVersion);
-        assertEquals(5, result.newVersion);
+        assertEquals(6, result.newVersion);
         assertEquals(List.of("Vehicle", "NoSlow", "NoSneakSlow", "Sprint", "SkinBlinker"), checks(read(file), "Misc"));
     }
 
@@ -185,12 +185,13 @@ class CultPunishmentUpgradeTest {
         try (var source = CultConfigSpecs.class.getResourceAsStream("/punishments/" + language + ".yml")) {
             assertNotNull(source);
             Map<String, Object> data = new Yaml().load(source);
-            assertEquals(5, data.get("cult-config-version"));
+            assertEquals(6, data.get("cult-config-version"));
             assertTrue(checks(data, "Knockback").contains("KeepSprint"));
             assertTrue(checks(data, "Combat").containsAll(List.of("AttackPlayerVisibility", "AttackMobVisibility")));
             List<?> misc = checks(data, "Misc");
             assertEquals("NoSneakSlow", misc.get(misc.indexOf("NoSlow") + 1));
             assertEquals("SkinBlinker", misc.get(misc.indexOf("Exploit") + 1));
+            assertTrue(misc.contains("!Cloud"));
             assertEquals(List.of("Cloud"), checks(data, "Cloud"));
             List<?> simulation = checks(data, "Simulation");
             assertEquals("Phase", simulation.get(simulation.indexOf("NoFall") + 1));
@@ -249,6 +250,33 @@ class CultPunishmentUpgradeTest {
                   - "NoFall"
                 commands:
                   - "100:40 [alert]"
+              Misc:
+                remove-violations-after: 300
+                checks:
+                  - "Vehicle"
+                  - "NoSlow"
+                  - "NoSneakSlow"
+                  - "Sprint"
+                  - "MultiActions"
+                  - "Place"
+                  - "Baritone"
+                  - "Break"
+                  - "TransactionOrder"
+                  - "Elytra"
+                  - "Chat"
+                  - "Exploit"
+                  - "SkinBlinker"
+                commands:
+                  - "10:5 [alert]"
+                  - "1:1 [log]"
+                  - "20:10 [webhook]"
+                  - "20:10 [proxy]"
+              Cloud:
+                remove-violations-after: 1800
+                checks:
+                  - "Cloud"
+                commands:
+                  - "1:1 [alert]"
             """;
 
     @Test
@@ -257,7 +285,7 @@ class CultPunishmentUpgradeTest {
         var result = upgrade(file);
         assertTrue(result.migrated);
         assertEquals(4, result.oldVersion);
-        assertEquals(5, result.newVersion);
+        assertEquals(6, result.newVersion);
         assertEquals(
                 List.of("Simulation", "BedrockMovement", "GroundSpoof", "Timer", "NoFall", "Phase"),
                 checks(read(file), "Simulation"));
@@ -277,6 +305,34 @@ class CultPunishmentUpgradeTest {
         assertEquals(
                 List.of("Simulation", "BedrockMovement", "GroundSpoof", "Timer", "NoFall", "!Phase"),
                 checks(read(excluded), "Simulation"));
+    }
+
+    @Test
+    void excludesTheCloudChecksFromAnUnmodifiedDefaultMisc() throws Exception {
+        Path file = write(REVISION_4);
+        var result = upgrade(file);
+        assertTrue(result.migrated);
+        assertEquals(4, result.oldVersion);
+        var data = read(file);
+        List<?> misc = checks(data, "Misc");
+        assertEquals("!Cloud", misc.get(misc.size() - 1));
+        assertEquals(14, misc.size());
+        assertEquals(List.of("Cloud"), checks(data, "Cloud"));
+    }
+
+    @Test
+    void leavesAnEditedMiscAsItIs() throws Exception {
+        Path selectors = write(REVISION_4.replace("      - \"Chat\"\n", ""));
+        upgrade(selectors);
+        assertFalse(checks(read(selectors), "Misc").contains("!Cloud"));
+
+        Path commands = write(REVISION_4.replace("\"20:10 [proxy]\"", "\"20:10 kick %player%\""));
+        upgrade(commands);
+        assertFalse(checks(read(commands), "Misc").contains("!Cloud"));
+
+        Path decay = write(REVISION_4.replace("remove-violations-after: 300", "remove-violations-after: 600"));
+        upgrade(decay);
+        assertFalse(checks(read(decay), "Misc").contains("!Cloud"));
     }
 
     private Path write(String content) throws Exception {

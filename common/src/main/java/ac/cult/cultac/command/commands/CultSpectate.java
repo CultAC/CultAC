@@ -27,6 +27,7 @@ public class CultSpectate implements BuildableCommand {
                 .literal("spectate")
                 .permission("cult.spectate")
                 .required("target", NetworkPlayerArguments.anyInstance(arguments.singlePlayerSelectorParser()))
+                .meta(NetworkPlayerArguments.LOCAL, true)
                 .handler(this::handleSpectate)
                 .apply(CloudCommandService.REQUIREMENT_FACTORY.create(PlayerSenderRequirement.INSTANCE)));
     }
@@ -88,17 +89,15 @@ public class CultSpectate implements BuildableCommand {
                                     "Could not read your game mode and position from the server, so spectating did not"
                                             + " start. Please try again.",
                                     NamedTextColor.RED));
-                        case UNREACHABLE -> sender.sendMessage(unreachable(Objects.requireNonNull(elsewhere)));
+                        case UNREACHABLE ->
+                            sender.sendMessage(
+                                    NetworkPlayerArguments.whereabouts(
+                                            sender,
+                                            Objects.requireNonNull(elsewhere),
+                                            "network-spectate-unreachable",
+                                            "&c%player% is on %location%; spectating across servers needs CultAC on the proxy."));
                         case SPECTATING -> {}
                     }
                 });
-    }
-
-    private static Component unreachable(NetworkPlayer where) {
-        return Component.text(
-                where.name() + " is on " + where.instance()
-                        + (where.server() == null ? "" : " (" + where.server() + ")")
-                        + "; spectating across servers needs CultAC on the proxy.",
-                NamedTextColor.RED);
     }
 }

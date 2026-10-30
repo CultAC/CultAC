@@ -12,17 +12,17 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
 
 public class VehicleTimer extends AbstractTimerCheck {
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("TimerVehicle")
+            .description("Game ran faster than normal while riding")
+            .configName("TimerVehicle")
+            .setback(5)
+            .build();
     boolean isDummy = false;
     private boolean countedVehicleMovementThisClientTick = false;
 
     public VehicleTimer(CultPlayer cultPlayer) {
-        super(
-                cultPlayer,
-                CheckInfo.builder()
-                        .name("TimerVehicle")
-                        .configName("TimerVehicle")
-                        .setback(5)
-                        .build());
+        super(cultPlayer, INFO);
     }
 
     @CultPacketHandler

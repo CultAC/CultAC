@@ -8,30 +8,28 @@ import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.manager.alerts.AlertKind;
 import ac.cult.cultac.manager.alerts.AlertNetwork;
 import ac.cult.cultac.manager.alerts.AlertSubject;
-import ac.cult.cultac.network.routing.NetworkPlatform.OnlinePlayer;
-import ac.cult.cultac.utils.anticheat.LogThrottle;
-import java.nio.charset.StandardCharsets;
-import java.util.Collection;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 /** Two instances over one broker, each with its alert network attached the way the network module attaches it. */
 class AlertBroadcastTest {
-    private static final byte[] KEY = "a shared network secret of some length".getBytes(StandardCharsets.UTF_8);
-    private static final NetworkSettings SETTINGS =
-            new NetworkSettings("redis", "", "default", "", "", List.of(), "", "", "");
     private static final AlertSubject BOB = new AlertSubject(UUID.randomUUID(), "Bob", "pvp");
 
     private final FakeBroker broker = new FakeBroker();
     private final AtomicLong clock = new AtomicLong(1_793_140_000_000L);
+    private final TestNetworks networks = new TestNetworks(broker, clock);
 
     @BeforeAll
     static void logging() {
@@ -46,7 +44,7 @@ class AlertBroadcastTest {
 
     private final class Instance implements AlertNetwork.Staff {
         final List<Received> received = new CopyOnWriteArrayList<>();
-        final AtomicBoolean wantsVerbose = new AtomicBoolean();
+        final AtomicReference<Set<String>> wantsVerbose = new AtomicReference<>(Set.of());
         final NetworkService service;
         final AlertNetwork alerts;
 
@@ -56,19 +54,7 @@ class AlertBroadcastTest {
 
         /** {@code claims}: shared with the other engine generations of instance {@code id}. */
         Instance(String id, SharedClaims claims) {
-            NetworkPlatform platform = new NetworkPlatform() {
-                @Override
-                public Collection<OnlinePlayer> onlinePlayers() {
-                    return List.of();
-                }
-
-                @Override
-                public String address() {
-                    return "test:1";
-                }
-            };
-            service = new NetworkService(
-                    SETTINGS, platform, null, id, KEY, broker.transport(), clock::get, null, null, new LogThrottle());
+            service = networks.service(id).build();
             alerts = new AlertNetwork(() -> service, this, claims, clock::get);
             alerts.attach(service);
             service.start();
@@ -80,7 +66,7 @@ class AlertBroadcastTest {
         }
 
         @Override
-        public boolean wantGlobalVerbose() {
+        public Set<String> verboseServers() {
             return wantsVerbose.get();
         }
     }
@@ -103,18 +89,25 @@ class AlertBroadcastTest {
     }
 
     @Test
-    void verboseCrossesOnlyWhileAPeerFlagsGlobalVerbose() {
+    void verboseCrossesOnlyWhileAPeerCoversItsSubjectsServer() {
         Instance p3 = new Instance("p3");
         Instance p7 = new Instance("p7");
 
         String pair = AlertNetwork.newPair();
         assertFalse(p3.alerts.publish(AlertKind.VERBOSE, BOB, Component.text("v"), pair));
 
-        p7.wantsVerbose.set(true);
-        p7.alerts.demandChanged();
+        p7.wantsVerbose.set(Set.of("lobby"));
+        p7.service.sendDelta();
         assertFalse(p3.alerts.verboseWanted());
         clock.addAndGet(1_000);
         assertTrue(p3.alerts.verboseWanted());
+        assertFalse(p3.alerts.publish(AlertKind.VERBOSE, BOB, Component.text("v"), pair));
+        assertFalse(p3.alerts.publish(AlertKind.VERBOSE, AlertSubject.NONE, Component.text("v"), pair));
+        assertFalse(p3.alerts.publish(AlertKind.VERBOSE, BOB.on(null), Component.text("v"), pair));
+
+        p7.wantsVerbose.set(Set.of("lobby", "pvp"));
+        p7.service.sendDelta();
+        clock.addAndGet(1_000);
         assertTrue(p3.alerts.publish(AlertKind.VERBOSE, BOB, Component.text("v"), pair));
         assertTrue(p3.alerts.publish(AlertKind.ALERT, BOB, Component.text("a"), pair));
         assertEquals(
@@ -123,35 +116,43 @@ class AlertBroadcastTest {
                         new Received(AlertKind.ALERT, Component.text("a"), "pvp", pair)),
                 p7.received);
 
-        p7.wantsVerbose.set(false);
-        p7.alerts.demandChanged();
+        p7.wantsVerbose.set(Set.of(NetworkService.EVERY_SERVER));
+        p7.service.sendDelta();
+        clock.addAndGet(1_000);
+        assertTrue(p3.alerts.publish(AlertKind.VERBOSE, AlertSubject.NONE, Component.text("none"), null));
+        assertTrue(p3.alerts.publish(AlertKind.VERBOSE, BOB.on(null), Component.text("unknown"), null));
+
+        p7.wantsVerbose.set(Set.of());
+        p7.service.sendDelta();
         clock.addAndGet(1_000);
         assertFalse(p3.alerts.verboseWanted());
     }
 
     @Test
-    void anInstanceWithoutATransportSendsNothing() {
-        NetworkService local = new NetworkService(
-                SETTINGS,
-                new NetworkPlatform() {
-                    @Override
-                    public Collection<OnlinePlayer> onlinePlayers() {
-                        return List.of();
-                    }
+    void theComponentCrossesAsJsonTextAndAnOlderObjectFormStillReads() {
+        Instance p3 = new Instance("p3");
+        Instance p7 = new Instance("p7");
+        Component flag = Component.text("Bob failed Reach", NamedTextColor.RED);
+        assertTrue(p7.alerts.publish(AlertKind.ALERT, BOB, flag, null));
+        assertTrue(networks.broadcasts(AlertNetwork.TYPE).getFirst().get("component").isJsonPrimitive());
 
-                    @Override
-                    public String address() {
-                        return "test:1";
-                    }
-                },
-                null,
-                "p3",
-                KEY,
-                null,
-                clock::get,
-                null,
-                null,
-                new LogThrottle());
+        JsonObject body = new JsonObject();
+        body.addProperty("kind", AlertKind.ALERT.id());
+        body.addProperty("player", true);
+        body.addProperty("server", "pvp");
+        body.add("component", JsonParser.parseString(GsonComponentSerializer.gson().serialize(flag)));
+        assertTrue(p7.service.broadcast(AlertNetwork.TYPE, body));
+
+        assertEquals(
+                List.of(
+                        new Received(AlertKind.ALERT, flag, "pvp", null),
+                        new Received(AlertKind.ALERT, flag, "pvp", null)),
+                p3.received);
+    }
+
+    @Test
+    void anInstanceWithoutATransportSendsNothing() {
+        NetworkService local = networks.service("p3").transport(null).build();
         Instance p7 = new Instance("p7");
         AlertNetwork alerts =
                 new AlertNetwork(() -> local, p7, new SharedClaims(null, AlertNetwork.CLAIMS, clock::get), clock::get);

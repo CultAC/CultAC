@@ -291,7 +291,7 @@ class CloudSettingsTest {
                 assertTrue(text.contains("  url: \"\""), locale);
                 assertTrue(text.contains("  api-key: \"\""), locale);
                 assertTrue(text.contains("  server-id: \"\""), locale);
-                assertTrue(text.contains("config-version: 15"), locale);
+                assertTrue(text.contains("config-version: 17"), locale);
             }
         }
     }

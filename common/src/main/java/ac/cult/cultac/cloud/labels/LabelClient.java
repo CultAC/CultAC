@@ -3,6 +3,7 @@ package ac.cult.cultac.cloud.labels;
 import ac.cult.cultac.cloud.CloudHttp;
 import ac.cult.cultac.cloud.CloudService;
 import ac.cult.cultac.cloud.CloudSettings;
+import ac.cult.cultac.cloud.Generation;
 import ac.cult.cultac.cloud.transport.CloudConnection.CappedBody;
 import ac.cult.cultac.utils.anticheat.LogThrottle;
 import ac.cult.cultac.utils.anticheat.LogUtil;
@@ -18,6 +19,7 @@ import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpTimeoutException;
+import java.nio.channels.ClosedChannelException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -28,7 +30,6 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.function.UnaryOperator;
 import java.util.regex.Pattern;
@@ -70,7 +71,7 @@ public final class LabelClient {
     /** How often the label catalog is fetched again while labelling is configured. */
     static final Duration CATALOG_REFRESH = Duration.ofMinutes(30);
     /** Bumped on every configure, so only the latest refresh chain keeps running. */
-    private static final AtomicLong CATALOG_CHAIN = new AtomicLong();
+    private static final Generation CATALOG_CHAIN = new Generation();
 
     private static final Pattern ID =
             Pattern.compile("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
@@ -186,33 +187,29 @@ public final class LabelClient {
      * earlier configure started stops.
      */
     public static void refreshCatalogWhile(boolean on) {
-        long chain;
-        synchronized (CATALOG_CHAIN) {
-            chain = CATALOG_CHAIN.incrementAndGet();
-        }
+        long chain = CATALOG_CHAIN.next();
         if (on) refreshCatalog(chain);
     }
 
     static long catalogChain() {
-        return CATALOG_CHAIN.get();
+        return CATALOG_CHAIN.current();
     }
 
     /** Uses {@code catalog} unless a configure since {@code chain} began has started another chain or stopped it. */
     static boolean useIfCurrent(long chain, LabelCatalog catalog) {
-        synchronized (CATALOG_CHAIN) {
-            if (CATALOG_CHAIN.get() != chain) return false;
+        return CATALOG_CHAIN.whileLatest(chain, () -> {
             LabelCatalog.use(catalog);
             return true;
-        }
+        });
     }
 
     private static void refreshCatalog(long chain) {
-        if (CATALOG_CHAIN.get() != chain) return;
+        if (!CATALOG_CHAIN.latest(chain)) return;
         LabelClient client = configured();
         if (client == null) return;
         client.catalog().whenComplete((catalog, error) -> {
             boolean replaced = catalog != null && useIfCurrent(chain, catalog);
-            if (CATALOG_CHAIN.get() != chain) return;
+            if (!CATALOG_CHAIN.latest(chain)) return;
             CompletableFuture.delayedExecutor(CATALOG_REFRESH.toMinutes(), TimeUnit.MINUTES, client.executor)
                     .execute(() -> refreshCatalog(chain));
             if (!replaced) {
@@ -283,7 +280,7 @@ public final class LabelClient {
         Throwable cause = error;
         while (cause.getCause() != null && cause != cause.getCause()) cause = cause.getCause();
         if (cause instanceof HttpTimeoutException) return "timed out";
-        if (cause instanceof ConnectException) return "could not connect";
+        if (cause instanceof ConnectException || cause instanceof ClosedChannelException) return "could not connect";
         return cause.getClass().getSimpleName();
     }
 

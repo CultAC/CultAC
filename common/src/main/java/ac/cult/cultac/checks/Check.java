@@ -68,7 +68,7 @@ public class Check extends CultProcessor implements AbstractCheck {
         final CheckData checkData = this.getClass().getAnnotation(CheckData.class);
         if (checkData != null) {
             this.checkName = checkData.name();
-            this.configName = checkData.configName().equals("DEFAULT") ? this.checkName : checkData.configName();
+            this.configName = configName(this.checkName, checkData.configName());
             this.defaultDecay = checkData.decay();
             this.defaultSetbackVL = checkData.setback();
             this.alternativeName = checkData.alternativeName();
@@ -96,8 +96,7 @@ public class Check extends CultProcessor implements AbstractCheck {
         Objects.requireNonNull(checkInfo, "checkInfo");
 
         this.checkName = checkInfo.getName();
-        final String infoConfigName = checkInfo.getConfigName();
-        this.configName = infoConfigName == null || infoConfigName.equals("DEFAULT") ? this.checkName : infoConfigName;
+        this.configName = configName(this.checkName, checkInfo.getConfigName());
         this.defaultDecay = checkInfo.getDecay();
         this.defaultSetbackVL = checkInfo.getSetback();
         this.alternativeName = checkInfo.getAltName();
@@ -107,6 +106,11 @@ public class Check extends CultProcessor implements AbstractCheck {
         this.displayName = this.checkName;
 
         reload();
+    }
+
+    /** The prefix of a check's config keys: the declared config name, or the check name when it declares none. */
+    public static @NotNull String configName(@NotNull String checkName, @Nullable String declared) {
+        return declared == null || declared.equals("DEFAULT") ? checkName : declared;
     }
 
     /** Whether this check may run for Bedrock-platform players. */

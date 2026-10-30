@@ -11,17 +11,16 @@ import ac.cult.cultac.utils.math.Vec3;
 
 @BedrockSupported
 public class ExplosionHandler extends PacketModHandler {
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("AntiExplosion")
+            .stableKey("cult.velocity.anti_explosion")
+            .configName("Explosion")
+            .description("Did not take the expected explosion knockback")
+            .setback(10)
+            .build();
 
     public ExplosionHandler(CultPlayer cultPlayer) {
-        super(
-                cultPlayer,
-                CheckInfo.builder()
-                        .name("AntiExplosion")
-                        .stableKey("cult.velocity.anti_explosion")
-                        .configName("Explosion")
-                        .description("Did not take the expected explosion knockback")
-                        .setback(10)
-                        .build());
+        super(cultPlayer, INFO);
     }
 
     @Override

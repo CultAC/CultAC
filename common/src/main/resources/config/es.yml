@@ -291,25 +291,33 @@ cloud:
     # For timed bans. Empty: this server never runs timed panel bans.
     temp-command: ""
 
-# Messaging between the proxies and servers of a network, so commands, the roster and alerts reach players on other
-# instances. Each setting's CULTAC_NETWORK_* environment variable wins when set and not blank; CULTAC_NETWORK_NATS_SERVERS
-# is comma-separated. /cult reload reconnects when this block changes.
+# Hace que los comandos del staff, el autocompletado y las alertas funcionen en todos tus proxies y servidores.
+# Guía de configuración: docs/network.md en el código fuente de CultAC. /cult reload aplica los cambios.
+# Cualquier ajuste de aquí también se puede poner con una variable de entorno CULTAC_NETWORK_*, que tiene prioridad.
 network:
-  # none | redis | nats | redisbungee. none: commands, tab completion and alerts reach this server only.
-  # redisbungee (Velocity only) uses RedisBungee's own pub/sub and needs no other setting here.
-  transport: none
-  # Unique per instance. Empty: RedisBungee's proxy id when installed, else cloud.proxy-id, else host:port.
-  instance-id: ""
-  # Namespaces channels so several networks can share one broker.
-  network: "default"
-  # HMAC key every instance shares. Empty: Velocity's forwarding secret on a proxy; required on a backend.
-  secret: ""
+  # Cómo se comunican tus servidores entre sí:
+  #   none         Desactivado. Los comandos y las alertas solo llegan a los jugadores de este servidor.
+  #   redis        A través de un servidor Redis (Valkey, KeyDB y Dragonfly también sirven). Rellena la sección redis.
+  #   nats         A través de un servidor NATS. Rellena la sección nats.
+  #   redisbungee  Proxies Velocity con RedisBungee. Usa su conexión a Redis, no hay nada más que rellenar.
+  type: none
   redis:
-    uri: "redis://:password@host:6379/0"   # rediss:// for TLS; Valkey/KeyDB/Dragonfly speak the same protocol
+    address: localhost:6379
+    username: ""
+    password: ""
+    ssl: false
   nats:
-    servers: ["nats://host:4222"]
+    # Para poner más de un servidor, sepáralos con comas.
+    address: localhost:4222
+    username: ""
+    password: ""
     token: ""
-    credentials-file: ""                   # .creds (JWT + nkey), for NATS accounts
+    # Solo si tu servidor NATS usa cuentas: la ruta a tu archivo .creds.
+    credentials-file: ""
+    ssl: false
+  # El nombre de este servidor en la red. Cada servidor necesita uno propio.
+  # Déjalo vacío para usar el id de proxy de RedisBungee, si no cloud.proxy-id, y si no la IP y el puerto de este servidor.
+  instance-id: ""
 
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with
 # /cult update builds [branch]. Each setting's CULTAC_UPDATE_* environment variable wins when set and not blank.
@@ -331,4 +339,4 @@ update:
   webhook: ""
 
 config-flavor: V2
-config-version: 15
+config-version: 17

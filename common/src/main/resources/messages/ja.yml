@@ -57,6 +57,7 @@ help:
     - "/%command% alerts &f- &7アラートを切り替えます"
     - "/%command% alerts scope [server|global] &f- &7Show or set whose alerts you see"
     - "/%command% brands &f- &7Toggle brands"
+    - "/%command% findplayer [brand=...] &f- &7List client brands online, or who uses one"
     - "/%command% profile <player> &f- &7プレイヤー情報を表示します"
     - "/%command% help &f- &7このヘルプメッセージを表示します"
     - "/%command% debug <player> &f- &7開発者用の予測出力を表示します"
@@ -132,16 +133,37 @@ cult-history-detail-entry-hover-verbose: "<newline>&7%verbose%"
 # %checks_list% の各チェック項目の内部書式 — 有効なプレースホルダ: %check_name% %count%
 cult-history-check-count: "&f%check_name%&7 x&c%count%"
 
-# A command names a player on another instance, or a staff member asks for network-wide alerts, while
-# network.transport in config.yml is none.
-network-disabled-command: "%prefix% &cNetwork-wide commands are not enabled on this server. Ask a server administrator to configure a messaging backend (Redis or NATS) in the CultAC configuration."
-network-disabled-alerts: "%prefix% &cNetwork-wide alerts are not enabled on this server. Ask a server administrator to configure a messaging backend (Redis or NATS) in the CultAC configuration."
+# A staff member asks for network-wide alerts while network.type in config.yml is unset.
+network-disabled-alerts: "%prefix% &cNetwork-wide alerts are not enabled on this server. Ask a server administrator to set network.type in the CultAC configuration."
 # /cult alerts scope [server|global]: %scope% is server or global, %source% one of the alerts-scope-* texts below.
 alerts-scope: "%prefix% &fAlert scope: &b%scope% &7(%source%)"
 alerts-scope-set: "%prefix% &fAlert scope set to &b%scope%"
 alerts-scope-chosen: "chosen"
 alerts-scope-default: "default"
 alerts-scope-local: "network-wide alerts are not enabled on this server"
+# A command routed to another instance or engine generation. %instance% is the instance id, %player% the player,
+# %location% the instance with its backend server, %reason% why it failed, %lines% and %kb% the output caps.
+network-command-same-server: "&c%player% is on %location%; this command only works on the same server."
+network-spectate-unreachable: "&c%player% is on %location%; spectating across servers needs CultAC on the proxy."
+network-command-stopped: "&cThe command could not be forwarded to %instance%: network routing stopped."
+network-command-not-forwarded: "&cThe command could not be forwarded to %instance%."
+network-command-target-left: "&c%player% is no longer on %instance%."
+network-command-failed: "&c%instance% could not run the command: %reason%"
+network-command-no-answer: "&c%instance% did not answer."
+network-command-output-cut: "&cThe rest of the output from %instance% was cut: it is over %lines% lines or %kb% KB."
+# /cult findplayer [brand=<text>]: the client brands online, or the players whose brand contains the text.
+# Brands, %query%, %player% and %server% show as plain text. %count% is a number of players; findplayer-unknown
+# names the players whose brand is not known yet.
+findplayer-summary: "%prefix% &bClient brands in use &8· &f%count% &7online &8· &7click a brand to see who uses it"
+findplayer-brand: "&8» &f%brand% &7(%count%)"
+findplayer-brand-hover: "&7Show who uses %brand%"
+findplayer-unknown: "unknown"
+findplayer-results: "%prefix% &bPlayers whose brand contains &f%query% &8· &f%count% &7online"
+findplayer-player: "&8» &f%player% &7on &f%server% &8· &7%brand%"
+findplayer-player-hover: "&7Show %player%'s profile"
+findplayer-more: "&7...and %count% more. Type more of the brand name to narrow it down."
+findplayer-none: "%prefix% &7Nobody online uses a brand containing &f%query%&7."
+findplayer-usage: "%prefix% &cTo search, type &f/%command% findplayer brand=lunar &cwith any part of a brand name, or leave it out to see every brand."
 
 # スキーマ用マーカー — config.yml のヘッダーコメントを参照。
 config-flavor: V2

@@ -273,6 +273,16 @@ public final class CompensatedBlockEntities {
         return entry.data();
     }
 
+    public BlockEntityData stored(BlockPos pos) {
+        Entry entry = get(pos.asLong());
+        return entry == null ? null : entry.data();
+    }
+
+    public BlockEntityData prototype(int state) {
+        int model = states.toModel(state);
+        return BlockEntityPrototypes.create(Rules.DATA.registry().block(model), model);
+    }
+
     /** Local action overlay after its ordered block writes, without running native callbacks. */
     public void predict(BlockPos pos, int state, BlockEntityData data) {
         if (data == null) {

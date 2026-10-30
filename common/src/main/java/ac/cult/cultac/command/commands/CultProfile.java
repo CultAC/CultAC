@@ -3,7 +3,6 @@ package ac.cult.cultac.command.commands;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.command.BuildableCommand;
 import ac.cult.cultac.command.NetworkPlayerArguments;
-import ac.cult.cultac.command.profile.RemoteProfiles;
 import ac.cult.cultac.command.render.HistoryComponentRenderer;
 import ac.cult.cultac.manager.datastore.DataStoreLifecycle;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
@@ -19,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import net.kyori.adventure.text.Component;
 import org.incendo.cloud.CommandManager;
@@ -28,12 +28,10 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Shows a player's live profile. A player connected through another instance of the network gets the profile that
- * instance renders; one it cannot reach, or one that is offline, gets the last session the datastore holds.
+ * Shows a player's live profile. The command runs on the instance holding the player while the network runs; a player
+ * not online on any instance it knows gets the last session the datastore holds.
  */
 public class CultProfile implements BuildableCommand {
-    private static final long REMOTE_TIMEOUT_SECONDS = 3;
-
     @Override
     public void register(CommandManager<Sender> commandManager, CloudPlatformCommandArguments arguments) {
         commandManager.command(BuildableCommand.root(commandManager)
@@ -44,10 +42,11 @@ public class CultProfile implements BuildableCommand {
                         "target",
                         NetworkPlayerArguments.playerName(StringParser.stringParser()),
                         arguments.onlinePlayerSuggestions())
-                .handler(this::handleProfile));
+                .futureHandler(this::handleProfile));
     }
 
-    private void handleProfile(@NotNull CommandContext<Sender> context) {
+    /** Completes once the profile was sent. */
+    private CompletableFuture<Void> handleProfile(@NotNull CommandContext<Sender> context) {
         Sender sender = context.sender();
         String target = context.get("target");
 
@@ -57,17 +56,22 @@ public class CultProfile implements BuildableCommand {
             if (cultPlayer == null) {
                 sender.sendMessage(MessageUtil.getParsedComponent(
                         sender, "player-not-found", "%prefix% &cPlayer is exempt or offline!"));
-                return;
+                return CompletableFuture.completedFuture(null);
             }
             render(cultPlayer).forEach(sender::sendMessage);
-            return;
+            return CompletableFuture.completedFuture(null);
         }
 
-        // Locating a remote player and reading the datastore both block on I/O.
-        CultAPI.INSTANCE
-                .getScheduler()
-                .getAsyncScheduler()
-                .runNow(CultAPI.INSTANCE.getGrimPlugin(), () -> handleElsewhere(sender, target));
+        // Reading the datastore blocks on I/O.
+        CompletableFuture<Void> sent = new CompletableFuture<>();
+        CultAPI.INSTANCE.getScheduler().getAsyncScheduler().runNow(CultAPI.INSTANCE.getGrimPlugin(), () -> {
+            try {
+                sendStored(sender, target);
+            } finally {
+                sent.complete(null);
+            }
+        });
+        return sent;
     }
 
     /** The profile lines of a player tracked by this instance. */
@@ -80,41 +84,11 @@ public class CultProfile implements BuildableCommand {
         return lines;
     }
 
-    private void handleElsewhere(Sender sender, String target) {
-        RemoteProfiles remotes = RemoteProfiles.current();
-        RemoteProfiles.Remote remote = null;
-        try {
-            remote = remotes.locate(target);
-        } catch (RuntimeException ignored) {
-            // The network directory is unavailable; the datastore may still know the player.
-        }
-        if (remote == null) {
-            sendStored(sender, target, null);
-            return;
-        }
-        RemoteProfiles.Remote located = remote;
-        remotes.request(located)
-                .orTimeout(REMOTE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                .whenComplete((lines, failure) -> {
-                    if (failure == null && lines != null && !lines.isEmpty()) {
-                        lines.forEach(sender::sendMessage);
-                        return;
-                    }
-                    sendStored(sender, located.name(), located);
-                });
-    }
-
-    /** The last session the datastore holds, marked online when another instance reported the player there. */
-    private void sendStored(Sender sender, String target, @Nullable RemoteProfiles.Remote remote) {
-        if (remote != null) {
-            sender.sendMessage(message(
-                    "profile-remote-unanswered",
-                    "%prefix% &f%player% &7is online on &f%instance%&7, which did not answer; showing their last session.",
-                    Map.of("player", HistoryComponentRenderer.mmSafe(remote.name()), "instance", remote.instance())));
-        }
+    /** The last session the datastore holds. */
+    private void sendStored(Sender sender, String target) {
         SessionSummary session = null;
         try {
-            session = lastSession(remote != null ? remote.uuid() : resolveUuid(target));
+            session = lastSession(resolveUuid(target));
         } catch (Exception ignored) {
             // Shown below as unknown.
         }
@@ -125,11 +99,11 @@ public class CultProfile implements BuildableCommand {
                     Map.of("player", HistoryComponentRenderer.mmSafe(target))));
             return;
         }
-        String server = remote != null && remote.server() != null ? remote.server() : session.serverName();
-        String status = remote != null ? "online on " + remote.instance() : session.isClosed() ? "offline" : "online";
+        String server = session.serverName();
+        String status = session.isClosed() ? "offline" : "online";
         long seen = session.isClosed() ? session.closedAtEpochMs() : System.currentTimeMillis();
         Map<String, String> values = Map.of(
-                "player", HistoryComponentRenderer.mmSafe(remote != null ? remote.name() : target),
+                "player", HistoryComponentRenderer.mmSafe(target),
                 "status", status,
                 "server", HistoryComponentRenderer.mmSafe(server == null ? "unknown" : server),
                 "version", HistoryComponentRenderer.clientVersionDisplay(session.clientVersion()),
