@@ -28,7 +28,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
 
     public static final int FLAG_SIZE = 128;
     private static final Vec3 TELEPORT_MARKER = new Vec3(123456, 123456, 123456);
-    private static final int MAX_CAPTURE_TEXT = 1 << 17;
+    private static final int MAX_CAPTURE_TEXT = 1 << 18;
 
     private static final String[] flags = new String[FLAG_SIZE + 2]; //  17/2 MB of logs in memory
 
