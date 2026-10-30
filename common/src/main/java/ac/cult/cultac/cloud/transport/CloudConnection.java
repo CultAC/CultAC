@@ -287,8 +287,8 @@ public final class CloudConnection {
 
     /**
      * A queued record, the first {@code length} bytes of {@code record}; a frame's {@code resolvedExtra} is what its
-     * probe markers add once the service resolves them. A {@code pooled} array goes back to {@link FrameBuffers} once
-     * written.
+     * probe markers add once the service resolves them. A {@code pooled} array goes back to the shared
+     * {@link FrameBuffers} once written.
      */
     record Queued(long generation, byte[] record, int length, long resolvedExtra, boolean pooled) {
         /** A whole array, kept by its sender. */
@@ -633,13 +633,18 @@ public final class CloudConnection {
         return send(generation, record, record.length, resolvedExtra, false);
     }
 
+    /** An array of at least {@code length} bytes to write a record into for {@link #send(long, byte[], int, long)}. */
+    public byte[] frame(int length) {
+        return shared.frames.take(length);
+    }
+
     /**
      * As {@link #send(long, byte[], long)}, for the record in the first {@code length} bytes of {@code record}, an array
-     * from {@link FrameBuffers#take} this call takes over: it is given back once written or refused.
+     * from {@link #frame} this call takes over: nothing may touch it after, since it is reused once written or refused.
      */
     public boolean send(long generation, byte[] record, int length, long resolvedExtra) {
         if (send(generation, record, length, resolvedExtra, true)) return true;
-        FrameBuffers.give(record);
+        shared.frames.give(record);
         return false;
     }
 
@@ -1310,7 +1315,7 @@ public final class CloudConnection {
                     boolean end =
                             batch.full || retiring || ending || clock.getAsLong() - batch.startedNanos >= batchNanos;
                     if (bytes == 0 && !end) break;
-                    pipeline.submitQueued(part, bytes, end);
+                    pipeline.submitQueued(part, bytes, end, shared.frames);
                     part.clear();
                     bytes = 0;
                     if (!end) break;

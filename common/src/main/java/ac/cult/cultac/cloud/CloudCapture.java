@@ -19,7 +19,6 @@ import ac.cult.cultac.cloud.diag.Diagnostics;
 import ac.cult.cultac.cloud.diag.PredictionDiagnostics;
 import ac.cult.cultac.cloud.intake.v3.Outcome;
 import ac.cult.cultac.cloud.transport.CloudConnection;
-import ac.cult.cultac.cloud.transport.FrameBuffers;
 import ac.cult.cultac.cloud.wire.IntakeWire;
 import ac.cult.cultac.network.codec.ClientPacketCodecs;
 import ac.cult.cultac.platform.api.ServerFacts;
@@ -215,13 +214,19 @@ public final class CloudCapture implements PlayerObserver {
         boolean send(long generation, byte[] record, long resolvedExtra);
 
         /**
+         * An array of at least {@code length} bytes for a frame record, which {@link #send(long, byte[], int, long)}
+         * takes.
+         */
+        default byte[] frame(int length) {
+            return new byte[length];
+        }
+
+        /**
          * As {@link #send(long, byte[], long)}, for the record in the first {@code length} bytes of {@code record}, an
-         * array from {@link FrameBuffers#take} this call takes over.
+         * array from {@link #frame} this call takes over.
          */
         default boolean send(long generation, byte[] record, int length, long resolvedExtra) {
-            byte[] exact = Arrays.copyOf(record, length);
-            FrameBuffers.give(record);
-            return send(generation, exact, resolvedExtra);
+            return send(generation, record.length == length ? record : Arrays.copyOf(record, length), resolvedExtra);
         }
 
         CloudConnection.Terms terms(long generation);
@@ -905,14 +910,12 @@ public final class CloudCapture implements PlayerObserver {
 
             @Override
             public byte[] frame(int length) {
-                return FrameBuffers.take(length);
+                return uplink != null ? uplink.frame(length) : new byte[length];
             }
 
             @Override
             public boolean send(byte[] record, int length, long resolvedExtra) {
-                if (uplink != null) return uplink.send(generation, record, length, resolvedExtra);
-                FrameBuffers.give(record);
-                return false;
+                return uplink != null && uplink.send(generation, record, length, resolvedExtra);
             }
 
             @Override

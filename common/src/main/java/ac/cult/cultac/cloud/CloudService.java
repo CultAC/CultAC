@@ -364,6 +364,11 @@ public final class CloudService {
         }
 
         @Override
+        public byte[] frame(int length) {
+            return connection.frame(length);
+        }
+
+        @Override
         public boolean send(long generation, byte[] record, int length, long resolvedExtra) {
             return connection.send(generation, record, length, resolvedExtra);
         }

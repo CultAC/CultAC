@@ -3,7 +3,6 @@ package ac.cult.cultac.cloud.capture;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import ac.cult.cultac.cloud.transport.CloudConnection;
-import ac.cult.cultac.cloud.transport.FrameBuffers;
 import ac.cult.cultac.cloud.wire.IntakeWire;
 import ac.cult.cultac.protocol.wire.Wire;
 import com.sun.management.ThreadMXBean;
@@ -48,10 +47,11 @@ class CloudAllocBenchTest {
 
     private static final ThreadMXBean THREADS = (ThreadMXBean) ManagementFactory.getThreadMXBean();
 
-    /** A sink that keeps nothing it is sent; a pooling one gives each frame's array back as a written one is. */
+    /** A sink that keeps nothing it is sent; a pooling one reuses each frame's array once it is sent. */
     private static final class Discard implements CaptureStream.Sink {
         final boolean pooling;
         long bytes;
+        byte[] spare;
 
         Discard(boolean pooling) {
             this.pooling = pooling;
@@ -65,14 +65,17 @@ class CloudAllocBenchTest {
 
         @Override
         public byte[] frame(int length) {
-            return pooling ? FrameBuffers.take(length) : new byte[length];
+            if (!pooling) return new byte[length];
+            byte[] array = spare != null && spare.length >= length ? spare : new byte[2 * length];
+            spare = null;
+            return array;
         }
 
         @Override
         public boolean send(byte[] record, int length, long resolvedExtra) {
             if (!pooling) return send(record, resolvedExtra);
             bytes += length;
-            FrameBuffers.give(record);
+            spare = record;
             return true;
         }
 
@@ -156,10 +159,7 @@ class CloudAllocBenchTest {
         String out = System.getenv("CULTAC_CLOUD_ALLOC_BENCH");
         assumeTrue(out != null && !out.isEmpty());
         Files.writeString(
-                Path.of(out),
-                frames() + strips() + teams(),
-                StandardOpenOption.CREATE,
-                StandardOpenOption.APPEND);
+                Path.of(out), frames() + strips() + teams(), StandardOpenOption.CREATE, StandardOpenOption.APPEND);
     }
 
     private static String frames() {
@@ -223,9 +223,8 @@ class CloudAllocBenchTest {
         int passes = 1500;
         StringBuilder lines = new StringBuilder();
         for (int limit : new int[] {PlayerText.Reader.MAX_KEPT_LENGTH, Integer.MAX_VALUE}) {
-            List<Drawn> cases = drawn.stream()
-                    .filter(c -> c.packet().length <= limit)
-                    .toList();
+            List<Drawn> cases =
+                    drawn.stream().filter(c -> c.packet().length <= limit).toList();
             lines.append(compare(
                     "strip per packet, " + cases.size() + " packets up to " + limit + " B",
                     (long) cases.size() * passes,

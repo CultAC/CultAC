@@ -100,6 +100,7 @@ class CompressionPipelineTest {
     @Test
     void queuedRecordsInLargerArraysWriteTheMessagesTheirExactArraysWrite() throws Exception {
         Random random = new Random(11);
+        FrameBuffers frames = new FrameBuffers();
         QueuedBytes exactQueued = new QueuedBytes(new AtomicLong());
         QueuedBytes pooledQueued = new QueuedBytes(new AtomicLong());
         try (CompressionPipeline exact = pipeline(1, NAME, exactQueued);
@@ -115,7 +116,7 @@ class CompressionPipelineTest {
                         if (random.nextInt(3) == 0) {
                             queued.add(new CloudConnection.Queued(0, record, 0));
                         } else {
-                            byte[] larger = FrameBuffers.take(record.length);
+                            byte[] larger = frames.take(record.length);
                             Arrays.fill(larger, (byte) random.nextInt());
                             System.arraycopy(record, 0, larger, 0, record.length);
                             queued.add(new CloudConnection.Queued(0, larger, record.length, 0, true));
@@ -125,7 +126,7 @@ class CompressionPipelineTest {
                     exactQueued.addAndGet(bytes(records));
                     pooledQueued.addAndGet(bytes(records));
                     exact.submit(records, bytes(records), end);
-                    pooled.submitQueued(queued, bytes(records), end);
+                    pooled.submitQueued(queued, bytes(records), end, frames);
                 }
                 byte[] written = exact.take();
                 assertArrayEquals(written, pooled.take());
