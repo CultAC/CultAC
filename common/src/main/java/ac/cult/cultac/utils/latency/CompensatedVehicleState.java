@@ -73,6 +73,12 @@ public final class CompensatedVehicleState implements Debuggable {
     public Integer serverPlayerVehicleTransaction;
 
     private final SentRidingGraph sentRiding = new SentRidingGraph();
+    /**
+     * The proof of the mount a pending server dismount ends, or null. Until the client answers it,
+     * ClientPacketListener#handleSetEntityPassengersPacket has not mounted it, so the dismount is not yet its state.
+     */
+    @Nullable
+    private Integer dismountedMountTransaction;
 
     CompensatedVehicleState(CultPlayer player, CompensatedEntities entities) {
         this.player = player;
@@ -383,6 +389,11 @@ public final class CompensatedVehicleState implements Debuggable {
         if (canClientAuthoritativelyMoveVisibleRoot(vehicle)) {
             markVehicleSwitchBufferWindow(vehicle);
         }
+        if (serverPlayerVehicle == null || serverPlayerVehicle != vehicleId) {
+            dismountedMountTransaction = null;
+        } else if (serverPlayerVehiclePassengers != null) {
+            dismountedMountTransaction = serverPlayerVehicleTransaction;
+        }
         serverPlayerVehicle = vehicleId;
         serverPlayerVehiclePassengers = null;
         serverPlayerVehicleTransaction = transaction;
@@ -401,6 +412,7 @@ public final class CompensatedVehicleState implements Debuggable {
         serverPlayerVehicle = null;
         serverPlayerVehiclePassengers = null;
         serverPlayerVehicleTransaction = null;
+        dismountedMountTransaction = null;
         if (player.isBedrockMovement()) player.getSetbackTeleportUtil().clearVehicleTeleports();
         else player.getSetbackTeleportUtil().retireVehicleTeleports(player.lastTransactionReceived.get());
     }
@@ -836,7 +848,18 @@ public final class CompensatedVehicleState implements Debuggable {
      * Before the client processes a mount, its movement is ordinary LocalPlayer#tick movement.
      */
     public boolean hasClientPlayerPassengerState() {
-        return entities.playerEntity.inVehicle() || hasPendingServerDismount();
+        return entities.playerEntity.inVehicle() || hasClientVisiblePendingDismount();
+    }
+
+    /**
+     * Whether a server dismount is pending and the client has processed the mount it ends. Until
+     * ClientPacketListener#handleSetEntityPassengersPacket mounts it, LocalPlayer#tick sends walking ticks, and the
+     * mount's player_position, sent before its set_passengers, is answered as an ordinary teleport.
+     */
+    public boolean hasClientVisiblePendingDismount() {
+        return hasPendingServerDismount()
+                && (dismountedMountTransaction == null
+                        || player.lastTransactionReceived.get() >= dismountedMountTransaction);
     }
 
     private boolean containsLocalPlayer(@Nullable int[] passengers) {
