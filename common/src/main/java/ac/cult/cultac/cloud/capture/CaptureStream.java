@@ -323,6 +323,7 @@ public final class CaptureStream {
     private PlayerText text;
 
     private final PlayerText.TeamNames teams = new PlayerText.TeamNames();
+    private final PlayerText.Reader reader = new PlayerText.Reader();
 
     private final Sections sections = new Sections();
     /** The open frame's terrain records, in the order put; each record's id is its index here. */
@@ -588,7 +589,9 @@ public final class CaptureStream {
             // Before JOIN the socket's textStripped is unknown: such a packet waits for it in the held frames.
             unstripped = preparing && text.unstripped(!serverbound, id);
             boolean stripped = textStripped && !unstripped;
-            bytes = serverbound ? text.serverbound(id, bytes, stripped) : text.clientbound(id, bytes, stripped, teams);
+            bytes = serverbound
+                    ? text.serverbound(id, bytes, stripped, reader)
+                    : text.clientbound(id, bytes, stripped, teams, reader);
             if (bytes == null) return;
         }
         if (kind == IntakeWire.SERVERBOUND && !terrainFull) terrainFull = !sections.check(terrainOut, nanos);

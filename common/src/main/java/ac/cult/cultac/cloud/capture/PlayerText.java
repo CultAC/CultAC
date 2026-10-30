@@ -518,6 +518,11 @@ public final class PlayerText {
      * when this protocol has no codec.
      */
     byte[] clientbound(int id, byte[] packet, boolean textStripped, TeamNames teams) {
+        return clientbound(id, packet, textStripped, teams, null);
+    }
+
+    /** As {@link #clientbound(int, byte[], boolean, TeamNames)}, read with {@code reader}; null reads afresh. */
+    byte[] clientbound(int id, byte[] packet, boolean textStripped, TeamNames teams, Reader reader) {
         byte kind =
                 clientboundKinds != null && id >= 0 && id < clientboundKinds.length ? clientboundKinds[id] : WITHHELD;
         if (kind == TEXT_FREE) return packet;
@@ -526,11 +531,16 @@ public final class PlayerText {
             return null;
         }
         if (values == null && !textStripped) return unstripped(packet);
-        return counted(packet, strip(true, clientbound[id], packet, teams));
+        return counted(packet, strip(true, clientbound[id], packet, teams, reader));
     }
 
     /** As {@link #clientbound(int, byte[], boolean, TeamNames)}, for a serverbound packet. */
     byte[] serverbound(int id, byte[] packet, boolean textStripped) {
+        return serverbound(id, packet, textStripped, null);
+    }
+
+    /** As {@link #serverbound(int, byte[], boolean)}, read with {@code reader}; null reads afresh. */
+    byte[] serverbound(int id, byte[] packet, boolean textStripped, Reader reader) {
         if (serverbound == null) {
             withheld.increment();
             return null;
@@ -542,7 +552,7 @@ public final class PlayerText {
         }
         if (kind == TEXT_FREE) return packet;
         if (values == null && !textStripped) return unstripped(packet);
-        return counted(packet, strip(false, serverbound[id], packet, null));
+        return counted(packet, strip(false, serverbound[id], packet, null, reader));
     }
 
     /** Whether a packet goes out unstripped on a socket that said {@code textStripped} false: this protocol has no codec. */
@@ -603,32 +613,91 @@ public final class PlayerText {
      * last byte: such a packet cannot be told clean. Teams are renamed by {@code teams}.
      */
     byte[] strip(boolean clientbound, String identifier, byte[] packet, TeamNames teams) {
+        return strip(clientbound, identifier, packet, teams, null);
+    }
+
+    /** As {@link #strip(boolean, String, byte[], TeamNames)}, read with {@code reader}; null reads afresh. */
+    byte[] strip(boolean clientbound, String identifier, byte[] packet, TeamNames teams, Reader reader) {
         if (values == null) return null;
-        Walk walk = new Walk(Unpooled.wrappedBuffer(packet), teams);
+        Walk walk = reader == null ? new Walk() : reader.walk(this);
+        walk.start(reader == null ? Unpooled.wrappedBuffer(packet) : reader.wrap(packet), teams);
         try {
-            Wire.readVarInt(walk.in);
-            boolean framed = clientbound ? walk.clientbound(identifier) : walk.serverbound(identifier);
-            if (!framed || walk.in.isReadable()) return null;
-        } catch (RuntimeException | StackOverflowError unreadable) {
-            return null;
+            try {
+                Wire.readVarInt(walk.in);
+                boolean framed = clientbound ? walk.clientbound(identifier) : walk.serverbound(identifier);
+                if (!framed || walk.in.isReadable()) return null;
+            } catch (RuntimeException | StackOverflowError unreadable) {
+                return null;
+            }
+            if (walk.listed != null) teams.listed(walk.listed);
+            return walk.edits == null ? packet : walk.edits.apply(walk.in, 0, packet.length);
+        } finally {
+            if (reader != null) walk.start(null, null);
         }
-        if (walk.listed != null) teams.listed(walk.listed);
-        return walk.edits == null ? packet : walk.edits.apply(walk.in, 0, packet.length);
+    }
+
+    /**
+     * One stream's means of reading packets: a walk it reuses, and for each packet length up to
+     * {@link #MAX_KEPT_LENGTH} a buffer of exactly that length a packet is copied into, while their arrays and overhead
+     * fit {@link #MAX_KEPT_BYTES}. Used only on its stream's event loop, one packet at a time.
+     */
+    static final class Reader {
+        static final int MAX_KEPT_LENGTH = 256;
+        static final int MAX_KEPT_BYTES = 8 * 1024;
+        /** What a kept buffer costs beyond its array. */
+        private static final int KEPT_OVERHEAD = 64;
+
+        private final ByteBuf[] kept = new ByteBuf[MAX_KEPT_LENGTH + 1];
+        private int keptBytes;
+        private Walk walk;
+
+        /** {@code text}'s walk, reset by each start. */
+        private Walk walk(PlayerText text) {
+            if (walk == null || walk.owner() != text) walk = text.new Walk();
+            return walk;
+        }
+
+        /**
+         * A buffer holding {@code packet} as {@link Unpooled#wrappedBuffer(byte[])} does: its bytes, both indices and
+         * marks at 0 and the end, capacity and limit its length. Valid until the next call.
+         */
+        ByteBuf wrap(byte[] packet) {
+            int length = packet.length;
+            if (length == 0 || length > MAX_KEPT_LENGTH) return Unpooled.wrappedBuffer(packet);
+            ByteBuf in = kept[length];
+            if (in == null) {
+                if (keptBytes + length + KEPT_OVERHEAD > MAX_KEPT_BYTES) return Unpooled.wrappedBuffer(packet);
+                keptBytes += length + KEPT_OVERHEAD;
+                in = Unpooled.wrappedBuffer(new byte[length]);
+                kept[length] = in;
+            }
+            in.setBytes(0, packet);
+            in.setIndex(0, 0).markReaderIndex().markWriterIndex().writerIndex(length);
+            return in;
+        }
     }
 
     /** One packet's fields, as its protocol frames them, and what is cut from them. */
     private final class Walk implements PlayerTextCodec.Cuts {
-        final ByteBuf in;
-        final TeamNames teams;
+        ByteBuf in;
+        TeamNames teams;
         Edits edits;
         /** The profile names this packet adds to the tab list; null when it adds none. */
         List<String> listed;
 
         private int spent;
 
-        Walk(ByteBuf in, TeamNames teams) {
+        /** Starts reading {@code in} afresh. */
+        void start(ByteBuf in, TeamNames teams) {
             this.in = in;
             this.teams = teams;
+            edits = null;
+            listed = null;
+            spent = 0;
+        }
+
+        PlayerText owner() {
+            return PlayerText.this;
         }
 
         @Override
