@@ -24,9 +24,10 @@ public class PacketPlayerDigging {
         Hand hand = packet.hand();
         SimItemStack item = player.getInventory().getHandItem(hand);
         if (chargesRiptide(player, item)) {
-            player.packetStateData.riptideUseHand = hand;
-            player.packetStateData.riptideUseStartClientTick = player.packetStateData.acceptedClientTick;
-        } else if (hand == player.packetStateData.riptideUseHand) {
+            RiptideUtil.startTrackedUse(player, hand);
+        } else if (player.usesModernJavaItemUse() || hand == player.packetStateData.riptideUseHand) {
+            // Minecraft#handleKeybinds runs Minecraft#startUseItem only while LocalPlayer#isUsingItem is false, so a
+            // Java UseItem of either hand that starts no trident use proves the client runs no use.
             RiptideUtil.clearTrackedUse(player);
         }
     }

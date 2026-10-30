@@ -68,8 +68,7 @@ public final class RiptideUtil {
 
     /** Entity#isInRain: Level#isRainingAt at Entity#blockPosition or at its column's bounding-box top. */
     private static boolean isInRain(CultPlayer player) {
-        BlockPos pos = new BlockPos(
-                (int) Math.floor(player.x), (int) Math.floor(player.y), (int) Math.floor(player.z));
+        BlockPos pos = new BlockPos((int) Math.floor(player.x), (int) Math.floor(player.y), (int) Math.floor(player.z));
         return player.compensatedWorld.clientIsRainingAt(pos)
                 || player.compensatedWorld.clientIsRainingAt(
                         new BlockPos(pos.getX(), (int) Math.floor(player.boundingBox.maxY), pos.getZ()));
@@ -110,6 +109,12 @@ public final class RiptideUtil {
     private static boolean isWater(int state) {
         var fluid = ClientFluidQueries.modelFluid(state);
         return fluid.is("minecraft:water") || fluid.is("minecraft:flowing_water");
+    }
+
+    /** LivingEntity#startUsingItem on {@code hand}: the charge counts the client ticks from here. */
+    public static void startTrackedUse(CultPlayer player, Hand hand) {
+        player.packetStateData.riptideUseHand = hand;
+        player.packetStateData.riptideUseStartClientTick = player.packetStateData.acceptedClientTick;
     }
 
     public static void clearTrackedUse(CultPlayer player) {
