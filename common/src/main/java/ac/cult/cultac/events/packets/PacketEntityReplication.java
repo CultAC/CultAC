@@ -10,6 +10,7 @@ import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementPatch;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
+import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.CultWrite;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -107,7 +108,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             float rotationPitch,
             @Nullable Boolean onGround,
             DeltaMovementChange deltaMovement,
-            @Nullable EntityMovement otherPistonPath) {
+            @Nullable EntityMovement otherPistonPath,
+            @Nullable ControlledRootTeleport controlledRootTeleport) {
         private EntityMovement(
                 int entityId,
                 MovementKind kind,
@@ -117,12 +119,50 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 float rotationPitch,
                 Boolean onGround,
                 DeltaMovementChange deltaMovement) {
-            this(entityId, kind, position, hasRotation, rotationYaw, rotationPitch, onGround, deltaMovement, null);
+            this(
+                    entityId,
+                    kind,
+                    position,
+                    hasRotation,
+                    rotationYaw,
+                    rotationPitch,
+                    onGround,
+                    deltaMovement,
+                    null,
+                    null);
         }
 
         private EntityMovement withOtherPistonPath(EntityMovement other) {
             return new EntityMovement(
-                    entityId, kind, position, hasRotation, rotationYaw, rotationPitch, onGround, deltaMovement, other);
+                    entityId,
+                    kind,
+                    position,
+                    hasRotation,
+                    rotationYaw,
+                    rotationPitch,
+                    onGround,
+                    deltaMovement,
+                    other,
+                    controlledRootTeleport);
+        }
+
+        private EntityMovement withControlledRootTeleport(@Nullable ControlledRootTeleport teleport) {
+            return new EntityMovement(
+                    entityId,
+                    kind,
+                    position,
+                    hasRotation,
+                    rotationYaw,
+                    rotationPitch,
+                    onGround,
+                    deltaMovement,
+                    otherPistonPath,
+                    teleport);
+        }
+
+        /** This movement as the client's handler applies it. */
+        private EntityMovement asHandled() {
+            return controlledRootTeleport == null ? this : controlledRootTeleport.movement();
         }
 
         private EntityMovement forEntity(PacketEntity entity) {
@@ -764,31 +804,125 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         }
         PacketEntity entity = player.compensatedEntities.getEntity(teleport.entityId());
         TrackerData data = player.compensatedEntities.getTrackedEntity(teleport.entityId());
-        // A relative teleport reads PositionMoveRotation.of independently on the two source physics paths.
+        EntityMovement[] paths = teleportPaths(teleport, change, packetFlags, entity, data, false);
+        int sequence = recordPacketHandlerDeltaMovement(
+                teleport.entityId(),
+                paths[0].deltaMovement().movement(),
+                paths[1] == null ? null : paths[1].deltaMovement().movement());
+        EntityMovement movement = withDeltaSequence(paths, sequence);
+        if (!player.isBedrockMovement()
+                && packetFlags.getMask() != 0
+                && player.compensatedEntities.vehicles.canClientAuthoritativelyMoveVisibleRoot(entity)) {
+            movement = movement.withControlledRootTeleport(
+                    new ControlledRootTeleport(teleport, change, packetFlags, movement, sequence));
+        }
+        handleMoveEntity(event, movement);
+    }
+
+    /**
+     * What ClientPacketListener#handleTeleportEntity sets, from the PositionMoveRotation#of(entity) it starts from:
+     * the packet-handler transform at send, or the client's own transform once it has handled the packet. A relative
+     * teleport reads it independently on the two source physics paths.
+     */
+    private EntityMovement[] teleportPaths(
+            ClientboundTeleportEntity teleport,
+            TeleportChange change,
+            RelativeFlag flags,
+            @Nullable PacketEntity entity,
+            @Nullable TrackerData data,
+            boolean handled) {
         EntityMovement[] paths = new EntityMovement[2];
         Runnable calculate = () -> {
-            Vec3 sourcePosition = teleportSourcePosition(entity, data);
-            float sourceYaw = teleportSourceYaw(entity, data);
-            float sourcePitch = teleportSourcePitch(entity, data);
-            Vec3 pos = calculateAbsolutePosition(sourcePosition, change.position(), packetFlags);
-            float finalYaw = calculateAbsoluteYaw(sourceYaw, change.yRot(), packetFlags);
-            float finalPitch = calculateAbsolutePitch(sourcePitch, change.xRot(), packetFlags);
+            PacketHandlerEntityTransform source = handled
+                    ? packetHandlerTransformFallback(entity, data, new PacketHandlerEntityTransform())
+                    : packetHandlerTransformSource(entity, data);
+            Vec3 pos = calculateAbsolutePosition(source.position(), change.position(), flags);
+            float finalYaw = calculateAbsoluteYaw(source.yRot, change.yRot(), flags);
+            float finalPitch = calculateAbsolutePitch(source.xRot, change.xRot(), flags);
             DeltaMovementChange delta = teleportDeltaMovement(
                     entity,
                     new RiderRelativeDelta(
-                            change.deltaMovement(), sourceYaw, sourcePitch, finalYaw, finalPitch, packetFlags));
+                            change.deltaMovement(), source.yRot, source.xRot, finalYaw, finalPitch, flags));
             int index = entity != null && entity.pistonMovementPatch() == JavaMovementPatch.V_1_21_10 ? 1 : 0;
             paths[index] = EntityMovement.teleportEntityPacket(
                     teleport.entityId(), pos, finalYaw, finalPitch, teleport.onGround(), delta);
         };
         if (entity == null || !entity.runPistonPatchStates(calculate)) calculate.run();
-        int sequence = recordPacketHandlerDeltaMovement(
-                teleport.entityId(),
-                paths[0].deltaMovement().movement(),
-                paths[1] == null ? null : paths[1].deltaMovement().movement());
+        return paths;
+    }
+
+    private static EntityMovement withDeltaSequence(EntityMovement[] paths, int sequence) {
         EntityMovement movement = withDeltaSequence(paths[0], sequence);
-        if (paths[1] != null) movement = movement.withOtherPistonPath(withDeltaSequence(paths[1], sequence));
-        handleMoveEntity(event, movement);
+        return paths[1] == null ? movement : movement.withOtherPistonPath(withDeltaSequence(paths[1], sequence));
+    }
+
+    /**
+     * A relative teleport of a root the local player moves. ClientPacketListener#handleTeleportEntity adds it to the
+     * client's transform when it handles the packet, and the client's own ticks keep moving that root until then. It
+     * resolves once, at the first packet the client sends after handling it: the teleport's proof, or the MoveVehicle
+     * that answers a teleport too far to interpolate from inside the handler.
+     */
+    private final class ControlledRootTeleport implements SetbackTeleportUtil.HandledVehicleTeleport {
+        private final ClientboundTeleportEntity teleport;
+        private final TeleportChange change;
+        private final RelativeFlag flags;
+        private final EntityMovement asSent;
+        private final int sequence;
+        private @Nullable EntityMovement handled;
+        private @Nullable VehicleTeleportData state;
+
+        private ControlledRootTeleport(
+                ClientboundTeleportEntity teleport,
+                TeleportChange change,
+                RelativeFlag flags,
+                EntityMovement asSent,
+                int sequence) {
+            this.teleport = teleport;
+            this.change = change;
+            this.flags = flags;
+            this.asSent = asSent;
+            this.sequence = sequence;
+        }
+
+        private EntityMovement movement() {
+            resolve();
+            return handled;
+        }
+
+        @Override
+        public @Nullable VehicleTeleportData state(boolean resolve) {
+            if (resolve) resolve();
+            return state;
+        }
+
+        private void resolve() {
+            if (handled != null) return;
+            int entityId = teleport.entityId();
+            PacketEntity entity = player.compensatedEntities.getEntity(entityId);
+            handled = entity == null
+                    ? asSent.withControlledRootTeleport(null)
+                    : withDeltaSequence(
+                            teleportPaths(
+                                    teleport,
+                                    change,
+                                    flags,
+                                    entity,
+                                    player.compensatedEntities.getTrackedEntity(entityId),
+                                    true),
+                            sequence);
+            Vec3 target = new Vec3(
+                    handled.position().x(),
+                    handled.position().y(),
+                    handled.position().z());
+            state = new VehicleTeleportData(
+                    entityId,
+                    target,
+                    handled.yaw(),
+                    handled.pitch(),
+                    handled.onGround(),
+                    handled.deltaMovement().movement());
+            player.getSetbackTeleportUtil().updateSafeVehiclePosition(target);
+        }
     }
 
     private static EntityMovement withDeltaSequence(EntityMovement movement, int sequence) {
@@ -856,18 +990,6 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                         player.yRot,
                         finalYaw,
                         finalPitch);
-    }
-
-    private Vec3 teleportSourcePosition(PacketEntity entity, TrackerData data) {
-        return packetHandlerTransformSource(entity, data).position();
-    }
-
-    private float teleportSourceYaw(PacketEntity entity, TrackerData data) {
-        return packetHandlerTransformSource(entity, data).yRot;
-    }
-
-    private float teleportSourcePitch(PacketEntity entity, TrackerData data) {
-        return packetHandlerTransformSource(entity, data).xRot;
     }
 
     private PacketHandlerEntityTransform packetHandlerTransformSource(PacketEntity entity, TrackerData data) {
@@ -1934,17 +2056,22 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 && absolutePositionKnown
                 && player.compensatedEntities.vehicles.serverPlayerVehicle != null
                 && player.compensatedEntities.vehicles.serverPlayerVehicle == movement.entityId()) {
-            Vec3 vehicleTarget = new Vec3(absoluteX, absoluteY, absoluteZ);
-            VehicleTeleportData vehicleTeleportData = new VehicleTeleportData(
-                    movement.entityId(),
-                    vehicleTarget,
-                    movement.yaw(),
-                    movement.pitch(),
-                    movement.onGround(),
-                    movement.deltaMovement().movement());
-            player.getSetbackTeleportUtil()
-                    .addVehicleTeleport(movement.entityId(), firstTransaction, vehicleTarget, vehicleTeleportData);
-            player.getSetbackTeleportUtil().updateSafeVehiclePosition(vehicleTarget);
+            if (movement.controlledRootTeleport() != null) {
+                player.getSetbackTeleportUtil()
+                        .addVehicleTeleport(movement.entityId(), firstTransaction, movement.controlledRootTeleport());
+            } else {
+                Vec3 vehicleTarget = new Vec3(absoluteX, absoluteY, absoluteZ);
+                VehicleTeleportData vehicleTeleportData = new VehicleTeleportData(
+                        movement.entityId(),
+                        vehicleTarget,
+                        movement.yaw(),
+                        movement.pitch(),
+                        movement.onGround(),
+                        movement.deltaMovement().movement());
+                player.getSetbackTeleportUtil()
+                        .addVehicleTeleport(movement.entityId(), firstTransaction, vehicleTarget, vehicleTeleportData);
+                player.getSetbackTeleportUtil().updateSafeVehiclePosition(vehicleTarget);
+            }
         }
         if (!ignoredMovement) {
             recordPacketHandlerTransform(
@@ -2040,15 +2167,16 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         int deltaMovementSequence = movement.deltaMovement().packetHandlerSequence();
         // The trailing proof follows the movement in the stream, so its pong proves the handler applied it.
         player.latencyUtils.addRealTimeTask(proofTransaction, () -> {
-            PacketEntity entity = applicableMovementEntity(movement);
+            EntityMovement handled = movement.asHandled();
+            PacketEntity entity = applicableMovementEntity(handled);
             if (entity == null) {
                 return;
             }
-            applyEntityRotationAndGround(entity, movement);
-            applyBundleFirstMovement(entity, movement);
-            markUncertainPosition(entity, movement);
-            applyDeltaMovementUpdate(entity, movement);
-            clearPacketHandlerDeltaMovement(movement);
+            applyEntityRotationAndGround(entity, handled);
+            applyBundleFirstMovement(entity, handled);
+            markUncertainPosition(entity, handled);
+            applyDeltaMovementUpdate(entity, handled);
+            clearPacketHandlerDeltaMovement(handled);
             applySecondMovement(entityId, kind, deltaMovementSequence, true);
         });
     }
@@ -2078,17 +2206,18 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         }
 
         private void apply() {
-            PacketEntity entity = applicableMovementEntity(movement);
+            EntityMovement handled = movement.asHandled();
+            PacketEntity entity = applicableMovementEntity(handled);
             if (entity == null) {
                 return;
             }
-            applyEntityRotationAndGround(entity, movement);
+            applyEntityRotationAndGround(entity, handled);
             int unprovenPaths = entity.unprovenUnbundledPaths();
-            applyFirstMovement(entity, movement);
+            applyFirstMovement(entity, handled);
             if (entity.unprovenUnbundledPaths() > unprovenPaths) unbundledPathEntity = entity;
-            markUncertainPosition(entity, movement);
-            applyDeltaMovementUpdate(entity, movement);
-            clearPacketHandlerDeltaMovement(movement);
+            markUncertainPosition(entity, handled);
+            applyDeltaMovementUpdate(entity, handled);
+            clearPacketHandlerDeltaMovement(handled);
             player.compensatedEntities.updatePassengerPositions();
             applied = true;
         }

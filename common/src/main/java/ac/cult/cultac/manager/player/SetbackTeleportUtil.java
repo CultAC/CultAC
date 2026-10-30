@@ -73,6 +73,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import lombok.Getter;
 import lombok.Setter;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
+import org.jetbrains.annotations.Nullable;
 
 public class SetbackTeleportUtil extends CultProcessor implements PostPredictionListener {
     private ServerboundMovePlayer pendingServerMove;
@@ -1338,6 +1339,12 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
 
             Vec3 position = teleportPos.position();
             VehicleTeleportData state = teleportPos.state();
+            if (teleportPos.handled() != null) {
+                // A response comes from the handler, before any later tick; a tick move follows the proof that
+                // resolved it.
+                state = teleportPos.handled().state(!tickMove);
+                position = state == null ? null : state.getPosition();
+            }
             boolean correction =
                     state != null && state.getApplication() != VehicleTeleportData.Application.ENTITY_TELEPORT;
             if (correction) {
@@ -1354,19 +1361,20 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                         state.getEntityId(), state.getPosition(), state.getYaw(), state.getPitch(), snaps);
             }
 
-            if (debug) {
+            if (debug && position != null) {
                 LogUtil.info("Vehicle queue: id: " + teleportPos.vehicleId() + " pt: " + teleportPos.transaction()
                         + " lt: " + lastTransaction + " | x=" + (position.x - x) + " y=" + (position.y - y) + " z="
                         + (position.z - z));
             }
 
-            if (matchesVehicleTeleportPosition(position, x, y, z, teleportPos.responseDistanceTolerance())) {
+            if (position != null
+                    && matchesVehicleTeleportPosition(position, x, y, z, teleportPos.responseDistanceTolerance())) {
                 if (!tickMove) {
                     final VehicleTeleport matchedEntry = vehicleTeleports.poll();
                     return completeVehicleTeleport(teleportPos, position, state);
                 }
                 // A ticking boat interpolates onto a TELEPORT_ENTITY target and the client sends no response for it.
-                if (teleportPos.state() != null
+                if (state != null
                         && !isRequiredSetbackVehicleTeleport(teleportPos)
                         && lastTransaction >= teleportPos.transaction()) {
                     vehicleTeleports.poll();
@@ -1537,11 +1545,16 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             responseDistanceTolerance = 0.0D;
         }
         vehicleTeleports.add(
-                new VehicleTeleport(vehicleId, transaction, position, state, responseDistanceTolerance, false));
+                new VehicleTeleport(vehicleId, transaction, position, state, responseDistanceTolerance, false, null));
+    }
+
+    /** A teleport of {@code vehicleId} whose target the client fixes only when it handles it. */
+    public void addVehicleTeleport(int vehicleId, int transaction, HandledVehicleTeleport teleport) {
+        vehicleTeleports.add(new VehicleTeleport(vehicleId, transaction, null, null, 0.0D, false, teleport));
     }
 
     public void addBedrockVehicleTeleport(int vehicleId, int transaction, Vec3 position) {
-        vehicleTeleports.add(new VehicleTeleport(vehicleId, transaction, position, null, 0.0D, true));
+        vehicleTeleports.add(new VehicleTeleport(vehicleId, transaction, position, null, 0.0D, true, null));
     }
 
     public void sendBedrockMovementCorrection(
@@ -1666,7 +1679,15 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             Vec3 position,
             VehicleTeleportData state,
             double responseDistanceTolerance,
-            boolean rewind) {}
+            boolean rewind,
+            @Nullable HandledVehicleTeleport handled) {}
+
+    /** A vehicle teleport whose target the client fixes only when it handles the packet. */
+    public interface HandledVehicleTeleport {
+        /** The teleport as the client handled it, or, unless {@code resolve}, null while nothing has resolved it. */
+        @Nullable
+        VehicleTeleportData state(boolean resolve);
+    }
 
     /**
      * @return If the player is in a desync state and is waiting on information from the server
