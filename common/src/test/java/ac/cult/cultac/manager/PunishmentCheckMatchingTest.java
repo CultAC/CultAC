@@ -1,6 +1,7 @@
 package ac.cult.cultac.manager;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -100,6 +101,34 @@ class PunishmentCheckMatchingTest {
         }
         assertTrue(held.containsAll(List.of("SprintA", "AntiKB", "BadPacketsV")), held.toString());
         assertEquals(enabled, held);
+    }
+
+    @Test
+    void groupWithUnreadableCommandsStillRunsItsChecksAndLaterGroupsDoNot() {
+        AbstractCheck alpha = check("AlphaCheck", null);
+        AbstractCheck beta = check("BetaCheck", null);
+        AbstractCheck gamma = check("GammaCheck", null);
+        CultPlayer player = mock(CultPlayer.class);
+        doReturn(List.of(alpha, beta, gamma)).when(player).getChecks();
+        ConfigManager config = mock(ConfigManager.class);
+        when(config.getBooleanElse(anyString(), anyBoolean())).thenAnswer(invocation -> invocation.getArgument(1));
+        when(config.getStringElse(anyString(), anyString())).thenAnswer(invocation -> invocation.getArgument(1));
+        List<Object> punishments = List.of(
+                group(List.of("alpha"), List.of("10:0 [alert]")),
+                group(List.of("beta"), List.of("not a command")),
+                group(List.of("gamma"), List.of("10:0 [alert]")));
+        when(config.getStringListElse(eq("Punishments"), any())).thenReturn((List) punishments);
+
+        new PunishmentManager(player).reload(config);
+
+        verify(alpha, times(1)).setEnabled(true);
+        verify(beta, times(1)).setEnabled(true);
+        verify(gamma, never()).setEnabled(true);
+        PunishmentRules rules = PunishmentRules.parse(punishments);
+        assertEquals(1, rules.groups().size());
+        assertEquals(List.of("alpha"), rules.groups().get(0).selectors());
+        assertEquals(List.of("beta"), rules.unreadGroupSelectors());
+        assertNotNull(rules.failure());
     }
 
     private static AbstractCheck check(String name, String alternativeName) {
