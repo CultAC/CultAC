@@ -1155,7 +1155,10 @@ public class CheckManagerListener implements OpaqueReceiveListener {
             }
             player.checkManager.dispatchEarlyReceive(event);
             // An early cancel ends this packet's dispatch before the ordinary route.
-            if (event.isCancelled()) breakPassengerRotationPair(event, player);
+            if (event.isCancelled()) {
+                breakPassengerRotationPair(event, player);
+                player.checkManager.onEarlyCancel(packet);
+            }
             if (!reachesServer(event)) player.blockActionReconciler.rejectEarly(packet);
         }
     }
