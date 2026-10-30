@@ -133,12 +133,13 @@ public final class JavaEntityVelocityTicks {
                     pose.height * context.getScale());
             SimpleCollisionBox rootBox = new SimpleCollisionBox(), scratch = new SimpleCollisionBox();
             SimpleCollisionBox candidateBox = new SimpleCollisionBox(), physicalBox = new SimpleCollisionBox();
+            boolean pushedByLiving = JavaLivingEntityPushes.pushedByLiving(player);
             entities.beginMovementPositionReads();
             long phase = entities.passTickedThroughOrder();
             try {
                 for (var entity : entities.pushOrCollideCandidates()) {
                     boolean boat = entity.isBoat();
-                    if (!boat && !JavaLivingEntityPushes.ticksPush(entity)) continue;
+                    if (!boat && (!pushedByLiving || !JavaLivingEntityPushes.ticksPush(entity))) continue;
                     long order = entity.tickingOrder(player);
                     if ((order < localOrder) != before
                             // A dying LivingEntity still runs aiStep/pushEntities until removal. Only the

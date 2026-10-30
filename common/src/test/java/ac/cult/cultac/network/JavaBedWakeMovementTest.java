@@ -22,6 +22,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundAnimate;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
@@ -167,6 +168,28 @@ class JavaBedWakeMovementTest {
             PredictionResult result = f.tick(travelled, lands);
 
             assertTrue(exact(result), describe(result));
+        }
+    }
+
+    /**
+     * A remote LivingEntity#pushEntities reaches only the LocalPlayer, through player.push(pusher), which
+     * LivingEntity#push(Entity) skips while the player isSleeping. With no bed at the sleeping position, 26.3's
+     * LivingEntity#setPosToBed leaves the sleeper standing beside the pusher, as after a pig ride into a bed.
+     */
+    @Test
+    void aSleeperBesideALivingEntityIsNotPushed() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            Vec3 position = new Vec3(0.5, FLOOR_Y, 0.5);
+            f.place(position, new Vec3(0, -0.08 * (double) 0.98F, 0));
+            f.tick(position, true);
+            sleepingPos(f, Optional.of(new BlockPos(0, FLOOR_Y, 3)));
+            assertTrue(f.player.isInBed);
+            assertEquals(position, new Vec3(f.player.x, f.player.y, f.player.z));
+            f.addRemotePlayer(100, position.add(0.2, 0, 0.1), GameMode.SURVIVAL);
+            for (int tick = 0; tick < 3; tick++) {
+                PredictionResult result = f.tick(position, true);
+                assertTrue(exact(result), describe(result));
+            }
         }
     }
 

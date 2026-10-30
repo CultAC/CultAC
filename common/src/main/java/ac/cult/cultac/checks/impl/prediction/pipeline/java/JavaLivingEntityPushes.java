@@ -23,6 +23,14 @@ public final class JavaLivingEntityPushes {
                         player, position.x, position.y, position.z, gliding);
     }
 
+    /**
+     * A living pusher's LivingEntity#doPush calls player.push(pusher), and LivingEntity#push(Entity) returns while
+     * the player isSleeping. AbstractBoat#tick calls boat.push(player) instead, so a boat still pushes a sleeper.
+     */
+    public static boolean pushedByLiving(CultPlayer player) {
+        return !player.isInBed;
+    }
+
     public static boolean ticksPush(PacketEntity entity) {
         // Bat and Parrot do not push players; ArmorStand pushes only rideable minecarts. Dragon's aiStep
         // implements its own server-side wing knockback rather than LivingEntity#pushEntities.
