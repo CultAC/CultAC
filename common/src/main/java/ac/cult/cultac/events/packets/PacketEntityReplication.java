@@ -2005,20 +2005,21 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     }
 
     private void scheduleTransactionBoundMovement(EntityMovement movement, int firstTransaction) {
-        player.latencyUtils.addRealTimeTask(firstTransaction, new TransactionBoundMovement(movement, firstTransaction));
+        var bound = new TransactionBoundMovement(movement, firstTransaction);
+        player.latencyUtils.addRealTimeTaskWithNextTransaction(firstTransaction, bound::apply, bound::settle);
     }
 
     /**
-     * A movement applied at its transaction and settled at the next one. The same task is queued again for the second
-     * transaction, so {@code second} says which half runs.
+     * A movement applied at its transaction and settled at the next one. The settling half waits in the applying
+     * half's place, and does nothing when the movement was not applied.
      */
-    private final class TransactionBoundMovement implements Runnable {
+    private final class TransactionBoundMovement {
         private final EntityMovement movement;
         private final int firstTransaction;
         private final int entityId;
         private final MovementKind kind;
         private final int deltaMovementSequence;
-        private boolean second;
+        private boolean applied;
         private @Nullable PacketEntity unbundledPathEntity;
 
         private TransactionBoundMovement(EntityMovement movement, int firstTransaction) {
@@ -2029,14 +2030,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             this.deltaMovementSequence = movement.deltaMovement().packetHandlerSequence();
         }
 
-        @Override
-        public void run() {
-            if (second) {
-                if (unbundledPathEntity != null) unbundledPathEntity.onUnbundledPathProven();
-                applySecondMovement(entityId, kind, deltaMovementSequence, false);
-                positionApplied(movement, firstTransaction);
-                return;
-            }
+        private void apply() {
             PacketEntity entity = applicableMovementEntity(movement);
             if (entity == null) {
                 return;
@@ -2049,8 +2043,14 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             applyDeltaMovementUpdate(entity, movement.deltaMovement());
             clearPacketHandlerDeltaMovement(movement);
             player.compensatedEntities.updatePassengerPositions();
-            second = true;
-            player.latencyUtils.addRealTimeTask(firstTransaction + 1, this);
+            applied = true;
+        }
+
+        private void settle() {
+            if (!applied) return;
+            if (unbundledPathEntity != null) unbundledPathEntity.onUnbundledPathProven();
+            applySecondMovement(entityId, kind, deltaMovementSequence, false);
+            positionApplied(movement, firstTransaction);
         }
     }
 
