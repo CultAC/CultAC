@@ -135,8 +135,10 @@ public final class CaptureStream {
     private static final int MIN_FRAME_RECORDS = 16;
 
     private static final int MAX_PRESIZED_RECORDS = 4096;
-    /** The largest record columns a released frame leaves for the next frame to reuse. */
+    /** The record capacity released frames leave, in all, for the next frames to reuse. */
     private static final int MAX_SPARE_RECORDS = 1024;
+    /** Released frames' record columns kept at most, for ticks cut before the last one's verdict. */
+    private static final int MAX_SPARES = 4;
     /** Room a section record leaves in a frame for its header, verdict and envelopes. */
     static final int RELEASE_HEADROOM = FRAME_HEADROOM + 1024;
 
@@ -280,8 +282,11 @@ public final class CaptureStream {
     private int lostSending;
 
     private CaptureRecords frame = new CaptureRecords(MIN_FRAME_RECORDS);
-    /** Record columns a released frame left, for the next frame to reuse. */
-    private CaptureRecords spareRecords;
+    /** Record columns released frames left, for the next frames to reuse; their capacities sum to the spare bound. */
+    private final CaptureRecords[] spareRecords = new CaptureRecords[MAX_SPARES];
+
+    private int spares;
+    private int spareCapacity;
     /** The open frame's packet copies; null until it copies one. */
     private CapturePacketCopies copies;
     /** Packet copies a released frame left, for the next frame to reuse. */
@@ -828,9 +833,10 @@ public final class CaptureStream {
     private Tick takeOpen(long nanos, long index, List<ActionRef> cutActions) {
         CaptureRecords records = frame;
         if (records.isEmpty()) records = CaptureRecords.EMPTY;
-        else if (spareRecords != null) {
-            frame = spareRecords;
-            spareRecords = null;
+        else if (spares > 0) {
+            frame = spareRecords[--spares];
+            spareRecords[spares] = null;
+            spareCapacity -= frame.capacity();
         } else frame = new CaptureRecords(Math.clamp(records.size(), MIN_FRAME_RECORDS, MAX_PRESIZED_RECORDS));
         Tick tick = new Tick(records, frameBytes, nanos, index, overflow);
         tick.reserved = frameReserved;
@@ -913,7 +919,10 @@ public final class CaptureStream {
         if (records == CaptureRecords.EMPTY) return;
         tick.records = CaptureRecords.EMPTY;
         records.clear();
-        if (spareRecords == null && records.capacity() <= MAX_SPARE_RECORDS) spareRecords = records;
+        if (spares < MAX_SPARES && spareCapacity + records.capacity() <= MAX_SPARE_RECORDS) {
+            spareRecords[spares++] = records;
+            spareCapacity += records.capacity();
+        }
     }
 
     /** A frame's terrain records are done with: those it did not carry to the service are owed again. */
@@ -1387,7 +1396,9 @@ public final class CaptureStream {
         lastEngine = null;
         sinceKeyframe = 0;
         frame = new CaptureRecords(MIN_FRAME_RECORDS);
-        spareRecords = null;
+        Arrays.fill(spareRecords, null);
+        spares = 0;
+        spareCapacity = 0;
         frameBytes = 0;
         if (copies != null) copies.release();
         if (spareCopies != null) spareCopies.release();
