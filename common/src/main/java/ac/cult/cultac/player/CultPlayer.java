@@ -81,7 +81,6 @@ import com.viaversion.viaversion.api.Via;
 import com.viaversion.viaversion.api.connection.UserConnection;
 import com.viaversion.viaversion.api.protocol.packet.PacketTracker;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
-import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.ArrayDeque;
@@ -132,6 +131,8 @@ public class CultPlayer implements GrimUser {
         private final int transaction;
         private final int id;
         private final long sentAt;
+        /** Its place on the wire, numbered by the player's sent pings; see sentPositionsExact. */
+        long position;
     }
 
     // Only Bedrock entries carry native receipt state and callbacks.
@@ -157,8 +158,15 @@ public class CultPlayer implements GrimUser {
     // Determining player ping
     // The difference between keepalive and transactions is that keepalive is async while transactions are sync
     private Queue<SentTransaction> transactionsSent = new ArrayDeque<>();
-    /** The ids in {@link #transactionsSent}, which never holds one id twice. */
-    private final IntOpenHashSet transactionIdsSent = new IntOpenHashSet();
+    /** The entries of {@link #transactionsSent} by id; it never holds one id twice. */
+    private final Int2ObjectOpenHashMap<SentTransaction> transactionsSentById = new Int2ObjectOpenHashMap<>();
+    /**
+     * While true, {@link #transactionsSent} holds consecutive positions from {@link #headSentPosition}, so a pong's
+     * place in it is a subtraction. Only a Bedrock insert between two entries breaks that, until the queue empties.
+     */
+    private boolean sentPositionsExact = true;
+    private long headSentPosition;
+    private long nextSentPosition;
 
     private final Int2ObjectOpenHashMap<@NotNull TrackedTransaction> transactionsPendingSend =
             new Int2ObjectOpenHashMap<>(4);
@@ -622,24 +630,17 @@ public class CultPlayer implements GrimUser {
     // But if some error made a client miss a packet, then it won't hurt them too bad.
     // Also it forces players to take knockback
     public synchronized boolean addTransactionResponse(int id) {
-        // Count how many unacknowledged transactions this response jumps past
-        int skipped = 0;
-        boolean known = false;
-        for (SentTransaction pending : transactionsSent) {
-            if (pending.id() == id) {
-                known = true;
-                break;
-            }
-            skipped++;
-        }
-        if (!known) {
+        SentTransaction answered = transactionsSentById.get(id);
+        if (answered == null) {
             return false;
         }
 
         // A skipped transaction is only suspicious with a valid keep alive baseline;
         // switching servers can legitimately drop transaction responses.
-        if (!isBedrockMovement() && skipped > 0 && keepAliveProcessor.lastKeepAlivePing > 0) {
-            checkManager.getCheck(TransactionOrder.class).skipped(skipped);
+        if (!isBedrockMovement() && keepAliveProcessor.lastKeepAlivePing > 0) {
+            // Count how many unacknowledged transactions this response jumps past
+            int skipped = sentBefore(answered);
+            if (skipped > 0) checkManager.getCheck(TransactionOrder.class).skipped(skipped);
         }
 
         SentTransaction acknowledged = acknowledgeThrough(id);
@@ -659,6 +660,23 @@ public class CultPlayer implements GrimUser {
         return acknowledged != null;
     }
 
+    /** How many entries of {@link #transactionsSent} precede {@code sent}, one of them. */
+    private int sentBefore(SentTransaction sent) {
+        if (sentPositionsExact) return (int) (sent.position - headSentPosition);
+        int before = 0;
+        for (SentTransaction pending : transactionsSent) {
+            if (pending == sent) break;
+            before++;
+        }
+        return before;
+    }
+
+    /** Records {@code sent}, just appended to {@link #transactionsSent}. */
+    private void sentAtTail(SentTransaction sent) {
+        sent.position = nextSentPosition++;
+        transactionsSentById.put(sent.id(), sent);
+    }
+
     private SentTransaction acknowledgeThrough(int id) {
         SentTransaction current;
         do {
@@ -666,7 +684,13 @@ public class CultPlayer implements GrimUser {
             if (current == null) {
                 return null;
             }
-            transactionIdsSent.remove(current.id());
+            transactionsSentById.remove(current.id());
+            if (transactionsSent.isEmpty()) {
+                headSentPosition = nextSentPosition;
+                sentPositionsExact = true;
+            } else {
+                headSentPosition = current.position + 1;
+            }
             lastTransactionReceived.set(current.transaction());
             rawTransactionPing = System.nanoTime() - current.sentAt();
             playerClockAtLeast = current.sentAt();
@@ -1002,12 +1026,15 @@ public class CultPlayer implements GrimUser {
             return -1;
         }
 
+        SentTransaction sent;
         if (isBedrockMovement()) {
-            bedrockTransactions().add(new BedrockTransaction(transaction.transaction(), transaction.id()));
+            sent = new BedrockTransaction(transaction.transaction(), transaction.id());
+            bedrockTransactions().add(sent);
         } else {
-            transactionsSent.add(new SentTransaction(transaction.transaction(), transaction.id(), System.nanoTime()));
+            sent = new SentTransaction(transaction.transaction(), transaction.id(), System.nanoTime());
+            transactionsSent.add(sent);
         }
-        transactionIdsSent.add(transaction.id());
+        sentAtTail(sent);
         if (!TransactionChannels.SEND.isEmpty()) {
             TransactionChannels.SEND.fire(
                     ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(this), transaction.id(), timestamp);
@@ -1026,11 +1053,7 @@ public class CultPlayer implements GrimUser {
 
     /** Whether {@code id} is a ping CultAC created whose response has not arrived yet. */
     public synchronized boolean awaitsTransactionResponse(int id) {
-        if (transactionsPendingSend.containsKey(id)) return true;
-        for (SentTransaction sent : transactionsSent) {
-            if (sent.id() == id) return true;
-        }
-        return false;
+        return transactionsPendingSend.containsKey(id) || transactionsSentById.containsKey(id);
     }
 
     private int nextTransactionId() {
@@ -1042,7 +1065,7 @@ public class CultPlayer implements GrimUser {
         boolean used;
         do {
             id = nextWireId(random);
-            used = transactionIdsSent.contains(id);
+            used = transactionsSentById.containsKey(id);
             used |= transactionsPendingSend.containsKey(id);
             used |= foreignPings.contains(id);
         } while (used);
@@ -1087,12 +1110,15 @@ public class CultPlayer implements GrimUser {
         var pending = bedrockTransactions();
         if (previous == null || previous.acknowledged) {
             pending.addFirst(transaction);
+            transaction.position = --headSentPosition;
         } else {
             int index = pending.indexOf(previous);
             if (index < 0) throw new IllegalStateException("Last written transaction is missing");
             pending.add(index + 1, transaction);
+            if (index + 2 == pending.size()) transaction.position = nextSentPosition++;
+            else sentPositionsExact = false;
         }
-        transactionIdsSent.add(transaction.id());
+        transactionsSentById.put(transaction.id(), transaction);
         return transaction;
     }
 
@@ -1108,11 +1134,9 @@ public class CultPlayer implements GrimUser {
 
     /** Observe actual Bedrock writes, not Java allocation order. */
     public synchronized void markBedrockTransactionClientbound(long id) {
-        for (SentTransaction entry : transactionsSent) {
-            if (entry.id() == id && entry instanceof BedrockTransaction sent) {
-                bedrockState.lastClientboundTransaction = sent;
-                return;
-            }
+        if (id != (int) id) return;
+        if (transactionsSentById.get((int) id) instanceof BedrockTransaction sent) {
+            bedrockState.lastClientboundTransaction = sent;
         }
     }
 
