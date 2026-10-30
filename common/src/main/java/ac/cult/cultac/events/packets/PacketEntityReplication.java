@@ -350,9 +350,14 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             this.exactAtProof = exactAtProof;
         }
 
-        private boolean shouldSkip(PacketEntityReplication replication, int entityId) {
-            return skipLocalAuthoritativeRoot
-                    && replication.isEntityMovementIgnoredForLocalAuthoritativeVehicle(entityId);
+        /** Whether the client will skip this packet, judged when it is sent. */
+        private boolean shouldSkipAsSent(PacketEntityReplication replication, int entityId) {
+            return skipLocalAuthoritativeRoot && replication.isLocalAuthoritativeRootVehicleAsSent(entityId);
+        }
+
+        /** Whether the client skipped this packet, judged once its proof shows the client handled it. */
+        private boolean shouldSkipAsHandled(PacketEntityReplication replication, int entityId) {
+            return skipLocalAuthoritativeRoot && replication.isLocalAuthoritativeVehicleAsHandled(entityId);
         }
 
         private boolean exactAtProof() {
@@ -1922,7 +1927,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             }
         }
 
-        boolean ignoredMovement = movement.kind().shouldSkip(this, movement.entityId());
+        boolean ignoredMovement = movement.kind().shouldSkipAsSent(this, movement.entityId());
         if (queuesVehicleTeleportResponse(movement)
                 && !ignoredMovement
                 && movement.hasPosition()
@@ -2212,7 +2217,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             MovementKind kind,
             int packetHandlerDeltaMovementSequence,
             boolean updatePassengerPositions) {
-        if (entity == null || kind.shouldSkip(this, entityId)) {
+        if (entity == null || kind.shouldSkipAsHandled(this, entityId)) {
             clearPacketHandlerDeltaMovement(entityId, packetHandlerDeltaMovementSequence);
             return;
         }
@@ -2235,7 +2240,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     }
 
     private boolean shouldIgnoreEntityMovement(EntityMovement movement) {
-        return movement.entityId() == player.entityID || movement.kind().shouldSkip(this, movement.entityId());
+        return movement.entityId() == player.entityID || movement.kind().shouldSkipAsHandled(this, movement.entityId());
     }
 
     private boolean queuesVehicleTeleportResponse(EntityMovement movement) {
@@ -2297,15 +2302,21 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         entry.otherPistonPath = otherTarget == null ? null : otherTarget[0];
     }
 
-    private boolean isEntityMovementIgnoredForLocalAuthoritativeVehicle(int entityId) {
-        return isLocalAuthoritativeRootVehicle(entityId);
-    }
-
-    private boolean isLocalAuthoritativeRootVehicle(int entityId) {
+    private boolean isLocalAuthoritativeRootVehicleAsSent(int entityId) {
         return player.compensatedEntities.vehicles.serverPlayerVehicle != null
                 && player.compensatedEntities.vehicles.serverPlayerVehicle == entityId
                 && player.compensatedEntities.vehicles.canClientAuthoritativelyMoveVisibleRoot(
                         player.compensatedEntities.getEntity(entityId));
+    }
+
+    /**
+     * Entity#isLocalInstanceAuthoritative as ClientPacketListener#handleEntityPositionSync and #handleMoveEntity read
+     * it: from the passengers the client has handled by then. The server's vehicle is already the one it sent last, so
+     * a sync for a boat the client still drives would otherwise move it once the server has sent the player elsewhere.
+     */
+    private boolean isLocalAuthoritativeVehicleAsHandled(int entityId) {
+        return player.compensatedEntities.vehicles.canClientAuthoritativelyMoveVisibleRoot(
+                player.compensatedEntities.getEntity(entityId));
     }
 
     private void applyDeltaMovementUpdate(PacketEntity entity, EntityMovement movementInput) {
