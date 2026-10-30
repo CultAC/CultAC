@@ -160,6 +160,42 @@ class SectionPoolWireMatchTest {
         assertTrue(missed > 100, "missed " + missed);
     }
 
+    @Test
+    void wireReadsCountOffersHitsCandidatesFullReadsAndPostHitClones() {
+        var random = new SplittableRandom(0x57A7L);
+        byte[] wire, other;
+        CachedSection pooled;
+        var pool = new SectionPool();
+        do {
+            wire = section(random, ProtocolVersion.V26_3, false);
+            var states = decoded(wire, ProtocolVersion.V26_3, IntUnaryOperator.identity());
+            pooled = states == null ? null : new CachedSection(states);
+        } while (pooled == null);
+        pooled = pool.internRetained(pooled);
+        do other = section(random, ProtocolVersion.V26_3, false);
+        while (decoded(other, ProtocolVersion.V26_3, IntUnaryOperator.identity()) == null);
+        long offers = SectionPool.wireOfferCounter.sum(), hits = SectionPool.wireHitCounter.sum();
+        long candidates = SectionPool.wireCandidateCounter.sum();
+        long fullReads = SectionPool.nonUniformFullReadCounter.sum(), clones = SectionPool.postHitCloneCounter.sum();
+
+        PalettedSection.readBlocks(Unpooled.wrappedBuffer(wire), pool);
+        PalettedSection.readBlocks(Unpooled.wrappedBuffer(wire), pool);
+        PalettedSection.readBlocks(Unpooled.wrappedBuffer(other), pool);
+        PalettedSection.readBlocks(Unpooled.wrappedBuffer(other), null);
+        assertEquals(3, SectionPool.wireOfferCounter.sum() - offers);
+        assertEquals(2, SectionPool.wireHitCounter.sum() - hits);
+        assertEquals(3, SectionPool.wireCandidateCounter.sum() - candidates);
+        assertEquals(2, SectionPool.nonUniformFullReadCounter.sum() - fullReads);
+        assertEquals(0, SectionPool.postHitCloneCounter.sum() - clones);
+
+        assertTrue(pool.detachForSingleReferenceMutation(pooled));
+        var states = pooled.states();
+        states.getAndSet(0, states.get(0) == 1 ? 2 : 1);
+        states.getAndSet(1, states.get(1) == 1 ? 2 : 1);
+        assertEquals(1, SectionPool.postHitCloneCounter.sum() - clones);
+        assertEquals(3, SectionPool.wireOfferCounter.sum() - offers);
+    }
+
     /** The length of the stored words that end {@code wire}, 0 for a container without local palette words. */
     private static int wordBytes(byte[] wire) {
         int wireBits = wire[0];

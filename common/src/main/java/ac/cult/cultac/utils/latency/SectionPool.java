@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.function.IntUnaryOperator;
 
 public final class SectionPool {
@@ -17,6 +18,11 @@ public final class SectionPool {
     public static final AtomicLong internCallCounter = new AtomicLong(0);
     public static final AtomicLong internDedupCounter = new AtomicLong(0);
     public static final AtomicLong tryReinternSuccessCounter = new AtomicLong(0);
+    public static final LongAdder wireOfferCounter = new LongAdder();
+    public static final LongAdder wireHitCounter = new LongAdder();
+    public static final LongAdder wireCandidateCounter = new LongAdder();
+    public static final LongAdder nonUniformFullReadCounter = new LongAdder();
+    public static final LongAdder postHitCloneCounter = new LongAdder();
 
     private List<CachedSection> nonUniformSections;
 
@@ -48,14 +54,21 @@ public final class SectionPool {
             int sourceRegistrySize,
             IntUnaryOperator mapper,
             int targetRegistrySize) {
+        wireOfferCounter.increment();
         if (nonUniformSections == null) return null;
         int copiedAt = PalettedSection.NO_WORD_COPY;
-        for (int i = 0, candidates = Math.min(nonUniformSections.size(), WIRE_CANDIDATES); i < candidates; i++) {
+        int candidates = Math.min(nonUniformSections.size(), WIRE_CANDIDATES);
+        for (int i = 0; i < candidates; i++) {
             PalettedSection states = nonUniformSections.get(i).states();
             copiedAt = states.skipIfEncodes(
                     input, lengthPrefixed, sourceRegistrySize, mapper, targetRegistrySize, copiedAt);
-            if (copiedAt == PalettedSection.MATCHED) return states.copyOnWrite();
+            if (copiedAt == PalettedSection.MATCHED) {
+                wireCandidateCounter.add(i + 1);
+                wireHitCounter.increment();
+                return states.copyOnWriteFromPool();
+            }
         }
+        wireCandidateCounter.add(candidates);
         return null;
     }
 

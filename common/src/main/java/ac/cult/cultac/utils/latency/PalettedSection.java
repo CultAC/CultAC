@@ -51,7 +51,7 @@ public final class PalettedSection {
     private int[] palette;
     private Int2IntOpenHashMap indices;
     private long[] words;
-    private boolean sharedStorage;
+    private boolean sharedStorage, sharedFromPool;
 
     private PalettedSection(int size, int minimumBits, int maximumLocalBits, int registrySize, int initial) {
         this(size, minimumBits, maximumLocalBits, registrySize, 0, new int[] {initial}, 1, NO_WORDS);
@@ -137,7 +137,7 @@ public final class PalettedSection {
                     input, !version.atLeast(ProtocolVersion.V1_21_5), registrySize, mapper, targetRegistrySize);
             if (shared != null) return shared;
         }
-        return readBlocks(input, version, registrySize, mapper, targetRegistrySize);
+        return countedFullRead(readBlocks(input, version, registrySize, mapper, targetRegistrySize));
     }
 
     /** As {@link #readBlocks(ByteBuf)}, sharing the storage of a section in {@code pool} that the container holds. */
@@ -146,7 +146,12 @@ public final class PalettedSection {
             var shared = pool.sharedBlocks(input, false, BLOCK_STATES, IntUnaryOperator.identity(), BLOCK_STATES);
             if (shared != null) return shared;
         }
-        return readBlocks(input);
+        return countedFullRead(readBlocks(input));
+    }
+
+    private static PalettedSection countedFullRead(PalettedSection read) {
+        if (!read.isUniform()) SectionPool.nonUniformFullReadCounter.increment();
+        return read;
     }
 
     /** {@link #readBiomes(ByteBuf, ProtocolVersion, int)} then {@link #remap}, remapping the read storage in place. */
@@ -404,7 +409,17 @@ public final class PalettedSection {
         return result;
     }
 
+    /** As {@link #copyOnWrite}, for a pooled section whose storage a wire read shares. */
+    PalettedSection copyOnWriteFromPool() {
+        sharedFromPool = true;
+        return copyOnWrite();
+    }
+
     private void ownStorage() {
+        if (sharedFromPool) {
+            SectionPool.postHitCloneCounter.increment();
+            sharedFromPool = false;
+        }
         if (palette != null) palette = palette.clone();
         words = words.clone();
         sharedStorage = false;

@@ -1,5 +1,7 @@
 package ac.cult.cultac.utils.latency;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 import ac.cult.blocksim.data.BlockRegistry;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.InteractionRegistries;
@@ -130,7 +132,8 @@ class WorldBenchTest {
                 SectionPool.forChunk(dimension, column, i, 0)
                         .internRetained(new CachedSection(snapshots[i].copyBlocks()));
         }
-        long shared = 0;
+        long shared = 0, offered = 0;
+        long offers = SectionPool.wireOfferCounter.sum(), poolHits = SectionPool.wireHitCounter.sum();
         for (int column = 0; column < chunks.size(); column++) {
             var bytes = Unpooled.wrappedBuffer(chunks.get(column));
             for (int i = 0; i < SECTIONS_PER_CHUNK; i++) {
@@ -140,12 +143,15 @@ class WorldBenchTest {
                 var view = pool == null
                         ? null
                         : pool.sharedBlocks(bytes, false, STATES, IntUnaryOperator.identity(), STATES);
+                if (pool != null) offered++;
                 if (view != null) shared++;
                 else PalettedSection.readBlocks(bytes);
                 PalettedSection.readBiomes(bytes, BIOMES);
             }
             bytes.release();
         }
+        assertEquals(offered, SectionPool.wireOfferCounter.sum() - offers);
+        assertEquals(shared, SectionPool.wireHitCounter.sum() - poolHits);
         String hits = "shared " + shared + " of " + sectionsTotal + " sections";
         System.out.println(System.getenv().getOrDefault("CULT_BENCH_LABEL", "run") + " two-players " + hits);
         var bodies = new LinkedHashMap<String, LongUnaryOperator>();
