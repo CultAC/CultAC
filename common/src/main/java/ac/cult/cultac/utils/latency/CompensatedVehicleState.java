@@ -72,6 +72,9 @@ public final class CompensatedVehicleState implements Debuggable {
     @Nullable
     public Integer serverPlayerVehicleTransaction;
 
+    /** Counts the sent mounts and dismounts of the local player; see {@link #serverVehicleSends()}. */
+    private int serverVehicleSends;
+
     private final SentRidingGraph sentRiding = new SentRidingGraph();
     /**
      * The proof of the mount a pending server dismount ends, or null. Until the client answers it,
@@ -357,7 +360,16 @@ public final class CompensatedVehicleState implements Debuggable {
         vehicle.onGround = onGround;
     }
 
+    /**
+     * The number of mounts and dismounts of the local player sent so far. A receipt-time clear compares it with the
+     * count at its own send to tell whether a later mount or dismount has replaced the state it was sent against.
+     */
+    public int serverVehicleSends() {
+        return serverVehicleSends;
+    }
+
     public void setServerVehicle(int vehicleId, int[] passengers, int transaction) {
+        serverVehicleSends++;
         PacketEntity vehicle = entities.getEntity(vehicleId);
         if (player.isBedrockMovement() && (serverPlayerVehicle == null || serverPlayerVehicle != vehicleId)) {
             player.getSetbackTeleportUtil().clearVehicleTeleports();
@@ -384,6 +396,7 @@ public final class CompensatedVehicleState implements Debuggable {
     }
 
     public void setServerVehicleDismount(int vehicleId, int transaction) {
+        serverVehicleSends++;
         retireVehicleResponsesOnReceipt(transaction);
         PacketEntity vehicle = entities.getEntity(vehicleId);
         if (canClientAuthoritativelyMoveVisibleRoot(vehicle)) {

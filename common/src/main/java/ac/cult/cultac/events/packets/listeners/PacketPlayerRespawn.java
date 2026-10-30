@@ -285,6 +285,7 @@ public class PacketPlayerRespawn {
         final boolean keepAttributeModifiers = packet.shouldKeep(ClientboundRespawn.KEEP_ATTRIBUTE_MODIFIERS);
         // A later login replaces this level; its respawn must not touch the new one.
         int level = player.compensatedWorld.level();
+        final int vehicleSends = player.compensatedEntities.vehicles.serverVehicleSends();
         final Runnable applyRespawnState = () -> {
             setbacks.respawnUnread = false;
             if (level != player.compensatedWorld.level()) return;
@@ -365,7 +366,12 @@ public class PacketPlayerRespawn {
             player.dimension = dimension;
             player.world = worldName;
 
-            player.compensatedEntities.vehicles.clearServerVehicle(); // All entities get removed on respawn
+            // All entities get removed on respawn. A mount sent after this respawn already replaced the state this
+            // clears: Entity#teleportCrossDimension seats its passengers on the vehicle's copy in the same server
+            // tick, and that copy's pairing mounts the player before the client can answer the respawn.
+            if (player.compensatedEntities.vehicles.serverVehicleSends() == vehicleSends) {
+                player.compensatedEntities.vehicles.clearServerVehicle();
+            }
             final PacketEntitySelf respawnedSelf =
                     new PacketEntitySelf(player, player.compensatedEntities.playerEntity);
             if (player.isBedrockMovement()) {
