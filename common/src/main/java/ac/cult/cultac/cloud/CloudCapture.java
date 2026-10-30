@@ -1126,9 +1126,11 @@ public final class CloudCapture implements PlayerObserver {
     private List<IntakeWire.Geometry> geometries() {
         List<IntakeWire.Geometry> geometries = List.of();
         int last = -1;
-        for (Class<? extends ReachCheck> type : REACH_CHECKS) {
-            ReachCheck check = player.checkManager.getCheck(type);
-            for (ReachCheck.MeasuredAttack attack : check.measuredAttacks()) {
+        for (int c = 0; c < REACH_CHECKS.size(); c++) {
+            ReachCheck check = player.checkManager.getCheck(REACH_CHECKS.get(c));
+            List<ReachCheck.MeasuredAttack> attacks = check.measuredAttacks();
+            for (int a = 0; a < attacks.size(); a++) {
+                ReachCheck.MeasuredAttack attack = attacks.get(a);
                 if (geometries.isEmpty()) geometries = new ArrayList<>();
                 geometries.add(geometry(attack));
                 if (attack.index() > last) {

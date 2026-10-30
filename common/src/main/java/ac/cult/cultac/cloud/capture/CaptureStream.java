@@ -633,7 +633,7 @@ public final class CaptureStream {
     }
 
     private static void lose(List<ActionRef> lost) {
-        for (ActionRef action : lost) action.state = ActionRef.LOST;
+        for (int i = 0; i < lost.size(); i++) lost.get(i).state = ActionRef.LOST;
     }
 
     /** On protocol 5, whether a clientbound packet loads, forgets or changes terrain, which never goes out as one. */
@@ -754,7 +754,7 @@ public final class CaptureStream {
         }
         overflow = true;
         lastServerbound = -1;
-        for (ActionRef action : actions) action.position = -1;
+        for (int i = 0; i < actions.size(); i++) actions.get(i).position = -1;
         if (frameWorld) owedWorld = true;
         frameWorld = false;
         if (frame.capacity() <= MAX_SPARE_RECORDS) frame.clear();
@@ -839,7 +839,8 @@ public final class CaptureStream {
         tick.terrain = framedTerrain;
         tick.world = frameWorld;
         tick.actions = cutActions;
-        for (ActionRef action : cutActions) {
+        for (int i = 0; i < cutActions.size(); i++) {
+            ActionRef action = cutActions.get(i);
             action.frameSeq = index - origin - 1;
             action.state = ActionRef.CUT;
         }
@@ -1083,7 +1084,8 @@ public final class CaptureStream {
         builder.build(player, seq, record);
         builder.clear();
         boolean sent = sink.send(record, length, resolvedExtra);
-        for (ActionRef action : tick.actions) action.state = sent ? ActionRef.SENT : ActionRef.LOST;
+        List<ActionRef> framed = tick.actions;
+        for (int i = 0; i < framed.size(); i++) framed.get(i).state = sent ? ActionRef.SENT : ActionRef.LOST;
         if (sent) {
             outcomesSent.addAndGet(sending.size());
             lostSending = 0;
