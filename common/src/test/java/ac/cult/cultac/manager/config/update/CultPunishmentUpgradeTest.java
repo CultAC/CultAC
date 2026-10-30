@@ -290,6 +290,10 @@ class CultPunishmentUpgradeTest {
         Path commands = write(REVISION_4.replace("\"20:10 [proxy]\"", "\"20:10 kick %player%\""));
         upgrade(commands);
         assertFalse(checks(read(commands), "Misc").contains("!Cloud"));
+
+        Path decay = write(REVISION_4.replace("remove-violations-after: 300", "remove-violations-after: 600"));
+        upgrade(decay);
+        assertFalse(checks(read(decay), "Misc").contains("!Cloud"));
     }
 
     private Path write(String content) throws Exception {
