@@ -10,7 +10,10 @@ import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.function.IntUnaryOperator;
 
-/** Immutable owned palettes. Mutable consumers copy storage; no frame or encoded copy is retained. */
+/**
+ * Immutable palettes; a section pool may share their block storage across connections, copy-on-write. Mutable consumers
+ * copy storage; no frame or encoded copy is retained.
+ */
 public final class SectionSnapshot {
     private final short nonEmpty, fluids;
     private final PalettedSection blocks, biomes;
@@ -34,7 +37,10 @@ public final class SectionSnapshot {
         return read(input, version, sourceStates, modelStates, sourceBiomes, modelBiomes, states, biomes, null);
     }
 
-    /** As the read without a pool, sharing the block storage of a section in {@code pool} that the wire holds. */
+    /**
+     * As the read without a pool, sharing the block storage of a section in {@code pool} that the wire holds.
+     * {@code states} must be pure and non-blocking: it runs under the pool's lock, possibly once per pooled candidate.
+     */
     public static SectionSnapshot read(
             ByteBuf input,
             ProtocolVersion version,

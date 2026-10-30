@@ -7,6 +7,7 @@ import ac.cult.blocksim.data.StateFacts;
 import ac.cult.blocksim.engine.BlockEntityData;
 import ac.cult.cultac.checks.impl.movement.GhostBlockMitigator;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.network.packet.WorldPackets.BlockEntityUpdate;
 import ac.cult.cultac.network.packet.WorldPackets.SectionBlocksUpdate;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -184,12 +185,9 @@ public class CompensatedWorld {
             return biomes[Math.clamp(section, 0, sections.length - 1)][(quartY << 4) | (quartZ << 2) | quartX];
         }
 
-        /** As the constructor, taking ownership of {@code biomes} and of every array in it instead of copying them. */
+        /** As the constructor, but takes ownership of {@code biomes} and every array in it. */
         public static CachedChunk received(
-                CachedSection[] sections,
-                int transaction,
-                List<ac.cult.cultac.network.packet.WorldPackets.BlockEntityUpdate> blockEntities,
-                int[][] biomes) {
+                CachedSection[] sections, int transaction, List<BlockEntityUpdate> blockEntities, int[][] biomes) {
             var chunk = new CachedChunk(sections, transaction, blockEntities, null);
             chunk.retainBiomes(biomes, true);
             return chunk;

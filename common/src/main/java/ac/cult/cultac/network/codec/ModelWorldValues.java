@@ -69,10 +69,7 @@ final class ModelWorldValues {
     }
 
     static WorldPackets.Chunk chunkDecoded(
-            ByteBuf input,
-            ProtocolVersion version,
-            IntFunction<String> types,
-            ColumnSections sections) {
+            ByteBuf input, ProtocolVersion version, IntFunction<String> types, ColumnSections sections) {
         int x = input.readInt(), z = input.readInt();
         long[] motionBlocking = MotionHeightmapValues.read(input, version);
         var model = sections.read(input.readSlice(Wire.readLength(input, 2097152)), x, z);

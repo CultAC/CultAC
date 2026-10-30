@@ -50,7 +50,9 @@ public final class ConnectionModelValues {
                         var player = connection.player();
                         return player == null || player.compensatedWorld.isClientboundUnresolved()
                                 ? null
-                                : player.compensatedWorld.getLastClientboundDimension().dimension();
+                                : player.compensatedWorld
+                                        .getLastClientboundDimension()
+                                        .dimension();
                     },
                     stacks);
         return values;
