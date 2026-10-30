@@ -437,7 +437,8 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
 
         if (changed && !silent) {
             sendToggleMessage(platformPlayer, enabled, type);
-        }    }
+        }
+    }
 
     public boolean toggleBrands(@NotNull PlatformPlayer player, boolean silent) {
         return setBrandsEnabled(player, !hasBrandsEnabled(player), silent);
