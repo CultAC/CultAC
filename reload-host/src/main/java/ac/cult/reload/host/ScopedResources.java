@@ -147,7 +147,7 @@ public final class ScopedResources implements ResourceScope {
         if (ticket != null) runAccepted(ticket, callback);
     }
 
-    /** Runs {@code callback} as {@code try (ticket)} would, releasing the lease without a resource object. */
+    /** Runs {@code callback} in context and releases {@code ticket} after it, also when it throws. */
     private void runAccepted(Reservation ticket, Runnable callback) {
         try {
             try {

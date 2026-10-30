@@ -40,6 +40,17 @@ class PacketEventRestartTest {
         var restarted = used.restart(null, ConnectionPhase.PLAY, ClientboundPackets.KEEP_ALIVE, packet, false);
         var fresh = new PacketSendEvent<>(null, ConnectionPhase.PLAY, ClientboundPackets.KEEP_ALIVE, packet, false);
         assertSame(used, restarted);
+        var write = new CultWrite(new ClientboundPing(10), false);
+        assertThrows(
+                UnsupportedOperationException.class, () -> fresh.writesBefore().add(write));
+        assertThrows(
+                UnsupportedOperationException.class,
+                () -> restarted.writesBefore().add(write));
+        assertThrows(
+                UnsupportedOperationException.class, () -> fresh.writesAfter().add(write));
+        assertThrows(
+                UnsupportedOperationException.class,
+                () -> restarted.writesAfter().add(write));
         assertSendState(fresh, restarted);
         assertTrue(restarted.getTimestamp() >= fresh.getTimestamp() - 1000);
     }
@@ -57,7 +68,8 @@ class PacketEventRestartTest {
                 () -> event.restart(null, ConnectionPhase.PLAY, ClientboundPackets.PING, null, false));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> event.restart(null, ConnectionPhase.PLAY, ServerboundPackets.PONG, new ServerboundPong(1), false));
+                () -> event.restart(
+                        null, ConnectionPhase.PLAY, ServerboundPackets.PONG, new ServerboundPong(1), false));
     }
 
     @Test

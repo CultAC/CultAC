@@ -10,6 +10,11 @@ import java.util.ArrayList;
 import java.util.List;
 import org.jetbrains.annotations.ApiStatus;
 
+/**
+ * A clientbound packet passing through CultAC's handlers. An event is valid only while its handler runs: work that
+ * must run after the packet is sent goes through {@link #getTasksAfterSend()}, any other later work copies the
+ * values it needs, and no handler keeps the event.
+ */
 public final class PacketSendEvent<R> extends PacketEvent<R> {
     private boolean insideBundle;
     private List<CultWrite> before, after;
@@ -43,7 +48,7 @@ public final class PacketSendEvent<R> extends PacketEvent<R> {
 
     /**
      * Gives a released event the state {@code new PacketSendEvent<>(user, phase, type, packet, insideBundle)} has.
-     * Only the encoder that dispatched and released it may call this.
+     * Only the encoder that dispatched and released it may call this; handlers must not call it.
      */
     @ApiStatus.Internal
     @SuppressWarnings("unchecked")
@@ -59,14 +64,14 @@ public final class PacketSendEvent<R> extends PacketEvent<R> {
     }
 
     /**
-     * Ends an event whose dispatch returned and whose tasks after send are empty, so no listener holds it.
-     * Keeps the list instances, empty.
+     * Ends an event whose dispatch returned and whose tasks after send are empty. Only the encoder that dispatched
+     * it may call this; handlers must not.
      */
     @ApiStatus.Internal
     public void release() {
         releaseEvent();
-        if (before != null) before.clear();
-        if (after != null) after.clear();
+        before = after = null;
+        tasks = null;
         bundle = false;
         authored = false;
         decodedProtocol = null;

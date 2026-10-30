@@ -1168,7 +1168,10 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                     tail = source.tail;
                     source.first = null;
                     source.tail = null;
-                } else while (!source.isEmpty()) addLast(source.removeFirst());
+                } else {
+                    while (!source.isEmpty()) addLast(source.removeFirst());
+                    source.tail = null;
+                }
             }
             if (source.hasTasks()) {
                 if (tasks == null) tasks = source.tasks;

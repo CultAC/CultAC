@@ -12,6 +12,7 @@ import ac.cult.cultac.utils.anticheat.LogUtil;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
 import io.netty.util.concurrent.EventExecutor;
+import java.nio.channels.ClosedChannelException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -400,7 +401,7 @@ public final class CultConnection implements CodecState, FrameLease.Source {
     }
 
     private void sendMessage(Object message, ChannelPromise promise) {
-        if (removed != null) promise.tryFailure(new java.nio.channels.ClosedChannelException());
+        if (removed != null) promise.tryFailure(new ClosedChannelException());
         else channel.writeAndFlush(message, promise);
     }
 

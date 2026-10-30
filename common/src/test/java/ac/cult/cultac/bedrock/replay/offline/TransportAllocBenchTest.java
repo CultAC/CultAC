@@ -33,6 +33,7 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.UUID;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
@@ -74,9 +75,12 @@ class TransportAllocBenchTest {
         CultDecoder.install(connection);
         CultEncoder.install(connection);
         var data = dispatcher.runtime().data();
-        int pongId = data.packets(ConnectionPhase.PLAY, PacketDirection.SERVERBOUND).id("minecraft:pong");
-        int pingId = data.packets(ConnectionPhase.PLAY, PacketDirection.CLIENTBOUND).id("minecraft:ping");
-        int keepAliveId = data.packets(ConnectionPhase.PLAY, PacketDirection.CLIENTBOUND).id("minecraft:keep_alive");
+        int pongId =
+                data.packets(ConnectionPhase.PLAY, PacketDirection.SERVERBOUND).id("minecraft:pong");
+        int pingId =
+                data.packets(ConnectionPhase.PLAY, PacketDirection.CLIENTBOUND).id("minecraft:ping");
+        int keepAliveId =
+                data.packets(ConnectionPhase.PLAY, PacketDirection.CLIENTBOUND).id("minecraft:keep_alive");
         ByteBuf pong = Unpooled.buffer();
         Wire.writeVarInt(pong, pongId);
         pong.writeInt(1);
@@ -124,7 +128,7 @@ class TransportAllocBenchTest {
                 log(scenario.label + " bytes/op", scenario.bytes);
                 log(scenario.label + " cpu ns/op", scenario.cpu);
             }
-            if (Proofs.tasks == 42) log("unreachable", new double[] {0});
+            Assertions.assertEquals((long) (3 + repetitions) * batch, Proofs.tasks);
         } finally {
             pong.release();
             ping.release();

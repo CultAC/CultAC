@@ -27,7 +27,7 @@ public abstract class PacketEvent<R> {
     }
 
     /** Gives this event the state a new event of {@code packet} has. */
-    protected final void restartEvent(User user, ConnectionPhase phase, PacketType<R> type, R packet) {
+    final void restartEvent(User user, ConnectionPhase phase, PacketType<R> type, R packet) {
         timestamp = System.currentTimeMillis();
         this.user = user;
         this.phase = Objects.requireNonNull(phase);
@@ -38,7 +38,7 @@ public abstract class PacketEvent<R> {
     }
 
     /** Drops the user and packets of an event nothing dispatches or holds any more, until it is restarted. */
-    protected void releaseEvent() {
+    final void releaseEvent() {
         user = null;
         original = packet = null;
     }

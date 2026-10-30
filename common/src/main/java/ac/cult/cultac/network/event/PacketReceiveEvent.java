@@ -7,6 +7,10 @@ import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
 import org.jetbrains.annotations.ApiStatus;
 
+/**
+ * A serverbound packet passing through CultAC's handlers. An event is valid only while its handler runs: a handler
+ * that needs any of its values later copies them, and never keeps the event.
+ */
 public final class PacketReceiveEvent<R extends ServerboundPacket> extends PacketEvent<R> {
     private boolean synthetic;
     private boolean acceptedTransactionResponse;
@@ -25,7 +29,7 @@ public final class PacketReceiveEvent<R extends ServerboundPacket> extends Packe
 
     /**
      * Gives a released event the state {@code new PacketReceiveEvent<>(user, phase, type, packet)} has. Only the
-     * decoder that dispatched and released it may call this.
+     * decoder that dispatched and released it may call this; handlers must not call it.
      */
     @ApiStatus.Internal
     @SuppressWarnings("unchecked")
@@ -39,7 +43,7 @@ public final class PacketReceiveEvent<R extends ServerboundPacket> extends Packe
         return event;
     }
 
-    /** Ends an event whose dispatch returned; no listener holds a receive event past its dispatch. */
+    /** Ends an event whose dispatch returned. Only the decoder that dispatched it may call this; handlers must not. */
     @ApiStatus.Internal
     public void release() {
         releaseEvent();
