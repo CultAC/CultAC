@@ -25,8 +25,9 @@ public final class SectionPool {
     /** Pooled sections compared with offered block containers. */
     public static final LongAdder wireCandidateCounter = new LongAdder();
     /**
-     * Offered block containers read in full into storage that is not single-valued. A hit is never single-valued, so
-     * hits / (hits + this) is the share of such containers that share a pooled section's storage.
+     * Offered block containers read in full into storage with a non-zero bit width, including a uniform container
+     * written with a multi-entry palette. A hit always has a non-zero bit width, so hits / (hits + this) is
+     * the share of such containers that share a pooled section's storage.
      */
     public static final LongAdder multiValueFullReadCounter = new LongAdder();
     /**
