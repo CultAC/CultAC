@@ -4,6 +4,7 @@ import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.Riptide;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Hand;
@@ -33,7 +34,7 @@ public final class RiptideUtil {
         if (!isFullyCharged(player, hand)) {
             return "charge=" + getTrackedUseTicks(player, hand);
         }
-        if (player.compensatedEntities.getSelf().inVehicle()) {
+        if (refusesPassenger(player)) {
             return "passenger";
         }
         return "dry";
@@ -56,10 +57,19 @@ public final class RiptideUtil {
     }
 
     public static boolean canUseRiptideAtCurrentState(CultPlayer player) {
-        if (player.compensatedEntities.getSelf().inVehicle()) {
+        if (refusesPassenger(player)) {
             return false;
         }
         return inWaterOrRain(player);
+    }
+
+    /**
+     * TridentItem#releaseUsing refuses a passenger from 26.1; before it the Java release reads only isInWaterOrRain.
+     * The Bedrock bridge keeps refusing one.
+     */
+    private static boolean refusesPassenger(CultPlayer player) {
+        return player.compensatedEntities.getSelf().inVehicle()
+                && (player.isBedrockMovement() || player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_1));
     }
 
     /** Player#isInWaterOrRain as TridentItem#use and TridentItem#releaseUsing read it from Minecraft#handleKeybinds. */

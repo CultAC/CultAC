@@ -138,6 +138,13 @@ public class PacketPlayerDigging {
 
     /** A release that spins at one of {@code levels}, or may also not spin. */
     private static void spin(CultPlayer player, List<Integer> levels, boolean mayNotSpin) {
+        if (player.compensatedEntities.getSelf().inVehicle()) {
+            // Entity#rideTick zeroes a passenger's delta before its tick and Entity#positionRider replaces the lift,
+            // so a passenger's release only starts the spin.
+            player.riptideSpinAttackTicks = 20;
+            player.riptideSpinCertain = false;
+            return;
+        }
         player.packetStateData.riptideLevel = levels.getFirst();
         player.packetStateData.riptideAlternativeLevels = List.copyOf(levels.subList(1, levels.size()));
         player.packetStateData.riptideReleaseCertain = !mayNotSpin && RiptideUtil.isCertainRiptideRelease(player);

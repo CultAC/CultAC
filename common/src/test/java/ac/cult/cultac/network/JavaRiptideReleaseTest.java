@@ -228,7 +228,10 @@ class JavaRiptideReleaseTest {
         }
     }
 
-    /** Entity#rideTick zeroes a passenger's delta, so its spin leaves the vehicle's travel in water unchanged. */
+    /**
+     * Entity#rideTick zeroes a passenger's delta, so its spin leaves the vehicle's travel in water unchanged. A ridden
+     * camel deep in water rises by LivingEntity#floatInLiquidWhileRidden from the floor.
+     */
     @Test
     void aPassengersSpinLeavesItsVehicleInWater() throws Exception {
         try (var f = fixture(ClientVersion.V_1_21_11)) {
@@ -240,14 +243,34 @@ class JavaRiptideReleaseTest {
             ((PacketEntityHorse) f.player.compensatedEntities.getEntity(VEHICLE)).hasSaddle = true;
             f.setPassengers(VEHICLE, List.of(f.player.entityID));
             f.pongThrough(f.player.lastTransactionSent.get());
-            for (int tick = 0; tick < 2; tick++) f.rideTick(SHALLOWS, true);
+            var camel = new FloatingCamel();
+            for (int tick = 0; tick < 2; tick++) camel.rideTick(f);
             use(f, Hand.MAIN_HAND);
-            for (int tick = 0; tick < 10; tick++) f.rideTick(SHALLOWS, true);
+            for (int tick = 0; tick < 10; tick++) camel.rideTick(f);
             release(f);
             assertEquals(20, f.player.riptideSpinAttackTicks);
-            PredictionResult result = f.rideTick(SHALLOWS, true);
+            PredictionResult result = camel.rideTick(f);
             assertTrue(result.getSimulationContext().getWorldData().isInWater(), describe(result));
+        }
+    }
+
+    /**
+     * A ridden camel without input that rises from the floor of deep still water: LivingEntity#travelInWater moves it
+     * by its delta, then slows that by 0.8 and applies the fluid's gravity, and LivingEntity#floatInLiquidWhileRidden
+     * adds 0.04.
+     */
+    private static final class FloatingCamel {
+        private double y = SHALLOWS.y;
+        private double deltaY;
+
+        /** One ridden tick that the camel's move must match exactly. */
+        PredictionResult rideTick(JavaTickFixture f) {
+            boolean onFloor = deltaY == 0;
+            y += deltaY;
+            deltaY = deltaY * 0.8F - 0.08 / 16.0 + 0.04F;
+            PredictionResult result = f.rideTick(new Vec3(SHALLOWS.x, y, SHALLOWS.z), onFloor);
             assertTrue(exact(result), describe(result));
+            return result;
         }
     }
 
