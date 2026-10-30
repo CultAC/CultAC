@@ -96,107 +96,125 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     private boolean hasSentPreWavePacket = true;
     private int removedPlayerVehicleId = Integer.MIN_VALUE;
 
-    private record EntityMovement(
-            int entityId,
-            MovementKind kind,
-            PositionChange position,
-            boolean hasRotation,
-            float rotationYaw,
-            float rotationPitch,
-            @Nullable Boolean onGround,
-            DeltaMovementChange deltaMovement,
-            boolean relativeToClientPosition) {
-        private static EntityMovement relativeEntityPacket(
-                int entityId,
-                boolean hasPosition,
-                EntityPositionPath path,
-                boolean hasRotation,
-                float yaw,
-                float pitch,
-                boolean onGround) {
-            return new EntityMovement(
-                    entityId,
-                    MovementKind.RELATIVE_ENTITY,
-                    new PathPositionChange(hasPosition, path),
-                    hasRotation,
-                    yaw,
-                    pitch,
-                    onGround,
-                    DeltaMovementChange.NONE,
-                    false);
-        }
+    /**
+     * One clientbound entity movement. A relative move holds its delta until the packet handler decodes it against the
+     * codec base; a bundled movement is itself the task its proof runs.
+     */
+    private final class EntityMovement implements Runnable {
+        private final int entityId;
+        private final MovementKind kind;
+        private boolean relative;
+        private final boolean hasPosition;
+        private double x;
+        private double y;
+        private double z;
+        // A stepped client path; null for a linear one, which ends at x, y, z.
+        private @Nullable EntityPositionPath path;
+        private final boolean hasRotation;
+        private final float rotationYaw;
+        private final float rotationPitch;
+        private final @Nullable Boolean onGround;
+        private final DeltaMovementChange deltaMovement;
+        private final boolean relativeToClientPosition;
+        private int proofTransaction;
 
-        private static EntityMovement legacyRelativeEntityPacket(
+        private EntityMovement(
                 int entityId,
+                MovementKind kind,
+                boolean relative,
                 boolean hasPosition,
-                int xa,
-                int ya,
-                int za,
+                double x,
+                double y,
+                double z,
+                @Nullable EntityPositionPath path,
                 boolean hasRotation,
-                float yaw,
-                float pitch,
-                boolean onGround) {
-            return new EntityMovement(
-                    entityId,
-                    MovementKind.RELATIVE_ENTITY,
-                    PositionChange.relative(hasPosition, xa, ya, za),
-                    hasRotation,
-                    yaw,
-                    pitch,
-                    onGround,
-                    DeltaMovementChange.NONE,
-                    false);
-        }
-
-        private static EntityMovement teleportEntityPacket(
-                int entityId,
-                Vec3 position,
-                float yaw,
-                float pitch,
-                boolean onGround,
+                float rotationYaw,
+                float rotationPitch,
+                @Nullable Boolean onGround,
                 DeltaMovementChange deltaMovement,
                 boolean relativeToClientPosition) {
-            return new EntityMovement(
-                    entityId,
-                    MovementKind.TELEPORT_ENTITY,
-                    PositionChange.absolute(position),
-                    true,
-                    yaw,
-                    pitch,
-                    onGround,
-                    deltaMovement,
-                    relativeToClientPosition);
+            this.entityId = entityId;
+            this.kind = kind;
+            this.relative = relative;
+            this.hasPosition = hasPosition;
+            this.x = x;
+            this.y = y;
+            this.z = z;
+            this.path = path;
+            this.hasRotation = hasRotation;
+            this.rotationYaw = rotationYaw;
+            this.rotationPitch = rotationPitch;
+            this.onGround = onGround;
+            this.deltaMovement = deltaMovement;
+            this.relativeToClientPosition = relativeToClientPosition;
         }
 
-        private static EntityMovement positionSyncPacket(
-                int entityId, EntityPositionPath path, float yaw, float pitch, boolean onGround) {
-            return new EntityMovement(
-                    entityId,
-                    MovementKind.POSITION_SYNC,
-                    new PathPositionChange(true, path),
-                    true,
-                    yaw,
-                    pitch,
-                    onGround,
-                    DeltaMovementChange.NONE,
-                    false);
+        private int entityId() {
+            return entityId;
         }
 
-        private static EntityMovement minecartPacket(int entityId, Vec3 position, float yaw, float pitch) {
-            return new EntityMovement(
-                    entityId,
-                    MovementKind.MINECART,
-                    PositionChange.absolute(position),
-                    true,
-                    yaw,
-                    pitch,
-                    null,
-                    DeltaMovementChange.NONE,
-                    false);
+        private MovementKind kind() {
+            return kind;
+        }
+
+        /** Whether x, y and z are a delta still to decode against the codec base. */
+        private boolean relative() {
+            return relative;
         }
 
         private boolean hasPosition() {
-            return position.hasPosition();
+            return hasPosition;
+        }
+
+        private double x() {
+            return x;
+        }
+
+        private double y() {
+            return y;
+        }
+
+        private double z() {
+            return z;
+        }
+
+        /** The client path to x, y, z; call only once the position is absolute. */
+        private EntityPositionPath path() {
+            return path != null ? path : EntityPositionPath.linear(new Vec3(x, y, z));
+        }
+
+        /** Replaces the delta with the position it decoded to, before the movement is scheduled. */
+        private void decodedTo(double x, double y, double z) {
+            relative = false;
+            this.x = x;
+            this.y = y;
+            this.z = z;
+            path = null;
+        }
+
+        private boolean hasRotation() {
+            return hasRotation;
+        }
+
+        private float rotationYaw() {
+            return rotationYaw;
+        }
+
+        private float rotationPitch() {
+            return rotationPitch;
+        }
+
+        @Nullable
+        private Boolean onGround() {
+            return onGround;
+        }
+
+        private DeltaMovementChange deltaMovement() {
+            return deltaMovement;
+        }
+
+        private boolean relativeToClientPosition() {
+            return relativeToClientPosition;
         }
 
         @Nullable
@@ -208,82 +226,158 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         private Float pitch() {
             return hasRotation ? rotationPitch : null;
         }
-    }
 
-    private interface PositionChange {
-        boolean relative();
-
-        boolean hasPosition();
-
-        double x();
-
-        double y();
-
-        double z();
-
-        static PositionChange relative(boolean hasPosition, int xa, int ya, int za) {
-            return new RelativePositionChange(hasPosition, packRelativeEntityMove(xa, ya, za));
-        }
-
-        static PositionChange absolute(Vec3 position) {
-            return new AbsolutePositionChange(position.x, position.y, position.z);
+        @Override
+        public void run() {
+            if (kind.exactAtProof()) {
+                applyBundledMovementAtProof(this, proofTransaction);
+            } else {
+                applyDelimiterBoundMovement(this, proofTransaction);
+            }
         }
     }
 
-    private record PathPositionChange(boolean hasPosition, EntityPositionPath path) implements PositionChange {
-        @Override
-        public boolean relative() {
-            return false;
-        }
-
-        @Override
-        public double x() {
-            return path.endPosition().x;
-        }
-
-        @Override
-        public double y() {
-            return path.endPosition().y;
-        }
-
-        @Override
-        public double z() {
-            return path.endPosition().z;
-        }
+    private EntityMovement relativeEntityPacket(
+            int entityId,
+            boolean hasPosition,
+            EntityPositionPath path,
+            boolean hasRotation,
+            float yaw,
+            float pitch,
+            boolean onGround) {
+        Vec3 end = path.endPosition();
+        return new EntityMovement(
+                entityId,
+                MovementKind.RELATIVE_ENTITY,
+                false,
+                hasPosition,
+                end.x,
+                end.y,
+                end.z,
+                path,
+                hasRotation,
+                yaw,
+                pitch,
+                onGround,
+                DeltaMovementChange.NONE,
+                false);
     }
 
-    private record RelativePositionChange(boolean hasPosition, long packedMove) implements PositionChange {
-        @Override
-        public boolean relative() {
-            return true;
-        }
-
-        @Override
-        public double x() {
-            return unpackRelativeEntityMove(packedMove, 32) / 4096.0D;
-        }
-
-        @Override
-        public double y() {
-            return unpackRelativeEntityMove(packedMove, 16) / 4096.0D;
-        }
-
-        @Override
-        public double z() {
-            return unpackRelativeEntityMove(packedMove, 0) / 4096.0D;
-        }
+    private EntityMovement linearRelativeEntityPacket(
+            int entityId,
+            boolean hasPosition,
+            double x,
+            double y,
+            double z,
+            boolean hasRotation,
+            float yaw,
+            float pitch,
+            boolean onGround) {
+        return new EntityMovement(
+                entityId,
+                MovementKind.RELATIVE_ENTITY,
+                false,
+                hasPosition,
+                x,
+                y,
+                z,
+                null,
+                hasRotation,
+                yaw,
+                pitch,
+                onGround,
+                DeltaMovementChange.NONE,
+                false);
     }
 
-    private record AbsolutePositionChange(double x, double y, double z) implements PositionChange {
-        @Override
-        public boolean relative() {
-            return false;
-        }
+    private EntityMovement legacyRelativeEntityPacket(
+            int entityId,
+            boolean hasPosition,
+            int xa,
+            int ya,
+            int za,
+            boolean hasRotation,
+            float yaw,
+            float pitch,
+            boolean onGround) {
+        return new EntityMovement(
+                entityId,
+                MovementKind.RELATIVE_ENTITY,
+                true,
+                hasPosition,
+                (short) xa / 4096.0D,
+                (short) ya / 4096.0D,
+                (short) za / 4096.0D,
+                null,
+                hasRotation,
+                yaw,
+                pitch,
+                onGround,
+                DeltaMovementChange.NONE,
+                false);
+    }
 
-        @Override
-        public boolean hasPosition() {
-            return true;
-        }
+    private EntityMovement teleportEntityPacket(
+            int entityId,
+            Vec3 position,
+            float yaw,
+            float pitch,
+            boolean onGround,
+            DeltaMovementChange deltaMovement,
+            boolean relativeToClientPosition) {
+        return new EntityMovement(
+                entityId,
+                MovementKind.TELEPORT_ENTITY,
+                false,
+                true,
+                position.x,
+                position.y,
+                position.z,
+                null,
+                true,
+                yaw,
+                pitch,
+                onGround,
+                deltaMovement,
+                relativeToClientPosition);
+    }
+
+    private EntityMovement positionSyncPacket(
+            int entityId, EntityPositionPath path, float yaw, float pitch, boolean onGround) {
+        Vec3 end = path.endPosition();
+        return new EntityMovement(
+                entityId,
+                MovementKind.POSITION_SYNC,
+                false,
+                true,
+                end.x,
+                end.y,
+                end.z,
+                path,
+                true,
+                yaw,
+                pitch,
+                onGround,
+                DeltaMovementChange.NONE,
+                false);
+    }
+
+    private EntityMovement minecartPacket(int entityId, double x, double y, double z, float yaw, float pitch) {
+        return new EntityMovement(
+                entityId,
+                MovementKind.MINECART,
+                false,
+                true,
+                x,
+                y,
+                z,
+                null,
+                true,
+                yaw,
+                pitch,
+                null,
+                DeltaMovementChange.NONE,
+                false);
     }
 
     private record DeltaMovementChange(boolean present, double x, double y, double z, int packetHandlerSequence) {
@@ -320,14 +414,6 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         private boolean exactAtProof() {
             return exactAtProof;
         }
-    }
-
-    private static long packRelativeEntityMove(int xa, int ya, int za) {
-        return ((long) (xa & 0xFFFF) << 32) | ((long) (ya & 0xFFFF) << 16) | (za & 0xFFFFL);
-    }
-
-    private static short unpackRelativeEntityMove(long packedMove, int shift) {
-        return (short) (packedMove >> shift);
     }
 
     private record PacketHandlerDeltaMovement(double x, double y, double z, int sequence) {}
@@ -652,7 +738,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             var delta = linearDelta(packet.delta());
             handleMoveEntity(
                     event,
-                    EntityMovement.legacyRelativeEntityPacket(
+                    legacyRelativeEntityPacket(
                             entityId,
                             packet.hasPosition(),
                             delta.x(),
@@ -666,25 +752,49 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         }
         TrackerData tracked = player.compensatedEntities.getTrackedEntity(entityId);
         if (tracked == null) return; // The client also discards movement for an unknown entity.
-        Vec3 codecBase = new Vec3(tracked.getCodecBaseX(), tracked.getCodecBaseY(), tracked.getCodecBaseZ());
-        EntityPositionPath path = packet.hasPosition()
-                ? EntityPositionPath.decodeRelative(packet.delta(), codecBase)
-                : EntityPositionPath.linear(codecBase);
-        if (packet.hasPosition() && receivesViaSteppedPaths()) path = viaSteppedPath(path.endPosition());
         // ClientPacketListener#handleMoveEntity only updates the position codec
         // for local-authoritative roots. Applying interpolation waits for the
         // mounted tick's Rot+MoveVehicle or Rot+TickEnd proof.
-        handleMoveEntity(
-                event,
-                EntityMovement.relativeEntityPacket(
-                        entityId,
-                        packet.hasPosition(),
+        handleMoveEntity(event, decodedRelativeEntityPacket(packet, tracked), tracked);
+    }
+
+    /** The move decoded against a copy of the codec base; only the packet handler commits the endpoint. */
+    private EntityMovement decodedRelativeEntityPacket(ClientboundMoveEntity packet, TrackerData tracked) {
+        double x = tracked.getCodecBaseX();
+        double y = tracked.getCodecBaseY();
+        double z = tracked.getCodecBaseZ();
+        if (packet.hasPosition()) {
+            EntityPositionPath path;
+            if (packet.delta() instanceof EntityDelta.Linear linear) {
+                x = PacketCodecUtil.decodeRelativeEntityCoordinate(x, (long) linear.x());
+                y = PacketCodecUtil.decodeRelativeEntityCoordinate(y, (long) linear.y());
+                z = PacketCodecUtil.decodeRelativeEntityCoordinate(z, (long) linear.z());
+                path = receivesViaSteppedPaths() ? viaSteppedPath(new Vec3(x, y, z)) : null;
+            } else {
+                path = EntityPositionPath.decodeRelative(packet.delta(), new Vec3(x, y, z));
+                if (receivesViaSteppedPaths()) path = viaSteppedPath(path.endPosition());
+            }
+            if (path != null) {
+                return relativeEntityPacket(
+                        packet.entityId(),
+                        true,
                         path,
                         packet.hasRotation(),
                         packet.yaw(),
                         packet.pitch(),
-                        packet.onGround()),
-                tracked);
+                        packet.onGround());
+            }
+        }
+        return linearRelativeEntityPacket(
+                packet.entityId(),
+                packet.hasPosition(),
+                x,
+                y,
+                z,
+                packet.hasRotation(),
+                packet.yaw(),
+                packet.pitch(),
+                packet.onGround());
     }
 
     private void handleTeleportEntity(
@@ -724,7 +834,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         boolean relativeToClientPosition = (packetFlags.getMask() & relativePosition) != 0;
         handleMoveEntity(
                 event,
-                EntityMovement.teleportEntityPacket(
+                teleportEntityPacket(
                         teleport.entityId(),
                         pos,
                         finalYaw,
@@ -898,7 +1008,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             position = new PositionPath.Linear(position.endPosition());
         handleMoveEntity(
                 event,
-                EntityMovement.positionSyncPacket(
+                positionSyncPacket(
                         packet.entityId(),
                         receivesViaSteppedPaths()
                                 ? viaSteppedPath(EntityPositionPath.fromProtocol(position)
@@ -932,11 +1042,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         // Wire decoding has already applied the native rotation-byte quantization.
         handleMoveEntity(
                 event,
-                EntityMovement.minecartPacket(
-                        packet.entityId(),
-                        new Vec3(position.x(), position.y(), position.z()),
-                        step.yaw(),
-                        step.pitch()));
+                minecartPacket(
+                        packet.entityId(), position.x(), position.y(), position.z(), step.yaw(), step.pitch()));
     }
 
     private void handleSetEntityData(PacketSendEvent<EntityMetadata> event, EntityMetadata packet) {
@@ -1770,39 +1877,37 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             player.sendTransaction();
         }
 
-        PositionChange position = movement.position();
-        boolean absolutePositionKnown = !position.relative();
-        double absoluteX = position.x();
-        double absoluteY = position.y();
-        double absoluteZ = position.z();
+        boolean relative = movement.relative();
+        boolean absolutePositionKnown = !relative;
+        double absoluteX = movement.x();
+        double absoluteY = movement.y();
+        double absoluteZ = movement.z();
         boolean rotationChanged = false;
         if (data != null) {
-            if (position.relative()) {
-                Vec3 decodedPosition = PacketCodecUtil.decodeRelativeEntityPosition(
-                        new Vec3(data.getCodecBaseX(), data.getCodecBaseY(), data.getCodecBaseZ()),
-                        position.x(),
-                        position.y(),
-                        position.z());
-                if (position.hasPosition()) {
-                    data.setX(decodedPosition.x);
-                    data.setY(decodedPosition.y);
-                    data.setZ(decodedPosition.z);
-                    data.setCodecBaseX(decodedPosition.x);
-                    data.setCodecBaseY(decodedPosition.y);
-                    data.setCodecBaseZ(decodedPosition.z);
+            if (relative) {
+                double decodedX = PacketCodecUtil.decodeRelativeEntityCoordinate(data.getCodecBaseX(), movement.x());
+                double decodedY = PacketCodecUtil.decodeRelativeEntityCoordinate(data.getCodecBaseY(), movement.y());
+                double decodedZ = PacketCodecUtil.decodeRelativeEntityCoordinate(data.getCodecBaseZ(), movement.z());
+                if (movement.hasPosition()) {
+                    data.setX(decodedX);
+                    data.setY(decodedY);
+                    data.setZ(decodedZ);
+                    data.setCodecBaseX(decodedX);
+                    data.setCodecBaseY(decodedY);
+                    data.setCodecBaseZ(decodedZ);
                 }
                 absolutePositionKnown = true;
-                absoluteX = decodedPosition.x;
-                absoluteY = decodedPosition.y;
-                absoluteZ = decodedPosition.z;
-            } else if (position.hasPosition()) {
-                data.setX(position.x());
-                data.setY(position.y());
-                data.setZ(position.z());
+                absoluteX = decodedX;
+                absoluteY = decodedY;
+                absoluteZ = decodedZ;
+            } else if (movement.hasPosition()) {
+                data.setX(movement.x());
+                data.setY(movement.y());
+                data.setZ(movement.z());
                 if (setsCodecBase(movement.kind(), data.getEntityType())) {
-                    data.setCodecBaseX(position.x());
-                    data.setCodecBaseY(position.y());
-                    data.setCodecBaseZ(position.z());
+                    data.setCodecBaseX(movement.x());
+                    data.setCodecBaseY(movement.y());
+                    data.setCodecBaseZ(movement.z());
                 }
             }
             if (movement.hasRotation()) {
@@ -1908,18 +2013,11 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                     movement.rotationPitch());
         }
 
-        if (position.relative()) {
+        if (relative) {
             if (!absolutePositionKnown) return; // Unknown entities are discarded by the client.
             // Decode against the packet-order codec base before queuing the proof.
             // Later relative packets may advance that base before this task runs.
-            movement = EntityMovement.relativeEntityPacket(
-                    movement.entityId(),
-                    movement.hasPosition(),
-                    EntityPositionPath.linear(new Vec3(absoluteX, absoluteY, absoluteZ)),
-                    movement.hasRotation(),
-                    movement.rotationYaw(),
-                    movement.rotationPitch(),
-                    movement.onGround());
+            movement.decodedTo(absoluteX, absoluteY, absoluteZ);
         }
         if (proof >= 0) {
             scheduleBundledMovement(movement, proof);
@@ -1951,57 +2049,47 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         return player.isBedrockMovement() || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2);
     }
 
+    /** Queues the movement as its own proof task: {@link EntityMovement#run} applies it once the proof is answered. */
     private void scheduleBundledMovement(EntityMovement movement, int proofTransaction) {
-        if (!movement.kind().exactAtProof()) {
-            scheduleDelimiterBoundMovement(movement, proofTransaction);
-            return;
-        }
-
-        player.latencyUtils.addRealTimeTask(proofTransaction, () -> {
-            PacketEntity entity = applicableMovementEntity(movement);
-            if (entity == null) {
-                return;
-            }
-            applyEntityRotationAndGround(entity, movement);
-            if (applyClientPath(entity, movement, true)) {
-                // Native RC1 interpolation path was appended at this proof.
-            } else if (movement.hasPosition()) {
-                entity.onBundledPositionSyncTransaction(
-                        movement.position().x(),
-                        movement.position().y(),
-                        movement.position().z(),
-                        movement.yaw(),
-                        movement.pitch(),
-                        player);
-            } else {
-                applyBundledMovement(entity, movement);
-            }
-            markUncertainPosition(entity, movement);
-            applyDeltaMovementUpdate(entity, movement.deltaMovement());
-            clearPacketHandlerDeltaMovement(movement);
-            player.compensatedEntities.updatePassengerPositions();
-            positionApplied(movement, proofTransaction);
-        });
+        movement.proofTransaction = proofTransaction;
+        player.latencyUtils.addRealTimeTask(proofTransaction, movement);
     }
 
-    private void scheduleDelimiterBoundMovement(EntityMovement movement, int proofTransaction) {
-        int entityId = movement.entityId();
-        MovementKind kind = movement.kind();
-        int deltaMovementSequence = movement.deltaMovement().packetHandlerSequence();
-        // The trailing proof follows the movement in the stream, so its pong proves the handler applied it.
-        player.latencyUtils.addRealTimeTask(proofTransaction, () -> {
-            PacketEntity entity = applicableMovementEntity(movement);
-            if (entity == null) {
-                return;
-            }
-            applyEntityRotationAndGround(entity, movement);
-            applyBundleFirstMovement(entity, movement);
-            markUncertainPosition(entity, movement);
-            applyDeltaMovementUpdate(entity, movement.deltaMovement());
-            clearPacketHandlerDeltaMovement(movement);
-            applySecondMovement(entity, entityId, kind, deltaMovementSequence, true);
-            positionApplied(movement, proofTransaction);
-        });
+    private void applyBundledMovementAtProof(EntityMovement movement, int proofTransaction) {
+        PacketEntity entity = applicableMovementEntity(movement);
+        if (entity == null) {
+            return;
+        }
+        applyEntityRotationAndGround(entity, movement);
+        if (applyClientPath(entity, movement, true)) {
+            // Native RC1 interpolation path was appended at this proof.
+        } else if (movement.hasPosition()) {
+            entity.onBundledPositionSyncTransaction(
+                    movement.x(), movement.y(), movement.z(), movement.yaw(), movement.pitch(), player);
+        } else {
+            applyBundledMovement(entity, movement);
+        }
+        markUncertainPosition(entity, movement);
+        applyDeltaMovementUpdate(entity, movement.deltaMovement());
+        clearPacketHandlerDeltaMovement(movement);
+        player.compensatedEntities.updatePassengerPositions();
+        positionApplied(movement, proofTransaction);
+    }
+
+    // The trailing proof follows the movement in the stream, so its pong proves the handler applied it.
+    private void applyDelimiterBoundMovement(EntityMovement movement, int proofTransaction) {
+        PacketEntity entity = applicableMovementEntity(movement);
+        if (entity == null) {
+            return;
+        }
+        applyEntityRotationAndGround(entity, movement);
+        applyBundleFirstMovement(entity, movement);
+        markUncertainPosition(entity, movement);
+        applyDeltaMovementUpdate(entity, movement.deltaMovement());
+        clearPacketHandlerDeltaMovement(movement);
+        applySecondMovement(
+                entity, movement.entityId(), movement.kind(), movement.deltaMovement().packetHandlerSequence(), true);
+        positionApplied(movement, proofTransaction);
     }
 
     private void scheduleTransactionBoundMovement(EntityMovement movement, int firstTransaction) {
@@ -2056,14 +2144,10 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
     private boolean applyClientPath(PacketEntity entity, EntityMovement movement, boolean bundled) {
         if (player.isBedrockMovement() || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2)) return false;
-        PositionChange position = movement.position();
-        EntityPositionPath path = position instanceof PathPositionChange p
-                ? p.path()
-                : EntityPositionPath.linear(new Vec3(position.x(), position.y(), position.z()));
         if (movement.kind() == MovementKind.POSITION_SYNC
                 && (!player.compensatedEntities.isTicking(entity)
-                        || entity.clientPhysicalPosition.distanceToSqr(path.endPosition()) > 4096.0D)) {
-            Vec3 target = path.endPosition();
+                        || entity.clientPhysicalPosition.distanceToSqr(movement.path().endPosition()) > 4096.0D)) {
+            Vec3 target = movement.path().endPosition();
             entity.snapTo(
                     player,
                     ac.cult.cultac.utils.nmsutil.GetBoundingBox.getPacketEntityBoundingBox(
@@ -2076,7 +2160,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             return true;
         }
         if (player.getClientVersion().isOlderThan(ClientVersion.V_26_3)) return false;
-        entity.onPositionPath(path, position.hasPosition(), movement.yaw(), movement.pitch(), player, bundled);
+        entity.onPositionPath(movement.path(), movement.hasPosition(), movement.yaw(), movement.pitch(), player, bundled);
         return true;
     }
 
@@ -2098,13 +2182,12 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     private void applyFirstMovement(PacketEntity entity, EntityMovement movement) {
         // TODO: Figure out how to accomplish this pathing type interpolation without bundles
         if (applyClientPath(entity, movement, false)) return;
-        PositionChange position = movement.position();
         entity.onFirstTransaction(
-                position.relative(),
-                position.hasPosition(),
-                position.x(),
-                position.y(),
-                position.z(),
+                movement.relative(),
+                movement.hasPosition(),
+                movement.x(),
+                movement.y(),
+                movement.z(),
                 movement.yaw(),
                 movement.pitch(),
                 player);
@@ -2112,13 +2195,12 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
     private void applyBundleFirstMovement(PacketEntity entity, EntityMovement movement) {
         if (applyClientPath(entity, movement, true)) return;
-        PositionChange position = movement.position();
         entity.onBundleFirstTransaction(
-                position.relative(),
-                position.hasPosition(),
-                position.x(),
-                position.y(),
-                position.z(),
+                movement.relative(),
+                movement.hasPosition(),
+                movement.x(),
+                movement.y(),
+                movement.z(),
                 movement.yaw(),
                 movement.pitch(),
                 player);
@@ -2126,13 +2208,12 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
     private void applyBundledMovement(PacketEntity entity, EntityMovement movement) {
         if (applyClientPath(entity, movement, true)) return;
-        PositionChange position = movement.position();
         entity.onBundleTransaction(
-                position.relative(),
-                position.hasPosition(),
-                position.x(),
-                position.y(),
-                position.z(),
+                movement.relative(),
+                movement.hasPosition(),
+                movement.x(),
+                movement.y(),
+                movement.z(),
                 movement.yaw(),
                 movement.pitch(),
                 player);
