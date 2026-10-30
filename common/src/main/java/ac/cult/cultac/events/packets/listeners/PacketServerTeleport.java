@@ -220,15 +220,14 @@ public class PacketServerTeleport {
     }
 
     private PacketEntity clientVisibleVehicleCorrectionRoot(CultPlayer player) {
-        PacketEntity root = player.compensatedEntities.getSelf().getRiding();
-        if (root == null && player.compensatedEntities.vehicles.serverPlayerVehicle != null) {
-            root = player.compensatedEntities.getEntity(player.compensatedEntities.vehicles.serverPlayerVehicle);
-        }
+        // ClientPacketListener#handleMoveVehicle moves the client's Entity#getRootVehicle as it handles the packet,
+        // after every set_passengers sent before it: a boat the server moved the player to is already that root.
+        var vehicles = player.compensatedEntities.vehicles;
+        PacketEntity root = vehicles.rootVehicleAsSent();
+        if (root == null) return null;
 
         // The packet handler can already see a different held item before MultiPlayerGameMode claims its slot.
         // This only queues a possible response; tick travel and passenger geometry still require proven control.
-        var vehicles = player.compensatedEntities.vehicles;
-        if (root == null || vehicles.ridesAnotherEntityAsSent(root.getEntityId())) return null;
         return vehicles.mayLocalPlayerControl(root) || vehicles.canClientEchoLocalAuthoritativeMoveVehiclePacket(root)
                 ? root
                 : null;

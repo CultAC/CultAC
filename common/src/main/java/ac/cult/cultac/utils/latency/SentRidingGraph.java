@@ -42,6 +42,16 @@ final class SentRidingGraph {
         return vehicleOf.containsKey(entity);
     }
 
+    /** Entity#getRootVehicle: the bottom of {@code entity}'s riding chain, {@code entity} itself when it rides nothing. */
+    int rootOf(int entity) {
+        int current = entity;
+        // A cycle cannot form, as every link is added through ridesIndirectly; the bound only guards corrupt input.
+        for (int hops = 0; vehicleOf.containsKey(current) && hops <= vehicleOf.size(); hops++) {
+            current = vehicleOf.get(current);
+        }
+        return current;
+    }
+
     private boolean ridesIndirectly(int entity, int vehicle) {
         int current = entity;
         // A cycle cannot form, as every link is added through this check; the bound only guards corrupt input.

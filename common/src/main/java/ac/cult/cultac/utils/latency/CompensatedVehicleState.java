@@ -773,6 +773,16 @@ public final class CompensatedVehicleState implements Debuggable {
         return sentRiding.rides(entityId);
     }
 
+    /**
+     * The local player's Entity#getRootVehicle once the client has handled every packet sent so far, which is when it
+     * handles the next one; null while it then rides nothing.
+     */
+    @Nullable
+    public PacketEntity rootVehicleAsSent() {
+        int root = sentRiding.rootOf(player.entityID);
+        return root == player.entityID ? null : entities.getEntity(root);
+    }
+
     private boolean canPossiblySwitchToItemControlThisClientTick(@Nullable PacketEntity vehicle) {
         if (vehicle == null || passengerIndex(vehicle) != 0 || !hasSaddle(vehicle)) {
             return false;
