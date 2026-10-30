@@ -58,7 +58,8 @@ final class VelocityNetwork implements NetworkPlatform {
     }
 
     private static void changed(Player player) {
-        NetworkModule.playerChanged(player.getUniqueId(), player.getUsername(), server(player));
+        NetworkModule.playerChanged(
+                player.getUniqueId(), player.getUsername(), server(player), player.getClientBrand());
     }
 
     /** Leaves the player listed while Velocity still holds another connection for them. */
@@ -76,7 +77,8 @@ final class VelocityNetwork implements NetworkPlatform {
     @Override
     public Collection<OnlinePlayer> onlinePlayers() {
         return proxy.getAllPlayers().stream()
-                .map(player -> new OnlinePlayer(player.getUniqueId(), player.getUsername(), server(player)))
+                .map(player -> new OnlinePlayer(
+                        player.getUniqueId(), player.getUsername(), server(player), player.getClientBrand()))
                 .toList();
     }
 

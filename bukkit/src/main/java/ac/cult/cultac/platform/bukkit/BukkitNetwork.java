@@ -24,7 +24,7 @@ public final class BukkitNetwork implements NetworkPlatform, Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
-        NetworkModule.playerChanged(player.getUniqueId(), player.getName(), null);
+        NetworkModule.playerChanged(player.getUniqueId(), player.getName(), null, player.getClientBrandName());
     }
 
     /** The quitting player is still among the online players until this event returns. */
@@ -36,7 +36,8 @@ public final class BukkitNetwork implements NetworkPlatform, Listener {
     @Override
     public Collection<OnlinePlayer> onlinePlayers() {
         return Bukkit.getOnlinePlayers().stream()
-                .map(player -> new OnlinePlayer(player.getUniqueId(), player.getName(), null))
+                .map(player ->
+                        new OnlinePlayer(player.getUniqueId(), player.getName(), null, player.getClientBrandName()))
                 .toList();
     }
 

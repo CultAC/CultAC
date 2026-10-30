@@ -80,7 +80,12 @@ public final class TestNetworks {
         private @Nullable Supplier<MessageTransport> redisBungee;
 
         public Players with(UUID uuid, String name, @Nullable String server) {
-            online.put(uuid, new OnlinePlayer(uuid, name, server));
+            return with(uuid, name, server, null);
+        }
+
+        /** {@code uuid} online on {@code server} with the client brand {@code brand}, null for not known yet. */
+        public Players with(UUID uuid, String name, @Nullable String server, @Nullable String brand) {
+            online.put(uuid, new OnlinePlayer(uuid, name, server, brand));
             return this;
         }
 

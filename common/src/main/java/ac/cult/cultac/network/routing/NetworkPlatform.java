@@ -1,5 +1,6 @@
 package ac.cult.cultac.network.routing;
 
+import ac.cult.cultac.network.ClientBrandText;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.Collection;
@@ -8,7 +9,8 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * What the platform tells the network service about this instance. The platform also reports each join, quit and
- * backend switch through {@link NetworkModule#playerChanged} and {@link NetworkModule#playerLeft}.
+ * backend switch through {@link NetworkModule#playerChanged} and {@link NetworkModule#playerLeft}; the client brand
+ * check reports a brand arriving after join through {@link NetworkModule#brandChanged}.
  */
 public interface NetworkPlatform {
 
@@ -48,8 +50,23 @@ public interface NetworkPlatform {
         return null;
     }
 
-    /** A player online here; {@code server} is their backend server on a proxy and null elsewhere. */
-    record OnlinePlayer(UUID uuid, String name, @Nullable String server) {}
+    /**
+     * A player online here; {@code server} is their backend server on a proxy and null elsewhere, {@code brand} their
+     * client brand, null until it is known.
+     */
+    record OnlinePlayer(
+            UUID uuid,
+            String name,
+            @Nullable String server,
+            @Nullable String brand) {
+        public OnlinePlayer {
+            brand = ClientBrandText.sanitize(brand);
+        }
+
+        public OnlinePlayer(UUID uuid, String name, @Nullable String server) {
+            this(uuid, name, server, null);
+        }
+    }
 
     /** The generation holding a player's connection, relative to the one asking. */
     enum Holder {

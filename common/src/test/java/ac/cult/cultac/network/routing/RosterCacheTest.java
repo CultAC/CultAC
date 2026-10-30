@@ -2,13 +2,17 @@ package ac.cult.cultac.network.routing;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.cultac.network.NetworkPlayer;
 import ac.cult.cultac.network.routing.NetworkPlatform.OnlinePlayer;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import java.util.List;
 import java.util.UUID;
+import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 class RosterCacheTest {
@@ -34,6 +38,114 @@ class RosterCacheTest {
 
     private List<String> names(long now) {
         return cache.players(now).stream().map(NetworkPlayer::name).sorted().toList();
+    }
+
+    private @Nullable String brand(UUID uuid, long now) {
+        return cache.players(now).stream()
+                .filter(player -> player.uuid().equals(uuid))
+                .findFirst()
+                .orElseThrow()
+                .brand();
+    }
+
+    @Test
+    void fullAndDeltaBodiesCarryTheKnownBrandsApart() {
+        JsonObject first = full(List.of(new OnlinePlayer(ALICE, "Alice", "lobby", "lunarclient"), BOB_ONLINE), 1L);
+        JsonObject brands = first.getAsJsonObject("brands");
+        assertEquals(1, brands.size());
+        assertEquals(
+                List.of(ALICE.toString()),
+                brands.getAsJsonArray("lunarclient").asList().stream()
+                        .map(JsonElement::getAsString)
+                        .toList());
+        assertEquals(
+                "Bob",
+                first.getAsJsonObject("servers")
+                        .getAsJsonObject("")
+                        .get(BOB.toString())
+                        .getAsString());
+        cache.apply("p3", first, 0);
+        assertEquals("lunarclient", brand(ALICE, 0));
+        assertNull(brand(BOB, 0));
+
+        cache.apply("p3", delta(List.of(new OnlinePlayer(BOB, "Bob", null, "fabric")), List.of(), 2L), 0);
+        assertEquals("fabric", brand(BOB, 0));
+        assertEquals("lunarclient", brand(ALICE, 0));
+        JsonObject unknownAgain = delta(List.of(ALICE_ONLINE), List.of(), 3L);
+        assertFalse(unknownAgain.has("brands"));
+        cache.apply("p3", unknownAgain, 0);
+        assertNull(brand(ALICE, 0));
+    }
+
+    @Test
+    void brandsAreGroupedByBrandAndRoundTrip() {
+        UUID carol = UUID.fromString("00000000-0000-0000-0000-00000000000c");
+        String longBrand = "x".repeat(64);
+        JsonObject body = full(
+                List.of(
+                        new OnlinePlayer(ALICE, "Alice", "lobby", "vanilla"),
+                        new OnlinePlayer(BOB, "Bob", null, longBrand),
+                        new OnlinePlayer(carol, "Carol", "lobby", "vanilla")),
+                1L);
+        JsonObject brands = body.getAsJsonObject("brands");
+        assertEquals(2, brands.size());
+        assertEquals(
+                List.of(ALICE.toString(), carol.toString()),
+                brands.getAsJsonArray("vanilla").asList().stream()
+                        .map(JsonElement::getAsString)
+                        .toList());
+        assertEquals(1, brands.getAsJsonArray(longBrand).size());
+
+        cache.apply("p3", body, 0);
+        assertEquals("vanilla", brand(ALICE, 0));
+        assertEquals(longBrand, brand(BOB, 0));
+        assertEquals("vanilla", brand(carol, 0));
+    }
+
+    @Test
+    void aBodyWithoutBrandsParsesAsBeforeWithTheBrandsUnknown() {
+        JsonObject body = full(List.of(new OnlinePlayer(ALICE, "Alice", "lobby", "vanilla"), BOB_ONLINE), 1L);
+        body.remove("brands");
+        cache.apply("p3", body, 0);
+        assertEquals(List.of("Alice", "Bob"), names(0));
+        assertNull(brand(ALICE, 0));
+        assertEquals(
+                "lobby",
+                cache.players(0).stream()
+                        .filter(player -> player.uuid().equals(ALICE))
+                        .findFirst()
+                        .orElseThrow()
+                        .server());
+    }
+
+    @Test
+    void aMalformedBrandsEntryIsSkippedAndTheRestApplies() {
+        JsonObject body = full(List.of(ALICE_ONLINE, BOB_ONLINE), 1L);
+        JsonObject brands = new JsonObject();
+        brands.add("vanilla", new JsonObject());
+        JsonArray fabric = new JsonArray();
+        fabric.add("not-a-uuid");
+        fabric.add(5);
+        fabric.add(new JsonObject());
+        fabric.add(BOB.toString());
+        brands.add("§cfab\u0007ric", fabric);
+        brands.addProperty("lunar", ALICE.toString());
+        body.add("brands", brands);
+        cache.apply("p3", body, 0);
+        assertEquals(List.of("Alice", "Bob"), names(0));
+        assertNull(brand(ALICE, 0));
+        assertEquals("fabric", brand(BOB, 0));
+
+        JsonObject notAnObject = full(List.of(ALICE_ONLINE), 2L);
+        notAnObject.add("brands", new JsonArray());
+        cache.apply("p3", notAnObject, 0);
+        assertEquals(List.of("Alice"), names(0));
+        JsonObject number = full(List.of(ALICE_ONLINE), 3L);
+        JsonObject numbered = new JsonObject();
+        numbered.addProperty("vanilla", 5);
+        number.add("brands", numbered);
+        cache.apply("p3", number, 0);
+        assertNull(brand(ALICE, 0));
     }
 
     @Test

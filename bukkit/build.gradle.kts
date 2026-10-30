@@ -120,6 +120,11 @@ bukkit {
             default = Permission.Default.OP
         }
 
+        register("cult.findplayer") {
+            description = "Find online players by client brand"
+            default = Permission.Default.OP
+        }
+
         register("cult.brand.enable-on-join") {
             description = "Enable showing client brands on join"
             default = Permission.Default.OP

@@ -268,7 +268,7 @@ final class CheckInfoLines {
     }
 
     // Values go in unparsed: a typed query or a display name never applies tags, colors or placeholders.
-    private static Component render(Sender sender, String template, Map<String, ?> values) {
+    static Component render(Sender sender, String template, Map<String, ?> values) {
         String raw = template;
         TagResolver.Builder resolver = TagResolver.builder();
         for (Map.Entry<String, ?> placeholder : values.entrySet()) {

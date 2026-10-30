@@ -40,12 +40,13 @@ import org.jetbrains.annotations.Nullable;
  * instance, to every other instance, or to this instance's engine generations over the in-process bus. Messages for
  * this instance never reach the broker and need no transport. Only the current generation publishes the roster: a
  * full snapshot every {@value #ROSTER_PERIOD_MILLIS} ms and, at most every {@value #DELTA_PERIOD_MILLIS} ms, one delta
- * with the joins, quits, backend switches and verbose change reported since the last roster message, the last report
- * per player winning. The generation that drew the last roster number sends an empty snapshot when it stops, and its
- * unsent reports are dropped. The generations of
- * one host check that they are current, draw the number and publish one at a time, holding the shared counter's lock.
- * At most {@value #MAX_QUEUED_MESSAGES} received messages of {@value #MAX_QUEUED_BYTES} bytes in all wait to be read;
- * the rest are dropped.
+ * with the joins, quits, backend switches, brand changes and verbose change reported since the last roster message,
+ * the last report per player winning. Every generation of one host reports into one shared map that only the current
+ * generation takes from, so a report made on a superseded generation rides the current one's next roster message. The
+ * generation that drew the last roster number sends an empty snapshot when it stops. The generations of one host check
+ * that they are current, draw the number and publish one at a time, holding the shared counter's lock. At most
+ * {@value #MAX_QUEUED_MESSAGES} received messages of {@value #MAX_QUEUED_BYTES} bytes in all wait to be read; the rest
+ * are dropped.
  */
 public final class NetworkService implements NetworkRouting {
     static final long ROSTER_PERIOD_MILLIS = 60_000;
@@ -58,6 +59,16 @@ public final class NetworkService implements NetworkRouting {
     static final String ROSTER_ORDER_KEY = "cultac.network.roster-order";
     /** The host-shared {@code String} naming this JVM in roster messages, to tell a duplicate instance id. */
     static final String NONCE_KEY = "cultac.network.nonce";
+    /**
+     * The host-shared {@code Map<UUID, String[]>} of each player reported since the last roster message: {@code {name,
+     * server, brand}} for a join, switch or brand change and an empty array for a quit. Generations load their own
+     * classes, so it holds JDK types only. Past {@value #MAX_PENDING_REPORTS} players it holds only {@link #FULL_ROSTER},
+     * which the next delta turns into a full roster.
+     */
+    static final String REPORTS_KEY = "cultac.network.reports";
+
+    static final int MAX_PENDING_REPORTS = 10_000;
+    static final UUID FULL_ROSTER = new UUID(0L, 0L);
 
     private static final AtomicLong UNHOSTED_ROSTER_ORDER = new AtomicLong(System.currentTimeMillis());
     private static final String UNHOSTED_NONCE = UUID.randomUUID().toString();
@@ -91,10 +102,12 @@ public final class NetworkService implements NetworkRouting {
     private final AtomicLong rosterOrder;
 
     private final String nonce;
+
     private final Backlog inbox;
     private final LogThrottle badSignatures = new LogThrottle();
     private final LogThrottle staleDrops = new LogThrottle(STALE_WARNING_NANOS, System::nanoTime);
     private final AtomicBoolean rosterTooLarge = new AtomicBoolean();
+    private final AtomicBoolean brandsLeftOut = new AtomicBoolean();
     private final AtomicBoolean duplicateId = new AtomicBoolean();
     private final RemoteCommands commands;
 
@@ -104,9 +117,9 @@ public final class NetworkService implements NetworkRouting {
     private volatile boolean verboseSent;
     /** The last roster number this generation drew; guarded by {@link #rosterOrder}. */
     private long rosterDrawn = Long.MIN_VALUE;
-    /** Each player reported since the last roster message, null for a quit; guarded by itself. */
-    private final Map<UUID, @Nullable OnlinePlayer> reported = new LinkedHashMap<>();
-    /** Whether a verbose change was reported since the last roster message; guarded by {@link #reported}. */
+    /** The {@value #REPORTS_KEY} map, a local one without a host; guarded by itself. */
+    private final Map<UUID, String[]> reports;
+    /** Whether a verbose change was reported here since the last roster message; guarded by {@link #reports}. */
     private boolean verboseReported;
 
     NetworkService(
@@ -139,6 +152,7 @@ public final class NetworkService implements NetworkRouting {
         this.nonce = host == null
                 ? UNHOSTED_NONCE
                 : (String) host.shared(NONCE_KEY, () -> UUID.randomUUID().toString());
+        this.reports = host == null ? new LinkedHashMap<>() : sharedReports(host);
         this.inbox = new Backlog(
                 "Dropped a received network message: " + MAX_QUEUED_MESSAGES + " messages or "
                         + MAX_QUEUED_BYTES / (1024 * 1024) + " MB are already waiting",
@@ -147,6 +161,11 @@ public final class NetworkService implements NetworkRouting {
                 dropWarnings);
         this.commands = new RemoteCommands(this, clock, commands, host);
         this.commands.register();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<UUID, String[]> sharedReports(HostContext host) {
+        return (Map<UUID, String[]>) host.shared(REPORTS_KEY, () -> new LinkedHashMap<UUID, String[]>());
     }
 
     /** A service for {@code settings}, without a transport and with one error logged when they cannot start one. */
@@ -254,7 +273,10 @@ public final class NetworkService implements NetworkRouting {
         }
     }
 
-    /** Leaves the bus; the generation that drew the last roster number says goodbye, as being current cannot tell. */
+    /**
+     * Leaves the bus, its reports left for the current generation; the generation that drew the last roster number says
+     * goodbye, as being current cannot tell.
+     */
     void stop() {
         stop(Runnable::run);
     }
@@ -263,7 +285,6 @@ public final class NetworkService implements NetworkRouting {
     synchronized void stop(Executor closing) {
         if (!running) return;
         running = false;
-        drainReports();
         if (bus != null) bus.leave();
         if (transport != null) {
             synchronized (rosterOrder) {
@@ -322,7 +343,7 @@ public final class NetworkService implements NetworkRouting {
     /** Reports that whether staff here take verbose may have changed; the next delta carries it. Any thread. */
     public void verboseChanged() {
         if (transport == null) return;
-        synchronized (reported) {
+        synchronized (reports) {
             if (running) verboseReported = true;
         }
     }
@@ -334,18 +355,35 @@ public final class NetworkService implements NetworkRouting {
 
     /** Reports a join or a backend switch here. Any thread. */
     public void playerChanged(OnlinePlayer player) {
-        report(player.uuid(), player);
+        report(player.uuid(), new String[] {player.name(), player.server(), player.brand()});
+    }
+
+    /** Reports {@code brand} as {@code uuid}'s client brand while the platform lists them online here. Any thread. */
+    public void brandChanged(UUID uuid, @Nullable String brand) {
+        if (transport == null) return;
+        for (OnlinePlayer player : platform.onlinePlayers()) {
+            if (player.uuid().equals(uuid)) {
+                report(uuid, new String[] {player.name(), player.server(), brand});
+                return;
+            }
+        }
     }
 
     /** Reports a quit here. Any thread. */
     public void playerLeft(UUID uuid) {
-        report(uuid, null);
+        report(uuid, new String[0]);
     }
 
-    private void report(UUID uuid, @Nullable OnlinePlayer player) {
+    private void report(UUID uuid, String[] report) {
         if (transport == null) return;
-        synchronized (reported) {
-            if (running) reported.put(uuid, player);
+        synchronized (reports) {
+            if (!running || reports.containsKey(FULL_ROSTER)) return;
+            if (reports.size() >= MAX_PENDING_REPORTS && !reports.containsKey(uuid)) {
+                reports.clear();
+                reports.put(FULL_ROSTER, new String[0]);
+                return;
+            }
+            reports.put(uuid, report);
         }
     }
 
@@ -364,20 +402,28 @@ public final class NetworkService implements NetworkRouting {
         if (transport == null) return;
         try {
             synchronized (rosterOrder) {
+                if (!running || !current()) return;
+                boolean full;
+                synchronized (reports) {
+                    full = reports.containsKey(FULL_ROSTER);
+                }
+                if (full) {
+                    publishRoster();
+                    return;
+                }
                 List<OnlinePlayer> changed = new ArrayList<>();
                 List<UUID> left = new ArrayList<>();
                 boolean verboseChange;
-                synchronized (reported) {
-                    for (Map.Entry<UUID, @Nullable OnlinePlayer> report : reported.entrySet()) {
-                        OnlinePlayer player = report.getValue();
-                        if (player == null) left.add(report.getKey());
-                        else changed.add(player);
+                synchronized (reports) {
+                    for (Map.Entry<UUID, String[]> report : reports.entrySet()) {
+                        String[] player = report.getValue();
+                        if (player.length == 0) left.add(report.getKey());
+                        else changed.add(new OnlinePlayer(report.getKey(), player[0], player[1], player[2]));
                     }
                     verboseChange = verboseReported;
-                    reported.clear();
+                    reports.clear();
                     verboseReported = false;
                 }
-                if (!running || !current()) return;
                 boolean wanted = verbose.getAsBoolean();
                 if (changed.isEmpty() && left.isEmpty() && (!verboseChange || wanted == verboseSent)) return;
                 verboseSent = wanted;
@@ -389,8 +435,8 @@ public final class NetworkService implements NetworkRouting {
     }
 
     private void drainReports() {
-        synchronized (reported) {
-            reported.clear();
+        synchronized (reports) {
+            reports.clear();
             verboseReported = false;
         }
     }
@@ -434,8 +480,8 @@ public final class NetworkService implements NetworkRouting {
     private void publishRoster() {
         if (transport == null) return;
         synchronized (rosterOrder) {
-            drainReports();
             if (!running || !current()) return;
+            drainReports();
             boolean wanted = verbose.getAsBoolean();
             Collection<OnlinePlayer> players = platform.onlinePlayers();
             verboseSent = wanted;
@@ -456,6 +502,18 @@ public final class NetworkService implements NetworkRouting {
         MessageTransport transport = this.transport;
         if (transport == null) return false;
         String text = codec.encode(Envelope.create(type, instanceId, to, clock.getAsLong(), body));
+        if (EnvelopeCodec.utf8Length(text) > EnvelopeCodec.MAX_BYTES
+                && type.equals(RosterCache.TYPE)
+                && body.has(RosterCache.BRANDS)) {
+            JsonObject withoutBrands = body.deepCopy();
+            withoutBrands.remove(RosterCache.BRANDS);
+            text = codec.encode(Envelope.create(type, instanceId, to, clock.getAsLong(), withoutBrands));
+            if (EnvelopeCodec.utf8Length(text) <= EnvelopeCodec.MAX_BYTES && brandsLeftOut.compareAndSet(false, true))
+                LogUtil.warn("Network roster sent without client brands: "
+                        + platform.onlinePlayers().size()
+                        + " players with their brands do not fit in " + EnvelopeCodec.MAX_BYTES + " bytes; other"
+                        + " instances do not see the brands of this instance's players");
+        }
         if (EnvelopeCodec.utf8Length(text) > EnvelopeCodec.MAX_BYTES) {
             if (!type.equals(RosterCache.TYPE))
                 LogUtil.warn("Network message of type " + type + " not sent: it is over " + EnvelopeCodec.MAX_BYTES
@@ -613,7 +671,7 @@ public final class NetworkService implements NetworkRouting {
     }
 
     private NetworkPlayer local(OnlinePlayer player) {
-        return new NetworkPlayer(player.uuid(), player.name(), instanceId, player.server());
+        return new NetworkPlayer(player.uuid(), player.name(), instanceId, player.server(), player.brand());
     }
 
     private static boolean matches(UUID playerUuid, String name, @Nullable UUID uuid, String query) {
