@@ -121,6 +121,7 @@ public class PacketEntity {
     private @Nullable ReachInterpolationData settledInterpolation;
     private @Nullable Vec3 settledPhysicalPosition;
     private @Nullable ReachInterpolationData spareInterpolation;
+    private @Nullable SimpleCollisionBox interpolationStart;
     // Valid while the position, the world and its chunk epoch are the ones it was computed for.
     private @Nullable Vec3 loadedChunkPosition;
     private @Nullable CompensatedWorld loadedChunkWorld;
@@ -332,8 +333,10 @@ public class PacketEntity {
         }
 
         boolean placed = placedAtPacketPosition(player);
-        SimpleCollisionBox startingLocation =
-                placed ? packetPositionBox(player) : interpolationStartingLocation(player);
+        SimpleCollisionBox startingLocation = placed
+                ? GetBoundingBox.getPacketEntityBoundingBox(
+                        interpolationStart(), player, desyncClientPos.x, desyncClientPos.y, desyncClientPos.z, this)
+                : interpolationStartingLocation(player, interpolationStart());
         boolean ridingInVehicle = player.compensatedEntities.getSelf().inVehicle();
         ReachInterpolationData dropped = oldPacketLocation;
         this.oldPacketLocation = newPacketLocation;
@@ -585,7 +588,7 @@ public class PacketEntity {
         this.oldPacketLocation = null;
         this.newPacketLocation = nextInterpolation(
                 player,
-                interpolationStartingLocation(player),
+                interpolationStartingLocation(player, interpolationStart()),
                 desyncClientPos.x,
                 desyncClientPos.y,
                 desyncClientPos.z,
@@ -707,15 +710,25 @@ public class PacketEntity {
     }
 
     private SimpleCollisionBox interpolationStartingLocation(CultPlayer player) {
+        return interpolationStartingLocation(player, new SimpleCollisionBox());
+    }
+
+    private SimpleCollisionBox interpolationStartingLocation(CultPlayer player, SimpleCollisionBox out) {
         if (hasUsableMountedPhysicalPosition(player)) {
             return GetBoundingBox.getPacketEntityBoundingBox(
-                    player, clientPhysicalPosition.x, clientPhysicalPosition.y, clientPhysicalPosition.z, this);
+                    out, player, clientPhysicalPosition.x, clientPhysicalPosition.y, clientPhysicalPosition.z, this);
         }
 
         return newPacketLocation == null
                 ? GetBoundingBox.getPacketEntityBoundingBox(
-                        player, desyncClientPos.x, desyncClientPos.y, desyncClientPos.z, this)
-                : newPacketLocation.getPossibleMovementLocationCombined();
+                        out, player, desyncClientPos.x, desyncClientPos.y, desyncClientPos.z, this)
+                : newPacketLocation.getPossibleMovementLocationCombined(out);
+    }
+
+    /** Scratch for the starting location {@link #nextInterpolation} copies; nothing else holds it. */
+    private SimpleCollisionBox interpolationStart() {
+        if (interpolationStart == null) interpolationStart = new SimpleCollisionBox();
+        return interpolationStart;
     }
 
     public void onBundledPositionSyncTransaction(double x, double y, double z, CultPlayer player) {
@@ -754,7 +767,10 @@ public class PacketEntity {
         spareInterpolation = dropped;
     }
 
-    /** {@link ReachInterpolationData#takingStart}, restarting the spare snapshot when there is one. */
+    /**
+     * {@link ReachInterpolationData#takingStart} on a copy of {@code startingLocation}, restarting the spare snapshot
+     * when there is one.
+     */
     private ReachInterpolationData nextInterpolation(
             CultPlayer player,
             SimpleCollisionBox startingLocation,
@@ -787,7 +803,7 @@ public class PacketEntity {
         }
         return ReachInterpolationData.takingStart(
                 player,
-                startingLocation,
+                startingLocation.copy(),
                 x,
                 y,
                 z,

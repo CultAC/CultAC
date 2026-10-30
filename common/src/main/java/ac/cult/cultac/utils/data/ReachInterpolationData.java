@@ -234,7 +234,7 @@ public class ReachInterpolationData {
 
     /**
      * Reinitializes this dropped snapshot to the state {@link #takingStart} builds from the same arguments, reusing
-     * its target box; false, leaving it untouched, for a finished snapshot.
+     * its boxes and copying {@code startingLocation}; false, leaving it untouched, for a finished snapshot.
      */
     public boolean restart(
             CultPlayer player,
@@ -272,7 +272,7 @@ public class ReachInterpolationData {
         probeYaw = probePitch = probeRemaining = probeSpeed = 0;
         probeMinX = probeMinY = probeMinZ = probeMaxX = probeMaxY = probeMaxZ = 0L;
         start(
-                startingLocation,
+                this.startingLocation.set(startingLocation),
                 targetLocation,
                 player,
                 x,
