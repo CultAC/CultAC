@@ -10,6 +10,8 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockingDetails;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
@@ -306,14 +308,25 @@ class AlertScopeDeliveryTest {
     }
 
     @Test
-    void relayedAlertsAreDroppedWhileATransportCarriesTheSameAlerts() {
+    void relayedAlertsAreShownWhileATransportRunsHere() {
         relay = true;
         PlatformPlayer global = staff(null, AlertScope.GLOBAL);
         subscribe(AlertKind.ALERT, global);
 
         alerts.relayAlert(Component.text("from another server"));
 
-        assertEquals(0, messages(global));
+        assertEquals(1, messages(global));
+    }
+
+    @Test
+    void alertsAreForwardedThroughTheProxyOnlyWithoutATransport() throws ReflectiveOperationException {
+        PlatformServer server = (PlatformServer) platformServer().get(null);
+
+        alerts.forwardAlert("over the network");
+        manager(networks.withoutTransport("p9")).forwardAlert("through the proxy");
+
+        verify(server, never()).forwardAlert("over the network");
+        verify(server).forwardAlert("through the proxy");
     }
 
     @Test

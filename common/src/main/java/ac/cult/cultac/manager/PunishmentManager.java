@@ -216,7 +216,7 @@ public class PunishmentManager implements ConfigReloadable {
                                         }
                                     }
                                     case "[proxy]" ->
-                                        CultAPI.INSTANCE.getPlatformServer().forwardAlert(cmd);
+                                        CultAPI.INSTANCE.getAlertManager().forwardAlert(cmd);
                                     case "[alert]" -> {
                                         sentDebug = true;
                                         Component message = CultInfo.linkCheckName(MessageUtil.miniMessage(cmd), check);

@@ -111,5 +111,5 @@ to the sender: `profile` and the Java and Geyser packet logs, for example. `find
 across the whole network. `spectate` sends the staff member to the player's server through their own proxy.
 `/cult alerts scope global` receives alerts from every server; `server` only from players on the staff member's own
 server. `/cult findplayer` counts the client brands of everyone online on the network, and
-`/cult findplayer brand=<text>` lists the players whose brand contains that text. While the network runs, alerts that
-`alerts.proxy.receive` takes from the proxy are not shown, as the network already brings them.
+`/cult findplayer brand=<text>` lists the players whose brand contains that text. While the network runs, a server
+does not also send its alerts through the proxy (`alerts.proxy.send`), as the network already brings them.
