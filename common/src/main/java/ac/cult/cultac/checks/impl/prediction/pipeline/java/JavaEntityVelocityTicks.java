@@ -45,7 +45,24 @@ public final class JavaEntityVelocityTicks {
     /** Before 26.3, late entity ticks follow the report and are committed by CLIENT_TICK_END. */
     public static List<Vec3> afterPlayerTick(
             CultPlayer player, SimulationContext context, PredVector candidate, Vec3 end, Vec3 velocity) {
+        return afterPlayerTick(player, context, candidate, ticks(player, context, end, false), velocity);
+    }
+
+    /**
+     * {@link #afterPlayerTick} for each of {@code velocities}, in order. The late ticks depend only on {@code end}, so
+     * they are read once for all of them.
+     */
+    public static List<List<Vec3>> afterPlayerTick(
+            CultPlayer player, SimulationContext context, PredVector candidate, Vec3 end, List<Vec3> velocities) {
+        if (velocities.isEmpty()) return List.of();
         var ticks = ticks(player, context, end, false);
+        var moved = new ArrayList<List<Vec3>>(velocities.size());
+        for (Vec3 velocity : velocities) moved.add(afterPlayerTick(player, context, candidate, ticks, velocity));
+        return moved;
+    }
+
+    private static List<Vec3> afterPlayerTick(
+            CultPlayer player, SimulationContext context, PredVector candidate, List<Tick> ticks, Vec3 velocity) {
         if (ticks.isEmpty()) return List.of(velocity);
         List<Vec3> moved = JavaMovementMath.calculate(
                 player,
@@ -115,6 +132,7 @@ public final class JavaEntityVelocityTicks {
                     pose.width * context.getScale(),
                     pose.height * context.getScale());
             SimpleCollisionBox rootBox = new SimpleCollisionBox(), scratch = new SimpleCollisionBox();
+            SimpleCollisionBox candidateBox = new SimpleCollisionBox(), physicalBox = new SimpleCollisionBox();
             entities.beginMovementPositionReads();
             long phase = entities.passTickedThroughOrder();
             try {
@@ -142,6 +160,14 @@ public final class JavaEntityVelocityTicks {
                     } else {
                         if (!entities.ticksInClientTick(entity)) continue;
                         entities.setPassTickedThroughOrder(order);
+                        // Most entities are out of reach: with no candidate touching the player, every impulse is
+                        // zero and the tick adds nothing, so skip building the candidate lists. Boats and shulkers
+                        // push by their own rules.
+                        if (!boat
+                                && !(entity instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityShulker)
+                                && !(entity instanceof ac.cult.cultac.utils.data.packetentity.PacketEntitySelf)
+                                && !JavaLivingEntityPushes.anyCandidateIntersects(
+                                        player, entity, box, candidateBox, physicalBox)) continue;
                         boxes = entity.getPossibleMovementCollisionBoxCandidates();
                     }
                     List<Vec3> impulses;

@@ -619,13 +619,12 @@ public final class JavaMovementEngine implements MovementEngine {
         Set<Vec3> velocities =
                 NextTickVelocityDeriver.findVelocitiesForNextTick(player, result, lastPrediction, scratch);
         var afterEntities = new LinkedHashSet<Vec3>();
-        for (Vec3 velocity : velocities)
-            afterEntities.addAll(JavaEntityVelocityTicks.afterPlayerTick(
-                    player,
-                    result.getSimulationContext(),
-                    result.getInitialStartingVel(),
-                    result.getSimulationContext().getEnd(),
-                    velocity));
+        for (List<Vec3> pushed : JavaEntityVelocityTicks.afterPlayerTick(
+                player,
+                result.getSimulationContext(),
+                result.getInitialStartingVel(),
+                result.getSimulationContext().getEnd(),
+                new ArrayList<>(velocities))) afterEntities.addAll(pushed);
         velocities = afterEntities;
         JavaPredictionCarry carry = JavaFallDistance.commit(player, result, acceptedDiff);
         if (result.getSimulationContext().getVersion().isOlderThan(ClientVersion.V_1_21_2))

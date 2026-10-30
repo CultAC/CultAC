@@ -44,17 +44,43 @@ public final class JavaLivingEntityPushes {
 
     /** Avatar pose metadata sizes its actual box; position snapshots themselves retain the type dimensions. */
     public static SimpleCollisionBox physicalBox(CultPlayer player, PacketEntity entity, SimpleCollisionBox position) {
-        if (entity.isAvatar()) {
-            double x = (position.minX + position.maxX) * 0.5D;
-            double z = (position.minZ + position.maxZ) * 0.5D;
-            return ac.cult.cultac.utils.nmsutil.GetBoundingBox.getBoundingBoxFromPosAndSize(
-                    x,
-                    position.minY,
-                    z,
-                    PacketEntity.avatarWidth(entity.actionPose, entity.scale),
-                    PacketEntity.avatarHeight(entity.actionPose, entity.scale));
-        }
+        if (entity.isAvatar()) return avatarBox(entity, position, new SimpleCollisionBox());
         return entity.toBoundingBox(player, position.copy());
+    }
+
+    /**
+     * Whether the {@link #physicalBox} of one of {@code entity}'s movement candidates intersects {@code playerBox}.
+     * Without one, every {@link #impulses} entry is zero. Reads the candidates by index into {@code candidate} and
+     * {@code physical}, so it allocates nothing. Only for entities whose candidate list is their indexed candidates,
+     * which excludes shulkers.
+     */
+    static boolean anyCandidateIntersects(
+            CultPlayer player,
+            PacketEntity entity,
+            SimpleCollisionBox playerBox,
+            SimpleCollisionBox candidate,
+            SimpleCollisionBox physical) {
+        for (int i = 0, count = entity.possibleMovementCollisionBoxCandidateCount(); i < count; i++) {
+            entity.possibleMovementCollisionBoxCandidate(i, candidate);
+            SimpleCollisionBox box = entity.isAvatar()
+                    ? avatarBox(entity, candidate, physical)
+                    : entity.toBoundingBox(player, physical.set(candidate));
+            if (intersects(box, playerBox)) return true;
+        }
+        return false;
+    }
+
+    private static SimpleCollisionBox avatarBox(
+            PacketEntity entity, SimpleCollisionBox position, SimpleCollisionBox out) {
+        double x = (position.minX + position.maxX) * 0.5D;
+        double z = (position.minZ + position.maxZ) * 0.5D;
+        return ac.cult.cultac.utils.nmsutil.GetBoundingBox.getBoundingBoxFromPosAndSize(
+                out,
+                x,
+                position.minY,
+                z,
+                PacketEntity.avatarWidth(entity.actionPose, entity.scale),
+                PacketEntity.avatarHeight(entity.actionPose, entity.scale));
     }
 
     public static List<Vec3> impulses(List<SimpleCollisionBox> boxes, SimpleCollisionBox playerBox, Vec3 position) {

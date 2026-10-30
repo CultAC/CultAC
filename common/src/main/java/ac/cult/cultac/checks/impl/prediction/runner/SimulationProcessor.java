@@ -765,10 +765,14 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         var context = this.lastPrediction.getSimulationContext();
         var states = new ArrayList<JavaPredictionCarry.State>();
         Vec3 end = new Vec3(this.player.x, this.player.y, this.player.z);
-        for (var state : carry.states()) {
-            for (Vec3 velocity :
-                    ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaEntityVelocityTicks.afterPlayerTick(
-                            this.player, context, this.lastPrediction.getInitialStartingVel(), end, state.velocity())) {
+        var carried = carry.states();
+        var velocities = new ArrayList<Vec3>(carried.size());
+        for (var state : carried) velocities.add(state.velocity());
+        var pushed = ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaEntityVelocityTicks.afterPlayerTick(
+                this.player, context, this.lastPrediction.getInitialStartingVel(), end, velocities);
+        for (int i = 0; i < carried.size(); i++) {
+            var state = carried.get(i);
+            for (Vec3 velocity : pushed.get(i)) {
                 var next = state.withVelocity(velocity);
                 if (!states.contains(next)) states.add(next);
             }

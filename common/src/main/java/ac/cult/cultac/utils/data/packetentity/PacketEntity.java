@@ -1044,14 +1044,15 @@ public class PacketEntity {
 
     private List<SimpleCollisionBox> tickPositionView() {
         if (readingTickPositions || tracker == null || positionPlayer == null || riding != null) return null;
+        boolean tickedThisTick = tickPositions != null && tickPositions.tickedThisTick(positionPlayer);
+        // A still entity that has not ticked yet holds its boxes on both sides of its place, so skip the order walk.
+        if (!tickedThisTick && !hasChangingTickPosition()) return null;
         Boolean after = tracker.movementReadsAfterTick(this);
         // Leaving a ticking chunk during commonTick removes this entity for the NEXT traversal. A deferred replay
         // of the current tick still reads it on the correct side of the place it held when that tick began.
-        if (tickPositions != null && tickPositions.tickedThisTick(positionPlayer) && tracker.readingMovementPositions())
+        if (tickedThisTick && tracker.readingMovementPositions())
             after = tickPositions.tickedBefore(tracker.tickedThroughOrder());
-        if (after == null
-                || !hasChangingTickPosition()
-                        && (tickPositions == null || !tickPositions.tickedThisTick(positionPlayer))) return null;
+        if (after == null) return null;
         if (tickPositions == null) tickPositions = new ClientTickPositions();
         readingTickPositions = true;
         try {
