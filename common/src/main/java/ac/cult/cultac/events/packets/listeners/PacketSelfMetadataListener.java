@@ -12,6 +12,7 @@ import ac.cult.cultac.utils.data.SprintingState;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityUtil;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.ClientSleepingPosition;
 import ac.cult.cultac.utils.nmsutil.RiptideUtil;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import java.util.ArrayList;
@@ -142,6 +143,7 @@ public class PacketSelfMetadataListener {
                                                 ? 0.375
                                                 : 0.6875),
                                 bedPos.getZ() + 0.5);
+                        ClientSleepingPosition.setPosToBed(player, bedPos);
                     } else {
                         player.isInBed = false;
                     }

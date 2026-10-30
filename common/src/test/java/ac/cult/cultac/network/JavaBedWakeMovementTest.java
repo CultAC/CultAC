@@ -3,6 +3,7 @@ package ac.cult.cultac.network;
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -34,6 +35,8 @@ class JavaBedWakeMovementTest {
             new ServerboundPlayerInput(false, false, false, false, false, false, false);
     private static final ServerboundPlayerInput FORWARD_SPRINT =
             new ServerboundPlayerInput(true, false, false, false, false, false, true);
+    private static final ServerboundPlayerInput FORWARD =
+            new ServerboundPlayerInput(true, false, false, false, false, false, false);
     private static final BlockPos HEAD = new BlockPos(0, FLOOR_Y, 0);
 
     @Test
@@ -71,6 +74,50 @@ class JavaBedWakeMovementTest {
             command(f, PlayerCommandAction.START_SPRINTING);
             PredictionResult result =
                     f.tick(standUp.add(ClientMoveInput.of(f, FORWARD_SPRINT, 1.0F, 0.13F, -90.0F)), false);
+
+            assertTrue(exact(result), describe(result));
+        }
+    }
+
+    @Test
+    void aSleeperStillMovingWhenItsBedArrivesTravelsOnFromTheBed() throws Exception {
+        travelsOnFromTheBed("minecraft:red_bed", 0.6875);
+    }
+
+    @Test
+    void aStrawBedSleeperTravelsOnFromTheTopOfItsPillow() throws Exception {
+        // AbstractBedBlock#getSleepHeight: the straw bed head's pillow tops out at 5/16, plus setPosToBed's 0.125.
+        travelsOnFromTheBed("minecraft:straw_bed", 0.4375);
+    }
+
+    /**
+     * The sleep teleport and the sleeping position arrive in different server ticks. The client travels one tick
+     * before it handles the metadata, then LivingEntity#setPosToBed puts it back on the bed while Entity#setPos keeps
+     * the deltaMovement that tick left, so its next travel starts from the bed.
+     */
+    private static void travelsOnFromTheBed(String block, double sleepHeight) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            var registry = DataTables.defaults().registry();
+            int bed = registry.with(registry.block(block).defaultState(), "facing", "south");
+            f.player.compensatedWorld.updateBlock(HEAD, registry.with(bed, "part", "head"));
+            f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, -1), bed);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+
+            Vec3 standUp = new Vec3(-0.5, FLOOR_Y, 0.5);
+            f.place(standUp, Vec3.ZERO);
+            f.tick(standUp, true);
+            Vec3 sleepPosition = new Vec3(0.5, FLOOR_Y + sleepHeight, 0.5);
+            f.teleport(sleepPosition, new RelativeFlag(0));
+            f.input(FORWARD);
+            Vec3 airInput = ClientMoveInput.of(f, FORWARD, 1.0F, 0.02F, 0.0F);
+            Vec3 beforeBed = sleepPosition.add(airInput);
+            assertTrue(exact(f.tick(beforeBed, false)));
+
+            sleepingPos(f, Optional.of(HEAD));
+            assertEquals(sleepPosition, new Vec3(f.player.x, f.player.y, f.player.z));
+            f.input(NONE);
+            Vec3 carried = new Vec3(airInput.x * (double) 0.91F, -0.08D * (double) 0.98F, airInput.z * (double) 0.91F);
+            PredictionResult result = f.tick(sleepPosition.add(carried), false);
 
             assertTrue(exact(result), describe(result));
         }
