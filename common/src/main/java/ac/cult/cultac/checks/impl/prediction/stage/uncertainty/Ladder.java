@@ -11,6 +11,7 @@ import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.data.TransactionVel;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.FluidFallingAdjustedMovement;
@@ -88,6 +89,9 @@ public class Ladder implements UncertaintyHandler {
                     grav = Math.min(grav, 0.01D);
                 if (!player.compensatedEntities.getEntityInControl().hasGravity) grav = 0;
 
+                // AbstractNautilus#travelInWater replaces LivingEntity#travelInWater and its climbing 0.2.
+                if (lastResult.getSimulationContext().getVehicle() instanceof PacketEntityNautilus
+                        && lastResult.getSimulationContext().getWorldData().isInWater()) continue;
                 if (lastResult.getSimulationContext().getWorldData().isInWater()) {
                     Vec3 modified = start.withY(0.2D * 0.8F);
                     modified = FluidFallingAdjustedMovement.getFluidFallingAdjustedMovement(

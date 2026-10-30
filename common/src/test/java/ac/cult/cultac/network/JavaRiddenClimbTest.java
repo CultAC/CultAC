@@ -43,6 +43,8 @@ class JavaRiddenClimbTest {
         at(219.5625, 66.15833658072386, 201.55330080395333),
         at(219.5625, 66.00833657476339, 201.55330080395333)
     };
+    // Flush against the vine's stone wall at x = 1, the nautilus being 0.875 wide, standing on the floor.
+    private static final Vec3 AT_VINE = new Vec3(1 - 0.4375, FLOOR_Y, 0.5);
     // Against the north-facing ladder's plate at z = 13/16, the nautilus being 0.875 wide, a block over the floor.
     private static final Vec3 AT_LADDER = new Vec3(0.5, FLOOR_Y + 1, 0.8125 - 0.4375);
 
@@ -55,6 +57,25 @@ class JavaRiddenClimbTest {
         try (var f = onAVine()) {
             for (int tick = 0; tick < RIDE.length; tick++) {
                 assertVehicleExact(f.rideTick(RIDE[tick], false), tick);
+            }
+        }
+    }
+
+    /**
+     * Driven from the floor into the vine's wall, the nautilus does not move on the first tick, but the horizontal
+     * collision leaves LivingEntity#handleRelativeFrictionAndCalculateMovement's 0.2, so every later tick climbs. The
+     * end of each move is still on the vine, which the climb at the start of the next tick does not replace.
+     */
+    @Test
+    void aNautilusDrivenIntoAVineClimbsIt() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            vineWall(f);
+            mount(f, AT_VINE, -90.0F, 0.0F, new Vec3(0, -0.0784000015258789, 0));
+            Vec3 at = AT_VINE;
+            assertVehicleExact(f.rideTick(at, true), 0);
+            for (int tick = 1; tick < 6; tick++) {
+                at = at.add(CLIMBING);
+                assertVehicleExact(f.rideTick(at, false), tick);
             }
         }
     }
@@ -98,6 +119,14 @@ class JavaRiddenClimbTest {
     /** The capture's vine against a stone wall, the saddled nautilus leaving its last climbing tick into it. */
     private static JavaTickFixture onAVine() throws Exception {
         var f = new JavaTickFixture();
+        vineWall(f);
+        mount(f, SEAT, -91.29712F, 3.6133614F, CLIMBING);
+        f.input(NONE);
+        return f;
+    }
+
+    /** A vine hung on the east face of the column at x = 0, on the stone wall at x = 1. */
+    private static void vineWall(JavaTickFixture f) {
         int vine = BlockProps.EAST.with(BlockIds.VINE.defaultState(), true);
         for (int y = FLOOR_Y; y < FLOOR_Y + 4; y++) {
             for (int z = -1; z <= 1; z++) {
@@ -105,9 +134,6 @@ class JavaRiddenClimbTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(1, y, z), BlockIds.STONE.defaultState());
             }
         }
-        mount(f, SEAT, -91.29712F, 3.6133614F, CLIMBING);
-        f.input(NONE);
-        return f;
     }
 
     /** A saddled nautilus in water with a waterlogged ladder ahead of it, driven forward from rest. */

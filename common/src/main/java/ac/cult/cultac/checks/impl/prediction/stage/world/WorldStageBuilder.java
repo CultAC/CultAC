@@ -74,11 +74,20 @@ public class WorldStageBuilder {
     private int pushingTickingAfterPlayer;
     private int ridersTickingAfterPlayer;
 
+    /**
+     * Whether the moving entity can be on a climbable: the player itself, or a ridden pig, strider or nautilus, which
+     * keep LivingEntity#onClimbable. AbstractHorse and HappyGhast override it to return false.
+     */
+    private static boolean canClimb(PacketEntity vehicle) {
+        return vehicle == null
+                || vehicle instanceof PacketEntityStrider
+                || vehicle instanceof PacketEntityNautilus
+                || vehicle.type == EntityTypeIds.PIG;
+    }
+
     /** The climbable state at one Entity#move endpoint, before any later block-entity shove. */
     public static DesyncStatus climbingAtPosition(CultPlayer player, SimulationContext context, Vec3 position) {
-        if (context.getVehicle() != null
-                && !(context.getVehicle() instanceof PacketEntityStrider
-                        || context.getVehicle().type == EntityTypeIds.PIG)) return DesyncStatus.FALSE;
+        if (!canClimb(context.getVehicle())) return DesyncStatus.FALSE;
         DesyncStatus climbing =
                 DesyncStatus.fromBoolean(Collisions.onClimbable(player, position.x, position.y, position.z));
         int state = player.compensatedWorld.getBlockStateIdAt(BlockPos.containing(position.x, position.y, position.z));
@@ -149,14 +158,6 @@ public class WorldStageBuilder {
         DesyncStatus climbingAtStart = sampleClimbingAtStart(player, simulationContext);
 
         DesyncStatus climbing = climbingAtPosition(player, simulationContext, to);
-
-        // Pigs, striders and nautiluses keep LivingEntity#onClimbable; AbstractHorse and HappyGhast return false
-        if (simulationContext.getVehicle() != null
-                && !(simulationContext.getVehicle() instanceof PacketEntityStrider
-                        || simulationContext.getVehicle() instanceof PacketEntityNautilus
-                        || simulationContext.getVehicle().type == EntityTypeIds.PIG)) {
-            climbingAtStart = DesyncStatus.FALSE;
-        }
 
         MainSupportingBlockData mainSupportingBlockData = findMainSupportingBlockPos(
                 player,
@@ -340,6 +341,7 @@ public class WorldStageBuilder {
     }
 
     private DesyncStatus sampleClimbingAtStart(CultPlayer player, SimulationContext context) {
+        if (!canClimb(context.getVehicle())) return DesyncStatus.FALSE;
         Vec3 position = context.getStart();
         DesyncStatus climbingAtStart = DesyncStatus.fromBoolean(
                 Collisions.onClimbable(player, position.x, position.y, position.z, context.isGliding()));

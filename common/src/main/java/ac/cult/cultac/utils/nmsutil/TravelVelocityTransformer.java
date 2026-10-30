@@ -71,6 +71,8 @@ public final class TravelVelocityTransformer {
             boolean fluidTravel = context.getVehicle() != null || !player.isFlying;
             boolean waterTravel = inWater && fluidTravel;
             boolean lavaTravel = !waterTravel && inLava && fluidTravel;
+            // AbstractNautilus#travelInWater replaces LivingEntity#travelInWater: no climbing 0.2 and no fluid hop.
+            boolean nautilusWaterTravel = waterTravel && context.getVehicle() instanceof PacketEntityNautilus;
             // LivingEntity#travelInFluid reads isFalling and getEffectiveGravity before its Entity#move.
             // travelInAir reads getEffectiveGravity after its move, from the stored deltaMovement rather than
             // the collision-clipped packet displacement. Both matter when a slow-falling player hits a ceiling.
@@ -94,6 +96,7 @@ public final class TravelVelocityTransformer {
                             pass == null ? context.getEnd() : pass.travel().position());
             boolean climbBoost = VelocityCandidates.carriesClimbBoost(result)
                     && !lavaTravel
+                    && !nautilusWaterTravel
                     && (climbing.determineOptimistically() || powderBoost)
                     && (horizontalCollision
                             || !waterTravel
@@ -133,8 +136,8 @@ public final class TravelVelocityTransformer {
                     frictions,
                     keepBranches);
             if ((waterTravel || lavaTravel) && !(context.getVehicle() instanceof PacketEntityHappyGhast)) {
-                // HappyGhast#travel uses travelFlying; AbstractNautilus#travelInWater replaces the water path.
-                if (horizontalCollision && !(waterTravel && context.getVehicle() instanceof PacketEntityNautilus))
+                // HappyGhast#travel uses travelFlying.
+                if (horizontalCollision && !nautilusWaterTravel)
                     for (int i = branchStart, size = frictions.size(); i < size; i++) {
                         Vec3 velocity = frictions.get(i);
                         var free = JavaFluidHopVelocity.isFree(player, result, velocity);
