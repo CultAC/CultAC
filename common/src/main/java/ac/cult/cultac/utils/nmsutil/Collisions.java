@@ -597,7 +597,7 @@ public class Collisions {
     }
 
     // Resolved to JavaCollisionState.current at the first block whose shape reads it (JavaCollisionState#readsActor).
-    private static final JavaCollisionState CURRENT_ACTOR = new JavaCollisionState(0.0, false, false, false);
+    private static final JavaCollisionState CURRENT_ACTOR = new JavaCollisionState(0.0, false, false, false, false);
 
     public static boolean getCollisionBoxes(
             CultPlayer player,

@@ -196,6 +196,10 @@ public final class NativeBlockCollisionHelper {
             return actor.powderSnowShape(y, entityBottom);
         }
 
+        if (actor != null && JavaCollisionState.isLiquidBlock(state)) {
+            return actor.liquidShape(player, state, x, y, z, entityBottom);
+        }
+
         if (BlockIds.is(state, BlockIds.MOVING_PISTON)) {
             return player.compensatedWorld.pistons.getMovingPistonCollisionShape(new BlockPos(x, y, z));
         }
@@ -227,6 +231,8 @@ public final class NativeBlockCollisionHelper {
                 || DataTables.defaults().registry().facts(state).has(StateFacts.AIR)) return Shapes.empty();
         if (BlockIds.is(state, BlockIds.POWDER_SNOW) && actor != null)
             return actor.powderSnowShape(pos.y(), entityBottom);
+        if (actor != null && !context.alwaysCollideWithFluid() && JavaCollisionState.isLiquidBlock(state))
+            return actor.liquidShape(player, state, pos.x(), pos.y(), pos.z(), entityBottom);
         if (BlockIds.is(state, BlockIds.MOVING_PISTON))
             return player.compensatedWorld.pistons.getMovingPistonCollisionShape(
                     new BlockPos(pos.x(), pos.y(), pos.z()));
