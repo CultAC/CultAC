@@ -1471,6 +1471,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         public void handle(PacketReceiveEvent event, CultPlayer player, Object packet) {
             if (event.getPhase() == ConnectionPhase.PLAY) {
                 player.checkManager.dispatchEarlyReceive(event);
+                if (event.isCancelled()) player.checkManager.onEarlyCancel(packet);
                 if (!reachesServer(event)) player.blockActionReconciler.rejectEarly(packet);
             }
         }

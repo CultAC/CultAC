@@ -939,6 +939,12 @@ public class CheckManager {
         if (route != null) route.dispatch(event, player, routedPacket);
     }
 
+    /** An early handler cancelled {@code packet}, which skips every ordinary handler, the sequence check included. */
+    public void onEarlyCancel(Object packet) {
+        BadPacketsH sequences = getListener(BadPacketsH.class);
+        if (shouldDispatch(sequences)) sequences.onEarlyCancel(packet);
+    }
+
     public void dispatchReceiveHandlers(final PacketReceiveEvent packet) {
         dispatchDecodedReceiveObservers(packet);
 
