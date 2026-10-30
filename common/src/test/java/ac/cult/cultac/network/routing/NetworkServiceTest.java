@@ -282,6 +282,7 @@ class NetworkServiceTest {
         draining.tick();
         draining.playerChanged(new OnlinePlayer(BOB, "Bob", "lobby"));
         draining.playerLeft(BOB);
+        draining.verbose(() -> Set.of("lobby"));
         draining.sendDelta();
         assertTrue(rosterBodiesFrom("p3").isEmpty());
 
