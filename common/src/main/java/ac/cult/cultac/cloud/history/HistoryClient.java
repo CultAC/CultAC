@@ -179,6 +179,10 @@ public final class HistoryClient {
                     if (response.statusCode() != 200) {
                         throw new Failure(response.statusCode(), "HTTP " + response.statusCode());
                     }
+                    Refusal last = refusal.get();
+                    if (last != null && last.base().equals(base) && last.apiKey().equals(apiKey)) {
+                        refusal.compareAndSet(last, null);
+                    }
                     return read.apply(response.body());
                 });
     }

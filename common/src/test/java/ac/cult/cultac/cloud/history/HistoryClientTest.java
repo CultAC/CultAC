@@ -212,6 +212,26 @@ class HistoryClientTest {
     }
 
     @Test
+    void anOkAnswerForgetsTheForbiddenOne() throws Exception {
+        AtomicLong now = new AtomicLong();
+        HistoryClient client = new HistoryClient(
+                "http://127.0.0.1:" + server.getAddress().getPort(),
+                KEY,
+                HttpClient.newHttpClient(),
+                calls,
+                now::get);
+        status = 403;
+        failure(() -> client.sessions(PLAYER, null, 10).get(10, TimeUnit.SECONDS));
+        status = 200;
+        answer = "{\"total\":0,\"sessions\":[]}";
+        now.addAndGet(HistoryClient.REFUSAL_MEMORY.toNanos());
+
+        assertEquals(0, client.sessions(PLAYER, null, 10).get(10, TimeUnit.SECONDS).total());
+        now.set(0);
+        assertFalse(client.refused());
+    }
+
+    @Test
     void anUnreadableAnswerIsAFailureWithStatusOk() {
         List<String> sessionAnswers = List.of(
                 "<html>oops</html>",
