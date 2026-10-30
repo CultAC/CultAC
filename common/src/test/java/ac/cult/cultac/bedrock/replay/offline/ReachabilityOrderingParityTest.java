@@ -463,11 +463,6 @@ public final class ReachabilityOrderingParityTest {
                 ? constructor.newInstance(transaction, id)
                 : constructor.newInstance(transaction, id, System.nanoTime());
         sentTransactions(player).add(sent);
-        // Recorded as CultPlayer records a ping appended at the tail: indexed by id, at the next wire position.
-        Field next = findField(CultPlayer.class, "nextSentPosition");
-        long position = next.getLong(player);
-        next.setLong(player, position + 1);
-        findField(sent.getClass(), "position").setLong(sent, position);
         Field ids = CultPlayer.class.getDeclaredField("transactionsSentById");
         ids.setAccessible(true);
         ((Int2ObjectMap<Object>) ids.get(player)).put(id, sent);
