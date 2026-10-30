@@ -55,6 +55,11 @@ final class RemoteCommands {
 
         Set<String> permissionNodes();
 
+        /** How long a received command runs before it answers with the output it sent so far. */
+        default long runMillis() {
+            return RUN_MILLIS;
+        }
+
         /** Runs a received command's {@code task} off the network thread. */
         default void dispatch(Runnable task) {
             task.run();
@@ -233,7 +238,7 @@ final class RemoteCommands {
                     commands.execute(source, CloudCommandService.onRegisteredRoot(line))
                             .handle((ignored, failure) -> null)
                             .toCompletableFuture()
-                            .completeOnTimeout(null, RUN_MILLIS, TimeUnit.MILLISECONDS)
+                            .completeOnTimeout(null, commands.runMillis(), TimeUnit.MILLISECONDS)
                             .thenRun(() -> {
                                 source.done();
                                 boolean left = source.left();

@@ -95,6 +95,7 @@ class RemoteCommandsTest {
             return CompletableFuture.completedFuture(null);
         };
         Supplier<Set<String>> nodes = () -> NODES;
+        long runMillis = RemoteCommands.RUN_MILLIS;
 
         @Override
         public CompletionStage<?> execute(Sender sender, String line) {
@@ -106,6 +107,11 @@ class RemoteCommandsTest {
         @Override
         public Set<String> permissionNodes() {
             return nodes.get();
+        }
+
+        @Override
+        public long runMillis() {
+            return runMillis;
         }
     }
 
@@ -380,6 +386,33 @@ class RemoteCommandsTest {
         assertFalse(source.get().isValid());
         assertEquals(List.of("in time"), staff.plain());
         assertEquals(1, envelopes(TestNetworks.channel("p3"), RemoteCommands.DONE).size());
+    }
+
+    @Test
+    void aCommandStillRunningAtTheDeadlineAnswersOnceWithItsOutputSoFar() {
+        NetworkService a = started("p3", new Players(), new Recorder());
+        Recorder there = new Recorder();
+        there.runMillis = 50;
+        AtomicReference<Sender> source = new AtomicReference<>();
+        CompletableFuture<Void> command = new CompletableFuture<>();
+        there.behaviour = (sender, line) -> {
+            source.set(sender);
+            sender.sendMessage(Component.text("so far"));
+            return command;
+        };
+        started("p7", new Players().with(ALICE, "Alice"), there);
+        broker.published.clear();
+
+        assertTrue(a.run(staff, LINE, aliceOn("p7")).join());
+        source.get().sendMessage(Component.text("after the deadline"));
+        command.complete(null);
+
+        assertFalse(source.get().isValid());
+        assertEquals(List.of("so far"), staff.plain());
+        List<JsonObject> answers = envelopes(TestNetworks.channel("p3"), RemoteCommands.DONE);
+        assertEquals(1, answers.size());
+        JsonArray output = answers.getFirst().getAsJsonObject("body").getAsJsonArray("output");
+        assertEquals(1, output.size());
     }
 
     @Test
