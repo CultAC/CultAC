@@ -60,7 +60,13 @@ class EntityReplicationBenchTest {
     void replication() throws Exception {
         String out = System.getenv("CULT_REPLICATION_BENCH");
         assumeTrue(out != null && !out.isEmpty());
-        CultPlayer player = player();
+        for (ProtocolVersion protocol : new ProtocolVersion[] {ProtocolVersion.V1_21_11, ProtocolVersion.V26_3}) {
+            replication(out, protocol);
+        }
+    }
+
+    private void replication(String out, ProtocolVersion protocol) throws Exception {
+        CultPlayer player = player(protocol);
         try {
             player.entityID = 7;
             Random random = new Random(11);
@@ -115,7 +121,7 @@ class EntityReplicationBenchTest {
                 }
                 acknowledgeAll(player);
             };
-            String[] names = {"relative moves x" + ENTITIES, "entity data x" + ENTITIES};
+            String[] names = {protocol + " relative moves x" + ENTITIES, protocol + " entity data x" + ENTITIES};
             Cycle[] cycles = {moves, data};
             var bean = (ThreadMXBean) ManagementFactory.getThreadMXBean();
             long thread = Thread.currentThread().threadId();
@@ -181,7 +187,7 @@ class EntityReplicationBenchTest {
         player.latencyUtils.handleNettySyncTransaction(transaction);
     }
 
-    private static CultPlayer player() {
+    private static CultPlayer player(ProtocolVersion protocol) {
         OfflineCultTestBootstrap.installConfig();
         PlatformConnection platform = new PlatformConnection() {
             @Override
@@ -196,12 +202,12 @@ class EntityReplicationBenchTest {
 
             @Override
             public ProtocolVersion getObservedProtocol() {
-                return ProtocolVersion.V1_21_11;
+                return protocol;
             }
 
             @Override
             public ProtocolVersion getClientProtocol() {
-                return ProtocolVersion.V1_21_11;
+                return protocol;
             }
 
             @Override
