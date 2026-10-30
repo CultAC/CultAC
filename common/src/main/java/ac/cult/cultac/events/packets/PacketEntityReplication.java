@@ -2065,7 +2065,13 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             // Native RC1 interpolation path was appended at this proof.
         } else if (movement.hasPosition()) {
             entity.onBundledPositionSyncTransaction(
-                    movement.x(), movement.y(), movement.z(), movement.yaw(), movement.pitch(), player);
+                    movement.x(),
+                    movement.y(),
+                    movement.z(),
+                    movement.hasRotation(),
+                    movement.rotationYaw(),
+                    movement.rotationPitch(),
+                    player);
         } else {
             applyBundledMovement(entity, movement);
         }
@@ -2160,7 +2166,14 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             return true;
         }
         if (player.getClientVersion().isOlderThan(ClientVersion.V_26_3)) return false;
-        entity.onPositionPath(movement.path(), movement.hasPosition(), movement.yaw(), movement.pitch(), player, bundled);
+        entity.onPositionPath(
+                movement.path(),
+                movement.hasPosition(),
+                movement.hasRotation(),
+                movement.rotationYaw(),
+                movement.rotationPitch(),
+                player,
+                bundled);
         return true;
     }
 
@@ -2188,8 +2201,9 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 movement.x(),
                 movement.y(),
                 movement.z(),
-                movement.yaw(),
-                movement.pitch(),
+                movement.hasRotation(),
+                movement.rotationYaw(),
+                movement.rotationPitch(),
                 player);
     }
 
@@ -2201,8 +2215,9 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 movement.x(),
                 movement.y(),
                 movement.z(),
-                movement.yaw(),
-                movement.pitch(),
+                movement.hasRotation(),
+                movement.rotationYaw(),
+                movement.rotationPitch(),
                 player);
     }
 
@@ -2214,8 +2229,9 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 movement.x(),
                 movement.y(),
                 movement.z(),
-                movement.yaw(),
-                movement.pitch(),
+                movement.hasRotation(),
+                movement.rotationYaw(),
+                movement.rotationPitch(),
                 player);
     }
 
