@@ -19,6 +19,7 @@ import ac.cult.cultac.cloud.diag.Diagnostics;
 import ac.cult.cultac.cloud.diag.PredictionDiagnostics;
 import ac.cult.cultac.cloud.intake.v3.Outcome;
 import ac.cult.cultac.cloud.transport.CloudConnection;
+import ac.cult.cultac.cloud.transport.FrameBuffers;
 import ac.cult.cultac.cloud.wire.IntakeWire;
 import ac.cult.cultac.network.codec.ClientPacketCodecs;
 import ac.cult.cultac.platform.api.ServerFacts;
@@ -212,6 +213,16 @@ public final class CloudCapture implements PlayerObserver {
         void unregister(UUID player, CloudConnection.Stream stream);
 
         boolean send(long generation, byte[] record, long resolvedExtra);
+
+        /**
+         * As {@link #send(long, byte[], long)}, for the record in the first {@code length} bytes of {@code record}, an
+         * array from {@link FrameBuffers#take} this call takes over.
+         */
+        default boolean send(long generation, byte[] record, int length, long resolvedExtra) {
+            byte[] exact = Arrays.copyOf(record, length);
+            FrameBuffers.give(record);
+            return send(generation, exact, resolvedExtra);
+        }
 
         CloudConnection.Terms terms(long generation);
 
@@ -890,6 +901,18 @@ public final class CloudCapture implements PlayerObserver {
             @Override
             public boolean send(byte[] record, long resolvedExtra) {
                 return uplink != null && uplink.send(generation, record, resolvedExtra);
+            }
+
+            @Override
+            public byte[] frame(int length) {
+                return FrameBuffers.take(length);
+            }
+
+            @Override
+            public boolean send(byte[] record, int length, long resolvedExtra) {
+                if (uplink != null) return uplink.send(generation, record, length, resolvedExtra);
+                FrameBuffers.give(record);
+                return false;
             }
 
             @Override

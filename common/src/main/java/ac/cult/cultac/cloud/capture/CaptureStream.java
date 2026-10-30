@@ -69,6 +69,19 @@ public final class CaptureStream {
             return send(record);
         }
 
+        /** An array of at least {@code length} bytes for a frame record, which {@link #send(byte[], int, long)} takes. */
+        default byte[] frame(int length) {
+            return new byte[length];
+        }
+
+        /**
+         * As {@link #send(byte[], long)}, for the record in the first {@code length} bytes of {@code record}, an array
+         * from {@link #frame} the caller no longer touches.
+         */
+        default boolean send(byte[] record, int length, long resolvedExtra) {
+            return send(record.length == length ? record : Arrays.copyOf(record, length), resolvedExtra);
+        }
+
         /** The socket's queue is backed up: sections wait until it drains. */
         default boolean backlogged() {
             return false;
@@ -1062,9 +1075,11 @@ public final class CaptureStream {
                     carried);
         }
         record(IntakeWire.VERDICT, tick.nanos, verdicts.bytes(), verdict, 0, 0, 0);
-        byte[] record = builder.build(player, seq);
+        int length = builder.length(seq);
+        byte[] record = sink.frame(length);
+        builder.build(player, seq, record);
         builder.clear();
-        boolean sent = sink.send(record, resolvedExtra);
+        boolean sent = sink.send(record, length, resolvedExtra);
         for (ActionRef action : tick.actions) action.state = sent ? ActionRef.SENT : ActionRef.LOST;
         if (sent) {
             outcomesSent.addAndGet(sending.size());
