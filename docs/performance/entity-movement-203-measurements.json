@@ -1,0 +1,338 @@
+{
+  "baseline_commit": "85968bdd517d41f58f13eb8628551211ea96e9dd",
+  "runtime": "Eclipse Temurin 26.0.2.1+1, OpenJDK 64-Bit Server VM",
+  "jvm_flags": [
+    "-Xms512m",
+    "-Xmx512m",
+    "-XX:+UseG1GC",
+    "-XX:ActiveProcessorCount=2",
+    "-DCultPlatformOverride=BUKKIT"
+  ],
+  "warmup_waves_per_scenario": 2000,
+  "measured_waves_per_sample": 2000,
+  "entities_per_wave": 200,
+  "samples_per_scenario_per_fork": 5,
+  "forks_per_revision": 3,
+  "fork_order": [
+    [
+      "baseline",
+      1
+    ],
+    [
+      "optimized",
+      1
+    ],
+    [
+      "baseline",
+      2
+    ],
+    [
+      "optimized",
+      2
+    ],
+    [
+      "baseline",
+      3
+    ],
+    [
+      "optimized",
+      3
+    ]
+  ],
+  "source_sha256": {
+    "baseline": {
+      "common/src/main/java/ac/cult/cultac/events/packets/PacketEntityReplication.java": "00097b11285959c83ab55978a7b5ac1522bf76b592e63142749d7cd9eb83c8cc",
+      "common/src/main/java/ac/cult/cultac/checks/impl/combat/FairReach.java": "8d98ff455f88a01ae1dea150b64663fc9b1bf07a3992db5c900d08185bd3f535",
+      "common/src/test/java/ac/cult/cultac/network/SustainedEntityReplicationBenchTest.java": "8b3399abb6e3949cb2d116d8560daa8f22cce798136631cd7dea11b66076d518"
+    },
+    "optimized": {
+      "common/src/main/java/ac/cult/cultac/events/packets/PacketEntityReplication.java": "415f9cce672713eca0c81983930e5c3d80f70a98d98647a1529c298e00cbde38",
+      "common/src/main/java/ac/cult/cultac/checks/impl/combat/FairReach.java": "9bab75e7778e5fa63aff1695df7a526998d57aa243b2ffaa20a8c1a459cfb146",
+      "common/src/test/java/ac/cult/cultac/network/SustainedEntityReplicationBenchTest.java": "8b3399abb6e3949cb2d116d8560daa8f22cce798136631cd7dea11b66076d518"
+    }
+  },
+  "external_runtime_classpath_identical": true,
+  "all_state_checksums_match": true,
+  "scenarios": {
+    "bundled_position_ack100": {
+      "baseline": {
+        "fork_cpu_medians_ns_per_movement": [
+          450.713145,
+          466.41093,
+          565.1823075
+        ],
+        "cpu_median_ns_per_movement": 466.41093,
+        "fork_bytes_medians_per_movement": [
+          543.10836,
+          543.1068,
+          543.10718
+        ],
+        "bytes_median_per_movement": 543.10718,
+        "measured_movements": 6000000,
+        "checksums": [
+          "-5036401876863954173"
+        ]
+      },
+      "optimized": {
+        "fork_cpu_medians_ns_per_movement": [
+          402.211025,
+          347.1458775,
+          394.6515425
+        ],
+        "cpu_median_ns_per_movement": 394.6515425,
+        "fork_bytes_medians_per_movement": [
+          487.1068,
+          487.10718,
+          487.1089
+        ],
+        "bytes_median_per_movement": 487.10718,
+        "measured_movements": 6000000,
+        "checksums": [
+          "-5036401876863954173"
+        ]
+      },
+      "cpu_reduction_percent": 15.385442939769877,
+      "allocation_reduction_percent": 10.31104026280778
+    },
+    "bundled_position_rotation_ack100": {
+      "baseline": {
+        "fork_cpu_medians_ns_per_movement": [
+          458.204215,
+          485.098975,
+          510.353995
+        ],
+        "cpu_median_ns_per_movement": 485.098975,
+        "fork_bytes_medians_per_movement": [
+          543.04,
+          543.0814,
+          543.0552
+        ],
+        "bytes_median_per_movement": 543.0552,
+        "measured_movements": 6000000,
+        "checksums": [
+          "7031646552022700803"
+        ]
+      },
+      "optimized": {
+        "fork_cpu_medians_ns_per_movement": [
+          371.7774125,
+          366.1368425,
+          417.4659075
+        ],
+        "cpu_median_ns_per_movement": 371.7774125,
+        "fork_bytes_medians_per_movement": [
+          487.10664,
+          487.04,
+          487.08104
+        ],
+        "bytes_median_per_movement": 487.08104,
+        "measured_movements": 6000000,
+        "checksums": [
+          "7031646552022700803"
+        ]
+      },
+      "cpu_reduction_percent": 23.360503390055598,
+      "allocation_reduction_percent": 10.307268947981719
+    },
+    "bundled_rotation_ack100": {
+      "baseline": {
+        "fork_cpu_medians_ns_per_movement": [
+          458.9267675,
+          480.54189,
+          697.66553
+        ],
+        "cpu_median_ns_per_movement": 480.54189,
+        "fork_bytes_medians_per_movement": [
+          503.04,
+          503.04,
+          503.07764
+        ],
+        "bytes_median_per_movement": 503.04,
+        "measured_movements": 6000000,
+        "checksums": [
+          "-8059472667426800383"
+        ]
+      },
+      "optimized": {
+        "fork_cpu_medians_ns_per_movement": [
+          378.628805,
+          354.702075,
+          402.954265
+        ],
+        "cpu_median_ns_per_movement": 378.628805,
+        "fork_bytes_medians_per_movement": [
+          447.08372,
+          447.058,
+          447.088
+        ],
+        "bytes_median_per_movement": 447.08372,
+        "measured_movements": 6000000,
+        "checksums": [
+          "-8059472667426800383"
+        ]
+      },
+      "cpu_reduction_percent": 21.207950257988962,
+      "allocation_reduction_percent": 11.123624363867679
+    },
+    "unbundled_position_ack100": {
+      "baseline": {
+        "fork_cpu_medians_ns_per_movement": [
+          463.9804125,
+          463.416655,
+          596.861425
+        ],
+        "cpu_median_ns_per_movement": 463.9804125,
+        "fork_bytes_medians_per_movement": [
+          615.04,
+          615.04,
+          615.04
+        ],
+        "bytes_median_per_movement": 615.04,
+        "measured_movements": 6000000,
+        "checksums": [
+          "-6959395561595839615"
+        ]
+      },
+      "optimized": {
+        "fork_cpu_medians_ns_per_movement": [
+          352.785675,
+          340.862655,
+          364.064305
+        ],
+        "cpu_median_ns_per_movement": 352.785675,
+        "fork_bytes_medians_per_movement": [
+          511.04,
+          511.04,
+          511.04
+        ],
+        "bytes_median_per_movement": 511.04,
+        "measured_movements": 6000000,
+        "checksums": [
+          "-6959395561595839615"
+        ]
+      },
+      "cpu_reduction_percent": 23.965394767607773,
+      "allocation_reduction_percent": 16.909469302809566
+    },
+    "unbundled_position_rotation_ack100": {
+      "baseline": {
+        "fork_cpu_medians_ns_per_movement": [
+          452.7680875,
+          458.6581175,
+          503.20766
+        ],
+        "cpu_median_ns_per_movement": 458.6581175,
+        "fork_bytes_medians_per_movement": [
+          615.04,
+          615.04,
+          615.04
+        ],
+        "bytes_median_per_movement": 615.04,
+        "measured_movements": 6000000,
+        "checksums": [
+          "5108652867290815361"
+        ]
+      },
+      "optimized": {
+        "fork_cpu_medians_ns_per_movement": [
+          351.47255,
+          342.0470875,
+          433.863745
+        ],
+        "cpu_median_ns_per_movement": 351.47255,
+        "fork_bytes_medians_per_movement": [
+          511.04,
+          511.04,
+          511.04
+        ],
+        "bytes_median_per_movement": 511.04,
+        "measured_movements": 6000000,
+        "checksums": [
+          "5108652867290815361"
+        ]
+      },
+      "cpu_reduction_percent": 23.369381988535288,
+      "allocation_reduction_percent": 16.909469302809566
+    },
+    "unbundled_rotation_ack100": {
+      "baseline": {
+        "fork_cpu_medians_ns_per_movement": [
+          474.041635,
+          459.9672025,
+          486.582245
+        ],
+        "cpu_median_ns_per_movement": 474.041635,
+        "fork_bytes_medians_per_movement": [
+          575.04,
+          575.04,
+          575.04
+        ],
+        "bytes_median_per_movement": 575.04,
+        "measured_movements": 6000000,
+        "checksums": [
+          "-8059472667426800383"
+        ]
+      },
+      "optimized": {
+        "fork_cpu_medians_ns_per_movement": [
+          346.185855,
+          333.556935,
+          354.155735
+        ],
+        "cpu_median_ns_per_movement": 346.185855,
+        "fork_bytes_medians_per_movement": [
+          471.04,
+          471.04,
+          471.04
+        ],
+        "bytes_median_per_movement": 471.04,
+        "measured_movements": 6000000,
+        "checksums": [
+          "-8059472667426800383"
+        ]
+      },
+      "cpu_reduction_percent": 26.971424145054257,
+      "allocation_reduction_percent": 18.085698386199212
+    },
+    "bundled_position_rotation_ack400": {
+      "baseline": {
+        "fork_cpu_medians_ns_per_movement": [
+          509.0066025,
+          500.2101025,
+          569.286895
+        ],
+        "cpu_median_ns_per_movement": 509.0066025,
+        "fork_bytes_medians_per_movement": [
+          543.04,
+          543.04,
+          543.04
+        ],
+        "bytes_median_per_movement": 543.04,
+        "measured_movements": 6000000,
+        "checksums": [
+          "7031646552022700803"
+        ]
+      },
+      "optimized": {
+        "fork_cpu_medians_ns_per_movement": [
+          565.3656325,
+          496.3568675,
+          498.7320875
+        ],
+        "cpu_median_ns_per_movement": 498.7320875,
+        "fork_bytes_medians_per_movement": [
+          543.04,
+          543.04,
+          543.04
+        ],
+        "bytes_median_per_movement": 543.04,
+        "measured_movements": 6000000,
+        "checksums": [
+          "7031646552022700803"
+        ]
+      },
+      "cpu_reduction_percent": 2.018542578728144,
+      "allocation_reduction_percent": 0.0
+    }
+  }
+}

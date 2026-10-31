@@ -24,10 +24,9 @@ import ac.cult.cultac.utils.nmsutil.ReachUtils;
 import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 import io.netty.util.concurrent.ScheduledFuture;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
-import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import lombok.AllArgsConstructor;
 
 // We will verify the player's reach against what a lower ping/more stable player would see
@@ -39,7 +38,9 @@ import lombok.AllArgsConstructor;
 //
 public class FairReach extends Check implements CheckListener {
 
-    Map<Integer, FairReachEntity> targetPlayers = new Int2ObjectOpenHashMap<>();
+    private static final Object MOVE_APPLIED = new Object();
+
+    final Int2ObjectOpenHashMap<FairReachEntity> targetPlayers = new Int2ObjectOpenHashMap<>();
 
     TickingStatus playerTickingStatus = TickingStatus.ALLOWED_TO_TICK;
 
@@ -115,14 +116,21 @@ public class FairReach extends Check implements CheckListener {
     private void schedule(PendingMove move) {
         // Ensure the client has received this before MAX_PING_TIME, or apply them sooner if client responds in time
         player.latencyUtils.addRealTimeTaskNext(move);
-        player.user.getPacketExecutor().schedule((Callable<Void>) move, max_ping_compensation, TimeUnit.MILLISECONDS);
+        if (move.get() == MOVE_APPLIED) return;
+        ScheduledFuture<?> deadline = player.user
+                .getPacketExecutor()
+                .schedule((Callable<Void>) move, max_ping_compensation, TimeUnit.MILLISECONDS);
+        // A receipt, or an immediate deadline, can win before schedule returns its future.
+        if (!move.compareAndSet(null, deadline)) deadline.cancel(false);
     }
 
     /**
      * One entity move, applied by whichever of its transaction or its deadline comes first. The deadline runs it as a
-     * {@link Callable} through {@link CultPlayer#runSafely}.
+     * {@link Callable} through {@link CultPlayer#runSafely}. The atomic state is null until its deadline is
+     * installed, that future while pending, or MOVE_APPLIED. A receipt cancels the deadline without leaving a
+     * no-op model task behind; a deadline already dequeued still observes the same exact-once guard.
      */
-    private final class PendingMove extends AtomicBoolean implements Runnable, Callable<Void> {
+    private final class PendingMove extends AtomicReference<Object> implements Runnable, Callable<Void> {
         private final int entityId;
         private final double x;
         private final double y;
@@ -142,12 +150,15 @@ public class FairReach extends Check implements CheckListener {
 
         @Override
         public void run() {
-            applyChanges(entityId, x, y, z, update, holdsShownPosition, this);
+            Object previous = getAndSet(MOVE_APPLIED);
+            if (previous == MOVE_APPLIED) return;
+            if (previous instanceof ScheduledFuture<?> deadline) deadline.cancel(false);
+            applyChanges(entityId, x, y, z, update, holdsShownPosition);
         }
 
         @Override
         public Void call() {
-            player.runSafely(this);
+            if (get() != MOVE_APPLIED) player.runSafely(this);
             return null;
         }
     }
@@ -238,15 +249,7 @@ public class FairReach extends Check implements CheckListener {
     }
 
     private void applyChanges(
-            int entityId,
-            double x,
-            double y,
-            double z,
-            PositionUpdate update,
-            boolean holdsShownPosition,
-            AtomicBoolean hasAppliedChanges) {
-        if (hasAppliedChanges.getAndSet(true)) return;
-
+            int entityId, double x, double y, double z, PositionUpdate update, boolean holdsShownPosition) {
         FairReachEntity target = targetPlayers.get(entityId);
         if (target == null) return;
         if (holdsShownPosition) {
