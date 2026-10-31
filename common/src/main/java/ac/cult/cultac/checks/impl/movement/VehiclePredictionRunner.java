@@ -69,9 +69,10 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
                 horse.tickStandTail();
             }
             // LocalPlayer#jumpableVehicle releases a camel rider's jump only while Camel#canJump holds after the
-            // camel's tick, and Camel#canJump is false while the camel refuses to move.
+            // camel's tick, and Camel#canJump is false while the camel refuses to move. Camel#onPlayerJump then reads
+            // the ground the camel's move and the cooldown the tickDashCooldown above left.
             if (horse instanceof PacketEntityCamel camel
-                    && camel.refuseToMove(player.compensatedWorld.endedTickGameTime())) {
+                    && (camel.refuseToMove(player.compensatedWorld.endedTickGameTime()) || !camel.takesRidingJump())) {
                 camel.dropRidingJump();
             }
             // MCP-Reborn ClientLevel#tickPassenger runs LocalPlayer#rideTick

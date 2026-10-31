@@ -41,6 +41,15 @@ public class PacketEntityCamel extends PacketEntityHorse {
         firstTick = false;
     }
 
+    /**
+     * Camel#onPlayerJump: a saddled camel takes the riding jump only on the ground with no dash cooldown left. The
+     * rider's LocalPlayer#aiStep releases it after Camel#tick, so read this after the camel's move and
+     * tickDashCooldown.
+     */
+    public boolean takesRidingJump() {
+        return hasSaddle && dashCooldown <= 0 && onGround;
+    }
+
     public boolean isCamelSitting() {
         return lastPoseChangeTick < 0L;
     }

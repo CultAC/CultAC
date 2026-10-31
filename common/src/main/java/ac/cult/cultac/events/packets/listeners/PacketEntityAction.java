@@ -13,7 +13,6 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.value.EquipmentSlot;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.SprintingState;
-import ac.cult.cultac.utils.data.packetentity.PacketEntityCamel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.inventory.ClientGlider;
@@ -76,11 +75,8 @@ public class PacketEntityAction {
                     break;
                 }
                 PacketEntityHorse horse = player.compensatedEntities.vehicles.getClientVisibleHorseRoot();
-                // Camel#onPlayerJump. The client releases the jump only if Camel#canJump holds after the camel's tick.
-                if (horse instanceof PacketEntityCamel camel
-                        && (!camel.hasSaddle || camel.dashCooldown > 0 || !camel.onGround)) {
-                    break;
-                }
+                // Camel#onPlayerJump also needs no dash cooldown and the ground, as Camel#tick's move and cooldown
+                // tail leave them before this release. The client tick end judges them after both have run.
                 if (horse != null && horse.hasSaddle) {
                     double jumpScale = packet.data() >= 90 ? 1.0F : 0.4F + 0.4F * packet.data() / 90.0F;
                     // MCP-Reborn ClientLevel#tickNonPassenger ticks the root

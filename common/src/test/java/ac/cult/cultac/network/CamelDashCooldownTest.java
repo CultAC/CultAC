@@ -3,6 +3,7 @@ package ac.cult.cultac.network;
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
@@ -41,12 +42,24 @@ class CamelDashCooldownTest {
     /** Camel#executeRidersJump and Camel#onSyncedDataUpdated's dash cooldown. */
     private static final int DASH_COOLDOWN = 55;
 
+    /** AbstractHorse#getPlayerJumpPendingScale for a tapped and for a full jump bar. */
+    private static final float TAPPED_CHARGE = 0.4F;
+
+    private static final float FULL_CHARGE = 1.0F;
+    private static final int FULL_JUMP = 90;
+
     private static final Vec3 START = new Vec3(0.5, FLOOR_Y, 0.5);
     private static final Vec3 ON_FOOT = new Vec3(4.5, FLOOR_Y, 0.5);
+    /** At rest a quarter block over {@code START}. */
+    private static final Vec3 ABOVE_START = new Vec3(START.x, FLOOR_Y + 0.25, START.z);
+    /** The camel's 1.7-wide box still overlaps the floor's last block row, which ends at z = 9, by 0.05. */
+    private static final Vec3 AT_EDGE = new Vec3(0.5, FLOOR_Y, 9.8);
     /** Camel#getRiddenSpeed: movement_speed 0.09 plus 0.1 for a sprinting controller with no dash cooldown. */
     private static final float SPEED = 0.09F + 0.1F;
     /** LivingEntity#travelInAir: a grounded camel's (0 - 0.08) * 0.98F. */
     private static final double GROUNDED_Y = -0.0784000015258789;
+    /** Standing on the floor: Entity#move sets onGround only from a downward delta's verticalCollisionBelow. */
+    private static final Vec3 STANDING = new Vec3(0.0, GROUNDED_Y, 0.0);
 
     private static final double GROUND_FRICTION = 0.6F * 0.91F;
     /** LivingEntity#moveRelative for the ridden input's 0.98F on 0.6-friction ground. */
@@ -56,6 +69,8 @@ class CamelDashCooldownTest {
 
     private static final ServerboundPlayerInput IDLE =
             new ServerboundPlayerInput(false, false, false, false, false, false, false);
+    private static final ServerboundPlayerInput FORWARD =
+            new ServerboundPlayerInput(true, false, false, false, false, false, false);
     private static final ServerboundPlayerInput FORWARD_SPRINT =
             new ServerboundPlayerInput(true, false, false, false, false, false, true);
 
@@ -63,7 +78,7 @@ class CamelDashCooldownTest {
     void anUnriddenCamelsDashCooldownRunsDown() throws Exception {
         try (var f = new JavaTickFixture()) {
             f.player.compensatedWorld.applyClientTime(new TimeUpdate(GAME_TIME, Map.of()));
-            f.place(ON_FOOT, Vec3.ZERO);
+            f.place(ON_FOOT, STANDING);
             f.player.compensatedEntities.addEntity(CAMEL, EntityTypeIds.CAMEL, START, 0, 0, 0);
             PacketEntityCamel camel = (PacketEntityCamel) f.player.compensatedEntities.getEntity(CAMEL);
             camel.hasSaddle = true;
@@ -141,7 +156,7 @@ class CamelDashCooldownTest {
     void aCooldownLeftAtTheDismountRunsOutBeforeTheRemount() throws Exception {
         try (var f = new JavaTickFixture()) {
             f.player.compensatedWorld.applyClientTime(new TimeUpdate(GAME_TIME, Map.of()));
-            f.place(ON_FOOT, Vec3.ZERO);
+            f.place(ON_FOOT, STANDING);
             f.player.compensatedEntities.addEntity(CAMEL, EntityTypeIds.CAMEL, START, 0, 0, 0);
             PacketEntityCamel camel = (PacketEntityCamel) f.player.compensatedEntities.getEntity(CAMEL);
             camel.hasSaddle = true;
@@ -169,17 +184,95 @@ class CamelDashCooldownTest {
     }
 
     /**
-     * Camel#executeRidersJump at a tapped charge, AbstractHorse#onPlayerJump's 0.4 scale, from rest facing +z, then
-     * LivingEntity#travelInAir with no ridden input until the camel lands and slows; the camel's resting position.
+     * Camel#tick runs the cooldown from 1 to 0 before the rider's LocalPlayer#aiStep releases the jump, so
+     * Camel#onPlayerJump takes the tapped charge and the camel dashes on its next tick.
+     */
+    @Test
+    void aReleaseAsTheCooldownRunsOutArmsTheDash() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            PacketEntityCamel camel = spawn(f);
+            metadata(f, false);
+            assertExact(f.tick(ON_FOOT, true));
+
+            metadata(f, true);
+            for (int tick = 0; tick < DASH_COOLDOWN - 2; tick++) assertExact(f.tick(ON_FOOT, true));
+            board(f, IDLE);
+            assertEquals(1, camel.dashCooldown);
+
+            f.command(PlayerCommandAction.START_JUMPING_WITH_HORSE);
+            assertExact(ride(f, START, true));
+            assertEquals(TAPPED_CHARGE, camel.horseJump, "Camel#onPlayerJump refused the release");
+            dash(f, START, TAPPED_CHARGE, 12);
+        }
+    }
+
+    /**
+     * The camel's move lands it before the rider's LocalPlayer#aiStep releases a full charge, so Camel#onPlayerJump
+     * reads the new ground and the camel dashes on its next tick.
+     */
+    @Test
+    void aFullReleaseOnTheLandingTickArmsTheDash() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            PacketEntityCamel camel = spawn(f, ABOVE_START, false);
+            metadata(f, false);
+            assertExact(f.tick(ON_FOOT, true));
+
+            board(f, IDLE, Vec3.ZERO, DesyncStatus.FALSE);
+            // LivingEntity#travelInAir from rest until Entity#move lands the camel on the floor.
+            double y = ABOVE_START.y;
+            double vy = 0.0;
+            while (y + vy > FLOOR_Y) {
+                y += vy;
+                assertExact(ride(f, new Vec3(START.x, y, START.z), false));
+                vy = (vy - 0.08) * 0.98F;
+            }
+            f.command(PlayerCommandAction.START_JUMPING_WITH_HORSE, FULL_JUMP);
+            assertExact(ride(f, START, true));
+            assertEquals(FULL_CHARGE, camel.horseJump, "Camel#onPlayerJump refused the release");
+            // Four ticks show the full dash, which lands past the floor's edge.
+            dash(f, START, FULL_CHARGE, 4);
+        }
+    }
+
+    /**
+     * The camel's move walks it off the floor's edge before the rider's LocalPlayer#aiStep releases the jump, so
+     * Camel#onPlayerJump refuses it although the camel started the tick on the ground.
+     */
+    @Test
+    void aReleaseAfterWalkingOffAnEdgeIsRefused() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            PacketEntityCamel camel = spawn(f, AT_EDGE, true);
+            metadata(f, false);
+            assertExact(f.tick(ON_FOOT, true));
+
+            board(f, FORWARD);
+            // Entity#collide resolves Y first, while the box still overlaps the last row, then walks off it.
+            double vz = WALK_INPUT;
+            double z = AT_EDGE.z + vz;
+            assertExact(ride(f, new Vec3(AT_EDGE.x, FLOOR_Y, z), true));
+            vz = vz * GROUND_FRICTION + WALK_INPUT;
+            z += vz;
+            f.command(PlayerCommandAction.START_JUMPING_WITH_HORSE, FULL_JUMP);
+            assertExact(ride(f, new Vec3(AT_EDGE.x, FLOOR_Y + GROUNDED_Y, z), false));
+            assertEquals(0.0D, camel.horseJump, "Camel#onPlayerJump took a release in the air");
+        }
+    }
+
+    /**
+     * Camel#executeRidersJump at {@code amount} from rest facing +z, then LivingEntity#travelInAir with no ridden input
+     * for {@code ticks} ticks, landing and slowing on the floor; the camel's last position.
      */
     private static Vec3 dash(JavaTickFixture f, Vec3 from) {
-        final float amount = 0.4F;
+        return dash(f, from, TAPPED_CHARGE, 12);
+    }
+
+    private static Vec3 dash(JavaTickFixture f, Vec3 from, float amount, int ticks) {
         double y = from.y;
         double z = from.z;
         double vy = GROUNDED_Y + 1.4285F * amount * (double) 0.42F;
         double vz = 22.2222F * amount * (double) 0.09F;
         boolean onGround = true;
-        for (int tick = 0; tick < 12; tick++) {
+        for (int tick = 0; tick < ticks; tick++) {
             if (Math.abs(vy) < 0.003) vy = 0.0;
             if (Math.abs(vz) < 0.003) vz = 0.0;
             double friction = (onGround ? 0.6F : 1.0F) * 0.91F;
@@ -198,13 +291,19 @@ class CamelDashCooldownTest {
     }
 
     /** The saddled, grounded camel at {@code START} beside the rider on foot. */
-    private static void spawn(JavaTickFixture f) {
+    private static PacketEntityCamel spawn(JavaTickFixture f) {
+        return spawn(f, START, true);
+    }
+
+    /** The saddled camel at {@code at} beside the rider on foot. */
+    private static PacketEntityCamel spawn(JavaTickFixture f, Vec3 at, boolean onGround) {
         f.player.compensatedWorld.applyClientTime(new TimeUpdate(GAME_TIME, Map.of()));
-        f.place(ON_FOOT, Vec3.ZERO);
-        f.player.compensatedEntities.addEntity(CAMEL, EntityTypeIds.CAMEL, START, 0, 0, 0);
+        f.place(ON_FOOT, STANDING);
+        f.player.compensatedEntities.addEntity(CAMEL, EntityTypeIds.CAMEL, at, 0, 0, 0);
         PacketEntityCamel camel = (PacketEntityCamel) f.player.compensatedEntities.getEntity(CAMEL);
         camel.hasSaddle = true;
-        camel.onGround = true;
+        camel.onGround = onGround;
+        return camel;
     }
 
     /** The server's camel DASH and a standing LAST_POSE_CHANGE_TICK, delivered. */
@@ -224,18 +323,23 @@ class CamelDashCooldownTest {
         f.input(FORWARD_SPRINT);
         f.command(PlayerCommandAction.START_SPRINTING);
         f.tickEnd();
-        f.player.checkManager.getSimulationProcessor().seedStartingVelocity(new Vec3(0.0, GROUNDED_Y, 0.0));
+        f.player.checkManager.getSimulationProcessor().seedStartingVelocity(STANDING);
         f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.TRUE);
     }
 
-    /** The rider boards the still camel holding {@code keys}. */
+    /** The rider boards the still, grounded camel holding {@code keys}. */
     private static void board(JavaTickFixture f, ServerboundPlayerInput keys) {
+        board(f, keys, STANDING, DesyncStatus.TRUE);
+    }
+
+    /** The rider boards the camel moving at {@code velocity} holding {@code keys}. */
+    private static void board(JavaTickFixture f, ServerboundPlayerInput keys, Vec3 velocity, DesyncStatus onGround) {
         f.setPassengers(CAMEL, List.of(f.player.entityID));
         f.pongThrough(f.player.lastTransactionSent.get());
         f.input(keys);
         f.tickEnd();
-        f.player.checkManager.getSimulationProcessor().seedStartingVelocity(new Vec3(0.0, GROUNDED_Y, 0.0));
-        f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.TRUE);
+        f.player.checkManager.getSimulationProcessor().seedStartingVelocity(velocity);
+        f.player.checkManager.getSimulationProcessor().setLastOnGround(onGround);
     }
 
     private static void acceptNewTeleports(JavaTickFixture f, List<Integer> before) {
