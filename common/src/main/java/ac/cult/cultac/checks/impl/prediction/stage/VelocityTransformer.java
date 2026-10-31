@@ -255,9 +255,9 @@ public class VelocityTransformer {
         return split;
     }
 
-    /** Entity#baseTick's water or lava current at the start, for a velocity before it. */
+    /** Entity#baseTick's water or lava current where baseTick ran, for a velocity before it. */
     private Vec3 current(CultPlayer player, Vec3 velocity, boolean lava) {
-        Vec3 start = simulationContext.getStart();
+        Vec3 start = simulationContext.getBaseTickStart(player);
         return lava
                 ? WaterCurrent.calculateLavaCurrent(player, simulationContext, start, velocity)
                 : WaterCurrent.calculateWaterCurrent(player, simulationContext, start, velocity);
@@ -265,8 +265,8 @@ public class VelocityTransformer {
 
     /**
      * The currents of one {@link #applyBaseTickFluidCurrents}, each computed at most once. A fluid's scan reads only
-     * the blocks at the start; the velocity enters FluidCurrent#compute only through its slow-square test, so each
-     * fluid has one current for slow velocities and one for the rest.
+     * the blocks where baseTick ran; the velocity enters FluidCurrent#compute only through its slow-square test, so
+     * each fluid has one current for slow velocities and one for the rest.
      */
     private final class BaseTickCurrents {
         private final CultPlayer player;

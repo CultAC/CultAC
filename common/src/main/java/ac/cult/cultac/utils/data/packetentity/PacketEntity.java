@@ -63,6 +63,8 @@ public class PacketEntity {
     private final boolean minecart;
     private final boolean happyGhast;
     private int localInterpolationClientTick = Integer.MIN_VALUE;
+    /** Where the root stood when {@link #interpolateBeforeLocalTravel} last stepped it. */
+    private @Nullable Vec3 positionBeforeLocalInterpolation;
     private int activeInterpolationClientTick = Integer.MIN_VALUE;
     private int tickedAtClientTick = Integer.MIN_VALUE;
     private long orderAtClientTickStart;
@@ -1326,6 +1328,7 @@ public class PacketEntity {
             return;
         }
         localInterpolationClientTick = player.packetStateData.acceptedClientTick;
+        positionBeforeLocalInterpolation = clientPhysicalPosition == null ? desyncClientPos : clientPhysicalPosition;
         stepInterpolation(player);
         if (oldPacketLocation != null) {
             oldPacketLocation.tickMovement(true);
@@ -1344,6 +1347,11 @@ public class PacketEntity {
 
     public boolean interpolatedBeforeLocalTravel(CultPlayer player) {
         return localInterpolationClientTick == player.packetStateData.acceptedClientTick;
+    }
+
+    /** Where the root stood before {@link #interpolateBeforeLocalTravel} stepped it this client tick, if it did. */
+    public @Nullable Vec3 positionBeforeLocalInterpolation(CultPlayer player) {
+        return interpolatedBeforeLocalTravel(player) ? positionBeforeLocalInterpolation : null;
     }
 
     private boolean hasActiveLocalRootInterpolation() {

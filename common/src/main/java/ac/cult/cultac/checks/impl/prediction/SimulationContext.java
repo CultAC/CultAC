@@ -505,6 +505,18 @@ public class SimulationContext implements Cloneable {
         return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), getMinHeight());
     }
 
+    /**
+     * Where this movement's Entity#baseTick refreshed the fluid cache and applied the fluid currents. Through 26.2
+     * LivingEntity#aiStep, or AbstractBoat#tick, steps a root's interpolation after Entity#baseTick, so a root stepped
+     * before local travel read its fluids where it stood before that step. From 26.3 Entity#commonTick steps it first.
+     */
+    public Vec3 getBaseTickStart(CultPlayer player) {
+        if (vehicle == null || player.isBedrockMovement() || version.isNewerThanOrEquals(ClientVersion.V_26_3))
+            return start;
+        Vec3 beforeInterpolation = vehicle.positionBeforeLocalInterpolation(player);
+        return beforeInterpolation == null ? start : beforeInterpolation;
+    }
+
     public SimpleCollisionBox getFromActualPose() {
         return getFromActualPose(new SimpleCollisionBox());
     }

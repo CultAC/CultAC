@@ -135,6 +135,59 @@ class JavaStriderLavaTravelTest {
         }
     }
 
+    /**
+     * Through 26.2 Entity#baseTick caches the lava contact before LivingEntity#aiStep steps the interpolation, so the
+     * first controlled travel uses that cache although the step has left the lava. 26.3's Entity#commonTick steps
+     * first, so its baseTick reads the position after the step.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("ac.cult.cultac.network.JavaPistonReleaseCases#releases")
+    void aStriderInterpolatedOutOfLavaTravelsInTheLavaItsBaseTickCached(String release, ClientVersion version)
+            throws Exception {
+        try (var f = new JavaTickFixture()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
+            // One still lava source on the server path: its second step stands in it, its last step leaves it.
+            f.player.compensatedWorld.updateBlock(new BlockPos(2, FLOOR_Y, 0), BlockIds.LAVA.defaultState());
+            Vec3 start = new Vec3(0.5, FLOOR_Y, 0.5);
+            f.place(start, Vec3.ZERO);
+            f.player.compensatedEntities.addEntity(STRIDER, EntityTypeIds.STRIDER, start, 0, 0, 0);
+            var strider = (PacketEntityStrider) f.player.compensatedEntities.getEntity(STRIDER);
+            strider.hasSaddle = true;
+            f.setPassengers(STRIDER, List.of(f.player.entityID));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            strider.onGround = true;
+            // A three-step server path to x = 3.5, ridden passively for two steps.
+            strider.onFirstTransaction(false, true, 3.5, FLOOR_Y, 0.5, f.player);
+            strider.onSecondTransaction();
+            f.rideTick();
+            f.rideTick();
+            // 26.3's InterpolationHandler lerps with a float step.
+            assertEquals(2.5, strider.clientPhysicalPosition.x, 1.0E-6);
+
+            // The fungus hands the rider control. The last step leaves the lava before this tick's travel.
+            f.player.getInventory().inventory.setHeldItem(ItemUtil.modelItems().stack("minecraft:warped_fungus_on_a_stick", 1));
+            f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.TRUE);
+            f.player.checkManager.getSimulationProcessor().seedStartingVelocity(Vec3.ZERO);
+            // Strider#getRiddenInput walks forward; LivingEntity#travelInLava moves it 0.02F along +Z at yaw 0.
+            Vec3 move = new Vec3(0, 0, (double) 0.02F);
+            var result = f.rideTick(new Vec3(3.5, FLOOR_Y, 0.5).add(move), false);
+            boolean cached = version.isOlderThan(ClientVersion.V_26_3);
+            assertEquals(cached, result.getSimulationContext().getWorldData().isInLava(), release);
+            if (!cached) return;
+            assertTrue(exact(result), release + ": " + describe(result));
+            assertEquals(0.0D, result.getOffset(), 1.0E-12, release + ": " + describe(result));
+            // The cached deep lava halves the move and adds a quarter of the gravity; Strider#floatStrider then
+            // halves it again and adds 0.05Y.
+            Vec3 expected = move.scale(0.5D).add(0, -0.08D / 4.0D, 0).scale(0.5D).add(0, 0.05D, 0);
+            var carried = f.player.checkManager.getSimulationProcessor().getValidPlayerStartingVels();
+            assertEquals(1, carried.size(), release);
+            Vec3 actual = carried.iterator().next();
+            assertEquals(expected.x, actual.x, 1.0E-12, release);
+            assertEquals(expected.y, actual.y, 1.0E-12, release);
+            assertEquals(expected.z, actual.z, 1.0E-12, release);
+        }
+    }
+
     /** The move leaving lava keeps its start's air path; dry feet with a body still in lava use the fluid path next. */
     @Test
     void leavingLavaSwitchesTravelOnTheFollowingTick() throws Exception {
