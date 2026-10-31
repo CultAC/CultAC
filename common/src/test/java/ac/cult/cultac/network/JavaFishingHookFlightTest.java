@@ -5,9 +5,14 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFishingHookFlight;
+import ac.cult.cultac.events.packets.PacketWorldBorder;
+import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHook;
 import ac.cult.cultac.utils.math.Vec3;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 class JavaFishingHookFlightTest {
     /**
@@ -40,6 +45,48 @@ class JavaFishingHookFlightTest {
             assertFalse(result.state().onGround(), "the scaled hook stops short of the floor");
             assertEquals(move.x * 0.92, result.state().velocity().x, 1e-12);
             assertEquals(move.y * 0.92, result.state().velocity().y, 1e-12);
+        }
+    }
+
+    /**
+     * CollisionGetter#clipIncludingBorder returns a world-border BlockHitResult where the ray leaves the border, and
+     * Projectile#hitTargetOrDeflectSelf bounces it for FishingHook#shouldBounceOnWorldBorder instead of calling
+     * FishingHook#onHitBlock. Before 26.3 the client runs ProjectileDeflection#REVERSE (x -0.5) and then scales by
+     * 0.2; 26.3 passes 0.2 as the power of a server-only deflection, so its client keeps the velocity and its
+     * Entity#move stops at the border.
+     */
+    @ParameterizedTest
+    @EnumSource(
+            value = ClientVersion.class,
+            names = {"V_1_21_4", "V_1_21_11", "V_26_2", "V_26_3"})
+    void aWorldBorderHitBouncesInsteadOfShorteningTheHook(ClientVersion version) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
+            PacketWorldBorder border = f.player.checkManager.getWorldBorder();
+            JavaTickFixture.setField(PacketWorldBorder.class, border, "oldDiameter", 12.0);
+            JavaTickFixture.setField(PacketWorldBorder.class, border, "newDiameter", 12.0);
+            Vec3 start = new Vec3(5.5, JavaTickFixture.FLOOR_Y + 1.44, 0.5);
+            Vec3 velocity = new Vec3(1, 0, 0);
+            f.player.compensatedEntities.addEntity(90, EntityTypeIds.FISHING_BOBBER, start, 0, 0, 0);
+            var hook = (PacketEntityHook) f.player.compensatedEntities.getEntity(90);
+            hook.clientPhysicalPosition = start;
+            hook.deltaMovement = velocity;
+
+            var result =
+                    JavaFishingHookFlight.tick(f.player, hook, null, true, 40).getFirst();
+
+            double gravity = version.isNewerThanOrEquals(ClientVersion.V_26_3) ? (double) 0.03F : 0.03;
+            Vec3 end = result.state().position();
+            assertEquals(start.y - gravity, end.y, 1e-12);
+            if (version.isNewerThanOrEquals(ClientVersion.V_26_3)) {
+                // The 0.25 wide hook meets the border at X = 6; FishingHook#tick zeroes a horizontal collision.
+                assertEquals(6 - 0.125, end.x, 1e-12);
+                assertEquals(0.0, result.state().velocity().x, 1e-12);
+            } else {
+                Vec3 bounced = velocity.scale(-0.5).scale(0.2);
+                assertEquals(start.x + bounced.x, end.x, 1e-12);
+                assertEquals(bounced.x * 0.92, result.state().velocity().x, 1e-12);
+            }
         }
     }
 }

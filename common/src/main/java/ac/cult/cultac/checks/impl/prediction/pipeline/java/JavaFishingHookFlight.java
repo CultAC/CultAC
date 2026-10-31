@@ -119,9 +119,16 @@ public final class JavaFishingHookFlight {
                 : new Vec3(hit.location().x(), hit.location().y(), hit.location().z());
         Vec3 bounded = borderHit(player, start, to);
         if (hit == null && bounded == to) return List.of(velocity);
+        boolean border = bounded != to;
         to = bounded;
-        // FishingHook#onHitBlock scales by HitResult#distanceTo, which returns the squared distance.
-        Vec3 blocked = velocity.normalize().scale(start.distanceToSqr(to));
+        // FishingHook#onHitBlock scales by HitResult#distanceTo, which returns the squared distance. A world-border hit
+        // never reaches it: FishingHook#shouldBounceOnWorldBorder deflects with REVERSE (x -0.5), then x0.2. Before
+        // 26.3 the client runs that deflection itself; 26.3 passes 0.2 as its power and runs it only on the server.
+        Vec3 blocked = !border
+                ? velocity.normalize().scale(start.distanceToSqr(to))
+                : player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)
+                        ? velocity
+                        : velocity.scale(-0.5).scale(0.2);
         // onHitEntity is server-only; a client entity hit only suppresses onHitBlock's ray shortening.
         SimpleCollisionBox query = box(player, hook, start).expandToCoordinate(velocity.x, velocity.y, velocity.z)
                 .expand(1.0);
