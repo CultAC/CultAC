@@ -247,10 +247,9 @@ public final class JavaPassengerTravel {
         return true;
     }
 
+    /** Entity#getBlockJumpFactor: the feet block, then getBlockPosBelowThatAffectsMyMovement 0.500001 below. */
     private static float jumpFactor(CultPlayer player, JavaPassState state, Vec3 start) {
-        int feet = player.compensatedWorld.getBlockStateIdAt(BlockPos.containing(start.x, start.y, start.z));
-        int below = BlockProperties.getOnPos(player, state.support(), start);
-        return BlockIds.is(feet, BlockIds.HONEY_BLOCK) || BlockIds.is(below, BlockIds.HONEY_BLOCK) ? .5F : 1;
+        return BlockProperties.onHoneyBlock(player, state.support(), start) ? .5F : 1;
     }
 
     private static Integer effect(PacketEntity actor, MovementEffect effect) {
