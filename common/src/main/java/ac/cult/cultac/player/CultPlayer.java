@@ -705,15 +705,18 @@ public class CultPlayer implements GrimUser {
             return stepHeight == null ? 0.6f : stepHeight.floatValue();
         }
 
+        // Entity#maxUpStep: a boat is not a LivingEntity.
         if (EntityTypeUtil.isBoat(riding.type)) {
             return 0f;
         }
 
+        // LivingEntity#maxUpStep: the vehicle's STEP_HEIGHT, at least 1.0 while a player controls it, which it does
+        // for any vehicle the player moves. A step_height update below 1.0 therefore cannot lower it.
         if (riding.stepHeightAttribute != null) {
-            return riding.stepHeightAttribute.floatValue();
+            return Math.max(riding.stepHeightAttribute.floatValue(), 1.0f);
         }
 
-        // Pigs, horses, striders, and other vehicles all have 1 stepping height
+        // No controllable vehicle's type default exceeds 1.0; the camel family carries its 1.5 as the attribute.
         return 1.0f;
     }
 
