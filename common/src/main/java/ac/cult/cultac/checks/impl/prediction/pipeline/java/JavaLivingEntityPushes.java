@@ -41,7 +41,13 @@ public final class JavaLivingEntityPushes {
                 && entity.type != EntityTypeIds.ENDER_DRAGON;
     }
 
+    /**
+     * Whether Entity#push skips {@code entity} as the pusher for its noPhysics. A spectating remote player has it, and
+     * Vex#tick sets it around super.tick(), whose LivingEntity#aiStep#pushEntities is the only call where a Vex
+     * pushes the player, so a Vex never pushes it.
+     */
     public static boolean noPhysics(CultPlayer player, PacketEntity entity) {
+        if (entity.type == EntityTypeIds.VEX) return true;
         if (!(entity instanceof PacketEntityPlayer remote)) return false;
         if (!remote.actionPresent) return true;
         var info = remote.cachedInfo != null

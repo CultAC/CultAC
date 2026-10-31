@@ -103,6 +103,24 @@ class JavaEntityPushTest {
         }
     }
 
+    /**
+     * Vex#tick sets noPhysics around super.tick(), and Entity#push skips a pusher with noPhysics, so the Vex's
+     * LivingEntity#pushEntities never moves the player, on either side of its tick.
+     */
+    @Test
+    void aVexNeverPushesThePlayer() throws Exception {
+        for (boolean beforePlayer : new boolean[] {true, false}) {
+            try (var f = falling()) {
+                // 0.4 along Z from the falling player, and within its box: a zombie there pushes it by -0.0316.
+                f.player.compensatedEntities.addEntity(100, EntityTypeIds.VEX, START.add(0, -0.5, 0.4), 0, 0, 0);
+                if (beforePlayer) f.player.compensatedEntities.getEntity(100).setClientTickOrder(-1L);
+
+                assertExact(f.tick(CONTACT, false));
+                assertExact(f.tick(CONTACT.add(0, SECOND_FALL, 0), false));
+            }
+        }
+    }
+
     @Test
     void anEntityTickingBeforeThePlayerPushesItOnFirstContact() throws Exception {
         try (var f = falling()) {

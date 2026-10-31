@@ -59,6 +59,7 @@ public final class EntityTypeIds {
     public static final int TEXT_DISPLAY = id("text_display");
     public static final int TROPICAL_FISH = id("tropical_fish");
     public static final int TURTLE = id("turtle");
+    public static final int VEX = id("vex");
     public static final int VINDICATOR = id("vindicator");
     public static final int WIND_CHARGE = id("wind_charge");
     public static final int WITCH = id("witch");
