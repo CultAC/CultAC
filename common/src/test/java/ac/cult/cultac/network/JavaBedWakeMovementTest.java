@@ -3,11 +3,13 @@ package ac.cult.cultac.network;
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
+import static ac.cult.cultac.network.JavaTickFixture.observeOnly;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.events.packets.listeners.PacketSelfMetadataListener;
@@ -40,6 +42,7 @@ class JavaBedWakeMovementTest {
     private static final ServerboundPlayerInput FORWARD =
             new ServerboundPlayerInput(true, false, false, false, false, false, false);
     private static final BlockPos HEAD = new BlockPos(0, FLOOR_Y, 0);
+    private static final int VEHICLE = 100;
 
     @Test
     void holdingForwardThroughTheWakeUpIsPredictedExactly() throws Exception {
@@ -142,11 +145,7 @@ class JavaBedWakeMovementTest {
      */
     private static void travelsOnFromTheBed(String block, double sleepHeight, double restHeight) throws Exception {
         try (var f = new JavaTickFixture()) {
-            var registry = DataTables.defaults().registry();
-            int bed = registry.with(registry.block(block).defaultState(), "facing", "south");
-            f.player.compensatedWorld.updateBlock(HEAD, registry.with(bed, "part", "head"));
-            f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, -1), bed);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            placeBed(f, block);
 
             Vec3 standUp = new Vec3(-0.5, FLOOR_Y, 0.5);
             f.place(standUp, Vec3.ZERO);
@@ -172,6 +171,75 @@ class JavaBedWakeMovementTest {
     }
 
     /**
+     * LivingEntity#onSyncedDataUpdated has no passenger exception, so a sleeping position reaching a client that still
+     * rides an armor stand moves it to the bed. A dismount before its next tick leaves it there, since Entity#stopRiding
+     * moves nothing on the client, with the delta movement its last Entity#rideTick's travel left: gravity from zero.
+     */
+    @Test
+    void aPassengerGivenItsSleepingPositionIsDismountedOnTheBed() throws Exception {
+        try (var f = new JavaTickFixture();
+                var ignored = observeOnly()) {
+            placeBed(f, "minecraft:red_bed");
+            mountArmorStand(f);
+            f.rideTick();
+            f.rideTick();
+
+            sleepingPos(f, Optional.of(HEAD));
+            dismountArmorStand(f);
+            Vec3 fallen = new Vec3(0.5, FLOOR_Y + 0.6875 - 0.08D * (double) 0.98F, 0.5);
+            PredictionResult result = f.tick(fallen, false);
+
+            assertTrue(exact(result), describe(result));
+        }
+    }
+
+    /**
+     * Before its first Entity#rideTick the passenger is still where Entity#startRiding found it, so the sleeping
+     * position moves it to the bed all the same. The dismount keeps the zero delta movement it mounted with.
+     */
+    @Test
+    void aPassengerThatHasNotRiddenYetIsDismountedOnTheBed() throws Exception {
+        try (var f = new JavaTickFixture();
+                var ignored = observeOnly()) {
+            placeBed(f, "minecraft:red_bed");
+            mountArmorStand(f);
+
+            sleepingPos(f, Optional.of(HEAD));
+            dismountArmorStand(f);
+            PredictionResult result = f.tick(new Vec3(0.5, FLOOR_Y + 0.6875, 0.5), false);
+
+            assertTrue(exact(result), describe(result));
+        }
+    }
+
+    /**
+     * The sleeping position moves only the LocalPlayer, which the boat's next Entity#positionRider seats again, so the
+     * boat its passenger drives stays where its own tick leaves it.
+     */
+    @Test
+    void aSleepingPositionLeavesTheBoatItsPassengerDrives() throws Exception {
+        try (var f = new JavaTickFixture();
+                var ignored = observeOnly()) {
+            placeBed(f, "minecraft:red_bed");
+            Vec3 boat = new Vec3(-2.5, FLOOR_Y, 0.5);
+            f.place(boat, Vec3.ZERO);
+            f.player.compensatedEntities.addEntity(VEHICLE, EntityTypeIds.OAK_BOAT, boat, 0, 0, 0);
+            f.player.xRot = 0;
+            f.player.yRot = 0;
+            f.setPassengers(VEHICLE, List.of(f.player.entityID));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            f.input(NONE);
+            PredictionResult before = f.rideTick(boat, true);
+            assertTrue(exact(before), describe(before));
+
+            sleepingPos(f, Optional.of(HEAD));
+            PredictionResult result = f.rideTick(boat, true);
+
+            assertTrue(exact(result), describe(result));
+        }
+    }
+
+    /**
      * A remote LivingEntity#pushEntities reaches only the LocalPlayer, through player.push(pusher), which
      * LivingEntity#push(Entity) skips while the player isSleeping. With no bed at the sleeping position, 26.3's
      * LivingEntity#setPosToBed leaves the sleeper standing beside the pusher, as after a pig ride into a bed.
@@ -191,6 +259,33 @@ class JavaBedWakeMovementTest {
                 assertTrue(exact(result), describe(result));
             }
         }
+    }
+
+    /** Stands still beside the bed and is seated on an armor stand there, holding no keys. */
+    private static void mountArmorStand(JavaTickFixture f) {
+        Vec3 stand = new Vec3(-2.5, FLOOR_Y, 0.5);
+        f.place(stand, Vec3.ZERO);
+        f.player.compensatedEntities.addEntity(VEHICLE, EntityTypeIds.ARMOR_STAND, stand, 0, 0, 0);
+        f.setPassengers(VEHICLE, List.of(f.player.entityID));
+        f.pongThrough(f.player.lastTransactionSent.get());
+        assertTrue(f.player.compensatedEntities.getSelf().inVehicle());
+        f.input(NONE);
+    }
+
+    /** Observe-only, the set_passengers that empties the armor stand carries no resync teleport. */
+    private static void dismountArmorStand(JavaTickFixture f) {
+        f.setPassengers(VEHICLE, List.of());
+        f.pongThrough(f.player.lastTransactionSent.get());
+        assertFalse(f.player.compensatedEntities.getSelf().inVehicle());
+    }
+
+    /** A south-facing bed of {@code block} with its head at {@link #HEAD} and its foot north of it. */
+    private static void placeBed(JavaTickFixture f, String block) {
+        var registry = DataTables.defaults().registry();
+        int bed = registry.with(registry.block(block).defaultState(), "facing", "south");
+        f.player.compensatedWorld.updateBlock(HEAD, registry.with(bed, "part", "head"));
+        f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, -1), bed);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
     }
 
     private static void sleepTick(JavaTickFixture f, Vec3 at, boolean onGround) {

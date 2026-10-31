@@ -213,6 +213,17 @@ public final class PassengerRideTick {
         states = List.copyOf(next);
     }
 
+    /** Entity#setPos replaces only the passenger's position; the next ride tick starts every state there. */
+    public void setPosition(Vec3 position) {
+        var next = new ArrayList<State>(states.size());
+        for (var state : states) {
+            var moved = new State(
+                    state.move().withPosition(position), state.jumpDelay(), state.patch(), state.order(), state.pose());
+            if (!next.contains(moved)) next.add(moved);
+        }
+        states = List.copyOf(next);
+    }
+
     /** A packet callback overwrites passenger motion without changing any ride-tick state. */
     public void setMotionY(double y) {
         states = states.stream().map(state -> new State(state.move().withVelocity(state.move().velocity().with(ac.cult.cultac.protocol.value.Direction.Axis.Y, y)),

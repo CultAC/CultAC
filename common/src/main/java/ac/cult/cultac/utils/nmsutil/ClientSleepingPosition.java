@@ -13,8 +13,9 @@ import java.util.Locale;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * LivingEntity#onSyncedDataUpdated runs LivingEntity#setPosToBed on a Java client that receives its sleeping position.
- * Entity#setPos moves the player without touching deltaMovement, so a sleeper still moving travels on from the bed.
+ * LivingEntity#onSyncedDataUpdated runs LivingEntity#setPosToBed on a Java client that receives its sleeping position,
+ * mounted or not. Entity#setPos moves the player without touching deltaMovement, so a sleeper still moving travels on
+ * from the bed.
  */
 public final class ClientSleepingPosition {
     // Before 26.3, LivingEntity#setPosToBed lifts the sleeper this far whatever the block is.
@@ -27,9 +28,16 @@ public final class ClientSleepingPosition {
 
     /** Moves a Java client's player to its bed, as the synced sleeping position does before its next travel. */
     public static void setPosToBed(CultPlayer player, BlockPos bed) {
-        if (player.isBedrockMovement() || player.compensatedEntities.getSelf().inVehicle()) return;
+        if (player.isBedrockMovement()) return;
         Vec3 position = bedPosition(player, bed);
         if (position == null) return;
+        player.compensatedEntities.observeLocalPlayerPosition(position);
+        if (player.compensatedEntities.getSelf().inVehicle()) {
+            player.checkManager.getSimulationProcessor().moveRider(position);
+            // After a ride tick the passenger's position is its ride state, and player.x/y/z may hold the vehicle it
+            // drives. Before one, the passenger is still where Entity#startRiding found it, in player.x/y/z.
+            if (player.compensatedEntities.rodeLastClientTick()) return;
+        }
         player.lastX = player.x;
         player.lastY = player.y;
         player.lastZ = player.z;
@@ -38,7 +46,6 @@ public final class ClientSleepingPosition {
         player.z = position.z;
         player.packetStateData.clientSidePosition = position;
         player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, position.x, position.y, position.z);
-        player.compensatedEntities.observeLocalPlayerPosition(position);
     }
 
     /**

@@ -1943,6 +1943,15 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         else if (this.startingVelsBeforeRide != null) this.startingVelsBeforeRide = new HashSet<>(List.of(velocity));
     }
 
+    /**
+     * Entity#setPos on the local passenger between client ticks. Its next Entity#rideTick starts there before
+     * Entity#positionRider seats it, and a dismount before that tick leaves it there.
+     */
+    public void moveRider(Vec3 position) {
+        this.passengerRideTick.setPosition(position);
+        this.player.compensatedEntities.moveRideTickSeat(position);
+    }
+
     /** Seeds the delta movements the last Entity#rideTick can have left, which a dismount with no velocity resync keeps. */
     public void seedRideTickVelocity() {
         if (!this.rideTicked) {

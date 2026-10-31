@@ -1130,6 +1130,11 @@ public class CompensatedEntities {
         rideTickSeat = rideTickSeats.isEmpty() ? null : rideTickSeats.getFirst();
     }
 
+    /** Entity#setPos moved the passenger off the seat its last ride tick ended on; before any ride tick, nothing. */
+    public void moveRideTickSeat(Vec3 position) {
+        if (rideTickSeat != null) recordRideTickSeats(List.of(position));
+    }
+
     public List<Vec3> lastRideTickSeats() {
         return rideTickSeats;
     }

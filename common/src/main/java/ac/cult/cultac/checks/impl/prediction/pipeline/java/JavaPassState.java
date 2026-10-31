@@ -113,6 +113,21 @@ public record JavaPassState(
         this(position, velocity, onGround, support, stuckSpeed, fallDistance, pistonDeltas, false);
     }
 
+    public JavaPassState withPosition(Vec3 position) {
+        return new JavaPassState(
+                position,
+                velocity,
+                onGround,
+                support,
+                stuckSpeed,
+                fallDistance,
+                pistonDeltas,
+                powderContact,
+                inWater,
+                inLava,
+                playerEyeFluidContact);
+    }
+
     public JavaPassState withVelocity(Vec3 velocity) {
         return new JavaPassState(
                 position,
