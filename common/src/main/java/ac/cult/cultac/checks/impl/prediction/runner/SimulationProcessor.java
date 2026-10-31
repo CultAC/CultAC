@@ -1621,6 +1621,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             context.getWorldData().setSpinAttack(false, false);
             return;
         }
+        // A rider's own LivingEntity#checkAutoSpinAttack sweeps the rider's boxes, which hold its seat in the vehicle:
+        // the vehicle is in that entity list, so the empty-list horizontal-collision branch cannot run. The vehicle's
+        // Entity#move never writes the rider's horizontalCollision either.
+        if (context.getVehicle() != null) return;
         var pass = JavaMovementEngine.passAfterTravel(result);
         var moved = result.getJavaCommittedMove();
         Vec3 travelEnd = pass != null

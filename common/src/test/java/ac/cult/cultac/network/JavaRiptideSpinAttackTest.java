@@ -380,6 +380,55 @@ class JavaRiptideSpinAttackTest {
     }
 
     /**
+     * A rider's LivingEntity#checkAutoSpinAttack sweeps its own boxes at its seat, so the boat is in that entity list
+     * and the boat's wall contact cannot end the rider's spin. The spin counts down through the ride and, after the
+     * dismount, still rebounds off a living entity.
+     */
+    @Test
+    void aBoatsWallContactLeavesItsRidersSpin() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            for (int x = -2; x <= 2; x++) {
+                for (int y = FLOOR_Y; y <= FLOOR_Y + 1; y++)
+                    f.player.compensatedWorld.updateBlock(new BlockPos(x, y, 1), BlockIds.STONE.defaultState());
+            }
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            // The front of the boat's 1.375 wide box touches the wall at z = 1.
+            Vec3 boat = new Vec3(0.5, FLOOR_Y, 1 - 0.6875);
+            f.place(boat, Vec3.ZERO);
+            f.player.compensatedEntities.addEntity(90, EntityTypeIds.OAK_BOAT, boat, 0, 0, 0);
+            f.setPassengers(90, List.of(f.player.entityID));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            f.player.xRot = 0;
+            f.player.yRot = 0;
+            f.input(new ServerboundPlayerInput(true, false, false, false, false, false, false));
+            f.tickEnd();
+            f.player.riptideSpinAttackTicks = 20;
+            boolean blocked = false;
+            for (int tick = 0; tick < 3; tick++) {
+                PredictionResult ridden = f.rideTick(boat, true);
+                JavaTickFixture.assertVehicleExact(ridden, tick);
+                blocked |= ridden.getCollideAxisData()
+                                instanceof ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision move
+                        && move.horizontalCollision();
+            }
+            assertTrue(blocked, "the boat's thrust never met the wall");
+            assertEquals(17, f.player.riptideSpinAttackTicks);
+            f.setPassengers(90, List.of());
+            f.pongThrough(f.player.lastTransactionSent.get());
+
+            f.player.compensatedEntities.addEntity(71, EntityTypeIds.ARMOR_STAND, BELOW_THE_PATH, 0, 0, 0);
+            f.teleport(START, new RelativeFlag(0));
+            f.pongThrough(f.velocity(SPIN));
+            f.input(NONE);
+            Vec3 through = START.add(SPIN);
+            PredictionResult spun = f.tick(through, false);
+            assertTrue(exact(spun), describe(spun));
+            PredictionResult rebound = f.tick(through.add(drag(SPIN).multiply(-0.2, -0.2, -0.2)), false);
+            assertTrue(exact(rebound), describe(rebound));
+        }
+    }
+
+    /**
      * TridentItem#releaseUsing lifts a player on the ground before LivingEntity#aiStep takes the box before the travel,
      * so an entity under the lifted box takes no hit and the spin continues.
      */
