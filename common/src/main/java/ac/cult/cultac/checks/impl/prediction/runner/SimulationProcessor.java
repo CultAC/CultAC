@@ -36,6 +36,7 @@ import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngines;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAiStepSprint;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaBlockEntityPass;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaCameraTravel;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaInsideBlockEffects;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMathRouter;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
@@ -149,6 +150,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     PredictionCarry profileCarry;
     // Entity#pistonDeltas of the local player, which every block-entity pass the model commits updates.
     private ClientPistonDeltas pistonDeltas = ClientPistonDeltas.NONE;
+    // From 1.21.5, Entity#movementThisTick of the actor a block-entity pass moved since its last travel, which that
+    // actor's next travel's Entity#applyEffectsFromBlocks replays before its own movement.
+    private PacketEntity recordedMovesActor;
+    private List<JavaInsideBlockEffects.RecordedMove> recordedMoves = List.of();
     // Whether the prediction under way runs at a tick end, after the world advanced past that tick's block entities.
     private boolean predictingAtTickEnd;
     // A tick while another entity was the camera left the client somewhere the engine could not follow; no later
@@ -389,7 +394,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                         context.getStart(),
                         state.movementPatch());
             }
-            if (first == null) first = result;
+            if (first == null) {
+                first = result;
+                this.recordMoves(actor, result.recorded());
+            }
             if (vehicle == null) {
                 // Each Entity#move sets the collision flags the next LocalPlayer#aiStep reads; a state the pass did
                 // not move keeps the travel's.
@@ -904,6 +912,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     && carry.actor() == this.player.compensatedEntities.getSelf()) {
                 this.profileCarry = carry.afterTeleport(teleportData);
             }
+            // Entity#teleportSetPosition clears the movements recorded since the last travel.
+            if (this.recordedMovesActor == this.player.compensatedEntities.getSelf()) this.clearRecordedMoves();
 
             if (!teleportData.isRelativeDeltaX()
                     && !teleportData.isRelativeDeltaY()
@@ -1610,12 +1620,32 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
     }
 
-    /** The piston deltas the committed travel's block-entity pass left, from 26.3. */
+    /**
+     * From 1.21.5 Entity#move records each movement in Entity#movementThisTick, which the actor's next travel's
+     * Entity#applyEffectsFromBlocks replays and clears; teleportSetPosition clears it too.
+     */
+    private void recordMoves(PacketEntity actor, JavaBlockEntityPass.Recorded recorded) {
+        if (this.player.getClientVersion().isOlderThan(ClientVersion.V_1_21_5)) return;
+        this.recordedMoves = recorded.after(actor == this.recordedMovesActor ? this.recordedMoves : List.of());
+        this.recordedMovesActor = actor;
+    }
+
+    private void clearRecordedMoves() {
+        this.recordedMoves = List.of();
+        this.recordedMovesActor = null;
+    }
+
+    /** The piston deltas and recorded movements the committed travel's block-entity pass left, from 26.3. */
     private void commitPassAfterTravel(PredictionResult result) {
+        // The travel's Entity#applyEffectsFromBlocks replayed and cleared every movement recorded before it.
+        this.clearRecordedMoves();
         if (result.getValidMovements() == null || result.getValidMovements().getClosestTrace() == null) return;
         JavaPassAfterTravel pass = result.getValidMovements().getClosestTrace().passAfterTravel();
         if (pass != null) {
             PacketEntity vehicle = result.getSimulationContext().getVehicle();
+            this.recordMoves(
+                    vehicle == null ? this.player.compensatedEntities.getSelf() : vehicle,
+                    pass.result().recorded());
             if (vehicle == null) this.pistonDeltas = pass.result().state().pistonDeltas();
             else {
                 vehicle.blockEntityState = pass.result().state();
@@ -2367,6 +2397,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.lastWorldEyeFluidContact = 0;
             // A respawn constructs a new LocalPlayer, whose Entity#pistonDeltas start empty.
             this.pistonDeltas = ClientPistonDeltas.NONE;
+            this.clearRecordedMoves();
         }
     }
 
@@ -3416,6 +3447,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         if (riding != null) context.setBoatInputs(riding.boatInput);
         context.setRiptideReleaseCertain(player.packetStateData.riptideReleaseCertain);
         context.setProfileCarry(selectedCarry == null ? this.profileCarry : selectedCarry);
+        if (!player.isBedrockMovement() && traveller == this.recordedMovesActor)
+            context.setMovesBeforeTravel(this.recordedMoves);
         if (selectedCarry != null && !selectedCarry.states().isEmpty())
             context.setSpinRebound(
                     selectedCarry.states().getFirst().spinRebound() ? SpinRebound.ONLY : SpinRebound.NONE);

@@ -77,18 +77,22 @@ public final class JavaRiptideRelease {
                     }
                 }
                 JavaPassState beforeTick = moved == null ? start : moved;
-                if (!beforePlayer.isEmpty() && beforePlayer.mayReach(context.getActualPoseAt(beforeTick.position())))
-                    moved = JavaBlockEntityPass.run(
-                                    player,
-                                    context,
-                                    beforePlayer,
-                                    beforeTick,
-                                    context.getPose(),
-                                    context.isLastSneaking(),
-                                    context.getStart())
-                            .state();
+                List<JavaInsideBlockEffects.RecordedMove> recorded = recordedLift(context, lifted);
+                if (!beforePlayer.isEmpty() && beforePlayer.mayReach(context.getActualPoseAt(beforeTick.position()))) {
+                    var entityMoves = JavaBlockEntityPass.run(
+                            player,
+                            context,
+                            beforePlayer,
+                            beforeTick,
+                            context.getPose(),
+                            context.isLastSneaking(),
+                            context.getStart());
+                    moved = entityMoves.state();
+                    if (context.getVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5))
+                        recorded = entityMoves.recorded().after(recorded);
+                }
                 SimulationContext released = context.afterPreTravelMove(moved);
-                released.setMovesBeforeTravel(recordedLift(context, lifted));
+                released.setMovesBeforeTravel(recorded);
                 released.setRiptideLiftStuck(lift && context.consumesStuckSpeed() ? context.getLastStuckSpeed() : null);
                 if (moved != null) {
                     var state = new JavaPredictionCarry.State(
@@ -119,12 +123,17 @@ public final class JavaRiptideRelease {
         return outputs;
     }
 
-    /** From 1.21.5 Entity#move records the lift, which the travel's Entity#applyEffectsFromBlocks replays first. */
+    /**
+     * From 1.21.5 Entity#move records the lift after the movements the last block-entity pass recorded, and the
+     * travel's Entity#applyEffectsFromBlocks replays them all first.
+     */
     private static List<JavaInsideBlockEffects.RecordedMove> recordedLift(
             SimulationContext context, JavaBlockEntityMove.Moved lifted) {
         if (lifted == null || !lifted.recordedMovement() || context.getVersion().isOlderThan(ClientVersion.V_1_21_5))
-            return List.of();
-        return List.of(new JavaInsideBlockEffects.RecordedMove(
+            return context.getMovesBeforeTravel();
+        var moves = new ArrayList<>(context.getMovesBeforeTravel());
+        moves.add(new JavaInsideBlockEffects.RecordedMove(
                 context.getStart(), lifted.state().position(), lifted.delta()));
+        return List.copyOf(moves);
     }
 }

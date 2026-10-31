@@ -35,7 +35,8 @@ public final class JavaBlockEntityPass {
      * {@code fixed} axis ends where the pass put it whatever the position it started from on that axis: a partial
      * shove ends 0.01 past the moving face and a collided move at the collider. {@code boatLastYd} is the latest
      * virtual fall callback's deltaMovement.y sample, or null when this pass ran no such callback. {@code lastMove} is
-     * the last Entity#move that set the collision flags, or null when none did.
+     * the last Entity#move that set the collision flags, or null when none did. {@code recorded} is what the pass did
+     * to Entity#movementThisTick.
      */
     public record Result(
             JavaPassState state,
@@ -48,7 +49,35 @@ public final class JavaBlockEntityPass {
             ClientFluidHeights fluidHeights,
             LastMove lastMove,
             ReachInterpolationData oldInterpolation,
-            JavaBlockEntityPath path) {
+            JavaBlockEntityPath path,
+            Recorded recorded) {
+        public Result(
+                JavaPassState state,
+                boolean moved,
+                boolean fixedX,
+                boolean fixedY,
+                boolean fixedZ,
+                ReachInterpolationData interpolation,
+                Double boatLastYd,
+                ClientFluidHeights fluidHeights,
+                LastMove lastMove,
+                ReachInterpolationData oldInterpolation,
+                JavaBlockEntityPath path) {
+            this(
+                    state,
+                    moved,
+                    fixedX,
+                    fixedY,
+                    fixedZ,
+                    interpolation,
+                    boatLastYd,
+                    fluidHeights,
+                    lastMove,
+                    oldInterpolation,
+                    path,
+                    Recorded.NONE);
+        }
+
         public Result(
                 JavaPassState state,
                 boolean moved,
@@ -124,6 +153,32 @@ public final class JavaBlockEntityPass {
      * and minorHorizontalCollision from them, which LocalPlayer#aiStep reads before the next travel.
      */
     public record LastMove(Vec3 delta, Vec3 movement) {}
+
+    /**
+     * A pass's edits to the actor's Entity#movementThisTick, which from 1.21.5 the next Entity#applyEffectsFromBlocks
+     * replays before its own movement: each SHULKER_BOX or SHULKER Entity#move that records its movement appends it,
+     * and PistonMovingBlockEntity#moveEntityByPiston's removeLatestMovementRecording drops the last entry, which is
+     * the piston's own when its Entity#move recorded one and otherwise an earlier one, {@code removedBefore} of them
+     * from before the pass.
+     */
+    public record Recorded(int removedBefore, List<JavaInsideBlockEffects.RecordedMove> added) {
+        public static final Recorded NONE = new Recorded(0, List.of());
+
+        public Recorded {
+            added = List.copyOf(added);
+        }
+
+        /** The actor's movementThisTick after the pass, from {@code before}. */
+        public List<JavaInsideBlockEffects.RecordedMove> after(List<JavaInsideBlockEffects.RecordedMove> before) {
+            if (removedBefore == 0 && added.isEmpty()) return before;
+            int kept = Math.max(0, before.size() - removedBefore);
+            if (kept == before.size() && added.isEmpty()) return before;
+            var moves = new java.util.ArrayList<JavaInsideBlockEffects.RecordedMove>(kept + added.size());
+            moves.addAll(before.subList(0, kept));
+            moves.addAll(added);
+            return List.copyOf(moves);
+        }
+    }
 
     /**
      * Whether {@code version}'s LocalPlayer reports its position after Level#tickBlockEntities: from 26.3
@@ -262,7 +317,8 @@ public final class JavaBlockEntityPass {
                 replay.fluidHeights,
                 replay.lastMove,
                 replay.oldInterpolation,
-                localMoves == null ? null : new JavaBlockEntityPath(pass, start.position(), List.copyOf(localMoves)));
+                localMoves == null ? null : new JavaBlockEntityPath(pass, start.position(), List.copyOf(localMoves)),
+                replay.recorded());
     }
 
     private static Vec3 localPlayerAtMover(
@@ -297,6 +353,8 @@ public final class JavaBlockEntityPass {
         private final ReachInterpolationData interpolation;
         private final ReachInterpolationData oldInterpolation;
         private final boolean[] fixed = new boolean[3];
+        private List<JavaInsideBlockEffects.RecordedMove> recordedMoves;
+        private int removedBefore;
 
         private Replay(JavaBlockEntityMove.Environment env, JavaPassState state) {
             this.env = env;
@@ -320,6 +378,26 @@ public final class JavaBlockEntityPass {
 
         private SimpleCollisionBox box() {
             return env.box(state.position());
+        }
+
+        private Recorded recorded() {
+            return recordedMoves == null && removedBefore == 0
+                    ? Recorded.NONE
+                    : new Recorded(removedBefore, recordedMoves == null ? List.of() : recordedMoves);
+        }
+
+        /** Entity#move's addMovementThisTick, when the move recorded its movement. */
+        private void addMovementThisTick(Vec3 from, JavaBlockEntityMove.Moved result) {
+            if (!result.recordedMovement()) return;
+            if (recordedMoves == null) recordedMoves = new java.util.ArrayList<>();
+            recordedMoves.add(
+                    new JavaInsideBlockEffects.RecordedMove(from, result.state().position(), result.delta()));
+        }
+
+        /** Entity#removeLatestMovementRecording. */
+        private void removeLatestMovementRecording() {
+            if (recordedMoves != null && !recordedMoves.isEmpty()) recordedMoves.removeLast();
+            else removedBefore++;
         }
 
         /** PistonMovingBlockEntity#tick of a block entity whose progress is below 1. */
@@ -435,7 +513,9 @@ public final class JavaBlockEntityPass {
                         JavaBlockEntityMove.move(env, state, JavaBlockEntityMove.Mover.PISTON, shove);
                 // Entity#limitPistonMovement or a stuck multiplier makes the move a fixed distance instead.
                 record(result, axis(movement), partial && result.delta().equals(shove));
+                addMovementThisTick(previous, result);
                 state = JavaBlockEntityMove.applyEffectsFromBlocks(env, result.state(), previous);
+                removeLatestMovementRecording();
             } finally {
                 pistons.setReplayNoClip(null);
             }
@@ -445,9 +525,11 @@ public final class JavaBlockEntityPass {
         private void shulkerBox(ClientBlockEntityPass.ShulkerBox shulkerBox) {
             if (!intersects(box(), shulkerBox.area())) return;
             Vec3 movement = shulkerBox.movement();
+            Vec3 from = state.position();
             JavaBlockEntityMove.Moved result =
                     JavaBlockEntityMove.move(env, state, JavaBlockEntityMove.Mover.SHULKER_BOX, movement);
             record(result, movement.x != 0 ? 0 : movement.y != 0 ? 1 : 2, false);
+            addMovementThisTick(from, result);
             state = result.state();
         }
 
@@ -458,9 +540,11 @@ public final class JavaBlockEntityPass {
         private void shulkerPeek(ClientBlockEntityPass.ShulkerPeek peek) {
             if (!intersects(box(), peek.area())) return;
             Vec3 movement = peek.movement();
+            Vec3 from = state.position();
             JavaBlockEntityMove.Moved result =
                     JavaBlockEntityMove.move(env, state, JavaBlockEntityMove.Mover.SHULKER, movement);
             record(result, movement.x != 0 ? 0 : movement.y != 0 ? 1 : 2, false);
+            addMovementThisTick(from, result);
             state = result.state();
         }
 
