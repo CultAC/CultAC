@@ -110,6 +110,25 @@ public final class ClientSprintState {
         if (modifier()) clearedPossible = true;
     }
 
+    /**
+     * 1.21.4's LocalPlayer#aiStep certainly ran setSprinting(false) and then setSprinting(true) on a flag it left set,
+     * replacing the held modifier with vanilla's without announcing either. A setback does not undo it.
+     */
+    public void onModifierRestarted() {
+        modifier = CompensatedEntities.SPRINTING_SPEED_MODIFIER;
+        onCertainEvent();
+    }
+
+    /**
+     * 1.21.4's LocalPlayer#aiStep may have restarted the sprint: vanilla's modifier stays possible beside the held one,
+     * as after a possible attack reset, which a setback does not undo either.
+     */
+    public void onModifierPossiblyRestarted() {
+        if (CompensatedEntities.SPRINTING_SPEED_MODIFIER.equals(modifier)) return;
+        canonicalPossible = true;
+        possibleResets++;
+    }
+
     /** Whether an earlier aiStep may have removed every modifier the client can hold. */
     public boolean clearedPossible() {
         return clearedPossible;

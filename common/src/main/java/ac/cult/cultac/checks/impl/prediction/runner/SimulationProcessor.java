@@ -1690,6 +1690,11 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             case UNKNOWN -> state.onModifierPossiblyCleared();
             case FALSE -> {}
         }
+        switch (aiStepSprintRestart(this.player, result)) {
+            case TRUE -> state.onModifierRestarted();
+            case UNKNOWN -> state.onModifierPossiblyRestarted();
+            case FALSE -> {}
+        }
         SetbackTeleportUtil setbacks = this.player.getSetbackTeleportUtil();
         if (setbacks.isPendingSetback() && setbacks.lastKnownGoodPosition != null) {
             state.restore(setbacks.lastKnownGoodPosition.getSprintOutcomes());
@@ -1717,6 +1722,21 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
         if (cleared != null) return cleared;
         return JavaAiStepSprint.clearsModifierThisTick(player, result.getSimulationContext());
+    }
+
+    /** {@link #aiStepSprintClear} for 1.21.4's silent restart on a set flag (JavaAiStepSprint#restartsModifier). */
+    private static DesyncStatus aiStepSprintRestart(CultPlayer player, PredictionResult result) {
+        if (result == null || result.getSimulationContext() == null) return DesyncStatus.FALSE;
+        DesyncStatus restarted = null;
+        if (result.getRealities() != null) {
+            for (PredictionResult reality : result.getRealities()) {
+                SimulationContext context = reality.getSimulationContext();
+                if (reality.getFlagSeverity() != 0.0 || context == null) continue;
+                DesyncStatus verdict = context.aiStepSprintRestart(player);
+                restarted = restarted == null || restarted == verdict ? verdict : DesyncStatus.UNKNOWN;
+            }
+        }
+        return restarted != null ? restarted : result.getSimulationContext().aiStepSprintRestart(player);
     }
 
     /**

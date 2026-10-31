@@ -67,11 +67,9 @@ public final class JavaAiStepSprint {
                         ? DesyncStatus.TRUE
                         : use.possiblyUsing() ? DesyncStatus.UNKNOWN : DesyncStatus.FALSE;
 
-        DesyncStatus stop = DesyncStatus.FALSE;
-        if (version == ClientVersion.V_1_21_4) {
-            // shouldStopSprinting: isFallFlying, hasBlindness, isMovingSlowly, or isUsingItem out from under water.
-            stop = or(DesyncStatus.fromBoolean(gliding || blind), or(slowly, underwater ? DesyncStatus.FALSE : using));
-        }
+        DesyncStatus stop = version == ClientVersion.V_1_21_4
+                ? shouldStopSprinting(gliding, blind, slowly, underwater, using)
+                : DesyncStatus.FALSE;
         DesyncStatus start = start(player, context, version, food && !blind, gliding, slowly, using, use);
         DesyncStatus cleared = or(stop, start);
         // A spin that may hit a RemotePlayer leaves the travel's flag unknown: a start no stop check ended lasts
@@ -82,6 +80,42 @@ public final class JavaAiStepSprint {
                 && start != DesyncStatus.FALSE
                 && cleared != DesyncStatus.FALSE) return DesyncStatus.UNKNOWN;
         return cleared;
+    }
+
+    /**
+     * 1.21.4's LocalPlayer#aiStep runs shouldStopSprinting's setSprinting(false) before the sprint starts, which
+     * canStartSprinting lets through while moving slowly under water. A set flag the tick still ends with, announcing
+     * no STOP_SPRINTING, was therefore restored by LivingEntity#setSprinting(true), which replaces whatever
+     * minecraft:sprinting modifier the client held with vanilla's. TRUE when shouldStopSprinting certainly held on such
+     * a tick, UNKNOWN when it may have, FALSE otherwise and on every other release, whose stop checks follow the start.
+     */
+    public static DesyncStatus restartsModifier(CultPlayer player, SimulationContext context) {
+        if (context.getVersion() != ClientVersion.V_1_21_4
+                || player.isBedrockMovement()
+                || context.getVehicle() != null
+                || !player.sprintState.flagBeforeAiStep()
+                || !player.isSprinting) return DesyncStatus.FALSE;
+        Boolean glidingBefore = player.packetStateData.glidingBeforeClientAction;
+        boolean gliding = glidingBefore != null ? glidingBefore : context.isGliding();
+        boolean blind = player.compensatedEntities.hasPotionEffect(MovementEffect.BLINDNESS);
+        ClientItemUseState.Snapshot use = context.getItemUse();
+        DesyncStatus using = use == null
+                ? DesyncStatus.FALSE
+                : use.definitelyUsing()
+                        ? DesyncStatus.TRUE
+                        : use.possiblyUsing() ? DesyncStatus.UNKNOWN : DesyncStatus.FALSE;
+        return shouldStopSprinting(
+                gliding,
+                blind,
+                ClientKeyInput.movingSlowly(player, context),
+                context.getWorldData().isUnderwater(),
+                using);
+    }
+
+    /** 1.21.4's shouldStopSprinting: isFallFlying, hasBlindness, isMovingSlowly, or isUsingItem out of water. */
+    private static DesyncStatus shouldStopSprinting(
+            boolean gliding, boolean blind, DesyncStatus slowly, boolean underwater, DesyncStatus using) {
+        return or(DesyncStatus.fromBoolean(gliding || blind), or(slowly, underwater ? DesyncStatus.FALSE : using));
     }
 
     /**

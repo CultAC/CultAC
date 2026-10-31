@@ -107,6 +107,9 @@ public class SimulationContext implements Cloneable {
     // JavaAiStepSprint#clearsModifier for this context's aiStep; null until read, and again after its world changes.
     @Getter(AccessLevel.NONE)
     private DesyncStatus aiStepSprintClear;
+    // JavaAiStepSprint#restartsModifier for this context's aiStep, cached and reset with aiStepSprintClear.
+    @Getter(AccessLevel.NONE)
+    private DesyncStatus aiStepSprintRestart;
     // The movement_efficiency attribute during travel; LivingEntity#getBlockSpeedFactor lerps the block's factor to 1
     @Setter
     float movementEfficiency;
@@ -295,6 +298,7 @@ public class SimulationContext implements Cloneable {
     public void setWorldData(WorldData worldData) {
         this.worldData = worldData;
         this.aiStepSprintClear = null;
+        this.aiStepSprintRestart = null;
         this.groundMoveRelativeSpeeds = null;
     }
 
@@ -305,6 +309,16 @@ public class SimulationContext implements Cloneable {
     public DesyncStatus aiStepSprintClear(CultPlayer player) {
         if (aiStepSprintClear == null) aiStepSprintClear = JavaAiStepSprint.clearsModifier(player, this);
         return aiStepSprintClear;
+    }
+
+    /**
+     * Whether this context's 1.21.4 LocalPlayer#aiStep restarted the sprint on a set flag
+     * ({@link JavaAiStepSprint#restartsModifier}). Its travel moves with vanilla's modifier when TRUE, and may when
+     * UNKNOWN.
+     */
+    public DesyncStatus aiStepSprintRestart(CultPlayer player) {
+        if (aiStepSprintRestart == null) aiStepSprintRestart = JavaAiStepSprint.restartsModifier(player, this);
+        return aiStepSprintRestart;
     }
 
     /** A travel replay owns its endpoint and world fields; shared boxes and inputs remain read-only. */
@@ -319,6 +333,7 @@ public class SimulationContext implements Cloneable {
             copy.passAfterTravel = null;
             // A copy's start, sprint flags or world can change before it travels.
             copy.aiStepSprintClear = null;
+            copy.aiStepSprintRestart = null;
             copy.groundMoveRelativeSpeeds = null;
             return copy;
         } catch (CloneNotSupportedException impossible) {
@@ -636,8 +651,9 @@ public class SimulationContext implements Cloneable {
         double unmodified = entities.getPlayerMovementSpeed();
         DesyncStatus cleared = aiStepSprintClear(player);
         if (cleared == DesyncStatus.TRUE) return new double[] {unmodified};
-        double[] speeds =
-                entities.getPossiblePlayerMovementSpeeds(sprintModifier && !player.sprintState.modifier(), outcome);
+        double[] speeds = entities.getPossiblePlayerMovementSpeeds(
+                sprintModifier && !player.sprintState.modifier() || aiStepSprintRestart(player) == DesyncStatus.UNKNOWN,
+                aiStepSprintRestart(player) == DesyncStatus.TRUE ? ClientSprintState.Outcome.CANONICAL : outcome);
         if (cleared == DesyncStatus.FALSE) return speeds;
         for (double speed : speeds) if (speed == unmodified) return speeds;
         double[] withUnmodified = Arrays.copyOf(speeds, speeds.length + 1);
@@ -748,7 +764,12 @@ public class SimulationContext implements Cloneable {
                 // A player's getSpeed carries minecraft:sprinting only while applied; a vehicle's is getRiddenSpeed
                 float livingSpeed = (float)
                         (vehicle == null && sprintModifier && aiStepSprintClear(player) != DesyncStatus.TRUE
-                                ? entities.getMaxPlayerMovementSpeed(!player.sprintState.modifier(), outcome)
+                                ? entities.getMaxPlayerMovementSpeed(
+                                        !player.sprintState.modifier()
+                                                || aiStepSprintRestart(player) == DesyncStatus.UNKNOWN,
+                                        aiStepSprintRestart(player) == DesyncStatus.TRUE
+                                                ? ClientSprintState.Outcome.CANONICAL
+                                                : outcome)
                                 : normalSpeed);
                 speed += (livingSpeed - speed) * waterMovementEfficiency;
             }
