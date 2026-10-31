@@ -14,6 +14,8 @@ public final class PacketEntityNautilus extends PacketEntityTrackXRot {
     public final ClientMovementSpeed movementSpeed = new ClientMovementSpeed(1.0D);
     public double pendingJumpScale;
     public double nextPendingJumpScale;
+    // Entity#firstTick: true until the nautilus's first client tick.
+    private boolean firstTick = true;
 
     public PacketEntityNautilus(CultPlayer player, int entityId, int type, double x, double y, double z, float xRot) {
         super(player, entityId, type, x, y, z, xRot);
@@ -30,23 +32,48 @@ public final class PacketEntityNautilus extends PacketEntityTrackXRot {
         movementSpeedAttribute = (float) movementSpeed.value();
     }
 
-    public void tickClientState() {
+    /** AbstractNautilus#tick's dash tail, after Entity#baseTick has cleared firstTick. */
+    public void tickDashCooldown() {
+        firstTick = false;
         if (dashing && dashCooldown < 35) {
-            dashing = false;
+            setDashing(false);
         }
         if (dashCooldown > 0) {
             dashCooldown--;
         }
+    }
+
+    /** A START_RIDING_JUMP the client sent after this nautilus's tick arms its next one. */
+    public void tickPendingJump() {
         if (nextPendingJumpScale > 0.0D) {
             pendingJumpScale = nextPendingJumpScale;
             nextPendingJumpScale = 0.0D;
         }
     }
 
+    /** AbstractNautilus#executeRidersJump's cooldown and DASH. */
+    public void executeRidersJump() {
+        dashCooldown = 40;
+        setDashing(true);
+    }
+
+    /** AbstractNautilus#setDashing: SynchedEntityData#set calls onSyncedDataUpdated only when DASH changes. */
+    public void setDashing(boolean dashing) {
+        if (this.dashing == dashing) return;
+        this.dashing = dashing;
+        onDashUpdated();
+    }
+
+    /** SynchedEntityData#assignValues calls onSyncedDataUpdated for every DASH entry it receives, changed or not. */
     public void setDashingFromMetadata(boolean dashing) {
-        if (this.dashing != dashing && dashCooldown == 0) {
+        this.dashing = dashing;
+        onDashUpdated();
+    }
+
+    /** AbstractNautilus#onSyncedDataUpdated: a DASH update after the first tick sets a spent cooldown to 40. */
+    private void onDashUpdated() {
+        if (!firstTick && dashCooldown == 0) {
             dashCooldown = 40;
         }
-        this.dashing = dashing;
     }
 }

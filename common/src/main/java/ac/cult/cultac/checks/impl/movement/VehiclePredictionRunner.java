@@ -46,8 +46,13 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
         }
         player.vehicleData.camelSprintingState = riderSprinting ? SprintingState.STARTED : SprintingState.STOPPED;
         PacketEntity root = player.compensatedEntities.vehicles.getVelocityMovementVehicle();
+        // ClientLevel#tickEntities runs AbstractNautilus#tick for every nautilus, ridden or not.
+        List<PacketEntityNautilus> nautiluses = player.compensatedEntities.nautiluses();
+        for (int i = 0, size = nautiluses.size(); i < size; i++) {
+            nautiluses.get(i).tickDashCooldown();
+        }
         if (root instanceof PacketEntityNautilus nautilus) {
-            nautilus.tickClientState();
+            nautilus.tickPendingJump();
         }
         // ClientLevel#tickEntities runs Camel#tick for every camel, ridden or not.
         List<PacketEntityCamel> camels = player.compensatedEntities.camels();
@@ -212,8 +217,7 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
             }
             if (nautilus.pendingJumpScale > 0.0D) {
                 nautilus.pendingJumpScale = 0.0D;
-                nautilus.dashCooldown = 40;
-                nautilus.dashing = true;
+                nautilus.executeRidersJump();
             }
         }
 

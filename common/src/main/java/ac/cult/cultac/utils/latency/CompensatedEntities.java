@@ -81,6 +81,7 @@ public class CompensatedEntities {
     private List<PacketEntity> pushOrCollideCandidates = List.of();
     private List<PacketEntity> boats = List.of();
     private List<PacketEntityCamel> camels = List.of();
+    private List<PacketEntityNautilus> nautiluses = List.of();
     private List<PacketEntity> poseCollisionCandidates = List.of();
     private List<PacketEntity> unknownCollisionCandidates = List.of();
     private List<PacketEntityHook> fishingHooks = List.of();
@@ -213,6 +214,12 @@ public class CompensatedEntities {
         return camels;
     }
 
+    /** The nautiluses, in entityMap iteration order. Read only. */
+    public List<PacketEntityNautilus> nautiluses() {
+        refreshTypeViews();
+        return nautiluses;
+    }
+
     /** The boats, minecarts, shulkers and happy ghasts, in entityMap iteration order. Read only. */
     public List<PacketEntity> poseCollisionCandidates() {
         refreshTypeViews();
@@ -241,6 +248,7 @@ public class CompensatedEntities {
         List<PacketEntity> pushOrCollide = presized(pushOrCollideCandidates);
         List<PacketEntity> boatList = presized(boats);
         List<PacketEntityCamel> camelList = new ArrayList<>(camels.size());
+        List<PacketEntityNautilus> nautilusList = new ArrayList<>(nautiluses.size());
         List<PacketEntity> pose = presized(poseCollisionCandidates);
         List<PacketEntity> unknown = presized(unknownCollisionCandidates);
         List<PacketEntityHook> hooks = new ArrayList<>(fishingHooks.size());
@@ -253,12 +261,14 @@ public class CompensatedEntities {
             boolean shulker = entity.type == EntityTypeIds.SHULKER;
             if (boat) boatList.add(entity);
             if (entity instanceof PacketEntityCamel camel) camelList.add(camel);
+            if (entity instanceof PacketEntityNautilus nautilus) nautilusList.add(nautilus);
             if (boat || entity.isMinecart() || shulker || entity.isHappyGhast()) pose.add(entity);
             if (boat || shulker || entity instanceof PacketEntityHappyGhast) unknown.add(entity);
         }
         pushOrCollideCandidates = pushOrCollide;
         boats = boatList;
         camels = camelList;
+        nautiluses = nautilusList;
         poseCollisionCandidates = pose;
         unknownCollisionCandidates = unknown;
         fishingHooks = hooks;
