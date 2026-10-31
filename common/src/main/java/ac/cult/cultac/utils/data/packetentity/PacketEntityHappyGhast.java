@@ -30,6 +30,15 @@ public class PacketEntityHappyGhast extends PacketEntityTrackXRot {
         return !passengers.isEmpty() && other instanceof PacketEntityHappyGhast || staysStill;
     }
 
+    /**
+     * HappyGhast#sanitizeScale caps the scale at 1 on every Java version with happy ghasts. Geyser sends Bedrock the
+     * uncapped scale.
+     */
+    @Override
+    protected float sanitizeScale(float scale) {
+        return player.isBedrockMovement() ? scale : Math.min(scale, 1.0F);
+    }
+
     public float getRiddenTickYaw(float controllerYaw) {
         float rootYaw = clientPhysicalYaw;
         return rootYaw + CultMath.wrapDegrees(controllerYaw - rootYaw) * 0.08F;
