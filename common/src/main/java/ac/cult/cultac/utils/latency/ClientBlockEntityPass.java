@@ -62,6 +62,20 @@ public record ClientBlockEntityPass(List<Mover> movers, List<Lid> lids, long gam
     public sealed interface Mover permits Piston, ShulkerBox, ShulkerPeek {
         /** Bounds every entity box this mover's tick can query. */
         SimpleCollisionBox reach();
+
+        /**
+         * Whether {@code box} meets {@link #reach()} under AABB#intersects, the test Level#getEntities applies to each
+         * query area inside it. False means this mover's tick neither lists nor moves an entity with that box.
+         */
+        default boolean reaches(SimpleCollisionBox box) {
+            SimpleCollisionBox reach = reach();
+            return box.maxX > reach.minX
+                    && box.minX < reach.maxX
+                    && box.maxY > reach.minY
+                    && box.minY < reach.maxY
+                    && box.maxZ > reach.minZ
+                    && box.minZ < reach.maxZ;
+        }
     }
 
     /** PistonMovingBlockEntity fields at {@code pos} before its tick: its progress is below 1, so the tick moves. */
@@ -104,9 +118,23 @@ public record ClientBlockEntityPass(List<Mover> movers, List<Lid> lids, long gam
 
         @Override
         public SimpleCollisionBox reach() {
-            // The block moves at most one block from pos; its shape stays within that block, the honey sticky box
-            // rises 0.5 above it, and fixEntityWithinPistonBase reads the block itself.
+            // The block is drawn at most one block from pos. Its shape rises at most 0.5 above its block (a fence or
+            // wall) and a long piston arm reaches 0.25 past it, and the movement area adds at most 0.5 more: the
+            // moveCollidedEntities query stays within pos -1..+2 sideways and -1..+2.5 upward. The honey sticky box
+            // tops out at 1.500001 on a sideways move, and fixEntityWithinPistonBase reads the block itself.
             return new SimpleCollisionBox(pos).expand(1.5D);
+        }
+
+        /** {@link #reach()}'s test without allocating it: a pass replays every piston for each of its actors. */
+        @Override
+        public boolean reaches(SimpleCollisionBox box) {
+            int x = pos.getX(), y = pos.getY(), z = pos.getZ();
+            return box.maxX > x - 1.5D
+                    && box.minX < x + 2.5D
+                    && box.maxY > y - 1.5D
+                    && box.minY < y + 2.5D
+                    && box.maxZ > z - 1.5D
+                    && box.minZ < z + 2.5D;
         }
     }
 

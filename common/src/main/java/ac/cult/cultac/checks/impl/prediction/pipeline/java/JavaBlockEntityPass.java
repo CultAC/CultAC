@@ -349,11 +349,16 @@ public final class JavaBlockEntityPass {
                 Vec3 localBefore = local == null ? null : local.state.position();
                 int localMover = localMovers == null ? -1 : localMovers[moverIndex];
                 if (order == null) {
-                    if (local != null) local.step(mover);
-                    else stepEntity(entities, boxes, localPath, localMover, mover, remotes.getFirst());
+                    Replay only = local != null ? local : remotes.getFirst();
+                    if (only.reachableBy(mover)) {
+                        if (local != null) local.step(mover);
+                        else stepEntity(entities, boxes, localPath, localMover, mover, only);
+                    }
                 } else {
-                    queryOrder(entities, remotes, local, moverIndex, order);
-                    for (int actor : order) {
+                    int listed = listedActors(remotes, local, mover, order);
+                    queryOrder(entities, remotes, local, moverIndex, order, listed);
+                    for (int i = 0; i < listed; i++) {
+                        int actor = order[i];
                         if (actor == remotes.size()) {
                             entities.setPassLocalPlayerPosition(previousLocal);
                             local.step(mover);
@@ -403,14 +408,28 @@ public final class JavaBlockEntityPass {
     }
 
     /**
+     * Fills {@code order} with the actors {@code mover} may reach where they stand, the indexes of {@code remotes} in
+     * turn and then {@code remotes.size()} for {@code local}, and returns how many. Level#getEntities lists none of the
+     * others, and an Entity#move moves only its own entity, so the rest neither move nor take a place in this mover's
+     * query order.
+     */
+    private static int listedActors(
+            List<Replay> remotes, Replay local, ClientBlockEntityPass.Mover mover, int[] order) {
+        int listed = 0;
+        for (int i = 0; i < remotes.size(); i++) if (remotes.get(i).reachableBy(mover)) order[listed++] = i;
+        if (local != null && local.reachableBy(mover)) order[listed++] = remotes.size();
+        return listed;
+    }
+
+    /**
      * Level#getEntities's order for one mover, by where each actor starts it: EntitySectionStorage's section order,
-     * then each section's insertion order. {@code order} receives the indexes of {@code remotes}, and
-     * {@code remotes.size()} for {@code local} when it takes part. Insertion sort: a pass moves few actors.
+     * then each section's insertion order. Sorts the first {@code count} entries of {@code order}, the actors
+     * {@link #listedActors} found. Insertion sort: a mover lists few actors.
      */
     private static void queryOrder(
-            CompensatedEntities entities, List<Replay> remotes, Replay local, int moverIndex, int[] order) {
-        for (int i = 0; i < order.length; i++) {
-            int actor = i;
+            CompensatedEntities entities, List<Replay> remotes, Replay local, int moverIndex, int[] order, int count) {
+        for (int i = 1; i < count; i++) {
+            int actor = order[i];
             int j = i - 1;
             while (j >= 0 && precedes(entities, remotes, local, moverIndex, actor, order[j])) {
                 order[j + 1] = order[j];
@@ -541,6 +560,9 @@ public final class JavaBlockEntityPass {
         private final boolean[] fixed = new boolean[3];
         private List<JavaInsideBlockEffects.RecordedMove> recordedMoves;
         private int removedBefore;
+        // The box reachableBy last tested and the position it stood for; never handed out, so nothing mutates it.
+        private Vec3 reachBoxAt;
+        private SimpleCollisionBox reachBox;
 
         private Replay(JavaBlockEntityMove.Environment env, JavaPassState state) {
             this.env = env;
@@ -564,6 +586,19 @@ public final class JavaBlockEntityPass {
 
         private SimpleCollisionBox box() {
             return env.box(state.position());
+        }
+
+        /**
+         * Whether {@code mover}'s tick may list this actor where it stands. False skips the mover's geometry: most
+         * movers of a large pass are far from every actor.
+         */
+        private boolean reachableBy(ClientBlockEntityPass.Mover mover) {
+            Vec3 position = state.position();
+            if (position != reachBoxAt) {
+                reachBox = box();
+                reachBoxAt = position;
+            }
+            return mover.reaches(reachBox);
         }
 
         private Result result(JavaBlockEntityPath path) {
