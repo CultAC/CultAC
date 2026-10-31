@@ -236,6 +236,9 @@ public final class JavaEntityVelocityTicks {
             ac.cult.cultac.utils.enums.Pose passengerPose) {
         if (!PacketEntityRavager.usesRoarCountdown(player.getClientVersion())) return;
         var entities = context.getEntities();
+        List<PacketEntityRavager> ravagers = entities.ravagers();
+        // Only a ravager whose countdown roars this client tick writes a velocity.
+        if (!anyRoarsThisTick(player, ravagers)) return;
         var actor = context.getVehicle() == null ? entities.getSelf() : context.getVehicle();
         if (!actor.isLivingEntity() || !actor.actionAlive || actor.isDead || actor instanceof PacketEntityRavager)
             return;
@@ -256,10 +259,8 @@ public final class JavaEntityVelocityTicks {
         entities.beginMovementPositionReads();
         long phase = entities.passTickedThroughOrder();
         try {
-            for (var entity : entities.entityMap.values()) {
-                if (!(entity instanceof PacketEntityRavager ravager)
-                        || !ravager.roarsThisTick(player)
-                        || !entities.ticksInClientTick(ravager)) continue;
+            for (PacketEntityRavager ravager : ravagers) {
+                if (!ravager.roarsThisTick(player) || !entities.ticksInClientTick(ravager)) continue;
                 long order = ravager.tickingOrder(player);
                 if ((order < localOrder) != before) continue;
                 entities.setPassTickedThroughOrder(order);
@@ -272,6 +273,11 @@ public final class JavaEntityVelocityTicks {
             entities.setPassTickedThroughOrder(phase);
             entities.endMovementPositionReads();
         }
+    }
+
+    private static boolean anyRoarsThisTick(CultPlayer player, List<PacketEntityRavager> ravagers) {
+        for (PacketEntityRavager ravager : ravagers) if (ravager.roarsThisTick(player)) return true;
+        return false;
     }
 
     record Tick(long order, List<Vec3> impulses) {}

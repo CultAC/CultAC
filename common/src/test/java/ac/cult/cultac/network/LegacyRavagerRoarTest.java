@@ -18,6 +18,7 @@ import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityEvent;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveEntity;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveEntities;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.EntityDelta;
 import ac.cult.cultac.protocol.value.Vec3d;
@@ -322,6 +323,27 @@ class LegacyRavagerRoarTest {
             for (int tick = 1; tick <= 50; tick++) assertExact(f.tick(STANDING, true));
 
             assertExact(f.tick(STANDING.add(push(RAVAGER_AT)), false));
+        }
+    }
+
+    /** ClientLevel#removeEntity before the 50th aiStep leaves no ravager to roar. */
+    @Test
+    void aRavagerRemovedTheTickBeforeItsRoarPushesNoOne() throws Exception {
+        try (var f = standing(ClientVersion.V_1_21_4)) {
+            addRavager(f);
+            addRavager(f, SECOND_RAVAGER, SECOND_RAVAGER_AT);
+
+            event(f, STUN);
+            for (int tick = 1; tick <= 49; tick++) assertExact(f.tick(STANDING, true));
+            var packet = new ClientboundRemoveEntities(List.of(RAVAGER));
+            var event = new PacketSendEvent<>(
+                    f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.REMOVE_ENTITIES, packet, false);
+            f.player.packetEntityReplication.onRemoveEntities(event, f.player, packet);
+            event.tasksAfter().forEach(Runnable::run);
+            f.pongThrough(f.player.lastTransactionSent.get());
+
+            for (int tick = 50; tick <= 52; tick++) assertExact(f.tick(STANDING, true));
+            assertEquals(0, f.player.checkManager.getExplosionHandler().violations);
         }
     }
 

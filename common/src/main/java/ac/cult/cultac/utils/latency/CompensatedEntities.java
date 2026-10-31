@@ -84,6 +84,7 @@ public class CompensatedEntities {
     private List<PacketEntity> poseCollisionCandidates = List.of();
     private List<PacketEntity> unknownCollisionCandidates = List.of();
     private List<PacketEntityHook> fishingHooks = List.of();
+    private List<PacketEntityRavager> ravagers = List.of();
 
     CultPlayer player;
 
@@ -226,6 +227,12 @@ public class CompensatedEntities {
         return fishingHooks;
     }
 
+    /** The ravagers, in entityMap iteration order. Read only. */
+    public List<PacketEntityRavager> ravagers() {
+        refreshTypeViews();
+        return ravagers;
+    }
+
     private void refreshTypeViews() {
         if (typeViewsAt == entityMap.mutations) return;
         List<PacketEntity> pushOrCollide = presized(pushOrCollideCandidates);
@@ -234,8 +241,10 @@ public class CompensatedEntities {
         List<PacketEntity> pose = presized(poseCollisionCandidates);
         List<PacketEntity> unknown = presized(unknownCollisionCandidates);
         List<PacketEntityHook> hooks = new ArrayList<>(fishingHooks.size());
+        List<PacketEntityRavager> ravagerList = new ArrayList<>(ravagers.size());
         for (PacketEntity entity : entityMap.values()) {
             if (entity instanceof PacketEntityHook hook) hooks.add(hook);
+            if (entity instanceof PacketEntityRavager ravager) ravagerList.add(ravager);
             if (entity.mayPushOrCollide()) pushOrCollide.add(entity);
             boolean boat = entity.isBoat();
             boolean shulker = entity.type == EntityTypeIds.SHULKER;
@@ -250,6 +259,7 @@ public class CompensatedEntities {
         poseCollisionCandidates = pose;
         unknownCollisionCandidates = unknown;
         fishingHooks = hooks;
+        ravagers = ravagerList;
         typeViewsAt = entityMap.mutations;
     }
 
