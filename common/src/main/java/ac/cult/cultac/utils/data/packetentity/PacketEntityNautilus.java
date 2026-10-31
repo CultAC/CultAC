@@ -1,6 +1,7 @@
 package ac.cult.cultac.utils.data.packetentity;
 
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 
 /** Client-visible state used by AbstractNautilus#travelRidden. */
 public final class PacketEntityNautilus extends PacketEntityTrackXRot {
@@ -20,6 +21,11 @@ public final class PacketEntityNautilus extends PacketEntityTrackXRot {
     public PacketEntityNautilus(CultPlayer player, int entityId, int type, double x, double y, double z, float xRot) {
         super(player, entityId, type, x, y, z, xRot);
         this.stepHeightAttribute = 1.0D;
+        // ZombieNautilus#createAttributes overrides AbstractNautilus's 1.0 base with (double) 1.1F.
+        if (EntityTypeUtil.isType(type, "zombie_nautilus")) {
+            movementSpeed.defaultBase(1.1F);
+            movementSpeedAttribute = 1.1F;
+        }
     }
 
     @Override
