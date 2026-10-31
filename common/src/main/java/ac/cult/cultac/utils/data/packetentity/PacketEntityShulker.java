@@ -286,6 +286,14 @@ public class PacketEntityShulker extends PacketEntity {
     }
 
     @Override
+    public List<SimpleCollisionBox> getPositionCollisionBoxCandidates() {
+        int count = possibleMovementCollisionBoxCandidateCount();
+        List<SimpleCollisionBox> boxes = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) boxes.add(positionCollisionBoxCandidate(i, new SimpleCollisionBox()));
+        return boxes;
+    }
+
+    @Override
     public SimpleCollisionBox getPossibleMovementCollisionBoxes(SimpleCollisionBox out, SimpleCollisionBox scratch) {
         if (!modelled()) return super.getPossibleMovementCollisionBoxes(out, scratch);
         float peek = peekRead();

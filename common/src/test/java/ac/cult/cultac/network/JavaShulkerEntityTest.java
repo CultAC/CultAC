@@ -17,12 +17,14 @@ import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.Direction;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.VanillaMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import java.nio.ByteBuffer;
 import java.util.List;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
@@ -194,6 +196,45 @@ class JavaShulkerEntityTest {
                 client.raw = 30;
                 for (int tick = 0; tick < 10; tick++) assertSideExact(f, client.tick(), name + " opening " + tick);
             }
+        }
+    }
+
+    /**
+     * A shulker attached to the wall west of it and open towards the east is shoved one block east by a piston:
+     * Entity#move(PISTON) and Shulker#setPos put it on the next block centre. The player stands still on the part of
+     * the shell both places share, so the client sends no position. ClientLevel#tickEntities ticks the player before
+     * the shulker, so the next travel collides with the box Shulker#makeBoundingBox opens once from the new centre by
+     * the peek the shulker held before its own tick.
+     */
+    @Test
+    void anIdlePlayerStaysOnAShulkerAPistonMoved() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.player.compensatedEntities.addEntity(SHULKER, EntityTypeIds.SHULKER, SHULKER_AT, 0, 0, 0);
+            Vec3 aside = new Vec3(5.5, FLOOR_Y, 0.5);
+            f.place(aside, new Vec3(0.0, GROUNDED_Y, 0.0));
+            f.input(NONE);
+            f.pongThrough(attachFace(f, Direction.WEST));
+            f.pongThrough(peek(f, (byte) 100));
+            for (int tick = 0; tick < 21; tick++) {
+                PredictionResult opening = f.tick(aside, true);
+                assertTrue(exact(opening), "opening " + tick + ": " + describe(opening));
+            }
+            // The open shell spans x 0..2; the player stands over x 1..2, which the shell keeps after the shove.
+            Vec3 onShell = new Vec3(1.5, FLOOR_Y + 1.0, 0.5);
+            f.place(onShell, new Vec3(0.0, GROUNDED_Y, 0.0));
+            for (int tick = 0; tick < 2; tick++) {
+                PredictionResult standing = f.tick(onShell, true);
+                assertTrue(exact(standing), "standing " + tick + ": " + describe(standing));
+            }
+            f.player
+                    .compensatedEntities
+                    .getEntity(SHULKER)
+                    .applyBlockEntityMovement(
+                            f.player, new SimpleCollisionBox(1, FLOOR_Y, 0, 2, FLOOR_Y + 1, 1), new Vec3(1, 0, 0));
+            f.tickEnd();
+            PredictionResult idle =
+                    f.player.checkManager.getSimulationProcessor().getLastPrediction();
+            assertTrue(exact(idle), "after the shove: " + describe(idle));
         }
     }
 

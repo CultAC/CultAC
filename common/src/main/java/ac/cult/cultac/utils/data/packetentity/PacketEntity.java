@@ -1937,8 +1937,8 @@ public class PacketEntity {
     public SimpleCollisionBox getMovementCollisionBoxesBeforeTick(SimpleCollisionBox out, SimpleCollisionBox scratch) {
         List<SimpleCollisionBox> before = beforeTickPositions();
         if (before != null) {
-            out.set(before.getFirst());
-            for (int i = 1; i < before.size(); i++) out.union(before.get(i));
+            out.set(movementBoxAt(scratch.set(before.getFirst())));
+            for (int i = 1; i < before.size(); i++) out.union(movementBoxAt(scratch.set(before.get(i))));
             return out;
         }
         boolean reading = readingTickPositions;
@@ -1950,10 +1950,14 @@ public class PacketEntity {
         }
     }
 
-    /** The movement candidates {@link #getMovementCollisionBoxesBeforeTick} bounds. Read only. */
+    /** The movement candidates {@link #getMovementCollisionBoxesBeforeTick} bounds. */
     public List<SimpleCollisionBox> movementCollisionBoxCandidatesBeforeTick() {
         List<SimpleCollisionBox> before = beforeTickPositions();
-        if (before != null) return before;
+        if (before != null) {
+            List<SimpleCollisionBox> boxes = new ArrayList<>(before.size());
+            for (SimpleCollisionBox box : before) boxes.add(movementBoxAt(box.copy()));
+            return boxes;
+        }
         boolean reading = readingTickPositions;
         readingTickPositions = true;
         try {
@@ -2034,6 +2038,14 @@ public class PacketEntity {
         }
         candidates.addAll(newPacketLocation.getPossibleMovementLocations());
         return candidates;
+    }
+
+    /**
+     * The position boxes {@link #getPossibleMovementCollisionBoxCandidates()} build on, before entity-specific geometry
+     * (a shulker's peek) moves their centre or feet. Readers of the position itself use these.
+     */
+    public List<SimpleCollisionBox> getPositionCollisionBoxCandidates() {
+        return getPossibleMovementCollisionBoxCandidates();
     }
 
     /** The number of {@link #getPossibleMovementCollisionBoxCandidates()}. */

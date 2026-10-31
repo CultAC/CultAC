@@ -20,7 +20,8 @@ final class ClientTickPositions {
     private List<SimpleCollisionBox> preview;
 
     void beforeTick(PacketEntity entity, CultPlayer player, boolean changing) {
-        before = changing ? entity.getPossibleMovementCollisionBoxCandidates() : null;
+        // Position boxes, like the preview's: readers open entity-specific geometry from them once.
+        before = changing ? entity.getPositionCollisionBoxCandidates() : null;
         orderAtTickStart = player.compensatedEntities.clientTickOrder(entity);
         tickedAt = player.packetStateData.acceptedClientTick;
         preview = null;
@@ -34,7 +35,7 @@ final class ClientTickPositions {
         return orderAtTickStart <= order;
     }
 
-    /** The boxes held before this tick's step, or null when the entity has not ticked yet or kept still. */
+    /** The position boxes held before this tick's step, or null when the entity has not ticked yet or kept still. */
     List<SimpleCollisionBox> beforeThisTick(CultPlayer player) {
         return tickedAt == player.packetStateData.acceptedClientTick ? before : null;
     }
