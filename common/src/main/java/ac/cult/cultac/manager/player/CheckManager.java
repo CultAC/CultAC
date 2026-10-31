@@ -535,6 +535,8 @@ public class CheckManager {
         // These callbacks were pre-Via in the committed listener. The raw
         // packet identity is unavailable here, but decoded cancellation and
         // relative ordering are preserved ahead of every ordinary processor.
+        // Non-finite movement is rejected before any handler writes player state.
+        registerEarlyReceive(registrations, prePredictionChecks.get(CrashC.class));
         registerEarlyReceive(registrations, packetChecks.get(ChatA.class));
         registerEarlyReceive(registrations, packetChecks.get(ChatB.class));
         registerEarlyReceive(registrations, packetChecks.get(ChatC.class));
@@ -587,7 +589,6 @@ public class CheckManager {
         registerPreReceive(registrations, postPredictionCheck.get(ItemUseBurst.class));
         registerPreReceive(registrations, prePredictionChecks.get(DumbTimer.class));
         registerPreReceive(registrations, prePredictionChecks.get(CrashA.class));
-        registerPreReceive(registrations, prePredictionChecks.get(CrashC.class));
         registerPreReceive(registrations, prePredictionChecks.get(CrashI.class));
         registerPreReceive(registrations, prePredictionChecks.get(VehicleTimer.class));
         registerPreReceive(registrations, packetChecks.get(SetbackBlocker.class));
