@@ -10,6 +10,8 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.Opaque;
+import ac.cult.cultac.utils.data.packetentity.ClientSaddle;
+import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 
 /** Tracks the tags a client received; PLAY updates apply at their transaction boundary. */
@@ -30,7 +32,12 @@ public class PacketServerRegistries {
             configurationTags(player, packet);
         } else {
             player.sendTransaction();
-            player.latencyUtils.addRealTimeTaskNext(() -> state.appendTags(packet));
+            player.latencyUtils.addRealTimeTaskNext(() -> {
+                state.appendTags(packet);
+                // Equippable#canBeEquippedBy reads the current entity type tags.
+                for (PacketEntity entity : player.compensatedEntities.entityMap.values())
+                    ClientSaddle.refresh(player, entity);
+            });
             event.getTasksAfterSend().add(player::sendTrailingTransaction);
         }
     }

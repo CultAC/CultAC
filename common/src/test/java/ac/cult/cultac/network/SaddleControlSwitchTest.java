@@ -11,8 +11,6 @@ import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
-import ac.cult.blocksim.data.Components;
-import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.Check;
@@ -25,6 +23,7 @@ import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.packet.InventoryPackets;
 import ac.cult.cultac.network.packet.PacketCodecUtil;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.ProtocolVersion;
@@ -563,6 +562,7 @@ class SaddleControlSwitchTest {
                     new ClientboundAddEntity(
                             OTHER_DONKEY, "minecraft:donkey", new Vec3d(START.x + 3, START.y, START.z), 0, 0, 0));
             f.pongThrough(f.player.lastTransactionSent.get());
+            f.player.compensatedEntities.updateEntityMetadata(OTHER_DONKEY, horseFlags(18, 0x02));
             sendSaddle(f, OTHER_DONKEY, saddleItem());
             f.pongThrough(f.player.lastTransactionSent.get());
 
@@ -603,7 +603,117 @@ class SaddleControlSwitchTest {
     }
 
     private static List<EntityMetadata.Entry> horseFlags(int flags) {
-        return List.of(new EntityMetadata.Entry(17, (byte) flags, ByteBuffer.allocate(0)));
+        return horseFlags(17, flags);
+    }
+
+    private static List<EntityMetadata.Entry> horseFlags(int index, int flags) {
+        return List.of(new EntityMetadata.Entry(index, (byte) flags, ByteBuffer.allocate(0)));
+    }
+
+    /**
+     * AbstractNautilus#getControllingPassenger needs Mob#isSaddled, whose LivingEntity#isEquippableInSlot reads
+     * AbstractNautilus#canUseSlot: a live, adult, tamed nautilus. Entity data that ends any of those takes control
+     * from the rider without new equipment, so the client stops sending MoveVehicle.
+     */
+    @ParameterizedTest
+    @EnumSource(SaddleSlotLoss.class)
+    void aNautilusThatCanNoLongerUseItsSaddleHandsControlBack(SaddleSlotLoss loss) throws Exception {
+        try (var f = ridden("minecraft:nautilus", false)) {
+            CompensatedVehicleState vehicles = f.player.compensatedEntities.vehicles;
+            PacketEntity nautilus = f.player.compensatedEntities.getEntity(DONKEY);
+            // TamableAnimal's DATA_FLAGS_ID with its tame bit.
+            f.player.compensatedEntities.updateEntityMetadata(DONKEY, horseFlags(18, 0x04));
+            saddle(f);
+            assertTrue(vehicles.mustEchoMoveVehicle(nautilus));
+            f.player.packetStateData.acceptedClientTick += switchWindowTicks();
+            assertFalse(switchWindowOpen(f, DONKEY));
+
+            f.player.compensatedEntities.updateEntityMetadata(DONKEY, loss.entry);
+            assertFalse(((PacketEntityNautilus) nautilus).hasSaddle);
+            assertFalse(vehicles.mustEchoMoveVehicle(nautilus));
+            assertTrue(switchWindowOpen(f, DONKEY));
+        }
+    }
+
+    enum SaddleSlotLoss {
+        /** AgeableMob's DATA_BABY_ID. */
+        BABY(new EntityMetadata.Entry(16, true, ByteBuffer.allocate(0))),
+        /** TamableAnimal's DATA_FLAGS_ID without its tame bit. */
+        UNTAMED(new EntityMetadata.Entry(18, (byte) 0, ByteBuffer.allocate(0))),
+        /** LivingEntity's DATA_HEALTH_ID, which LivingEntity#isAlive reads. */
+        DEAD(new EntityMetadata.Entry(9, 0.0F, ByteBuffer.allocate(0)));
+
+        final List<EntityMetadata.Entry> entry;
+
+        SaddleSlotLoss(EntityMetadata.Entry entry) {
+            this.entry = List.of(entry);
+        }
+    }
+
+    /** Taming the mount opens its saddle slot to the saddle it already wears, handing the rider control. */
+    @Test
+    void tamingASaddledDonkeyHandsTheRiderControl() throws Exception {
+        try (var f = ridden(false)) {
+            CompensatedVehicleState vehicles = f.player.compensatedEntities.vehicles;
+            PacketEntity donkey = f.player.compensatedEntities.getEntity(DONKEY);
+            saddle(f);
+            assertFalse(vehicles.mustEchoMoveVehicle(donkey));
+            assertFalse(switchWindowOpen(f, DONKEY));
+
+            f.player.compensatedEntities.updateEntityMetadata(DONKEY, horseFlags(18, 0x02));
+            assertTrue(vehicles.mustEchoMoveVehicle(donkey));
+            assertTrue(switchWindowOpen(f, DONKEY));
+        }
+    }
+
+    /**
+     * LivingEntity#isEquippableInSlot needs an EQUIPPABLE component for the SADDLE slot that admits the mount. Any
+     * other item the server puts in the slot leaves the mount unsaddled.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"minecraft:diamond_horse_armor", "minecraft:stick"})
+    void aSaddleSlotItemThatIsNoSaddleGivesNoControl(String item) throws Exception {
+        try (var f = ridden()) {
+            PacketEntity donkey = f.player.compensatedEntities.getEntity(DONKEY);
+            sendSaddle(f, ItemUtil.modelItems().stack(item, 1));
+            f.pongThrough(f.player.lastTransactionSent.get());
+
+            assertFalse(((PacketEntityHorse) donkey).hasSaddle);
+            assertFalse(f.player.compensatedEntities.vehicles.mustEchoMoveVehicle(donkey));
+            assertFalse(switchWindowOpen(f, DONKEY));
+        }
+    }
+
+    /** 1.21.5's Mob#isSaddled is Mob#hasItemInSlot: any item in the slot saddles even an untamed mount. */
+    @Test
+    void aV1215SaddleSlotSaddlesWithAnyItem() throws Exception {
+        try (var f = new JavaTickFixture(ProtocolVersion.V1_21_5, ClientVersion.V_1_21_5)) {
+            f.place(START.add(0, 1, 0), Vec3.ZERO);
+            send(
+                    f,
+                    ClientboundPackets.ADD_ENTITY,
+                    new ClientboundAddEntity(
+                            DONKEY, "minecraft:donkey", new Vec3d(START.x, START.y, START.z), 0, 0, 0));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            f.setPassengers(DONKEY, List.of(f.player.entityID));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            sendSaddle(f, ItemUtil.modelItems().stack("minecraft:stick", 1));
+            f.pongThrough(f.player.lastTransactionSent.get());
+
+            PacketEntity donkey = f.player.compensatedEntities.getEntity(DONKEY);
+            assertTrue(((PacketEntityHorse) donkey).hasSaddle);
+            assertTrue(f.player.compensatedEntities.vehicles.mustEchoMoveVehicle(donkey));
+        }
+    }
+
+    /** SkeletonHorse#canUseSlot opens every slot from 1.21.11, so its saddle needs no tamed rider. */
+    @Test
+    void anUntamedSkeletonHorseTakesItsSaddle() throws Exception {
+        try (var f = ridden("minecraft:skeleton_horse", false)) {
+            saddle(f);
+            assertTrue(controls(f));
+            assertTrue(switchWindowOpen(f, DONKEY));
+        }
     }
 
     enum HandOver {
@@ -864,11 +974,7 @@ class SaddleControlSwitchTest {
     }
 
     private static void sendSaddle(JavaTickFixture f) {
-        var item = DataTables.defaults().items().stream()
-                .filter(definition -> definition.key().equals("minecraft:saddle"))
-                .findFirst()
-                .orElseThrow();
-        sendSaddle(f, new SimItemStack(item, 1, Components.EMPTY));
+        sendSaddle(f, saddleItem());
     }
 
     private static void sendSaddle(JavaTickFixture f, SimItemStack saddle) {

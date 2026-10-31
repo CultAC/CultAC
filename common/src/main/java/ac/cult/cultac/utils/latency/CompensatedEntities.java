@@ -1387,16 +1387,7 @@ public class CompensatedEntities {
 
             if (slot.slot() == EquipmentSlot.SADDLE) {
                 entity.saddleItem = slot.item();
-                boolean hasSaddle = !slot.item().isEmpty();
-                if (entity instanceof PacketEntityRideable rideable) {
-                    rideable.hasSaddle = hasSaddle;
-                }
-                if (entity instanceof PacketEntityHorse horse) {
-                    horse.hasSaddle = hasSaddle;
-                }
-                if (entity instanceof PacketEntityNautilus nautilus) {
-                    nautilus.hasSaddle = hasSaddle;
-                }
+                ClientSaddle.update(player, entity);
             } else if (slot.slot() == EquipmentSlot.BODY && entity instanceof PacketEntityHappyGhast happyGhast) {
                 happyGhast.bodyItem = slot.item();
             }
@@ -1451,6 +1442,7 @@ public class CompensatedEntities {
         PacketEntity entity = player.compensatedEntities.getEntity(entityID);
         if (entity == null) return;
         entity.onData(provenAt);
+        int saddleInputs = ClientSaddle.metadataInputs(entity);
         if (entity instanceof PacketEntityHanging hanging)
             hanging.updateActionMetadata(
                     watchableObjects, player.user.getCultConnection().getObservedProtocol());
@@ -1542,6 +1534,8 @@ public class CompensatedEntities {
                 nautilus.isTame = (tameFlags & 0x04) != 0;
             }
         }
+        // The client applies the whole packet before its next tick reads isSaddled.
+        if (ClientSaddle.metadataInputs(entity) != saddleInputs) ClientSaddle.refresh(player, entity);
         applyGravityMetadata(entity, watchableObjects);
 
         if (entity.type == EntityTypeIds.FIREWORK_ROCKET) {

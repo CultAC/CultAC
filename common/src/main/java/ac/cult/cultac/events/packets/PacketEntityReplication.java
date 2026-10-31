@@ -53,6 +53,7 @@ import ac.cult.cultac.utils.data.TeleportAcceptData;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.VehicleTeleportData;
+import ac.cult.cultac.utils.data.packetentity.ClientSaddle;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHook;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityRavager;
@@ -1443,6 +1444,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 if (received != null && received.isLivingEntity() && received.type != EntityTypeIds.PLAYER) {
                     received.actionAlive = false;
                     received.isDead = true;
+                    ClientSaddle.refresh(player, received);
                 }
             };
             if (proof != null) player.latencyUtils.addRealTimeTask(proof.transaction(), apply);

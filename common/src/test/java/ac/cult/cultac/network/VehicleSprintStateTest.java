@@ -7,8 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ac.cult.blocksim.data.Components;
-import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.CultAPI;
@@ -463,14 +461,10 @@ class VehicleSprintStateTest {
     /** A set_equipment putting a saddle in the vehicle's SADDLE slot. */
     @SuppressWarnings("unchecked")
     private static void sendSaddle(JavaTickFixture f) {
-        var item = DataTables.defaults().items().stream()
-                .filter(definition -> definition.key().equals("minecraft:saddle"))
-                .findFirst()
-                .orElseThrow();
         var packet = new InventoryPackets.Equipment(
                 VEHICLE,
                 List.of(new InventoryPackets.EquipmentEntry(
-                        EquipmentSlot.SADDLE, new SimItemStack(item, 1, Components.EMPTY))));
+                        EquipmentSlot.SADDLE, ItemUtil.modelItems().stack("minecraft:saddle", 1))));
         var type = (PacketType<InventoryPackets.Equipment>) TestProtocolRuntime.catalog().stream()
                 .filter(candidate -> candidate.recordClass() == InventoryPackets.Equipment.class)
                 .findFirst()
