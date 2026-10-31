@@ -34,6 +34,7 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.FlightToggle;
+import org.jetbrains.annotations.Nullable;
 
 public class PacketPlayerRespawn {
 
@@ -49,10 +50,11 @@ public class PacketPlayerRespawn {
         player.sendTransaction();
         int preceding = player.lastTransactionSent.get();
 
-        final PacketEntitySelf healthSelf = player.compensatedEntities.getSelf();
+        final int level = player.compensatedWorld.level();
         if (packet.health() <= 0) {
             player.latencyUtils.addRealTimeTaskNow(() -> {
-                healthSelf.isDead = true;
+                PacketEntitySelf self = healthTarget(player, level);
+                if (self != null) self.isDead = true;
                 player.checkManager.getListener(BadPacketsM.class).onDeath();
             });
         }
@@ -61,13 +63,26 @@ public class PacketPlayerRespawn {
         boolean bundled = player.runAtTrailingProof(event, () -> {
             player.food = packet.food();
             player.clientItemUse.foodReceived();
-            if (packet.health() > 0) healthSelf.isDead = false;
-            player.compensatedEntities.getSelf().setHealth(packet.health());
+            PacketEntitySelf self = healthTarget(player, level);
+            if (self == null) return;
+            if (packet.health() > 0) self.isDead = false;
+            self.setHealth(packet.health());
         });
         // A higher food level refuses more starts and permits more sprinting.
         if (!bundled) {
             player.latencyUtils.addRealTimeTask(preceding, () -> player.food = Math.max(player.food, packet.food()));
         }
+    }
+
+    /**
+     * The self ClientPacketListener#handleSetHealth writes when the client reads health sent in {@code level}, or null.
+     * A respawn replaces the self only once the client reads it, so health sent after the respawn reaches the new
+     * player. A LOGIN replaces it when sent: Java's handleLogin LocalPlayer starts at full health, so health sent
+     * before it reaches no current self, while Geyser's session player keeps its health across a LOGIN.
+     */
+    private static @Nullable PacketEntitySelf healthTarget(CultPlayer player, int level) {
+        if (!player.isBedrockMovement() && level != player.compensatedWorld.level()) return null;
+        return player.compensatedEntities.getSelf();
     }
 
     @CultPacketHandler("clientbound.start_configuration")
@@ -374,12 +389,15 @@ public class PacketPlayerRespawn {
             if (player.compensatedEntities.vehicles.serverVehicleSends() == vehicleSends) {
                 player.compensatedEntities.vehicles.clearServerVehicle();
             }
-            final PacketEntitySelf respawnedSelf =
-                    new PacketEntitySelf(player, player.compensatedEntities.playerEntity);
+            final PacketEntitySelf oldSelf = player.compensatedEntities.playerEntity;
+            final PacketEntitySelf respawnedSelf = new PacketEntitySelf(player, oldSelf);
             if (player.isBedrockMovement()) {
                 // Java replaces its player here; the Bedrock actor keeps attributes until wire updates replace them.
-                respawnedSelf.bedrockRuntimeId = player.compensatedEntities.playerEntity.bedrockRuntimeId;
-                respawnedSelf.bedrockAttributes = player.compensatedEntities.playerEntity.bedrockAttributes;
+                // Geyser's JavaRespawnTranslator restores the actor's health on every respawn.
+                respawnedSelf.bedrockRuntimeId = oldSelf.bedrockRuntimeId;
+                respawnedSelf.bedrockAttributes = oldSelf.bedrockAttributes;
+            } else if (keepEntityData) {
+                respawnedSelf.keepEntityDataFrom(oldSelf);
             }
             player.compensatedEntities.playerEntity = respawnedSelf;
             // Same self-instance replacement as login: re-seed the identity-compared camera

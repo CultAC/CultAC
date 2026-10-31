@@ -36,13 +36,26 @@ public class PacketEntitySelf extends PacketEntity {
     @Setter
     int opLevel;
 
+    // LivingEntity's constructor sets DATA_HEALTH_ID to getMaxHealth(), a new player's default max_health of 20.
     @Getter
-    double health;
+    double health = 20.0D;
 
     public void setHealth(double health) {
         this.health = health;
         // SET_HEALTH and entity metadata both write LivingEntity's DATA_HEALTH_ID on the client.
         this.actionAlive = health > 0.0D;
+    }
+
+    /**
+     * ClientPacketListener#handleRespawn with KEEP_ENTITY_DATA gives the new LocalPlayer the old one's non-default
+     * synched data, in every supported release. LivingEntity defines DATA_HEALTH_ID as 1.0F, so any other health,
+     * a dead player's included, carries over with the death isDead tracks; at exactly 1.0F the new player keeps its
+     * max health. It is still a new LocalPlayer: its LivingEntity#deathTime counts from 0 and it is in the level.
+     */
+    public void keepEntityDataFrom(PacketEntitySelf old) {
+        if (Float.compare((float) old.health, 1.0F) == 0) return;
+        setHealth(old.health);
+        isDead = old.isDead;
     }
 
     // LivingEntity#deathTime: the client ticks LivingEntity#baseTick has run LocalPlayer#tickDeath in.

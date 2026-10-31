@@ -266,6 +266,42 @@ public final class PacketPlayerRespawnLifecycleTest {
         }
     }
 
+    /**
+     * ClientPacketListener#handleRespawn copies a dead Java player's zero health to the new LocalPlayer only with
+     * KEEP_ENTITY_DATA. Geyser's JavaRespawnTranslator restores a Bedrock player's health on every respawn.
+     */
+    @Test
+    public void onlyAJavaRespawnKeepingEntityDataKeepsTheDeadPlayersHealth() throws Exception {
+        OfflineCultTestBootstrap.installConfig();
+        for (boolean bedrock : new boolean[] {false, true}) {
+            for (byte kept = 0; kept < 4; kept++) {
+                CultPlayer player = offlinePlayer(bedrock);
+                String label = (bedrock ? "bedrock" : "java") + " kept " + kept;
+                try {
+                    PacketPlayerRespawn listener = new PacketPlayerRespawn();
+                    ClientboundSetHealth lethal = new ClientboundSetHealth(0.0F, 20, 5.0F);
+                    listener.onSetHealth(sendEvent(player, ClientboundPackets.SET_HEALTH, lethal), player, lethal);
+                    player.lastTransactionReceived.set(1);
+                    player.latencyUtils.handleNettySyncTransaction(1);
+                    assertFalse(label, player.compensatedEntities.getSelf().actionAlive);
+
+                    ClientboundRespawn respawn = respawnPacket(kept);
+                    listener.onRespawn(sendEvent(player, ClientboundPackets.RESPAWN, respawn), player, respawn);
+                    player.lastTransactionReceived.set(2);
+                    player.latencyUtils.handleNettySyncTransaction(2);
+
+                    boolean dead = !bedrock && (kept & ClientboundRespawn.KEEP_ENTITY_DATA) != 0;
+                    var self = player.compensatedEntities.getSelf();
+                    assertEquals(label, !dead, self.actionAlive);
+                    assertEquals(label, dead, self.isDead);
+                    assertFalse(label, self.isRemovedFromLevel());
+                } finally {
+                    OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+                }
+            }
+        }
+    }
+
     @Test
     public void seaLevelAndBiomeSeedChangeOnlyWhenAnAcknowledgedRespawnCreatesANewClientLevel() throws Exception {
         OfflineCultTestBootstrap.installConfig();
