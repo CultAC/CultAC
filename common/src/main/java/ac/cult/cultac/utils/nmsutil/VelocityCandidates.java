@@ -176,11 +176,7 @@ public final class VelocityCandidates {
         boolean x = hiddenX ? hidden.collidedX() : !CultMath.equal(attempted.x, moved.x);
         boolean z = hiddenZ ? hidden.collidedZ() : !CultMath.equal(attempted.z, moved.z);
         boolean y = collidedVertically(result);
-        SimulationContext context = result.getSimulationContext();
-        boolean modern = player != null && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2);
-        double restitution = modern && !(context.getVehicle() == null && context.isSneaking())
-                ? player.compensatedEntities.getEntityInControl().bounciness
-                : 0.0D;
+        double restitution = horizontalRestitution(result);
         double clippedX = restitution == 0.0D ? 0.0D : -velocity.x * restitution;
         double clippedY = applyPostVerticalCollisionBlockVelocity(result, velocity.y, moved.y);
         double clippedZ = restitution == 0.0D ? 0.0D : -velocity.z * restitution;
@@ -220,18 +216,34 @@ public final class VelocityCandidates {
      * landing block's response at Entity#getOnPosLegacy. Exactly one velocity; the move's flags are not guessed.
      */
     private static Moved afterForwardMove(PredictionResult result, JavaMoveCollision move, Vec3 velocity) {
-        CultPlayer player = result.getPlayer();
-        SimulationContext context = result.getSimulationContext();
-        boolean modern = player != null && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2);
-        double restitution = modern && !(context.getVehicle() == null && context.isSneaking())
-                ? player.compensatedEntities.getEntityInControl().bounciness
-                : 0.0D;
+        double restitution = horizontalRestitution(result);
         double x = move.collidedX() ? (restitution == 0.0D ? 0.0D : -velocity.x * restitution) : velocity.x;
         double y = move.verticalCollision()
                 ? applyPostVerticalCollisionBlockVelocity(result, velocity.y, move.collided().y)
                 : velocity.y;
         double z = move.collidedZ() ? (restitution == 0.0D ? 0.0D : -velocity.z * restitution) : velocity.z;
         return new Moved(new Vec3(x, y, z), move.horizontalCollision());
+    }
+
+    /**
+     * The restitution 26.2 Entity#restituteMovementAfterCollisions applies to a collided horizontal axis: the mover's
+     * bounciness attribute unless it suppresses bounces. Older clients zero the axis.
+     */
+    private static double horizontalRestitution(PredictionResult result) {
+        CultPlayer player = result.getPlayer();
+        if (player == null || player.getClientVersion().isOlderThan(ClientVersion.V_26_2)) return 0.0D;
+        if (isSuppressingBounce(result.getSimulationContext())) return 0.0D;
+        return player.compensatedEntities.getEntityInControl().bounciness;
+    }
+
+    /**
+     * Entity#isSuppressingBounce of the entity that moved, which is isShiftKeyDown: LocalPlayer reads the client's
+     * shift key, and every other mover, a vehicle included, reads its own shared flag 1. The rider's keys do not
+     * reach a vehicle's flag.
+     */
+    private static boolean isSuppressingBounce(SimulationContext context) {
+        PacketEntity vehicle = context.getVehicle();
+        return vehicle == null ? context.isSneaking() : (vehicle.actionSharedFlags & 2) != 0;
     }
 
     /**
@@ -657,7 +669,7 @@ public final class VelocityCandidates {
                 result.getPlayer(),
                 context.getVehicle() == null ? context.getEntities().getSelf() : context.getVehicle(),
                 context.getWorldData().getOnBlock(),
-                context.getVehicle() == null && context.isSneaking(),
+                isSuppressingBounce(context),
                 livingMover(context),
                 requestedMovementY(result) < 0.0D,
                 deltaY,
