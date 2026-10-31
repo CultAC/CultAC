@@ -71,7 +71,10 @@ public class ElytraTransform implements UncertaintyHandler {
         return JavaVelocityRange.mapped(start, start.with(glide.apply(start), "elytra"), glide);
     }
 
-    /** Each concrete gravity choice gets its own forward collision result. */
+    /**
+     * Each concrete gravity choice gets its own forward collision result. LivingEntity#getEffectiveGravity reads the
+     * deltaMovement updateFallFlyingMovement starts from, so a carried range spanning zero glides on both gravities.
+     */
     public static List<PredVector> candidates(SimulationContext context, List<PredVector> velocities) {
         if (!context.usesFallFlyingMovement() || context.getWorldData().isInLiquid()) return velocities;
         var actor = context.getEntities().getEntityInControl();
@@ -79,8 +82,12 @@ public class ElytraTransform implements UncertaintyHandler {
         boolean slow = actor.hasGravity && context.getEntities().getSlowFallingAmplifier() != null;
         var candidates = new ArrayList<PredVector>(velocities.size() * 2);
         for (PredVector velocity : velocities) {
-            double gravity = slow && velocity.y <= 0.0D ? Math.min(normal, 0.01D) : normal;
-            candidates.add(new Candidate(velocity, gravity));
+            if (!slow) {
+                candidates.add(new Candidate(velocity, normal));
+                continue;
+            }
+            for (PredVector part : JavaVelocityRange.splitAtFalling(velocity))
+                candidates.add(new Candidate(part, part.y <= 0.0D ? Math.min(normal, 0.01D) : normal));
         }
         return candidates;
     }

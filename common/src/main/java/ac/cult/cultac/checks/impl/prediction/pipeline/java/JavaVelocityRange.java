@@ -538,6 +538,27 @@ public final class JavaVelocityRange {
         return parts;
     }
 
+    /**
+     * {@code vector}'s range split where LivingEntity#getEffectiveGravity switches: slow falling lowers gravity only
+     * while deltaMovement's Y is at most zero. One vector per side, each holding the original's nearest value in it;
+     * the vector itself when its range lies on one side.
+     */
+    public static List<PredVector> splitAtFalling(PredVector vector) {
+        SimpleCollisionBox range = vector.getVelocityRange();
+        if (range == null) return List.of(vector);
+        double low = vector.y + range.minY, high = vector.y + range.maxY;
+        if (low > 0 || high <= 0) return List.of(vector);
+        double rising = Math.nextUp(0.0D);
+        double fallingY = Math.max(low, Math.min(0, vector.y)), risingY = Math.max(rising, Math.min(high, vector.y));
+        return List.of(
+                vector.withXYZ(vector.x, fallingY, vector.z, "falling part")
+                        .withVelocityRange(new SimpleCollisionBox(
+                                range.minX, low - fallingY, range.minZ, range.maxX, -fallingY, range.maxZ)),
+                vector.withXYZ(vector.x, risingY, vector.z, "rising part")
+                        .withVelocityRange(new SimpleCollisionBox(
+                                range.minX, rising - risingY, range.minZ, range.maxX, high - risingY, range.maxZ)));
+    }
+
     private static final double SLOW = 0.003D;
 
     private static void part(

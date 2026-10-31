@@ -16,6 +16,9 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
 import io.netty.channel.embedded.EmbeddedChannel;
@@ -48,6 +51,65 @@ class ElytraTransformGravityTest {
                 assertTrue(offset > 0.01D, () -> "accepted " + swapped + " at " + offset);
             }
         });
+    }
+
+    /**
+     * A fishing pull whose bobber position is hidden leaves the glider a deltaMovement range spanning zero. Every
+     * velocity in it glides with the gravity LivingEntity#getEffectiveGravity gives its own Y: one just above zero on
+     * the ordinary gravity, one at or below zero on slow falling's.
+     */
+    @Test
+    void aRangeSpanningZeroGlidesEachSideWithItsOwnGravity() {
+        withPlayer(player -> {
+            var actor = mock(PacketEntity.class);
+            actor.hasGravity = true;
+            actor.gravity = GRAVITY;
+            var entities = mock(CompensatedEntities.class);
+            when(entities.getEntityInControl()).thenReturn(actor);
+            when(entities.getSlowFallingAmplifier()).thenReturn(0);
+            SimulationContext context = context();
+            when(context.getEntities()).thenReturn(entities);
+            PredVector start = new PredVector(VELOCITY.add(0, 0.044D, 0))
+                    .withVelocityRange(new SimpleCollisionBox(0, -0.01D, 0, 0, 0.012D, 0));
+            List<PredVector> glides = new java.util.ArrayList<>();
+            for (PredVector candidate : ElytraTransform.candidates(context, List.of(start)))
+                glides.add(new ElytraTransform()
+                        .handleUncertainty(
+                                player,
+                                mock(ValidMovements.class),
+                                mock(PredictionResult.class),
+                                context,
+                                null,
+                                candidate,
+                                Vec3.ZERO));
+            for (double y : new double[] {start.y - 0.01D, 0.0D, 0.0039D, start.y + 0.012D}) {
+                Vec3 legit = glide(player, y, y <= 0 ? SLOW_FALLING : GRAVITY);
+                assertTrue(
+                        glides.stream().anyMatch(glided -> holds(glided, legit)),
+                        () -> "no glide holds " + legit + " from y " + y + " in " + glides);
+            }
+        });
+    }
+
+    private static boolean holds(PredVector glided, Vec3 velocity) {
+        SimpleCollisionBox range = glided.getVelocityRange();
+        if (range == null) return glided.distanceTo(velocity) < 1.0E-12D;
+        return velocity.x >= glided.x + range.minX - 1.0E-12D
+                && velocity.x <= glided.x + range.maxX + 1.0E-12D
+                && velocity.y >= glided.y + range.minY - 1.0E-12D
+                && velocity.y <= glided.y + range.maxY + 1.0E-12D
+                && velocity.z >= glided.z + range.minZ - 1.0E-12D
+                && velocity.z <= glided.z + range.maxZ + 1.0E-12D;
+    }
+
+    private static SimulationContext context() {
+        SimulationContext context = mock(SimulationContext.class);
+        when(context.usesFallFlyingMovement()).thenReturn(true);
+        when(context.getWorldData()).thenReturn(mock(WorldData.class));
+        when(context.getVersion()).thenReturn(ClientVersion.V_26_1);
+        when(context.getXRot()).thenReturn(YAW);
+        when(context.getYRot()).thenReturn(PITCH);
+        return context;
     }
 
     private static Vec3 glide(CultPlayer player, double y, double gravity) {
