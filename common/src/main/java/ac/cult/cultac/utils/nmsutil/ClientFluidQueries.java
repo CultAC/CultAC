@@ -13,9 +13,11 @@ import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.visibility.CameraEyeHeight;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -235,7 +237,7 @@ public final class ClientFluidQueries {
                         .entities()
                         .getOrDefault(CAN_FLOAT_WHILE_RIDDEN, List.of())
                         .contains(EntityTypeUtil.modelType(vehicle.type).key())
-                || !(waterDepth > 0.4D)) return false;
+                || !(waterDepth > fluidJumpThreshold(context))) return false;
         return inWater;
     }
 
@@ -248,7 +250,16 @@ public final class ClientFluidQueries {
                         .entities()
                         .getOrDefault(CAN_FLOAT_WHILE_RIDDEN, List.of())
                         .contains(EntityTypeUtil.modelType(vehicle.type).key())
-                && depth(player, box, FluidTags.ENTITY_FLOATABLE) > 0.4D;
+                && depth(player, box, FluidTags.ENTITY_FLOATABLE) > fluidJumpThreshold(context);
+    }
+
+    /** Entity#getFluidJumpThreshold of the moving entity: 0.4, or 0 when its scaled eye is lower than 0.4. */
+    public static double fluidJumpThreshold(SimulationContext context) {
+        PacketEntity vehicle = context.getVehicle();
+        float eyeHeight = vehicle == null
+                ? context.getPose().eyeHeight * context.getScale()
+                : CameraEyeHeight.of(vehicle, context.getVersion());
+        return eyeHeight < 0.4D ? 0.0D : 0.4D;
     }
 
     public static double depth(CultPlayer player, SimpleCollisionBox entityBox, FluidTags tag) {
