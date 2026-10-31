@@ -128,10 +128,12 @@ public class WorldStageBuilder {
                     : getFluidState(player, simulationContext.getFromMaximumExtent(maxFluidBox));
         } else {
             // Entity#baseTick's fluid update samples Entity#getBoundingBox where baseTick ran: the pose
-            // Player#updatePlayerPose left last tick at the player's scale, or the vehicle's own box. Travel reads
-            // that cache even after a pre-26.3 root's interpolation step moves it.
+            // Player#updatePlayerPose left last tick at the player's scale, or the vehicle's own box before
+            // Camel#tickRidden can stand it up. Travel reads that cache even after a pre-26.3 root's interpolation
+            // step moves it.
             fluidState = getFluidState(
-                    player, simulationContext.getActualPoseAt(simulationContext.getBaseTickStart(player), minFluidBox));
+                    player,
+                    simulationContext.getPoseBeforeTravelAt(simulationContext.getBaseTickStart(player), minFluidBox));
         }
         boolean isInWater = fluidState.isInWater() && (maxFluidState == null || maxFluidState.isInWater());
         boolean isInLava = fluidState.isInLava() && (maxFluidState == null || maxFluidState.isInLava());

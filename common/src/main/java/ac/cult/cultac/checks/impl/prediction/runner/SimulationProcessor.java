@@ -89,6 +89,7 @@ import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.utils.data.packetentity.ClientMovementSpeed;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityCamel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
@@ -3455,6 +3456,15 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         context.setWaterMovementEfficiency(getWaterMovementEfficiency(traveller, contextLastOnGround));
         // AbstractBoat#controlBoat reads the keys stored on the boat itself.
         if (riding != null) context.setBoatInputs(riding.boatInput);
+        // LivingEntity#travelRidden runs Camel#tickRidden after getRiddenInput and before travel. LocalPlayer#aiStep
+        // set zza from the keys this tick's root reads.
+        if (riding instanceof PacketEntityCamel camel
+                && !player.isBedrockMovement()
+                && camel.actionAlive
+                && player.packetStateData.isVehicleMovementFromClientTick()) {
+            context.setRiddenStandUp(camel.standsUpInTickRidden(
+                    player.boatData.vehicleForward > 0.0F, player.compensatedWorld.clientGameTime()));
+        }
         context.setRiptideReleaseCertain(player.packetStateData.riptideReleaseCertain);
         context.setProfileCarry(selectedCarry == null ? this.profileCarry : selectedCarry);
         if (!player.isBedrockMovement() && traveller == this.recordedMovesActor)

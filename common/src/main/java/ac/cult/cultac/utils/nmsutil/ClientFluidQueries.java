@@ -231,7 +231,9 @@ public final class ClientFluidQueries {
         if (vehicle == null) return false;
         // LivingEntity#floatInLiquidWhileRidden reads the pre-travel body depth.
         // 26.3 selects both the entity and the fluid through synchronized tags.
-        if (usesTagBasedFluidRules(player)) return floatWhileRiddenAt(player, context, context.getFromMinimumExtent());
+        if (usesTagBasedFluidRules(player))
+            return floatWhileRiddenAt(
+                    player, context, context.getPoseBeforeTravelAt(context.getStart(), new SimpleCollisionBox()));
         // The received entity tag has controlled this helper since its introduction in 1.21.11.
         if (!clientTags(player)
                         .entities()

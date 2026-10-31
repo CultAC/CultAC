@@ -255,7 +255,9 @@ public final class JavaEntityVelocityTicks {
                 position.y,
                 position.z,
                 context.getVehicle() == null ? pose.width * context.getScale() : context.getMaxWidth(),
-                context.getVehicle() == null ? pose.height * context.getScale() : context.getMaxHeight());
+                context.getVehicle() == null
+                        ? pose.height * context.getScale()
+                        : before ? context.getHeightBeforeTravel() : context.getMaxHeight());
         entities.beginMovementPositionReads();
         long phase = entities.passTickedThroughOrder();
         try {

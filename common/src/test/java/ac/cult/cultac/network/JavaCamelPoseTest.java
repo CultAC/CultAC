@@ -1,6 +1,7 @@
 package ac.cult.cultac.network;
 
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
+import static ac.cult.cultac.network.JavaTickFixture.assertRejected;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -50,6 +51,10 @@ class JavaCamelPoseTest {
     private static final double LAND_INPUT = (double) 0.98F * (double) (0.09F * (0.21600002F / (0.6F * 0.6F * 0.6F)));
     /** A move up and forward that a camel's riding jump could make. */
     private static final Vec3 HOP = new Vec3(SEAT.x, SEAT.y + 0.16, SEAT.z + 0.8);
+    /** The bottom of a ceiling three blocks above the floor. */
+    private static final int CEILING_Y = FLOOR_Y + 3;
+    /** The rise that brings a standing adult camel, Camel's 2.375-tall EntityType box, up to {@link #CEILING_Y}. */
+    private static final double STANDING_RISE = CEILING_Y - (SEAT.y + (double) 2.375F);
 
     @Test
     void aSittingCamelInWaterStandsUpBeforeItsRiderReleasesAJump() throws Exception {
@@ -252,6 +257,42 @@ class JavaCamelPoseTest {
             assertTrue(camel(f).isCamelSitting());
             assertFalse(exact(f.rideTick(new Vec3(SEAT.x, SEAT.y, SEAT.z + LAND_INPUT), true)));
         }
+    }
+
+    /**
+     * LivingEntity#travelRidden runs Camel#tickRidden between getRiddenInput and travel. The rider's forward key stands
+     * the seated camel up there, and Camel#standUp's pose change refreshes its dimensions, so Entity#move collides with
+     * the standing box: pushed up 1.0, the camel stops where that box meets the ceiling.
+     */
+    @Test
+    void aSeatedCamelStandingUpRisesWithItsStandingBox() throws Exception {
+        try (var f = pushedUpUnderACeiling()) {
+            assertEquals(0.625D, STANDING_RISE);
+            assertExactTick(f.rideTick(new Vec3(SEAT.x, SEAT.y + STANDING_RISE, SEAT.z), false), "stand up");
+            assertFalse(camel(f).isCamelSitting());
+        }
+    }
+
+    /** The seated box would rise the full 1.0 and leave the standing camel 0.375 inside the ceiling. */
+    @Test
+    void aSeatedCamelStandingUpCannotRiseAsFarAsItsSeatedBox() throws Exception {
+        try (var f = pushedUpUnderACeiling()) {
+            assertRejected(f.rideTick(new Vec3(SEAT.x, SEAT.y + 1.0, SEAT.z), false), "VehicleOffset");
+        }
+    }
+
+    /** A fully seated camel under {@link #CEILING_Y}, its rider's forward key read and a 1.0 upward motion received. */
+    private static JavaTickFixture pushedUpUnderACeiling() throws Exception {
+        JavaTickFixture f = sitting();
+        layer(f, CEILING_Y, BlockIds.STONE.defaultState());
+        expireBlockChangeUncertainty(f);
+        f.input(FORWARD);
+        // The root ticked on the idle keys before LocalPlayer#aiStep read the pressed ones.
+        assertExactTick(f.rideTick(SEAT, true), "input");
+        assertTrue(camel(f).isCamelSitting());
+        f.entityMotion(CAMEL, new Vec3(0.0, 1.0, 0.0));
+        f.pongThrough(f.player.lastTransactionSent.get());
+        return f;
     }
 
     /** The compensated block update is applied at this client tick; water is exact. */

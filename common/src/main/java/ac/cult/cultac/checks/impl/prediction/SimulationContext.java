@@ -96,6 +96,10 @@ public class SimulationContext implements Cloneable {
     Integer jumpAmplifier;
     float depthStriderLevel;
     int swiftSneakLevel;
+    // Camel#tickRidden stands the fully seated vehicle up inside LivingEntity#travelRidden: after Entity#baseTick and
+    // getRiddenInput read it seated, and before travel moves its standing box.
+    @Setter
+    boolean riddenStandUp;
 
     @Setter
     DesyncStatus isSprinting;
@@ -759,14 +763,31 @@ public class SimulationContext implements Cloneable {
         return 0.6f * scale;
     }
 
+    /** The height travel moves. Camel#standUp's pose change has refreshed the dimensions by then. */
     public float getMaxHeight() {
         if (getVehicle() instanceof PacketEntityCamel camel && getBedrockInput() == null) {
-            return BoundingBoxSize.getCamelPoseHeight(camel, version);
+            return riddenStandUp
+                    ? BoundingBoxSize.getHeight(camel, version)
+                    : BoundingBoxSize.getCamelPoseHeight(camel, version);
         }
         if (getVehicle() != null) {
             return BoundingBoxSize.getHeight(getVehicle(), version, getBedrockInput() != null);
         }
         return 1.8f * scale;
+    }
+
+    /** {@link #getMaxHeight} before Camel#tickRidden stands the vehicle up, as Entity#baseTick reads it. */
+    public float getHeightBeforeTravel() {
+        return riddenStandUp && getVehicle() instanceof PacketEntityCamel camel
+                ? BoundingBoxSize.getCamelPoseHeight(camel, version)
+                : getMaxHeight();
+    }
+
+    /** {@link #getActualPoseAt} before Camel#tickRidden stands the vehicle up, as Entity#baseTick samples it. */
+    public SimpleCollisionBox getPoseBeforeTravelAt(Vec3 position, SimpleCollisionBox out) {
+        if (getVehicle() == null) return getActualPoseAt(position, out);
+        return GetBoundingBox.getBoundingBoxFromPosAndSize(
+                out, position.x, position.y, position.z, getMaxWidth(), getHeightBeforeTravel());
     }
 
     /** The smallest player pose height (swimming, gliding, crawling) at the player's scale. */

@@ -60,12 +60,15 @@ public class PacketEntityCamel extends PacketEntityHorse {
         return isCamelSitting() || isInPoseTransition(gameTime);
     }
 
-    /** Camel#tickRidden: a controller with positive zza stands a fully seated camel up at {@code gameTime}. */
-    public void tickRidden(boolean forward, long gameTime) {
-        if (forward && isCamelSitting() && !isInPoseTransition(gameTime)) {
-            actionPose = EntityPose.STANDING;
-            lastPoseChangeTick = gameTime;
-        }
+    /** Camel#tickRidden: whether a controller with positive zza stands a fully seated camel up at {@code gameTime}. */
+    public boolean standsUpInTickRidden(boolean forward, long gameTime) {
+        return forward && isCamelSitting() && !isInPoseTransition(gameTime);
+    }
+
+    /** Camel#standUp at {@code gameTime}. Its pose change refreshes the camel's dimensions at once. */
+    public void standUp(long gameTime) {
+        actionPose = EntityPose.STANDING;
+        lastPoseChangeTick = gameTime;
     }
 
     /** Camel#standUpInstantly, which Camel#tick runs on the client for a sitting camel in water. */
