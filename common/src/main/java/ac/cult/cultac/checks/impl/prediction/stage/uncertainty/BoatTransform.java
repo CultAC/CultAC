@@ -131,7 +131,7 @@ public class BoatTransform implements UncertaintyHandler {
 
         BoatTickState state = BoatTickState.capture(player);
         String waterEntryProbe = debugWaterEntryProbe(player, context, state);
-        Vec3 withCurrent = applyBoatWaterCurrent(player, context, vector);
+        Vec3 withCurrent = applyBoatBaseTickCurrents(player, context, vector);
         FloatBoatResult floated = floatBoat(player, context, withCurrent, state);
         BoatControlResult controlled = controlBoat(player, context, floated.vector(), floated.state());
         return "Boat tick debug: start=" + vector
@@ -176,22 +176,22 @@ public class BoatTransform implements UncertaintyHandler {
         return waterEntrySnapHasNoCollision(player, context, movedBox);
     }
 
-    private static Vec3 applyBoatWaterCurrent(CultPlayer player, SimulationContext context, Vec3 vector) {
+    private static Vec3 applyBoatBaseTickCurrents(CultPlayer player, SimulationContext context, Vec3 vector) {
         // MCP-Reborn AbstractBoat#tick calls super.tick() before floatBoat(); Entity#baseTick
-        // applies EntityFluidInteraction water current there. AbstractBoat#getStatus() and
-        // Entity#baseTick run before interpolation, so current must sample the same
+        // applies the water current and then the lava current there (Entity#updateFluidInteraction,
+        // updateInWaterStateAndDoFluidPushing before 26.1). AbstractBoat#getStatus() and
+        // Entity#baseTick run before interpolation, so both currents sample the same
         // pre-interpolation fluid box captured with the boat status.
         // Boats are Entity, not Player, so EntityFluidInteraction.Tracker#applyCurrentTo
         // normalizes accumulated current instead of averaging it like LocalPlayer movement.
         SimpleCollisionBox fluidBox = player.boatData.fluidInteractionBox == null
                 ? context.getFromMaximumExtent()
                 : player.boatData.fluidInteractionBox;
-        return applyBoatBaseTickWaterCurrent(player, fluidBox, vector);
-    }
-
-    private static Vec3 applyBoatBaseTickWaterCurrent(CultPlayer player, SimpleCollisionBox fluidBox, Vec3 vector) {
-        Vec3 current = WaterCurrent.calculateNonPlayerWaterCurrent(player, fluidBox, vector);
-        return current == null ? vector : vector.add(current);
+        Vec3 water = WaterCurrent.calculateNonPlayerWaterCurrent(player, fluidBox, vector);
+        if (water != null) vector = vector.add(water);
+        // The lava current's minimum-push test reads the delta the water current already changed.
+        Vec3 lava = WaterCurrent.calculateNonPlayerLavaCurrent(player, fluidBox, vector);
+        return lava == null ? vector : vector.add(lava);
     }
 
     private static FloatBoatResult floatBoat(
@@ -293,7 +293,7 @@ public class BoatTransform implements UncertaintyHandler {
 
     private static BoatTickResult computeBoatTick(
             CultPlayer player, SimulationContext context, Vec3 vector, BoatTickState state) {
-        vector = applyBoatWaterCurrent(player, context, vector);
+        vector = applyBoatBaseTickCurrents(player, context, vector);
         // MCP-Reborn AbstractBoat#getWaterLevelAbove uses AbstractBoat.lastYd.
         // checkFallDamage stores that from getDeltaMovement().y, not from the
         // actual position delta; water-entry snaps can move Y while lastYd is 0.
@@ -427,12 +427,12 @@ public class BoatTransform implements UncertaintyHandler {
 
     /**
      * AbstractBoat#tick up to Entity#move for a tick no MoveVehicle reports, from Entity#rideTick's zero delta:
-     * Entity#baseTick's water current, floatBoat, and controlBoat turning the boat from {@code yaw}, its own yaw.
-     * BoatData must already hold the status this tick sampled; the tick's water level, steering and lastYd are stored
-     * there, as commitAcceptedBoatTickState stores a reported tick's.
+     * Entity#baseTick's water and lava currents, floatBoat, and controlBoat turning the boat from {@code yaw}, its own
+     * yaw. BoatData must already hold the status this tick sampled; the tick's water level, steering and lastYd are
+     * stored there, as commitAcceptedBoatTickState stores a reported tick's.
      */
     public static UnreportedTick unreportedTick(CultPlayer player, SimulationContext context, float yaw) {
-        Vec3 current = applyBoatWaterCurrent(player, context, Vec3.ZERO);
+        Vec3 current = applyBoatBaseTickCurrents(player, context, Vec3.ZERO);
         FloatBoatResult floated = floatBoat(player, context, current, BoatTickState.capture(player));
         float deltaRotation = applyBoatControlDelta(floated.state().deltaRotation(), context.getBoatInputs());
         float postControlYaw = yaw + deltaRotation;
