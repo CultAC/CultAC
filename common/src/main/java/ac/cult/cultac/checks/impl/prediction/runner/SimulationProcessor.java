@@ -3139,7 +3139,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 movementProfile,
                 carryLastRequiredStuckSpeed);
         if (!player.isBedrockMovement() && player.getClientVersion() == ClientVersion.V_1_21_9) {
-            primary.setMovementPatch(JavaMovementPatch.V_1_21_10);
+            primary.setMovementPatch(JavaMovementPatch.assumed(player.provenMovementPatch));
         }
         return List.of(primary);
     }
@@ -3216,11 +3216,18 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         return ordered;
     }
 
-    /** Protocol 773 uses the assumed 1.21.10 behavior, retaining the complete state it starts from. */
+    /**
+     * Protocol 773 uses the assumed 1.21.10 behavior, retaining the complete state it starts from. A state that a 1.21.9
+     * bubble callback produced keeps its own patch.
+     */
     private List<JavaPredictionCarry.State> movementPatchStates(List<JavaPredictionCarry.State> states) {
         if (this.player.getClientVersion() != ClientVersion.V_1_21_9) return states;
         var patched = new java.util.LinkedHashSet<JavaPredictionCarry.State>();
-        for (var state : states) for (var patch : JavaMovementPatch.PROTOCOL_773) patched.add(state.withPatch(patch));
+        for (var state : states)
+            patched.add(
+                    state.movementPatch() != null
+                            ? state
+                            : state.withPatch(JavaMovementPatch.assumed(this.player.provenMovementPatch)));
         return List.copyOf(patched);
     }
 

@@ -1,14 +1,15 @@
 package ac.cult.cultac.checks.impl.prediction.pipeline.java;
 
 import ac.cult.cultac.network.protocol.ClientVersion;
-import java.util.List;
 
-/** Protocol 773 is simulated as 1.21.10; the wire protocol does not distinguish 1.21.9. */
+/**
+ * Protocol 773 is simulated as 1.21.10; the wire protocol does not distinguish 1.21.9. A state starts on
+ * {@link #V_1_21_10} and holds {@link #V_1_21_9} only after the 1.21.9 bubble callback changed its outcome; that state
+ * then keeps 1.21.9's rules. The player's proven patch ends the alternative.
+ */
 public enum JavaMovementPatch {
     V_1_21_9,
     V_1_21_10;
-
-    public static final List<JavaMovementPatch> PROTOCOL_773 = List.of(V_1_21_10);
 
     /** Entity#move stops scaling PISTON by stuckSpeedMultiplier in 1.21.10. */
     public static boolean unscaledPiston(ClientVersion version, JavaMovementPatch patch) {
@@ -18,6 +19,11 @@ public enum JavaMovementPatch {
     /** BubbleColumnBlock#entityInside starts requiring a precise block intersection in 1.21.10. */
     public static boolean preciseBubbles(ClientVersion version, JavaMovementPatch patch) {
         return is1Dot21Dot10OrLater(version, patch);
+    }
+
+    /** The patch a protocol 773 state starts with: the proven one, else the assumed 1.21.10. */
+    public static JavaMovementPatch assumed(JavaMovementPatch proven) {
+        return proven == null ? V_1_21_10 : proven;
     }
 
     private static boolean is1Dot21Dot10OrLater(ClientVersion version, JavaMovementPatch patch) {

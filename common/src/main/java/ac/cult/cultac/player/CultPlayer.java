@@ -302,6 +302,8 @@ public class CultPlayer implements GrimUser {
     public ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder clientFluidTagOrder;
     /** The client's JVM order, once an accepted movement distinguishes it; survives world/vehicle changes. */
     public ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder provenClientFluidTagOrder;
+    /** A protocol 773 client's bubble-column rule, once an accepted movement distinguishes 1.21.9 from 1.21.10. */
+    public ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementPatch provenMovementPatch;
 
     public @NotNull PacketStateData packetStateData;
     public ClientComponentRegistries registryState;

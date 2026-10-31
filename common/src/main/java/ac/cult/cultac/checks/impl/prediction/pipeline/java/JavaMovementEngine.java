@@ -21,6 +21,7 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder;
 import ac.cult.cultac.utils.nmsutil.GeyserVelocity;
+import ac.cult.cultac.utils.nmsutil.InsideBlockEffectScan;
 import ac.cult.cultac.utils.nmsutil.NextTickVelocityDeriver;
 import ac.cult.cultac.utils.nmsutil.VelocityCandidates;
 import java.util.ArrayList;
@@ -224,6 +225,7 @@ public final class JavaMovementEngine implements MovementEngine {
         player.compensatedEntities.beginMovementPositionReads();
         try {
             var commit = commitNextTick(player, result, lastPrediction, acceptedDiff, scratch);
+            if (!failedChecks(result)) proveMovementPatch(player, result);
             if (!failedChecks(result)
                     && player.provenClientFluidTagOrder == null
                     && commit.carry() instanceof JavaPredictionCarry carry
@@ -667,13 +669,17 @@ public final class JavaMovementEngine implements MovementEngine {
             Set<Vec3> velocities = NextTickVelocityDeriver.beforeBlockEffects(player, result, lastPrediction, scratch);
             JavaInsideBlockEffects.Scan scan = JavaInsideBlockEffects.scan(player, result, moved.movement());
             Vec3 end = result.getSimulationContext().getStart().add(moved.movement());
-            var states = new LinkedHashSet<JavaPredictionCarry.State>(velocities.size());
-            for (Vec3 velocity : velocities) {
-                for (var outcome : beforeBlockEntityPass(player, result, moved, scan, end, velocity)) {
-                    var effects = outcome.effects();
-                    var pass = passAfterTravel(result);
-                    if (pass != null) effects = afterPass(player, result, pass, end, effects);
-                    states.add(carriedState(result, moved, end, effects, outcome.spinRebound(), fallRange));
+            var states = carriedStates(player, result, moved, scan, end, velocities, fallRange);
+            if (forksBubbleRule(player, result, scan)) {
+                // The 1.21.9 alternative: BubbleColumnBlock#entityInside also for blocks the end box left.
+                var context = result.getSimulationContext();
+                context.setMovementPatch(JavaMovementPatch.V_1_21_9);
+                try {
+                    var legacy = carriedStates(player, result, moved, scan, end, velocities, fallRange);
+                    for (var state : legacy)
+                        if (!states.contains(state.withPatch(JavaMovementPatch.V_1_21_10))) states.add(state);
+                } finally {
+                    context.setMovementPatch(JavaMovementPatch.V_1_21_10);
                 }
             }
             var stateList = List.copyOf(states);
@@ -715,6 +721,64 @@ public final class JavaMovementEngine implements MovementEngine {
                         .powderContact();
         return new PredictionCommit(
                 new JavaPredictionCarry(carry.actor(), carry.fallDistance(), carry.states(), powder), velocities);
+    }
+
+    /** Each velocity's end-of-tick states after the travel's block pass and any pass after it. */
+    private static LinkedHashSet<JavaPredictionCarry.State> carriedStates(
+            CultPlayer player,
+            PredictionResult result,
+            JavaFallDistance.Moved moved,
+            JavaInsideBlockEffects.Scan scan,
+            Vec3 end,
+            Set<Vec3> velocities,
+            double fallRange) {
+        var states = new LinkedHashSet<JavaPredictionCarry.State>(velocities.size());
+        for (Vec3 velocity : velocities) {
+            for (var outcome : beforeBlockEntityPass(player, result, moved, scan, end, velocity)) {
+                var effects = outcome.effects();
+                var pass = passAfterTravel(result);
+                if (pass != null) effects = afterPass(player, result, pass, end, effects);
+                states.add(carriedState(result, moved, end, effects, outcome.spinRebound(), fallRange));
+            }
+        }
+        return states;
+    }
+
+    /**
+     * Whether a protocol 773 candidate on the assumed 1.21.10 patch also commits the 1.21.9 bubble callback: only until
+     * an accepted movement proves the patch, and only when the travel's block pass sweeps a bubble column.
+     */
+    private static boolean forksBubbleRule(
+            CultPlayer player, PredictionResult result, JavaInsideBlockEffects.Scan scan) {
+        SimulationContext context = result.getSimulationContext();
+        if (scan == null
+                || player.provenMovementPatch != null
+                || context.getVersion() != ClientVersion.V_1_21_9
+                || context.getMovementPatch() != JavaMovementPatch.V_1_21_10) return false;
+        if (InsideBlockEffectScan.mayHaveBubbles(player, scan.from(), scan.to())) return true;
+        for (var segment : scan.recordedBefore())
+            if (InsideBlockEffectScan.mayHaveBubbles(player, segment.from(), segment.to())) return true;
+        return false;
+    }
+
+    /**
+     * An accepted protocol 773 movement proves its patch when every candidate started from the other patch's states
+     * was rejected.
+     */
+    private static void proveMovementPatch(CultPlayer player, PredictionResult result) {
+        JavaMovementPatch patch = result.getSimulationContext().getMovementPatch();
+        if (player.provenMovementPatch != null
+                || patch == null
+                || result.getSimulationContext().getVersion() != ClientVersion.V_1_21_9
+                || result.getAnyReality() == null) return;
+        boolean contested = false;
+        for (PredictionResult other : result.getAnyReality()) {
+            JavaMovementPatch otherPatch = other.getSimulationContext().getMovementPatch();
+            if (otherPatch == null || otherPatch == patch) continue;
+            if (other.getFlagSeverity() == 0.0) return;
+            contested = true;
+        }
+        if (contested) player.provenMovementPatch = patch;
     }
 
     /**

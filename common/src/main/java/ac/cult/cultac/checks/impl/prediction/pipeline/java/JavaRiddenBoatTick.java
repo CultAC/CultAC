@@ -57,7 +57,7 @@ public final class JavaRiddenBoatTick {
         for (var carried : priors) {
             if (carried.movementPatch() != null || player.getClientVersion() != ClientVersion.V_1_21_9)
                 starts.add(carried);
-            else for (var patch : JavaMovementPatch.PROTOCOL_773) starts.add(carried.withPatch(patch));
+            else starts.add(carried.withPatch(JavaMovementPatch.assumed(player.provenMovementPatch)));
         }
         var states = new ArrayList<JavaPredictionCarry.State>(starts.size());
         BoatTransform.BoatTickState firstTick = null;

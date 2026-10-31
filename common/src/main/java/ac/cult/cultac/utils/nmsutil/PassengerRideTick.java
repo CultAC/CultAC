@@ -117,8 +117,10 @@ public final class PassengerRideTick {
                 List<ClientFluidTagOrder> orders = prior.order() != null ? List.of(prior.order())
                         : ClientFluidTagOrder.hasOverlap(player)
                                 ? ClientFluidTagOrder.candidates(player) : java.util.Collections.singletonList(null);
-                List<JavaMovementPatch> patches = player.getClientVersion() == ClientVersion.V_1_21_9
-                        ? JavaMovementPatch.PROTOCOL_773 : java.util.Collections.singletonList(prior.patch());
+                List<JavaMovementPatch> patches = java.util.Collections.singletonList(
+                        player.getClientVersion() == ClientVersion.V_1_21_9 && prior.patch() == null
+                                ? JavaMovementPatch.assumed(player.provenMovementPatch)
+                                : prior.patch());
                 for (ClientFluidTagOrder order : orders) {
                     try (var ignored = ClientFluidTagOrder.use(player, order)) {
                         for (JavaMovementPatch patch : patches) {
