@@ -87,7 +87,7 @@ public class WorldStageBuilder {
      * Whether the moving entity can be on a climbable: the player itself, or a ridden pig, strider or nautilus, which
      * keep LivingEntity#onClimbable. AbstractHorse and HappyGhast override it to return false.
      */
-    private static boolean canClimb(PacketEntity vehicle) {
+    public static boolean canClimb(PacketEntity vehicle) {
         return vehicle == null
                 || vehicle instanceof PacketEntityStrider
                 || vehicle instanceof PacketEntityNautilus

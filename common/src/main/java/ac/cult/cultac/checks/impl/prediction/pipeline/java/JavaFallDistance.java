@@ -6,6 +6,7 @@ import ac.cult.blocksim.data.FluidTags;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.stage.world.WorldStageBuilder;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
@@ -39,9 +40,11 @@ public final class JavaFallDistance {
         var world = context.getWorldData();
         boolean water = world.isInWater();
         boolean lava = world.isInLava();
-        // handleOnClimbable runs in air travel, not water/lava travel. Use the START block.
+        // handleOnClimbable runs in air travel, not water/lava travel. Use the START block. It resets only
+        // through the actor's own onClimbable, which a horse or happy ghast overrides to return false.
         Vec3 start = context.getStart();
         boolean climb = actor.isLivingEntity()
+                && WorldStageBuilder.canClimb(context.getVehicle())
                 && !world.isInTravelLiquid()
                 && !context.usesFallFlyingMovement()
                 && Collisions.onClimbable(player, start.x, start.y, start.z);
