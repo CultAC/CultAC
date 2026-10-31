@@ -396,11 +396,29 @@ class JavaTravelAttributeTest {
         try (var f = new JavaTickFixture()) {
             PacketEntityNautilus nautilus = (PacketEntityNautilus) vehicleOnSoulSand(
                     f, EntityTypes.defaults().byKey("minecraft:nautilus").id());
-            nautilus.pendingJumpScale = 1.0;
+            nautilus.pendingJumpScale = 1.0F;
             Vec3 dash = new Vec3(0.0, 0.0, 0.5F * 1.0 * 0.4F);
-            assertDash(dash, nautilusDash(f, nautilus));
+            assertDash(dash, nautilusDash(f, nautilus, false));
             f.player.isFlying = true;
-            assertDash(dash, nautilusDash(f, nautilus));
+            assertDash(dash, nautilusDash(f, nautilus, false));
+        }
+    }
+
+    /**
+     * AbstractNautilus#executeRidersJump in water at a partial charge: 1.2F times the float charge rounds to a float,
+     * which then scales the unrounded movement_speed, here a value no float holds.
+     */
+    @Test
+    void aNautilusDashRoundsItsChargeButNotItsMovementSpeed() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            PacketEntityNautilus nautilus = (PacketEntityNautilus) vehicleOnSoulSand(
+                    f, EntityTypes.defaults().byKey("minecraft:nautilus").id());
+            f.player.compensatedEntities.updateAttributes(
+                    100, List.of(snapshot("minecraft:movement_speed", 512.00003, 0.0)));
+            // PlayerRideableJumping#getPlayerJumpPendingScale for a jump bar of 45.
+            nautilus.pendingJumpScale = 0.4F + 0.4F * 45 / 90.0F;
+            float charge = 1.2F * nautilus.pendingJumpScale;
+            assertDash(new Vec3(0.0, 0.0, charge * 512.00003 * 0.4F), nautilusDash(f, nautilus, true));
         }
     }
 
@@ -566,12 +584,13 @@ class JavaTravelAttributeTest {
         return new Vec3(dashed.x, dashed.y, dashed.z);
     }
 
-    /** The dry dash VelocityTransformer adds from rest for {@code nautilus} on its soul sand. */
-    private static Vec3 nautilusDash(JavaTickFixture f, PacketEntityNautilus nautilus) throws Exception {
+    /** The dash VelocityTransformer adds from rest for {@code nautilus} on its soul sand. */
+    private static Vec3 nautilusDash(JavaTickFixture f, PacketEntityNautilus nautilus, boolean inWater)
+            throws Exception {
         Method dash = VelocityTransformer.class.getDeclaredMethod(
                 "applyNautilusDash", CultPlayer.class, PredVector.class, PacketEntityNautilus.class, boolean.class);
         dash.setAccessible(true);
-        Vec3 dashed = (Vec3) dash.invoke(dashing(f, nautilus), f.player, new PredVector(Vec3.ZERO), nautilus, false);
+        Vec3 dashed = (Vec3) dash.invoke(dashing(f, nautilus), f.player, new PredVector(Vec3.ZERO), nautilus, inWater);
         return new Vec3(dashed.x, dashed.y, dashed.z);
     }
 

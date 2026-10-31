@@ -715,7 +715,7 @@ public class VelocityTransformer {
                 && simulationContext.getLastOnGround().determineOptimistically();
         boolean canNautilusDash = simulationContext.getVehicle() instanceof PacketEntityNautilus nautilus
                 && nautilus.actionAlive
-                && nautilus.pendingJumpScale > 0.0D;
+                && nautilus.pendingJumpScale > 0.0F;
         if (!canPlayerJump && !canHorseJump && !canNautilusDash) return velocities;
 
         if (canNautilusDash) {
@@ -876,9 +876,10 @@ public class VelocityTransformer {
                 BlockProperties.getEntityBlockSpeedFactor(
                         player, simulationContext.getLastTickMainSupportingBlockData(), simulationContext.getStart()),
                 1.0F);
-        double waterMultiplier = inWater ? 1.2F : 0.5F;
-        double magnitude =
-                waterMultiplier * nautilus.pendingJumpScale * nautilus.movementSpeedAttribute * blockSpeedFactor;
+        // AbstractNautilus#executeRidersJump rounds the multiplier times the charge to a float, then reads the
+        // unrounded getAttributeValue(MOVEMENT_SPEED); only getRiddenSpeed narrows that to a float.
+        float charge = (inWater ? 1.2F : 0.5F) * nautilus.pendingJumpScale;
+        double magnitude = charge * nautilus.movementSpeed.value() * blockSpeedFactor;
         return input.add(look.scale(magnitude), "Nautilus dash");
     }
 

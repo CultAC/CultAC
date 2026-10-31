@@ -13,8 +13,9 @@ public final class PacketEntityNautilus extends PacketEntityTrackXRot {
     public double movementSpeedAttribute = 1.0D;
 
     public final ClientMovementSpeed movementSpeed = new ClientMovementSpeed(1.0D);
-    public double pendingJumpScale;
-    public double nextPendingJumpScale;
+    // AbstractNautilus#playerJumpPendingScale, a float.
+    public float pendingJumpScale;
+    public float nextPendingJumpScale;
     // Entity#firstTick: true until the nautilus's first client tick.
     private boolean firstTick = true;
 
@@ -65,9 +66,9 @@ public final class PacketEntityNautilus extends PacketEntityTrackXRot {
      * cooldown tickDashCooldown left this tick.
      */
     public void tickPendingJump() {
-        if (nextPendingJumpScale > 0.0D) {
+        if (nextPendingJumpScale > 0.0F) {
             if (hasSaddle && dashCooldown <= 0) pendingJumpScale = nextPendingJumpScale;
-            nextPendingJumpScale = 0.0D;
+            nextPendingJumpScale = 0.0F;
         }
     }
 

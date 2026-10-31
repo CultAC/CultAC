@@ -215,8 +215,8 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
             if (velocity != null) {
                 riding.deltaMovement = velocity;
             }
-            if (nautilus.pendingJumpScale > 0.0D) {
-                nautilus.pendingJumpScale = 0.0D;
+            if (nautilus.pendingJumpScale > 0.0F) {
+                nautilus.pendingJumpScale = 0.0F;
                 nautilus.executeRidersJump();
             }
         }
