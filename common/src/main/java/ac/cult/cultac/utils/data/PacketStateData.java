@@ -16,6 +16,9 @@ public class PacketStateData {
     public boolean lastPacketMatchedTeleportPosition = false;
     // Minecraft#tick sends ServerboundClientTickEndPacket after LocalPlayer#tick, proving whether movement happened.
     public boolean receivedMovementThisClientTick = false;
+    // This client tick's LocalPlayer#tick start has been applied, and whether LocalPlayer#tick ran in it.
+    public boolean localPlayerTickStarted = false;
+    public boolean localPlayerTickRan = false;
     // A flight stop LocalPlayer#aiStep may have sent after travel on landing; that tick still travelled flying.
     public boolean flyingStopAfterTravel = false;
     // A flight start LocalPlayer#aiStep sent this client tick, ahead of its player_input and move.

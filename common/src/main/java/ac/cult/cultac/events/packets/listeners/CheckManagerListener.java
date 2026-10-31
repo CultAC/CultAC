@@ -464,6 +464,22 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         player.isSneaking = true;
     }
 
+    /**
+     * LocalPlayer#tick starts with LivingEntity#baseTick's LocalPlayer#tickDeath, before aiStep and before any
+     * movement the tick sends: through 26.2 the tick whose tickDeath removes the player skips aiStep but still runs
+     * sendPosition. Applied once per client tick, at its first LocalPlayer#tick movement or else at its tick end;
+     * returns whether LocalPlayer#tick ran in this client tick.
+     */
+    private static boolean startLocalPlayerTick(CultPlayer player) {
+        PacketStateData state = player.packetStateData;
+        if (!state.localPlayerTickStarted) {
+            state.localPlayerTickStarted = true;
+            state.localPlayerTickRan = localPlayerTicked(player);
+            if (state.localPlayerTickRan) player.compensatedEntities.getSelf().tickDeath();
+        }
+        return state.localPlayerTickRan;
+    }
+
     // LocalPlayer#tick runs only once ClientPacketListener#hasClientLoaded, which 1.21.4 introduced, and
     // ClientLevel#tickEntities no longer ticks a player LocalPlayer#tickDeath removed.
     public static boolean localPlayerTicked(CultPlayer player) {
@@ -634,6 +650,8 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             player.packetStateData.receivedMovementThisClientTick = true;
             // Only LocalPlayer#tick sends movement, and it requires ClientPacketListener#hasClientLoaded.
             player.packetStateData.playerLoadedIntoLevel = true;
+            // Its tickDeath has run: a removal drops this move before prediction (SetbackBlocker).
+            startLocalPlayerTick(player);
             applyRespawnShift(player);
             if (packet.hasPosition()) player.packetStateData.lastSentTickPosition = position;
             if (packet.hasRotation()) {
@@ -1238,8 +1256,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         if (player.user.getBedrockBridgeConnection() == null) {
             // LivingEntity#baseTick runs LocalPlayer#tickDeath first. Its removal skips this tick's aiStep, while
             // the rest of Player#tick, attack ticker included, still runs.
-            boolean playerTicked = localPlayerTicked(player);
-            if (playerTicked) player.compensatedEntities.getSelf().tickDeath();
+            boolean playerTicked = startLocalPlayerTick(player);
             // LocalPlayer#aiStep finished before ServerboundClientTickEndPacket.
             if (localPlayerTicked(player)) applyRespawnShift(player);
             onLocalPlayerSprintTick(player);
@@ -1260,6 +1277,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             player.packetStateData.heldSlotSetWithScreenOpen = false;
         }
         player.packetStateData.receivedMovementThisClientTick = false;
+        player.packetStateData.localPlayerTickStarted = false;
         player.packetStateData.glidingBeforeClientAction = null;
         player.packetStateData.flyingStartBeforeTravel = false;
         player.packetStateData.flightStopThisClientTick = false;

@@ -13,16 +13,19 @@ import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.codec.ModelRegistryNamesState;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.platform.api.world.PlatformWorld;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerPosition;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetHealth;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
@@ -91,6 +94,47 @@ class DeadPlayerSetbackTest {
             respawn(f);
             f.pongThrough(f.player.lastTransactionSent.get());
             assertFalse(f.player.compensatedEntities.getSelf().isRemovedFromLevel(), "the respawn's new LocalPlayer");
+        }
+    }
+
+    /**
+     * Through 26.2 LocalPlayer#tick runs sendPosition even on the tick whose LivingEntity#baseTick tickDeath removes
+     * the player, after LivingEntity#tick skipped its aiStep: a death camera's turn sends a Rot before that tick ends.
+     * The falling player did not travel on that tick, so the Rot is dropped and nothing is predicted or set back.
+     */
+    @Test
+    void theRotationSentOnTheRemovalTickPredictsNoTravel() throws Exception {
+        try (var f = new JavaTickFixture(ProtocolVersion.V26_3, ClientVersion.V_1_21_11)) {
+            f.player.nettyScheduler.removeScheduler();
+            Mockito.when(f.fixture.user.getPlayer().getWorld()).thenReturn(Mockito.mock(PlatformWorld.class));
+            Vec3 position = new Vec3(.5, JavaTickFixture.FLOOR_Y + 40, .5);
+            double motion = FALL_VELOCITY.y;
+            f.place(position, FALL_VELOCITY);
+            f.player.getSetbackTeleportUtil().lastKnownGoodPosition =
+                    new SetbackPosWithVector(position, FALL_VELOCITY, 0);
+            f.player.packetStateData.playerLoadedIntoLevel = true;
+            die(f);
+
+            SimulationProcessor simulation = f.player.checkManager.getSimulationProcessor();
+            for (int tick = 1; tick < 20; tick++) {
+                position = position.add(0, motion, 0);
+                assertExact(f.tick(position, false));
+                motion = (motion - 0.08) * 0.98F;
+            }
+
+            PredictionResult last = simulation.getLastPrediction();
+            var rot = new ServerboundMovePlayer(0, 0, 0, 75, 0, false, false, false, true);
+            var event = f.event(ServerboundPackets.MOVE_PLAYER, rot);
+            f.listener.onMovePlayer(event, f.player, rot);
+            PredictionResult rotation = simulation.getLastPrediction();
+            assertTrue(
+                    rotation == last,
+                    "the removal tick skipped aiStep, yet predicted " + JavaTickFixture.describe(rotation));
+            assertFalse(f.player.getSetbackTeleportUtil().isPendingSetback());
+            assertTrue(f.player.compensatedEntities.getSelf().isRemovedFromLevel(), "removed before sendPosition");
+            assertTrue(event.isCancelled(), "a removed player's move reaches neither prediction nor Paper");
+            f.tickEnd();
+            assertTrue(simulation.getLastPrediction() == last, "a removed player has no client tick to predict");
         }
     }
 
