@@ -146,9 +146,12 @@ public class CompensatedEntities {
 
     void appendEntityToClientTickOrder(PacketEntity entity) {
         entity.setClientTickOrder(nextClientEntityTickOrder++);
-        // Keep the traversal cache in EntityTickList's insertion order after a section/chunk re-entry too.
-        addOrder.remove(entity);
-        addOrder.add(entity);
+        // Keep the traversal cache in EntityTickList's insertion order after a section/chunk re-entry too. addEntity
+        // has just appended a fresh spawn, which holds its one entry already.
+        if (addOrder.isEmpty() || addOrder.getLast() != entity) {
+            addOrder.remove(entity);
+            addOrder.add(entity);
+        }
         addOrderMapped = false;
     }
 
