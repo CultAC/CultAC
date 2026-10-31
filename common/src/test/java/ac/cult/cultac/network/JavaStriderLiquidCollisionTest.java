@@ -4,6 +4,8 @@ import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
@@ -110,6 +112,25 @@ class JavaStriderLiquidCollisionTest {
             double z = neighbour.blocks ? 0.0D - maxZ : attemptedZ;
             var result = f.rideTick(start.add(0, velocity.y, z), false);
             assertTrue(exact(result), describe(result));
+        }
+    }
+
+    /**
+     * LivingEntity#recreateFromPacket absSnapTo's the spawn position and starts no SteppedInterpolationHandler path,
+     * even where the spawn box's centre misses that position by an ulp. A path there would make a first ridden
+     * tick's ServerboundMoveVehiclePacket report its target instead of the strider's physical position.
+     */
+    @Test
+    void aSpawnedStriderHoldsItsExactPositionWithoutAnInterpolationPath() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            Vec3 spawn = new Vec3(0.5, FLOOR_Y + 0.55D, -0.46D);
+            var box = GetBoundingBox.getBoundingBoxFromPosAndSize(spawn.x, spawn.y, spawn.z, 0.9F, 1.7F);
+            assertNotEquals(spawn.z, (box.minZ + box.maxZ) / 2.0D, "the box must not rebuild the spawn position");
+            f.player.compensatedEntities.addEntity(STRIDER, EntityTypeIds.STRIDER, spawn, 0, 0, 0);
+            var interpolation = f.player.compensatedEntities.getEntity(STRIDER).newPacketLocation;
+            assertTrue(interpolation.usesSteppedInterpolation());
+            assertFalse(interpolation.hasActiveInterpolationTarget());
+            assertEquals(spawn, interpolation.nextSteppedTransform().position());
         }
     }
 

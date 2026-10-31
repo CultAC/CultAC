@@ -346,11 +346,24 @@ public class ReachInterpolationData {
         return interpolationPlayer != null;
     }
 
-    /** Entity#recreateFromPacket places a newly constructed entity without starting a lerp. */
+    /**
+     * Entity#recreateFromPacket places a newly constructed entity without starting a lerp. From 26.3,
+     * LivingEntity#recreateFromPacket absSnapTo's the spawn position, and the new SteppedInterpolationHandler has no
+     * steps and a zero target. The spawn box need not rebuild the spawn position bit for bit, so the path the
+     * constructor may have started from it is dropped and the handler holds the exact spawn position.
+     */
     public void finishInitialPlacement() {
-        if (interpolationQueue != null) return; // An empty stepped queue already has no interpolation target.
-        interpolationStepsLowBound = interpolationStepsHighBound = getInterpolationSteps();
         boundsValid = false;
+        if (interpolationQueue != null) {
+            // Nothing has moved the target since the constructor built it from the spawn position.
+            steppedCurrent =
+                    lastStep = new Transform(new Vec3(targetFeetX, targetFeetY, targetFeetZ), targetYaw, targetPitch);
+            steppedTarget = new Transform(Vec3.ZERO, 0.0F, 0.0F);
+            currentStepTicks = 0.0F;
+            cancelSteppedInterpolation();
+            return;
+        }
+        interpolationStepsLowBound = interpolationStepsHighBound = getInterpolationSteps();
     }
 
     public boolean usesSteppedInterpolation() {
