@@ -407,7 +407,8 @@ class IntakeWireTest {
 
     @Test
     void teamRolesMatchTheGoldenBytes() throws InvalidProtocolBufferException {
-        byte[] golden = hex("0a 24 3a 22 0a 20 0a 10 " + TEAM_PLAYER_HEX + " 12 0a 44 69 73 72 65 67 61 72 64 31 18 03");
+        byte[] golden =
+                hex("0a 24 3a 22 0a 20 0a 10 " + TEAM_PLAYER_HEX + " 12 0a 44 69 73 72 65 67 61 72 64 31 18 03");
 
         byte[] written = IntakeWire.team(
                 List.of(IntakeWire.teamRole(TEAM_PLAYER, "Disregard1", PortalRole.PORTAL_ROLE_MODERATOR, false)));
@@ -432,7 +433,8 @@ class IntakeWireTest {
         assertArrayEquals(
                 enabled,
                 Replies.newBuilder()
-                        .addReplies(Reply.newBuilder().setTeamState(TeamState.newBuilder().setEnabled(true)))
+                        .addReplies(Reply.newBuilder()
+                                .setTeamState(TeamState.newBuilder().setEnabled(true)))
                         .build()
                         .toByteArray());
         assertArrayEquals(

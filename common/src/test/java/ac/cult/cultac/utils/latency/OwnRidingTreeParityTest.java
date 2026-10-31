@@ -40,6 +40,8 @@ import org.mockito.Mockito;
  * positioned: a scripted world (nested co-riders, the local player as a passenger and ridden, reorders, scale and
  * baby changes, dismount, remount into a nested chain, removal of a mid-chain vehicle, other trees moving beside it)
  * must reproduce, bit for bit, the trace recorded at that commit.
+ * The legacy trace's first two frames use vanilla's inactive spawn interpolation; every subsequent frame
+ * retains the recorded trace unchanged (Entity#recreateFromPacket places the entity without a lerp target).
  *
  * <p>Roots, and riders in the own tree since the scenario began, are traced in full; a rider that joins it later is
  * traced by position only, as its interpolation state froze while it was an untracked rider. Run with system property
@@ -105,6 +107,13 @@ class OwnRidingTreeParityTest {
         player.x = 0;
         player.y = 64;
         player.z = 0;
+        // The recorded legacy interpolation requires loaded terrain: 1.21.11 already used EntityTickList.
+        // The 26.3 recording instead exercises the retained, unticking tree in unloaded terrain.
+        if (version == ClientVersion.V_1_21_11) {
+            for (int x = -4; x <= 4; x++) {
+                for (int z = -4; z <= 4; z++) player.compensatedWorld.ensureValidationChunkLoaded(x, z);
+            }
+        }
         for (int i = 0; i < MOBS; i++) add(player, MOB + i, EntityTypeIds.ZOMBIE, i, 3);
         add(player, SELF_VEHICLE, EntityTypeIds.ZOMBIE, 0.5, 0.5);
         add(player, CO_RIDER, EntityTypeIds.ZOMBIE, 0.5, 0.5);
@@ -168,7 +177,8 @@ class OwnRidingTreeParityTest {
         Object message;
         while ((message = channel.readOutbound()) != null) queued.add(message);
         for (Object item : queued) {
-            if (item instanceof ac.cult.cultac.network.CultConnection.WriteTask task) task.action().run();
+            if (item instanceof ac.cult.cultac.network.CultConnection.WriteTask task)
+                task.action().run();
         }
     }
 

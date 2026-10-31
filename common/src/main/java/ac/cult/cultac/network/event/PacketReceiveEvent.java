@@ -15,6 +15,7 @@ public final class PacketReceiveEvent<R extends ServerboundPacket> extends Packe
     private boolean synthetic;
     private boolean acceptedTransactionResponse;
     private boolean teleportPositionResponse;
+    private boolean authoredTeleportResponse;
 
     public PacketReceiveEvent(User user, ConnectionPhase phase, PacketType<R> type, R packet) {
         this(user, phase, type, packet, false);
@@ -49,6 +50,7 @@ public final class PacketReceiveEvent<R extends ServerboundPacket> extends Packe
         releaseEvent();
         acceptedTransactionResponse = false;
         teleportPositionResponse = false;
+        authoredTeleportResponse = false;
     }
 
     /** An internal recovery event, with no packet received from the client. */
@@ -71,5 +73,14 @@ public final class PacketReceiveEvent<R extends ServerboundPacket> extends Packe
 
     public void setTeleportPositionResponse(boolean response) {
         teleportPositionResponse = response;
+    }
+
+    /** A normally processed reply to a teleport CultAC emitted instead of the backend. */
+    public boolean isAuthoredTeleportResponse() {
+        return authoredTeleportResponse;
+    }
+
+    public void setAuthoredTeleportResponse(boolean response) {
+        authoredTeleportResponse = response;
     }
 }

@@ -540,7 +540,11 @@ class JavaTravelAttributeTest {
     }
 
     private static PredictionResult rideForward(JavaTickFixture f, double distance) {
-        return f.rideTick(new Vec3(0.5, FLOOR_Y, 0.5 + distance), true);
+        // The preceding water travel landed, then floatInLiquidWhileRidden added 0.04F after gravity.
+        // Skeleton horses are absent from CAN_FLOAT_WHILE_RIDDEN and retain the floor-level move.
+        boolean floats = f.player.compensatedEntities.getEntityInControl().type == EntityTypeIds.HORSE;
+        double y = FLOOR_Y + (floats ? (double) 0.04F - 0.08 / 16.0 : 0);
+        return f.rideTick(new Vec3(0.5, y, 0.5 + distance), !floats);
     }
 
     private static PacketEntity horseOnSoulSand(JavaTickFixture f) {
@@ -614,7 +618,6 @@ class JavaTravelAttributeTest {
                 0,
                 0,
                 0,
-                null,
                 false,
                 null,
                 false,

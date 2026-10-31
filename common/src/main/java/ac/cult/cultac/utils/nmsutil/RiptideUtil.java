@@ -1,18 +1,15 @@
 package ac.cult.cultac.utils.nmsutil;
 
 import ac.cult.blocksim.engine.SimItemStack;
-import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFallDistance;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.Riptide;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
-import ac.cult.cultac.utils.data.PacketStateData;
 import ac.cult.cultac.utils.data.StuckSpeedData;
-import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.inventory.ItemTypes;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,19 +20,24 @@ public final class RiptideUtil {
     private RiptideUtil() {}
 
     public static int getRiptideLevel(SimItemStack item) {
-        if (!isTrident(item)) {
+        if (item == null || item.getItem() != ac.cult.cultac.utils.inventory.ItemTypes.TRIDENT) {
             return 0;
         }
         return ac.cult.cultac.utils.inventory.ItemUtil.enchantmentLevel(item, "minecraft:riptide");
     }
 
-    /** The riptide level TridentItem#releaseUsing spins {@code item} at, none when ItemStack#nextDamageWillBreak. */
-    public static int releaseLevel(SimItemStack item) {
-        return item == null || item.nextDamageWillBreak() ? 0 : getRiptideLevel(item);
-    }
-
     public static boolean isValidRiptideRelease(CultPlayer player, Hand hand) {
         return isFullyCharged(player, hand) && canUseRiptideAtCurrentState(player);
+    }
+
+    public static String invalidReleaseReason(CultPlayer player, Hand hand) {
+        if (!isFullyCharged(player, hand)) {
+            return "charge=" + getTrackedUseTicks(player, hand);
+        }
+        if (refusesPassenger(player)) {
+            return "passenger";
+        }
+        return "dry";
     }
 
     public static boolean isFullyCharged(CultPlayer player, Hand hand) {
@@ -58,49 +60,54 @@ public final class RiptideUtil {
         if (refusesPassenger(player)) {
             return false;
         }
-        return inWaterOrRain(player).determineOptimistically();
+        return inWaterOrRain(player);
     }
 
-    /** TridentItem#releaseUsing refuses a passenger from 26.1. */
+    /**
+     * TridentItem#releaseUsing refuses a passenger from 26.1; before it the Java release reads only isInWaterOrRain.
+     * The Bedrock bridge keeps refusing one.
+     */
     private static boolean refusesPassenger(CultPlayer player) {
         return player.compensatedEntities.getSelf().inVehicle()
-                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_1);
+                && (player.isBedrockMovement() || player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_1));
     }
 
     /** Player#isInWaterOrRain as TridentItem#use and TridentItem#releaseUsing read it from Minecraft#handleKeybinds. */
-    public static DesyncStatus inWaterOrRain(CultPlayer player) {
-        return isInRain(player) ? DesyncStatus.TRUE : wasTouchingWater(player);
+    public static boolean inWaterOrRain(CultPlayer player) {
+        return isInRain(player) || wasTouchingWater(player);
     }
 
     /** Entity#isInRain: Level#isRainingAt at Entity#blockPosition or at its column's bounding-box top. */
     private static boolean isInRain(CultPlayer player) {
-        BlockPos pos = new BlockPos(
-                (int) Math.floor(player.x), (int) Math.floor(player.y), (int) Math.floor(player.z));
+        BlockPos pos = new BlockPos((int) Math.floor(player.x), (int) Math.floor(player.y), (int) Math.floor(player.z));
         return player.compensatedWorld.clientIsRainingAt(pos)
                 || player.compensatedWorld.clientIsRainingAt(
                         new BlockPos(pos.getX(), (int) Math.floor(player.boundingBox.maxY), pos.getZ()));
     }
 
     /**
-     * Whether the last move left Entity#wasTouchingWater set, so TridentItem#releaseUsing spins this valid release.
+     * Whether the last tick left Entity#wasTouchingWater set, so TridentItem#releaseUsing spins this valid release.
      */
     public static boolean isCertainRiptideRelease(CultPlayer player) {
         if (player.compensatedEntities.getSelf().inVehicle()) {
             return false;
         }
-        PredictionResult last = player.checkManager.getSimulationProcessor().getLastPrediction();
-        JavaFallDistance.Moved moved = last == null ? null : last.getJavaCommittedMove();
-        return moved != null && moved.touchingWater() == DesyncStatus.TRUE;
+        return Boolean.TRUE.equals(lastTickTouchingWater(player));
     }
 
     /**
      * Entity#wasTouchingWater as TridentItem#releaseUsing reads it: Minecraft#handleKeybinds runs before the tick's
-     * baseTick, so the flag is the one the last move left after LivingEntity#checkFallDamage refreshed fluids.
+     * baseTick, so the flag is the one the last tick left after LivingEntity#checkFallDamage refreshed fluids, at the
+     * end of its travel and of any block-entity pass that moved the player after it.
      */
-    private static DesyncStatus wasTouchingWater(CultPlayer player) {
+    private static boolean wasTouchingWater(CultPlayer player) {
+        Boolean water = lastTickTouchingWater(player);
+        return water != null ? water : isTouchingWater(player);
+    }
+
+    private static Boolean lastTickTouchingWater(CultPlayer player) {
         PredictionResult last = player.checkManager.getSimulationProcessor().getLastPrediction();
-        JavaFallDistance.Moved moved = last == null ? null : last.getJavaCommittedMove();
-        return moved != null ? moved.touchingWater() : DesyncStatus.fromBoolean(isTouchingWater(player));
+        return last == null ? null : JavaMovementEngine.touchingWaterAfterTick(last);
     }
 
     public static boolean isTouchingWater(CultPlayer player) {
@@ -115,28 +122,16 @@ public final class RiptideUtil {
         return fluid.is("minecraft:water") || fluid.is("minecraft:flowing_water");
     }
 
-    public static boolean isTrident(SimItemStack item) {
-        return item != null && item.getItem() == ItemTypes.TRIDENT;
-    }
-
-    public static SimItemStack hotbarItem(CultPlayer player, int slot) {
-        return player.getInventory().inventory.getInventoryStorage().getItem(Inventory.HOTBAR_OFFSET + slot);
-    }
-
+    /** LivingEntity#startUsingItem on {@code hand}: the charge counts the client ticks from here. */
     public static void startTrackedUse(CultPlayer player, Hand hand) {
-        PacketStateData state = player.packetStateData;
-        int slot = player.getInventory().inventory.selected;
-        state.riptideUseHand = hand;
-        state.riptideUseStartClientTick = state.acceptedClientTick;
-        state.riptideUseSlot = slot;
-        state.riptideSlotBeforeSelect = slot;
-        state.riptideFirstSelectSlot = slot;
-        state.riptideSelectClientTick = state.acceptedClientTick;
+        player.packetStateData.riptideUseHand = hand;
+        player.packetStateData.riptideUseStartClientTick = player.packetStateData.acceptedClientTick;
     }
 
     /**
-     * LocalPlayer#onSyncedDataUpdated stops the use on a cleared using bit, and starts one on the flagged hand when
-     * {@code clientUsing} is false.
+     * LocalPlayer#onSyncedDataUpdated on the server's living-entity flags: a cleared using bit stops the client's use,
+     * and a set one starts a use on the flagged hand when {@code clientUsing} is false. Any trident use may charge a
+     * riptide, since LivingEntity#updatingUsingItem keeps it across a switch to a riptide trident.
      */
     public static void serverUseFlags(CultPlayer player, byte flags, boolean clientUsing) {
         if ((flags & 0x01) == 0) {
@@ -144,9 +139,11 @@ public final class RiptideUtil {
             return;
         }
         Hand hand = (flags & 0x02) != 0 ? Hand.OFF_HAND : Hand.MAIN_HAND;
+        SimItemStack item = player.getInventory().getHandItem(hand);
         if (!clientUsing
                 && player.packetStateData.riptideUseHand == null
-                && isTrident(player.getInventory().getHandItem(hand))) {
+                && item != null
+                && item.getItem() == ItemTypes.TRIDENT) {
             startTrackedUse(player, hand);
         }
     }
@@ -154,7 +151,6 @@ public final class RiptideUtil {
     public static void clearTrackedUse(CultPlayer player) {
         player.packetStateData.riptideUseHand = null;
         player.packetStateData.riptideUseStartClientTick = Integer.MIN_VALUE;
-        player.packetStateData.riptideSelectClientTick = Integer.MIN_VALUE;
     }
 
     /** Whether TridentItem#releaseUsing runs this tick for a player on ground that is not a passenger. */

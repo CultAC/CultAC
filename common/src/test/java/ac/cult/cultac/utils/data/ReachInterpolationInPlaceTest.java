@@ -76,7 +76,7 @@ class ReachInterpolationInPlaceTest {
     @Test
     void exactLocationAfterClientTickIntoBox() throws Exception {
         ReachInterpolationData data = data(3, 1, 1);
-        SimpleCollisionBox expected = data.copyAdvancedForClientTick(true, true)
+        SimpleCollisionBox expected = data.copyAdvancedForClientTick(true)
                 .getPossibleMovementLocations()
                 .get(0);
         SimpleCollisionBox out = new SimpleCollisionBox(9, 9, 9, 10, 10, 10, true);
@@ -99,11 +99,11 @@ class ReachInterpolationInPlaceTest {
         double firstMinX = Double.NaN;
         for (int tick = 0; tick < 6; tick++) {
             SimpleCollisionBox expected =
-                    data.copyAdvancedForClientTick(true, true).getPossibleMovementLocationCombined();
+                    data.copyAdvancedForClientTick(true).getPossibleMovementLocationCombined();
             if (tick == 0) firstMinX = expected.minX;
             assertSame(out, data.exactMovementLocationAfterClientTick(out));
             assertBoxEquals(expected, out);
-            data.tickMovement(true, true);
+            data.tickMovement(true);
         }
         assertNotEquals(firstMinX, out.minX);
     }

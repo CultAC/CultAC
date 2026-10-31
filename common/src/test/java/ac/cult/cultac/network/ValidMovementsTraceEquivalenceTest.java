@@ -17,7 +17,6 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -51,14 +50,15 @@ class ValidMovementsTraceEquivalenceTest {
         }
         assertEquals(List.of(), mismatches);
         assertTrue(counts[0] > SCENARIOS * 10, counts[0] + " results");
-        assertTrue(counts[1] > 0, counts[1] + " boxes with the 0.03 handler kept");
+        assertTrue(counts[1] > 0, counts[1] + " boxes for withheld position reports");
         assertTrue(counts[2] > 0, counts[2] + " traces a handler moved");
     }
 
     @Test
     void mixedHandlersMatchTheChain() throws Exception {
         PredVector start = new PredVector(new Vec3(0.25, -0.5, 0.125));
-        PredictionResult result = new PredictionResult(null, start, null, Vec3.ZERO, null, List.of(), List.of());
+        PredictionResult result = new PredictionResult(
+                null, start, org.mockito.Mockito.mock(SimulationContext.class), Vec3.ZERO, null, List.of(), List.of());
         UncertaintyHandler nudge = (player, valid, r, context, last, position, end) -> position.add(1, 0, 0, "a");
         UncertaintyHandler same = (player, valid, r, context, last, position, end) -> position;
         UncertaintyHandler rebase = new UncertaintyHandler() {
@@ -168,8 +168,6 @@ class ValidMovementsTraceEquivalenceTest {
         ValidMovements valid = result.getValidMovements();
         if (valid == null) return;
         counts[0]++;
-        boolean vertical = valid.isControlsVerticalMovement();
-        boolean skipGravity = valid.isDidTickSkipGravity();
         List<UncertaintyHandler> all = UncertaintyPipeline.MODIFIERS;
         @SuppressWarnings("unchecked")
         List<UncertaintyHandler> handlers = (List<UncertaintyHandler>) field(valid, "uncertaintyHandlers");
@@ -195,30 +193,27 @@ class ValidMovementsTraceEquivalenceTest {
         String got = boxBits(valid.computeAABB(last));
         if (!want.equals(got)) mismatches.add(scenario + " box: " + want + " != " + got);
 
-        // The same candidate as the 0.03 handler sees it, which runs last and is the one handler read by coordinate.
+        // Withheld reports keep the forward movement and apply their report allowance after collision.
         SimulationContext context = result.getSimulationContext();
-        Field pointThree = SimulationContext.class.getDeclaredField("isTestingPointThree");
-        pointThree.setAccessible(true);
-        boolean testing = pointThree.getBoolean(context);
-        pointThree.setBoolean(context, true);
+        Field withheldPosition = SimulationContext.class.getDeclaredField("withheldPosition");
+        withheldPosition.setAccessible(true);
+        boolean testing = withheldPosition.getBoolean(context);
+        withheldPosition.setBoolean(context, true);
         try {
             for (Vec3 end : ends) {
                 String wantTrace = describe(chain(valid, handlers, end, last));
                 String gotTrace = describe(valid.transformTraceTowards(end, last));
                 if (!wantTrace.equals(gotTrace)) {
-                    mismatches.add(scenario + " 0.03 trace " + end + ": " + wantTrace + " != " + gotTrace);
+                    mismatches.add(scenario + " withheld trace " + end + ": " + wantTrace + " != " + gotTrace);
                 }
             }
             want = boxBits(referenceBox(valid, handlers, all, last));
             got = boxBits(valid.computeAABB(last));
-            if (!want.equals(got)) mismatches.add(scenario + " 0.03 box: " + want + " != " + got);
+            if (!want.equals(got)) mismatches.add(scenario + " withheld box: " + want + " != " + got);
             if (handlers == all) counts[1]++;
         } finally {
-            pointThree.setBoolean(context, testing);
+            withheldPosition.setBoolean(context, testing);
         }
-
-        valid.setControlsVerticalMovement(vertical);
-        valid.setDidTickSkipGravity(skipGravity);
     }
 
     /** The trace the chain of every handler's handleMovementTrace returns. */
@@ -230,11 +225,25 @@ class ValidMovementsTraceEquivalenceTest {
         SimulationContext context = result.getSimulationContext();
         CultPlayer player = (CultPlayer) field(valid, "player");
         PredVector start = (PredVector) field(valid, "initialStartingVel");
-        Vec3 target = valid.isTestingMaxStartingVelExtents(end) ? end : movementTarget(context, start, end);
+        Vec3 target = end;
         for (UncertaintyHandler handler : handlers) {
-            if (handler.getClass().getSimpleName().equals("Riptide")) target = end;
             trace = handler.handleMovementTrace(
                     player, result.getValidMovements(), result, context, last, trace, target);
+        }
+        var pass = trace.passAfterTravel();
+        if (pass != null && !context.isWithheldPosition()) {
+            var fixed = pass.result();
+            Vec3 scale = context.getLastStuckSpeed();
+            Vec3 move = fixed.state()
+                    .position()
+                    .subtract(context.getStart())
+                    .multiply(1 / scale.x, 1 / scale.y, 1 / scale.z);
+            trace = trace.withPosition(trace.position()
+                    .withXYZ(
+                            fixed.fixedX() ? move.x : trace.position().x,
+                            fixed.fixedY() ? move.y : trace.position().y,
+                            fixed.fixedZ() ? move.z : trace.position().z,
+                            "block entity fixed axes"));
         }
         return trace;
     }
@@ -264,15 +273,6 @@ class ValidMovementsTraceEquivalenceTest {
         return new SimpleCollisionBox(negX, negY, negZ, posX, posY, posZ).sort();
     }
 
-    private static Vec3 movementTarget(SimulationContext context, PredVector velocity, Vec3 end)
-            throws ReflectiveOperationException {
-        Class<?> riptide = Class.forName("ac.cult.cultac.checks.impl.prediction.stage.uncertainty.Riptide");
-        Method method =
-                riptide.getDeclaredMethod("movementTarget", SimulationContext.class, PredVector.class, Vec3.class);
-        method.setAccessible(true);
-        return (Vec3) method.invoke(null, context, velocity, end);
-    }
-
     private static Object field(Object owner, String name) throws ReflectiveOperationException {
         Field field = owner.getClass().getDeclaredField(name);
         field.setAccessible(true);
@@ -282,7 +282,7 @@ class ValidMovementsTraceEquivalenceTest {
     private static String describe(MovementTrace trace) throws ReflectiveOperationException {
         return lineage(trace.position()) + " delta " + bits(trace.positionOnlyDelta()) + " base "
                 + bits(trace.collisionBaseOffset()) + " velocity " + bits(trace.preCollisionVelocity()) + " movement "
-                + bits(trace.preCollisionMovement()) + " shove " + trace.shulkerBoxShove();
+                + bits(trace.preCollisionMovement()) + " pass " + trace.passAfterTravel();
     }
 
     private static String lineage(PredVector vector) throws ReflectiveOperationException {

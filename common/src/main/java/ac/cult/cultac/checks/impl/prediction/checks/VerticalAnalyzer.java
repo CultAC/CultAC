@@ -25,7 +25,7 @@ public class VerticalAnalyzer implements EngineCheck {
         }
 
         if (result.getSimulationContext().usesFallFlyingMovement()
-                && !result.getSimulationContext().getWorldData().mustBeInLiquid()) {
+                && !result.getSimulationContext().getWorldData().isInLiquid()) {
             return;
         }
 

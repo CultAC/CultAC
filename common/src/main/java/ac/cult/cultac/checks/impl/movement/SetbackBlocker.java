@@ -8,17 +8,10 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
 import ac.cult.cultac.utils.anticheat.LogUtil;
-import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
-import ac.cult.cultac.utils.math.CultMath;
+import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
 import ac.cult.cultac.utils.math.Vec3;
-import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
-import java.util.ArrayList;
-import java.util.List;
 
 public class SetbackBlocker extends CultProcessor implements CheckListener {
-    // LivingEntity.SLEEPING_DIMENSIONS
-    private static final double SLEEPING_HALF_WIDTH = 0.2F / 2.0D;
-
     public SetbackBlocker(CultPlayer playerData) {
         super(playerData);
     }
@@ -98,42 +91,30 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
             PacketReceiveEvent<ServerboundMovePlayer> event, ServerboundMovePlayer packet) {
         if (player.isDisabled() || !player.shouldEnforceMovementSetbacks()) return;
         boolean teleport = player.packetStateData.lastPacketWasTeleport;
-        // Invalid sleeping/dead movement must not change the simulation's position anchor.
-        if (!teleport && player.isInBed && packet.hasPosition()) {
+        // Java sleeping travel still consumes carried velocity; its movement is checked by the engine.
+        if (player.isBedrockMovement() && !teleport && player.isInBed && packet.hasPosition()) {
             Vec3 bedPosition = player.bedPosition;
             if (bedPosition == null
                     || Math.max(Math.abs(packet.x() - bedPosition.x), Math.abs(packet.z() - bedPosition.z)) > 0.5D
-                    || packet.y() < restingY(bedPosition)
-                    || packet.y() - bedPosition.y >= 0.1D) {
+                    || Math.abs(packet.y() - bedPosition.y) >= 0.1D) {
                 event.setCancelled(true);
             }
         }
 
-        // Player is dead
-        if (!teleport && player.compensatedEntities.getSelf().isDead) {
+        // Player is dead. A Java LocalPlayer travels and sends that movement until LocalPlayer#tickDeath removes it;
+        // the engine checks it and blockDeadJavaMovePlayer keeps it from the server. A removed player runs no client
+        // tick that could send movement.
+        PacketEntitySelf self = player.compensatedEntities.getSelf();
+        if (!teleport && (self.isRemovedFromLevel() || player.isBedrockMovement() && self.isDead)) {
             event.setCancelled(true);
         }
     }
 
-    // LivingEntity#setPosToBed lifts the sleeper above the bed, whose top under the sleeping box it falls onto.
-    private double restingY(Vec3 bedPosition) {
-        int x = CultMath.floor(bedPosition.x);
-        int y = CultMath.floor(bedPosition.y);
-        int z = CultMath.floor(bedPosition.z);
-        List<SimpleCollisionBox> boxes = new ArrayList<>();
-        NativeBlockCollisionHelper.getCollisionBox(
-                        player, player.compensatedWorld.getBlockStateIdAt(x, y, z), x, y, z, bedPosition.y)
-                .downCast(boxes);
-        double top = Double.NEGATIVE_INFINITY;
-        for (SimpleCollisionBox box : boxes) {
-            if (box.minX < bedPosition.x + SLEEPING_HALF_WIDTH
-                    && box.maxX > bedPosition.x - SLEEPING_HALF_WIDTH
-                    && box.minZ < bedPosition.z + SLEEPING_HALF_WIDTH
-                    && box.maxZ > bedPosition.z - SLEEPING_HALF_WIDTH) {
-                top = Math.max(top, box.maxY);
-            }
+    private void blockDeadJavaMovePlayer(PacketReceiveEvent<ServerboundMovePlayer> event) {
+        if (player.isDisabled() || !player.shouldEnforceMovementSetbacks()) return;
+        if (!player.packetStateData.lastPacketWasTeleport && player.compensatedEntities.getSelf().isDead) {
+            event.setCancelled(true);
         }
-        return top == Double.NEGATIVE_INFINITY ? bedPosition.y : top;
     }
 
     private void handleMoveVehicle(final PacketReceiveEvent event) {
@@ -142,21 +123,14 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
         } // Let's avoid letting people disable cult with cult.nomodifypackets
 
         boolean teleport = player.packetStateData.lastPacketWasTeleport;
-        Integer serverVehicle = player.compensatedEntities.vehicles.serverPlayerVehicle;
-        int ridingVehicle = player.getRidingVehicleId();
-
-        // The client must not move a vehicle unless the server currently has the player mounted.
-        if (serverVehicle == null) {
-            event.setCancelled(true);
-        }
-
-        // If a player is in a different vehicle than what the server is telling them is the right one, ignore it
-        // Mojang doesn't handle this scenario when over 50 ms of ping or so... great job mojang
-        //
-        // This won't patch any bypasses, but it will patch an annoying vanilla bug.
-        // The client can send its first vehicle move before Cult's delayed passenger task runs.
-        if (serverVehicle != null && ridingVehicle != Integer.MIN_VALUE && serverVehicle != ridingVehicle) {
-            event.setCancelled(true);
+        // Java still predicts the client's acknowledged root while a server mount/dismount is in flight.
+        // CheckManagerListener withholds moves for a different server root after prediction and packet checks.
+        if (player.isBedrockMovement()) {
+            Integer serverVehicle = player.compensatedEntities.vehicles.serverPlayerVehicle;
+            int ridingVehicle = player.getRidingVehicleId();
+            if (serverVehicle == null || ridingVehicle != Integer.MIN_VALUE && serverVehicle != ridingVehicle) {
+                event.setCancelled(true);
+            }
         }
 
         // A client can intentionally delay transaction responses while continuing to send
@@ -171,7 +145,7 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
         }
 
         // A player is sleeping while in a vehicle
-        if (!teleport && player.isInBed) {
+        if (player.isBedrockMovement() && !teleport && player.isInBed) {
             event.setCancelled(true);
         }
 
@@ -197,6 +171,7 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
                 event.setCancelled(true);
             }
             blockMovePlayer(event, event.getPacket(), false);
+            blockDeadJavaMovePlayer(event);
         }
     }
 

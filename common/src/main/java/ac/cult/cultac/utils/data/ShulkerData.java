@@ -14,6 +14,7 @@ import lombok.Getter;
 
 public class ShulkerData {
     public static final int BLOCK_ANIMATION_TICKS = 10;
+    public static final int MAX_ENTITY_ANIMATION_TICKS = 20;
 
     public final int lastTransactionSent;
 
@@ -39,11 +40,14 @@ public class ShulkerData {
         this.blockPos = position;
     }
 
-    // PacketEntityShulker tracks its own animation; isClosing stays false so transaction pruning keeps it.
-    public ShulkerData(PacketEntityShulker entity) {
-        this.lastTransactionSent = 0;
-        this.isClosing = false;
-        this.animationTicks = 0;
+    public ShulkerData(PacketEntity entity, int lastTransactionSent, boolean isClosing) {
+        this(entity, lastTransactionSent, isClosing, MAX_ENTITY_ANIMATION_TICKS);
+    }
+
+    public ShulkerData(PacketEntity entity, int lastTransactionSent, boolean isClosing, int animationTicks) {
+        this.lastTransactionSent = lastTransactionSent;
+        this.isClosing = isClosing;
+        this.animationTicks = animationTicks;
         this.entity = entity;
     }
 
@@ -63,20 +67,14 @@ public class ShulkerData {
         // MCP-Reborn ShulkerBoxBlockEntity#updateAnimation only calls
         // moveCollidedEntities from the OPENING branch. Shulker#onPeekAmountChange
         // similarly only moves entities when the physical peek amount increases.
-        if (entity instanceof PacketEntityShulker shulker) return shulker.mayPush();
         return !isClosing && isAnimationActive();
     }
 
     public boolean isAnimationActive() {
-        if (entity instanceof PacketEntityShulker shulker) return shulker.isAnimating();
         return ticksOfOpeningClosing < animationTicks;
     }
 
     public boolean tickIfGuaranteedFinished() {
-        if (entity instanceof PacketEntityShulker shulker) {
-            shulker.tickPeek();
-            return !shulker.isAnimating();
-        }
         return ++ticksOfOpeningClosing >= animationTicks;
     }
 

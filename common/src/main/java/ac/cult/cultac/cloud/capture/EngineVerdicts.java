@@ -99,8 +99,8 @@ public final class EngineVerdicts {
 
         WorldData world = context.getWorldData();
         int movement = 0;
-        if (world.getInWater().determineOptimistically()) movement |= 1 << IntakeWire.CONTEXT_WATER;
-        if (world.getInLava().determineOptimistically()) movement |= 1 << IntakeWire.CONTEXT_LAVA;
+        if (world.mayBeInWater()) movement |= 1 << IntakeWire.CONTEXT_WATER;
+        if (world.mayBeInLava()) movement |= 1 << IntakeWire.CONTEXT_LAVA;
         if (world.getClimbingAtStart() != null && world.getClimbingAtStart().determineOptimistically()) {
             movement |= 1 << IntakeWire.CONTEXT_CLIMBING;
         }
@@ -120,7 +120,8 @@ public final class EngineVerdicts {
             Vec3 residual = result.getTarget()
                     .subtract(result.getAcceptedClosestToTarget())
                     .multiply(1, 0, 1);
-            Vec3 input = HorizontalAnalyzer.getBestTheoreticalPlayerInput(residual, context.getXRot(), context.getVersion());
+            Vec3 input =
+                    HorizontalAnalyzer.getBestTheoreticalPlayerInput(residual, context.getXRot(), context.getVersion());
             forward = speed > 0 ? hundredths(input.z / speed) : 0;
             strafe = speed > 0 ? hundredths(input.x / speed) : 0;
         }

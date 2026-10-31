@@ -74,10 +74,10 @@ class InterpolationAllocBenchTest {
                         }
                     }
                 }
-                w.tick(true);
+                w.tick();
                 for (PacketEntity entity : w.entities) entity.onSecondTransaction();
-                w.tick(true);
-                w.tick(true);
+                w.tick();
+                w.tick();
             };
         }
         var bean = (ThreadMXBean) ManagementFactory.getThreadMXBean();

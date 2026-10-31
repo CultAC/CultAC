@@ -13,7 +13,6 @@ import ac.cult.cultac.utils.collisions.ClientBlockShapes;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
@@ -236,30 +235,22 @@ public final class ClientVisibility {
         }
         double error = CLIP_EPSILON;
         double range = player.compensatedEntities.getSelf().getBlockInteractionRange();
-        double sample = .001 * nativePickRange();
-        double clearance = Math.nextUp(sample) + error;
+        double minimumSample = Math.nextDown(.001 * Math.sqrt(CLIP_EPSILON));
+        double maximumSample = Math.nextUp(.001 * nativePickRange());
         for (Vec3 eye : eyes(positionError, targets, position, range)) {
             List<SimpleCollisionBox> overrides = new ArrayList<>();
+            boolean insideInteraction = false;
             for (SimpleCollisionBox interaction : interactions) {
                 if (frontFacing(face, eye, interaction, error)) overrides.add(faceEnvelope(interaction, face));
+                insideInteraction = insideInteraction
+                        || NativeInsideSelection.possible(
+                                eye, interaction, face, error, minimumSample, maximumSample, range);
             }
-            List<SimpleCollisionBox> insideSampleCone =
-                    insideSampleCone(eye, face, interactions, targets, sample, clearance);
             for (SimpleCollisionBox target : targets) {
                 SimpleCollisionBox envelope = target.copy();
                 if (!withinRange(eye, envelope, range)) continue;
-                if (insideSampleCone != null
-                        && OcclusionGeometry.hasVisiblePoint(eye, envelope, null, List.of(), insideSampleCone, range))
-                    return false;
                 List<SimpleCollisionBox> blockers = blockers(eye, envelope, position, range);
-                if (NativeInsideSelection.possible(
-                                eye,
-                                target,
-                                face,
-                                error,
-                                Math.nextDown(.001 * Math.sqrt(CLIP_EPSILON)),
-                                Math.nextUp(sample),
-                                range)
+                if (NativeInsideSelection.possible(eye, target, face, error, minimumSample, maximumSample, range)
                         && !OcclusionGeometry.fullyOccluded(eye, envelope, blockers)) return false;
                 if (contains(target, eye, 0)) continue;
                 for (SimpleCollisionBox other : targets)
@@ -275,42 +266,14 @@ public final class ClientVisibility {
                 if (!overrides.isEmpty()
                         && OcclusionGeometry.hasVisiblePoint(eye, envelope, null, blockers, overrides, range))
                     return false;
+                // When VoxelShape.clip's sample is inside the interaction shape (an eye inside scaffolding), it
+                // reports the face opposite the ray's dominant axis, so that same ray must reach the outline.
+                if (insideInteraction
+                        && OcclusionGeometry.hasVisiblePointInCone(
+                                eye, envelope, blockers, NativeInsideSelection.rays(face), range)) return false;
             }
         }
         return true;
-    }
-
-    /**
-     * The directions whose VoxelShape#clip first sample lies inside the interaction shape while every outline entry
-     * lies beyond it, so BlockGetter#clipWithInteractionOverride reports {@code face} for any outline hit: the
-     * Direction#getApproximateNearest cone of {@code face}'s opposite.
-     */
-    private static List<SimpleCollisionBox> insideSampleCone(
-            Vec3 eye,
-            Direction face,
-            List<SimpleCollisionBox> interactions,
-            List<SimpleCollisionBox> targets,
-            double sample,
-            double clearance) {
-        boolean inside = false;
-        for (SimpleCollisionBox interaction : interactions)
-            if (contains(interaction, eye, -clearance)) {
-                inside = true;
-                break;
-            }
-        if (!inside) return null;
-        for (SimpleCollisionBox target : targets) if (withinRange(eye, target, clearance)) return null;
-        return List.of(viewCone(eye, face.getOpposite(), Math.nextDown(sample / Math.sqrt(3))));
-    }
-
-    private static SimpleCollisionBox viewCone(Vec3 eye, Direction toward, double depth) {
-        double x = eye.x + depth * toward.getStepX(),
-                y = eye.y + depth * toward.getStepY(),
-                z = eye.z + depth * toward.getStepZ();
-        double extentX = depth - depth * Math.abs(toward.getStepX()),
-                extentY = depth - depth * Math.abs(toward.getStepY()),
-                extentZ = depth - depth * Math.abs(toward.getStepZ());
-        return new SimpleCollisionBox(x - extentX, y - extentY, z - extentZ, x + extentX, y + extentY, z + extentZ);
     }
 
     private static SimpleCollisionBox faceEnvelope(SimpleCollisionBox target, Direction face) {
@@ -360,20 +323,12 @@ public final class ClientVisibility {
         // inflated only by the native pick radius/item margin. Reach's separate
         // 0.03125 expansion can invent an exposed point across a solid corner.
         boolean[] inRange = {false};
-        if (!hiddenForEverySelection(() -> entityHidden(pickedBox(entity), positionError, pickRadius(entity), inRange)))
-            return Sight.VISIBLE;
+        if (!hiddenForEverySelection(() -> entityHidden(
+                entity.toBoundingBox(player, entity.getPossibleMovementCollisionBoxes()),
+                positionError,
+                pickRadius(entity),
+                inRange))) return Sight.VISIBLE;
         return inRange[0] ? Sight.BLOCKED : Sight.OUT_OF_RANGE;
-    }
-
-    /**
-     * The bounding box LocalPlayer#pick clips, which Minecraft#tick picks before it ticks the level: a shulker's is
-     * the one its last client tick gave it.
-     */
-    private SimpleCollisionBox pickedBox(PacketEntity entity) {
-        var box = entity.toBoundingBox(player, entity.getPossibleMovementCollisionBoxes());
-        return entity instanceof PacketEntityShulker shulker && !player.isBedrockMovement()
-                ? shulker.tickedBoundingBox(box)
-                : box;
     }
 
     /** Whether no selection selects any part of {@code box}, a box the entity's picked box may lie in. */
@@ -392,7 +347,7 @@ public final class ClientVisibility {
     public boolean entityInteractionHidden(PacketEntity entity, double positionError) {
         double pickRadius = EntityTypeUtil.modelType(entity.type).has(EntityTypes.PROJECTILE) ? 1.0F : 0;
         return hiddenForEverySelection(() -> {
-            var target = pickedBox(entity);
+            var target = entity.toBoundingBox(player, entity.getPossibleMovementCollisionBoxes());
             var self = player.compensatedEntities.getSelf();
             double range = self.getEntityInteractionRange();
             if (!(range > 0)) return true;

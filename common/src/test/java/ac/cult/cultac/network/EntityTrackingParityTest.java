@@ -151,7 +151,7 @@ class EntityTrackingParityTest {
             case 5 -> data.setExactRotation(yaw, pitch);
             case 6 -> data.setCurrentAndTargetRotation(yaw, pitch);
             case 7 -> data.updatePossibleStartingLocation(box(player, entity, random));
-            case 8 -> data.tickMovement(random.nextBoolean(), random.nextBoolean());
+            case 8 -> data.tickMovement(random.nextBoolean());
             case 9 -> {
                 if (!data.usesSteppedInterpolation()) return;
                 data.setPhysicalBeforePathAppend(
@@ -163,7 +163,7 @@ class EntityTrackingParityTest {
                         pitch);
             }
             default ->
-                checkKeptBounds(data.copyAdvancedForClientTick(random.nextBoolean(), random.nextBoolean()), "copy");
+                checkKeptBounds(data.copyAdvancedForClientTick(random.nextBoolean()), "copy");
         }
     }
 

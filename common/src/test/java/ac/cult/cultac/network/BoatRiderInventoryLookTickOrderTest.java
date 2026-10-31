@@ -331,7 +331,8 @@ class BoatRiderInventoryLookTickOrderTest {
      * keys, drives another boat that does not turn, leaves that too and opens the inventory. Then the server seats the
      * player in the first boat again, as its driver when {@code drives} and behind another rider otherwise. Before 26.3
      * the first boat still holds the deltaRotation of its last tick under the player's control; from 26.3 AbstractBoat
-     * #tick zeroed it. The boat and the rider turn by that deltaRotation when {@code leftoverTurn}.
+     * #tick zeroed it. The boat and the rider turn by that deltaRotation when {@code leftoverTurn}. The first boat also
+     * still holds the left key of that tick, which steers a driver's first tick back.
      */
     private static Run backAboard(ClientVersion version, boolean drives, boolean leftoverTurn) throws Exception {
         float[] turns = vanillaDeltaRotations(NEVER);
@@ -367,8 +368,8 @@ class BoatRiderInventoryLookTickOrderTest {
     /**
      * Drives the boat steering left until {@link #HAND_OVER_TICK} with the inventory closed, leaves it for three ticks
      * with the keys released and drives it again, its deltaRotation starting from {@code startTurn}. Back aboard the
-     * boat steers left from the first tick, by the left key it kept from the drive and then by the one pressed again,
-     * until {@link #OPEN_TICK}, when the keys are released and the inventory opens, or,
+     * keys steer left from the first tick until {@link #OPEN_TICK}, when they are released and the inventory opens; the
+     * first tick already steers left, as AbstractBoat keeps the keys LocalPlayer#rideTick last handed it. Or,
      * when {@code useItems}, a use_item comes from Minecraft#handleKeybinds every tick after instead. Counts the turned
      * looks MultiActionsO judges, or the use_items of a tick the boat turned the rider, those of them whose turn differs
      * from the one a client of {@code version} gives the boat and the rider from the same yaws, and the check's
@@ -410,6 +411,7 @@ class BoatRiderInventoryLookTickOrderTest {
                 }
                 turn *= landFriction();
                 vanillaTurn *= landFriction();
+                // The first tick back steers by the left key the boat kept from its last tick under the player.
                 if (tick <= OPEN_TICK) {
                     turn--;
                     vanillaTurn--;
@@ -454,8 +456,8 @@ class BoatRiderInventoryLookTickOrderTest {
      * Rides the boat at {@code boatYaw} just boarded, with the keys released and the inventory open. The rider starts at
      * the boat's yaw, which ClientPacketListener#handleSetEntityPassengersPacket gives a player newly aboard, and
      * positionRider turns it by {@code turn} each tick. The driver's boat turns by it as well and AbstractBoat#floatBoat
-     * multiplies it by the land friction each tick first; on the first tick controlBoat then takes 1 from it for the
-     * left key the boat kept from its last drive.
+     * multiplies it by the land friction each tick first. A driver's boat still holds the left key of its last tick
+     * under the player's control, so its first controlBoat takes 1 more before LocalPlayer#rideTick releases it.
      */
     private static Run ride(
             JavaTickFixture f, MultiActionsO check, ClientVersion version, float boatYaw, float turn, boolean drives) {

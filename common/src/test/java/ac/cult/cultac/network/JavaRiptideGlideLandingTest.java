@@ -51,7 +51,7 @@ class JavaRiptideGlideLandingTest {
             position = position.add(new Vec3(0, 1.1999999F, 0)).add(velocity);
             PredictionResult released = f.tick(position, false);
             assertExact(released);
-            assertEquals(1.1999999F, released.getPositionOnlyDelta().y);
+            assertEquals(1.1999999F, released.getSimulationContext().getPreTravelMovement().y);
 
             velocity = glide(f, velocity);
             position = position.add(velocity);

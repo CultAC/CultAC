@@ -40,7 +40,7 @@ class PlacedEntityPositionTest {
     }
 
     private static void tick(CultPlayer player, PacketEntity entity, int ticks) {
-        for (int i = 0; i < ticks; i++) entity.onMovement(player, true);
+        for (int i = 0; i < ticks; i++) entity.onMovement(player);
     }
 
     private static double minY(PacketEntity entity) {

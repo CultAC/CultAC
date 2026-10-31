@@ -275,6 +275,50 @@ class ClientSprintStateTest {
     }
 
     @Test
+    void anAiStepClearDropsAStaleServerModifierThatASetbackCannotRestore() {
+        ClientSprintState state = sprinting();
+        state.onClientTickEnd();
+        // LocalPlayer#aiStep stops at a wall and sends STOP_SPRINTING.
+        state.onClientTick(false);
+        state.onClientTickEnd();
+        // A movement_speed snapshot the server built before it handled that STOP_SPRINTING.
+        state.onServerModifier(CompensatedEntities.SPRINTING_SPEED_MODIFIER);
+        state.onClientTick(false);
+        var beforeClear = state.outcomes();
+        assertTrue(state.modifier());
+        // canStartSprinting -> setSprinting(true), then shouldStopRunSprinting -> setSprinting(false); nothing is sent.
+        state.onModifierCleared();
+        assertFalse(state.flag());
+        assertFalse(state.modifier());
+        state.restore(beforeClear);
+        assertFalse(state.modifier());
+    }
+
+    @Test
+    void aPossibleAiStepClearKeepsTheHeldModifierPossibleUntilACertainEvent() {
+        ClientSprintState state = new ClientSprintState();
+        state.onServerModifier(CompensatedEntities.SPRINTING_SPEED_MODIFIER);
+        state.onClientTick(false);
+        var beforeClear = state.outcomes();
+        state.onModifierPossiblyCleared();
+        assertTrue(state.clearedPossible());
+        assertSame(CompensatedEntities.SPRINTING_SPEED_MODIFIER, state.heldModifier());
+        // A setback does not undo the client's aiStep.
+        state.restore(beforeClear);
+        assertTrue(state.clearedPossible());
+        state.onServerModifier(null);
+        assertFalse(state.clearedPossible());
+    }
+
+    @Test
+    void aPossibleAiStepClearWithoutAModifierChangesNothing() {
+        ClientSprintState state = new ClientSprintState();
+        state.onClientTick(false);
+        state.onModifierPossiblyCleared();
+        assertFalse(state.clearedPossible());
+    }
+
+    @Test
     void attackResetThatAiStepResprintedRestoresModifier() {
         ClientSprintState state = sprinting();
         // A movement_speed sync while the server believes the player is not sprinting.
@@ -312,6 +356,24 @@ class ClientSprintStateTest {
         state.onClientTick(true);
         assertTrue(state.flag());
         assertFalse(state.modifier());
+    }
+
+    @Test
+    void aPossibleResetWithTheFlagClearMayDropAStaleModifier() {
+        ClientSprintState state = new ClientSprintState();
+        state.onServerModifier(CompensatedEntities.SPRINTING_SPEED_MODIFIER);
+        state.onClientTick(false);
+        state.onClientTickEnd();
+        // A knockback hit: causeExtraKnockback's setSprinting(false) keeps the clear flag and announces nothing.
+        state.onAttack(ClientSprintState.AttackReset.POSSIBLE);
+        state.onClientTick(false);
+        assertTrue(state.clearedPossible());
+        assertSame(CompensatedEntities.SPRINTING_SPEED_MODIFIER, state.heldModifier());
+
+        // With the flag set, the reset's STOP_SPRINTING or aiStep's re-sprint decides the modifier instead.
+        ClientSprintState sprinting = sprinting();
+        sprinting.onAttack(ClientSprintState.AttackReset.POSSIBLE);
+        assertFalse(sprinting.clearedPossible());
     }
 
     @Test

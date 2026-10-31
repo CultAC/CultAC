@@ -19,7 +19,7 @@ public class VehicleOffsetCheck implements EngineCheck {
             return;
         }
 
-        Vec3 closest = result.getAcceptedClosestToTarget();
+        Vec3 closest = result.getReportedPredictionVector();
         Vec3 target = result.getTarget();
         Vec3 offset = target.subtract(closest);
         double severity = offset.length();

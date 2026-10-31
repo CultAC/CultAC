@@ -75,11 +75,13 @@ For every anticheat change:
 
 ## Entity tracking
 
-- Only the local player's own riding tree is positioned and ticked: the tree under the root of its riding chain, plus the tree of the vehicle the server last put it on. This is Grim's model and an owner decision, not an optimisation to revisit.
-- Riders on any other entity (name tags, model parts on other players) are untracked: never positioned or ticked, and re-anchored at their current seat when they dismount or lose their vehicle.
-- Every reader of another entity's position or boxes (checks, collision, block placement, visibility, debug) skips entities for which `CompensatedEntities#isUntrackedRider` is true. An event-driven reader that needs such a rider's position uses `CompensatedEntities#currentMovementBox`.
-- Entity pushes are the one per-tick exception: a living untracked rider pushes the Java player from its seat (`CompensatedEntities#untrackedRiderPushBox`, widened over its root's possible positions) once `CompensatedEntities#untrackedRiderMayReach`, which allocates nothing, finds it can reach.
-- `RiderAllocationTest` guards it: cosmetic riders on other players allocate nothing per passenger sweep or client tick, and far living riders nothing in push collection.
+- The local player's riding trees retain their committed position pass. Other Java riders use lazy position boxes; the retained `isUntrackedRider` name identifies that storage policy, not an exemption from readers or ticks. Bedrock keeps its existing own-tree policy.
+- Java `ClientLevel#tickPassenger` runs each eligible rider's state tick after its parent, then seats it. Store the committed and pre-tick seat in reusable boxes (`ClientRiderPosition`), and derive the next seat only for a movement reader on the side after the rider's tick. A passenger packet links the tree; it does not itself call `positionRider`.
+- Reach, placement, visibility, debug and other Java entity readers include remote riders through the normal `PacketEntity` box APIs. Position boxes precede shulker peek geometry, so attachment math never derives a position from a shifted collision shape. Cosmetic rider ticks need no new vectors or interpolation snapshots.
+- Entity pushes happen before the rider is reseated. Active packet interpolation is replayed by `ClientRiderInterpolation` before that push; otherwise read the saved pre-tick seat or the preceding block-entity shove. Keep the detached interpolation path and ordinary position readers separate while replaying.
+- Pistons and shulker boxes move each rider independently of its parent. `JavaRemoteBlockEntityPass` records the resulting rider boxes only when the pass can reach the tree; readers retain that position until the next rider tick. Do not reseat a rider merely because its root was shoved.
+- Preserve client entity ticking membership and frozen-tick rules. A rider whose own chunk does not tick retains its last position. Re-anchor ordinary interpolation on dismount or vehicle removal.
+- `RiderAllocationTest` guards passenger sweeps, loaded cosmetic rider ticks, far pushes/collisions and lazy box reads. Reuse attachment working space, and never sweep every remote tree after each entity movement packet.
 
 ## Rules for using smoketests to validate logic
 

@@ -69,14 +69,7 @@ class ExactFractionBenchTest {
         String report = String.format(
                 "fraction cycle x%d: %.0f B/cycle (min %.0f, max %.0f), median %.0f ns/cycle (min %.0f, max %.0f)"
                         + " [%d]%n",
-                POINTS,
-                bytes[REPS / 2],
-                bytes[0],
-                bytes[REPS - 1],
-                cpu[REPS / 2],
-                cpu[0],
-                cpu[REPS - 1],
-                sink[0] & 1);
+                POINTS, bytes[REPS / 2], bytes[0], bytes[REPS - 1], cpu[REPS / 2], cpu[0], cpu[REPS - 1], sink[0] & 1);
         System.out.print(report);
         Files.writeString(Path.of(out), report + "---\n", StandardOpenOption.CREATE, StandardOpenOption.APPEND);
     }

@@ -277,28 +277,33 @@ class JavaSprintSwimStartTest {
     }
 
     @Test
-    void swimmingBackwardOnTheFloorIsExact() throws Exception {
-        try (var f = pool(FLOOR_Y + 2)) {
-            float yaw = 30.0F;
-            f.player.xRot = yaw;
-            f.player.yRot = 0.0F;
-            Vec3 position = new Vec3(0.5, FLOOR_Y, 0.5);
-            f.place(position, Vec3.ZERO);
-            assertExact(f.tick(position, true), "standing");
-            command(f, PlayerCommandAction.START_SPRINTING);
-            Vec3 velocity = Vec3.ZERO;
-            for (int tick = 1; tick < 9; tick++) {
-                ServerboundPlayerInput keys = tick < 3 ? FORWARD_SPRINT : tick < 6 ? BACK_SPRINT : BACK_LEFT_SPRINT;
-                f.input(keys);
-                Vec3 delta = velocity.add(ClientMoveInput.of(f, keys, 1.0F, 0.02F, yaw));
-                position = position.add(delta.x, 0.0, delta.z);
-                PredictionResult result = f.tick(position, true);
-                assertExact(result, "sprint tick " + tick);
-                assertFalse(result.hasFlag(OmniSprint.class), "sprint tick " + tick + ": " + describe(result));
-                velocity = new Vec3(delta.x * 0.9F, 0.0, delta.z * 0.9F);
+    void swimmingBackwardDuringTheGroundedTravelIsExact() throws Exception {
+        for (ServerboundPlayerInput backward : List.of(BACK_SPRINT, BACK_LEFT_SPRINT)) {
+            try (var f = pool(FLOOR_Y + 2)) {
+                float yaw = 30.0F;
+                f.player.xRot = yaw;
+                f.player.yRot = 0.0F;
+                Vec3 position = new Vec3(0.5, FLOOR_Y, 0.5);
+                f.place(position, Vec3.ZERO);
+                assertExact(f.tick(position, true), "standing");
+                command(f, PlayerCommandAction.START_SPRINTING);
+                f.pongThrough(f.velocity(new Vec3(0, -0.02, 0)));
+                Vec3 velocity = Vec3.ZERO;
+                // The first downward travel lands. aiStep then permits a backward swim because it starts grounded;
+                // Entity#move with zero Y clears onGround, so a later unshifted backward tick must stop sprinting.
+                for (int tick = 1; tick <= 2; tick++) {
+                    ServerboundPlayerInput keys = tick == 1 ? FORWARD_SPRINT : backward;
+                    f.input(keys);
+                    Vec3 delta = velocity.add(ClientMoveInput.of(f, keys, 1.0F, 0.02F, yaw));
+                    position = position.add(delta.x, 0.0, delta.z);
+                    PredictionResult result = f.tick(position, tick == 1);
+                    assertExact(result, "sprint tick " + tick);
+                    assertFalse(result.hasFlag(OmniSprint.class), "sprint tick " + tick + ": " + describe(result));
+                    velocity = new Vec3(delta.x * 0.9F, 0.0, delta.z * 0.9F);
+                }
+                assertEquals(Pose.SWIMMING, f.player.pose);
+                assertFalse(f.player.getSetbackTeleportUtil().isPendingSetback());
             }
-            assertEquals(Pose.SWIMMING, f.player.pose);
-            assertFalse(f.player.getSetbackTeleportUtil().isPendingSetback());
         }
     }
 
@@ -406,7 +411,8 @@ class JavaSprintSwimStartTest {
 
     private static void command(JavaTickFixture f, PlayerCommandAction action) {
         var command = new ServerboundPlayerCommand(f.player.entityID, action, 0);
-        new PacketEntityAction().onPlayerCommand(f.event(ServerboundPackets.PLAYER_COMMAND, command), f.player, command);
+        new PacketEntityAction()
+                .onPlayerCommand(f.event(ServerboundPackets.PLAYER_COMMAND, command), f.player, command);
     }
 
     /** Self entity data carrying the shared flags, applied by its trailing proof between client ticks. */

@@ -267,16 +267,10 @@ class VehiclePassengerChecksTest {
     }
 
     @Test
-    void aSleeperBelowTheBedsTopIsStillCancelled() throws Exception {
+    void aSleeperBelowTheBedsTopIsStillRejectedByPrediction() throws Exception {
         try (var f = sleeping()) {
-            var route = moveRoute();
-            BadPacketsR check = enabled(f, BadPacketsR.class);
-            var below = positionEvent(f, FLOOR_Y + 0.5);
-            route.dispatch(below, f.player);
-            assertTrue(below.isCancelled(), "a sleeper below the bed was taken");
-            pongAfterTwoSeconds(f, check);
-
-            assertEquals(1, check.violations);
+            // Java sleeping movement reaches the engine, which checks travel and collisions before cancellation.
+            JavaTickFixture.assertRejected(f.tick(new Vec3(SEAT.x, FLOOR_Y + 0.5, SEAT.z), true), "VerticalOffset");
         }
     }
 
@@ -293,13 +287,11 @@ class VehiclePassengerChecksTest {
     }
 
     @Test
-    void aSleeperBelowAStrawBedsPillowIsStillCancelled() throws Exception {
+    void aSleeperBelowAStrawBedsPillowIsStillRejectedByPrediction() throws Exception {
         for (String facing : FACINGS) {
             try (var f = sleepingOnStraw(facing)) {
-                var route = moveRoute();
-                var below = positionEvent(f, FLOOR_Y + 0.28125);
-                route.dispatch(below, f.player);
-                assertTrue(below.isCancelled(), "a sleeper below the pillow was taken, facing " + facing);
+                JavaTickFixture.assertRejected(
+                        f.tick(new Vec3(SEAT.x, FLOOR_Y + 0.28125, SEAT.z), true), "VerticalOffset");
             }
         }
     }
@@ -444,7 +436,8 @@ class VehiclePassengerChecksTest {
     private static int teleport(JavaTickFixture f, Vec3 target) {
         int id = 7;
         int transaction = f.player.sendTrailingTransaction();
-        f.player.getSetbackTeleportUtil()
+        f.player
+                .getSetbackTeleportUtil()
                 .addSentTeleport(target, Vec3.ZERO, transaction, new RelativeFlag(0), false, id, 0, 0, 0, 0);
         f.pongThrough(transaction);
         return id;

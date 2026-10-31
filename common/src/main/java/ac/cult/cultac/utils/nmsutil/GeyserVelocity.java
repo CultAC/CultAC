@@ -77,7 +77,7 @@ public final class GeyserVelocity {
             double distance = capFallDistance(state.fallDistance(), state.velocity().y);
             Vec3 velocity =
                     launch && state.velocity().y < cap ? state.velocity().add(0, LAUNCH_FORCE, 0) : state.velocity();
-            state = new JavaInsideBlockEffects.State(distance, velocity, state.stuckSpeed());
+            state = new JavaInsideBlockEffects.State(distance, velocity, state.stuckSpeed(), state.powderContact());
         }
         return state;
     }

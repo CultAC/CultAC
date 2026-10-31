@@ -35,8 +35,7 @@ public interface MovementEngine {
             CultPlayer player,
             Set<Vec3> startingVelocities,
             SimulationContext context,
-            PredictionResult lastPrediction,
-            boolean canTickSkip);
+            PredictionResult lastPrediction);
 
     List<PredVector> startingVelocities(
             VelocityTransformer transformer, CultPlayer player, List<PredVector> input, SimulationContext context);
@@ -44,7 +43,7 @@ public interface MovementEngine {
     ValidMovements createValidMovements(
             PredVector initialStartingVelocity, CultPlayer player, PredictionResult result, boolean canStep);
 
-    CollideAxisData probeCollisions(
+    default CollideAxisData probeCollisions(
             CollisionModifier modifier,
             CultPlayer player,
             SimulationContext context,
@@ -53,7 +52,9 @@ public interface MovementEngine {
             Vec3 playerPos,
             PredVector initialStartingVelocity,
             SimpleCollisionBox attemptedMovementExtents,
-            boolean canStep);
+            boolean canStep) {
+        throw new UnsupportedOperationException("This engine resolves collisions forward");
+    }
 
     default void evaluateCandidate(CultPlayer player, PredictionResult result) {}
 

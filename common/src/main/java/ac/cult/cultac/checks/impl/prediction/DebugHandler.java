@@ -1,10 +1,10 @@
 package ac.cult.cultac.checks.impl.prediction;
 
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionDebug;
+import ac.cult.cultac.bedrock.prediction.integration.ExternalMovementUncertainty;
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CollisionModifier;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ExternalMovementUncertainty;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
@@ -15,6 +15,10 @@ import ac.cult.cultac.utils.anticheat.StringReturner;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -24,6 +28,7 @@ import java.util.function.Supplier;
 import net.kyori.adventure.text.Component;
 
 public class DebugHandler extends CultProcessor implements PostPredictionListener {
+    private static final int MAX_LISTED_END_OF_TICK_VELOCITIES = 4;
     private final Map<UUID, Sender> rewindListeners = new ConcurrentHashMap<>();
     private final Map<UUID, Sender> itemSlowListeners = new ConcurrentHashMap<>();
 
@@ -73,7 +78,17 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
     }
 
     Set<PlatformPlayer> listeners = new CopyOnWriteArraySet<>();
+    // Listeners from /cult debug -v, who also get the S and E velocities. Always a subset of listeners.
+    private final Set<PlatformPlayer> verboseListeners = new CopyOnWriteArraySet<>();
     boolean outputToConsole = false;
+    private boolean consoleVerbose = false;
+
+    // The prediction whose debug lines were just sent; its end-of-tick velocities follow once they
+    // are committed.
+    private PredictionResult awaitingEndOfTick;
+    private Set<Vec3> startOfTickVelocities;
+    private String endOfTickLabelColor;
+    private String endOfTickColor;
 
     public DebugHandler(CultPlayer player) {
         super(player);
@@ -81,6 +96,8 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
 
     @Override
     public void onPredictionComplete(final PredictionComplete predictionComplete) {
+        awaitingEndOfTick = null;
+        startOfTickVelocities = null;
         if (predictionComplete.isTeleport()) return;
         if (listeners.isEmpty() && !outputToConsole) return;
 
@@ -117,6 +134,7 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
 
         // Don't memory leak player references
         listeners.removeIf(player -> !player.isOnline());
+        verboseListeners.retainAll(listeners);
 
         for (PlatformPlayer player : listeners) {
             // Don't add prefix if the player is listening to oneself
@@ -161,6 +179,15 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
             }
         }
 
+        if (getPlayer().bedrockState == null && (!verboseListeners.isEmpty() || outputToConsole && consoleVerbose)) {
+            awaitingEndOfTick = result;
+            // The commit clears this set before refilling it with the end-of-tick velocities.
+            startOfTickVelocities =
+                    Set.copyOf(player.checkManager.getSimulationProcessor().getLastStartingVelocitiesUsed());
+            endOfTickLabelColor = labelColor;
+            endOfTickColor = positionsTooUncertain ? "\u00a77" : fullyExempt ? "\u00a79" : "\u00a7d";
+        }
+
         if (outputToConsole) {
             LogUtil.info(prefix + p);
             LogUtil.info(prefix + a);
@@ -180,6 +207,84 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
                 LogUtil.info("TO: " + player.x + " " + player.y + " " + player.z);
             }
         }
+    }
+
+    /**
+     * Sends verbose listeners ({@code /cult debug -v}) the velocities the prediction just debugged started from (S)
+     * and the ones the engine carries into the next tick (E). Each one is a starting velocity the next tick will
+     * accept, so a set wider than the client can produce is room for a bypass.
+     */
+    public void onPredictionCommitted(PredictionResult result, Set<Vec3> endOfTickVelocities) {
+        if (result == null || result != awaitingEndOfTick) return;
+        awaitingEndOfTick = null;
+        Set<Vec3> startOfTick = startOfTickVelocities;
+        startOfTickVelocities = null;
+
+        boolean toConsole = outputToConsole && consoleVerbose;
+        if (verboseListeners.isEmpty() && !toConsole) return;
+
+        List<String> lines = new ArrayList<>();
+        formatVelocities(lines, "S: ", startOfTick);
+        formatVelocities(lines, "E: ", endOfTickVelocities);
+        PlatformPlayer self = getPlayer().platformPlayer;
+        String prefix = self == null ? "null" : self.getName() + " ";
+        for (PlatformPlayer listener : verboseListeners) {
+            String listenerPrefix = listener == self ? "" : prefix;
+            for (String line : lines) listener.sendMessage(listenerPrefix + line);
+        }
+        if (toConsole) {
+            for (String line : lines) LogUtil.info(prefix + line);
+        }
+    }
+
+    private void formatVelocities(List<String> lines, String name, Set<Vec3> velocities) {
+        String label = endOfTickLabelColor + name + endOfTickColor;
+        if (velocities.isEmpty()) {
+            lines.add(label + "none");
+            return;
+        }
+        if (velocities.size() == 1) {
+            lines.add(label + NumFormatter.formatVector(velocities.iterator().next()));
+            return;
+        }
+
+        lines.add(label + velocities.size() + " candidates");
+        if (velocities.size() <= MAX_LISTED_END_OF_TICK_VELOCITIES) {
+            List<Vec3> sorted = sortedVelocities(velocities);
+            Vec3 first = sorted.getFirst();
+            List<String> formattedVelocities =
+                    sorted.stream().map(NumFormatter::formatVector).toList();
+            for (int i = 0; i < sorted.size(); i++) {
+                Vec3 velocity = sorted.get(i);
+                String formatted = formattedVelocities.get(i);
+                String delta = Collections.frequency(formattedVelocities, formatted) > 1
+                        ? " (Δ " + NumFormatter.formatNumberDebug(velocity.distanceTo(first)) + ")"
+                        : "";
+                lines.add(endOfTickColor + " " + formatted + delta);
+            }
+            return;
+        }
+
+        double minX = Double.POSITIVE_INFINITY, minY = Double.POSITIVE_INFINITY, minZ = Double.POSITIVE_INFINITY;
+        double maxX = Double.NEGATIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY, maxZ = Double.NEGATIVE_INFINITY;
+        for (Vec3 velocity : velocities) {
+            minX = Math.min(minX, velocity.x);
+            minY = Math.min(minY, velocity.y);
+            minZ = Math.min(minZ, velocity.z);
+            maxX = Math.max(maxX, velocity.x);
+            maxY = Math.max(maxY, velocity.y);
+            maxZ = Math.max(maxZ, velocity.z);
+        }
+        lines.add(endOfTickColor + " min " + NumFormatter.formatVector(new Vec3(minX, minY, minZ)));
+        lines.add(endOfTickColor + " max " + NumFormatter.formatVector(new Vec3(maxX, maxY, maxZ)));
+    }
+
+    private static List<Vec3> sortedVelocities(Set<Vec3> velocities) {
+        return velocities.stream()
+                .sorted(Comparator.comparingDouble((Vec3 v) -> v.x)
+                        .thenComparingDouble(v -> v.y)
+                        .thenComparingDouble(v -> v.z))
+                .toList();
     }
 
     private String formatExternalMovementDebug(PredictionResult result, PredictionResult lastResult, String color) {
@@ -246,25 +351,43 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
         }
     }
 
-    public void toggleListener(PlatformPlayer player) {
-        final boolean wasListening = listeners.remove(player);
-        if (wasListening) {
-            final String disableMessage = "\u00a77" + "Disabled debugging of predictions";
-            player.sendMessage(disableMessage);
-        } else {
-            final String enableMessage = "\u00a7a" + "Debugging predictions";
-            player.sendMessage(enableMessage);
-            listeners.add(player);
+    /**
+     * Plain debug turns prediction output on or off. Verbose debug ({@code -v}) also shows the S and E velocities: it
+     * starts a verbose session, upgrades a plain one, and turns a verbose one off.
+     */
+    public void toggleListener(PlatformPlayer player, boolean verbose) {
+        if (listeners.contains(player) && (!verbose || verboseListeners.contains(player))) {
+            listeners.remove(player);
+            verboseListeners.remove(player);
+            player.sendMessage("\u00a77" + "Disabled debugging of predictions");
+            return;
         }
+        if (verbose) {
+            verboseListeners.add(player);
+            player.sendMessage("\u00a7a" + "Debugging predictions with start (S) and end (E) of tick velocities");
+        } else {
+            player.sendMessage("\u00a7a" + "Debugging predictions");
+        }
+        listeners.add(player);
     }
 
     public boolean toggleConsoleOutput() {
-        this.outputToConsole = !outputToConsole;
-        return this.outputToConsole;
+        return toggleConsoleOutput(false);
+    }
+
+    /** Same rules as {@link #toggleListener(PlatformPlayer, boolean)}, for console output. */
+    public boolean toggleConsoleOutput(boolean verbose) {
+        if (outputToConsole && (!verbose || consoleVerbose)) {
+            return setConsoleOutput(false);
+        }
+        consoleVerbose = verbose;
+        outputToConsole = true;
+        return true;
     }
 
     public boolean setConsoleOutput(boolean outputToConsole) {
         this.outputToConsole = outputToConsole;
+        if (!outputToConsole) consoleVerbose = false;
         return this.outputToConsole;
     }
 

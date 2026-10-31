@@ -12,7 +12,8 @@ public enum BlockFamilies {
     LIQUID("LiquidBlock"), PISTON_BASE("piston.PistonBaseBlock"), PISTON_HEAD("piston.PistonHeadBlock"),
     POWDER_SNOW("PowderSnowBlock"), SCAFFOLDING("ScaffoldingBlock"), SHULKER_BOX("ShulkerBoxBlock"),
     SLAB("SlabBlock"), SNOW_LAYER("SnowLayerBlock"), STAINED_GLASS("StainedGlassBlock"), STAIR("StairBlock"),
-    SWEET_BERRY_BUSH("SweetBerryBushBlock"), TRAP_DOOR("TrapDoorBlock"), WALL("WallBlock"), WEB("WebBlock");
+    SWEET_BERRY_BUSH("SweetBerryBushBlock"), TRAP_DOOR("TrapDoorBlock"), WALL("WallBlock"), WEB("WebBlock"),
+    ABSTRACT_BED("AbstractBedBlock");
 
     private static final BlockRegistry REGISTRY = DataTables.defaults().registry();
     private static final int[] MEMBERSHIP = membership();

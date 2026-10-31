@@ -387,12 +387,13 @@ class InputKeysTest {
         try (var f = new JavaTickFixture()) {
             var registry = DataTables.defaults().registry();
             f.player.compensatedWorld.updateBlock(
-                    new BlockPos(2, FLOOR_Y, 0),
+                    new BlockPos(2, FLOOR_Y, 1),
                     registry.block("minecraft:stone").defaultState());
             for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
-            double face = 0.994;
+            double face = 1.0;
+            // Shulker#setPos snaps an unmounted shell to its block; the neighboring block meets that side.
             f.player.compensatedEntities.addEntity(
-                    100, EntityTypeIds.SHULKER, new Vec3(1, FLOOR_Y, face - 0.5), 0, 0, 0);
+                    100, EntityTypeIds.SHULKER, new Vec3(1.5, FLOOR_Y, face - 0.5), 0, 0, 0);
             Vec3 target = new Vec3(2 - 0.3F, FLOOR_Y, face + 0.3F);
             Vec3 start = target.add(-0.01, 0, 0.012);
             f.player.compensatedEntities.entityMap.get(100).setClientTickOrder(-1L);
@@ -534,11 +535,11 @@ class InputKeysTest {
     }
 
     @Test
-    void walkingAt1214IgnoresTheServersPowderSnowModifier() throws Exception {
+    void walkingAt1214ReplacesTheServersPowderSnowModifierAfterTravel() throws Exception {
         try (var f = new JavaTickFixture()) {
             JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_1_21_4);
             f.place(new Vec3(0.5, FLOOR_Y, 4.5), GROUNDED);
-            // Before 1.21.5 LivingEntity#aiStep runs removeFrost on the client, which drops the server's modifier.
+            // Travel uses the server's modifier once; removeFrost runs afterwards, with zero frozen ticks here.
             f.player.compensatedEntities.updateAttributes(
                     f.player.entityID,
                     List.of(new AttributeSnapshot(
@@ -550,9 +551,10 @@ class InputKeysTest {
             double z = 4.5;
             double velocity = 0.0;
             for (int tick = 0; tick < 3; tick++) {
-                z += velocity - WALK;
+                double input = tick == 0 ? (double) 0.98F * (double) (float) (0.1F - 0.02D) : WALK;
+                z += velocity - input;
                 assertExact(f.tick(new Vec3(0.5, FLOOR_Y, z), true));
-                velocity = (velocity - WALK) * FRICTION;
+                velocity = (velocity - input) * FRICTION;
             }
 
             assertNoFlags(f);
@@ -917,8 +919,7 @@ class InputKeysTest {
      * answered and so may be at either position. A shulker over the head overlaps both the crouching and the standing
      * box, so in no world does LocalPlayer#aiStep crouch the player.
      */
-    private static double moveOnceWithoutShiftBesideAShulker(
-            JavaTickFixture f, Vec3 at, boolean moving, double accel) {
+    private static double moveOnceWithoutShiftBesideAShulker(JavaTickFixture f, Vec3 at, boolean moving, double accel) {
         f.place(new Vec3(0.5, FLOOR_Y, -2.5), GROUNDED);
         f.player.xRot = 0;
         f.input(NONE);
@@ -1042,7 +1043,9 @@ class InputKeysTest {
     private static void assertRunFlagged(JavaTickFixture f, double[][] run) {
         for (int row = 2; row < run.length; row++) {
             PredictionResult result = replay(f, run[row]);
-            assertTrue(result.hasFlag(InputKeys.class), "row " + row + " " + describe(result));
+            assertTrue(
+                    result.hasFlag(ac.cult.cultac.checks.impl.prediction.checks.psuedo.OmniSprint.class),
+                    "row " + row + " " + describe(result));
         }
     }
 

@@ -71,13 +71,13 @@ class ReachInterpolationRestartTest {
         if (data.usesSteppedInterpolation()) {
             data.appendPath(EntityPositionPath.linear(new Vec3(1.25, 64.5, -0.75)), 20, 3);
         }
-        data.tickMovement(true, true);
+        data.tickMovement(true);
         data.getPossibleMovementLocationCombined(new SimpleCollisionBox());
         data.setExactMovementLocation(new SimpleCollisionBox(0.2, 64, 0.2, 0.8, 65.95, 0.8));
         data.setExactRotation(15, 2);
         data.offset(feet -> new Vec3(0.125, -0.5, 0.25));
         data.resize(0.9F, 1.4F);
-        data.tickMovement(true, false);
+        data.tickMovement(true);
         if (data.beginIdleProbe()) data.settleIfIdleTickUnchanged();
         data.markPositionInexact();
         data.getPossibleMovementLocationCombined(new SimpleCollisionBox());

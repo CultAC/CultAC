@@ -8,6 +8,7 @@ import ac.cult.cultac.checks.impl.badpackets.BadPacketsVehicle;
 import ac.cult.cultac.checks.impl.movement.GhostBlockMitigator;
 import ac.cult.cultac.checks.impl.movement.SetbackBlocker;
 import ac.cult.cultac.checks.impl.movement.timer.VehicleTimer;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAiStepSprint;
 import ac.cult.cultac.events.packets.blockplace.PlaceHandler;
 import ac.cult.cultac.manager.player.CheckManager;
 import ac.cult.cultac.network.CultPacketHandler;
@@ -442,10 +443,17 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         if (vehicle != null) {
             player.onMountedClientTick(vehicle);
             player.sprintState.onClientTick(player.isClientSprinting());
+            // A silent setSprinting(false) while riding still removes the modifier the player dismounts with.
+            switch (JavaAiStepSprint.clearsModifierRiding(player, vehicle)) {
+                case TRUE -> player.sprintState.onModifierCleared();
+                case UNKNOWN -> player.sprintState.onModifierPossiblyCleared();
+                case FALSE -> {}
+            }
             return;
         }
         if (player.compensatedEntities.getSelf().inVehicle()) return;
         player.onFootClientTick();
+        // The travel decides whether this aiStep's setSprinting(false) removed the modifier (JavaAiStepSprint).
         player.sprintState.onClientTick(player.isSprinting);
     }
 
@@ -456,16 +464,17 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         player.isSneaking = true;
     }
 
-    // LocalPlayer#tick runs only once ClientPacketListener#hasClientLoaded, which 1.21.4 introduced.
+    // LocalPlayer#tick runs only once ClientPacketListener#hasClientLoaded, which 1.21.4 introduced, and
+    // ClientLevel#tickEntities no longer ticks a player LocalPlayer#tickDeath removed.
     public static boolean localPlayerTicked(CultPlayer player) {
         return !player.isBedrockMovement()
                 && (player.packetStateData.playerLoadedIntoLevel
-                        || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_4));
+                        || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_4))
+                && !player.compensatedEntities.getSelf().isRemovedFromLevel();
     }
 
     // Player#tick advances the attack ticker every client tick, including Entity#rideTick.
     private static void onLocalPlayerAttackTick(CultPlayer player) {
-        if (!localPlayerTicked(player)) return;
         player.attackStrength.onClientTick(
                 player.getInventory().getHeldItem(), player.packetStateData.carriedItemChangedThisClientTick);
     }
@@ -582,6 +591,14 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                 && !teleportData.getTeleportData().isPositionOnly()
                 && !player.isBedrockMovement()
                 && !player.user.getObservedProtocol().atLeast(ac.cult.cultac.protocol.ProtocolVersion.V26_3));
+        event.setAuthoredTeleportResponse(packet.hasPosition()
+                && packet.hasRotation()
+                && teleportData.isTeleport()
+                && teleportData.getTeleportData() != null
+                && teleportData.getTeleportData().isAuthored()
+                && !teleportData.getTeleportData().isPositionOnly()
+                && !teleportData.getTeleportData().isRotationOnly()
+                && !player.isBedrockMovement());
         player.packetStateData.lastPacketWasTeleport = teleportData.isTeleport();
         player.packetStateData.lastPacketMatchedTeleportPosition = teleportData.isMatchedTeleportPosition();
         if (teleportData.isMatchedTeleportPosition()
@@ -611,6 +628,9 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
 
         // A teleport acknowledgement is not LocalPlayer#tick movement.
         if (!player.packetStateData.lastPacketWasTeleport) {
+            // The entities ticking before the player have moved it by the time LocalPlayer#tick sends this.
+            if (!player.packetStateData.receivedMovementThisClientTick && !player.isBedrockMovement())
+                player.checkManager.getSimulationProcessor().applyEntityMovesBeforeTravel();
             player.packetStateData.receivedMovementThisClientTick = true;
             // Only LocalPlayer#tick sends movement, and it requires ClientPacketListener#hasClientLoaded.
             player.packetStateData.playerLoadedIntoLevel = true;
@@ -782,7 +802,21 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             // position, or its prediction subsequently requires a correction.
             rideable.boost.tick(player.packetStateData.acceptedClientTick);
         }
-        if (!fromClientTick && player.packetStateData.clientTickVehicleMovePacketsThisClientTick == 0) {
+        TeleportAcceptData teleportData = player.getSetbackTeleportUtil()
+                .checkVehicleTeleportQueue(
+                        // Handler responses precede the mount's pong, so the acknowledged graph may still name
+                        // the preceding vehicle. The ordered response queue identifies which entity answered.
+                        !fromClientTick || packetRoot == null ? null : packetRoot.getEntityId(),
+                        newPos.x,
+                        newPos.y,
+                        newPos.z,
+                        fromClientTick);
+        if (teleportData.isTeleport() && teleportData.getVehicleTeleportId() != null) {
+            packetRoot = player.compensatedEntities.getEntity(teleportData.getVehicleTeleportId());
+        }
+        if (!teleportData.isTeleport()
+                && !fromClientTick
+                && player.packetStateData.clientTickVehicleMovePacketsThisClientTick == 0) {
             PacketEntity bufferedRoot = bufferedLocalAuthoritativeRoot(player, packetRoot);
             if (bufferedRoot != null) {
                 fromClientTick = true;
@@ -801,19 +835,15 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         }
 
         boolean canAuthoritativelyMove =
-                player.compensatedEntities.vehicles.canServerPlayerVehicleBeLocalAuthoritativeForMovementPacket(
-                                fromClientTick)
+                player.compensatedEntities.vehicles.canClientAuthoritativelyMoveVehicleForMovementPacket(
+                                packetRoot, fromClientTick)
                         || (fromClientTick
                                 && player.compensatedEntities.vehicles.isVehicleSwitchBufferActiveFor(packetRoot));
-        TeleportAcceptData teleportData = player.getSetbackTeleportUtil()
-                .checkVehicleTeleportQueue(
-                        packetRoot == null ? null : packetRoot.getEntityId(),
-                        newPos.x,
-                        newPos.y,
-                        newPos.z,
-                        pairedRiddenTick);
+        // LocalPlayer#sendChanges reports only Entity#getRootVehicle, so no client tick moves a vehicle that rides
+        // another entity, even one the player controls.
+        boolean clientRoot = packetRoot != null && packetRoot.getRiding() == null;
         boolean checkableClientTick =
-                fromClientTick && packetRoot != null && canAuthoritativelyMove && !teleportData.isTeleport();
+                fromClientTick && clientRoot && canAuthoritativelyMove && !teleportData.isTeleport();
 
         if (!teleportData.isTeleport() && !checkableClientTick) {
             player.packetStateData.lastPacketWasTeleport = false;
@@ -834,7 +864,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                 player.checkManager.getCheck(BadPacketsVehicle.class).handleInvalidVehiclePacket(fromClientTick);
             }
             if (fromClientTick) {
-                if (packetRoot != null && player.packetStateData.clientTickVehicleMovePacketsThisClientTick == 0) {
+                if (clientRoot && player.packetStateData.clientTickVehicleMovePacketsThisClientTick == 0) {
                     packetRoot.interpolateBeforeLocalTravel(player);
                 }
                 player.packetStateData.clientTickVehicleMovePacketsThisClientTick++;
@@ -859,6 +889,8 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         }
 
         if (fromClientTick && !player.packetStateData.lastPacketWasTeleport) {
+            if (!player.packetStateData.receivedMovementThisClientTick && !player.isBedrockMovement())
+                player.checkManager.getSimulationProcessor().applyEntityMovesBeforeTravel();
             player.packetStateData.receivedMovementThisClientTick = true;
         }
 
@@ -881,11 +913,10 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             player.boatData.tick(player);
         }
         Vec3 physicalMovementStart = oldPosition;
-        float physicalYaw = player.compensatedEntities.vehicles.saddleHandOverTravelYaw(packetRoot, vehiclePacket.yaw());
-        float physicalPitch = vehiclePacket.pitch();
+        float physicalYaw = player.compensatedEntities.vehicles.controlledTravelYaw(packetRoot, vehiclePacket.yaw());
+        float physicalPitch =
+                player.compensatedEntities.vehicles.controlledTravelPitch(packetRoot, vehiclePacket.pitch());
         Vec3 physicalNewPos = newPos;
-        player.packetStateData.lastPacketProvenVehiclePhysicalMovement =
-                checkableClientTick ? physicalNewPos.subtract(oldPosition) : null;
         // The player flagged crasher or timer checks, therefore we must protect predictions against these attacks
         // and not a teleport (it's dangerous to prevent teleports from going through simulation processors)
         if (event.isCancelled() && !player.packetStateData.lastPacketWasTeleport) {
@@ -952,6 +983,11 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             }
         }
 
+        // ServerGamePacketListenerImpl#handleMoveVehicle moves whatever root the server has the player controlling.
+        // A checked move still reaches it only while that root is the vehicle the client moved; across a sent
+        // mount, dismount or stacking the client has not answered yet, the server never sees it.
+        if (!player.compensatedEntities.vehicles.serverMovesVehicleFor(packetRoot)) event.setCancelled(true);
+
         dispatchReceiveHandlers(event, player);
         clearTransientPacketState(player);
     }
@@ -964,6 +1000,14 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             TeleportAcceptData teleportData) {
         VehicleTeleportData vehicleTeleportData = teleportData.getVehicleTeleportData();
         if (vehicleTeleportData != null && vehicleTeleportData.getEntityId() == packetRoot.getEntityId()) {
+            if (vehicleTeleportData.getApplication() != VehicleTeleportData.Application.ENTITY_TELEPORT) {
+                player.compensatedEntities.vehicles.applyAcceptedVehicleCorrection(packetRoot, vehicleTeleportData);
+                Vec3 physical = packetRoot.clientPhysicalPosition;
+                player.x = physical.x;
+                player.y = physical.y;
+                player.z = physical.z;
+                return;
+            }
             player.compensatedEntities.vehicles.applyAcceptedVehicleTeleportEntityState(
                     vehicleTeleportData.getEntityId(),
                     vehicleTeleportData.getPosition(),
@@ -1192,10 +1236,14 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         // The Geyser bridge ends each Bedrock client tick after translating its frame. Geyser's
         // tick end here only closes that frame's Java projection.
         if (player.user.getBedrockBridgeConnection() == null) {
+            // LivingEntity#baseTick runs LocalPlayer#tickDeath first. Its removal skips this tick's aiStep, while
+            // the rest of Player#tick, attack ticker included, still runs.
+            boolean playerTicked = localPlayerTicked(player);
+            if (playerTicked) player.compensatedEntities.getSelf().tickDeath();
             // LocalPlayer#aiStep finished before ServerboundClientTickEndPacket.
             if (localPlayerTicked(player)) applyRespawnShift(player);
             onLocalPlayerSprintTick(player);
-            onLocalPlayerAttackTick(player);
+            if (playerTicked) onLocalPlayerAttackTick(player);
             dispatchPrePredictionReceive(event, player);
             dispatchReceiveHandlers(event, player);
             // FlightToggle reads this tick's ClientSprintState#flagBeforeAiStep, which onClientTickEnd releases.
@@ -1212,6 +1260,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             player.packetStateData.heldSlotSetWithScreenOpen = false;
         }
         player.packetStateData.receivedMovementThisClientTick = false;
+        player.packetStateData.glidingBeforeClientAction = null;
         player.packetStateData.flyingStartBeforeTravel = false;
         player.packetStateData.flightStopThisClientTick = false;
         player.packetStateData.bedrockTranslatedMovement.clear();
@@ -1252,7 +1301,6 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         if (player.packetStateData.lastPacketWasTeleport) player.packetStateData.teleportedThisClientTick = true;
         player.packetStateData.lastPacketWasTeleport = false;
         player.packetStateData.lastPacketMatchedTeleportPosition = false;
-        player.packetStateData.lastPacketProvenVehiclePhysicalMovement = null;
         player.packetStateData.clearDesiredOnGround();
     }
 
@@ -1383,6 +1431,8 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                 player.y = clampVector.y;
                 player.z = clampVector.z;
 
+                if (teleportData.isTeleport()) player.compensatedEntities.observeLocalPlayerPosition(clampVector);
+
                 player.checkManager.onPositionUpdate(update);
             } else if (update.getTeleportData()
                     .isTeleport()) { // Mojang doesn't use their own exit vehicle field to leave vehicles, manually call
@@ -1421,6 +1471,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         public void handle(PacketReceiveEvent event, CultPlayer player, Object packet) {
             if (event.getPhase() == ConnectionPhase.PLAY) {
                 player.checkManager.dispatchEarlyReceive(event);
+                if (event.isCancelled()) player.checkManager.onEarlyCancel(packet);
                 if (!reachesServer(event)) player.blockActionReconciler.rejectEarly(packet);
             }
         }

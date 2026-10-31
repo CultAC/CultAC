@@ -88,24 +88,22 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
     @CultPacketHandler
     public void onInitializeBorder(
             PacketSendEvent<ClientboundInitializeBorder> event, CultPlayer player, ClientboundInitializeBorder packet) {
-        player.sendTransaction();
-        setCenter(packet.centerX(), packet.centerZ());
-        setLerp(packet.oldSize(), packet.newSize(), packet.lerpTime());
-        setAbsoluteMaxSize(packet.absoluteMaxSize());
+        int transaction = proof(event);
+        setCenter(transaction, packet.centerX(), packet.centerZ());
+        setLerp(transaction, packet.oldSize(), packet.newSize(), packet.lerpTime());
+        setAbsoluteMaxSize(transaction, packet.absoluteMaxSize());
     }
 
     @CultPacketHandler
     public void onSetBorderCenter(
             PacketSendEvent<ClientboundSetBorderCenter> event, CultPlayer player, ClientboundSetBorderCenter packet) {
-        player.sendTransaction();
-        setCenter(packet.centerX(), packet.centerZ());
+        setCenter(proof(event), packet.centerX(), packet.centerZ());
     }
 
     @CultPacketHandler
     public void onSetBorderSize(
             PacketSendEvent<ClientboundSetBorderSize> event, CultPlayer player, ClientboundSetBorderSize packet) {
-        player.sendTransaction();
-        setSize(packet.size());
+        setSize(proof(event), packet.size());
     }
 
     @CultPacketHandler
@@ -113,19 +111,27 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
             PacketSendEvent<ClientboundSetBorderLerpSize> event,
             CultPlayer player,
             ClientboundSetBorderLerpSize packet) {
-        player.sendTransaction();
-        setLerp(packet.oldSize(), packet.newSize(), packet.lerpTime());
+        setLerp(proof(event), packet.oldSize(), packet.newSize(), packet.lerpTime());
     }
 
-    private void setCenter(double x, double z) {
-        player.latencyUtils.addRealTimeTaskNow(() -> {
+    /**
+     * The flush ping that proves a border packet: ClientPacketListener applies it in the flush bundle's task, as it
+     * does an entity or block update, so the pong puts it after the client tick before it and before the next.
+     */
+    private int proof(PacketSendEvent<?> event) {
+        int transaction = player.appendFlushProofTransaction(event);
+        return transaction > 0 ? transaction : player.lastTransactionSent.get();
+    }
+
+    private void setCenter(int transaction, double x, double z) {
+        player.latencyUtils.addRealTimeTask(transaction, () -> {
             centerX = x;
             centerZ = z;
         });
     }
 
-    private void setSize(double size) {
-        player.latencyUtils.addRealTimeTaskNow(() -> {
+    private void setSize(int transaction, double size) {
+        player.latencyUtils.addRealTimeTask(transaction, () -> {
             oldDiameter = size;
             newDiameter = size;
             tickBasedLerp = false;
@@ -134,8 +140,8 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
         });
     }
 
-    private void setLerp(double oldDiameter, double newDiameter, long length) {
-        player.latencyUtils.addRealTimeTaskNow(() -> {
+    private void setLerp(int transaction, double oldDiameter, double newDiameter, long length) {
+        player.latencyUtils.addRealTimeTask(transaction, () -> {
             this.oldDiameter = oldDiameter;
             this.newDiameter = newDiameter;
             long clientLength = clientLerpDuration(
@@ -168,8 +174,8 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
         return version.isNewerThanOrEquals(ClientVersion.V_1_21_11) && length > 0L && oldDiameter != newDiameter;
     }
 
-    private void setAbsoluteMaxSize(double absoluteMaxSize) {
-        player.latencyUtils.addRealTimeTaskNow(() -> {
+    private void setAbsoluteMaxSize(int transaction, double absoluteMaxSize) {
+        player.latencyUtils.addRealTimeTask(transaction, () -> {
             this.absoluteMaxSize = absoluteMaxSize;
         });
     }

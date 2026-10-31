@@ -426,7 +426,8 @@ class CollisionGatheringEquivalenceTest {
                     random.nextBoolean() ? 0 : random.nextDouble(0, 5),
                     random.nextBoolean(),
                     random.nextBoolean(),
-                    random.nextInt(6) == 0);
+                    random.nextInt(6) == 0,
+                    random.nextInt(4) == 0);
         }
 
         static void randomBorder(CultPlayer player, SplittableRandom random) throws ReflectiveOperationException {

@@ -39,7 +39,7 @@ public class PacketEntityAction {
                 player.vehicleData.camelSprintingState = SprintingState.STOPPED;
                 break;
             case START_FLYING_WITH_ELYTRA:
-                boolean grounded = player.onGround || player.lastOnGround;
+                boolean grounded = player.checkManager.getSimulationProcessor().glideStartOnGround();
                 // Only a TridentItem#releaseUsing spin lifts a player on ground before LocalPlayer#aiStep reads
                 // onGround, so a glide start after a release on the ground follows a spin.
                 boolean released = RiptideUtil.releasedOnTheGround(player);
@@ -54,6 +54,10 @@ public class PacketEntityAction {
                 player.checkManager.getCheck(ElytraA.class).onStartGliding(event);
 
                 if (canGlideUsingEquippedItem(player)) {
+                    if (!player.isBedrockMovement() && player.packetStateData.glidingBeforeClientAction == null)
+                        player.packetStateData.glidingBeforeClientAction = player.isGliding;
+                    if (!released && !player.isGliding && !event.isCancelled())
+                        player.checkManager.getSimulationProcessor().commitAirborneGlideStart();
                     // The pose follows in Player#updatePlayerPose, after this tick's aiStep.
                     player.isGliding = true;
                 } else {

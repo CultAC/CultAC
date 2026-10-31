@@ -314,13 +314,13 @@ class InteractionVisibilityTest {
             assertTrue(setup.route(ServerboundPackets.INTERACT, click).isCancelled());
             peek(player, 100);
             assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
-            for (int tick = 0; tick < 20; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 20; tick++) tickEntities(player);
             assertFalse(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
             assertFalse(setup.route(ServerboundPackets.INTERACT, click).isCancelled());
             assertEquals(2, mobs.violations);
             assertEquals(1, interact.violations);
             peek(player, 0);
-            for (int tick = 0; tick < 20; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 20; tick++) tickEntities(player);
             assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
             assertEquals(3, mobs.violations);
         }
@@ -352,18 +352,18 @@ class InteractionVisibilityTest {
                     false);
             assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
             data(player, 18, true);
-            for (int tick = 0; tick < 3; tick++) bear.onMovement(player, true);
+            for (int tick = 0; tick < 3; tick++) tickEntities(player);
             assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
             assertTrue(setup.route(ServerboundPackets.INTERACT, click).isCancelled());
-            bear.onMovement(player, true);
+            tickEntities(player);
             assertFalse(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
             assertFalse(setup.route(ServerboundPackets.INTERACT, click).isCancelled());
             assertEquals(2, mobs.violations);
             assertEquals(1, interact.violations);
             data(player, 18, false);
-            for (int tick = 0; tick < 2; tick++) bear.onMovement(player, true);
+            for (int tick = 0; tick < 2; tick++) tickEntities(player);
             assertFalse(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
-            bear.onMovement(player, true);
+            tickEntities(player);
             assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
             assertEquals(3, mobs.violations);
         }
@@ -377,15 +377,20 @@ class InteractionVisibilityTest {
             player.compensatedEntities.addEntity(42, type, new Vec3(2.5, 64, -.7), 0, 0, 0);
             var bear = (PacketEntityPolarBear) player.compensatedEntities.getEntity(42);
             data(player, 18, true);
-            for (int tick = 0; tick < 2; tick++) bear.onMovement(player, true);
+            for (int tick = 0; tick < 2; tick++) tickEntities(player);
             assertEquals(1, bear.standAnimation());
             player.packetStateData.serverTicksFrozen = true;
-            for (int tick = 0; tick < 10; tick++) bear.onMovement(player, true);
+            for (int tick = 0; tick < 10; tick++) tickEntities(player);
             assertEquals(1, bear.standAnimation());
             player.packetStateData.serverTicksFrozen = false;
-            bear.onMovement(player, true);
+            tickEntities(player);
             assertEquals(2, bear.standAnimation());
         }
+    }
+
+    private static void tickEntities(CultPlayer player) {
+        player.packetStateData.acceptedClientTick++;
+        player.compensatedEntities.tickClientEntities(entity -> entity.onMovement(player));
     }
 
     private static void peek(CultPlayer player, int peek) {
@@ -989,6 +994,34 @@ class InteractionVisibilityTest {
             assertEquals(ac.cult.blocksim.engine.Direction.UP, pick.face());
             assertTrue(pick.inside());
             assertFalse(setup.visibility.blockFaceHidden(TARGET, Direction.UP, 0));
+        }
+    }
+
+    @Test
+    void anEyeInsideScaffoldingTakesTheInteractionShapesInsideFace() throws Exception {
+        try (var setup = new Setup()) {
+            for (int y = 64; y <= 66; y++) setup.block(4, y, 4, "scaffolding[distance=0,bottom=false]");
+            var eyeBlock = new BlockPos(4, 65, 4);
+            var player = setup.fixture.player;
+            player.x = 4.5;
+            player.y = 64;
+            player.z = 4.5;
+            // Issue #192: yaw -129.2, pitch 42.5 aims at the south face of this block's north-east pole, but the
+            // full-block interaction shape's inside sample makes the client report the face opposite DOWN.
+            double yaw = Math.toRadians(-129.2), pitch = Math.toRadians(42.5);
+            var look = new Vec3(-Math.sin(yaw) * Math.cos(pitch), -Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+            var eye = new Vec3(player.x, player.y + player.getEyeHeight(), player.z);
+            var pick =
+                    player.compensatedWorld.geometry().clipOutline(eye, eye.add(look.scale(4.5)), player, s -> false);
+            assertNotNull(pick);
+            assertEquals(
+                    List.of(4, 65, 4),
+                    List.of(pick.pos().x(), pick.pos().y(), pick.pos().z()));
+            assertEquals(ac.cult.blocksim.engine.Direction.UP, pick.face());
+            assertFalse(setup.visibility.blockFaceHidden(eyeBlock, Direction.UP, 0));
+            // Below the poles' reach, a downward ray leaves this block first: its own UP face stays impossible.
+            player.y = 63.75;
+            assertTrue(setup.visibility.blockFaceHidden(eyeBlock, Direction.UP, 0));
         }
     }
 

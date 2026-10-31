@@ -28,6 +28,7 @@ import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.data.SetBackData;
 import ac.cult.cultac.utils.data.TeleportData;
+import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import io.netty.buffer.ByteBuf;
@@ -223,16 +224,23 @@ class JavaSetbackPacketOrderingTest {
         }
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"bed", "dead"})
-    void invalidBedAndDeathMovementCannotChangeThePredictionAnchor(String reason) throws Exception {
+    /**
+     * A dying LocalPlayer travels and sends that movement, which the engine checks and Paper never receives. Once
+     * LocalPlayer#tickDeath removes it on its 20th dead tick it runs no client tick, so movement sent anyway cannot
+     * change the prediction anchor.
+     */
+    @Test
+    void movementAfterLocalPlayerTickDeathCannotChangeThePredictionAnchor() throws Exception {
         try (var setup = new Setup(ProtocolVersion.V26_3)) {
-            if (reason.equals("bed")) {
-                setup.player.isInBed = true;
-                setup.player.bedPosition = new Vec3(5, 64, 5);
-            } else {
-                setup.player.compensatedEntities.getSelf().isDead = true;
-            }
+            PacketEntitySelf self = setup.player.compensatedEntities.getSelf();
+            self.isDead = true;
+            self.setHealth(0);
+            setup.player.packetStateData.playerLoadedIntoLevel = true;
+            for (int tick = 1; tick < 20; tick++) setup.endTick();
+            assertFalse(self.isRemovedFromLevel());
+            setup.endTick();
+            assertTrue(self.isRemovedFromLevel());
+
             var reminder = setup.player.checkManager.getCheck(BadPacketsE.class);
             setField(BadPacketsE.class, reminder, "noReminderTicks", 19);
             assertTrue(setup.move(true, .6, 0).isCancelled());
@@ -296,7 +304,10 @@ class JavaSetbackPacketOrderingTest {
 
         Setup(ProtocolVersion version) throws Exception {
             services = new RecordConsumerServices(version);
-            fixture = new RecordReceiveFixture(version);
+            // These fixtures use a 26.3 client on each host wire. Older hosts still dispatch
+            // 26.3 model values, including the received registry/tag domain, in production.
+            fixture = RecordReceiveFixture.olderHost(version);
+            services.useNetwork(fixture.manager);
             player = fixture.player;
             setField(CultPlayer.class, player, "resolvedClientVersion", ClientVersion.V_26_3);
             player.gamemode = GameMode.SURVIVAL;

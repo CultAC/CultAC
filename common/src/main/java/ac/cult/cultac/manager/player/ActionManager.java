@@ -65,7 +65,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
                         ClientItemUseState.duration(heldStack),
                         !ItemUseInventory.possiblyRefused(player, hand)
                                 && (RiptideUtil.getRiptideLevel(heldStack) <= 0
-                                        || RiptideUtil.inWaterOrRain(player).determinePessimistically()));
+                                        || RiptideUtil.inWaterOrRain(player)));
             return;
         }
         if (canStartUsingItem(heldStack)) {
@@ -116,7 +116,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
                 // TridentItem#use refuses a riptide trident only while !Player#isInWaterOrRain.
                 return !nms.nextDamageWillBreak()
                         && (ItemUtil.enchantmentLevel(stack, "minecraft:riptide") <= 0
-                                || RiptideUtil.inWaterOrRain(player).determineOptimistically());
+                                || RiptideUtil.inWaterOrRain(player));
             }
 
             var consumable = ItemComponents.consumable(nms.components());
@@ -140,7 +140,7 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
             // TridentItem#use refuses a riptide trident only while !Player#isInWaterOrRain.
             return !nms.nextDamageWillBreak()
                     && (ItemUtil.enchantmentLevel(stack, "minecraft:riptide") <= 0
-                            || RiptideUtil.inWaterOrRain(player).determineOptimistically());
+                            || RiptideUtil.inWaterOrRain(player));
         }
         if (material == ItemTypes.BOW || material == ItemTypes.CROSSBOW) {
             return false;
@@ -225,16 +225,23 @@ public class ActionManager extends CultProcessor implements CheckListener, Clien
     public void onRespawn() {
         resetItemUse();
         player.packetStateData.setSlowedByUsingItem(false);
+        // ClientPacketListener#handleRespawn constructs a new LocalPlayer.
+        if (!player.isBedrockMovement()) newLocalPlayerState();
     }
 
     /** The Java client constructed another player; accumulated anti-abuse accounting survives. */
     public void onJavaPlayerReplacement() {
         player.clientItemUse.reset();
-        player.clientItemUse.onNewLocalPlayer();
-        player.checkManager.getCompensatedCooldown().clearPossibleCooldowns();
+        newLocalPlayerState();
         // A LocalPlayer's FoodData starts full.
         player.food = 20;
         player.packetStateData.setSlowedByUsingItem(false);
+    }
+
+    /** A new LocalPlayer starts with fresh FoodData and empty ItemCooldowns. */
+    private void newLocalPlayerState() {
+        player.clientItemUse.onNewLocalPlayer();
+        player.checkManager.getCompensatedCooldown().clearForNewLocalPlayer();
     }
 
     private void clearMainHandUseAfterSlotChange() {

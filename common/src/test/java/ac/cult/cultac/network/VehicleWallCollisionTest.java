@@ -514,7 +514,8 @@ class VehicleWallCollisionTest {
         ((PacketEntityHorse) f.player.compensatedEntities.getEntity(VEHICLE)).hasSaddle = true;
         f.setPassengers(VEHICLE, List.of(f.player.entityID));
         f.pongThrough(f.player.lastTransactionSent.get());
-        assertExact(f.rideTick(seat, true));
+        // These geometry cases start after the existing five-tick vehicle-switch window, including rejection cases.
+        for (int tick = 0; tick < 6; tick++) assertExact(f.rideTick(seat, true));
     }
 
     /** Water on the floor layer, its level rising by one a block along +x, or along +z, so it flows that way. */
@@ -533,7 +534,24 @@ class VehicleWallCollisionTest {
         f.pongThrough(f.player.lastTransactionSent.get());
         f.input(NO_KEYS);
         // The move follows the client ticks CompensatedVehicleState tracks after a vehicle switch.
-        for (int tick = 0; tick < 5; tick++) assertExact(f.rideTick(seat, true));
+        for (int tick = 0; tick < 5; tick++) {
+            // This setup holds the horse for the collision case below. Since 1.21.11 fluid travel adds
+            // ridden floating to the next velocity, so a stationary setup must explicitly reset it.
+            var context = f.player
+                    .checkManager
+                    .getSimulationProcessor()
+                    .getLastPrediction()
+                    .getSimulationContext();
+            Vec3 current =
+                    ac.cult.cultac.utils.nmsutil.WaterCurrent.calculateWaterCurrent(f.player, context, seat, Vec3.ZERO);
+            // Entity#baseTick applies the current before travel. Holding this setup stationary requires the
+            // opposite starting velocity; zero velocity would legitimately drift before the collision case.
+            f.player
+                    .checkManager
+                    .getSimulationProcessor()
+                    .seedStartingVelocity(current == null ? Vec3.ZERO : new Vec3(-current.x, 0, -current.z));
+            assertExact(f.rideTick(seat, true));
+        }
         f.player.checkManager.getSimulationProcessor().seedStartingVelocity(velocity);
     }
 

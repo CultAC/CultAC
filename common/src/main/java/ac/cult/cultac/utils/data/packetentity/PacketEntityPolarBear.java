@@ -57,9 +57,9 @@ public class PacketEntityPolarBear extends PacketEntity {
     }
 
     @Override
-    public void onMovement(CultPlayer player, boolean tickingReliably) {
+    public void onMovement(CultPlayer player) {
         if (!player.isBedrockMovement()) tickStand();
-        super.onMovement(player, tickingReliably);
+        super.onMovement(player);
     }
 
     /**
@@ -68,7 +68,7 @@ public class PacketEntityPolarBear extends PacketEntity {
      * DATA_STANDING_ID, or toward any later one the client handles before the step.
      */
     private void tickStand() {
-        if (atRest || !ticksOnClient(player)) return;
+        if (atRest || !player.compensatedEntities.ticksInClientTick(this)) return;
         Map<Integer, Integer> next = new HashMap<>();
         List<Map.Entry<Integer, Integer>> latestFirst = new ArrayList<>(states.entrySet());
         latestFirst.sort(Map.Entry.comparingByValue(Comparator.reverseOrder()));

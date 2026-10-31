@@ -3,11 +3,13 @@ package ac.cult.cultac.checks.impl.prediction;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionDebug;
+import ac.cult.cultac.bedrock.prediction.integration.ExternalMovementUncertainty;
 import ac.cult.cultac.checks.CultProcessor;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassAfterTravel;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.BoatTransform;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ExternalMovementUncertainty;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ProtocolVersion;
@@ -15,6 +17,7 @@ import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.PistonData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.latency.ClientBlockEntityPass;
 import ac.cult.cultac.utils.lists.EvictingQueue;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
@@ -376,10 +379,17 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         }
 
         sb.append("\n\npistons: \n");
-        for (PistonData piston : player.compensatedWorld.pistons.activePistons()) {
-            for (SimpleCollisionBox box : piston.getBoxes()) {
-                sb.append(box.toString());
-                sb.append(", ");
+        if (player.isBedrockMovement()) {
+            for (PistonData piston : player.compensatedWorld.pistons.activePistons()) {
+                for (SimpleCollisionBox box : piston.getBoxes()) {
+                    sb.append(box.toString());
+                    sb.append(", ");
+                }
+            }
+        } else {
+            for (ClientBlockEntityPass.Mover mover :
+                    player.compensatedWorld.nextBlockEntityPass().movers()) {
+                sb.append(mover).append(", ");
             }
         }
 
@@ -490,7 +500,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         List<Vec3> vectors = new ArrayList<>(4);
         boolean anyFluid = false;
 
-        for (boolean water : context.getWorldData().getInWater().getStates()) {
+        for (boolean water : context.getWorldData().waterStates()) {
             if (!water) {
                 continue;
             }
@@ -502,7 +512,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
                             context, riddenInput, context.getMoveRelativeSpeed(player, false, true, false)));
         }
 
-        for (boolean lava : context.getWorldData().getInLava().getStates()) {
+        for (boolean lava : context.getWorldData().lavaStates()) {
             if (!lava) {
                 continue;
             }
@@ -544,6 +554,10 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
     }
 
     private void appendExternalMovementDetails(StringBuilder sb, PredictionResult result, PredictionResult lastResult) {
+        if (!player.isBedrockMovement()) {
+            appendBlockEntityPassDetails(sb, result);
+            return;
+        }
         ExternalMovementUncertainty.Snapshot snapshot = ExternalMovementUncertainty.capture(result, lastResult);
         Vec3 positionOnlyDelta = result.getPositionOnlyDelta();
         if (!snapshot.hasExternalMove() && positionOnlyDelta.lengthSqr() <= 1.0E-14) {
@@ -593,13 +607,31 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
                 .append('\n');
     }
 
+    /** The block-entity pass the Java prediction replayed after its travel, from 26.3. */
+    private static void appendBlockEntityPassDetails(StringBuilder sb, PredictionResult result) {
+        ClientBlockEntityPass pass = result.getSimulationContext().getPassAfterTravel();
+        if (pass == null) return;
+        sb.append("\n\n========= block-entity pass after travel =========\n\n");
+        sb.append("Movers (ticker order) at game time ").append(pass.gameTime()).append(":\n");
+        for (ClientBlockEntityPass.Mover mover : pass.movers())
+            sb.append(" ").append(mover).append('\n');
+        JavaPassAfterTravel replayed = JavaMovementEngine.passAfterTravel(result);
+        if (replayed == null) {
+            sb.append("The selected travel's pass left the player in place.\n");
+            return;
+        }
+        sb.append("Travel end: ").append(replayed.travel().position()).append('\n');
+        sb.append("Pass result: ").append(replayed.result()).append('\n');
+        sb.append("Pass movement: ").append(replayed.movement()).append('\n');
+    }
+
     private void appendNearbyEntityBoxes(StringBuilder sb, PredictionResult result) {
         SimpleCollisionBox queryBox = player.boundingBox.copy().expand(3.0);
         PacketEntity movingEntity = result.getSimulationContext().getVehicle();
 
         sb.append("\nNearby packet entity boxes:\n");
         for (PacketEntity entity : player.compensatedEntities.entityMap.values()) {
-            if (player.compensatedEntities.isUntrackedRider(entity)) continue;
+            if (player.isBedrockMovement() && player.compensatedEntities.isUntrackedRider(entity)) continue;
             SimpleCollisionBox box = entity.getPossibleCollisionBoxes();
             if (!box.isCollided(queryBox)) {
                 continue;

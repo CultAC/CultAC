@@ -38,8 +38,10 @@ class ObserveOnlyVehicleResyncTest {
                 assertEquals(!observeOnly, has(mount, ClientboundEntityMotion.class), "observeOnly=" + observeOnly);
                 assertTrue(has(mount, ClientboundPing.class));
                 assertTrue(f.player.compensatedEntities.getSelf().inVehicle());
+                // A handler echo precedes the trailing pong. Once the proof is answered, neither the snap nudge
+                // nor its return target may remain available to consume a later client tick.
                 assertEquals(
-                        observeOnly ? 0 : 1,
+                        0,
                         f.player.getSetbackTeleportUtil().queuedVehicleTeleportCount(),
                         "observeOnly=" + observeOnly);
 

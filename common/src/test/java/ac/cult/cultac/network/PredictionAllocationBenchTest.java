@@ -55,14 +55,14 @@ class PredictionAllocationBenchTest {
                     last[0] = result;
                 });
             }
-            Field pointThree = SimulationContext.class.getDeclaredField("isTestingPointThree");
-            pointThree.setAccessible(true);
+            Field withheldPosition = SimulationContext.class.getDeclaredField("withheldPosition");
+            withheldPosition.setAccessible(true);
             int n = candidates.size();
             double[] sink = new double[1];
             Vec3[] inputs = new Vec3[64];
 
             Stage aabb = new Stage("computeAABB", n * 10);
-            Stage aabbPointThree = new Stage("computeAABB 0.03", n * 10);
+            Stage aabbWithheldPosition = new Stage("computeAABB withheld position", n * 10);
             Stage trace = new Stage("transformTraceTowards", n * 40);
             Stage input = new Stage("getBestTheoreticalPlayerInput", n * 400);
             Stage capture = new Stage("SuperDebug capture", 0);
@@ -75,16 +75,16 @@ class PredictionAllocationBenchTest {
                 }
                 aabb.stop(threads, round);
 
-                aabbPointThree.start(threads);
+                aabbWithheldPosition.start(threads);
                 for (int i = 0; i < n * 10; i++) {
                     PredictionResult candidate = candidates.get(i % n);
                     SimulationContext context = candidate.getSimulationContext();
-                    boolean testing = context.isTestingPointThree();
-                    pointThree.setBoolean(context, true);
+                    boolean testing = context.isWithheldPosition();
+                    withheldPosition.setBoolean(context, true);
                     sink[0] += candidate.getValidMovements().computeAABB(lasts.get(i % n)).maxY;
-                    pointThree.setBoolean(context, testing);
+                    withheldPosition.setBoolean(context, testing);
                 }
-                aabbPointThree.stop(threads, round);
+                aabbWithheldPosition.stop(threads, round);
 
                 trace.start(threads);
                 for (int i = 0; i < n * 40; i++) {
@@ -125,7 +125,7 @@ class PredictionAllocationBenchTest {
             }
             System.out.printf(
                     "predict bench: %d candidates, %d captures, sink %s %s%n", n, capture.calls, sink[0], inputs[0]);
-            for (Stage stage : List.of(aabb, aabbPointThree, trace, input, capture)) stage.print();
+            for (Stage stage : List.of(aabb, aabbWithheldPosition, trace, input, capture)) stage.print();
         } finally {
             for (JavaTickFixture f : fixtures) f.close();
         }

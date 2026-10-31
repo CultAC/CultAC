@@ -8,7 +8,6 @@ import lombok.ToString;
 @ToString
 public class TransactionVel implements TransactionOrder {
     public static final int UNKNOWN_SOURCE_ENTITY_ID = Integer.MIN_VALUE;
-    public static final int NO_CLIENT_TICK = Integer.MIN_VALUE;
 
     Vec3 vel;
     final int transaction;
@@ -22,11 +21,6 @@ public class TransactionVel implements TransactionOrder {
     private boolean consumed;
     /** The transaction whose answer proves the client handled this velocity. */
     private int proofTransaction;
-    /**
-     * For a push the client's own tick applies after its travel, the acceptedClientTick that the end of the next tick,
-     * which consumes it, counts up to. Such a push follows every packet its transaction proves and precedes the rest.
-     */
-    private int consumedAtClientTick = NO_CLIENT_TICK;
 
     public TransactionVel(Vec3 vel, int transaction, boolean isVelocity, boolean isSetbackVel) {
         this(vel, transaction, isVelocity, isSetbackVel, UNKNOWN_SOURCE_ENTITY_ID);
@@ -74,19 +68,6 @@ public class TransactionVel implements TransactionOrder {
         public long getBedrockTeleportRevision() {
             return teleportRevision;
         }
-    }
-
-    public boolean isAppliedAfterTravel() {
-        return consumedAtClientTick != NO_CLIENT_TICK;
-    }
-
-    /** The order the client applies impulses in: packets in wire order, a push of its own tick after its packets. */
-    public static int compareClientOrder(TransactionVel a, TransactionVel b) {
-        if (a.isAppliedAfterTravel() == b.isAppliedAfterTravel()) {
-            return Long.compare(a.outboundSequence, b.outboundSequence);
-        }
-        if (a.isAppliedAfterTravel()) return b.proofTransaction <= a.transaction ? 1 : -1;
-        return a.proofTransaction <= b.transaction ? -1 : 1;
     }
 
     public void addOffset(double offset) {

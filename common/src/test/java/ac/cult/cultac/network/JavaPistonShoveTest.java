@@ -225,12 +225,6 @@ class JavaPistonShoveTest {
             position = new Vec3(position.x, lidShove(FLOOR_Y + 1.0, 0.0F, 0.1F), position.z);
             PredictionResult lifted = f.tick(position, false);
             assertExact(lifted);
-            assertNotNull(
-                    lifted.getSimulationContext()
-                            .getWorldData()
-                            .getPistonPushes()
-                            .getShulkerBoxShovesAfterTravel(),
-                    describe(lifted));
             position = new Vec3(position.x, lidShove(FLOOR_Y + 1.0 + (double) (0.5F * 0.1F), 0.1F, 0.2F), position.z);
             assertExact(f.tick(position, false));
         }

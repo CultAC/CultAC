@@ -1,7 +1,5 @@
 package ac.cult.cultac.events.packets.worldreader;
 
-import ac.cult.blocksim.data.BlockFamilies;
-import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.WorldPackets.BlockEntityUpdate;
@@ -17,6 +15,8 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundBlockChangedAck;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundBlockEvent;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundForgetLevelChunk;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundGameEvent;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetChunkCacheCenter;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetChunkCacheRadius;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.collisions.ViaClientBlockShapeMappings;
 import ac.cult.cultac.utils.data.TeleportData;
@@ -25,6 +25,26 @@ import ac.cult.cultac.utils.latency.CompensatedWorld.CachedSection;
 import java.util.List;
 
 public class BasePacketWorldReader {
+
+    @CultPacketHandler
+    public void onChunkCacheCenter(
+            PacketSendEvent<ClientboundSetChunkCacheCenter> event,
+            CultPlayer player,
+            ClientboundSetChunkCacheCenter packet) {
+        int transaction = appendFlushProofTransaction(event, player);
+        player.latencyUtils.addRealTimeTask(
+                transaction, () -> player.compensatedWorld.clientChunkCacheCenter(packet.x(), packet.z()));
+    }
+
+    @CultPacketHandler
+    public void onChunkCacheRadius(
+            PacketSendEvent<ClientboundSetChunkCacheRadius> event,
+            CultPlayer player,
+            ClientboundSetChunkCacheRadius packet) {
+        int transaction = appendFlushProofTransaction(event, player);
+        player.latencyUtils.addRealTimeTask(
+                transaction, () -> player.compensatedWorld.clientChunkCacheRadius(packet.radius()));
+    }
 
     @CultPacketHandler
     public void onForgetLevelChunk(
@@ -57,7 +77,11 @@ public class BasePacketWorldReader {
     public void onTimeUpdate(PacketSendEvent<TimeUpdate> event, CultPlayer player, TimeUpdate packet) {
         var backendTicks = player.backendTicks();
         if (backendTicks != null) backendTicks.onGameTime(packet.gameTime(), System.nanoTime());
-        player.latencyUtils.addRealTimeTaskNext(() -> player.compensatedWorld.applyClientTime(packet));
+        // A time update in the same flush as a piston event is processed in that same client task.
+        // Deferring it to another ping gives Entity#limitPistonMovement the wrong game time: a server
+        // time correction can repeat the previous tick's time, preserving its 0.51 piston limit.
+        int transaction = appendFlushProofTransaction(event, player);
+        player.latencyUtils.addRealTimeTask(transaction, () -> player.compensatedWorld.applyClientTime(packet));
     }
 
     @CultPacketHandler
@@ -189,109 +213,40 @@ public class BasePacketWorldReader {
     }
 
     public void handleBlockChange(CultPlayer player, PacketSendEvent<BlockUpdate> event, BlockUpdate blockChange) {
-        int range = 16;
-
         BlockPos blockPosition = blockChange.position();
-        int state = blockChange.state();
         // ClientPacketListener#handleBundlePacket handles the flush bundle in one task, so the
-        // pong of a ping in it marks the point where the client has the new block state.
-        if (isNearPlayer(player, blockPosition, range)) {
-            int transaction = player.appendFlushProofTransaction(event);
-            if (transaction > 0) {
-                if (blockChange != event.getOriginalPacket()) event.replace(blockChange);
-                player.compensatedWorld.queueServerBlockUpdate(
-                        blockPosition.getX(), blockPosition.getY(), blockPosition.getZ(), state, transaction);
-                return;
-            }
-        }
-
+        // pong of a ping in it marks the point where the client has the new block state, however far it is.
+        int transaction = appendFlushProofTransaction(event, player);
+        if (blockChange != event.getOriginalPacket()) event.replace(blockChange);
         player.compensatedWorld.queueServerBlockUpdate(
-                blockPosition.getX(),
-                blockPosition.getY(),
-                blockPosition.getZ(),
-                state,
-                player.lastTransactionSent.get());
+                blockPosition.getX(), blockPosition.getY(), blockPosition.getZ(), blockChange.state(), transaction);
     }
 
     public void handleBlockEvent(
             CultPlayer player, PacketSendEvent<ClientboundBlockEvent> event, ClientboundBlockEvent blockEvent) {
-        int range = 16;
         BlockPos blockPosition = new BlockPos(
                 blockEvent.position().x(),
                 blockEvent.position().y(),
                 blockEvent.position().z());
         String dimension = packetDimension(player);
-        if (isNearPlayer(player, blockPosition, range) || isShulkerBox(blockEvent.blockId())) {
-            // ClientPacketListener#handleBlockEvent runs Level#blockEvent in the bundle's task, so
-            // the flush proof proves the event exactly as it does the block updates around it.
-            int transaction = player.appendFlushProofTransaction(event);
-            if (transaction > 0) {
-                if (blockEvent != event.getOriginalPacket()) event.replace(blockEvent);
-                event.getTasksAfterSend().add(() -> {
-                    Runnable applyEvent = () -> {
-                        player.compensatedWorld.applyClientBlockEvent(dimension, blockEvent);
-                        player.compensatedWorld.pistons.handleBlockEvent(
-                                blockPosition,
-                                blockEvent.blockId(),
-                                blockEvent.action(),
-                                blockEvent.parameter(),
-                                transaction);
-                    };
-                    player.latencyUtils.addRealTimeTask(transaction, applyEvent);
-                });
-                return;
-            }
-        }
-
-        player.latencyUtils.addRealTimeTaskNow(() -> {
+        // ClientPacketListener#handleBlockEvent runs Level#blockEvent in the bundle's task, so
+        // the flush proof proves the event exactly as it does the block updates around it.
+        int transaction = appendFlushProofTransaction(event, player);
+        if (blockEvent != event.getOriginalPacket()) event.replace(blockEvent);
+        // Queue in packet order, like block updates. Deferring insertion until tasksAfterSend
+        // can put this event behind a later block update expanded in the same output batch.
+        player.latencyUtils.addRealTimeTask(transaction, () -> {
             player.compensatedWorld.applyClientBlockEvent(dimension, blockEvent);
             player.compensatedWorld.pistons.handleBlockEvent(
-                    blockPosition,
-                    blockEvent.blockId(),
-                    blockEvent.action(),
-                    blockEvent.parameter(),
-                    player.lastTransactionSent.get());
+                    blockPosition, blockEvent.blockId(), blockEvent.action(), blockEvent.parameter(), transaction);
         });
     }
 
     public void handleMultiBlockChange(
             CultPlayer player, PacketSendEvent<SectionBlocksUpdate> event, SectionBlocksUpdate multiBlockChange) {
-        int range = 16;
         if (multiBlockChange.size() == 0) {
             return;
         }
-
-        boolean nearPlayer = false;
-        for (int i = 0; i < multiBlockChange.size(); i++) {
-            if (Math.abs(multiBlockChange.x(i) - player.x) < range
-                    && Math.abs(multiBlockChange.y(i) - player.y) < range
-                    && Math.abs(multiBlockChange.z(i) - player.z) < range) {
-                nearPlayer = true;
-                break;
-            }
-        }
-
-        if (nearPlayer) {
-            int transaction = player.appendFlushProofTransaction(event);
-            if (transaction > 0) {
-                player.compensatedWorld.queueServerBlockUpdates(multiBlockChange, transaction);
-                return;
-            }
-        }
-
-        player.compensatedWorld.queueServerBlockUpdates(multiBlockChange, player.lastTransactionSent.get());
-    }
-
-    private static boolean isShulkerBox(int blockId) {
-        var blocks = DataTables.defaults().registry().blocks();
-        return blockId >= 0
-                && blockId < blocks.size()
-                && BlockFamilies.SHULKER_BOX.test(blocks.get(blockId).defaultState());
-    }
-
-    private boolean isNearPlayer(CultPlayer player, BlockPos pos, int range) {
-        return Math.abs(pos.getX() - player.x) < range
-                && Math.abs(pos.getY() - player.y) < range
-                && Math.abs(pos.getZ() - player.z) < range;
+        player.compensatedWorld.queueServerBlockUpdates(multiBlockChange, appendFlushProofTransaction(event, player));
     }
 }

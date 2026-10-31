@@ -64,8 +64,7 @@ final class ModelEntityMetadataValues {
         try {
             decoder.metadata(version, input, registries, ModelNbtFactory.INSTANCE, scratch);
             int size = scratch.size;
-            int payloadLength =
-                    size == 0 ? 0 : scratch.offsets[size - 1] + scratch.lengths[size - 1] - payloadStart;
+            int payloadLength = size == 0 ? 0 : scratch.offsets[size - 1] + scratch.lengths[size - 1] - payloadStart;
             byte[] payload = lease == null ? ByteBufUtil.getBytes(input, payloadStart, payloadLength) : null;
             if (size == 0) return new EntityMetadata(id, List.of());
             var first = scratch.entry(this, 0, payload, payloadStart, lease);

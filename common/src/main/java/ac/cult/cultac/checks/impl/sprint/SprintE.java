@@ -23,7 +23,6 @@ public final class SprintE extends Check implements PostPredictionListener {
     private boolean startedSprintingThisTick;
     private boolean wasHardHorizontalCollision;
     private boolean previousPredictionChecked;
-    private ClientHorizontalCollision.Input previousInput;
 
     public SprintE(CultPlayer player) {
         super(player);
@@ -39,26 +38,27 @@ public final class SprintE extends Check implements PostPredictionListener {
 
     @Override
     public void onPredictionComplete(PredictionComplete complete) {
+        // A pass replayed since the last travel (a block entity after the report before 26.3, a shulker ticking before
+        // the player) ran Entity#move after it: its flags are the ones LocalPlayer#aiStep reads. One that left no
+        // certain hard collision clears the travel's; the travel's own must be hard too.
+        var afterPass = player.checkManager.getSimulationProcessor().takeHardCollisionAfterPass();
+        if (afterPass != null && afterPass != DesyncStatus.TRUE) wasHardHorizontalCollision = false;
         if (complete.isTeleport()) {
             wasHardHorizontalCollision = false;
             previousPredictionChecked = false;
-            previousInput = null;
             startedSprintingThisTick = false;
             return;
         }
 
         PredictionResult result = complete.getPredictionResult();
-        boolean checked = !complete.isExempt() && result != null;
+        // A move the prediction did not explain leaves its collision unknown.
+        boolean checked = !complete.isExempt() && result != null && result.getFlagSeverity() == 0.0;
         boolean inWater = result != null
-                && result.getSimulationContext().getWorldData().getInWater().determineOptimistically();
-        DesyncStatus shoved = checked && previousInput != null
-                ? ClientHorizontalCollision.hardBeforeTravel(result, previousInput)
-                : null;
-        boolean wasHard = shoved == null ? wasHardHorizontalCollision : shoved.determinePessimistically();
+                && result.getSimulationContext().getWorldData().isInWater();
 
         if (checked
                 && previousPredictionChecked
-                && wasHard
+                && wasHardHorizontalCollision
                 && !startedSprintingThisTick
                 && !player.inVehicle()
                 && !inWater) {
@@ -69,10 +69,10 @@ public final class SprintE extends Check implements PostPredictionListener {
             }
         }
 
+        // Only a hard collision every candidate agrees on stops the sprint for certain.
         wasHardHorizontalCollision =
-                checked && ClientHorizontalCollision.hard(result).determinePessimistically();
+                checked && ClientHorizontalCollision.hardForEveryReality(result).determinePessimistically();
         previousPredictionChecked = checked;
-        previousInput = checked ? ClientHorizontalCollision.input(result) : null;
         startedSprintingThisTick = false;
     }
 }

@@ -15,8 +15,8 @@ public class PacketEntityTrackXRot extends PacketEntity {
     }
 
     @Override
-    public void onMovement(CultPlayer player, boolean highBound) {
-        super.onMovement(player, highBound);
+    public void onMovement(CultPlayer player) {
+        super.onMovement(player);
         if (player.isBedrockMovement() && bedrockRuntimeId != -1) {
             packetYaw = interpYaw = clientPhysicalYaw;
             steps = 0;

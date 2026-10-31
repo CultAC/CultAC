@@ -62,13 +62,20 @@ public class PacketPlayerAbilities extends CultProcessor implements CheckListene
             player.isFlying = packet.flying();
             player.flySpeed = packet.flyingSpeed();
         };
-        // Without a ping ahead of it, the flight follows every earlier packet's state, such as LOGIN's game mode.
-        if (pingPrecedes) player.latencyUtils.addRealTimeTask(preceding, flight);
-        else player.latencyUtils.addRealTimeTaskNext(flight);
-
         // Player#canEat and the projectile ammo check read these at the client's USE_ITEM.
+        Runnable handled = () -> player.abilitiesHandled(packet.instabuild(), packet.invulnerable());
+        // ClientPacketListener#handlePlayerAbilities writes the flight and the build flags together, and
+        // LocalPlayer#aiStep reads mayfly and flying from the next tick: a proof in the packet's bundle applies both.
         if (!player.runAtTrailingProof(
-                event, () -> player.abilitiesHandled(packet.instabuild(), packet.invulnerable()))) {
+                event,
+                () -> {
+                    flight.run();
+                    handled.run();
+                },
+                handled)) {
+            // Unbundled, the flight follows the ping ahead of the packet, or without one every earlier packet's state,
+            // such as LOGIN's game mode.
+            player.latencyUtils.addRealTimeTask(pingPrecedes ? preceding : preceding + 1, flight);
             player.latencyUtils.addRealTimeTask(
                     preceding, () -> player.abilitiesSent(packet.instabuild(), packet.invulnerable()));
         }

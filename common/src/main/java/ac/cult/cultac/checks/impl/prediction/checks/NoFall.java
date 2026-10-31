@@ -4,13 +4,14 @@ import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
 import ac.cult.cultac.bedrock.prediction.BedrockVerticalCollisionVerdict;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoFallPseudo;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassAfterTravel;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
-import ac.cult.cultac.utils.data.PistonPushes;
-import ac.cult.cultac.utils.data.ShulkerBoxShoveResult;
 
 public class NoFall implements EngineCheck {
     private static final VanillaStepProof STEP_PROOF = new VanillaStepProof();
@@ -31,21 +32,26 @@ public class NoFall implements EngineCheck {
         boolean flaggedNoFall = false;
         final NoFallPseudo noFallPseudo = player.checkManager.getListener(NoFallPseudo.class);
 
-        PistonPushes pushes = result.getSimulationContext().getWorldData().getPistonPushes();
-        // From 26.3 the shulker box block shoves are the packet's last Entity#move calls, and the last sets onGround.
-        boolean shoveMayEndMove =
-                pushes != null && !pushes.getShulkerBoxPush().isEmpty() && !pushes.isShulkerBoxShoveBeforeTravel();
-        ShulkerBoxShoveResult shoveEndsMove = null;
-        if (shoveMayEndMove && pushes.getShulkerBoxShovesAfterTravel() != null) {
-            // The prediction's trace holds what the shoves left, or nothing when none reached the player.
-            MovementTrace trace = result.getValidMovements().getClosestTrace();
-            shoveEndsMove = trace == null ? null : trace.shulkerBoxShove();
-            shoveMayEndMove = shoveEndsMove != null;
-        }
+        // From 26.3 the block-entity pass after the travel can hold the packet's last Entity#move, which sets onGround.
+        JavaPassAfterTravel pass = JavaMovementEngine.passAfterTravel(result);
+        boolean passEndsMove = pass != null && pass.result().moved();
 
-        if (shoveEndsMove != null) {
+        // A forward move's Entity#move set onGround to its own verticalCollisionBelow (1.21.11 Entity.java:739-741),
+        // and sendPosition reports it. Before 1.21.2 the packet can close several unsent ticks.
+        JavaMoveCollision forward = result.getCollideAxisData() instanceof JavaMoveCollision move
+                        && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
+                ? move
+                : null;
+
+        if (passEndsMove) {
             boolean reported = result.getSimulationContext().isOnGround();
-            if (reported != shoveEndsMove.onGround()) {
+            if (reported != pass.result().state().onGround()) {
+                result.addFlag(noFallPseudo, () -> String.valueOf(reported), 0.1);
+                flaggedNoFall = true;
+            }
+        } else if (forward != null) {
+            boolean reported = result.getSimulationContext().isOnGround();
+            if (reported != forward.verticalCollisionBelow()) {
                 result.addFlag(noFallPseudo, () -> String.valueOf(reported), 0.1);
                 flaggedNoFall = true;
             }
@@ -63,7 +69,8 @@ public class NoFall implements EngineCheck {
         double travelY = result.getTarget().y - result.getPositionOnlyDelta().y / stuckSpeedY;
         // The player is off the ground and can collide to the ground
         if (!result.getSimulationContext().isOnGround()
-                && !shoveMayEndMove
+                && !passEndsMove
+                && forward == null
                 && canCollideDown
                 && valid.maxY + 0.001 < travelY // And their valid Y is below their actual movement
                 && downCollide.inMovementSpace(stuckSpeedY) + 0.001 >= travelY) { // And they recovered by colliding
@@ -84,7 +91,9 @@ public class NoFall implements EngineCheck {
         }
 
         if (flaggedNoFall) {
-            result.setDesiredOnGround(canCollideDown);
+            result.setDesiredOnGround(passEndsMove
+                    ? pass.result().state().onGround()
+                    : forward != null ? forward.verticalCollisionBelow() : canCollideDown);
         }
     }
 

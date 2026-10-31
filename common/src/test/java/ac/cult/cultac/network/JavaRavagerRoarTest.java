@@ -1,250 +1,250 @@
 package ac.cult.cultac.network;
 
-import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
-import static ac.cult.cultac.network.JavaTickFixture.assertVehicleExact;
-import static ac.cult.cultac.network.JavaTickFixture.describe;
-import static ac.cult.cultac.network.JavaTickFixture.exact;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
-import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.platform.api.world.PlatformWorld;
+import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
-import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
-import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityEvent;
-import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveEntity;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
-import ac.cult.cultac.protocol.value.EntityDelta;
-import ac.cult.cultac.protocol.value.Vec3d;
+import ac.cult.cultac.protocol.value.Relative;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityRavager;
+import ac.cult.cultac.utils.latency.ClientRavagerRoars;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.mockito.Mockito;
 
-/**
- * Ravager#handleEntityEvent(69) runs applyRoarKnockbackClient: strongKnockback adds to the delta movement of the local
- * player inside the ravager's box inflated by 4.0, from where both are when the client handles the event.
- */
 class JavaRavagerRoarTest {
-    private static final ServerboundPlayerInput NONE =
-            new ServerboundPlayerInput(false, false, false, false, false, false, false);
-    private static final ServerboundPlayerInput SPRINT_FORWARD =
-            new ServerboundPlayerInput(true, false, false, false, false, false, true);
     private static final int RAVAGER = 100;
-    private static final int HORSE = 200;
-    private static final int BOAT = 300;
-    private static final byte ROAR = 69;
-    private static final Vec3 STANDING = new Vec3(0.5, FLOOR_Y, 0.5);
-    private static final Vec3 GROUNDED = new Vec3(0, -0.0784000015258789, 0);
+    private static final Vec3 START = new Vec3(0.5, 64, 0.5);
+    private static final Vec3 PUSH = new Vec3(0, 0.2, -2);
 
-    /**
-     * The reported tick, moved by (-210, 2, -187): a sprinting player 1.375 blocks from the ravager moves
-     * (0.9554, 0.1216, -2.5011) with the move's own rotation. The capture has no spawn of the ravager; strongKnockback
-     * gives the move's difference from the tick's sprint without the push from a ravager on the 1/4096 position grid.
-     */
-    @Test
-    void theReportedRoarPushesTheSprintingPlayer() throws Exception {
-        try (var f = new JavaTickFixture(ProtocolVersion.V26_1, ClientVersion.V_26_1)) {
-            Vec3 from = new Vec3(210.7777344484142 - 210, 62.0 + 2, 186.9704566877583 - 187);
-            f.place(from, new Vec3(-0.05482678475034155, -0.0784000015258789, 0.09192651710493299));
-            f.player.xRot = 29.558634F;
-            f.player.yRot = 17.710155F;
-            f.player.isSprinting = true;
-            f.player.sprintState.onClientTick(true);
-            f.input(SPRINT_FORWARD);
-            addRavager(f, new Vec3(861268 / 4096.0 - 210, 62.0 + 2, 771066 / 4096.0 - 187));
-
-            roar(f);
-
-            Vec3 to = new Vec3(211.73313200346954 - 210, 62.121599998474125 + 2, 184.46937239899904 - 187);
-            assertExact(f.tick(to, false));
-            assertEquals(0, f.player.checkManager.getExplosionHandler().violations);
-        }
+    private static PacketEntityRavager ravager(JavaTickFixture f) {
+        f.player.compensatedEntities.addEntity(RAVAGER, EntityTypeIds.RAVAGER, START.add(0, 0, 2), 0, 0, 0);
+        return assertInstanceOf(PacketEntityRavager.class, f.player.compensatedEntities.getEntity(RAVAGER));
     }
 
-    @Test
-    void aRoarPushesAStandingPlayerAwayFromTheRavager() throws Exception {
-        try (var f = standing()) {
-            addRavager(f, new Vec3(-0.7, FLOOR_Y, 0.0));
-
-            roar(f);
-
-            // xd = 1.2, zd = 0.5: the push is (xd, zd) / (xd * xd + zd * zd) * 4.0 with 0.2 up.
-            double dd = 1.2 * 1.2 + 0.5 * 0.5;
-            Vec3 move = new Vec3(1.2 / dd * 4.0, GROUNDED.y + 0.2, 0.5 / dd * 4.0);
-            assertExact(f.tick(STANDING.add(move), false));
-            assertEquals(0, f.player.checkManager.getExplosionHandler().violations);
-        }
-    }
-
-    /**
-     * A move_entity before the event in the roar's bundle only sets the interpolation target, so the push is from where
-     * the ravager stood.
-     */
-    @Test
-    void aMoveBundledBeforeTheRoarPushesFromTheRavagersOldPosition() throws Exception {
-        try (var f = standing()) {
-            Vec3 at = new Vec3(-3328 / 4096.0, FLOOR_Y, 1024 / 4096.0);
-            var add = new ClientboundAddEntity(RAVAGER, "minecraft:ravager", new Vec3d(at.x, at.y, at.z), 0, 0, 0);
-            var addEvent = new PacketSendEvent<>(
-                    f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.ADD_ENTITY, add, false);
-            f.player.packetEntityReplication.onAddEntity(addEvent, f.player, add);
-            addEvent.tasksAfter().forEach(Runnable::run);
-            f.pongThrough(f.player.lastTransactionSent.get());
-            for (int tick = 0; tick < 3; tick++) assertExact(f.tick(STANDING, true));
-
-            var move = new ClientboundMoveEntity(
-                    RAVAGER, new EntityDelta.Linear((short) 1024, (short) 0, (short) 0), 0.0F, 0.0F, true, true, false);
-            var moveEvent = new PacketSendEvent<>(
-                    f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.MOVE_ENTITY, move, false);
-            f.player.packetEntityReplication.onMoveEntity(moveEvent, f.player, move);
-            moveEvent.tasksAfter().forEach(Runnable::run);
-            roar(f);
-
-            double xd = STANDING.x - at.x;
-            double zd = STANDING.z - at.z;
-            double dd = xd * xd + zd * zd;
-            Vec3 push = new Vec3(xd / dd * 4.0, GROUNDED.y + 0.2, zd / dd * 4.0);
-            assertExact(f.tick(STANDING.add(push), false));
-            assertEquals(0, f.player.checkManager.getExplosionHandler().violations);
-        }
-    }
-
-    @Test
-    void aPlayerStayingWhereTheRoarPushesThemIsFlagged() throws Exception {
-        try (var f = standing()) {
-            addRavager(f, new Vec3(-0.7, FLOOR_Y, 0.0));
-
-            roar(f);
-            f.tick(STANDING, true);
-
-            assertTrue(f.player.checkManager.getExplosionHandler().violations > 0, "the push was not required");
-        }
-    }
-
-    @Test
-    void aRoarDoesNotReachAPlayerOutsideTheInflatedBox() throws Exception {
-        try (var f = standing()) {
-            // The ravager's half width 0.975 inflated by 4.0, and the player's 0.3, end at 5.275.
-            addRavager(f, new Vec3(STANDING.x + 5.28, FLOOR_Y, STANDING.z));
-
-            roar(f);
-
-            assertExact(f.tick(STANDING, true));
-            assertEquals(0, f.player.checkManager.getExplosionHandler().violations);
-        }
-    }
-
-    /** A ridden horse is a living entity its rider controls, so strongKnockback pushes the horse from where it is. */
-    @Test
-    void aRoarPushesTheHorseThePlayerControls() throws Exception {
-        try (var f = riding(ProtocolVersion.V26_1, ClientVersion.V_26_1)) {
-            pushesTheHorse(f);
-        }
-    }
-
-    @Test
-    void aRoarPushesTheHorseThePlayerControlsOn26_3() throws Exception {
-        try (var f = riding(ProtocolVersion.V26_3, ClientVersion.V_26_3)) {
-            pushesTheHorse(f);
-        }
-    }
-
-    private static void pushesTheHorse(JavaTickFixture f) {
-        Vec3 ravager = new Vec3(-1.5, FLOOR_Y, 0.25);
-        addRavager(f, ravager);
-
-        roar(f);
-
-        double xd = STANDING.x - ravager.x;
-        double zd = STANDING.z - ravager.z;
-        double dd = xd * xd + zd * zd;
-        Vec3 move = new Vec3(xd / dd * 4.0, GROUNDED.y + 0.2, zd / dd * 4.0);
-        assertVehicleExact(f.rideTick(STANDING.add(move), false), 3);
-    }
-
-    @Test
-    void aHorseStayingWhereTheRoarPushesItIsFlagged() throws Exception {
-        try (var f = riding(ProtocolVersion.V26_1, ClientVersion.V_26_1)) {
-            addRavager(f, new Vec3(-1.5, FLOOR_Y, 0.25));
-
-            roar(f);
-
-            // The missed push is a desync, so the flagged tick is also resynced.
-            PredictionResult result = f.rideTick(STANDING, true);
-            assertTrue(
-                    result.getFlags().stream()
-                            .anyMatch(flag -> flag.getCheck().getCheckName().equals("VehicleOffset")),
-                    describe(result));
-        }
-    }
-
-    /** Ravager#ROAR_TARGET_ON_CLIENT selects only living entities, so the boat the player steers keeps falling. */
-    @Test
-    void aRoarDoesNotPushTheBoatThePlayerSteers() throws Exception {
-        try (var f = new JavaTickFixture(ProtocolVersion.V26_1, ClientVersion.V_26_1)) {
-            Vec3 seat = new Vec3(0.5, FLOOR_Y + 10, 0.5);
-            f.place(seat, Vec3.ZERO);
-            f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, seat, 0, 0, 0);
-            f.setPassengers(BOAT, List.of(f.player.entityID));
-            f.pongThrough(f.player.lastTransactionSent.get());
-            f.player.xRot = 0;
-            f.player.yRot = 0;
-            addRavager(f, new Vec3(-1.5, seat.y, 0.25));
-
-            roar(f);
-
-            // AbstractBoat#floatBoat in the air: 0.9 friction and 0.04 gravity, then no input.
-            assertVehicleExact(f.rideTick(seat.add(0, -0.04F, 0), false), 0);
-            assertEquals(0, f.player.checkManager.getExplosionHandler().violations);
-        }
-    }
-
-    private static JavaTickFixture riding(ProtocolVersion protocol, ClientVersion client) throws Exception {
-        var f = new JavaTickFixture(protocol, client);
-        f.player.compensatedEntities.addEntity(HORSE, EntityTypeIds.HORSE, STANDING, 0, 0, 0);
-        var horse = (PacketEntityHorse) f.player.compensatedEntities.getEntity(HORSE);
-        horse.hasSaddle = true;
-        horse.isTame = true;
-        horse.onGround = true;
-        f.setPassengers(HORSE, List.of(f.player.entityID));
-        f.pongThrough(f.player.lastTransactionSent.get());
-        f.input(NONE);
-        f.tickEnd();
-        f.player.checkManager.getSimulationProcessor().seedStartingVelocity(GROUNDED);
-        f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.TRUE);
-        for (int tick = 0; tick < 3; tick++) assertVehicleExact(f.rideTick(STANDING, true), tick);
-        return f;
-    }
-
-    private static JavaTickFixture standing() throws Exception {
-        var f = new JavaTickFixture(ProtocolVersion.V26_1, ClientVersion.V_26_1);
-        f.place(STANDING, GROUNDED);
-        f.input(NONE);
-        assertExact(f.tick(STANDING, true));
-        return f;
-    }
-
-    private static void addRavager(JavaTickFixture f, Vec3 at) {
-        f.player.compensatedEntities.addEntity(RAVAGER, EntityTypeIds.RAVAGER, at, 0, 0, 0);
-    }
-
-    /** Ravager#roar's broadcast event 69, answered through its trailing ping before the client's next tick. */
-    private static void roar(JavaTickFixture f) {
-        var packet = new ClientboundEntityEvent(RAVAGER, ROAR);
+    private static int event(JavaTickFixture f, int id, int status) {
+        var packet = new ClientboundEntityEvent(id, (byte) status);
         var event = new PacketSendEvent<>(
                 f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.ENTITY_EVENT, packet, false);
         f.player.packetEntityReplication.onEntityEvent(event, f.player, packet);
-        event.getTasksAfterSend().forEach(Runnable::run);
-        f.pongThrough(f.player.lastTransactionSent.get());
+        event.tasksAfter().forEach(Runnable::run);
+        return f.player.lastTransactionSent.get();
     }
 
-    private static void assertExact(PredictionResult result) {
-        assertTrue(exact(result), describe(result));
+    private static void clean(PredictionResult result) {
+        assertFalse(result.hasEffectiveFlags(), JavaTickFixture.describe(result));
+        assertEquals(0, result.getOffset(), 1e-10, JavaTickFixture.describe(result));
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = ClientVersion.class,
+            names = {"V_1_21_6", "V_1_21_11", "V_26_3"})
+    void provenRoarPushesBeforeTravelExactlyOnce(ClientVersion version) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
+            f.place(START, Vec3.ZERO);
+            ravager(f);
+            f.pongThrough(event(f, RAVAGER, 69));
+            clean(f.tick(START.add(PUSH), false));
+            assertTrue(f.player
+                    .compensatedEntities
+                    .ravagerRoars
+                    .pending(f.player.compensatedEntities.getSelf())
+                    .isEmpty());
+            var carry = assertInstanceOf(
+                    JavaPredictionCarry.class,
+                    f.player.checkManager.getSimulationProcessor().getCurrentPredictionCarry());
+            Vec3 next = new Vec3(0, (0.2 - 0.08) * (double) 0.98F, -2 * (double) (0.6F * 0.91F));
+            assertTrue(
+                    carry.states().stream().anyMatch(state -> state.velocity().distanceTo(next) <= 1e-12),
+                    carry.toString());
+            clean(f.tick(START.add(PUSH).add(next), false));
+        }
+    }
+
+    @Test
+    void ignoringAProvenRoarIsNotAnAllowedCandidate() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(START, Vec3.ZERO);
+            ravager(f);
+            f.pongThrough(event(f, RAVAGER, 69));
+            var result = f.tick(START, true);
+            assertTrue(result.hasEffectiveFlags(), JavaTickFixture.describe(result));
+        }
+    }
+
+    @Test
+    void receiptAndEntityTypeDecideWhetherThePacketPushes() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(START, new Vec3(0, -0.08 * (double) 0.98F, 0));
+            ravager(f);
+            int proof = event(f, RAVAGER, 69);
+            clean(f.tick(START, true));
+            f.pongThrough(proof);
+            clean(f.tick(START.add(0, 0.2 - 0.08 * (double) 0.98F, -2), false));
+        }
+        try (var f = new JavaTickFixture()) {
+            f.place(START, new Vec3(0, -0.08 * (double) 0.98F, 0));
+            f.player.compensatedEntities.addEntity(RAVAGER, EntityTypeIds.COW, START.add(0, 0, 2), 0, 0, 0);
+            f.pongThrough(event(f, RAVAGER, 69));
+            clean(f.tick(START, true));
+        }
+    }
+
+    @Test
+    void packetVelocityOverwritesAnEarlierRoarAndALaterRoarAddsToIt() throws Exception {
+        for (boolean roarFirst : new boolean[] {true, false}) {
+            try (var f = new JavaTickFixture()) {
+                f.place(START, Vec3.ZERO);
+                ravager(f);
+                Vec3 motion = new Vec3(0.125, 0.25, 0);
+                if (roarFirst) event(f, RAVAGER, 69);
+                f.velocity(motion);
+                if (!roarFirst) event(f, RAVAGER, 69);
+                f.pongThrough(f.player.lastTransactionSent.get());
+                clean(f.tick(START.add(roarFirst ? motion : motion.add(PUSH)), false));
+            }
+        }
+    }
+
+    @Test
+    void teleportDeltaFlagsPreserveOnlyTheInheritedRoarAxes() throws Exception {
+        for (boolean relative : new boolean[] {true, false}) {
+            try (var f = new JavaTickFixture()) {
+                Mockito.when(f.fixture.user.getPlayer().getWorld()).thenReturn(Mockito.mock(PlatformWorld.class));
+                f.place(START, Vec3.ZERO);
+                ravager(f);
+                f.pongThrough(event(f, RAVAGER, 69));
+                var destination = new Vec3(0.5, 80, 0.5);
+                f.playerPosition(
+                        destination,
+                        Vec3.ZERO,
+                        relative ? Set.of(Relative.DELTA_X, Relative.DELTA_Y, Relative.DELTA_Z) : Set.of());
+                clean(f.tick(relative ? destination.add(PUSH) : destination, false));
+            }
+        }
+    }
+
+    @Test
+    void severalRoarsBeforeOneTickAccumulateAndRemovalDoesNotUndoThePush() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(START, Vec3.ZERO);
+            ravager(f);
+            event(f, RAVAGER, 69);
+            f.pongThrough(event(f, RAVAGER, 69));
+            f.player.compensatedEntities.removeEntity(RAVAGER);
+            clean(f.tick(START.add(PUSH).add(PUSH), false));
+        }
+    }
+
+    @Test
+    void packetEventReadsThePositionBeforeTheNextInterpolationStep() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(START, Vec3.ZERO);
+            var ravager = ravager(f);
+            // Packet position-sync sets a three-tick interpolation target; the following roar in the same
+            // packet phase reads the old position, not the future commonTick position toward that target.
+            ravager.onBundledPositionSyncTransaction(0.5, 64, 5.5, f.player);
+            f.pongThrough(event(f, RAVAGER, 69));
+            clean(f.tick(START.add(PUSH), false));
+        }
+    }
+
+    @Test
+    void onlyALocallyControlledLivingMountReceivesTheVehicleImpulse() throws Exception {
+        for (int type : new int[] {EntityTypeIds.HORSE, EntityTypeIds.COW, EntityTypeIds.OAK_BOAT}) {
+            try (var f = new JavaTickFixture()) {
+                f.place(START, Vec3.ZERO);
+                ravager(f);
+                var entities = f.player.compensatedEntities;
+                entities.addEntity(101, type, START, 0, 0, 0);
+                var vehicle = entities.getEntity(101);
+                if (vehicle instanceof PacketEntityHorse horse) horse.hasSaddle = true;
+                entities.getSelf().mount(vehicle);
+                f.pongThrough(event(f, RAVAGER, 69));
+                assertEquals(
+                        type == EntityTypeIds.HORSE ? 1 : 0,
+                        entities.ravagerRoars.pending(vehicle).size());
+                assertTrue(entities.ravagerRoars.pending(entities.getSelf()).isEmpty());
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = ClientVersion.class,
+            names = {"V_1_21_2", "V_1_21_5"})
+    void legacyCountdownUsesTheRavagersSideOfThePlayerTick(ClientVersion version) throws Exception {
+        for (boolean early : new boolean[] {true, false}) {
+            try (var f = new JavaTickFixture()) {
+                JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
+                f.place(START, new Vec3(0, -0.08 * (double) 0.98F, 0));
+                var ravager = ravager(f);
+                if (early) f.player.compensatedEntities.getSelf().setClientTickOrder(ravager.getClientTickOrder() + 1);
+                f.pongThrough(event(f, RAVAGER, 39));
+                // Event 69 is unknown to these clients; it cannot cause an early or duplicate push.
+                f.pongThrough(event(f, RAVAGER, 69));
+                for (int tick = 1; tick < 50; tick++) clean(f.tick(START, true));
+                Vec3 destination = START.add(0, 0.2 - 0.08 * (double) 0.98F, -2);
+                if (!early) clean(f.tick(START, true));
+                clean(f.tick(destination, false));
+            }
+        }
+    }
+
+    @Test
+    void frozenAndUntickedChunksDoNotAdvanceTheLegacyCountdown() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_1_21_5);
+            f.place(START, new Vec3(0, -0.08 * (double) 0.98F, 0));
+            var ravager = ravager(f);
+            f.player.compensatedEntities.appendSelfToClientTickOrder();
+            f.pongThrough(event(f, RAVAGER, 39));
+            f.player.packetStateData.serverTicksFrozen = true;
+            for (int tick = 0; tick < 5; tick++) clean(f.tick(START, true));
+            f.player.packetStateData.serverTicksFrozen = false;
+            var box = ravager.getClientMovementCollisionBox();
+            ravager.setPositionRaw(box.copy().offset(0, 0, 160));
+            for (int tick = 0; tick < 5; tick++) clean(f.tick(START, true));
+            ravager.setPositionRaw(box);
+            // Re-entering a ticking chunk appends the ravager to EntityTickList, now after the player.
+            assertTrue(ravager.getClientTickOrder()
+                    > f.player.compensatedEntities.getSelf().getClientTickOrder());
+            for (int tick = 1; tick < 50; tick++) clean(f.tick(START, true));
+            clean(f.tick(START, true));
+            clean(f.tick(START.add(0, 0.2 - 0.08 * (double) 0.98F, -2), false));
+        }
+    }
+
+    @Test
+    void rangeIsAnInflatedBoxAndThePushClampsSquaredDistance() {
+        var source = new SimpleCollisionBox(-1, 0, -1, 1, 2, 1);
+        var target = new SimpleCollisionBox(4, 0, 4, 4.6, 1.8, 4.6);
+        Vec3 at = new Vec3(4.3, 0, 4.3);
+        assertEquals(
+                List.of(new Vec3(4.3 / (4.3 * 4.3 * 2) * 4, 0.2, 4.3 / (4.3 * 4.3 * 2) * 4)),
+                ClientRavagerRoars.impulses(List.of(source), target, at));
+        assertEquals(
+                List.of(Vec3.ZERO),
+                ClientRavagerRoars.impulses(List.of(source), target.copy().offset(0, 6, 0), at.add(0, 6, 0)));
+        var near = new SimpleCollisionBox(-0.3, 0, -0.3, 0.3, 1.8, 0.3);
+        assertEquals(
+                List.of(new Vec3(40, 0.2, 0)),
+                ClientRavagerRoars.impulses(List.of(source), near, new Vec3(0.01, 0, 0)));
+        assertEquals(List.of(new Vec3(0, 0.2, 0)), ClientRavagerRoars.impulses(List.of(source), near, Vec3.ZERO));
     }
 }

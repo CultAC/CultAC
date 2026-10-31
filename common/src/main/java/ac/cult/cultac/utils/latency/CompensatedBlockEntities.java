@@ -22,7 +22,6 @@ import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrays;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -51,7 +50,8 @@ public final class CompensatedBlockEntities {
     // rebinds a replaced one in place, and LevelChunk#removeBlockEntityTicker drops it.
     private Long2LongOpenHashMap added;
     private long nextAdded;
-    private final List<ShulkerShove> lastTickShoves = new ArrayList<>(0);
+    // While a block-entity pass replays: the shulker box data its collisions read in place of the current entries.
+    private Long2ObjectOpenHashMap<BlockEntityData> replay;
     private final Supplier<InteractionRegistries> registries;
     private final ModelBlockStates states;
 
@@ -137,9 +137,8 @@ public final class CompensatedBlockEntities {
             put(pos.asLong(), new Entry(ShulkerAnimation.event(entry.data(), action, parameter), entry.state()));
     }
 
-    /** Level#tickBlockEntities, which records each ShulkerBoxBlockEntity#moveCollidedEntities call it makes. */
+    /** Level#tickBlockEntities for the block entities whose client tick changes their data. */
     public void tick() {
-        lastTickShoves.clear();
         if (ticking == null || ticking.isEmpty()) return;
         for (long key : tickerOrder()) {
             var entry = entries.get(key);
@@ -148,13 +147,20 @@ public final class CompensatedBlockEntities {
                 continue;
             }
             var next = ShulkerAnimation.tick(entry.data());
-            if (opening(entry.data())) lastTickShoves.add(shove(key, entry.state(), next));
             if (next.type().equals("minecraft:jukebox")
                     && Rules.DATA.registry().value(entry.state(), "has_record").equals("true"))
                 next = JukeboxPlayback.tick(next);
             if (next != entry.data()) entries.put(key, new Entry(next, entry.state()));
             else ticking.remove(key);
         }
+    }
+
+    /**
+     * The next Level#blockEntityTickers position: LevelChunk#updateBlockEntityTicker appends every new ticker, and the
+     * moving pistons CompensatedWorldPistons tracks take theirs from this sequence too.
+     */
+    public long nextTickerOrder() {
+        return nextAdded++;
     }
 
     /** The {@code ticking} keys in Level#tickBlockEntities order. */
@@ -165,34 +171,57 @@ public final class CompensatedBlockEntities {
     }
 
     /**
-     * A ShulkerBoxBlockEntity#moveCollidedEntities call: the progress step's Shulker#getProgressDeltaAabb, and the
-     * movement it gives every entity that box intersects.
+     * Adds, with each one's Level#blockEntityTickers position, the ShulkerBoxBlockEntity#moveCollidedEntities calls the
+     * next Level#tickBlockEntities makes, and to {@code lids} each ShulkerBoxBlockEntity#updateAnimation that changes
+     * its block entity.
      */
-    public record ShulkerShove(SimpleCollisionBox area, double x, double y, double z) {}
-
-    /** A client tick whose TickRateManager#runsNormally is false: Level#tickBlockEntities ticks no block entity. */
-    public void skipTick() {
-        lastTickShoves.clear();
-    }
-
-    public void positionSet() {
-        lastTickShoves.clear();
+    void addPassMovers(List<CompensatedWorld.OrderedMover> movers, List<CompensatedWorld.OrderedLid> lids) {
+        if (ticking == null || ticking.isEmpty()) return;
+        for (long key : tickerOrder()) {
+            var entry = entries.get(key);
+            if (entry == null || !entry.data().type().equals("minecraft:shulker_box")) continue;
+            var updated = ShulkerAnimation.tick(entry.data());
+            long order = added.get(key);
+            if (updated != entry.data())
+                lids.add(new CompensatedWorld.OrderedLid(order, BlockPos.of(key), entry.data(), updated));
+            if (opening(entry.data()))
+                movers.add(new CompensatedWorld.OrderedMover(order, shove(key, entry.state(), updated)));
+        }
     }
 
     /**
-     * Adds the ShulkerBoxBlockEntity#moveCollidedEntities calls of the client tick that ended last, or with
-     * {@code next} those of the client tick that runs next, whose block entities tick when {@code runsNormally}.
+     * Starts replaying the lid changes {@code lids} of one Level#tickBlockEntities: until the scope closes, each box's
+     * ShulkerBoxBlock#getShape reads the block entity before its update, until {@link #advanceReplay} runs that update.
+     * An empty list keeps the replay in progress.
      */
-    public void shulkerShoves(boolean next, boolean runsNormally, List<ShulkerShove> shoves) {
-        if (!next) {
-            shoves.addAll(lastTickShoves);
-            return;
+    LidReplay beginReplay(List<ClientBlockEntityPass.Lid> lids) {
+        if (lids.isEmpty()) return LidReplay.NONE;
+        var scope = new LidReplay(this, replay);
+        var view = replay == null ? new Long2ObjectOpenHashMap<BlockEntityData>(lids.size()) : replay.clone();
+        for (var lid : lids) view.put(lid.pos().asLong(), lid.before());
+        replay = view;
+        return scope;
+    }
+
+    /** ShulkerBoxBlockEntity#updateAnimation ran {@code lid}: the replay reads the box after it from here on. */
+    void advanceReplay(ClientBlockEntityPass.Lid lid) {
+        if (replay != null) replay.put(lid.pos().asLong(), lid.after());
+    }
+
+    /** A lid replay; closing it restores the replay it began inside, or none. */
+    static final class LidReplay implements AutoCloseable {
+        static final LidReplay NONE = new LidReplay(null, null);
+        private final CompensatedBlockEntities owner;
+        private final Long2ObjectOpenHashMap<BlockEntityData> previous;
+
+        private LidReplay(CompensatedBlockEntities owner, Long2ObjectOpenHashMap<BlockEntityData> previous) {
+            this.owner = owner;
+            this.previous = previous;
         }
-        if (ticking == null || ticking.isEmpty() || !runsNormally) return;
-        for (long key : tickerOrder()) {
-            var entry = entries.get(key);
-            if (entry != null && opening(entry.data()))
-                shoves.add(shove(key, entry.state(), ShulkerAnimation.tick(entry.data())));
+
+        @Override
+        public void close() {
+            if (owner != null) owner.replay = previous;
         }
     }
 
@@ -203,7 +232,11 @@ public final class CompensatedBlockEntities {
         return status != null && status.getAsString().equals("OPENING");
     }
 
-    private static ShulkerShove shove(long key, int state, BlockEntityData updated) {
+    /**
+     * The ShulkerBoxBlockEntity#moveCollidedEntities call of an update that left {@code updated}: the progress step's
+     * Shulker#getProgressDeltaAabb, and the movement it gives every entity that box intersects.
+     */
+    private static ClientBlockEntityPass.ShulkerBox shove(long key, int state, BlockEntityData updated) {
         var fields = updated.data();
         float progressOld = fields.get("progress_old").getAsFloat();
         float progress = fields.get("progress").getAsFloat();
@@ -212,11 +245,12 @@ public final class CompensatedBlockEntities {
         BlockPos pos = BlockPos.of(key);
         Box area = ShulkerGeometry.progressDeltaBounds(
                 1.0F, facing, progressOld, progress, new Vec3(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5));
-        return new ShulkerShove(
+        return new ClientBlockEntityPass.ShulkerBox(
                 new SimpleCollisionBox(area.minX(), area.minY(), area.minZ(), area.maxX(), area.maxY(), area.maxZ()),
-                (area.maxX() - area.minX() + 0.01) * facing.x(),
-                (area.maxY() - area.minY() + 0.01) * facing.y(),
-                (area.maxZ() - area.minZ() + 0.01) * facing.z());
+                new ac.cult.cultac.utils.math.Vec3(
+                        (area.maxX() - area.minX() + 0.01) * facing.x(),
+                        (area.maxY() - area.minY() + 0.01) * facing.y(),
+                        (area.maxZ() - area.minZ() + 0.01) * facing.z()));
     }
 
     /** Preserve same-block and copper-family entities exactly as LevelChunk does. */
@@ -230,7 +264,13 @@ public final class CompensatedBlockEntities {
 
     public BlockEntityData snapshot(BlockPos pos, int state) {
         var entry = entry(pos, states.toModel(state));
-        return entry == null ? null : entry.data();
+        if (entry == null) return null;
+        if (replay != null) {
+            // A replayed pass ticked this block entity; a later packet that replaced it ends the replay of it.
+            var replayed = replay.get(pos.asLong());
+            if (replayed != null && replayed.type().equals(entry.data().type())) return replayed;
+        }
+        return entry.data();
     }
 
     public BlockEntityData stored(BlockPos pos) {

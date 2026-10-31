@@ -19,6 +19,7 @@ Punishments:
       - "GroundSpoof"
       - "Timer"
       - "NoFall"
+      - "Phase"
     # しきい値:間隔 コマンド
     #
     # 例: 100回の違反で「incorrect movement!」と表示しプレイヤーをキックする場合
@@ -132,4 +133,4 @@ Punishments:
       - "3:3 [webhook]"
       - "3:3 [proxy]"
 
-cult-config-version: 5
+cult-config-version: 6

@@ -80,6 +80,7 @@ class PacketEventRestartTest {
         used.cancelFinally();
         used.setAcceptedTransactionResponse(true);
         used.setTeleportPositionResponse(true);
+        used.setAuthoredTeleportResponse(true);
         used.release();
         assertNull(used.getPacket());
 
@@ -97,6 +98,7 @@ class PacketEventRestartTest {
         assertEquals(fresh.isSynthetic(), restarted.isSynthetic());
         assertEquals(fresh.isAcceptedTransactionResponse(), restarted.isAcceptedTransactionResponse());
         assertEquals(fresh.isTeleportPositionResponse(), restarted.isTeleportPositionResponse());
+        assertEquals(fresh.isAuthoredTeleportResponse(), restarted.isAuthoredTeleportResponse());
         restarted.setCancelled(false);
         assertFalse(restarted.isCancelled());
     }

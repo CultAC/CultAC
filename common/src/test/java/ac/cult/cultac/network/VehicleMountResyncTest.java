@@ -4,8 +4,8 @@ import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static ac.cult.cultac.network.JavaTickFixture.assertRejected;
 import static ac.cult.cultac.network.JavaTickFixture.assertVehicleExact;
 import static ac.cult.cultac.network.JavaTickFixture.observeOnly;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
@@ -54,7 +54,7 @@ class VehicleMountResyncTest {
             Vec3 resync = mount(f, false);
             assertNotNull(resync);
             assertTrue(resync.x - BOAT_HALF_WIDTH >= 0.0 && resync.z - BOAT_HALF_WIDTH >= 0.0, "resync at " + resync);
-            assertTrue(resync.distanceTo(CORNER) > 1.0E-5F, "resync at " + resync);
+            assertEquals(CORNER, resync);
         }
     }
 
@@ -81,9 +81,9 @@ class VehicleMountResyncTest {
 
     /** End rods close the corner on +x and +z, their faces flush with the boat's box. */
     @Test
-    void aBoatInAClosedPocketIsSentNoMountResync() throws Exception {
+    void aBoatInAClosedPocketReturnsToItsRestingPositionWithinTheResyncBundle() throws Exception {
         try (var f = new JavaTickFixture(ProtocolVersion.V26_1, ClientVersion.V_26_1)) {
-            assertNull(mount(f, true));
+            assertEquals(CORNER, mount(f, true));
         }
     }
 
@@ -111,7 +111,8 @@ class VehicleMountResyncTest {
     /**
      * Walls on -x and -z of the corner, with {@code pocket} end rods on +x and +z, the boat resting in it and the rider
      * holding forward; the server's set_passengers, and for a resync the client's answer to its proof and
-     * handleMoveVehicle's echo. Returns the resync's position, or null when none is sent.
+     * handleMoveVehicle's echoes. The bundled nudge forces a snap, then the second packet restores the resting
+     * position before a client tick can collide or travel there.
      */
     private static @Nullable Vec3 mount(JavaTickFixture f, boolean pocket) {
         int endRod = DataTables.defaults().registry().block("minecraft:end_rod").defaultState();
@@ -140,17 +141,27 @@ class VehicleMountResyncTest {
                 f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.SET_PASSENGERS, packet, false);
         f.player.packetEntityReplication.onSetPassengers(event, f.player, packet);
         event.tasksAfter().forEach(Runnable::run);
-        ClientboundMoveVehicle move = event.writesAfter().stream()
+        List<ClientboundMoveVehicle> moves = event.writesAfter().stream()
                 .map(CultWrite::packet)
                 .filter(ClientboundMoveVehicle.class::isInstance)
                 .map(ClientboundMoveVehicle.class::cast)
-                .findFirst()
-                .orElse(null);
+                .toList();
+        assertEquals(2, moves.size());
+        assertTrue(new Vec3(
+                                moves.getFirst().position().x(),
+                                moves.getFirst().position().y(),
+                                moves.getFirst().position().z())
+                        .distanceTo(CORNER)
+                > 1.0E-5F);
+        Vec3 resync = null;
+        for (var move : moves) {
+            resync = new Vec3(
+                    move.position().x(), move.position().y(), move.position().z());
+            f.moveVehicle(resync, BOAT_YAW, 0, true);
+        }
+        // Packet-handler echoes precede the ping bundled after both corrections.
         f.pongThrough(f.player.lastTransactionSent.get());
-        if (move == null) return null;
-        Vec3 resync = new Vec3(
-                move.position().x(), move.position().y(), move.position().z());
-        f.moveVehicle(resync, BOAT_YAW, 0, true);
+        assertEquals(0, f.player.getSetbackTeleportUtil().queuedVehicleTeleportCount());
         return resync;
     }
 

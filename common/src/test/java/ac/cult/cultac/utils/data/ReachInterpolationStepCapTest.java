@@ -44,10 +44,10 @@ class ReachInterpolationStepCapTest {
 
         int ticks = 0;
         while (data.hasActiveInterpolationTarget()) {
-            data.tickMovement(true, true);
+            data.tickMovement(true);
             assertTrue(++ticks < 1_000, "the client's catch-up drains the folded queue");
         }
-        data.tickMovement(true, true);
+        data.tickMovement(true);
 
         assertFalse(data.hasActiveInterpolationTarget());
         assertEquals(0.0F, remainingTicks(data));

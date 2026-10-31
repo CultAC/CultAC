@@ -39,7 +39,7 @@ public class PacketChangeGameState extends CultProcessor implements CheckListene
 
         player.sendTransaction();
         int preceding = player.lastTransactionSent.get();
-        player.latencyUtils.addRealTimeTaskNow(() -> {
+        Runnable mode = () -> {
             GameMode previous = player.gamemode;
             player.gamemode = next;
             applyGameModeAbilities(player, next, false);
@@ -48,9 +48,19 @@ public class PacketChangeGameState extends CultProcessor implements CheckListene
             if (previous == GameMode.SPECTATOR && player.gamemode != GameMode.SPECTATOR) {
                 CultAPI.INSTANCE.getSpectateManager().handlePlayerStopSpectating(player.playerUUID);
             }
-        });
-
-        if (!player.runAtTrailingProof(event, () -> player.abilitiesHandled(instabuild, invulnerable))) {
+        };
+        Runnable handled = () -> player.abilitiesHandled(instabuild, invulnerable);
+        // ClientPacketListener#handleGameEvent applies the mode and its abilities together, and LocalPlayer#aiStep
+        // reads them from the next tick: a proof in the packet's bundle applies them exactly.
+        if (!player.runAtTrailingProof(
+                event,
+                () -> {
+                    mode.run();
+                    handled.run();
+                },
+                handled)) {
+            // Unbundled, the mode follows the ping ahead of the packet.
+            player.latencyUtils.addRealTimeTask(preceding, mode);
             player.latencyUtils.addRealTimeTask(preceding, () -> player.abilitiesSent(instabuild, invulnerable));
         }
     }

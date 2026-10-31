@@ -3,18 +3,20 @@ package ac.cult.cultac.checks.impl.prediction.stage.uncertainty;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementMath;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVelocityRange;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.Vector3dm;
-import ac.cult.cultac.utils.math.VectorUtils;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
+import java.util.ArrayList;
+import java.util.List;
 
 public class ElytraTransform implements UncertaintyHandler {
     /** Holds for a start trace, whose pre-collision velocity is its position: the pipeline runs this first. */
     @Override
     public boolean skipsContext(CultPlayer player, SimulationContext context, PredictionResult lastResult) {
-        return !context.usesFallFlyingMovement() || context.getWorldData().mustBeInLiquid();
+        return !context.usesFallFlyingMovement() || context.getWorldData().isInLiquid();
     }
 
     @Override
@@ -41,105 +43,55 @@ public class ElytraTransform implements UncertaintyHandler {
             PredictionResult lastResult,
             PredVector start,
             Vec3 end) {
-        if (!result.getSimulationContext().usesFallFlyingMovement()) return start;
-        if (result.getSimulationContext().getWorldData().mustBeInLiquid()) return start;
-
-        SimpleCollisionBox startingHorizontalUncertainty = valid.getCollisionIgnoredMaxStartingVelExtents();
-        double uncertainty = startingHorizontalUncertainty == null
-                ? 0
-                : Math.hypot(
-                        startingHorizontalUncertainty.maxX - startingHorizontalUncertainty.minX,
-                        startingHorizontalUncertainty.maxZ - startingHorizontalUncertainty.minZ);
-        double yUncertainty = uncertainty * 0.04 * 3.2; // Exact values, we could also look at Y
-
-        // LivingEntity#aiStep applies bubble callbacks after travel. Their existing
-        // Y range is therefore input to the next tick's elytra transform, including X/Z.
-        PredVector minStart = start, maxStart = start;
-        // A server velocity set replaces the stored velocity; a grounded riptide lift that consumes a stuck
-        // multiplier zeroes it.
-        boolean replaced = start.hasReason("Velocity") || context.getRiptideLiftStuck() != null;
-        if (BubbleColumn.beforeElytra(context) && !replaced) {
-            Boosted boosted = start.firstInLineage(Boosted.class);
-            if (boosted == null) {
-                minStart = BubbleColumn.apply(context, lastResult, start, Double.NEGATIVE_INFINITY);
-                maxStart = BubbleColumn.apply(context, lastResult, start, Double.POSITIVE_INFINITY);
-            } else {
-                // The bubble callbacks precede the rocket boosts, each of which halves a change in y.
-                double scale = Math.pow(0.5, boosted.boosts);
-                PredVector carried = boosted.carried;
-                double down = BubbleColumn.apply(context, lastResult, carried, Double.NEGATIVE_INFINITY).y - carried.y;
-                double up = BubbleColumn.apply(context, lastResult, carried, Double.POSITIVE_INFINITY).y - carried.y;
-                minStart = start.withXYZOrSelf(start.x, start.y + down * scale, start.z, "bubble column");
-                maxStart = start.withXYZOrSelf(start.x, start.y + up * scale, start.z, "bubble column");
-            }
-        }
-        SimpleCollisionBox allowed = null;
-
-        // Don't require the player to have elytra if they MIGHT be in water
-        if (context.getWorldData().maybeInLiquid()) {
-            allowed = new SimpleCollisionBox(minStart, maxStart);
-        }
-
-        for (int loopFastmath = 0; loopFastmath < 2; loopFastmath++) {
-            // LivingEntity#updateFallFlyingMovement reads the gravity from the velocity it starts from.
-            allowed = glide(player, result, context, allowed, minStart);
-            if (minStart.y != maxStart.y) {
-                allowed = glide(player, result, context, allowed, maxStart);
-                if (Math.min(minStart.y, maxStart.y) <= 0 && Math.max(minStart.y, maxStart.y) > 0) {
-                    // LivingEntity#getEffectiveGravity switches at a y of zero; on either side the glide is
-                    // monotonic in y, so each side's ends bound it.
-                    allowed = glide(player, result, context, allowed, new Vec3(minStart.x, 0, minStart.z));
-                    allowed = glide(
-                            player, result, context, allowed, new Vec3(minStart.x, Double.MIN_VALUE, minStart.z));
-                }
-            }
-            player.trigHandler.toggleShitMath();
-        }
-
-        assert allowed != null;
-        allowed.expand(0, yUncertainty, 0);
-
-        Vec3 cut = VectorUtils.cutBoxToVector(end, allowed);
-        return start.withXYZ(cut.x, cut.y, cut.z, "elytra");
+        if (!context.usesFallFlyingMovement() || context.getWorldData().isInLiquid()) return start;
+        Candidate candidate = start.firstInLineage(Candidate.class);
+        double gravity =
+                candidate == null ? result.getPossibleGravity(start.y, start.y).getFirst() : candidate.gravity;
+        Vec3 movement =
+                JavaMovementMath.calculate(player, start, () -> transformElytra(player, context, start, gravity));
+        // Gliding turns vertical speed into horizontal: a carried range maps through the same glide.
+        java.util.function.UnaryOperator<Vec3> glide = velocity ->
+                JavaMovementMath.calculate(player, start, () -> transformElytra(player, context, velocity, gravity));
+        PredVector glided = start.with(movement, "elytra");
+        // A sample at a collision or an edge inside the range: the glide moves where the move meets it.
+        PredVector atSwitch = JavaVelocityRange.atSwitch(player, context, start, glided, glide);
+        return atSwitch != null ? atSwitch : JavaVelocityRange.mapped(start, glided, glide);
     }
 
     /**
-     * A stored velocity FireworkRocketEntity#tick boosted {@code boosts} times after the last tick's travel, and the
-     * velocity it boosted.
+     * The glide of a ranged {@link #candidates} start, ranged over the glide of its range; null for a start without a
+     * range or a glide gravity.
      */
-    public static final class Boosted extends PredVector {
-        final PredVector carried;
-        final int boosts;
+    public static PredVector glidedRange(CultPlayer player, SimulationContext context, PredVector start) {
+        Candidate candidate = start.firstInLineage(Candidate.class);
+        if (candidate == null || start.getVelocityRange() == null) return null;
+        var elytra = new ElytraTransform();
+        java.util.function.UnaryOperator<Vec3> glide = velocity -> JavaMovementMath.calculate(
+                player, start, () -> elytra.transformElytra(player, context, velocity, candidate.gravity));
+        return JavaVelocityRange.mapped(start, start.with(glide.apply(start), "elytra"), glide);
+    }
 
-        public Boosted(PredVector carried, Vec3 boosted, int boosts) {
-            super(boosted, carried, "firework");
-            this.carried = carried;
-            this.boosts = boosts;
+    /** Each concrete gravity choice gets its own forward collision result. */
+    public static List<PredVector> candidates(SimulationContext context, List<PredVector> velocities) {
+        if (!context.usesFallFlyingMovement() || context.getWorldData().isInLiquid()) return velocities;
+        var actor = context.getEntities().getEntityInControl();
+        double normal = actor.hasGravity ? actor.gravity : 0.0D;
+        boolean slow = actor.hasGravity && context.getEntities().getSlowFallingAmplifier() != null;
+        var candidates = new ArrayList<PredVector>(velocities.size() * 2);
+        for (PredVector velocity : velocities) {
+            double gravity = slow && velocity.y <= 0.0D ? Math.min(normal, 0.01D) : normal;
+            candidates.add(new Candidate(velocity, gravity));
         }
+        return candidates;
     }
 
-    private SimpleCollisionBox glide(
-            CultPlayer player,
-            PredictionResult result,
-            SimulationContext context,
-            SimpleCollisionBox allowed,
-            Vec3 velocity) {
-        for (double gravity : result.getPossibleGravity(velocity.y, velocity.y)) {
-            allowed = union(allowed, transformElytra(player, context, velocity, gravity));
+    private static final class Candidate extends PredVector {
+        private final double gravity;
+
+        private Candidate(PredVector velocity, double gravity) {
+            super(velocity, velocity, "glide gravity " + gravity);
+            this.gravity = gravity;
         }
-        return allowed;
-    }
-
-    private static SimpleCollisionBox union(SimpleCollisionBox allowed, Vec3 movement) {
-        SimpleCollisionBox box = new SimpleCollisionBox(movement, movement);
-        return allowed == null ? box : allowed.union(box);
-    }
-
-    public static Vec3 boostFirework(Vec3 velocity, Vector3dm look) {
-        return velocity.add(
-                look.getX() * 0.1 + (look.getX() * 1.5 - velocity.x) * 0.5,
-                look.getY() * 0.1 + (look.getY() * 1.5 - velocity.y) * 0.5,
-                look.getZ() * 0.1 + (look.getZ() * 1.5 - velocity.z) * 0.5);
     }
 
     public Vec3 transformElytra(CultPlayer player, SimulationContext context, Vec3 start, double gravity) {
@@ -175,7 +127,7 @@ public class ElytraTransform implements UncertaintyHandler {
 
         // Handle accelerating the player when they are looking down
         if (yRotRadians < 0.0F && horizontalLookLength > 0.0D) {
-            double d5 = velocityHorizLength * (double) (-player.trigHandler.sin(yRotRadians)) * 0.04D;
+            double d5 = velocityHorizLength * (double) (-player.trigHandler.clientSin(yRotRadians)) * 0.04D;
             vector = vector.add(new Vec3(
                     -lookVector.getX() * d5 / horizontalLookLength,
                     d5 * 3.2D,

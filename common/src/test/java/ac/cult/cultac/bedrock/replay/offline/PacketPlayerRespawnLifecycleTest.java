@@ -414,8 +414,7 @@ public final class PacketPlayerRespawnLifecycleTest {
         for (byte kept : new byte[] {ClientboundRespawn.KEEP_ENTITY_DATA, 0}) {
             CultPlayer player = offlineJavaPlayer();
             try {
-                player.compensatedFireworks.attachmentChanged(
-                        7, OptionalInt.of(player.entityID), player.lastTransactionSent.get() + 1);
+                player.compensatedFireworks.addNewFirework(7);
                 SimulationContext gliding = mock(SimulationContext.class);
                 when(gliding.isGliding()).thenReturn(true);
                 PredictionResult tick = mock(PredictionResult.class);
@@ -453,14 +452,15 @@ public final class PacketPlayerRespawnLifecycleTest {
         CultPlayer player = offlineJavaPlayer();
         try {
             int attachedAt = player.lastTransactionSent.get() + 1;
-            player.compensatedFireworks.attachmentChanged(7, OptionalInt.of(player.entityID), attachedAt);
-            player.compensatedFireworks.attachmentChanged(8, OptionalInt.of(player.entityID), attachedAt);
+            player.compensatedFireworks.addNewFirework(7);
+            player.compensatedFireworks.addNewFirework(8);
             SimulationContext gliding = mock(SimulationContext.class);
             when(gliding.isGliding()).thenReturn(true);
             PredictionResult tick = mock(PredictionResult.class);
             when(tick.getSimulationContext()).thenReturn(gliding);
             player.compensatedFireworks.onPredictionComplete(new PredictionComplete(tick));
-            player.compensatedFireworks.removalSent(List.of(8), player.lastTransactionSent.get() + 1);
+            player.latencyUtils.addRealTimeTask(
+                    player.lastTransactionSent.get() + 1, () -> player.compensatedFireworks.removeFirework(8));
             ClientboundLogin login = loginPacket(true);
             var loginEvent = sendEvent(player, ClientboundPackets.LOGIN, login);
             int receipt = player.lastTransactionSent.get() + 1;
@@ -501,6 +501,7 @@ public final class PacketPlayerRespawnLifecycleTest {
         for (boolean bedrock : new boolean[] {false, true}) {
             CultPlayer player = offlinePlayer(bedrock);
             try {
+                player.compensatedWorld.ensureValidationChunkLoaded(0, 0);
                 var entities = player.compensatedEntities;
                 entities.addEntity(7, EntityTypeIds.ZOMBIE, new Vec3(1, 64, 1), 0, 0, 0);
                 ClientboundRespawn respawn = respawnPacket();

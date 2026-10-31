@@ -8,13 +8,26 @@ public final class PacketEntityNautilus extends PacketEntityTrackXRot {
     public boolean isTame;
     public boolean dashing;
     public int dashCooldown;
+    /** movementSpeed's value, rounded to a float as AbstractNautilus#getRiddenSpeed reads it. */
     public double movementSpeedAttribute = 1.0D;
+
+    public final ClientMovementSpeed movementSpeed = new ClientMovementSpeed(1.0D);
     public double pendingJumpScale;
     public double nextPendingJumpScale;
 
     public PacketEntityNautilus(CultPlayer player, int entityId, int type, double x, double y, double z, float xRot) {
         super(player, entityId, type, x, y, z, xRot);
         this.stepHeightAttribute = 1.0D;
+    }
+
+    @Override
+    public ClientMovementSpeed riddenMovementSpeed() {
+        return movementSpeed;
+    }
+
+    @Override
+    public void refreshRiddenMovementSpeed() {
+        movementSpeedAttribute = (float) movementSpeed.value();
     }
 
     public void tickClientState() {

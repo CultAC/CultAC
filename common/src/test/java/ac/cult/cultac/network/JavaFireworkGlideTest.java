@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ElytraTransform;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
@@ -13,7 +14,6 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.Vector3dm;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
-import java.util.OptionalInt;
 import java.util.function.BiFunction;
 import org.junit.jupiter.api.Test;
 
@@ -168,7 +168,7 @@ class JavaFireworkGlideTest {
             for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
             Vec3 water = boost(f, first);
             PredictionResult result = f.tick(FROM.add(first).add(water), false);
-            assertTrue(result.getSimulationContext().getWorldData().mustBeInLiquid());
+            assertTrue(result.getSimulationContext().getWorldData().isInLiquid());
             assertExact(result);
         }
     }
@@ -180,8 +180,10 @@ class JavaFireworkGlideTest {
             Vec3 first = glide(f, CARRIED);
             fillWater(f);
             PredictionResult result = f.tick(FROM.add(first).add(boost(f, first)), false);
-            assertTrue(result.getSimulationContext().getWorldData().maybeInLiquid());
-            assertFalse(result.getSimulationContext().getWorldData().mustBeInLiquid());
+            assertTrue(result.getSimulationContext().getWorldData().isInLiquid()
+                    || result.getAnyReality().stream().anyMatch(r -> r.getSimulationContext().getWorldData().isInLiquid()));
+            assertTrue(!result.getSimulationContext().getWorldData().isInLiquid()
+                    || result.getAnyReality().stream().anyMatch(r -> !r.getSimulationContext().getWorldData().isInLiquid()));
             assertExact(result);
         }
         try (var f = boostedGlider()) {
@@ -193,8 +195,11 @@ class JavaFireworkGlideTest {
 
     /** The rocket's attachment, which the client may apply before any tick until the next ping proves it. */
     private static void attachRocket(JavaTickFixture f) {
-        f.player.compensatedFireworks.attachmentChanged(
-                ROCKET, OptionalInt.of(f.player.entityID), f.player.lastTransactionSent.get() + 1);
+        var entities = f.player.compensatedEntities;
+        entities.addEntity(ROCKET, EntityTypeIds.FIREWORK_ROCKET, new Vec3(f.player.x, f.player.y, f.player.z), 0, 0, 0);
+        var rocket = (ac.cult.cultac.utils.data.packetentity.PacketEntityFirework) entities.getEntity(ROCKET);
+        rocket.attachment = f.player.entityID;
+        f.player.compensatedFireworks.addNewFirework(ROCKET);
     }
 
     /** A glider whose first tick the attached rocket boosted. */

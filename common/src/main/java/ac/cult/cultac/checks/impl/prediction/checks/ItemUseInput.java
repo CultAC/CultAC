@@ -14,8 +14,15 @@ public final class ItemUseInput {
 
     public static ItemUseBurstResult residual(PredictionResult result) {
         var context = result.getSimulationContext();
-        Vec3 residual =
-                result.getTarget().subtract(result.getAcceptedClosestToTarget()).multiply(1, 0, 1);
+        // A candidate holding its exact input already moved by it; the input the move needed is measured from the
+        // movement without it, so a candidate that ignored the slowdown still needs more than the legal input.
+        Vec3 travelInput = result.getInitialStartingVel() == null
+                ? null
+                : result.getInitialStartingVel().getTravelInput();
+        Vec3 withoutInput = travelInput == null
+                ? result.getAcceptedClosestToTarget()
+                : result.getAcceptedClosestToTarget().subtract(travelInput);
+        Vec3 residual = result.getTarget().subtract(withoutInput).multiply(1, 0, 1);
         Vec3 input = HorizontalAnalyzer.getBestTheoreticalPlayerInput(residual, context.getXRot(), context.getVersion());
         return new ItemUseBurstResult(
                 input.x,
