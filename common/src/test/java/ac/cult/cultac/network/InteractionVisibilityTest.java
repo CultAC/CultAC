@@ -50,6 +50,7 @@ import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityPolarBear;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
@@ -413,6 +414,47 @@ class InteractionVisibilityTest {
 
     private static ServerboundInteract attack(int entityId) {
         return new ServerboundInteract(entityId, InteractAction.ATTACK, Hand.MAIN_HAND, Optional.empty(), false);
+    }
+
+    /**
+     * A plugin's ClientboundSetCameraPacket puts the camera on a shulker attached to the wall west of it and open
+     * towards the east. Minecraft#pick rays from the camera's Entity#getEyePosition, its position plus its eye height,
+     * however far Shulker#makeBoundingBox opens the shell: the target's near corner is 4.30 from it, inside the block
+     * interaction range, although 4.61 from the open shell's centre. A block beyond the range stays rejected.
+     */
+    @Test
+    void aShulkerCameraPicksFromItsPositionNotItsOpenShell() throws Exception {
+        try (var setup = new Setup()) {
+            var player = setup.fixture.player;
+            var placing = setup.check(PlaceVisibility.class);
+            setup.block(0, 64, 2, "air");
+            setup.block(2, 64, 0, "stone");
+            setup.block(0, 64, 4, "stone");
+            setup.block(0, 64, 6, "stone");
+            player.compensatedEntities.addEntity(42, EntityTypeIds.SHULKER, new Vec3(3.5, 64, .5), 0, 0, 0);
+            var shulker = (PacketEntityShulker) player.compensatedEntities.getEntity(42);
+            shulker.onShapeData(Direction.WEST, (byte) 100);
+            for (int tick = 0; tick < 20; tick++) {
+                shulker.onMovement(player);
+                player.packetStateData.acceptedClientTick++;
+            }
+            assertEquals(5.0, shulker.getPossibleMovementCollisionBoxes().maxX);
+            player.cameraEntity.onSetCamera(42);
+            for (int id = player.lastTransactionReceived.get() + 1; id <= player.lastTransactionSent.get() + 1; id++) {
+                player.lastTransactionReceived.set(id);
+                player.latencyUtils.handleNettySyncTransaction(id);
+            }
+            assertFalse(player.cameraEntity.isSelf());
+
+            var near = new ServerboundUseItemOn(
+                    Hand.MAIN_HAND, new BlockPos(0, 64, 4), Direction.NORTH, new Vec3d(.9, .5, 0), false, false, 1);
+            assertFalse(setup.route(ServerboundPackets.USE_ITEM_ON, near).isCancelled());
+            assertEquals(0, placing.violations);
+            var far = new ServerboundUseItemOn(
+                    Hand.MAIN_HAND, new BlockPos(0, 64, 6), Direction.NORTH, new Vec3d(.9, .5, 0), false, false, 2);
+            assertTrue(setup.route(ServerboundPackets.USE_ITEM_ON, far).isCancelled());
+            assertEquals(1, placing.violations);
+        }
     }
 
     private static ServerboundUseItemOn use() {

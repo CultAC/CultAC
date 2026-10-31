@@ -428,18 +428,19 @@ public final class ClientVisibility {
         List<Vec3> eyes = new ArrayList<>();
         List<Vec3> trackedEyes = new ArrayList<>();
         var self = player.compensatedEntities.getSelf();
+        // Entity#getEyePosition and Entity#positionRider read the position, not a shell a shulker's peek opened.
         for (var camera : cameras) {
             if (camera == self) {
                 if (self.getRiding() == null) addPlayerEyes(eyes, trackedEyes, new Vec3(player.x, player.y, player.z));
                 else {
                     var riding = self.getRiding();
-                    for (SimpleCollisionBox box : riding.getPossibleMovementCollisionBoxCandidates()) {
+                    for (SimpleCollisionBox box : riding.getPositionCollisionBoxCandidates()) {
                         Vec3 origin = BoundingBoxSize.getRidingOffsetFromVehicle(riding, self, player, box);
                         addPlayerEyes(eyes, trackedEyes, origin);
                     }
                 }
             } else {
-                for (SimpleCollisionBox box : camera.getPossibleMovementCollisionBoxCandidates()) {
+                for (SimpleCollisionBox box : camera.getPositionCollisionBoxCandidates()) {
                     // Entity dimensions carry eye heights independently of the player's pose.
                     var eye = new Vec3(
                             (box.minX + box.maxX) * .5,
