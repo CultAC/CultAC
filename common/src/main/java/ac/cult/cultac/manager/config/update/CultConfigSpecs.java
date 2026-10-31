@@ -468,10 +468,10 @@ public final class CultConfigSpecs {
             }
         }
         List<Object> checks = new ArrayList<>();
-        if (target != null) {
-            List<?> existing = ctx.output().getList("Punishments." + target + ".checks");
-            if (existing != null) checks.addAll(existing);
-        }
+        // An operator's group name is one literal key, dots included.
+        if (target != null
+                && groups.get(target) instanceof Map<?, ?> targetGroup
+                && targetGroup.get("checks") instanceof List<?> existing) checks.addAll(existing);
         int insertAt = -1;
         for (int i = 0; insertAfter != null && i < checks.size(); i++) {
             if (insertAfter.equalsIgnoreCase(String.valueOf(checks.get(i)))) insertAt = i + 1;
@@ -507,9 +507,9 @@ public final class CultConfigSpecs {
             group.put("remove-violations-after", removeViolationsAfter);
             group.put("checks", checks);
             group.put("commands", defaultCommands);
-            ctx.output().put("Punishments." + defaultGroup, group);
+            ctx.output().put(List.of("Punishments", defaultGroup), group);
         } else {
-            ctx.output().put("Punishments." + target + ".checks", checks);
+            ctx.output().put(List.of("Punishments", target, "checks"), checks);
         }
     }
 
@@ -533,7 +533,7 @@ public final class CultConfigSpecs {
                 continue;
             List<Object> updated = new ArrayList<>(checks);
             updated.add("BedrockMovement");
-            ctx.output().put("Punishments." + entry.getKey() + ".checks", updated);
+            ctx.output().put(List.of("Punishments", entry.getKey(), "checks"), updated);
             return;
         }
     }

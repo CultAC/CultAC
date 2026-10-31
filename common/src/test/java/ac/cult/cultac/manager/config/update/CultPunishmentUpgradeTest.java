@@ -2,8 +2,10 @@ package ac.cult.cultac.manager.config.update;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ac.cult.cultac.manager.PunishmentRules;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
@@ -305,6 +307,38 @@ class CultPunishmentUpgradeTest {
         assertEquals(
                 List.of("Simulation", "BedrockMovement", "GroundSpoof", "Timer", "NoFall", "!Phase"),
                 checks(read(excluded), "Simulation"));
+    }
+
+    private static final String DOTTED_GROUP = """
+            cult-config-version: 5
+            Punishments:
+              Movement.Java:
+                remove-violations-after: 300
+                checks:
+                  - Simulation
+                  - GroundSpoof
+                  - Timer
+                  - NoFall
+                commands:
+                  - "100:40 [alert]"
+            """;
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Movement.Java", "\"Movement.Java\"", "'Movement.Java'"})
+    void extendsAGroupWhoseNameHasDotsWithoutLosingItsChecks(String key) throws Exception {
+        Path file = write(DOTTED_GROUP.replace("Movement.Java", key));
+        upgrade(file);
+        var data = read(file);
+        Map<?, ?> groups = (Map<?, ?>) data.get("Punishments");
+        assertEquals(List.of("Movement.Java"), List.copyOf(groups.keySet()));
+        assertEquals(List.of("Simulation", "GroundSpoof", "Timer", "NoFall", "Phase"), checks(data, "Movement.Java"));
+        assertEquals(List.of("100:40 [alert]"), group(data, "Movement.Java").get("commands"));
+        // PunishmentManager reads the groups as Configuralize's list of their values.
+        var rules = PunishmentRules.parse(new ArrayList<>(groups.values()));
+        assertNull(rules.failure());
+        for (String check : List.of("simulation", "groundspoof", "timer", "nofall", "phase")) {
+            assertTrue(rules.groups().get(0).holds(check, null), check);
+        }
     }
 
     @Test

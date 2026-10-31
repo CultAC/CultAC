@@ -15,7 +15,7 @@ public final class ConfigPatcher {
 
     private final File file;
     private final List<String> lines;
-    private final Map<String, NodePosition> locationMap;
+    private final Map<List<String>, NodePosition> locationMap;
 
     // ... (formatValue and YAML_KEYWORDS/SPECIAL_CHARS constants are unchanged) ...
     private static final Set<String> YAML_KEYWORDS_TO_QUOTE = new HashSet<>(Arrays.asList(
@@ -30,7 +30,8 @@ public final class ConfigPatcher {
         mapFile();
     }
 
-    public NodePosition getNodePosition(String path) {
+    /** The block-style node at these literal keys, one per map level. */
+    public NodePosition getNodePosition(List<String> path) {
         return locationMap.get(path);
     }
 
@@ -43,18 +44,17 @@ public final class ConfigPatcher {
     }
 
     /** Insert a new setting beneath its closest existing parent, keeping surrounding text. */
-    public void addMissingValue(String path, Object value) {
-        String[] parts = path.split("\\.");
-        int parentDepth = parts.length - 1;
+    public void addMissingValue(List<String> path, Object value) {
+        int parentDepth = path.size() - 1;
         NodePosition parent = null;
         while (parentDepth > 0) {
-            parent = locationMap.get(String.join(".", Arrays.copyOf(parts, parentDepth)));
+            parent = locationMap.get(path.subList(0, parentDepth));
             if (parent != null) break;
             parentDepth--;
         }
         Object nested = value;
-        for (int i = parts.length - 1; i >= parentDepth; i--) {
-            nested = Collections.singletonMap(parts[i], nested);
+        for (int i = path.size() - 1; i >= parentDepth; i--) {
+            nested = Collections.singletonMap(path.get(i), nested);
         }
         org.yaml.snakeyaml.DumperOptions options = new org.yaml.snakeyaml.DumperOptions();
         options.setDefaultFlowStyle(org.yaml.snakeyaml.DumperOptions.FlowStyle.BLOCK);
@@ -89,17 +89,27 @@ public final class ConfigPatcher {
             Matcher matcher = keyPattern.matcher(line);
             if (matcher.matches()) {
                 int currentIndent = matcher.group(1).length();
-                String key = matcher.group(2).trim();
+                String key = literalKey(matcher.group(2).trim());
                 while (!indentStack.isEmpty() && currentIndent <= indentStack.get(indentStack.size() - 1)) {
                     pathStack.remove(pathStack.size() - 1);
                     indentStack.remove(indentStack.size() - 1);
                 }
                 pathStack.add(key);
                 indentStack.add(currentIndent);
-                String currentPath = String.join(".", pathStack);
-                locationMap.put(currentPath, new NodePosition(i, currentIndent));
+                locationMap.put(List.copyOf(pathStack), new NodePosition(i, currentIndent));
             }
         }
+    }
+
+    /** The key a quoted YAML key names; a plain key, dots included, is already literal. */
+    private static String literalKey(String key) {
+        if (key.length() < 2) return key;
+        char quote = key.charAt(0);
+        if (quote != key.charAt(key.length() - 1)) return key;
+        String quoted = key.substring(1, key.length() - 1);
+        if (quote == '\'') return quoted.replace("''", "'");
+        if (quote == '"') return quoted.replace("\\\"", "\"").replace("\\\\", "\\");
+        return key;
     }
 
     private void replaceScalarValue(NodePosition position, Object value) {

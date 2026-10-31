@@ -303,7 +303,7 @@ public final class ConfigUpdater {
         // Auto-lift trivially-matching user values into outputView. The diff
         // walk records each lift in ownLog so it goes through the same
         // patcher pass as migration writes.
-        autoLift("", oldData, newData, outputView);
+        autoLift(List.of(), oldData, newData, outputView);
 
         // Run each version-gated migration in order.
         for (int v = oldVersion + 1; v <= spec.latestVersion; v++) {
@@ -353,11 +353,12 @@ public final class ConfigUpdater {
 
     @SuppressWarnings("unchecked")
     private static void autoLift(
-            String pathPrefix, Map<String, Object> oldData, Map<String, Object> newData, YamlMap output) {
+            List<String> pathPrefix, Map<String, Object> oldData, Map<String, Object> newData, YamlMap output) {
         for (Map.Entry<String, Object> entry : oldData.entrySet()) {
             String key = entry.getKey();
             if (!newData.containsKey(key)) continue;
-            String currentPath = pathPrefix.isEmpty() ? key : pathPrefix + "." + key;
+            List<String> currentPath = new ArrayList<>(pathPrefix);
+            currentPath.add(key);
             Object oldValue = entry.getValue();
             Object newValue = newData.get(key);
             if (oldValue instanceof Map && newValue instanceof Map) {
@@ -378,7 +379,7 @@ public final class ConfigUpdater {
                 logger.log(
                         Level.FINE,
                         "[cult-config-updater] REMOVE op for '"
-                                + e.path() + "' on " + configFile.getName()
+                                + String.join(".", e.path()) + "' on " + configFile.getName()
                                 + " is not yet supported; expected the bundled default to drop the key");
                 continue;
             }
