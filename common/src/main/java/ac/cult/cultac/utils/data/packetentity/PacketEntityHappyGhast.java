@@ -26,10 +26,10 @@ public class PacketEntityHappyGhast extends PacketEntityTrackXRot {
      * HappyGhast#canBeCollidedWith on the client, for {@code other} at {@code otherPosition} and this ghast at
      * {@code box}: an adult, live ghast collides with a Player at or above the top of its box, and otherwise with a
      * happy ghast while it carries a rider, or with anything while it stays still. The client never sets the server's
-     * still timeout.
+     * still timeout. LivingEntity#isAlive reads the health, which entity data can zero before any death event.
      */
     public boolean canBeCollidedWith(PacketEntity other, Vec3 otherPosition, SimpleCollisionBox box) {
-        if (isBaby || isDead) return false;
+        if (isBaby || !actionAlive) return false;
         if (other.type == EntityTypeIds.PLAYER && otherPosition.y >= box.maxY) return true;
         return !passengers.isEmpty() && other instanceof PacketEntityHappyGhast || staysStill;
     }
