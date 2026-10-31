@@ -46,6 +46,12 @@ final class ClientEntityTickOrder {
         return members.get(localPlayer).enteredSection;
     }
 
+    /** When {@code entity} entered its current entity section, in section entry order; unknown entities last. */
+    long sectionEntry(PacketEntity entity) {
+        Member member = members.get(entity);
+        return member == null ? Long.MAX_VALUE : member.enteredSection;
+    }
+
     void remove(PacketEntity entity) {
         members.remove(entity);
     }

@@ -44,6 +44,8 @@ public final class JavaRemoteBlockEntityPass {
             actors = new java.util.ArrayList<>(actors);
             actors.addAll(entities.fishingHooks());
         }
+        // The roots the pass reaches move together, mover by mover in client order.
+        List<JavaBlockEntityPass.EntityStart> moved = null;
         for (var actor : actors) {
             if (actor instanceof PacketEntityHook hook && hook.isBobbing()) {
                 tickBobbing(player, hook, pass);
@@ -68,17 +70,30 @@ public final class JavaRemoteBlockEntityPass {
                     recordRidersOfUnmovedRoot(player, actor, box, pass, riderPass);
                 continue;
             }
-            tickActor(player, actor, pass, riderPass);
+            // A protocol-773 root replays each of its physics paths alone.
+            if (actor.hasPistonPatchStates()) {
+                tickActor(player, actor, pass, riderPass);
+                continue;
+            }
+            if (moved == null) moved = new java.util.ArrayList<>(2);
+            moved.add(new JavaBlockEntityPass.EntityStart(actor, start(actor)));
         }
+        if (moved == null) return;
+        var results = JavaBlockEntityPass.runEntities(player, moved, pass);
+        for (int i = 0; i < moved.size(); i++) commit(player, moved.get(i).actor(), results.get(i), pass, riderPass);
     }
 
     private static void tickActor(CultPlayer player, PacketEntity actor, ClientBlockEntityPass pass, int riderPass) {
         if (actor.runPhysicsPaths(() -> tickActor(player, actor, pass, riderPass))) return;
         if (!actor.clientPhysicalPositionExact || actor.oldPacketLocation != null) return;
+        commit(player, actor, JavaBlockEntityPass.runEntity(player, actor, pass, start(actor)), pass, riderPass);
+    }
+
+    /** The Entity fields the root carries into the pass. */
+    private static JavaPassState start(PacketEntity actor) {
         JavaPassState previous = actor.blockEntityState;
-        Vec3 position = actor.clientPhysicalPosition;
-        var start = new JavaPassState(
-                position,
+        return new JavaPassState(
+                actor.clientPhysicalPosition,
                 actor.deltaMovement,
                 actor.onGround,
                 previous == null ? new MainSupportingBlockData(null, actor.onGround) : previous.support(),
@@ -86,7 +101,15 @@ public final class JavaRemoteBlockEntityPass {
                 previous == null ? 0 : previous.fallDistance(),
                 previous == null ? ClientPistonDeltas.NONE : previous.pistonDeltas(),
                 false);
-        var replay = JavaBlockEntityPass.runEntity(player, actor, pass, start);
+    }
+
+    /** Keeps what the pass left the root, and notes where it leaves the root's riders. */
+    private static void commit(
+            CultPlayer player,
+            PacketEntity actor,
+            JavaBlockEntityPass.Result replay,
+            ClientBlockEntityPass pass,
+            int riderPass) {
         if (actor instanceof PacketEntityStrider strider) strider.commitFluidHeights(replay.fluidHeights());
         JavaPassState result = replay.state();
         actor.blockEntityState = result;

@@ -1836,6 +1836,11 @@ public class CompensatedEntities {
         return clientTickMembership.precedesInQuery(getSelf(), localPosition, order, actor, actorPosition);
     }
 
+    /** Whether Level#getEntities lists {@code first} at {@code a} before {@code second} at {@code b}. */
+    public boolean precedesInEntityQuery(PacketEntity first, Vec3 a, PacketEntity second, Vec3 b) {
+        return clientTickMembership.precedesInQuery(first, a, clientTickMembership.sectionEntry(first), second, b);
+    }
+
     /** Sets {@link #tickedThroughOrder()} for a replayed pass; Long.MIN_VALUE ends it. */
     public void setPassTickedThroughOrder(long order) {
         passTickedThroughOrder = order;

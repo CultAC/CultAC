@@ -226,17 +226,7 @@ public final class JavaBlockEntityPass {
     public static Result runEntity(
             CultPlayer player, PacketEntity actor, ClientBlockEntityPass pass, JavaPassState start) {
         if (actor.type == EntityTypeIds.SHULKER) start = start.withVelocity(Vec3.ZERO);
-        var env = new JavaBlockEntityMove.Environment(
-                player,
-                null,
-                null,
-                actor.scale,
-                (actor.actionSharedFlags & 2) != 0,
-                start.position(),
-                pass.gameTime(),
-                actor,
-                actor.pistonMovementPatch());
-        return run(env, pass, start);
+        return run(entityEnvironment(player, actor, pass, start.position(), false), pass, start);
     }
 
     /**
@@ -265,64 +255,125 @@ public final class JavaBlockEntityPass {
 
     private static Result run(JavaBlockEntityMove.Environment env, ClientBlockEntityPass pass, JavaPassState start) {
         var replay = new Replay(env, start);
-        CompensatedWorld world = env.player().compensatedWorld;
+        if (!env.authoritative()) {
+            runMovers(env.player(), pass, null, List.of(replay));
+            return replay.result(null);
+        }
+        boolean recordLocal = env.context().getVehicle() == null;
+        List<Replay> remotes = recordLocal ? remoteColliders(env, pass, start) : List.of();
+        List<JavaBlockEntityPath.Step> localMoves = runMovers(env.player(), pass, replay, remotes);
+        return replay.result(
+                !recordLocal || localMoves == null
+                        ? null
+                        : new JavaBlockEntityPath(pass, start.position(), List.copyOf(localMoves)));
+    }
+
+    /** A tracked remote root and the state it enters the pass with. */
+    public record EntityStart(PacketEntity actor, JavaPassState start) {}
+
+    /**
+     * The committed replay of {@code pass} on tracked remote roots, after the selected travel: each mover moves them as
+     * its Level#getEntities lists them, committing each Entity#move as it runs, so a later move collides with the roots
+     * where the earlier moves left them. The local player stands where the selected travel's pass put it.
+     */
+    public static List<Result> runEntities(CultPlayer player, List<EntityStart> starts, ClientBlockEntityPass pass) {
+        List<Replay> replays = new java.util.ArrayList<>(starts.size());
+        for (EntityStart entry : starts) {
+            PacketEntity actor = entry.actor();
+            JavaPassState start = entry.start();
+            if (actor.type == EntityTypeIds.SHULKER) start = start.withVelocity(Vec3.ZERO);
+            replays.add(new Replay(entityEnvironment(player, actor, pass, start.position(), false), start));
+        }
+        runMovers(player, pass, null, replays);
+        List<Result> results = new java.util.ArrayList<>(replays.size());
+        for (Replay replay : replays) results.add(replay.result(null));
+        return results;
+    }
+
+    private static JavaBlockEntityMove.Environment entityEnvironment(
+            CultPlayer player, PacketEntity actor, ClientBlockEntityPass pass, Vec3 start, boolean detached) {
+        return new JavaBlockEntityMove.Environment(
+                player,
+                null,
+                null,
+                actor.scale,
+                (actor.actionSharedFlags & 2) != 0,
+                start,
+                pass.gameTime(),
+                actor,
+                actor.pistonMovementPatch(),
+                detached);
+    }
+
+    /**
+     * Level#tickBlockEntities over {@code pass}, after the leading Shulker#onPeekAmountChange moves: each mover in
+     * ticker order moves the actors its Level#getEntities lists, in that list's order, each from where the moves before
+     * it left it. {@code local} is the local player's replay, or null when the local player stands where the selected
+     * travel's pass put it at each mover; {@code remotes} are the other actors. Once two actors move in one pass, each
+     * reads the others at their in-pass boxes. Returns the local player's positions between movers, or null.
+     */
+    private static List<JavaBlockEntityPath.Step> runMovers(
+            CultPlayer player, ClientBlockEntityPass pass, Replay local, List<Replay> remotes) {
+        CompensatedWorld world = player.compensatedWorld;
         CompensatedWorldPistons pistons = world.pistons;
-        CompensatedEntities entities = env.player().compensatedEntities;
+        CompensatedEntities entities = player.compensatedEntities;
         long tickedThrough = entities.passTickedThroughOrder();
-        List<ClientBlockEntityPass.Lid> lids = pass.lids();
-        int blockEntityMovers = 0, lid = 0;
-        List<JavaBlockEntityPath.Step> localMoves = null;
-        boolean recordLocal = env.authoritative() && env.context().getVehicle() == null;
         Vec3 previousLocal = entities.passLocalPlayerPosition();
         var previousBoxes = entities.passCollisionBoxes();
-        List<Replay> remotes = recordLocal ? remoteColliders(env, pass, start) : List.of();
+        List<ClientBlockEntityPass.Lid> lids = pass.lids();
+        int actors = remotes.size() + (local == null ? 0 : 1);
+        // Working space for the whole pass: each mover reuses the query order and the in-pass boxes.
+        int[] order = actors > 1 ? new int[actors] : null;
         java.util.Map<PacketEntity, SimpleCollisionBox> boxes =
-                remotes.isEmpty() ? null : new java.util.IdentityHashMap<>(remotes.size());
-        int moverIndex = 0;
+                actors > 1 ? new java.util.IdentityHashMap<>(remotes.size()) : null;
+        List<JavaBlockEntityPath.Step> localMoves = null;
+        int blockEntityMovers = 0, lid = 0, moverIndex = 0;
         try (var ignored = world.beginBlockEntityReplay(pass)) {
             for (ClientBlockEntityPass.Mover mover : pass.movers()) {
-                if (!env.authoritative())
-                    entities.setPassLocalPlayerPosition(localPlayerAtMover(env, pass, mover, replay.state.position()));
-                Vec3 before = replay.state.position();
                 // A move collides with the entities as the tick has left them by then: every entity has ticked
                 // before the block entities, and a shulker's move follows its own tick and those before it.
+                boolean peek = mover instanceof ClientBlockEntityPass.ShulkerPeek;
                 entities.setPassTickedThroughOrder(
-                        mover instanceof ClientBlockEntityPass.ShulkerPeek peek ? peek.tickOrder() : Long.MAX_VALUE);
-                if (!(mover instanceof ClientBlockEntityPass.ShulkerPeek)) {
+                        peek ? ((ClientBlockEntityPass.ShulkerPeek) mover).tickOrder() : Long.MAX_VALUE);
+                if (!peek) {
                     // Every ShulkerBoxBlockEntity#updateAnimation ticking before this block entity has run, and a
                     // box's own update sets the lid its moveCollidedEntities collides with.
                     while (lid < lids.size() && lids.get(lid).beforeMover() <= blockEntityMovers)
                         world.advanceLidReplay(lids.get(lid++));
                     blockEntityMovers++;
-                }
-                if (remotes.isEmpty() || mover instanceof ClientBlockEntityPass.ShulkerPeek) {
-                    replay.step(mover);
-                } else {
-                    if (entities.passCollisionBoxes() != boxes) {
-                        // The block entities tick once every entity has; the colliders start where the tick left them.
+                    if (boxes != null && entities.passCollisionBoxes() != boxes) {
+                        // The block entities tick once every entity has; the actors start where the tick left them.
                         for (Replay remote : remotes) boxes.put(remote.env.actor(), remote.box());
                         entities.setPassCollisionBoxes(boxes);
                     }
-                    // Level#getEntities lists the entities a mover moves before moving any of them, in section
-                    // order: the colliders listed ahead of the player move first, and it meets them where they end.
-                    boolean[] first = new boolean[remotes.size()];
-                    for (int i = 0; i < remotes.size(); i++) {
-                        Replay remote = remotes.get(i);
-                        first[i] = !entities.localPlayerPrecedesInEntityQuery(
-                                remote.env.actor(), before, remote.state.position(), null, moverIndex);
-                        if (first[i]) stepRemote(entities, boxes, remote, mover, before);
+                }
+                Vec3 localBefore = local == null ? null : local.state.position();
+                if (order == null) {
+                    if (local != null) local.step(mover);
+                    else stepEntity(entities, boxes, pass, mover, remotes.getFirst());
+                } else {
+                    queryOrder(entities, remotes, local, moverIndex, order);
+                    for (int actor : order) {
+                        if (actor == remotes.size()) {
+                            entities.setPassLocalPlayerPosition(previousLocal);
+                            local.step(mover);
+                        } else if (local == null) {
+                            stepEntity(entities, boxes, pass, mover, remotes.get(actor));
+                        } else if (!peek) {
+                            // Beside the local player's replay, a leading peek reaches none of its colliders.
+                            Replay remote = remotes.get(actor);
+                            entities.setPassLocalPlayerPosition(local.state.position());
+                            remote.step(mover);
+                            boxes.put(remote.env.actor(), remote.box());
+                        }
                     }
-                    entities.setPassLocalPlayerPosition(previousLocal);
-                    replay.step(mover);
-                    for (int i = 0; i < remotes.size(); i++)
-                        if (!first[i]) stepRemote(entities, boxes, remotes.get(i), mover, replay.state.position());
                     entities.setPassLocalPlayerPosition(previousLocal);
                 }
                 if (mover instanceof ClientBlockEntityPass.Piston piston)
                     pistons.advanceReplay(piston.pos(), piston.storedProgress());
-                if (recordLocal && !before.equals(replay.state.position())) {
+                if (local != null && !localBefore.equals(local.state.position())) {
                     if (localMoves == null) localMoves = new java.util.ArrayList<>();
-                    localMoves.add(new JavaBlockEntityPath.Step(moverIndex, replay.state.position()));
+                    localMoves.add(new JavaBlockEntityPath.Step(moverIndex, local.state.position()));
                 }
                 moverIndex++;
             }
@@ -331,19 +382,51 @@ public final class JavaBlockEntityPass {
             entities.setPassLocalPlayerPosition(previousLocal);
             entities.setPassCollisionBoxes(previousBoxes);
         }
-        return new Result(
-                replay.state,
-                replay.moved,
-                replay.fixed[0],
-                replay.fixed[1],
-                replay.fixed[2],
-                replay.interpolation,
-                replay.boatLastYd,
-                replay.fluidHeights,
-                replay.lastMove,
-                replay.oldInterpolation,
-                localMoves == null ? null : new JavaBlockEntityPath(pass, start.position(), List.copyOf(localMoves)),
-                replay.recorded());
+        return localMoves;
+    }
+
+    /** One actor's moves by {@code mover} while the local player stands where the selected travel's pass put it. */
+    private static void stepEntity(
+            CompensatedEntities entities,
+            java.util.Map<PacketEntity, SimpleCollisionBox> boxes,
+            ClientBlockEntityPass pass,
+            ClientBlockEntityPass.Mover mover,
+            Replay replay) {
+        entities.setPassLocalPlayerPosition(localPlayerAtMover(replay.env, pass, mover, replay.state.position()));
+        replay.step(mover);
+        if (boxes != null && entities.passCollisionBoxes() == boxes) boxes.put(replay.env.actor(), replay.box());
+    }
+
+    /**
+     * Level#getEntities's order for one mover, by where each actor starts it: EntitySectionStorage's section order,
+     * then each section's insertion order. {@code order} receives the indexes of {@code remotes}, and
+     * {@code remotes.size()} for {@code local} when it takes part. Insertion sort: a pass moves few actors.
+     */
+    private static void queryOrder(
+            CompensatedEntities entities, List<Replay> remotes, Replay local, int moverIndex, int[] order) {
+        for (int i = 0; i < order.length; i++) {
+            int actor = i;
+            int j = i - 1;
+            while (j >= 0 && precedes(entities, remotes, local, moverIndex, actor, order[j])) {
+                order[j + 1] = order[j];
+                j--;
+            }
+            order[j + 1] = actor;
+        }
+    }
+
+    private static boolean precedes(
+            CompensatedEntities entities, List<Replay> remotes, Replay local, int moverIndex, int a, int b) {
+        int self = remotes.size();
+        if (a == self || b == self) {
+            Replay remote = remotes.get(a == self ? b : a);
+            boolean localFirst = entities.localPlayerPrecedesInEntityQuery(
+                    remote.env.actor(), local.state.position(), remote.state.position(), null, moverIndex);
+            return a == self == localFirst;
+        }
+        Replay first = remotes.get(a), second = remotes.get(b);
+        return entities.precedesInEntityQuery(
+                first.env.actor(), first.state.position(), second.env.actor(), second.state.position());
     }
 
     /**
@@ -393,36 +476,13 @@ public final class JavaBlockEntityPass {
                         previous == null ? 0 : previous.fallDistance(),
                         previous == null ? ClientPistonDeltas.NONE : previous.pistonDeltas(),
                         false);
-                var remoteEnv = new JavaBlockEntityMove.Environment(
-                        player,
-                        null,
-                        null,
-                        actor.scale,
-                        (actor.actionSharedFlags & 2) != 0,
-                        position,
-                        pass.gameTime(),
-                        actor,
-                        actor.pistonMovementPatch(),
-                        true);
                 if (remotes == null) remotes = new java.util.ArrayList<>(1);
-                remotes.add(new Replay(remoteEnv, state));
+                remotes.add(new Replay(entityEnvironment(player, actor, pass, position, true), state));
             }
         } finally {
             entities.setPassTickedThroughOrder(tickedThrough);
         }
         return remotes == null ? List.of() : remotes;
-    }
-
-    /** One remote collider's moves by {@code mover}, which meet the local player at {@code local}. */
-    private static void stepRemote(
-            CompensatedEntities entities,
-            java.util.Map<PacketEntity, SimpleCollisionBox> boxes,
-            Replay remote,
-            ClientBlockEntityPass.Mover mover,
-            Vec3 local) {
-        entities.setPassLocalPlayerPosition(local);
-        remote.step(mover);
-        boxes.put(remote.env.actor(), remote.box());
     }
 
     private static boolean peekMayReach(ClientBlockEntityPass pass, SimpleCollisionBox box) {
@@ -498,6 +558,22 @@ public final class JavaBlockEntityPass {
 
         private SimpleCollisionBox box() {
             return env.box(state.position());
+        }
+
+        private Result result(JavaBlockEntityPath path) {
+            return new Result(
+                    state,
+                    moved,
+                    fixed[0],
+                    fixed[1],
+                    fixed[2],
+                    interpolation,
+                    boatLastYd,
+                    fluidHeights,
+                    lastMove,
+                    oldInterpolation,
+                    path,
+                    recorded());
         }
 
         private Recorded recorded() {
