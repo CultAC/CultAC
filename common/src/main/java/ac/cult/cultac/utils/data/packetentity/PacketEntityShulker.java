@@ -179,11 +179,12 @@ public class PacketEntityShulker extends PacketEntity {
     }
 
     /**
-     * currentPeekAmount where the client tick in progress reads it: after this shulker's tick when
-     * {@link CompensatedEntities#tickedThroughOrder()} reaches its ClientLevel#tickEntities place, else before it.
+     * The committed currentPeekAmount for packet and action reads. Movement and replay reads use the side of this
+     * shulker's tick that {@link CompensatedEntities#tickedThroughOrder()} places them on.
      */
     private float peekRead() {
         CompensatedEntities entities = player.compensatedEntities;
+        if (!entities.readingMovementPositions()) return peek;
         boolean stepped = entities.clientTickOrder(this) <= entities.tickedThroughOrder();
         if (tickedThisClientTick()) return stepped ? peek : peekO;
         if (!stepped) return peek;
