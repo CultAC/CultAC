@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.function.BiConsumer;
+import java.util.function.IntSupplier;
 import java.util.function.Predicate;
 
 /** Prepares and emits ordered packet groups synchronously on the connection event loop. */
@@ -38,6 +39,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
     private final CultConnection connection;
     private final RouteProbe routeProbe = new RouteProbe();
     private final ReentrantWrites reentrantWrites = new ReentrantWrites();
+    private final IntSupplier provingPingSource = this::provingPing;
     private boolean insideBundle;
     // Members of the current physical flush bundle. BundlerInfo accepts at most 4,096.
     private int flushBundleMembers;
@@ -66,6 +68,12 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
     private ModelWrite idleWrite = new ModelWrite();
     private Families idleFamilies = new Families();
     private Output idleOutput = new Output();
+    private Batch idleBatch = new Batch(false);
+    private PacketSendEvent<?> idleSendEvent;
+    // Emitted frames for reuse, linked through Frame#next; none holds bytes or a promise.
+    private Frame spareFrames;
+    private int spareFrameCount;
+    private static final int MAX_SPARE_FRAMES = 32;
 
     public CultEncoder(CultConnection connection) {
         this.connection = connection;
@@ -263,7 +271,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         reentrantWrites.activeFamilies = activeFamilies;
         reentrantWrites.output = output;
         connection.reentrantWriter(reentrantWrites);
-        connection.flushPingSource(this::provingPing);
+        connection.flushPingSource(provingPingSource);
         try {
             prepare(ctx, message, promise, activeFamilies, output);
             return output;
@@ -286,7 +294,13 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             ChannelHandlerContext ctx, Object message, ChannelPromise promise, Families activeFamilies, Output output) {
         // Reentrant writes observe the emitted wire state, not an enclosing
         // group's planned delimiters. I/O cannot emit while this dispatch runs.
-        var batch = new Batch(insideBundle);
+        Batch batch = idleBatch;
+        if (batch == null) batch = new Batch(insideBundle);
+        else {
+            idleBatch = null;
+            batch.inside = insideBundle;
+            batch.lead = false;
+        }
         ByteBuf fallback = message instanceof ByteBuf frame ? frame.retain() : null;
         try {
             if (message instanceof CultConnection.WriteTask task) {
@@ -304,6 +318,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                     wrap(ctx, batch);
             }
             output.append(batch);
+            idleBatch = batch;
         } catch (Throwable failure) {
             batch.discard(failure, fallback == null ? null : promise);
             CultNetworkManager.reportFailure("outbound packet expansion", failure);
@@ -485,14 +500,23 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                 activeFamilies.addLast(route.type());
                 try {
                     var type = (PacketType<ClientboundPacket>) route.type();
-                    var event = new PacketSendEvent<>(
-                            connection.user(), phase, type, (ClientboundPacket) value, batch.inside);
+                    var idleEvent = route.own() ? idleSendEvent : null;
+                    PacketSendEvent<ClientboundPacket> event;
+                    if (idleEvent == null) {
+                        event = new PacketSendEvent<>(
+                                connection.user(), phase, type, (ClientboundPacket) value, batch.inside);
+                    } else {
+                        idleSendEvent = null;
+                        event = idleEvent.restart(
+                                connection.user(), phase, type, (ClientboundPacket) value, batch.inside);
+                    }
                     if (authored) event.authored();
                     // Emission closes the flush bundle before a structural packet, so its ping cannot prove one.
                     event.sharedPing(PacketBundlePolicy.requiresStandalone(type) ? 0 : sharedPing(batch));
                     connection.dispatcher().send(event, route.send());
                     if (event.isCancelled()) {
                         promise.trySuccess();
+                        recycle(route, event);
                         return false;
                     }
                     CultWrite leading = event.leadingPing();
@@ -531,6 +555,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                     }
                     batch.addTasks(event.tasksAfter());
                     requested |= event.isBundleRequested();
+                    recycle(route, event);
                 } finally {
                     activeFamilies.removeLast();
                 }
@@ -637,6 +662,12 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         return frame(bytes, ctx.newPromise(), type);
     }
 
+    private void writeDelimiter(ChannelHandlerContext ctx) {
+        Frame delimiter = delimiter(ctx);
+        writeFrame(ctx, delimiter);
+        recycle(delimiter);
+    }
+
     /**
      * The ping a packet prepared now can share. Frames prepared earlier and not yet emitted could close or split
      * the flush bundle before this packet, so with any of them pending the packet leads with its own ping.
@@ -732,8 +763,8 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
     private void openFlushBundle(ChannelHandlerContext ctx) {
         if (connection.flushBundleOpen()) {
             if (flushBundleMembers < MAX_BUNDLE_PACKETS - SHARE_HEADROOM) return;
-            writeFrame(ctx, delimiter(ctx));
-            writeFrame(ctx, delimiter(ctx));
+            writeDelimiter(ctx);
+            writeDelimiter(ctx);
             provingPing = 0;
         } else {
             if (!connection.clientHasLevel()) return;
@@ -743,10 +774,10 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                     heldHostBundle = true;
                     // The host's packets so far stay in their own bundle; the rest continue after the ping.
                     if (flushBundleMembers >= MAX_BUNDLE_PACKETS - SHARE_HEADROOM) {
-                        writeFrame(ctx, delimiter(ctx));
-                        writeFrame(ctx, delimiter(ctx));
+                        writeDelimiter(ctx);
+                        writeDelimiter(ctx);
                     }
-                } else writeFrame(ctx, delimiter(ctx));
+                } else writeDelimiter(ctx);
             }
             connection.flushBundleOpen(true);
             flushBundles++;
@@ -769,8 +800,8 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         if (!insideBundle || !delimitsFlushBundle()) return;
         if (flushBundleMembers == MAX_BUNDLE_PACKETS && connection.flushBundleOpen()) {
             // Unreachable unless more than the headroom was prepared ahead of a sharing packet.
-            writeFrame(ctx, delimiter(ctx));
-            writeFrame(ctx, delimiter(ctx));
+            writeDelimiter(ctx);
+            writeDelimiter(ctx);
             flushPing = 0;
             provingPing = 0;
         }
@@ -816,7 +847,9 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         // Deferred closure runs outside emit(). Queue downstream reentry until the closing delimiters and
         // any held host continuation have been written, just as closure before a standalone packet does.
         if (emission == null) {
-            var output = new Output();
+            Output output = idleOutput;
+            if (output == null) output = new Output();
+            else idleOutput = null;
             emission = output;
             try {
                 closeFlushBundle(ctx);
@@ -824,6 +857,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                 emission = null;
             }
             emit(ctx, output);
+            recycle(output);
             return;
         }
         connection.flushBundleOpen(false);
@@ -831,9 +865,9 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         boolean resumeHostBundle = heldHostBundle;
         heldHostBundle = false;
         if (delimitsFlushBundle()) {
-            writeFrame(ctx, delimiter(ctx));
+            writeDelimiter(ctx);
             // The rest of a held host bundle stays in a bundle of its own, closed by its own delimiter.
-            if (resumeHostBundle) writeFrame(ctx, delimiter(ctx));
+            if (resumeHostBundle) writeDelimiter(ctx);
         }
     }
 
@@ -851,7 +885,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         }
         closeFlushBundle(ctx);
         // A source/explicit bundle can exist without a flush bundle (including a translated connection).
-        if (insideBundle) writeFrame(ctx, delimiter(ctx));
+        if (insideBundle) writeDelimiter(ctx);
         return resumeBundle;
     }
 
@@ -882,6 +916,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                     settleGroups(ctx, output);
                     Frame frame = output.removeFirst();
                     if (frame.bytes == null) {
+                        recycle(frame);
                         flushBundle(ctx);
                         continue;
                     }
@@ -892,15 +927,18 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                         retiredBundleGeneration = -1;
                         frame.bytes.release();
                         frame.promise.trySuccess();
+                        recycle(frame);
                         continue;
                     }
-                    if (joinsFlushBundle(ctx, frame)) continue;
+                    if (joinsFlushBundle(ctx, frame)) {
+                        recycle(frame);
+                        continue;
+                    }
                     // Unlistened authored/translated frames can have no dispatch type; their wire identity
                     // still determines whether they may join a bundle and advance the protocol.
                     PacketType<?> type = frame.type != null ? frame.type : wireType(frame.bytes);
                     boolean standalone = PacketBundlePolicy.requiresStandalone(type);
-                    if (standalone && frame.type == null)
-                        frame = new Frame(frame.bytes, frame.promise, type, frame.ping, frame.lead, frame.generation);
+                    if (standalone && frame.type == null) frame.type = type;
                     boolean resumeBundle = false;
                     if (standalone) resumeBundle = suspendBundle(ctx);
                     else if (frame.lead) openFlushBundle(ctx);
@@ -908,8 +946,9 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                     int generation = protocolGeneration;
                     countFlushBundleMember(ctx);
                     writeFrame(ctx, frame);
+                    recycle(frame);
                     if (resumeBundle) {
-                        if (connection.phase(PacketDirection.CLIENTBOUND) == phase) writeFrame(ctx, delimiter(ctx));
+                        if (connection.phase(PacketDirection.CLIENTBOUND) == phase) writeDelimiter(ctx);
                         else retiredBundleGeneration = generation;
                     }
                 }
@@ -927,7 +966,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
     }
 
     private void settleGroups(ChannelHandlerContext ctx, Output output) {
-        if (output.groups == null) return;
+        if (output.groups == null || output.groups.isEmpty()) return;
         for (GroupCompletion group : output.groups) {
             var combiner = new PromiseCombiner(ctx.executor());
             for (ChannelPromise part : group.parts) combiner.add((Future<?>) part);
@@ -967,12 +1006,50 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
     }
 
     private Frame frame(ByteBuf bytes, ChannelPromise promise, PacketType<?> type, int ping, boolean lead) {
-        return new Frame(bytes, promise, type, ping, lead, protocolGeneration);
+        Frame frame = spareFrames;
+        if (frame == null) frame = new Frame();
+        else {
+            spareFrames = frame.next;
+            spareFrameCount--;
+            frame.next = null;
+        }
+        frame.bytes = bytes;
+        frame.promise = promise;
+        frame.type = type;
+        frame.ping = ping;
+        frame.lead = lead;
+        frame.generation = protocolGeneration;
+        return frame;
+    }
+
+    /** CultAC's own listeners hold a send event past dispatch only through its tasks after send. */
+    private void recycle(PacketDispatcher.Route route, PacketSendEvent<?> event) {
+        if (!route.own() || !event.tasksAfter().isEmpty()) return;
+        event.release();
+        idleSendEvent = event;
+    }
+
+    /** Keeps a frame that no output, batch or caller holds any more for a later {@link #frame}. */
+    private void recycle(Frame frame) {
+        frame.bytes = null;
+        frame.promise = null;
+        frame.type = null;
+        if (spareFrameCount == MAX_SPARE_FRAMES) return;
+        frame.next = spareFrames;
+        spareFrames = frame;
+        spareFrameCount++;
     }
 
     /** {@code ping} is a CultAC transaction; {@code generation} identifies prepared old-protocol delimiters. */
-    private record Frame(
-            ByteBuf bytes, ChannelPromise promise, PacketType<?> type, int ping, boolean lead, int generation) {}
+    private static final class Frame {
+        ByteBuf bytes;
+        ChannelPromise promise;
+        PacketType<?> type;
+        int ping;
+        boolean lead;
+        int generation;
+        Frame next;
+    }
 
     private record GroupCompletion(List<ChannelPromise> parts, ChannelPromise promise) {}
 
@@ -1091,7 +1168,10 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                     tail = source.tail;
                     source.first = null;
                     source.tail = null;
-                } else while (!source.isEmpty()) addLast(source.removeFirst());
+                } else {
+                    while (!source.isEmpty()) addLast(source.removeFirst());
+                    source.tail = null;
+                }
             }
             if (source.hasTasks()) {
                 if (tasks == null) tasks = source.tasks;

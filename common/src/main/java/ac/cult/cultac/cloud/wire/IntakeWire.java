@@ -288,11 +288,15 @@ public final class IntakeWire {
      * none of them may wait for a message to fill.
      */
     public static boolean endsMessage(byte[] record) {
-        if (record.length < 3 || record[0] != (MESSAGES << 3 | WireFormat.WIRETYPE_LENGTH_DELIMITED))
-            return false;
+        return endsMessage(record, record.length);
+    }
+
+    /** As {@link #endsMessage(byte[])}, for the record in the first {@code length} bytes of {@code record}. */
+    public static boolean endsMessage(byte[] record, int length) {
+        if (length < 3 || record[0] != (MESSAGES << 3 | WireFormat.WIRETYPE_LENGTH_DELIMITED)) return false;
         int at = 1;
-        while (at < record.length && record[at] < 0) at++;
-        if (++at >= record.length) return false;
+        while (at < length && record[at] < 0) at++;
+        if (++at >= length) return false;
         int kind = WireFormat.getTagFieldNumber(record[at] & 0xFF);
         return kind == IntakeMessage.JOIN_FIELD_NUMBER
                 || kind == IntakeMessage.LEAVE_FIELD_NUMBER
@@ -842,11 +846,21 @@ public final class IntakeWire {
 
         /** The FRAME, as one {@code Intake} entry. */
         public byte[] build(UUID player, long seq) {
-            int frame =
-                    Math.toIntExact(18 + (seq != 0 ? CodedOutputStream.computeUInt64Size(FRAME_SEQ, seq) : 0) + bytes);
+            byte[] out = new byte[length(seq)];
+            build(player, seq, out);
+            return out;
+        }
+
+        /** The length of the FRAME {@link #build(UUID, long)} writes for {@code seq}. */
+        public int length(long seq) {
+            return nested(MESSAGES, nested(FRAME, frameBytes(seq)));
+        }
+
+        /** As {@link #build(UUID, long)}, into the first {@link #length} bytes of {@code out}. */
+        public void build(UUID player, long seq, byte[] out) {
+            int frame = frameBytes(seq);
             int message = nested(FRAME, frame);
-            byte[] out = new byte[nested(MESSAGES, message)];
-            CodedOutputStream stream = CodedOutputStream.newInstance(out);
+            CodedOutputStream stream = CodedOutputStream.newInstance(out, 0, nested(MESSAGES, message));
             try {
                 stream.writeTag(MESSAGES, 2);
                 stream.writeUInt32NoTag(message);
@@ -877,7 +891,10 @@ public final class IntakeWire {
             } catch (IOException impossible) {
                 throw new UncheckedIOException(impossible);
             }
-            return out;
+        }
+
+        private int frameBytes(long seq) {
+            return Math.toIntExact(18 + (seq != 0 ? CodedOutputStream.computeUInt64Size(FRAME_SEQ, seq) : 0) + bytes);
         }
 
         public void clear() {
@@ -946,12 +963,27 @@ public final class IntakeWire {
          * at a flush and is returned; without, it stays open, its output held off-heap, and null is returned.
          */
         public ByteBuffer write(List<byte[]> records, int bytes, boolean end) {
+            input(bytes);
+            for (byte[] record : records) input.put(record);
+            return compress(bytes, end);
+        }
+
+        /** As {@link #write(List, int, boolean)}, for the first {@code lengths[i]} bytes of each {@code records[i]}. */
+        public ByteBuffer write(byte[][] records, int[] lengths, int bytes, boolean end) {
+            input(bytes);
+            for (int i = 0; i < records.length; i++) input.put(records[i], 0, lengths[i]);
+            return compress(bytes, end);
+        }
+
+        private void input(int bytes) {
             if (open == 0) shrink();
             open += bytes;
             largestPart = Math.max(largestPart, bytes);
             if (input.capacity() < bytes) input = ByteBuffer.allocateDirect(bytes);
             input.clear();
-            for (byte[] record : records) input.put(record);
+        }
+
+        private ByteBuffer compress(int bytes, boolean end) {
             input.flip();
             int bound = (int) Zstd.compressBound(bytes);
             if (output.remaining() < bound) {
@@ -1162,7 +1194,8 @@ public final class IntakeWire {
                                 Math.min(Integer.MAX_VALUE, Integer.toUnsignedLong(start.getSeconds()))));
                     }
                 }
-                case TEAM_STATE -> replies.add(new TeamStateReply(reply.getTeamState().getEnabled()));
+                case TEAM_STATE ->
+                    replies.add(new TeamStateReply(reply.getTeamState().getEnabled()));
                 case TEAM_SWEEP -> {
                     List<UUID> players = new ArrayList<>(reply.getTeamSweep().getPlayersCount());
                     for (ByteString player : reply.getTeamSweep().getPlayersList()) {

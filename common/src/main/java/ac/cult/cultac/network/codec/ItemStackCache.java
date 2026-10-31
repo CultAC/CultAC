@@ -12,7 +12,7 @@ import java.util.function.Supplier;
 /**
  * One connection's recently decoded clientbound stacks, by their wire bytes, for the decode of one decoder, protocol
  * version, item registry and registry generation. Confined to the connection's packet executor, like the registry
- * state the decode reads.
+ * state the decode reads. No held key begins with another, so at most one matches the start of any input.
  */
 final class ItemStackCache {
     static final int ENTRIES = 64;
@@ -20,7 +20,9 @@ final class ItemStackCache {
     /** Bound on the summed {@link #retained} sizes of the held stacks. */
     static final int BUDGET = 160 * 1024;
 
-    private final int[] hashes = new int[ENTRIES];
+    /** A key's first eight bytes, little-endian, zero past its end. */
+    private final long[] heads = new long[ENTRIES];
+
     private final byte[][] keys = new byte[ENTRIES][];
     private final SimItemStack[] stacks = new SimItemStack[ENTRIES];
     private final long[] used = new long[ENTRIES];
@@ -98,19 +100,31 @@ final class ItemStackCache {
         }
     }
 
-    /** The held stack decoded from {@code input}'s bytes {@code start} until {@code end}, or null. */
-    SimItemStack get(ByteBuf input, int start, int end) {
-        int length = end - start;
-        if (length > MAX_BYTES) return null;
-        int hash = hash(input, start, end);
+    /** The slot of the held stack whose key {@code input}'s readable bytes from {@code start} begin with, or -1. */
+    int find(ByteBuf input, int start) {
+        int readable = input.writerIndex() - start;
+        long head = head(input, start, Math.min(readable, Long.BYTES));
         for (int slot = 0; slot < ENTRIES; slot++) {
             byte[] key = keys[slot];
-            if (key != null && hashes[slot] == hash && key.length == length && same(key, input, start)) {
+            if (key != null
+                    && key.length <= readable
+                    && heads[slot] == (key.length >= Long.BYTES ? head : head & ((1L << (key.length * 8)) - 1))
+                    && same(key, input, start)) {
                 used[slot] = ++clock;
-                return stacks[slot];
+                return slot;
             }
         }
-        return null;
+        return -1;
+    }
+
+    /** The stack held in a slot {@link #find} returned. */
+    SimItemStack stack(int slot) {
+        return stacks[slot];
+    }
+
+    /** The key length of a slot {@link #find} returned. */
+    int length(int slot) {
+        return keys[slot].length;
     }
 
     /**
@@ -136,7 +150,7 @@ final class ItemStackCache {
         }
         byte[] key = new byte[length];
         input.getBytes(start, key);
-        hashes[slot] = hash(input, start, end);
+        heads[slot] = head(input, start, Math.min(length, Long.BYTES));
         keys[slot] = key;
         stacks[slot] = stack;
         sizes[slot] = size;
@@ -144,15 +158,16 @@ final class ItemStackCache {
         used[slot] = ++clock;
     }
 
-    private static int hash(ByteBuf input, int start, int end) {
-        int hash = end - start, index = start;
-        for (; index + 4 <= end; index += 4) hash = hash * 31 + input.getInt(index);
-        for (; index < end; index++) hash = hash * 31 + input.getByte(index);
-        return hash;
+    private static long head(ByteBuf input, int start, int length) {
+        if (length == Long.BYTES) return input.getLongLE(start);
+        long head = 0;
+        for (int index = 0; index < length; index++) head |= (input.getByte(start + index) & 0xffL) << (index * 8);
+        return head;
     }
 
     private static boolean same(byte[] key, ByteBuf input, int start) {
-        for (int index = 0; index < key.length; index++) if (key[index] != input.getByte(start + index)) return false;
+        for (int index = Math.min(key.length, Long.BYTES); index < key.length; index++)
+            if (key[index] != input.getByte(start + index)) return false;
         return true;
     }
 }

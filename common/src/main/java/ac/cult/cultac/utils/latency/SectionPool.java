@@ -1,19 +1,40 @@
 package ac.cult.cultac.utils.latency;
 
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedSection;
+import io.netty.buffer.ByteBuf;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
+import java.util.function.IntUnaryOperator;
 
 public final class SectionPool {
     private static final CachedSection CANONICAL_AIR = createCanonicalAir();
 
     static final long STABILITY_DELAY_NANOS = TimeUnit.SECONDS.toNanos(5);
+    private static final int WIRE_CANDIDATES = 8;
 
     public static final AtomicLong internCallCounter = new AtomicLong(0);
     public static final AtomicLong internDedupCounter = new AtomicLong(0);
     public static final AtomicLong tryReinternSuccessCounter = new AtomicLong(0);
+    /** Block containers offered to a pool's wire match, each counted once whatever it holds. */
+    public static final LongAdder wireOfferCounter = new LongAdder();
+    /** Offered block containers that share the storage of a pooled section. */
+    public static final LongAdder wireHitCounter = new LongAdder();
+    /** Pooled sections compared with offered block containers. */
+    public static final LongAdder wireCandidateCounter = new LongAdder();
+    /**
+     * Offered block containers read in full into storage with a non-zero bit width, including a uniform container
+     * written with a multi-entry palette. A hit always has a non-zero bit width, so hits / (hits + this) is
+     * the share of such containers that share a pooled section's storage.
+     */
+    public static final LongAdder multiValueFullReadCounter = new LongAdder();
+    /**
+     * Storage clones on a write to a section whose storage is shared only through a hit: the pooled section's next
+     * write after any hit, and the first write of a section a hit returned.
+     */
+    public static final LongAdder sharedCloneCounter = new LongAdder();
 
     private List<CachedSection> nonUniformSections;
 
@@ -27,6 +48,40 @@ public final class SectionPool {
 
     public static SectionPool forChunk(String dimension, int chunkX, int sectionIndex, int chunkZ) {
         return SectionPoolRegistry.forChunk(dimension, chunkX, sectionIndex, chunkZ);
+    }
+
+    /** The pool at a section position if one exists; null otherwise and for a null dimension. Creates nothing. */
+    public static SectionPool existing(String dimension, int chunkX, int sectionIndex, int chunkZ) {
+        return SectionPoolRegistry.existing(dimension, chunkX, sectionIndex, chunkZ);
+    }
+
+    /**
+     * A copy-on-write view of a pooled section whose contents the block container at the reader index holds exactly,
+     * read past that container; null, with the reader index unchanged, when none does. A pooled section's storage is
+     * not written until it leaves the pool under this lock, and the view marks it shared before then.
+     */
+    synchronized PalettedSection sharedBlocks(
+            ByteBuf input,
+            boolean lengthPrefixed,
+            int sourceRegistrySize,
+            IntUnaryOperator mapper,
+            int targetRegistrySize) {
+        wireOfferCounter.increment();
+        if (nonUniformSections == null) return null;
+        int copiedAt = PalettedSection.NO_WORD_COPY;
+        int candidates = Math.min(nonUniformSections.size(), WIRE_CANDIDATES);
+        for (int i = 0; i < candidates; i++) {
+            PalettedSection states = nonUniformSections.get(i).states();
+            copiedAt = states.skipIfEncodes(
+                    input, lengthPrefixed, sourceRegistrySize, mapper, targetRegistrySize, copiedAt);
+            if (copiedAt == PalettedSection.MATCHED) {
+                wireCandidateCounter.add(i + 1);
+                wireHitCounter.increment();
+                return states.copyOnWriteFromPool();
+            }
+        }
+        wireCandidateCounter.add(candidates);
+        return null;
     }
 
     CachedSection internRetained(CachedSection section) {

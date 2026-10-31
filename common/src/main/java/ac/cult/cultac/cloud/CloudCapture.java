@@ -213,6 +213,22 @@ public final class CloudCapture implements PlayerObserver {
 
         boolean send(long generation, byte[] record, long resolvedExtra);
 
+        /**
+         * An array of at least {@code length} bytes for a frame record, which {@link #send(long, byte[], int, long)}
+         * takes.
+         */
+        default byte[] frame(int length) {
+            return new byte[length];
+        }
+
+        /**
+         * As {@link #send(long, byte[], long)}, for the record in the first {@code length} bytes of {@code record}, an
+         * array from {@link #frame} this call takes over.
+         */
+        default boolean send(long generation, byte[] record, int length, long resolvedExtra) {
+            return send(generation, record.length == length ? record : Arrays.copyOf(record, length), resolvedExtra);
+        }
+
         CloudConnection.Terms terms(long generation);
 
         /** Whether the socket of {@code generation} said {@code textStripped} at connect; true once it is gone. */
@@ -893,6 +909,16 @@ public final class CloudCapture implements PlayerObserver {
             }
 
             @Override
+            public byte[] frame(int length) {
+                return uplink != null ? uplink.frame(length) : new byte[length];
+            }
+
+            @Override
+            public boolean send(byte[] record, int length, long resolvedExtra) {
+                return uplink != null && uplink.send(generation, record, length, resolvedExtra);
+            }
+
+            @Override
             public boolean hold(long bytes) {
                 return HELD.take(bytes);
             }
@@ -1103,9 +1129,11 @@ public final class CloudCapture implements PlayerObserver {
     private List<IntakeWire.Geometry> geometries() {
         List<IntakeWire.Geometry> geometries = List.of();
         int last = -1;
-        for (Class<? extends ReachCheck> type : REACH_CHECKS) {
-            ReachCheck check = player.checkManager.getCheck(type);
-            for (ReachCheck.MeasuredAttack attack : check.measuredAttacks()) {
+        for (int c = 0; c < REACH_CHECKS.size(); c++) {
+            ReachCheck check = player.checkManager.getCheck(REACH_CHECKS.get(c));
+            List<ReachCheck.MeasuredAttack> attacks = check.measuredAttacks();
+            for (int a = 0; a < attacks.size(); a++) {
+                ReachCheck.MeasuredAttack attack = attacks.get(a);
                 if (geometries.isEmpty()) geometries = new ArrayList<>();
                 geometries.add(geometry(attack));
                 if (attack.index() > last) {

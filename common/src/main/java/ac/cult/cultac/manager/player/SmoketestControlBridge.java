@@ -98,7 +98,12 @@ public final class SmoketestControlBridge {
                 + " totalCanonicalSections=" + (canonicalAirSections + pooledUniqueSections)
                 + " deduplicatedSections=" + pooledUniqueSections
                 + " mutableCopies="
-                + CompensatedWorld.CachedSection.mutableCopyCounter.get());
+                + CompensatedWorld.CachedSection.mutableCopyCounter.get()
+                + " wireOffers=" + SectionPool.wireOfferCounter.sum()
+                + " wireHits=" + SectionPool.wireHitCounter.sum()
+                + " wireCandidates=" + SectionPool.wireCandidateCounter.sum()
+                + " multiValueFullReads=" + SectionPool.multiValueFullReadCounter.sum()
+                + " sharedClones=" + SectionPool.sharedCloneCounter.sum());
         for (SectionPool.DimensionStats stats : SectionPool.dimensionStats()) {
             LogUtil.info("SectionPool dimension stats: "
                     + "label=" + safeLabel(label)

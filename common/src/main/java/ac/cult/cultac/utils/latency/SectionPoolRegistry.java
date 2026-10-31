@@ -87,6 +87,12 @@ final class SectionPoolRegistry {
         }
     }
 
+    static SectionPool existing(String dimension, int chunkX, int sectionIndex, int chunkZ) {
+        if (dimension == null) return null;
+        PoolEntry entry = find(dimension, chunkX, sectionIndex, chunkZ);
+        return entry == null ? null : entry.pool;
+    }
+
     /** The pool entry at a section position, read without the dimension's lock. */
     private static PoolEntry find(String dimension, int chunkX, int sectionIndex, int chunkZ) {
         Dimension pools = poolsByDimension.get(dimension);

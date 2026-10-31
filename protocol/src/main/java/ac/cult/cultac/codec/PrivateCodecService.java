@@ -217,15 +217,12 @@ public final class PrivateCodecService implements WireValueDecoder {
             NbtFactory<T> factory,
             ItemReuse<T, R> reuse) {
         checkOpen();
+        R reused = reuse.reuse(input);
+        if (reused != null) return reused;
         var type = types(version);
         var scan = input.duplicate();
         ItemStructureGuard.scanItemStack(type, version, scan, false);
         int start = input.readerIndex(), end = scan.readerIndex();
-        R reused = reuse.reuse(input, start, end);
-        if (reused != null) {
-            input.readerIndex(end);
-            return reused;
-        }
         var decoded = readScanned(type, input, false, false);
         return reuse.decoded(item(decoded.item(), registries, version, decoded.patch(), factory), input, start, end);
     }
@@ -413,14 +410,46 @@ public final class PrivateCodecService implements WireValueDecoder {
     @Override
     public <T> List<MetadataValue> metadata(
             ProtocolVersion version, ByteBuf input, Registries registries, NbtFactory<T> factory) {
+        var values = new MetadataValues();
+        metadata(version, input, registries, factory, values);
+        return values.list();
+    }
+
+    private static final class MetadataValues implements MetadataSink {
+        private MetadataValue first, second;
+        private ArrayList<MetadataValue> result;
+
+        @Override
+        public void accept(int index, String kind, Object value, int offset, int length) {
+            var decoded = new MetadataValue(index, kind, value, offset, length);
+            if (first == null) first = decoded;
+            else if (second == null) second = decoded;
+            else {
+                if (result == null) {
+                    result = new ArrayList<>();
+                    result.add(first);
+                    result.add(second);
+                }
+                result.add(decoded);
+            }
+        }
+
+        List<MetadataValue> list() {
+            if (result != null) return List.copyOf(result);
+            if (second != null) return List.of(first, second);
+            return first != null ? List.of(first) : List.of();
+        }
+    }
+
+    @Override
+    public <T> void metadata(
+            ProtocolVersion version, ByteBuf input, Registries registries, NbtFactory<T> factory, MetadataSink sink) {
         checkOpen();
         var types = types(version);
         var serializers = metadataTypes(version);
         int pose = serializers.pose(), optional = serializers.optionalInt();
         int painting = serializers.painting();
         int particle = serializers.particle(), particles = serializers.particles();
-        MetadataValue first = null, second = null;
-        ArrayList<MetadataValue> result = null;
         for (int index; (index = input.readUnsignedByte()) != 255; ) {
             int start = input.readerIndex() - 1;
             int id = Types.VAR_INT.readPrimitive(input);
@@ -465,21 +494,8 @@ public final class PrivateCodecService implements WireValueDecoder {
                     value = new int[] {position.x(), position.y(), position.z()};
                 }
             }
-            var decoded = new MetadataValue(index, kind, value, start, input.readerIndex() - start);
-            if (first == null) first = decoded;
-            else if (second == null) second = decoded;
-            else {
-                if (result == null) {
-                    result = new ArrayList<>();
-                    result.add(first);
-                    result.add(second);
-                }
-                result.add(decoded);
-            }
+            sink.accept(index, kind, value, start, input.readerIndex() - start);
         }
-        if (result != null) return List.copyOf(result);
-        if (second != null) return List.of(first, second);
-        return first != null ? List.of(first) : List.of();
     }
 
     /** Metadata batches may hold this many particles; vanilla sends a handful. */

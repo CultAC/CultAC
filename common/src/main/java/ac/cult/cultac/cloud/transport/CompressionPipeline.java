@@ -123,7 +123,34 @@ final class CompressionPipeline implements AutoCloseable {
      * ends. The list may be reused after. A part the pool refuses fails its message as a write that throws does.
      */
     void submit(List<byte[]> records, int bytes, boolean end) {
-        List<byte[]> own = List.copyOf(records);
+        byte[][] own = records.toArray(new byte[0][]);
+        int[] lengths = new int[own.length];
+        for (int i = 0; i < own.length; i++) lengths[i] = own[i].length;
+        submit(own, lengths, null, null, bytes, end);
+    }
+
+    /**
+     * As {@link #submit(List, int, boolean)}, for queued records: each one's first {@link CloudConnection.Queued#length}
+     * bytes, and a {@linkplain CloudConnection.Queued#pooled pooled} one's array given back to {@code frames} once it is
+     * written.
+     */
+    void submitQueued(List<CloudConnection.Queued> records, int bytes, boolean end, FrameBuffers frames) {
+        int count = records.size();
+        byte[][] own = new byte[count][];
+        int[] lengths = new int[count];
+        boolean[] pooled = null;
+        for (int i = 0; i < count; i++) {
+            CloudConnection.Queued queued = records.get(i);
+            own[i] = queued.record();
+            lengths[i] = queued.length();
+            if (!queued.pooled()) continue;
+            if (pooled == null) pooled = new boolean[count];
+            pooled[i] = true;
+        }
+        submit(own, lengths, pooled, frames, bytes, end);
+    }
+
+    private void submit(byte[][] own, int[] lengths, boolean[] pooled, FrameBuffers frames, int bytes, boolean end) {
         IntakeWire.StreamWriter writer = stream;
         AtomicLong counted = open == null ? new AtomicLong() : open;
         CompletableFuture<byte[]> after = streamTail == null ? CompletableFuture.completedFuture(null) : streamTail;
@@ -132,7 +159,7 @@ final class CompressionPipeline implements AutoCloseable {
         CompletableFuture<byte[]> part = after.<byte[]>handleAsync(
                         (previous, failed) -> {
                             if (failed != null) throw new CompletionException(failed);
-                            return written(writer, own, bytes, end, counted);
+                            return written(writer, own, lengths, pooled, frames, bytes, end, counted);
                         },
                         pool)
                 .whenComplete((message, failed) -> {
@@ -152,9 +179,19 @@ final class CompressionPipeline implements AutoCloseable {
      * that ends the message returns it as its own array; any other returns null.
      */
     private byte[] written(
-            IntakeWire.StreamWriter writer, List<byte[]> records, int bytes, boolean end, AtomicLong counted) {
+            IntakeWire.StreamWriter writer,
+            byte[][] records,
+            int[] lengths,
+            boolean[] pooled,
+            FrameBuffers frames,
+            int bytes,
+            boolean end,
+            AtomicLong counted) {
         int held = writer.held();
-        ByteBuffer written = writer.write(records, bytes, end);
+        ByteBuffer written = writer.write(records, lengths, bytes, end);
+        if (pooled != null) {
+            for (int i = 0; i < records.length; i++) if (pooled[i]) frames.give(records[i]);
+        }
         if (written == null) {
             long delta = writer.held() - held - bytes;
             counted.addAndGet(delta);
@@ -197,8 +234,8 @@ final class CompressionPipeline implements AutoCloseable {
             throw failed;
         } catch (InterruptedException | TimeoutException given) {
             head.message()
-                    .whenComplete((message, failed) ->
-                            queuedBytes.addAndGet(failed == null ? -message.length : -head.counted().get()));
+                    .whenComplete((message, failed) -> queuedBytes.addAndGet(
+                            failed == null ? -message.length : -head.counted().get()));
             throw given;
         }
     }

@@ -2,6 +2,7 @@ package ac.cult.cultac.network.packet;
 
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.utils.latency.PalettedSection;
+import ac.cult.cultac.utils.latency.SectionPool;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
@@ -9,7 +10,10 @@ import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.function.IntUnaryOperator;
 
-/** Immutable owned palettes. Mutable consumers copy storage; no frame or encoded copy is retained. */
+/**
+ * Immutable palettes; a section pool may share their block storage across connections, copy-on-write. Mutable consumers
+ * copy storage; no frame or encoded copy is retained.
+ */
 public final class SectionSnapshot {
     private final short nonEmpty, fluids;
     private final PalettedSection blocks, biomes;
@@ -30,12 +34,29 @@ public final class SectionSnapshot {
             int modelBiomes,
             IntUnaryOperator states,
             IntUnaryOperator biomes) {
+        return read(input, version, sourceStates, modelStates, sourceBiomes, modelBiomes, states, biomes, null);
+    }
+
+    /**
+     * As the read without a pool, sharing the block storage of a section in {@code pool} that the wire holds.
+     * {@code states} must be pure and non-blocking: it runs under the pool's lock, possibly once per pooled candidate.
+     */
+    public static SectionSnapshot read(
+            ByteBuf input,
+            ProtocolVersion version,
+            int sourceStates,
+            int modelStates,
+            int sourceBiomes,
+            int modelBiomes,
+            IntUnaryOperator states,
+            IntUnaryOperator biomes,
+            SectionPool pool) {
         short nonEmpty = input.readShort();
         short fluids = version.atLeast(ProtocolVersion.V26_1) ? input.readShort() : 0;
         return new SectionSnapshot(
                 nonEmpty,
                 fluids,
-                PalettedSection.readBlocks(input, version, sourceStates, states, modelStates),
+                PalettedSection.readBlocks(input, version, sourceStates, states, modelStates, pool),
                 PalettedSection.readBiomes(input, version, sourceBiomes, biomes, modelBiomes));
     }
 

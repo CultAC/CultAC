@@ -15,6 +15,7 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
+import java.util.List;
 
 /**
  * The prediction engine's state after each client tick, for that tick's VERDICT, and the conditions it adds. Read at
@@ -88,7 +89,9 @@ public final class EngineVerdicts {
             fall = carry.fallDistance();
             fallMin = fall;
             fallMax = fall;
-            for (JavaPredictionCarry.State state : carry.states()) {
+            List<JavaPredictionCarry.State> states = carry.states();
+            for (int i = 0; i < states.size(); i++) {
+                JavaPredictionCarry.State state = states.get(i);
                 fallMin = Math.min(fallMin, state.fallDistance());
                 fallMax = Math.max(fallMax, state.fallDistance());
             }
@@ -117,7 +120,8 @@ public final class EngineVerdicts {
             Vec3 residual = result.getTarget()
                     .subtract(result.getAcceptedClosestToTarget())
                     .multiply(1, 0, 1);
-            Vec3 input = HorizontalAnalyzer.getBestTheoreticalPlayerInput(residual, context.getXRot(), context.getVersion());
+            Vec3 input =
+                    HorizontalAnalyzer.getBestTheoreticalPlayerInput(residual, context.getXRot(), context.getVersion());
             forward = speed > 0 ? hundredths(input.z / speed) : 0;
             strafe = speed > 0 ? hundredths(input.x / speed) : 0;
         }
@@ -125,7 +129,9 @@ public final class EngineVerdicts {
         boolean velocity = false;
         Integer velocityPing = null;
         TransactionVel applied = null;
-        for (TransactionVel modifier : chosen.getPacketModifiers()) {
+        List<TransactionVel> modifiers = chosen.getPacketModifiers();
+        for (int i = 0; i < modifiers.size(); i++) {
+            TransactionVel modifier = modifiers.get(i);
             if (applied == null || modifier.getOutboundSequence() > applied.getOutboundSequence()) applied = modifier;
         }
         if (applied != null && applied.getTransaction() != lastVelocity) {
@@ -172,8 +178,10 @@ public final class EngineVerdicts {
 
     /** Whether prediction accepted, with no flags, both a candidate that jumped and one that did not. */
     private static boolean ambiguous(PredictionResult result, boolean jumped) {
-        if (result.getRealities() == null) return false;
-        for (PredictionResult reality : result.getRealities()) {
+        List<PredictionResult> realities = result.getRealities();
+        if (realities == null) return false;
+        for (int i = 0; i < realities.size(); i++) {
+            PredictionResult reality = realities.get(i);
             if (reality.getFlagSeverity() == 0
                     && reality.getInitialStartingVel().isJump() != jumped) return true;
         }

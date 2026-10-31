@@ -10,9 +10,17 @@ import ac.cult.shaded.vialib.api.minecraft.codec.CodecContext;
 import ac.cult.shaded.vialib.api.minecraft.data.StructuredDataKey;
 import ac.cult.shaded.vialib.util.Key;
 import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /** Borrowed read-only registry snapshot, scoped to one decode. */
 final class ValueContext implements CodecContext, CodecContext.RegistryAccess {
+    /** Qualified registries and parsed keys depend only on their string; each map keeps at most this many. */
+    private static final int MAX_SHARED = 4096;
+
+    private static final Map<String, String> QUALIFIED = new ConcurrentHashMap<>();
+    private static final Map<String, Key> KEYS = new ConcurrentHashMap<>();
+
     private final WireValueDecoder.Registries names;
     private final ProtocolVersion version;
     private final ModelIdMappings mappings;
@@ -104,10 +112,24 @@ final class ValueContext implements CodecContext, CodecContext.RegistryAccess {
 
     @Override
     public Key registryKey(String registry, int id) {
-        String qualified = Key.namespaced(registry);
+        String qualified = QUALIFIED.get(registry);
+        if (qualified == null) {
+            qualified = Key.namespaced(registry);
+            if (QUALIFIED.size() < MAX_SHARED) QUALIFIED.put(registry, qualified);
+        }
         String name = names.name(qualified, id);
         references.computeIfAbsent(qualified, key -> new java.util.HashMap<>()).put(id, name);
-        return Key.of(modelName(qualified, name));
+        return key(modelName(qualified, name));
+    }
+
+    private static Key key(String name) {
+        if (name == null) return Key.of(name);
+        Key key = KEYS.get(name);
+        if (key == null) {
+            key = Key.of(name);
+            if (KEYS.size() < MAX_SHARED) KEYS.put(name, key);
+        }
+        return key;
     }
 
     ValueContext fork() {

@@ -3,21 +3,21 @@ package ac.cult.cultac.checks.impl.prediction;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionDebug;
+import ac.cult.cultac.bedrock.prediction.integration.ExternalMovementUncertainty;
 import ac.cult.cultac.checks.CultProcessor;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassAfterTravel;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.BoatTransform;
-import ac.cult.cultac.bedrock.prediction.integration.ExternalMovementUncertainty;
-import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
-import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassAfterTravel;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.PistonData;
-import ac.cult.cultac.utils.latency.ClientBlockEntityPass;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.latency.ClientBlockEntityPass;
 import ac.cult.cultac.utils.lists.EvictingQueue;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
@@ -31,6 +31,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
 
     public static final int FLAG_SIZE = 128;
     private static final Vec3 TELEPORT_MARKER = new Vec3(123456, 123456, 123456);
+    private static final int MAX_CAPTURE_TEXT = 1 << 18;
 
     private static final String[] flags = new String[FLAG_SIZE + 2]; //  17/2 MB of logs in memory
 
@@ -48,6 +49,9 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
 
     /** Set while something watches this player's predictions: each one also goes to it. */
     private volatile PredictionObserver diag;
+
+    /** {@link #capture}'s text, on the packet thread; null while nothing watches. */
+    private StringBuilder captureText;
 
     public SuperDebug(CultPlayer player) {
         super(player);
@@ -118,7 +122,11 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         movementHistory.add(new MovementFrame(closest, target, location));
 
         PredictionObserver watch = diag;
-        if (watch != null) capture(watch, result, lastResult, closest, target, predictionComplete.isExempt());
+        if (watch != null) {
+            capture(watch, result, lastResult, closest, target, predictionComplete.isExempt());
+        } else {
+            captureText = null;
+        }
 
         if (result.getIdentifier() == 0) return;
 
@@ -164,10 +172,14 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
             String state = null;
             BlockGrid grid = null;
             if (result.getSimulationContext() != null) {
-                StringBuilder sb = new StringBuilder(8192);
+                StringBuilder sb = captureText;
+                if (sb == null) sb = new StringBuilder(8192);
+                captureText = null;
+                sb.setLength(0);
                 appendState(sb, result, lastResult);
                 appendTail(sb, result, lastResult);
                 state = sb.toString();
+                if (sb.capacity() <= MAX_CAPTURE_TEXT) captureText = sb;
                 grid = BlockGrid.around(player);
             }
             double offset = result.getValidMovements() != null ? result.getOffset() : Double.NaN;
@@ -601,7 +613,8 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         if (pass == null) return;
         sb.append("\n\n========= block-entity pass after travel =========\n\n");
         sb.append("Movers (ticker order) at game time ").append(pass.gameTime()).append(":\n");
-        for (ClientBlockEntityPass.Mover mover : pass.movers()) sb.append(" ").append(mover).append('\n');
+        for (ClientBlockEntityPass.Mover mover : pass.movers())
+            sb.append(" ").append(mover).append('\n');
         JavaPassAfterTravel replayed = JavaMovementEngine.passAfterTravel(result);
         if (replayed == null) {
             sb.append("The selected travel's pass left the player in place.\n");

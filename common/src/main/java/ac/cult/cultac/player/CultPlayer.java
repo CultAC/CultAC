@@ -17,7 +17,6 @@ import ac.cult.cultac.checks.impl.prediction.checks.ItemUseDesync;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.runner.ExplosionHandler;
 import ac.cult.cultac.checks.impl.prediction.runner.KnockbackHandler;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UnknownCollisionProvider;
 import ac.cult.cultac.checks.verdict.FlagArbiter;
 import ac.cult.cultac.events.packets.PacketEntityReplication;
 import ac.cult.cultac.manager.LastInstanceManager;
@@ -54,7 +53,6 @@ import ac.cult.cultac.utils.data.ClientSwimState;
 import ac.cult.cultac.utils.data.PacketStateData;
 import ac.cult.cultac.utils.data.VehicleData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.latency.CompensatedCameraEntity;
@@ -1215,10 +1213,18 @@ public class CultPlayer implements GrimUser {
         return isSneaking && !isFlying ? Pose.CROUCHING : Pose.STANDING;
     }
 
-    /** Player#canPlayerFitWithinBlocksAndEntitiesWhen with the player at {@code (x, y, z)}. */
+    // Fit-query scratch: read only within one query on the player's thread, never stored or returned.
+    private final SimpleCollisionBox fitBox = new SimpleCollisionBox();
+    private final SimpleCollisionBox fitEntityBox = new SimpleCollisionBox();
+    private final SimpleCollisionBox fitEntityScratch = new SimpleCollisionBox();
+
+    /**
+     * Player#canPlayerFitWithinBlocksAndEntitiesWhen with the player at {@code (x, y, z)}.
+     * Call on this player's packet thread only: the query uses per-player scratch boxes.
+     */
     public boolean canPlayerFitWithinBlocksAndEntitiesWhen(Pose newPose, double x, double y, double z) {
         SimpleCollisionBox box = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                        x, y, z, newPose.width * getScale(), newPose.height * getScale())
+                        fitBox, x, y, z, newPose.width * getScale(), newPose.height * getScale())
                 .expand(-1.0E-7D);
         return Collisions.isEmpty(this, box, y) && hasNoEntityCollision(box, new Vec3(x, y, z));
     }
@@ -1226,16 +1232,19 @@ public class CultPlayer implements GrimUser {
     /**
      * Whether the {@code newPose} box fits. Java uses the same exact test as vanilla pose selection; Bedrock keeps
      * its existing candidate test.
+     * Call on this player's packet thread only: the query uses per-player scratch boxes.
      */
     public boolean mayPlayerFitWithinBlocksAndEntitiesWhen(Pose newPose, double x, double y, double z) {
         if (!isBedrockMovement()) return canPlayerFitWithinBlocksAndEntitiesWhen(newPose, x, y, z);
         SimpleCollisionBox box = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                        x, y, z, newPose.width * getScale(), newPose.height * getScale())
+                        fitBox, x, y, z, newPose.width * getScale(), newPose.height * getScale())
                 .expand(-1.0E-7D);
         if (!Collisions.isEmpty(this, box, y)) return false;
         PacketEntity riding = compensatedEntities.getSelf().getRiding();
-        SimpleCollisionBox entityBox = new SimpleCollisionBox();
-        for (PacketEntity entity : compensatedEntities.poseCollisionCandidates()) {
+        SimpleCollisionBox entityBox = fitEntityBox;
+        List<PacketEntity> candidates = compensatedEntities.poseCollisionCandidates();
+        for (int i = 0, size = candidates.size(); i < size; i++) {
+            PacketEntity entity = candidates.get(i);
             if (canCollideWithForPoseCheck(riding, entity) && overlapsAtEachPossiblePosition(entity, box, entityBox)) {
                 return false;
             }
@@ -1261,9 +1270,11 @@ public class CultPlayer implements GrimUser {
                             this, compensatedEntities.getSelf(), position, playerBox)
                     == DesyncStatus.TRUE;
         PacketEntity riding = compensatedEntities.getSelf().getRiding();
-        SimpleCollisionBox entityBox = new SimpleCollisionBox();
-        SimpleCollisionBox scratch = new SimpleCollisionBox();
-        for (PacketEntity entity : compensatedEntities.poseCollisionCandidates()) {
+        SimpleCollisionBox entityBox = fitEntityBox;
+        SimpleCollisionBox scratch = fitEntityScratch;
+        List<PacketEntity> candidates = compensatedEntities.poseCollisionCandidates();
+        for (int i = 0, size = candidates.size(); i < size; i++) {
+            PacketEntity entity = candidates.get(i);
             if (!canCollideWithForPoseCheck(riding, entity)) {
                 continue;
             }

@@ -41,6 +41,8 @@ public class Phase extends Check implements PostPredictionListener {
     }
 
     SimpleCollisionBox oldBox = null;
+    // Read only within one checkMovement call; never stored.
+    private final SimpleCollisionBox newBoxScratch = new SimpleCollisionBox();
 
     private void handleMovePlayer(ServerboundMovePlayer packet) {
         // Geyser projections must neither check movement nor replace auth-input history.
@@ -101,7 +103,7 @@ public class Phase extends Check implements PostPredictionListener {
                     1.8f,
                     false);
         }
-        SimpleCollisionBox newBox = boxAt(location, 0.6f, bedrock);
+        SimpleCollisionBox newBox = boxAt(newBoxScratch, location, 0.6f, bedrock);
 
         List<SimpleCollisionBox> boxes = new ArrayList<>();
         SimpleCollisionBox savedBox = player.boundingBox;
@@ -157,9 +159,13 @@ public class Phase extends Check implements PostPredictionListener {
     }
 
     private SimpleCollisionBox boxAt(Vec3 location, float height, boolean bedrock) {
+        return boxAt(new SimpleCollisionBox(), location, height, bedrock);
+    }
+
+    private SimpleCollisionBox boxAt(SimpleCollisionBox out, Vec3 location, float height, boolean bedrock) {
         float scale = player.isBedrockMovement() ? 1.0f : player.getScale();
         SimpleCollisionBox box = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                location.x, location.y, location.z, 0.6f * scale, height * scale);
+                out, location.x, location.y, location.z, 0.6f * scale, height * scale);
         return bedrock ? box.expand(-BEDROCK_PENETRATION_INSET) : box;
     }
 

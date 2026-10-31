@@ -247,6 +247,24 @@ class IntakeWireTest {
     }
 
     @Test
+    void aFrameBuiltIntoALargerArrayFillsItsLengthAlone() {
+        IntakeWire.FrameBuilder builder = new IntakeWire.FrameBuilder();
+        for (int i = 0; i < 40; i++) {
+            add(builder, i % 2 == 0 ? IntakeWire.CLIENTBOUND : IntakeWire.SERVERBOUND, i * 977L, new byte[i * 7 + 1]);
+            for (long seq : new long[] {0, 1, 300, 1L << 40}) {
+                byte[] exact = builder.build(PLAYER, seq);
+                assertEquals(exact.length, builder.length(seq));
+                byte[] larger = new byte[exact.length + 1 + i];
+                Arrays.fill(larger, (byte) 0x5A);
+                builder.build(PLAYER, seq, larger);
+                assertArrayEquals(exact, Arrays.copyOf(larger, exact.length));
+                for (int at = exact.length; at < larger.length; at++) assertEquals(0x5A, larger[at]);
+                assertTrue(IntakeWire.endsMessage(exact) == IntakeWire.endsMessage(larger, exact.length));
+            }
+        }
+    }
+
+    @Test
     void gapCountsLostFrames() throws InvalidProtocolBufferException {
         assertEquals(130, Gap.parseFrom(IntakeWire.gap(130)).getLostFrames());
         assertArrayEquals(new byte[0], IntakeWire.gap(0));
@@ -389,7 +407,8 @@ class IntakeWireTest {
 
     @Test
     void teamRolesMatchTheGoldenBytes() throws InvalidProtocolBufferException {
-        byte[] golden = hex("0a 24 3a 22 0a 20 0a 10 " + TEAM_PLAYER_HEX + " 12 0a 44 69 73 72 65 67 61 72 64 31 18 03");
+        byte[] golden =
+                hex("0a 24 3a 22 0a 20 0a 10 " + TEAM_PLAYER_HEX + " 12 0a 44 69 73 72 65 67 61 72 64 31 18 03");
 
         byte[] written = IntakeWire.team(
                 List.of(IntakeWire.teamRole(TEAM_PLAYER, "Disregard1", PortalRole.PORTAL_ROLE_MODERATOR, false)));
@@ -414,7 +433,8 @@ class IntakeWireTest {
         assertArrayEquals(
                 enabled,
                 Replies.newBuilder()
-                        .addReplies(Reply.newBuilder().setTeamState(TeamState.newBuilder().setEnabled(true)))
+                        .addReplies(Reply.newBuilder()
+                                .setTeamState(TeamState.newBuilder().setEnabled(true)))
                         .build()
                         .toByteArray());
         assertArrayEquals(

@@ -156,8 +156,10 @@ public class SimulationContext implements Cloneable {
 
     @Setter
     boolean bedrockMovement;
+
     @Setter
     boolean noPhysics;
+
     @Setter
     boolean noPhysicsHorizontalCollision;
     // A tick whose position LocalPlayer#sendPosition withheld: the report is the last position sent.
@@ -198,6 +200,7 @@ public class SimulationContext implements Cloneable {
     @Setter
     @ToString.Exclude
     ClientBlockEntityPass passAfterTravel;
+
     @Setter
     boolean spinSprintResetRequired;
 
@@ -411,24 +414,39 @@ public class SimulationContext implements Cloneable {
     }
 
     public SimpleCollisionBox getToMaxPose() {
-        return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), getMaxHeight());
+        return getToMaxPose(new SimpleCollisionBox());
+    }
+
+    /** {@link #getToMaxPose()} written into {@code out}. */
+    public SimpleCollisionBox getToMaxPose(SimpleCollisionBox out) {
+        return GetBoundingBox.getBoundingBoxFromPosAndSize(out, end.x, end.y, end.z, getMaxWidth(), getMaxHeight());
     }
 
     public SimpleCollisionBox getToMaximumExtent() {
+        return getToMaximumExtent(new SimpleCollisionBox());
+    }
+
+    /** {@link #getToMaximumExtent()} written into {@code out}. */
+    public SimpleCollisionBox getToMaximumExtent(SimpleCollisionBox out) {
         if (getVehicle() != null) {
-            return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), getMaxHeight());
+            return GetBoundingBox.getBoundingBoxFromPosAndSize(out, end.x, end.y, end.z, getMaxWidth(), getMaxHeight());
         }
         SimpleCollisionBox box =
-                GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), getMaxHeight());
+                GetBoundingBox.getBoundingBoxFromPosAndSize(out, end.x, end.y, end.z, getMaxWidth(), getMaxHeight());
         return bedrockMovement ? box.expand(0.0002) : box;
     }
 
     public SimpleCollisionBox getToMinimumExtent() {
+        return getToMinimumExtent(new SimpleCollisionBox());
+    }
+
+    /** {@link #getToMinimumExtent()} written into {@code out}. */
+    public SimpleCollisionBox getToMinimumExtent(SimpleCollisionBox out) {
         if (getVehicle() != null) {
-            return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), 0.6f);
+            return GetBoundingBox.getBoundingBoxFromPosAndSize(out, end.x, end.y, end.z, getMaxWidth(), 0.6f);
         }
         SimpleCollisionBox box =
-                GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), getMinHeight());
+                GetBoundingBox.getBoundingBoxFromPosAndSize(out, end.x, end.y, end.z, getMaxWidth(), getMinHeight());
         return bedrockMovement ? box.expand(-0.0002) : box;
     }
 
@@ -442,15 +460,27 @@ public class SimulationContext implements Cloneable {
     }
 
     public SimpleCollisionBox getFromMaximumExtent() {
-        return GetBoundingBox.getBoundingBoxFromPosAndSize(start.x, start.y, start.z, getMaxWidth(), getMaxHeight());
+        return getFromMaximumExtent(new SimpleCollisionBox());
+    }
+
+    /** {@link #getFromMaximumExtent()} written into {@code out}. */
+    public SimpleCollisionBox getFromMaximumExtent(SimpleCollisionBox out) {
+        return GetBoundingBox.getBoundingBoxFromPosAndSize(
+                out, start.x, start.y, start.z, getMaxWidth(), getMaxHeight());
     }
 
     public SimpleCollisionBox getFromMinimumExtent() {
+        return getFromMinimumExtent(new SimpleCollisionBox());
+    }
+
+    /** {@link #getFromMinimumExtent()} written into {@code out}. */
+    public SimpleCollisionBox getFromMinimumExtent(SimpleCollisionBox out) {
         if (getVehicle() != null) {
             return GetBoundingBox.getBoundingBoxFromPosAndSize(
-                    start.x, start.y, start.z, getMaxWidth(), getMaxHeight());
+                    out, start.x, start.y, start.z, getMaxWidth(), getMaxHeight());
         }
-        return GetBoundingBox.getBoundingBoxFromPosAndSize(start.x, start.y, start.z, getMaxWidth(), getMinHeight());
+        return GetBoundingBox.getBoundingBoxFromPosAndSize(
+                out, start.x, start.y, start.z, getMaxWidth(), getMinHeight());
     }
 
     public SimpleCollisionBox getToCubeCollision() {
@@ -461,25 +491,40 @@ public class SimulationContext implements Cloneable {
     }
 
     public SimpleCollisionBox getFromActualPose() {
+        return getFromActualPose(new SimpleCollisionBox());
+    }
+
+    /** {@link #getFromActualPose()} written into {@code out}. */
+    public SimpleCollisionBox getFromActualPose(SimpleCollisionBox out) {
         if (getVehicle() != null) {
-            return getFromMaximumExtent();
+            return getFromMaximumExtent(out);
         }
         return GetBoundingBox.getBoundingBoxFromPosAndSize(
-                start.x, start.y, start.z, pose.width * scale, pose.height * scale);
+                out, start.x, start.y, start.z, pose.width * scale, pose.height * scale);
     }
 
     public SimpleCollisionBox getToActualPose() {
-        return getActualPoseAt(end);
+        return getToActualPose(new SimpleCollisionBox());
+    }
+
+    /** {@link #getToActualPose()} written into {@code out}. */
+    public SimpleCollisionBox getToActualPose(SimpleCollisionBox out) {
+        return getActualPoseAt(end, out);
     }
 
     /** EntityDimensions#makeBoundingBox at {@code position}, with this movement's dimensions. */
     public SimpleCollisionBox getActualPoseAt(Vec3 position) {
+        return getActualPoseAt(position, new SimpleCollisionBox());
+    }
+
+    /** {@link #getActualPoseAt(Vec3)} written into {@code out}. */
+    public SimpleCollisionBox getActualPoseAt(Vec3 position, SimpleCollisionBox out) {
         if (getVehicle() != null) {
             return GetBoundingBox.getBoundingBoxFromPosAndSize(
-                    position.x, position.y, position.z, getMaxWidth(), getMaxHeight());
+                    out, position.x, position.y, position.z, getMaxWidth(), getMaxHeight());
         }
         return GetBoundingBox.getBoundingBoxFromPosAndSize(
-                position.x, position.y, position.z, pose.width * scale, pose.height * scale);
+                out, position.x, position.y, position.z, pose.width * scale, pose.height * scale);
     }
 
     public float getMaxSpeed(CultPlayer player) {

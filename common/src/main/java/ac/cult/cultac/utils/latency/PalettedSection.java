@@ -9,20 +9,34 @@ package ac.cult.cultac.utils.latency;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.wire.Wire;
+import ac.cult.cultac.utils.latency.CompensatedWorld.CachedChunk;
 import io.netty.buffer.ByteBuf;
+import io.netty.util.concurrent.FastThreadLocal;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.lang.ref.WeakReference;
 import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.function.IntPredicate;
 import java.util.function.IntUnaryOperator;
 
-/** Connection-owned model IDs; shared sections are copied before mutation. */
+/** Model IDs whose storage a section pool may share across connections; shared storage is copied before mutation. */
 public final class PalettedSection {
     private static final int BLOCK_STATES = DataTables.defaults().registry().stateCount();
     private static final int[] VALUES_PER_WORD = new int[33];
     private static final long[] WORD_RECIPROCALS = new long[33];
     private static final long ABSENT_CODE_WEIGHT = 1L << 50;
     private static final long[] NO_WORDS = new long[0];
+    private static final VarHandle BIG_ENDIAN_LONGS =
+            MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
+    // Host-owned threads outlive a runtime generation, so their map holds only host-loaded types.
+    private static final FastThreadLocal<WeakReference<byte[]>> WORD_BYTES = new FastThreadLocal<>();
+    private static final FastThreadLocal<WeakReference<long[]>> CODE_WEIGHTS = new FastThreadLocal<>();
+    private static final int SCRATCH_BYTES = 1024 * Long.BYTES;
+    private static final int SCRATCH_CODES = 1 << 8;
+    static final int MATCHED = -2;
+    static final int NO_WORD_COPY = -1;
 
     static {
         for (int bits = 1; bits <= 32; bits++) {
@@ -32,12 +46,13 @@ public final class PalettedSection {
         }
     }
 
-    private final int size, minimumBits, maximumLocalBits, registrySize;
-    private int bits, paletteSize;
+    private final int size, minimumBits, maximumLocalBits;
+    private int registrySize, bits, paletteSize;
     private int[] palette;
     private Int2IntOpenHashMap indices;
     private long[] words;
     private boolean sharedStorage;
+    private boolean sharedByPool;
 
     private PalettedSection(int size, int minimumBits, int maximumLocalBits, int registrySize, int initial) {
         this(size, minimumBits, maximumLocalBits, registrySize, 0, new int[] {initial}, 1, NO_WORDS);
@@ -78,6 +93,19 @@ public final class PalettedSection {
         return result;
     }
 
+    /**
+     * {@link #readBiomes(ByteBuf, int)}'s values; a single-entry palette gives {@link CachedChunk#uniformBiomes}'s
+     * shared array, which no caller may write.
+     */
+    public static int[] readBiomeValues(ByteBuf input, int registrySize) {
+        var section = read(input, 64, 1, 3, registrySize, false);
+        int single = section.singleValue();
+        if (single >= 0) return CachedChunk.uniformBiomes(single);
+        int[] result = new int[64];
+        for (int i = 0; i < result.length; i++) result[i] = section.get(i);
+        return result;
+    }
+
     /** A block container in {@code version}'s framing; global entries use that version's registry size. */
     public static PalettedSection readBlocks(ByteBuf input, ProtocolVersion version, int registrySize) {
         return read(input, 4096, 4, 8, registrySize, !version.atLeast(ProtocolVersion.V1_21_5));
@@ -91,6 +119,42 @@ public final class PalettedSection {
     public static PalettedSection readBlocks(
             ByteBuf input, ProtocolVersion version, int registrySize, IntUnaryOperator mapper, int targetRegistrySize) {
         return readBlocks(input, version, registrySize).remap(mapper, targetRegistrySize, true);
+    }
+
+    /**
+     * As {@link #readBlocks(ByteBuf, ProtocolVersion, int, IntUnaryOperator, int)}, sharing the storage of a section in
+     * {@code pool} when the container holds exactly its contents. {@code mapper} must be pure and non-blocking: it runs
+     * under the pool's lock, possibly once per pooled candidate.
+     */
+    public static PalettedSection readBlocks(
+            ByteBuf input,
+            ProtocolVersion version,
+            int registrySize,
+            IntUnaryOperator mapper,
+            int targetRegistrySize,
+            SectionPool pool) {
+        if (pool != null) {
+            var shared = pool.sharedBlocks(
+                    input, !version.atLeast(ProtocolVersion.V1_21_5), registrySize, mapper, targetRegistrySize);
+            if (shared != null) return shared;
+            return countedFullRead(readBlocks(input, version, registrySize, mapper, targetRegistrySize));
+        }
+        return readBlocks(input, version, registrySize, mapper, targetRegistrySize);
+    }
+
+    /** As {@link #readBlocks(ByteBuf)}, sharing the storage of a section in {@code pool} that the container holds. */
+    public static PalettedSection readBlocks(ByteBuf input, SectionPool pool) {
+        if (pool != null) {
+            var shared = pool.sharedBlocks(input, false, BLOCK_STATES, IntUnaryOperator.identity(), BLOCK_STATES);
+            if (shared != null) return shared;
+            return countedFullRead(readBlocks(input));
+        }
+        return readBlocks(input);
+    }
+
+    private static PalettedSection countedFullRead(PalettedSection read) {
+        if (read.bits != 0) SectionPool.multiValueFullReadCounter.increment();
+        return read;
     }
 
     /** {@link #readBiomes(ByteBuf, ProtocolVersion, int)} then {@link #remap}, remapping the read storage in place. */
@@ -124,16 +188,44 @@ public final class PalettedSection {
         }
         // Since 1.21.5 arrays have a fixed length derived from the configuration.
         int bytes = section.words.length * Long.BYTES;
-        if (bytes > 0 && input.readableBytes() >= bytes && input.nioBufferCount() == 1) {
-            input.nioBuffer(input.readerIndex(), bytes)
-                    .order(ByteOrder.BIG_ENDIAN)
-                    .asLongBuffer()
-                    .get(section.words);
+        if (bytes > 0 && input.readableBytes() >= bytes) {
+            readWords(input, section.words);
             input.skipBytes(bytes);
         } else {
             for (int i = 0; i < section.words.length; i++) section.words[i] = input.readLong();
         }
         return section;
+    }
+
+    private static void readWords(ByteBuf input, long[] words) {
+        int index = input.readerIndex();
+        byte[] array = input.hasArray() ? input.array() : copiedBytes(input, index, words.length * Long.BYTES);
+        if (array == null) {
+            for (int i = 0; i < words.length; i++) words[i] = input.getLong(index + i * Long.BYTES);
+            return;
+        }
+        int offset = input.hasArray() ? input.arrayOffset() + index : 0;
+        for (int i = 0; i < words.length; i++) words[i] = (long) BIG_ENDIAN_LONGS.get(array, offset + i * Long.BYTES);
+    }
+
+    /**
+     * This thread's copy of the {@code length} bytes at {@code index}, null when they exceed the scratch; only the
+     * calling method reads it.
+     */
+    private static byte[] copiedBytes(ByteBuf input, int index, int length) {
+        if (length > SCRATCH_BYTES) return null;
+        byte[] bytes = heldBytes();
+        if (bytes == null) {
+            bytes = new byte[SCRATCH_BYTES];
+            WORD_BYTES.set(new WeakReference<>(bytes));
+        }
+        input.getBytes(index, bytes, 0, length);
+        return bytes;
+    }
+
+    private static byte[] heldBytes() {
+        WeakReference<byte[]> reference = WORD_BYTES.get();
+        return reference == null ? null : reference.get();
     }
 
     /** Pinned 26.3 PalettedContainer.write framing: bits, palette, fixed-length words. */
@@ -175,16 +267,19 @@ public final class PalettedSection {
             }
             return result;
         }
-        var result = new PalettedSection(
-                size,
-                minimumBits,
-                maximumLocalBits,
-                targetRegistrySize,
-                bits,
-                reuseStorage ? palette : palette.clone(),
-                paletteSize,
-                reuseStorage ? words : words.clone());
+        var result = reuseStorage
+                ? this
+                : new PalettedSection(
+                        size,
+                        minimumBits,
+                        maximumLocalBits,
+                        targetRegistrySize,
+                        bits,
+                        palette.clone(),
+                        paletteSize,
+                        words.clone());
         for (int i = 0; i < paletteSize; i++) result.palette[i] = mapped(mapper, palette[i], targetRegistrySize);
+        result.registrySize = targetRegistrySize;
         return result;
     }
 
@@ -314,10 +409,24 @@ public final class PalettedSection {
                 size, minimumBits, maximumLocalBits, registrySize, bits, palette, paletteSize, words);
         result.sharedStorage = true;
         sharedStorage = true;
+        sharedByPool = false;
+        return result;
+    }
+
+    /** As {@link #copyOnWrite}, for a pooled section whose storage a wire read shares. */
+    PalettedSection copyOnWriteFromPool() {
+        boolean byPool = sharedByPool || !sharedStorage;
+        var result = copyOnWrite();
+        result.sharedByPool = true;
+        sharedByPool = byPool;
         return result;
     }
 
     private void ownStorage() {
+        if (sharedByPool) {
+            SectionPool.sharedCloneCounter.increment();
+            sharedByPool = false;
+        }
         if (palette != null) palette = palette.clone();
         words = words.clone();
         sharedStorage = false;
@@ -411,9 +520,8 @@ public final class PalettedSection {
                 || bits == 0
                 || !localPaletteWithin(weightByState.length)
                 || words.length != (size + perWord - 1) / perWord) return -1;
-        long[] weights = new long[1 << bits];
-        Arrays.fill(weights, ABSENT_CODE_WEIGHT);
-        for (int code = 0, entries = Math.min(paletteSize, weights.length); code < entries; code++) {
+        long[] weights = codeWeights(1 << bits);
+        for (int code = 0, entries = Math.min(paletteSize, 1 << bits); code < entries; code++) {
             long weight = weightByState[palette[code]];
             if (weight < 0 || weight >= ABSENT_CODE_WEIGHT / 4096) return -1;
             weights[code] = weight;
@@ -424,6 +532,19 @@ public final class PalettedSection {
         else if (bits == 8) sum = byteSum(weights);
         else sum = packedSum(weights, perWord);
         return sum >= ABSENT_CODE_WEIGHT ? -1 : sum;
+    }
+
+    /** This thread's code weight table, its first {@code codes} entries absent; only the calling method reads it. */
+    private static long[] codeWeights(int codes) {
+        WeakReference<long[]> reference = CODE_WEIGHTS.get();
+        long[] weights = reference == null ? null : reference.get();
+        if (codes > SCRATCH_CODES) weights = new long[codes];
+        else if (weights == null) {
+            weights = new long[SCRATCH_CODES];
+            CODE_WEIGHTS.set(new WeakReference<>(weights));
+        }
+        Arrays.fill(weights, 0, codes, ABSENT_CODE_WEIGHT);
+        return weights;
     }
 
     private long nibbleSum(long[] weights) {
@@ -487,6 +608,81 @@ public final class PalettedSection {
             for (int i = 0; i < paletteSize; i++) hash = 31 * hash + palette[i];
         }
         return hash;
+    }
+
+    /**
+     * Whether the block container at the reader index, read as {@link #read} then remapped by {@code mapper} into
+     * {@code targetRegistrySize} IDs, would equal this local section in every field; the reader index is then past the
+     * container, and otherwise unchanged. A container that read would reject never matches.
+     *
+     * <p>{@code copiedAt} is the reader index of the words this thread's scratch holds from an earlier call on the same
+     * container, or {@link #NO_WORD_COPY}; the result is {@link #MATCHED}, or the value to pass to the next such call.
+     */
+    int skipIfEncodes(
+            ByteBuf input,
+            boolean lengthPrefixed,
+            int sourceRegistrySize,
+            IntUnaryOperator mapper,
+            int targetRegistrySize,
+            int copiedAt) {
+        int start = input.readerIndex();
+        int result = NO_WORD_COPY;
+        try {
+            result = encodedAt(input, lengthPrefixed, sourceRegistrySize, mapper, targetRegistrySize, copiedAt);
+            if (result == MATCHED) return MATCHED;
+        } catch (RuntimeException rejected) {
+            // The full read that follows raises the same failure from the same reader index.
+        }
+        input.readerIndex(start);
+        return result;
+    }
+
+    private int encodedAt(
+            ByteBuf input,
+            boolean lengthPrefixed,
+            int sourceRegistrySize,
+            IntUnaryOperator mapper,
+            int targetRegistrySize,
+            int copiedAt) {
+        if (size != 4096
+                || minimumBits != 4
+                || maximumLocalBits != 8
+                || registrySize != targetRegistrySize
+                || isGlobal()
+                || bits == 0
+                || paletteSize == 0) return copiedAt;
+        int wireBits = input.readByte();
+        if (wireBits < 1 || wireBits > maximumLocalBits || Math.max(minimumBits, wireBits) != bits) return copiedAt;
+        int capacity = 1 << bits;
+        int entries = Wire.readLength(input, bits <= 4 ? capacity : input.readableBytes());
+        if (entries != paletteSize || palette.length != Math.max(capacity, entries)) return copiedAt;
+        for (int i = 0; i < entries; i++) {
+            int id = Wire.readVarInt(input);
+            if (id < 0 || id >= sourceRegistrySize) return copiedAt;
+            int mapped = mapper.applyAsInt(id);
+            if (mapped != palette[i] || mapped < 0 || mapped >= targetRegistrySize) return copiedAt;
+        }
+        int perWord = 64 / bits, length = (size + perWord - 1) / perWord;
+        if (words.length != length) return copiedAt;
+        if (lengthPrefixed && Wire.readLength(input, input.readableBytes() / Long.BYTES) != length) return copiedAt;
+        int bytes = length * Long.BYTES;
+        if (input.readableBytes() < bytes) return copiedAt;
+        int index = input.readerIndex();
+        int held = copiedAt;
+        byte[] array = input.hasArray() ? input.array() : index == copiedAt ? heldBytes() : null;
+        if (array == null && !input.hasArray()) {
+            array = copiedBytes(input, index, bytes);
+            if (array != null) held = index;
+        }
+        if (array == null) {
+            for (int i = 0; i < length; i++) if (input.getLong(index + i * Long.BYTES) != words[i]) return held;
+        } else {
+            int offset = input.hasArray() ? input.arrayOffset() + index : 0;
+            for (int i = 0; i < length; i++)
+                if ((long) BIG_ENDIAN_LONGS.get(array, offset + i * Long.BYTES) != words[i]) return held;
+        }
+        input.skipBytes(bytes);
+        return MATCHED;
     }
 
     boolean sameContents(PalettedSection other) {

@@ -1,5 +1,7 @@
 package ac.cult.cultac.utils.latency;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 import ac.cult.blocksim.data.BlockRegistry;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.InteractionRegistries;
@@ -53,24 +55,7 @@ class WorldBenchTest {
 
     @Test
     void chunkSections() throws Exception {
-        List<int[]> sections = loadSections();
-        List<byte[]> chunks = new ArrayList<>();
-        for (int start = 0; start < sections.size(); start += SECTIONS_PER_CHUNK) {
-            ByteBuf wire = Unpooled.buffer();
-            for (int i = 0; i < SECTIONS_PER_CHUNK; i++) {
-                int index = start + i;
-                int[] states = index < sections.size() ? sections.get(index) : new int[4096];
-                wire.writeShort(0);
-                wire.writeShort(0);
-                encode(wire, states, STATES);
-                int[] biomes = new int[BIOMES];
-                Arrays.fill(biomes, 1);
-                if (index % 8 == 7) for (int cell = 32; cell < BIOMES; cell++) biomes[cell] = 2;
-                encode(wire, biomes, BIOMES);
-            }
-            chunks.add(ByteBufUtil.getBytes(wire));
-            wire.release();
-        }
+        List<byte[]> chunks = columns(loadSections());
         int sectionsTotal = chunks.size() * SECTIONS_PER_CHUNK;
         List<SectionSnapshot[]> decoded = new ArrayList<>();
         for (byte[] chunk : chunks) decoded.add(decode(chunk));
@@ -135,6 +120,134 @@ class WorldBenchTest {
         });
     }
 
+    /** A second player loading the columns a first player holds, its block storage shared through the pools. */
+    @Test
+    void twoPlayersOneWorld() throws Exception {
+        List<byte[]> chunks = columns(loadSections());
+        String dimension = "bench:two-players";
+        int sectionsTotal = chunks.size() * SECTIONS_PER_CHUNK;
+        for (int column = 0; column < chunks.size(); column++) {
+            SectionSnapshot[] snapshots = decode(chunks.get(column));
+            for (int i = 0; i < snapshots.length; i++)
+                SectionPool.forChunk(dimension, column, i, 0)
+                        .internRetained(new CachedSection(snapshots[i].copyBlocks()));
+        }
+        long shared = 0, offered = 0;
+        long offers = SectionPool.wireOfferCounter.sum(), poolHits = SectionPool.wireHitCounter.sum();
+        for (int column = 0; column < chunks.size(); column++) {
+            var bytes = Unpooled.wrappedBuffer(chunks.get(column));
+            for (int i = 0; i < SECTIONS_PER_CHUNK; i++) {
+                bytes.readShort();
+                bytes.readShort();
+                var pool = SectionPool.existing(dimension, column, i, 0);
+                var view = pool == null
+                        ? null
+                        : pool.sharedBlocks(bytes, false, STATES, IntUnaryOperator.identity(), STATES);
+                if (pool != null) offered++;
+                if (view != null) shared++;
+                else PalettedSection.readBlocks(bytes);
+                PalettedSection.readBiomes(bytes, BIOMES);
+            }
+            bytes.release();
+        }
+        assertEquals(offered, SectionPool.wireOfferCounter.sum() - offers);
+        assertEquals(shared, SectionPool.wireHitCounter.sum() - poolHits);
+        String hits = "shared " + shared + " of " + sectionsTotal + " sections";
+        System.out.println(System.getenv().getOrDefault("CULT_BENCH_LABEL", "run") + " two-players " + hits);
+        var bodies = new LinkedHashMap<String, LongUnaryOperator>();
+        bodies.put("decode-first", units -> {
+            long seen = 0;
+            for (long unit = 0; unit < units; unit++) for (byte[] chunk : chunks) seen += decode(chunk).length;
+            return seen;
+        });
+        bodies.put("decode-second", units -> {
+            long seen = 0;
+            for (long unit = 0; unit < units; unit++)
+                for (int column = 0; column < chunks.size(); column++) {
+                    var bytes = Unpooled.wrappedBuffer(chunks.get(column));
+                    for (int i = 0; i < SECTIONS_PER_CHUNK; i++) {
+                        var snapshot = SectionSnapshot.read(
+                                bytes,
+                                ProtocolVersion.V26_3,
+                                STATES,
+                                STATES,
+                                BIOMES,
+                                BIOMES,
+                                IntUnaryOperator.identity(),
+                                IntUnaryOperator.identity(),
+                                SectionPool.existing(dimension, column, i, 0));
+                        seen += snapshot.uniformBiome();
+                    }
+                    bytes.release();
+                }
+            return seen;
+        });
+        bodies.put("raw-first", units -> {
+            long seen = 0;
+            for (long unit = 0; unit < units; unit++)
+                for (byte[] wire : chunks) {
+                    var bytes = Unpooled.wrappedBuffer(wire);
+                    CachedSection[] cached = new CachedSection[SECTIONS_PER_CHUNK];
+                    int[][] biomes = new int[SECTIONS_PER_CHUNK][];
+                    for (int i = 0; i < SECTIONS_PER_CHUNK; i++) {
+                        bytes.readShort();
+                        bytes.readShort();
+                        cached[i] = new CachedSection(PalettedSection.readBlocks(bytes));
+                        biomes[i] = PalettedSection.readBiomeValues(bytes, BIOMES);
+                    }
+                    bytes.release();
+                    var chunk = CachedChunk.received(cached, 0, List.of(), biomes);
+                    for (CachedSection section : cached) if (section.isEmpty() && !section.hasFluid()) seen++;
+                    seen += chunk.biomeAt(0, 0, 0, 0);
+                }
+            return seen;
+        });
+        bodies.put("raw-second", units -> {
+            long seen = 0;
+            for (long unit = 0; unit < units; unit++)
+                for (int column = 0; column < chunks.size(); column++) {
+                    var bytes = Unpooled.wrappedBuffer(chunks.get(column));
+                    CachedSection[] cached = new CachedSection[SECTIONS_PER_CHUNK];
+                    int[][] biomes = new int[SECTIONS_PER_CHUNK][];
+                    for (int i = 0; i < SECTIONS_PER_CHUNK; i++) {
+                        bytes.readShort();
+                        bytes.readShort();
+                        var pool = SectionPool.existing(dimension, column, i, 0);
+                        cached[i] = new CachedSection(PalettedSection.readBlocks(bytes, pool));
+                        biomes[i] = PalettedSection.readBiomeValues(bytes, BIOMES);
+                    }
+                    bytes.release();
+                    var chunk = CachedChunk.received(cached, 0, List.of(), biomes);
+                    for (CachedSection section : cached) if (section.isEmpty() && !section.hasFluid()) seen++;
+                    seen += chunk.biomeAt(0, 0, 0, 0);
+                }
+            return seen;
+        });
+        interleaved(sectionsTotal, bodies);
+    }
+
+    /** The sections as chunk section data, {@value #SECTIONS_PER_CHUNK} to a column. */
+    private static List<byte[]> columns(List<int[]> sections) {
+        List<byte[]> chunks = new ArrayList<>();
+        for (int start = 0; start < sections.size(); start += SECTIONS_PER_CHUNK) {
+            ByteBuf wire = Unpooled.buffer();
+            for (int i = 0; i < SECTIONS_PER_CHUNK; i++) {
+                int index = start + i;
+                int[] states = index < sections.size() ? sections.get(index) : new int[4096];
+                wire.writeShort(0);
+                wire.writeShort(0);
+                encode(wire, states, STATES);
+                int[] biomes = new int[BIOMES];
+                Arrays.fill(biomes, 1);
+                if (index % 8 == 7) for (int cell = 32; cell < BIOMES; cell++) biomes[cell] = 2;
+                encode(wire, biomes, BIOMES);
+            }
+            chunks.add(ByteBufUtil.getBytes(wire));
+            wire.release();
+        }
+        return chunks;
+    }
+
     private static SectionSnapshot[] decode(byte[] chunk) {
         var bytes = Unpooled.wrappedBuffer(chunk);
         var result = new SectionSnapshot[SECTIONS_PER_CHUNK];
@@ -153,24 +266,43 @@ class WorldBenchTest {
     }
 
     private static void report(String name, int perRun, LongUnaryOperator body) throws Exception {
-        long units = 1;
-        while (cpu(body, units) < 200_000_000L) units *= 2;
-        for (int warm = 0; warm < 3; warm++) sink += body.applyAsLong(units);
-        long[] nanos = new long[REPS], bytes = new long[REPS];
-        for (int rep = 0; rep < REPS; rep++) {
-            long allocated = BEAN.getCurrentThreadAllocatedBytes(), start = BEAN.getCurrentThreadCpuTime();
-            sink += body.applyAsLong(units);
-            nanos[rep] = (BEAN.getCurrentThreadCpuTime() - start) * 1000 / (units * perRun);
-            bytes[rep] = (BEAN.getCurrentThreadAllocatedBytes() - allocated) * 1000 / (units * perRun);
+        interleaved(perRun, Map.of(name, body));
+    }
+
+    /** Each body sized to at least 1 s of thread CPU per rep, their reps alternating so host load falls on all alike. */
+    private static void interleaved(int perRun, Map<String, LongUnaryOperator> bodies) throws Exception {
+        var names = List.copyOf(bodies.keySet());
+        long[] units = new long[names.size()];
+        long[][] nanos = new long[names.size()][REPS], bytes = new long[names.size()][REPS];
+        for (int body = 0; body < names.size(); body++) {
+            units[body] = 1;
+            while (cpu(bodies.get(names.get(body)), units[body]) < 1_000_000_000L) units[body] *= 2;
         }
+        for (int warm = 0; warm < 3; warm++)
+            for (int body = 0; body < names.size(); body++)
+                sink += bodies.get(names.get(body)).applyAsLong(units[body]);
+        for (int rep = 0; rep < REPS; rep++)
+            for (int body = 0; body < names.size(); body++) {
+                long allocated = BEAN.getCurrentThreadAllocatedBytes(), start = BEAN.getCurrentThreadCpuTime();
+                sink += bodies.get(names.get(body)).applyAsLong(units[body]);
+                long work = units[body] * perRun;
+                nanos[body][rep] = (BEAN.getCurrentThreadCpuTime() - start) * 1000 / work;
+                bytes[body][rep] = (BEAN.getCurrentThreadAllocatedBytes() - allocated) * 1000 / work;
+            }
         String label = System.getenv().getOrDefault("CULT_BENCH_LABEL", "run");
-        String line = label + " " + name + " ps/item " + summary(nanos) + " | milli-bytes/item " + summary(bytes)
-                + System.lineSeparator();
-        System.out.print(line);
         String out = System.getenv("CULT_BENCH_OUT");
-        if (out != null)
-            Files.writeString(
-                    Path.of(out), line, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        for (int body = 0; body < names.size(); body++) {
+            String line = label + " " + names.get(body) + " ps/item " + summary(nanos[body]) + " | milli-bytes/item "
+                    + summary(bytes[body]) + System.lineSeparator();
+            System.out.print(line);
+            if (out != null)
+                Files.writeString(
+                        Path.of(out),
+                        line,
+                        StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.APPEND);
+        }
     }
 
     private static long cpu(LongUnaryOperator body, long units) {
@@ -236,12 +368,14 @@ class WorldBenchTest {
                             if (section.has("kind")) continue;
                             var palette = section.getAsJsonArray("palette");
                             int[] states = new int[palette.size()];
-                            for (int i = 0; i < states.length; i++) states[i] = state(palette.get(i).getAsString());
+                            for (int i = 0; i < states.length; i++)
+                                states[i] = state(palette.get(i).getAsString());
                             int[] values = new int[4096];
                             if (!section.has("data")) {
                                 Arrays.fill(values, states[0]);
                             } else {
-                                byte[] data = Base64.getDecoder().decode(section.get("data").getAsString());
+                                byte[] data = Base64.getDecoder()
+                                        .decode(section.get("data").getAsString());
                                 boolean wide = data.length == 8192;
                                 for (int i = 0; i < 4096; i++)
                                     values[i] = states[

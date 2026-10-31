@@ -60,7 +60,13 @@ class EntityReplicationBenchTest {
     void replication() throws Exception {
         String out = System.getenv("CULT_REPLICATION_BENCH");
         assumeTrue(out != null && !out.isEmpty());
-        CultPlayer player = player();
+        for (ProtocolVersion protocol : new ProtocolVersion[] {ProtocolVersion.V1_21_11, ProtocolVersion.V26_3}) {
+            replication(out, protocol);
+        }
+    }
+
+    private void replication(String out, ProtocolVersion protocol) throws Exception {
+        CultPlayer player = player(protocol);
         try {
             player.entityID = 7;
             Random random = new Random(11);
@@ -98,8 +104,7 @@ class EntityReplicationBenchTest {
                             packet);
                 }
                 acknowledgeAll(player);
-                for (PacketEntity entity : player.compensatedEntities.entityMap.values())
-                    entity.onMovement(player);
+                for (PacketEntity entity : player.compensatedEntities.entityMap.values()) entity.onMovement(player);
             };
             byte[] flags = {0};
             PacketType<EntityMetadata> metadataType = metadataType();
@@ -108,14 +113,13 @@ class EntityReplicationBenchTest {
                     var packet = new EntityMetadata(
                             ids.get(i), List.of(EntityMetadata.Entry.of(0, (byte) (n & 1), flags, 0, 1)));
                     player.packetEntityReplication.onSetEntityData(
-                            new PacketSendEvent<>(
-                                    player.user, ConnectionPhase.PLAY, metadataType, packet, false),
+                            new PacketSendEvent<>(player.user, ConnectionPhase.PLAY, metadataType, packet, false),
                             player,
                             packet);
                 }
                 acknowledgeAll(player);
             };
-            String[] names = {"relative moves x" + ENTITIES, "entity data x" + ENTITIES};
+            String[] names = {protocol + " relative moves x" + ENTITIES, protocol + " entity data x" + ENTITIES};
             Cycle[] cycles = {moves, data};
             var bean = (ThreadMXBean) ManagementFactory.getThreadMXBean();
             long thread = Thread.currentThread().threadId();
@@ -160,8 +164,7 @@ class EntityReplicationBenchTest {
                         sortedCpu[REPS - 1]));
             }
             System.out.print(report);
-            Files.writeString(
-                    Path.of(out), report + "---\n", StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            Files.writeString(Path.of(out), report + "---\n", StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         } finally {
             close(player);
         }
@@ -181,7 +184,7 @@ class EntityReplicationBenchTest {
         player.latencyUtils.handleNettySyncTransaction(transaction);
     }
 
-    private static CultPlayer player() {
+    private static CultPlayer player(ProtocolVersion protocol) {
         OfflineCultTestBootstrap.installConfig();
         PlatformConnection platform = new PlatformConnection() {
             @Override
@@ -196,12 +199,12 @@ class EntityReplicationBenchTest {
 
             @Override
             public ProtocolVersion getObservedProtocol() {
-                return ProtocolVersion.V1_21_11;
+                return protocol;
             }
 
             @Override
             public ProtocolVersion getClientProtocol() {
-                return ProtocolVersion.V1_21_11;
+                return protocol;
             }
 
             @Override
@@ -210,8 +213,8 @@ class EntityReplicationBenchTest {
             @Override
             public void sendMessage(Component message) {}
         };
-        User user = TestUsers.create(
-                new User.Profile(UUID.randomUUID(), "Replication"), new EmbeddedChannel(), platform);
+        User user =
+                TestUsers.create(new User.Profile(UUID.randomUUID(), "Replication"), new EmbeddedChannel(), platform);
         CultPlayer player = new CultPlayer(user);
         user.bind(Mockito.mock(PlatformPlayer.class));
         return player;
