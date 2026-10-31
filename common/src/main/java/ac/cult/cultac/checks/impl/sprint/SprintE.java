@@ -39,10 +39,10 @@ public final class SprintE extends Check implements PostPredictionListener {
     @Override
     public void onPredictionComplete(PredictionComplete complete) {
         // A pass replayed since the last travel (a block entity after the report before 26.3, a shulker ticking before
-        // the player) ran Entity#move after it: its flags are the ones LocalPlayer#aiStep reads. One that left no
-        // certain hard collision clears the travel's; the travel's own must be hard too.
-        var afterPass = player.checkManager.getSimulationProcessor().takeHardCollisionAfterPass();
-        if (afterPass != null && afterPass != DesyncStatus.TRUE) wasHardHorizontalCollision = false;
+        // the player) ran Entity#move after it, which set both flags again from its own movement: LocalPlayer#aiStep
+        // reads its collision in place of the travel's.
+        DesyncStatus afterPass = player.checkManager.getSimulationProcessor().takeHardCollisionAfterPass();
+        if (afterPass != null) wasHardHorizontalCollision = afterPass.determinePessimistically();
         if (complete.isTeleport()) {
             wasHardHorizontalCollision = false;
             previousPredictionChecked = false;

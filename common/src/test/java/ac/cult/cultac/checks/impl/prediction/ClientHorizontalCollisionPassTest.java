@@ -34,8 +34,8 @@ class ClientHorizontalCollisionPassTest {
         assertEquals(DesyncStatus.FALSE, ClientHorizontalCollision.hard(result(free)));
         var blocked = new JavaBlockEntityPass.LastMove(new Vec3(-0.5, 0, 0), new Vec3(0, 0, 0));
         assertEquals(DesyncStatus.TRUE, ClientHorizontalCollision.hard(result(blocked)));
-        // A hard pass move only counts after a hard travel.
-        assertEquals(DesyncStatus.FALSE, ClientHorizontalCollision.hard(result(blocked, new Vec3(-0.02548, 0, 0))));
+        // A hard pass move after a travel that collided with nothing still stops the sprint.
+        assertEquals(DesyncStatus.TRUE, ClientHorizontalCollision.hard(result(blocked, new Vec3(-0.02548, 0, 0))));
         // A shove clipped by less than Mth.equal's 1.0E-5F sets no horizontalCollision.
         var grazing = new JavaBlockEntityPass.LastMove(new Vec3(-0.5, 0, 0), new Vec3(-0.499995, 0, 0));
         assertEquals(DesyncStatus.FALSE, ClientHorizontalCollision.hard(result(grazing)));

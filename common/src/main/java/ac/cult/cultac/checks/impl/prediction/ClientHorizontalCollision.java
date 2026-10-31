@@ -57,17 +57,14 @@ public final class ClientHorizontalCollision {
                 || result.getCollideAxisData() == null) return DesyncStatus.UNKNOWN;
         MovementTrace trace = result.getValidMovements().getClosestTrace();
         if (trace == null) return DesyncStatus.UNKNOWN;
-        // From 26.3 the block-entity pass runs after the travel; its last Entity#move sets the flags aiStep reads.
-        // A pass move that left no certain hard collision clears the travel's. One that did only counts when the travel
-        // was hard too.
+        // From 26.3 the block-entity pass runs after the travel. Its last Entity#move sets both flags again from its
+        // own movement alone, so aiStep reads that move's collision whatever the travel's was.
         var pass = ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine.passAfterTravel(result);
-        if (pass != null && pass.result().lastMove() != null) {
-            DesyncStatus afterPass = afterMove(
+        if (pass != null && pass.result().lastMove() != null)
+            return afterMove(
                     result,
                     pass.result().lastMove().delta(),
                     pass.result().lastMove().movement());
-            if (afterPass != DesyncStatus.TRUE) return afterPass;
-        }
         if (result.getCollideAxisData() instanceof JavaMoveCollision move) return forwardHard(result, move);
 
         Vec3 target = result.getTarget();
