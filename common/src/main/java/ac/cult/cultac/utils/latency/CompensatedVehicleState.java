@@ -117,14 +117,18 @@ public final class CompensatedVehicleState implements Debuggable {
             // when the first resumed report includes more travel than the buffer can cover.
             markVehicleSwitchBufferWindow(root);
         }
-        if (!player.isBedrockMovement() && !loadingLevel && isItemControlledVehicleType(root)) {
+        // ClientLevel#tickEntities skips a root outside tickingEntities (its chunk is not loaded on the client), and
+        // with it every passenger: neither LivingEntity#aiStep nor LocalPlayer#sendChanges ran, so the tick neither
+        // decays the root's delta movement nor proves who controls it.
+        boolean rootTicked = root != null && entities.ticksInClientTick(root);
+        if (!player.isBedrockMovement() && !loadingLevel && rootTicked && isItemControlledVehicleType(root)) {
             // Only a loaded player's sendChanges guarantees a MoveVehicle for an item-controlled root.
             itemControlDecisionTick = player.packetStateData.acceptedClientTick;
             itemControlRoot = root;
             itemControlDecision = player.packetStateData.clientTickVehicleMovePacketsThisClientTick > 0;
         }
         if (!player.isBedrockMovement()
-                && root != null
+                && rootTicked
                 && root.isLivingEntity()
                 && (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)
                         || isItemControlledVehicleType(root))
