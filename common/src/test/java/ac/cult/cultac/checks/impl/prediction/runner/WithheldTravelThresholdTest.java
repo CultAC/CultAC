@@ -41,9 +41,10 @@ class WithheldTravelThresholdTest {
         assertNull(SimulationProcessor.travelWithinMovementThreshold(travelled, POSITION, SENT, THRESHOLD));
     }
 
+    /** A selected travel: travelWithinMovementThreshold places it by its accepted movement closest to the target. */
     private static PredictionResult result(double travelX, double severity, List<PredictionResult> realities) {
         PredictionResult result = mock(PredictionResult.class);
-        when(result.getLegacyLikePredictionVector()).thenReturn(new Vec3(travelX, 0.0D, 0.0D));
+        when(result.getAcceptedClosestToTarget()).thenReturn(new Vec3(travelX, 0.0D, 0.0D));
         when(result.getFlagSeverity()).thenReturn(severity);
         when(result.getRealities()).thenReturn(realities);
         return result;
