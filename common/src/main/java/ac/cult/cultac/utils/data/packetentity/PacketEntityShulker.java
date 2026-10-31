@@ -252,26 +252,23 @@ public class PacketEntityShulker extends PacketEntity {
         return modelled() ? shape(out, peekRead()) : out;
     }
 
-    /** LivingEntity#pushEntities runs in super.tick, before Shulker#updatePeekAmount opens the shell. */
-    public List<Vec3> livingPushImpulses(
-            @Nullable List<SimpleCollisionBox> riderPositions, SimpleCollisionBox playerBox, Vec3 playerPosition) {
-        var impulses = new ArrayList<Vec3>();
+    /**
+     * LivingEntity#pushEntities runs in super.tick, before Shulker#updatePeekAmount opens the shell. It pushes from
+     * {@code riderPosition} when the shulker rides, else from its newest position box.
+     */
+    public Vec3 livingPushImpulse(
+            @Nullable SimpleCollisionBox riderPosition, SimpleCollisionBox playerBox, Vec3 playerPosition) {
         float beforePeek = tickedThisClientTick() ? peekO : peek;
-        int count = riderPositions == null ? possibleMovementCollisionBoxCandidateCount() : riderPositions.size();
-        for (int i = 0; i < count; i++) {
-            var raw = riderPositions == null
-                    ? super.possibleMovementCollisionBoxCandidate(i, new SimpleCollisionBox())
-                    : riderPositions.get(i).copy();
-            Vec3 position = clientPosition(raw);
-            var box = shape(raw, beforePeek);
-            Vec3 impulse = ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaLivingEntityPushes.intersects(
-                            box, playerBox)
-                    ? ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaLivingEntityPushes.impulse(
-                            position, playerPosition)
-                    : Vec3.ZERO;
-            if (!impulses.contains(impulse)) impulses.add(impulse);
-        }
-        return impulses;
+        var raw = riderPosition == null
+                ? super.possibleMovementCollisionBoxCandidate(
+                        possibleMovementCollisionBoxCandidateCount() - 1, new SimpleCollisionBox())
+                : riderPosition.copy();
+        Vec3 position = clientPosition(raw);
+        var box = shape(raw, beforePeek);
+        return ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaLivingEntityPushes.intersects(box, playerBox)
+                ? ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaLivingEntityPushes.impulse(
+                        position, playerPosition)
+                : Vec3.ZERO;
     }
 
     @Override

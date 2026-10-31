@@ -94,7 +94,7 @@ class JavaEntityPushTest {
     void anEntityTickingAfterThePlayerPushesFromWhereItsInterpolationStepLeftIt() throws Exception {
         try (var f = falling()) {
             PacketEntity entity = entity(f, 100, STEPPING_FROM);
-            entity.onFirstTransaction(true, true, 0, 0, STEPPING_DZ, f.player);
+            entity.onBundleFirstTransaction(true, true, 0, 0, STEPPING_DZ, f.player);
             entity.onSecondTransaction();
 
             PredictionResult first = f.tick(START.add(0, FIRST_FALL, 0), false);
@@ -599,20 +599,6 @@ class JavaEntityPushTest {
         }
     }
 
-    /** A vehicle that may be anywhere along its pending move may seat its rider anywhere along it too. */
-    @Test
-    void aLivingRiderOfAVehicleWithAnUncertainPositionMayPushFromAnySeat() throws Exception {
-        try (var f = falling()) {
-            PacketEntity vehicle = entity(f, 100, BELOW_TOUCHING);
-            vehicle.onFirstTransaction(true, true, 0, 0, 2.0, f.player);
-            seatSlime(f, vehicle);
-
-            PredictionResult contact = f.tick(START.add(0, FIRST_FALL, 0), false);
-            assertExact(contact);
-            assertEquals(1, contact.getSimulationContext().getWorldData().getNumCollidingTickingAfterPlayer());
-        }
-    }
-
     /**
      * ClientLevel#tickPassenger runs a non-player passenger's rideTick, whose LivingEntity#aiStep pushes, only while
      * that passenger is in tickingEntities itself. AbstractBoat#getPassengerAttachmentPoint seats an Animal first
@@ -793,7 +779,7 @@ class JavaEntityPushTest {
             PacketEntity entity = entity(f, 100, SNAP_FROM);
             // Entity#move's zero Y attempt clears ground on the local authoritative instance.
             assertExact(f.tick(STANDING, false));
-            entity.onFirstTransaction(true, true, SNAP_STEPPING_DX, 0, 0, f.player);
+            entity.onBundleFirstTransaction(true, true, SNAP_STEPPING_DX, 0, 0, f.player);
             entity.onSecondTransaction();
             assertExact(f.tick(STANDING, true));
 

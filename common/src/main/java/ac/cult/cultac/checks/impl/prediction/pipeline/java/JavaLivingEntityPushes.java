@@ -8,8 +8,6 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer;
 import ac.cult.cultac.utils.math.Vec3;
-import java.util.ArrayList;
-import java.util.List;
 
 /** ClientLevel#getPushableEntities selects only LocalPlayer; the remote entity's tick calls player.push(pusher). */
 public final class JavaLivingEntityPushes {
@@ -97,13 +95,9 @@ public final class JavaLivingEntityPushes {
                 PacketEntity.avatarHeight(entity.actionPose, entity.scale));
     }
 
-    public static List<Vec3> impulses(List<SimpleCollisionBox> boxes, SimpleCollisionBox playerBox, Vec3 position) {
-        var impulses = new ArrayList<Vec3>();
-        for (var box : boxes) {
-            Vec3 impulse = intersects(box, playerBox) ? impulse(box, position) : Vec3.ZERO;
-            if (!impulses.contains(impulse)) impulses.add(impulse);
-        }
-        return impulses;
+    /** The impulse a pusher whose physical box is {@code box} gives the player at {@code position}, or zero. */
+    public static Vec3 push(SimpleCollisionBox box, SimpleCollisionBox playerBox, Vec3 position) {
+        return intersects(box, playerBox) ? impulse(box, position) : Vec3.ZERO;
     }
 
     public static boolean intersects(SimpleCollisionBox box, SimpleCollisionBox other) {

@@ -930,7 +930,7 @@ class InputKeysTest {
             f.player
                     .compensatedEntities
                     .getEntity(100)
-                    .onFirstTransaction(true, true, SHULKER_OVER_THE_HEAD.x - at.x, 0, 0, f.player);
+                    .onBundleFirstTransaction(true, true, SHULKER_OVER_THE_HEAD.x - at.x, 0, 0, f.player);
         }
         f.input(FORWARD);
         f.tick(new Vec3(0.5, FLOOR_Y, -2.5 + accel), true);

@@ -35,13 +35,10 @@ class JavaLivingPushCarryRegressionTest {
             remote.onPose(ac.cult.cultac.protocol.value.EntityPose.FALL_FLYING, 0);
             var small = JavaLivingEntityPushes.physicalBox(f.player, remote, remote.getExactMovementCollisionBox());
             assertEquals(79 + (double) .6F, small.maxY);
-            assertEquals(List.of(Vec3.ZERO), JavaLivingEntityPushes.impulses(List.of(small), localBox, position));
+            assertEquals(Vec3.ZERO, JavaLivingEntityPushes.push(small, localBox, position));
             remote.onPose(ac.cult.cultac.protocol.value.EntityPose.STANDING, 0);
             var tall = JavaLivingEntityPushes.physicalBox(f.player, remote, remote.getExactMovementCollisionBox());
-            assertTrue(JavaLivingEntityPushes.impulses(List.of(tall), localBox, position)
-                            .getFirst()
-                            .x
-                    < -.02);
+            assertTrue(JavaLivingEntityPushes.push(tall, localBox, position).x < -.02);
         }
     }
 
@@ -50,9 +47,7 @@ class JavaLivingPushCarryRegressionTest {
         var pusher = new ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox(0, 0, 0, 1, 1, 1);
         var player = new ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox(1 - 1e-10, 0, 0, 1.6, 1.8, 0.6);
         assertTrue(JavaLivingEntityPushes.intersects(pusher, player));
-        var impulses = JavaLivingEntityPushes.impulses(List.of(pusher), player, new Vec3(1.3, 0, 0.5));
-        assertEquals(1, impulses.size());
-        assertTrue(impulses.getFirst().x > 0.04);
+        assertTrue(JavaLivingEntityPushes.push(pusher, player, new Vec3(1.3, 0, 0.5)).x > 0.04);
     }
 
     /**

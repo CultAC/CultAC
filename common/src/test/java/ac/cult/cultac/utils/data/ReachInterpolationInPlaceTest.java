@@ -92,7 +92,7 @@ class ReachInterpolationInPlaceTest {
         PacketEntity entity = new PacketEntity(EntityTypeIds.ZOMBIE, 1);
         SimpleCollisionBox start = new SimpleCollisionBox(-0.3, 0, -0.3, 0.3, 1.95, 0.3);
         ReachInterpolationData data =
-                new ReachInterpolationData(player, start, 4, 1, -2, 0, 0, 90, 10, false, entity, false);
+                new ReachInterpolationData(player, start, 4, 1, -2, 0, 0, 90, 10, entity);
         assertTrue(data.usesSteppedInterpolation());
         data.appendPath(EntityPositionPath.linear(new Vec3(6, 1, -2)), 180, 0);
         SimpleCollisionBox out = new SimpleCollisionBox(9, 9, 9, 10, 10, 10, true);

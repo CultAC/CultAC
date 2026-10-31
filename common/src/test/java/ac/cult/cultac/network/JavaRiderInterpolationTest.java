@@ -39,9 +39,8 @@ class JavaRiderInterpolationTest {
      * shifts that path; the next commonTick cannot carry the reseat delta into a target blocked by the head.
      */
     @ParameterizedTest
-    @CsvSource({"true,true,true", "false,true,true", "true,false,true", "true,true,false"})
-    void aPistonDisplacedPassengerInterpolatesBeforePushing(boolean interpolate, boolean blocked, boolean bundled)
-            throws Exception {
+    @CsvSource({"true,true", "false,true", "true,false"})
+    void aPistonDisplacedPassengerInterpolatesBeforePushing(boolean interpolate, boolean blocked) throws Exception {
         try (var f = new JavaTickFixture()) {
             f.place(PLAYER, new Vec3(0, -.0784000015258789, 0));
             f.input(new ServerboundPlayerInput(false, false, false, false, false, false, false));
@@ -59,13 +58,7 @@ class JavaRiderInterpolationTest {
             int firstPass = entities.beginRiderPushPass();
             double firstX = 1.5 - .9F / 2 - .01;
             pig.recordRiderPushBox(firstPass, box(f, pig, new Vec3(firstX, SEAT.y, PIG_Z)));
-            if (interpolate) {
-                pig.onPositionPath(EntityPositionPath.linear(Vec3.ZERO), false, 287F, 0F, f.player, bundled);
-                if (!bundled) {
-                    pig.onUnbundledPathProven();
-                    pig.onSecondTransaction();
-                }
-            }
+            if (interpolate) pig.onPositionPath(EntityPositionPath.linear(Vec3.ZERO), false, 287F, 0F, f.player);
             // The first interpolation is at the packet's current position, then rideTick reseats the pig.
             entities.tickClientEntities(entity -> entity.onMovement(f.player));
             int secondPass = entities.beginRiderPushPass();

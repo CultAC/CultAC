@@ -48,16 +48,19 @@ public final class ClientRavagerRoars {
     public static List<Vec3> impulses(List<SimpleCollisionBox> sources, SimpleCollisionBox target, Vec3 position) {
         var impulses = new ArrayList<Vec3>(sources.size());
         for (var source : sources) {
-            Vec3 impulse = Vec3.ZERO;
-            if (source.copy().expand(4).isIntersected(target)) {
-                double dx = position.x - (source.minX + source.maxX) * 0.5;
-                double dz = position.z - (source.minZ + source.maxZ) * 0.5;
-                double squared = Math.max(dx * dx + dz * dz, 0.001);
-                impulse = new Vec3(dx / squared * 4.0, 0.2, dz / squared * 4.0);
-            }
+            Vec3 impulse = impulse(source, target, position);
             if (!impulses.contains(impulse)) impulses.add(impulse);
         }
         return impulses;
+    }
+
+    /** {@link #impulses} for one ravager box. */
+    public static Vec3 impulse(SimpleCollisionBox source, SimpleCollisionBox target, Vec3 position) {
+        if (!source.copy().expand(4).isIntersected(target)) return Vec3.ZERO;
+        double dx = position.x - (source.minX + source.maxX) * 0.5;
+        double dz = position.z - (source.minZ + source.maxZ) * 0.5;
+        double squared = Math.max(dx * dx + dz * dz, 0.001);
+        return new Vec3(dx / squared * 4.0, 0.2, dz / squared * 4.0);
     }
 
     public void resetVerticalBefore(PacketEntity self, long sequence) {

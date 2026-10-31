@@ -2200,7 +2200,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             return;
         }
         applyEntityRotationAndGround(entity, movement);
-        if (applyClientPath(entity, movement, true)) {
+        if (applyClientPath(entity, movement)) {
             // Native RC1 interpolation path was appended at this proof.
         } else if (movement.hasPosition()) {
             entity.onBundledPositionSyncTransaction(
@@ -2276,7 +2276,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         }
     }
 
-    private boolean applyClientPath(PacketEntity entity, EntityMovement movement, boolean bundled) {
+    private boolean applyClientPath(PacketEntity entity, EntityMovement movement) {
         if (player.isBedrockMovement() || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2)) return false;
         if (movement.kind() == MovementKind.POSITION_SYNC
                 && (!player.compensatedEntities.isTicking(entity)
@@ -2302,8 +2302,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 movement.hasRotation(),
                 movement.rotationYaw(),
                 movement.rotationPitch(),
-                player,
-                bundled);
+                player);
         return true;
     }
 
@@ -2317,7 +2316,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     }
 
     private void applyBundleFirstMovement(PacketEntity entity, EntityMovement movement) {
-        if (applyClientPath(entity, movement, true)) return;
+        if (applyClientPath(entity, movement)) return;
         entity.onBundleFirstTransaction(
                 movement.relative(),
                 movement.hasPosition(),
@@ -2331,7 +2330,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     }
 
     private void applyBundledMovement(PacketEntity entity, EntityMovement movement) {
-        if (applyClientPath(entity, movement, true)) return;
+        if (applyClientPath(entity, movement)) return;
         entity.onBundleTransaction(
                 movement.relative(),
                 movement.hasPosition(),

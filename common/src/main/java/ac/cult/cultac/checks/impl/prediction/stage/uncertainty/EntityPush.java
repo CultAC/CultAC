@@ -108,33 +108,12 @@ public class EntityPush implements UncertaintyHandler {
         }
     }
 
-    // TODO: Convert to more pure uncertainty
-    public static void addPossibleBoatPushes(
-            List<Vec3> pushCandidates,
-            List<SimpleCollisionBox> boatBoxes,
-            SimpleCollisionBox playerBox,
-            Vec3 pushedPosition) {
-        SimpleCollisionBox pushBox = new SimpleCollisionBox();
-        for (int i = 0; i < boatBoxes.size(); i++) {
-            SimpleCollisionBox boatBox = boatBoxes.get(i);
-            pushBox.set(boatBox).expand(0.2F, -0.01F, 0.2F);
-            if (!vanillaIntersects(pushBox, playerBox) || playerBox.minY > boatBox.minY) {
-                addDistinctPush(pushCandidates, Vec3.ZERO);
-                continue;
-            }
-
-            Vec3 impulse = getBoatPushImpulse(boatBox, pushedPosition);
-            addDistinctPush(pushCandidates, impulse == null ? Vec3.ZERO : impulse);
-        }
-    }
-
-    private static void addDistinctPush(List<Vec3> pushes, Vec3 impulse) {
-        for (Vec3 existing : pushes) {
-            if (existing.equals(impulse)) {
-                return;
-            }
-        }
-        pushes.add(impulse);
+    /** The impulse a boat whose box is {@code boatBox} gives the player at {@code pushedPosition}, or zero. */
+    public static Vec3 boatPush(SimpleCollisionBox boatBox, SimpleCollisionBox playerBox, Vec3 pushedPosition) {
+        SimpleCollisionBox pushBox = boatBox.copy().expand(0.2F, -0.01F, 0.2F);
+        if (!vanillaIntersects(pushBox, playerBox) || playerBox.minY > boatBox.minY) return Vec3.ZERO;
+        Vec3 impulse = getBoatPushImpulse(boatBox, pushedPosition);
+        return impulse == null ? Vec3.ZERO : impulse;
     }
 
     private static boolean vanillaIntersects(SimpleCollisionBox one, SimpleCollisionBox two) {

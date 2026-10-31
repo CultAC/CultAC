@@ -15,6 +15,7 @@ import ac.cult.cultac.utils.nmsutil.ReachUtils;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import org.jetbrains.annotations.Nullable;
 
 /** Velocity writes by other ticking entities, on their actual side of LocalPlayer#tick and in that tick's order. */
 public final class JavaEntityVelocityTicks {
@@ -27,12 +28,11 @@ public final class JavaEntityVelocityTicks {
         var candidates = new ArrayList<PredVector>();
         double scale = rangeScale(ticks);
         for (PredVector velocity : velocities) {
-            var transformed = JavaMovementMath.calculate(
+            Vec3 transformed = JavaMovementMath.calculate(
                     player,
                     velocity,
                     () -> apply(ticks, velocity, ReachUtils.getLook(player, context.getXRot(), context.getYRot())));
-            for (Vec3 vector : transformed)
-                candidates.add(withScaledRange(velocity.with(vector, "entities before player"), scale));
+            candidates.add(withScaledRange(velocity.with(transformed, "entities before player"), scale));
         }
         return candidates;
     }
@@ -82,16 +82,13 @@ public final class JavaEntityVelocityTicks {
     private static List<Vec3> afterPlayerTick(
             CultPlayer player, SimulationContext context, PredVector candidate, List<Tick> ticks, Vec3 velocity) {
         if (ticks.isEmpty()) return List.of(velocity);
-        List<Vec3> moved = JavaMovementMath.calculate(
+        Vec3 moved = JavaMovementMath.calculate(
                 player,
                 candidate,
                 () -> apply(ticks, velocity, ReachUtils.getLook(player, context.getXRot(), context.getYRot())));
-        if (!(velocity instanceof PredVector ranged) || ranged.getVelocityRange() == null) return moved;
+        if (!(velocity instanceof PredVector ranged) || ranged.getVelocityRange() == null) return List.of(moved);
         // A carried velocity range moves with the velocity.
-        double scale = rangeScale(ticks);
-        var kept = new ArrayList<Vec3>(moved.size());
-        for (Vec3 vector : moved) kept.add(withScaledRange(ranged.with(vector, "entities after player"), scale));
-        return kept;
+        return List.of(withScaledRange(ranged.with(moved, "entities after player"), rangeScale(ticks)));
     }
 
     /**
@@ -100,7 +97,7 @@ public final class JavaEntityVelocityTicks {
      */
     private static double rangeScale(List<Tick> ticks) {
         double scale = 1;
-        for (Tick tick : ticks) if (tick.impulses == null) scale *= 0.5D;
+        for (Tick tick : ticks) if (tick.impulse == null) scale *= 0.5D;
         return scale;
     }
 
@@ -189,32 +186,26 @@ public final class JavaEntityVelocityTicks {
                                 && !JavaLivingEntityPushes.anyCandidateIntersects(
                                         player, entity, box, candidateBox, physicalBox)) continue;
                         boxes = entity.getPossibleMovementCollisionBoxCandidates();
+                        if (boxes.isEmpty()) continue;
                     }
                     // EntitySelector#pushableBy reads both Entity#getTeam answers; a tame animal's may need its owner.
                     if (!entities.teamCollision.allows(ClientEntityTeams.teamOf(player, entity), localTeam)) continue;
-                    List<Vec3> impulses;
+                    // The entity pushes from one box: its newest candidate, the box collision readers meet. A bundled
+                    // move's proof leaves a tracked entity a single candidate.
+                    SimpleCollisionBox from = boxes.getLast();
+                    Vec3 impulse;
                     if (entity instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityShulker shulker) {
                         // A rider's push uses the position before positionRider, including its independent
                         // block-entity shove. Its shell is shaped at that position, before this tick's peek.
-                        impulses = shulker.livingPushImpulses(rider ? boxes : null, box, position);
+                        impulse = shulker.livingPushImpulse(rider ? from : null, box, position);
                     } else {
-                        var physicalBoxes = new ArrayList<SimpleCollisionBox>(boxes.size());
-                        boolean touches = !rider;
-                        for (var candidate : boxes) {
-                            var physical = JavaLivingEntityPushes.physicalBox(player, entity, candidate);
-                            touches |= JavaLivingEntityPushes.intersects(physical, box);
-                            physicalBoxes.add(physical);
-                        }
-                        if (!touches) continue;
-                        if (boat) {
-                            var pushes = new ArrayList<Vec3>();
-                            EntityPush.addPossibleBoatPushes(pushes, physicalBoxes, box, position);
-                            impulses = pushes;
-                        } else impulses = JavaLivingEntityPushes.impulses(physicalBoxes, box, position);
+                        var physical = JavaLivingEntityPushes.physicalBox(player, entity, from);
+                        if (rider && !JavaLivingEntityPushes.intersects(physical, box)) continue;
+                        impulse = boat
+                                ? EntityPush.boatPush(physical, box, position)
+                                : JavaLivingEntityPushes.push(physical, box, position);
                     }
-                    if (!impulses.isEmpty()
-                            && !(impulses.size() == 1 && impulses.getFirst().equals(Vec3.ZERO)))
-                        ticks.add(new Tick(order, List.copyOf(impulses)));
+                    if (!impulse.equals(Vec3.ZERO)) ticks.add(new Tick(order, impulse));
                 }
             } finally {
                 entities.setPassTickedThroughOrder(phase);
@@ -266,10 +257,10 @@ public final class JavaEntityVelocityTicks {
                 long order = ravager.tickingOrder(player);
                 if ((order < localOrder) != before) continue;
                 entities.setPassTickedThroughOrder(order);
-                var impulses = ClientRavagerRoars.impulses(
-                        ravager.getPossibleMovementCollisionBoxCandidates(), target, position);
-                if (!(impulses.size() == 1 && impulses.getFirst().equals(Vec3.ZERO)))
-                    ticks.add(new Tick(order, impulses));
+                var sources = ravager.getPossibleMovementCollisionBoxCandidates();
+                if (sources.isEmpty()) continue;
+                Vec3 impulse = ClientRavagerRoars.impulse(sources.getLast(), target, position);
+                if (!impulse.equals(Vec3.ZERO)) ticks.add(new Tick(order, impulse));
             }
         } finally {
             entities.setPassTickedThroughOrder(phase);
@@ -282,24 +273,12 @@ public final class JavaEntityVelocityTicks {
         return false;
     }
 
-    record Tick(long order, List<Vec3> impulses) {}
+    /** One entity's velocity write: the impulse its push or roar adds, or null for a firework rocket's boost. */
+    record Tick(long order, @Nullable Vec3 impulse) {}
 
-    private static List<Vec3> apply(List<Tick> ticks, Vec3 velocity, Vector3dm look) {
-        List<Vec3> candidates = List.of(velocity);
-        for (Tick tick : ticks) {
-            var next = new ArrayList<Vec3>();
-            for (Vec3 start : candidates) {
-                if (tick.impulses == null) next.add(boost(start, look));
-                else {
-                    for (Vec3 impulse : tick.impulses) {
-                        Vec3 pushed = start.add(impulse);
-                        if (!next.contains(pushed)) next.add(pushed);
-                    }
-                }
-            }
-            candidates = next;
-        }
-        return candidates;
+    private static Vec3 apply(List<Tick> ticks, Vec3 velocity, Vector3dm look) {
+        for (Tick tick : ticks) velocity = tick.impulse == null ? boost(velocity, look) : velocity.add(tick.impulse);
+        return velocity;
     }
 
     public static Vec3 boost(Vec3 movement, Vector3dm look) {

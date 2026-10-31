@@ -31,7 +31,7 @@ class PlacedEntityPositionTest {
             double y = 85.9599609375;
             for (double move : moves) {
                 y += move;
-                block.onFirstTransaction(false, true, 0.5, y, 0.5, player);
+                block.onBundleFirstTransaction(false, true, 0.5, y, 0.5, player);
                 block.onSecondTransaction();
                 tick(player, block, 20);
                 assertEquals(y, minY(block), 1e-9);

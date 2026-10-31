@@ -157,7 +157,7 @@ class JavaStriderLavaTravelTest {
             f.pongThrough(f.player.lastTransactionSent.get());
             strider.onGround = true;
             // A three-step server path to x = 3.5, ridden passively for two steps.
-            strider.onFirstTransaction(false, true, 3.5, FLOOR_Y, 0.5, f.player);
+            strider.onBundleFirstTransaction(false, true, 3.5, FLOOR_Y, 0.5, f.player);
             strider.onSecondTransaction();
             f.rideTick();
             f.rideTick();

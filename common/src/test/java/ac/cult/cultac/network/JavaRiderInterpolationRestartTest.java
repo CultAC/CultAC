@@ -16,8 +16,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.api.Test;
 
 class JavaRiderInterpolationRestartTest {
     private static final Vec3 PLAYER = new Vec3(.30000001192093, FLOOR_Y, .00568005179361);
@@ -29,9 +28,8 @@ class JavaRiderInterpolationRestartTest {
      * rideTick has reseated this passenger since its previous interpolation finished: that old endpoint is no
      * longer its physical position. A head can block the old path's carry while positionRider still seats it.
      */
-    @ParameterizedTest
-    @ValueSource(booleans = {true, false})
-    void aFinishedPassengerPathRestartsAtItsCurrentSeat(boolean bundled) throws Exception {
+    @Test
+    void aFinishedPassengerPathRestartsAtItsCurrentSeat() throws Exception {
         try (var f = new JavaTickFixture()) {
             f.place(PLAYER, new Vec3(0, -.0784000015258789, 0));
             f.input(new ServerboundPlayerInput(false, false, false, false, false, false, false));
@@ -49,7 +47,7 @@ class JavaRiderInterpolationRestartTest {
             int head = registry.with(registry.block("minecraft:piston_head").defaultState(), "facing", "west");
             f.player.compensatedWorld.updateBlock(new BlockPos(1, FLOOR_Y, 0), head);
 
-            pig.onPositionPath(EntityPositionPath.linear(Vec3.ZERO), false, 287F, 0F, f.player, true);
+            pig.onPositionPath(EntityPositionPath.linear(Vec3.ZERO), false, 287F, 0F, f.player);
             // Sampling consumes the final queued step after its progress reaches the end.
             int lifetime = pig.riderInterpolationPath(false).remainingSteppedTicks() + 2;
             for (int tick = 0; tick < lifetime; tick++) {
@@ -63,11 +61,7 @@ class JavaRiderInterpolationRestartTest {
             assertTrue(currentX - OLD_ENDPOINT.x > .5, "positionRider has left the completed path behind");
 
             // A rotation-only packet starts another positional interpolation from the physical seat too.
-            pig.onPositionPath(EntityPositionPath.linear(Vec3.ZERO), false, 286F, 0F, f.player, bundled);
-            if (!bundled) {
-                pig.onUnbundledPathProven();
-                pig.onSecondTransaction();
-            }
+            pig.onPositionPath(EntityPositionPath.linear(Vec3.ZERO), false, 286F, 0F, f.player);
             assertEquals(currentX, pig.riderInterpolationPath(false).targetCenterX(), 1e-12);
             var boxes = entities.untrackedRiderPushBoxes(
                     pig, f.player.boundingBox, new SimpleCollisionBox(), new SimpleCollisionBox());

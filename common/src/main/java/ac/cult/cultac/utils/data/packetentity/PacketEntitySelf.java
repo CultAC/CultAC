@@ -204,8 +204,7 @@ public class PacketEntitySelf extends PacketEntity {
             boolean hasPosition,
             @Nullable Float yaw,
             @Nullable Float pitch,
-            CultPlayer player,
-            boolean bundled) {
+            CultPlayer player) {
         // please don't send this type of packet to the player self, it's not possible in vanilla
     }
 
@@ -216,8 +215,7 @@ public class PacketEntitySelf extends PacketEntity {
             boolean hasRotation,
             float yaw,
             float pitch,
-            CultPlayer player,
-            boolean bundled) {
+            CultPlayer player) {
         // please don't send this type of packet to the player self, it's not possible in vanilla
     }
 
@@ -278,39 +276,6 @@ public class PacketEntitySelf extends PacketEntity {
             // AttributeMap#assignBaseValues refreshes dimensions for the current pose; it does not choose another.
             if (scale != keptScale) player.refreshPlayerPose(player.pose);
         }
-    }
-
-    @Override
-    public void onFirstTransaction(
-            boolean relative, boolean hasPos, double relX, double relY, double relZ, CultPlayer player) {
-        // Player ignores this
-    }
-
-    @Override
-    public void onFirstTransaction(
-            boolean relative,
-            boolean hasPos,
-            double relX,
-            double relY,
-            double relZ,
-            @Nullable Float yaw,
-            @Nullable Float pitch,
-            CultPlayer player) {
-        // Player ignores this
-    }
-
-    @Override
-    public void onFirstTransaction(
-            boolean relative,
-            boolean hasPos,
-            double relX,
-            double relY,
-            double relZ,
-            boolean hasRotation,
-            float yaw,
-            float pitch,
-            CultPlayer player) {
-        // Player ignores this
     }
 
     @Override

@@ -35,19 +35,19 @@ class InterpolationTraceTest {
 
     @Test
     void legacyTrace() throws Exception {
-        assertEquals(-374780735555985414L, trace(ClientVersion.V_1_21_4, 11L));
+        assertEquals(1224119326751623299L, trace(ClientVersion.V_1_21_4, 11L));
     }
 
     @Test
     void oldClientTrace() throws Exception {
-        assertEquals(5275923346041693005L, trace(ClientVersion.V_1_8, 12L));
+        assertEquals(-1438305152525945911L, trace(ClientVersion.V_1_8, 12L));
     }
 
     @Test
     void steppedTrace() throws Exception {
         // Entity#recreateFromPacket leaves no active spawn lerp, including types using the legacy storage.
         // Shulker#setPos puts a shulker's box on its block's bottom centre.
-        assertEquals(3776107225135333688L, trace(ClientVersion.V_26_3, 13L));
+        assertEquals(1227841220801775929L, trace(ClientVersion.V_26_3, 13L));
     }
 
     private static long trace(ClientVersion version, long seed) throws Exception {
@@ -133,7 +133,8 @@ class InterpolationTraceTest {
             double dy = random.nextInt(5) == 0 ? (random.nextInt(9) - 4) / 16.0 : 0.0;
             double dz = (random.nextInt(65) - 32) / 64.0;
             switch (random.nextInt(12)) {
-                case 0, 1 -> entity.onFirstTransaction(true, random.nextInt(6) != 0, dx, dy, dz, yaw, pitch, player);
+                case 0, 1 ->
+                    entity.onBundleFirstTransaction(true, random.nextInt(6) != 0, dx, dy, dz, yaw, pitch, player);
                 case 2 -> entity.onBundleFirstTransaction(true, true, dx, dy, dz, yaw, pitch, player);
                 case 3 ->
                     entity.onBundledPositionSyncTransaction(
@@ -143,9 +144,8 @@ class InterpolationTraceTest {
                             yaw,
                             pitch,
                             player);
-                case 4 -> entity.onPositionPath(path(entity, dx, dy, dz), true, yaw, pitch, player, false);
-                case 5 ->
-                    entity.onPositionPath(path(entity, dx, dy, dz), random.nextBoolean(), yaw, pitch, player, true);
+                case 4 -> entity.onPositionPath(path(entity, dx, dy, dz), true, yaw, pitch, player);
+                case 5 -> entity.onPositionPath(path(entity, dx, dy, dz), random.nextBoolean(), yaw, pitch, player);
                 case 6, 7 -> entity.onSecondTransaction();
                 case 8 -> {
                     entity.isBaby = !entity.isBaby;

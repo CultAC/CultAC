@@ -120,48 +120,11 @@ public class ReachInterpolationData {
             double x,
             double y,
             double z,
-            boolean isPointNine,
-            PacketEntity entity) {
-        this(player, startingLocation, x, y, z, isPointNine, entity, true);
-    }
-
-    public ReachInterpolationData(
-            CultPlayer player,
-            SimpleCollisionBox startingLocation,
-            double x,
-            double y,
-            double z,
-            boolean isPointNine,
-            PacketEntity entity,
-            boolean uncertainInitialSteps) {
-        this(
-                player,
-                startingLocation,
-                x,
-                y,
-                z,
-                entity.clientPhysicalYaw,
-                entity.clientPhysicalPitch,
-                entity.clientPhysicalYaw,
-                entity.clientPhysicalPitch,
-                isPointNine,
-                entity,
-                uncertainInitialSteps);
-    }
-
-    public ReachInterpolationData(
-            CultPlayer player,
-            SimpleCollisionBox startingLocation,
-            double x,
-            double y,
-            double z,
             float currentYaw,
             float currentPitch,
             float targetYaw,
             float targetPitch,
-            boolean isPointNine,
-            PacketEntity entity,
-            boolean uncertainInitialSteps) {
+            PacketEntity entity) {
         this(
                 startingLocation.copy(),
                 player,
@@ -172,9 +135,7 @@ public class ReachInterpolationData {
                 currentPitch,
                 targetYaw,
                 targetPitch,
-                isPointNine,
-                entity,
-                uncertainInitialSteps);
+                entity);
     }
 
     /** The constructor without its defensive copy: the result owns {@code startingLocation}. */
@@ -188,9 +149,7 @@ public class ReachInterpolationData {
             float currentPitch,
             float targetYaw,
             float targetPitch,
-            boolean isPointNine,
-            PacketEntity entity,
-            boolean uncertainInitialSteps) {
+            PacketEntity entity) {
         return new ReachInterpolationData(
                 startingLocation,
                 player,
@@ -201,9 +160,7 @@ public class ReachInterpolationData {
                 currentPitch,
                 targetYaw,
                 targetPitch,
-                isPointNine,
-                entity,
-                uncertainInitialSteps);
+                entity);
     }
 
     private ReachInterpolationData(
@@ -216,9 +173,7 @@ public class ReachInterpolationData {
             float currentPitch,
             float targetYaw,
             float targetPitch,
-            boolean isPointNine,
-            PacketEntity entity,
-            boolean uncertainInitialSteps) {
+            PacketEntity entity) {
         this.reachesUsePacketPositionUncertainty = true;
         start(
                 startingLocation,
@@ -231,9 +186,7 @@ public class ReachInterpolationData {
                 currentPitch,
                 targetYaw,
                 targetPitch,
-                isPointNine,
-                entity,
-                uncertainInitialSteps);
+                entity);
     }
 
     /**
@@ -250,9 +203,7 @@ public class ReachInterpolationData {
             float currentPitch,
             float targetYaw,
             float targetPitch,
-            boolean isPointNine,
-            PacketEntity entity,
-            boolean uncertainInitialSteps) {
+            PacketEntity entity) {
         if (!reachesUsePacketPositionUncertainty) return false;
         interpolationQueue = null;
         steppedCurrent = null;
@@ -286,9 +237,7 @@ public class ReachInterpolationData {
                 currentPitch,
                 targetYaw,
                 targetPitch,
-                isPointNine,
-                entity,
-                uncertainInitialSteps);
+                entity);
         return true;
     }
 
@@ -303,9 +252,7 @@ public class ReachInterpolationData {
             float currentPitch,
             float targetYaw,
             float targetPitch,
-            boolean isPointNine,
-            PacketEntity entity,
-            boolean uncertainInitialSteps) {
+            PacketEntity entity) {
         this.startingLocation = startingLocation;
         this.heldStep = -1;
         this.targetLocation = GetBoundingBox.getBoundingBoxFromPosAndSize(
@@ -337,8 +284,6 @@ public class ReachInterpolationData {
                 interpolationSteps = 3;
             }
         }
-        if (interpolationQueue == null && isPointNine && uncertainInitialSteps)
-            interpolationStepsHighBound = getInterpolationSteps();
     }
 
     /** Whether this follows the 26.3 client's InterpolationHandler, which Entity#commonTick runs for every entity. */

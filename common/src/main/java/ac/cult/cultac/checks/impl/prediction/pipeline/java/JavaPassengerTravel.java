@@ -191,17 +191,12 @@ public final class JavaPassengerTravel {
             ac.cult.cultac.utils.enums.Pose pose, long after, long through) {
         var result = new java.util.ArrayList<JavaPassState>();
         for (var state : states) {
-            java.util.List<JavaPassState> candidates = java.util.List.of(state);
+            var pushed = state;
             for (var tick : JavaEntityVelocityTicks.passengerTicks(player, context, state.position(), pose)) {
                 if (tick.order() <= after || tick.order() > through) continue;
-                var next = new java.util.ArrayList<JavaPassState>();
-                for (var current : candidates) for (Vec3 impulse : tick.impulses()) {
-                    var pushed = current.withVelocity(current.velocity().add(impulse));
-                    if (!next.contains(pushed)) next.add(pushed);
-                }
-                candidates = next;
+                pushed = pushed.withVelocity(pushed.velocity().add(tick.impulse()));
             }
-            for (var candidate : candidates) if (!result.contains(candidate)) result.add(candidate);
+            if (!result.contains(pushed)) result.add(pushed);
         }
         return result;
     }

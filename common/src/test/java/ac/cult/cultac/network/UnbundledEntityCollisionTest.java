@@ -92,7 +92,7 @@ class UnbundledEntityCollisionTest {
             throws Exception {
         try (var f = setUp(protocol, client)) {
             PacketEntity boat = f.player.compensatedEntities.getEntity(BOAT);
-            boat.onFirstTransaction(true, true, MOVE, 0, 0, f.player);
+            boat.onBundleFirstTransaction(true, true, MOVE, 0, 0, f.player);
             assertTrue(boat.possibleMovementCollisionBoxCandidateCount() > 1);
             assertNull(boat.getExactMovementCollisionBox());
 

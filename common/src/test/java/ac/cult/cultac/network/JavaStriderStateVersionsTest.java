@@ -160,7 +160,7 @@ class JavaStriderStateVersionsTest {
         try (var f = fixture(version)) {
             PacketEntityStrider strider = add(f, STRIDER, START);
             f.player.compensatedWorld.updateBlock(new BlockPos(1, FLOOR_Y - 1, 0), BlockIds.LAVA.defaultState());
-            strider.onFirstTransaction(false, true, 3.5, FLOOR_Y, 0.5, f.player);
+            strider.onBundleFirstTransaction(false, true, 3.5, FLOOR_Y, 0.5, f.player);
             strider.onSecondTransaction();
             next(f, strider);
             assertEquals(version.isOlderThan(ClientVersion.V_26_3), strider.isSuffocating());
