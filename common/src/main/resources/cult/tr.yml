@@ -89,10 +89,6 @@ cult:
     max-freeze-time-ms: 5000
 
   networking:
-    # Paket demetlerini destekleyen istemcilerde erişim mesafesi kontrolleri için
-    # varlık takibini eşitlemek üzere demet sınırlarını kullanır.
-    reach-use-bundle-delimiter: true
-
     # Diğer canlı varlıkların bildirilen sağlığını 1 sağlık puanıyla değiştirir.
     # Gözlemcinin kendi sağlığını, o anki bineğini ve ölü varlıkları değiştirmez.
     # cult.showhealth yetkisine sahip gözlemciler gerçek sağlık değerlerini alır.

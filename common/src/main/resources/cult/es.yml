@@ -89,10 +89,6 @@ cult:
     max-freeze-time-ms: 5000
 
   networking:
-    # Usa los límites de los paquetes agrupados para sincronizar el seguimiento de entidades
-    # en las comprobaciones de alcance de los clientes que admiten agrupación.
-    reach-use-bundle-delimiter: true
-
     # Sustituye la salud enviada de otras entidades vivas por 1 punto de salud.
     # Conserva la salud propia del observador, la de su montura actual y la de las entidades muertas.
     # Los observadores con cult.showhealth reciben los valores de salud reales.

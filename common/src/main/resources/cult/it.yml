@@ -90,10 +90,6 @@ cult:
     max-freeze-time-ms: 5000
 
   networking:
-    # Usa i confini dei gruppi di pacchetti per sincronizzare il tracciamento delle entità
-    # nei controlli di portata sui client che supportano il raggruppamento.
-    reach-use-bundle-delimiter: true
-
     # Sostituisce la salute comunicata delle altre entità viventi con 1 punto salute.
     # Mantiene la salute dell'osservatore, della sua cavalcatura attuale e delle entità morte.
     # Gli osservatori con cult.showhealth ricevono i valori di salute reali.

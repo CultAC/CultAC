@@ -95,7 +95,14 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     private long transformTick;
     private long transformsPrunedTick = -1;
     private int packetHandlerDeltaMovementSequence = 0;
-    private boolean useReachBundleDelimiter = true;
+    /**
+     * Always on. Only the live smoketests turn it off, with {@code CULT_VALIDATION_REACH_BUNDLE_DELIMITER=false},
+     * to exercise the transaction-only proof path.
+     */
+    private static final boolean REACH_BUNDLE_DELIMITER =
+            !"false".equalsIgnoreCase(System.getenv("CULT_VALIDATION_REACH_BUNDLE_DELIMITER"));
+
+    private boolean useReachBundleDelimiter = REACH_BUNDLE_DELIMITER;
     private boolean hasSentPreWavePacket = true;
     private int removedPlayerVehicleId = Integer.MIN_VALUE;
 
@@ -544,11 +551,6 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
     public PacketEntityReplication(CultPlayer player) {
         super(player);
-    }
-
-    @Override
-    public void reload() {
-        useReachBundleDelimiter = getConfig().getBooleanElse("cult.networking.reach-use-bundle-delimiter", true);
     }
 
     @Override
