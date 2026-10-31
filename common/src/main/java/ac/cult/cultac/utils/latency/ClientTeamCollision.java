@@ -3,13 +3,15 @@ package ac.cult.cultac.utils.latency;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPlayerTeam;
 import java.util.HashMap;
 import java.util.Map;
+import org.jetbrains.annotations.Nullable;
 
 /** The received client scoreboard, as EntitySelector#pushableBy reads it. */
 public final class ClientTeamCollision {
     private final Map<String, Team> teams = new HashMap<>();
     private final Map<String, Team> membership = new HashMap<>();
 
-    private static final class Team {
+    /** A received PlayerTeam, as Entity#getTeam returns it. */
+    public static final class Team {
         private String collision = "always";
     }
 
@@ -39,8 +41,17 @@ public final class ClientTeamCollision {
         else if (packet.action() == 4) for (String member : packet.members()) membership.remove(member, team);
     }
 
+    /** Scoreboard#getPlayersTeam of the scoreboard name {@code name}, or null when it is in none. */
+    public @Nullable Team teamOf(@Nullable String name) {
+        return name == null ? null : membership.get(name);
+    }
+
     public boolean allows(String pusher, String player) {
-        Team own = membership.get(pusher), target = membership.get(player);
+        return allows(membership.get(pusher), membership.get(player));
+    }
+
+    /** EntitySelector#pushableBy for a pusher on team {@code own} and a pushed entity on team {@code target}. */
+    public boolean allows(@Nullable Team own, @Nullable Team target) {
         String a = own == null ? "always" : own.collision, b = target == null ? "always" : target.collision;
         if (a.equals("never") || b.equals("never")) return false;
         boolean same = own != null && own == target;

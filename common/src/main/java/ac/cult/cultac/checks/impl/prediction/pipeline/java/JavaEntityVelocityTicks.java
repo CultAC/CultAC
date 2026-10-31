@@ -6,6 +6,7 @@ import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.EntityPush;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityRavager;
+import ac.cult.cultac.utils.latency.ClientEntityTeams;
 import ac.cult.cultac.utils.latency.ClientRavagerRoars;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.Vector3dm;
@@ -134,6 +135,7 @@ public final class JavaEntityVelocityTicks {
             SimpleCollisionBox rootBox = new SimpleCollisionBox(), scratch = new SimpleCollisionBox();
             SimpleCollisionBox candidateBox = new SimpleCollisionBox(), physicalBox = new SimpleCollisionBox();
             boolean pushedByLiving = JavaLivingEntityPushes.pushedByLiving(player);
+            var localTeam = entities.teamCollision.teamOf(player.getName());
             entities.beginMovementPositionReads();
             long phase = entities.passTickedThroughOrder();
             try {
@@ -146,7 +148,6 @@ public final class JavaEntityVelocityTicks {
                             // queried player's isPushable is tested by that entity's pushable-entity query.
                             || boat && entity.isDead
                             || JavaLivingEntityPushes.noPhysics(player, entity)
-                            || !entities.teamCollision.allows(entity.scoreboardName, player.getName())
                             || entities.sharesRootVehicleWithSelf(entity, entities.rootOfSelf())) continue;
                     boolean rider = entities.isUntrackedRider(entity);
                     List<SimpleCollisionBox> boxes;
@@ -171,6 +172,8 @@ public final class JavaEntityVelocityTicks {
                                         player, entity, box, candidateBox, physicalBox)) continue;
                         boxes = entity.getPossibleMovementCollisionBoxCandidates();
                     }
+                    // EntitySelector#pushableBy reads both Entity#getTeam answers; a tame animal's may need its owner.
+                    if (!entities.teamCollision.allows(ClientEntityTeams.teamOf(player, entity), localTeam)) continue;
                     List<Vec3> impulses;
                     if (entity instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityShulker shulker) {
                         // A rider's push uses the position before positionRider, including its independent

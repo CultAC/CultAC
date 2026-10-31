@@ -18,6 +18,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.UUID;
 import java.util.function.Function;
 
 /**
@@ -132,6 +133,7 @@ final class ModelEntityMetadataValues {
             case "direction" -> Direction.from3DDataValue((int) value);
             case "optional_position" -> value == null ? Optional.empty() : Optional.of(position((int[]) value));
             case "optional_int" -> value == null ? OptionalInt.empty() : OptionalInt.of((int) value);
+            case "optional_uuid" -> Optional.ofNullable((UUID) value);
             default -> value;
         };
         if (converted == null && kind.equals("painting_variant")) return null;

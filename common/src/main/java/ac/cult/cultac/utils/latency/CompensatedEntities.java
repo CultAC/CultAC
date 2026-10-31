@@ -1184,6 +1184,8 @@ public class CompensatedEntities {
         if (entityType == EntityTypeIds.ITEM) return Integer.MIN_VALUE;
 
         PacketEntity packetEntity = createTrackedEntity(entityID, entityType, position, xRot, data);
+        if (!player.isBedrockMovement() && EntityTypeUtil.isTamableAnimal(entityType))
+            packetEntity.tamable = new ClientTamableOwner();
         packetEntity.setClientPhysicalRotation(xRot, yRot);
         if (packetEntity.newPacketLocation != null) {
             packetEntity.newPacketLocation.setCurrentAndTargetRotation(xRot, yRot);
@@ -1420,6 +1422,9 @@ public class CompensatedEntities {
             cat.updateActionMetadata(
                     watchableObjects, player.user.getCultConnection().getObservedProtocol());
         if (entity instanceof PacketEntityArmorStand stand) stand.updateActionMetadata(watchableObjects);
+        if (entity.tamable != null)
+            entity.tamable.update(
+                    watchableObjects, player.user.getCultConnection().getObservedProtocol());
         if (entity instanceof PacketEntityPufferfish fish) fish.updateMetadata(player, watchableObjects);
         var flags = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.ENTITY_SHARED_FLAGS);
         if (flags != null && flags.value() instanceof Byte value) entity.actionSharedFlags = value;

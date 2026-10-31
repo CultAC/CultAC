@@ -75,6 +75,8 @@ public class PacketEntity {
     private @Nullable CompensatedEntities tracker;
     public boolean isDead = false;
     public String scoreboardName;
+    // A TamableAnimal's tame flag and owner; null for every other entity.
+    public @Nullable ClientTamableOwner tamable;
     public boolean isBaby = false;
     public boolean hasGravity = true;
     public double gravity = 0.08D;
