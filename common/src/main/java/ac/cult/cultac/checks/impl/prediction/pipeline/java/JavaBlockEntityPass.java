@@ -302,8 +302,11 @@ public final class JavaBlockEntityPass {
             this.env = env;
             this.state = state;
             PacketEntity actor = env.actor();
-            ReachInterpolationData riderPath = env.detached() ? actor.riderInterpolationPath(false) : null;
-            ReachInterpolationData oldRiderPath = env.detached() ? actor.riderInterpolationPath(true) : null;
+            // Entity#move(PISTON) adjusts a rider's running path through recordMovement only from 26.3. An older
+            // rider's next interpolation step meets the shove from where it left the rider.
+            boolean recorded = env.detached() && env.version().isNewerThanOrEquals(ClientVersion.V_26_3);
+            ReachInterpolationData riderPath = recorded ? actor.riderInterpolationPath(false) : null;
+            ReachInterpolationData oldRiderPath = recorded ? actor.riderInterpolationPath(true) : null;
             this.oldInterpolation = oldRiderPath == null ? null : oldRiderPath.copy();
             this.interpolation = riderPath != null
                     ? riderPath.copy()

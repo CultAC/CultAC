@@ -480,7 +480,8 @@ public class CompensatedEntities {
                 iterator.remove();
                 continue;
             }
-            if (!ticksInClientTick(root)) continue;
+            // Its interpolation steps in its own commonTick/aiStep, which needs it in tickingEntities as well.
+            if (!ticksInClientTick(rider)) continue;
             SimpleCollisionBox seat = untrackedRiderSeat(rider, 0, root.getClientMovementCollisionBox());
             if (seat != null) rider.finishRiderInterpolation(player, seat);
             if (!rider.hasRiderInterpolation()) iterator.remove();

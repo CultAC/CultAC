@@ -189,6 +189,48 @@ class UntrackedRiderTest {
         }
     }
 
+    /**
+     * ClientLevel#tickPassenger interpolates a living rider before LivingEntity#aiStep pushes and Entity#positionRider
+     * reseats it. Through 1.21.4 a rotation-only packet calls LivingEntity#lerpTo(lerpTargetX(), ...): the seat the
+     * rider holds when it arrives, which aiStep lerps toward while its vehicle moves on. From 1.21.9
+     * InterpolationHandler#interpolate carries that target along each reseat, so the rider pushes from its seat.
+     */
+    @ParameterizedTest
+    @EnumSource(
+            value = ClientVersion.class,
+            names = {"V_1_21_4", "V_1_21_11", "V_26_3"})
+    void aRotationOnlyPacketLerpsALegacyRiderTowardItsOldSeatBeforeItPushes(ClientVersion version) {
+        CultPlayer player = world(version);
+        try {
+            PacketEntity root = entity(player, VEHICLE);
+            PacketEntity mounted = entity(player, MOUNTED);
+            SimpleCollisionBox near = new SimpleCollisionBox(-64, 0, -64, 64, 128, 64);
+            List<Double> seats = new ArrayList<>(), pushes = new ArrayList<>();
+            root.setPositionRaw(GetBoundingBox.getPacketEntityBoundingBox(player, 2.0, 64, 0.0, root));
+            player.packetStateData.acceptedClientTick++;
+            player.packetEntityReplication.onPlayerTickEnd(null);
+            seats.add(centerX(mounted.getPossibleCollisionBoxes()));
+            rotate(player, MOUNTED, 90.0F);
+            for (int tick = 1; tick <= 3; tick++) {
+                root.setPositionRaw(GetBoundingBox.getPacketEntityBoundingBox(player, 2.0 + tick * 0.5, 64, 0.0, root));
+                player.packetStateData.acceptedClientTick++;
+                var boxes = player.compensatedEntities.untrackedRiderPushBoxes(
+                        mounted, near, new SimpleCollisionBox(), new SimpleCollisionBox());
+                assertEquals(1, boxes.size());
+                pushes.add(centerX(boxes.getFirst()));
+                player.packetEntityReplication.onPlayerTickEnd(null);
+                seats.add(centerX(mounted.getPossibleCollisionBoxes()));
+            }
+            assertEquals(List.of(2.0, 2.5, 3.0, 3.5), seats);
+            List<Double> expected = version.isOlderThan(ClientVersion.V_1_21_5)
+                    ? List.of(2.0, 2.5 + (2.0 - 2.5) / 2, 2.0)
+                    : List.of(2.0, 2.5, 3.0);
+            assertEquals(expected, pushes);
+        } finally {
+            close(player);
+        }
+    }
+
     @ParameterizedTest
     @EnumSource(Client.class)
     void untrackedRidersCollideAtTheirSeat(Client client) {
@@ -659,6 +701,22 @@ class UntrackedRiderTest {
                 new PacketSendEvent<>(player.user, ConnectionPhase.PLAY, ClientboundPackets.MOVE_ENTITY, move, false);
         player.packetEntityReplication.onMoveEntity(event, player, move);
         return event;
+    }
+
+    private static double centerX(SimpleCollisionBox box) {
+        return (box.minX + box.maxX) / 2;
+    }
+
+    /** A rotation-only move_entity, which ServerEntity#sendChanges sends a passenger, handled and answered. */
+    private static void rotate(CultPlayer player, int id, float yaw) {
+        var rot = new ClientboundMoveEntity(
+                id, new EntityDelta.Linear((short) 0, (short) 0, (short) 0), yaw, 0, true, false, true);
+        var event =
+                new PacketSendEvent<>(player.user, ConnectionPhase.PLAY, ClientboundPackets.MOVE_ENTITY, rot, false);
+        player.packetEntityReplication.onMoveEntity(event, player, rot);
+        event.getTasksAfterSend().forEach(Runnable::run);
+        ((EmbeddedChannel) player.user.getChannel()).runPendingTasks();
+        acknowledgeThrough(player, player.lastTransactionSent.get());
     }
 
     private static void acknowledgeThrough(CultPlayer player, int transaction) {

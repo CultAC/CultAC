@@ -454,11 +454,11 @@ public class PacketEntity {
         if (ignoresLerp(player)) return;
         float targetYaw = interpolationTargetYaw(hasYaw, yaw);
         float targetPitch = interpolationTargetPitch(hasPitch, pitch);
+        Vec3 target = hasPos ? desyncClientPos : rotationOnlyTarget(player);
         // LivingEntity#lerpTo through 1.21.4 restarts its steps even for an identical target. The handler
         // introduced in 1.21.5 skips an identical active target (AbstractInterpolationHandler#interpolateTo).
         if ((player.isBedrockMovement() || player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5))
-                && matchesActiveInterpolationTarget(
-                        desyncClientPos.x, desyncClientPos.y, desyncClientPos.z, targetYaw, targetPitch)) {
+                && matchesActiveInterpolationTarget(target.x, target.y, target.z, targetYaw, targetPitch)) {
             return;
         }
 
@@ -478,9 +478,9 @@ public class PacketEntity {
         this.newPacketLocation = nextInterpolation(
                 player,
                 startingLocation,
-                desyncClientPos.x,
-                desyncClientPos.y,
-                desyncClientPos.z,
+                target.x,
+                target.y,
+                target.z,
                 placed ? targetYaw : clientPhysicalYaw,
                 placed ? targetPitch : clientPhysicalPitch,
                 targetYaw,
@@ -640,6 +640,24 @@ public class PacketEntity {
                     true);
     }
 
+    /**
+     * Where a packet without a position interpolates this entity. The codec base stands in for an ordinary entity,
+     * which the running target or a completed interpolation leaves on it. A replayed rider's codec base never
+     * follows the seat Entity#positionRider gives it, so ClientPacketListener#handleMoveEntity's own target applies:
+     * LivingEntity#lerpTargetX through 1.21.4 and InterpolationHandler#position from 1.21.9 (the running target, else
+     * the entity's position), and Entity#position from 1.21.5 through 1.21.8.
+     */
+    private Vec3 rotationOnlyTarget(CultPlayer player) {
+        if (riderInterpolation == null || !riderInterpolation.running() || player.isBedrockMovement())
+            return desyncClientPos;
+        ClientVersion version = player.getClientVersion();
+        boolean keepsRunningTarget =
+                version.isOlderThan(ClientVersion.V_1_21_5) || version.isNewerThanOrEquals(ClientVersion.V_1_21_9);
+        return keepsRunningTarget && newPacketLocation != null && newPacketLocation.hasActiveInterpolationTarget()
+                ? newPacketLocation.targetPosition()
+                : clientPhysicalPosition;
+    }
+
     private void applyEntityPositionUpdate(boolean relative, boolean hasPos, double relX, double relY, double relZ) {
         if (!hasPos) {
             return;
@@ -731,11 +749,11 @@ public class PacketEntity {
             setPositionRaw(packetPositionBox(player), targetYaw, targetPitch);
             return;
         }
+        Vec3 target = hasPos ? desyncClientPos : rotationOnlyTarget(player);
         // LivingEntity#lerpTo through 1.21.4 restarts its steps even for an identical target. The handler
         // introduced in 1.21.5 skips an identical active target (AbstractInterpolationHandler#interpolateTo).
         if ((player.isBedrockMovement() || player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5))
-                && matchesActiveInterpolationTarget(
-                        desyncClientPos.x, desyncClientPos.y, desyncClientPos.z, targetYaw, targetPitch)) {
+                && matchesActiveInterpolationTarget(target.x, target.y, target.z, targetYaw, targetPitch)) {
             return;
         }
         ReachInterpolationData replaced = newPacketLocation;
@@ -743,9 +761,9 @@ public class PacketEntity {
         this.newPacketLocation = nextInterpolation(
                 player,
                 interpolationStartingLocation(player, interpolationStart()),
-                desyncClientPos.x,
-                desyncClientPos.y,
-                desyncClientPos.z,
+                target.x,
+                target.y,
+                target.z,
                 clientPhysicalYaw,
                 clientPhysicalPitch,
                 targetYaw,
@@ -862,7 +880,7 @@ public class PacketEntity {
                 || player.isBedrockMovement()
                 || !living
                 || type == EntityTypeIds.SHULKER
-                || player.getClientVersion().isOlderThan(ClientVersion.V_26_3)
+                || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2)
                 || !player.compensatedEntities.isUntrackedRider(this)) return;
         riderInterpolation =
                 new ClientRiderInterpolation(this, player.compensatedEntities.untrackedRiderPacketBox(this));
