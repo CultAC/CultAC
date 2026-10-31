@@ -84,7 +84,6 @@ public final class JavaRiddenBoatTick {
                 // rideTick zeroes the delta AFTER earlier shulker ticks, then baseTick, floatBoat and controlBoat run.
                 var boatTick = BoatTransform.unreportedTick(player, context, yaw);
                 Vec3 from = start.add(0, boatTick.snapY(), 0);
-                Vec3 scanFrom = player.getClientVersion().isOlderThan(ClientVersion.V_1_21_5) ? start : from;
                 boolean water = touches(player, startBox, FluidTags.WATER);
                 boolean lava = touches(player, startBox, FluidTags.LAVA);
                 before = new JavaPassState(
@@ -117,7 +116,12 @@ public final class JavaRiddenBoatTick {
                         && BlockIds.is(
                                 BlockProperties.getOnPos(player, after.support(), after.position()),
                                 BlockIds.SLIME_BLOCK);
-                var scan = JavaInsideBlockEffects.scan(player, context, scanFrom, after.position(), moved.delta());
+                // From 1.21.5 Entity#move records the move from where floatBoat's setPos left the boat, and the first
+                // block pass consumes it. The second finds no recorded move and sweeps from oldPosition, the start.
+                boolean recorded = moved.recordedMovement()
+                        && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5);
+                var scan = JavaInsideBlockEffects.travelScan(
+                        player, context, start, recorded ? from : null, after.position(), moved.delta());
                 var effects = JavaInsideBlockEffects.resolveAfterMove(
                         player, context, scan, after.fallDistance(), after.velocity(), after.onGround(), slime);
                 var state = new JavaPredictionCarry.State(

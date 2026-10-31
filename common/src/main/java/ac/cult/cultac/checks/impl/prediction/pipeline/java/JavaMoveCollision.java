@@ -82,6 +82,15 @@ public final class JavaMoveCollision extends CollideAxisData {
         return collided;
     }
 
+    /**
+     * Entity#move's setPos guard: a move collision shortened below 1.0E-7 squared neither sets the position nor, from
+     * 1.21.5, records a movement for Entity#applyEffectsFromBlocks.
+     */
+    public boolean recordsMovement() {
+        double length = collided.lengthSqr();
+        return length > 1.0E-7 || attempted.lengthSqr() - length < 1.0E-7;
+    }
+
     public boolean collidedX() {
         return collidedX;
     }

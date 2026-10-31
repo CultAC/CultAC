@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockDefinition;
 import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.BlockProps;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.blocksim.entity.EntityTypes;
@@ -179,6 +180,75 @@ class JavaBoatRiddenInMinecartTest {
             eject(f);
             assertExact(f.rideTick(seat.add(0, -.04, 0), false));
         }
+    }
+
+    /*
+     * floatBoat's water-entry setPos lifts the boat 1.35 blocks before Entity#move, which records the move from there.
+     * The first applyEffectsFromBlocks consumes that record; the second finds none and sweeps oldPosition -> position.
+     * From 1.21.9 BlockGetter#forEachBlockIntersectedBetween sweeps the whole box, so only that second pass crosses the
+     * column in the boat's starting layer: one impulse. Earlier traversals of a move this long start at their first
+     * step out of the starting block, so neither pass reaches the column.
+     */
+
+    @ParameterizedTest(name = "{0}: a nested boat's water-entry snap crosses the column in its second block pass")
+    @MethodSource("ac.cult.cultac.network.JavaPistonReleaseCases#releases")
+    void aNestedWaterEntrySnapCrossesTheBubbleColumnOnlyInTheSecondPass(String release, ClientVersion version)
+            throws Exception {
+        try (var f = new JavaTickFixture();
+                var ignored = observeOnly()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
+            Vec3 seat = boardRiddenBoat(f, NONE);
+            flood(f, true);
+            f.rideTick();
+            PacketEntity boat = f.player.compensatedEntities.getEntity(BOAT);
+            assertPosition(seat, boat);
+            double lift = bubbleLift(version);
+            assertEquals(lift, boat.deltaMovement.y, 1e-13, "the ridden tick's bubble column impulse");
+            flood(f, false);
+            eject(f);
+            // floatBoat in the air: the carried impulse plus this tick's gravity.
+            assertExact(f.rideTick(seat.add(0, lift - .04, 0), false));
+        }
+    }
+
+    @ParameterizedTest(name = "{0}: a root boat's water-entry snap crosses the column in its second block pass")
+    @MethodSource("ac.cult.cultac.network.JavaPistonReleaseCases#releases")
+    void aRootWaterEntrySnapCrossesTheBubbleColumnOnlyInTheSecondPass(String release, ClientVersion version)
+            throws Exception {
+        try (var f = new JavaTickFixture();
+                var ignored = observeOnly()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
+            Vec3 seat = boardRiddenBoat(f, NONE);
+            eject(f);
+            flood(f, true);
+            // getWaterLevelAbove finds the layer it samples full, so it returns that layer's top plus one block.
+            double floated = (float) (FLOOR_Y + 2) - 0.5625F + 0.101;
+            Vec3 snapped = new Vec3(seat.x, floated, seat.z);
+            assertExact(f.rideTick(snapped, false));
+            flood(f, false);
+            assertExact(f.rideTick(snapped.add(0, bubbleLift(version) - .04, 0), false));
+        }
+    }
+
+    /** Entity#onInsideBubbleColumn's upward push from the second block pass, which only sweeps it from 1.21.9. */
+    private static double bubbleLift(ClientVersion version) {
+        return version.isOlderThan(ClientVersion.V_1_21_9) ? 0 : .06;
+    }
+
+    /**
+     * Water sources two layers deep under the seated boat, whose box lies in the lower layer, with an upward bubble
+     * column in its middle: water above makes it an internal column, which pushes a boat. {@code false} clears them.
+     */
+    private static void flood(JavaTickFixture f, boolean water) {
+        int column = BlockProps.DRAG.with(BlockIds.BUBBLE_COLUMN.defaultState(), false);
+        for (int x = -1; x <= 1; x++)
+            for (int y = FLOOR_Y; y <= FLOOR_Y + 1; y++)
+                for (int z = -1; z <= 1; z++) {
+                    int state = !water
+                            ? BlockIds.AIR.defaultState()
+                            : x == 0 && y == FLOOR_Y && z == 0 ? column : BlockIds.WATER.defaultState();
+                    f.player.compensatedWorld.updateBlock(new BlockPos(x, y, z), state);
+                }
     }
 
     @Test

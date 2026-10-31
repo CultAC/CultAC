@@ -192,7 +192,9 @@ public record JavaPassAfterTravel(
             passGround = true;
             passSupport = JavaStriderFloat.support(player, travelContext, end, support);
         }
-        var scan = JavaInsideBlockEffects.travelScan(player, travelContext, context.getStart(), end, delta);
+        // Entity#move recorded the travel from where it began; a boat's second pass sweeps from the tick start.
+        var scan = JavaInsideBlockEffects.travelScan(
+                player, travelContext, context.getStart(), moved ? moveStart : null, end, delta);
         var velocities = NextTickVelocityDeriver.beforeBlockEffects(
                 player, replay, player.checkManager.getSimulationProcessor().getLastPrediction(), null);
         var results = new ArrayList<JavaPassAfterTravel>(velocities.size());

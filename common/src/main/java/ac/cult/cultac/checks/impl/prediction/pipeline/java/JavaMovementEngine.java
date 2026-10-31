@@ -801,6 +801,9 @@ public final class JavaMovementEngine implements MovementEngine {
                 || context.getVersion() != ClientVersion.V_1_21_9
                 || context.getMovementPatch() != JavaMovementPatch.V_1_21_10) return false;
         if (InsideBlockEffectScan.mayHaveBubbles(player, scan.from(), scan.to())) return true;
+        // A boat's second pass sweeps from oldPosition, below a water-entry setPos.
+        if (scan.oldFrom() != scan.from() && InsideBlockEffectScan.mayHaveBubbles(player, scan.oldFrom(), scan.to()))
+            return true;
         for (var segment : scan.recordedBefore())
             if (InsideBlockEffectScan.mayHaveBubbles(player, segment.from(), segment.to())) return true;
         return false;

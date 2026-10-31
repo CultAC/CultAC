@@ -10,6 +10,7 @@ import ac.cult.blocksim.entity.EntityTags;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.BoatTransform;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
@@ -61,8 +62,10 @@ public final class JavaInsideBlockEffects {
     }
 
     /**
-     * The velocity-independent bounds of one inside-block pass: the movements recorded earlier in the tick, then the
-     * scanned move.
+     * The velocity-independent bounds of an actor tick's inside-block passes. The first consumes
+     * Entity#movementThisTick: the movements recorded earlier in the tick, then the scanned move from {@code from}
+     * with {@code originalMovement}'s axis order. AbstractBoat#tick's second pass finds that queue empty and sweeps
+     * from {@code oldFrom}, the box at Entity#oldPosition, to {@code to} without axis steps.
      */
     public record Scan(
             PacketEntity actor,
@@ -70,7 +73,8 @@ public final class JavaInsideBlockEffects {
             SimpleCollisionBox from,
             SimpleCollisionBox to,
             Vec3 originalMovement,
-            List<Segment> recordedBefore) {}
+            List<Segment> recordedBefore,
+            SimpleCollisionBox oldFrom) {}
 
     /** A recorded movement's boxes, with the scan's dimensions. */
     public record Segment(SimpleCollisionBox from, SimpleCollisionBox to, Vec3 originalMovement) {}
@@ -81,8 +85,25 @@ public final class JavaInsideBlockEffects {
     /** Returns {@code null} when no block callback can change any velocity resolved for this move. */
     public static Scan scan(CultPlayer player, PredictionResult result, Vec3 movement) {
         var context = result.getSimulationContext();
+        Vec3 start = context.getStart();
         return travelScan(
-                player, context, context.getStart(), context.getStart().add(movement), attemptedMovement(result));
+                player, context, start, recordedStart(result), start.add(movement), attemptedMovement(result));
+    }
+
+    /**
+     * Where the travel's Entity#move began and recorded its movement from: the tick start, or where
+     * AbstractBoat#floatBoat's water-entry setPos left the boat. Null when it recorded none: Entity#move records
+     * movements from 1.21.5, and its setPos guard skips a move that collision shortened to nothing.
+     */
+    private static Vec3 recordedStart(PredictionResult result) {
+        SimulationContext context = result.getSimulationContext();
+        if (context.getVersion().isOlderThan(ClientVersion.V_1_21_5)) return null;
+        if (result.getCollideAxisData() instanceof JavaMoveCollision move && !move.recordsMovement()) return null;
+        PacketEntity vehicle = context.getVehicle();
+        if (vehicle == null || !vehicle.isBoat()) return context.getStart();
+        double snap = BoatTransform.setPosBeforeMove(
+                context, result.getValidMovements().getClosestTrace());
+        return snap == 0 ? context.getStart() : context.getStart().add(0, snap, 0);
     }
 
     /**
@@ -91,7 +112,24 @@ public final class JavaInsideBlockEffects {
      */
     public static Scan travelScan(
             CultPlayer player, SimulationContext context, Vec3 start, Vec3 end, Vec3 originalMovement) {
-        return scan(player, context, start, end, originalMovement, null, context.getMovesBeforeTravel());
+        return travelScan(player, context, start, start, end, originalMovement);
+    }
+
+    /**
+     * {@link #travelScan} for an actor tick whose Entity#move need not begin at its Entity#oldPosition
+     * {@code oldPosition}. {@code moveStart} is where that move began and recorded its movement from, after any setPos
+     * before it such as AbstractBoat#floatBoat's water-entry snap, or null when it recorded none: its pass then falls
+     * back to oldPosition, as AbstractBoat#tick's second pass always does.
+     */
+    public static Scan travelScan(
+            CultPlayer player,
+            SimulationContext context,
+            Vec3 oldPosition,
+            Vec3 moveStart,
+            Vec3 end,
+            Vec3 originalMovement) {
+        return scan(
+                player, context, oldPosition, moveStart, end, originalMovement, null, context.getMovesBeforeTravel());
     }
 
     /** The separate applyEffectsFromBlocks(from, to) pass of a piston's shove has no axis-order delta. */
@@ -102,13 +140,14 @@ public final class JavaInsideBlockEffects {
     /** A late block-entity callback uses the pose Player#updatePlayerPose left after travel. */
     public static Scan scan(
             CultPlayer player, SimulationContext context, Vec3 start, Vec3 end, Vec3 originalMovement, Pose pose) {
-        return scan(player, context, start, end, originalMovement, pose, List.of());
+        return scan(player, context, start, start, end, originalMovement, pose, List.of());
     }
 
     private static Scan scan(
             CultPlayer player,
             SimulationContext context,
-            Vec3 start,
+            Vec3 oldPosition,
+            Vec3 moveStart,
             Vec3 end,
             Vec3 originalMovement,
             Pose pose,
@@ -119,14 +158,18 @@ public final class JavaInsideBlockEffects {
         SimpleCollisionBox to = pose == null || context.getVehicle() != null
                 ? context.getToActualPose().offset(end.subtract(context.getEnd()))
                 : boxAt(context, pose, end);
-        SimpleCollisionBox from = to.copy().offset(start.subtract(end));
+        SimpleCollisionBox oldFrom = to.copy().offset(oldPosition.subtract(end));
+        // Entity#applyEffectsFromBlocks sweeps oldPosition -> position without axis steps when nothing was recorded.
+        SimpleCollisionBox from = moveStart == null || moveStart.equals(oldPosition)
+                ? oldFrom
+                : to.copy().offset(moveStart.subtract(end));
         List<Segment> segments = recordedBefore.isEmpty() ? List.of() : new ArrayList<>(recordedBefore.size());
         // Entity#checkInsideBlocks makes each movement's boxes at its own positions, with the scan's dimensions.
         Pose dimensions = context.getVehicle() == null ? pose : null;
         for (RecordedMove move : recordedBefore)
             segments.add(new Segment(
                     boxAt(context, dimensions, move.from()), boxAt(context, dimensions, move.to()), move.delta()));
-        return scan(player, actor, end, from, to, originalMovement, segments);
+        return scan(player, actor, end, from, to, moveStart == null ? null : originalMovement, segments, oldFrom);
     }
 
     private static SimpleCollisionBox boxAt(SimulationContext context, Pose pose, Vec3 position) {
@@ -143,7 +186,7 @@ public final class JavaInsideBlockEffects {
             SimpleCollisionBox from,
             SimpleCollisionBox to,
             Vec3 originalMovement) {
-        return scan(player, actor, end, from, to, originalMovement, List.of());
+        return scan(player, actor, end, from, to, originalMovement, List.of(), from);
     }
 
     private static Scan scan(
@@ -153,7 +196,8 @@ public final class JavaInsideBlockEffects {
             SimpleCollisionBox from,
             SimpleCollisionBox to,
             Vec3 originalMovement,
-            List<Segment> recordedBefore) {
+            List<Segment> recordedBefore,
+            SimpleCollisionBox oldFrom) {
         // Entity#checkInsideBlocks stops at !isAlive(): the DATA_HEALTH_ID the client has handled, which
         // LivingEntity#isImmobile also reads. SET_HEALTH's leading ping, which sets isDead, does not prove it.
         if (!actor.actionAlive) return null;
@@ -162,8 +206,11 @@ public final class JavaInsideBlockEffects {
             Segment segment = recordedBefore.get(i);
             effects = InsideBlockEffectScan.mayHaveEffects(player, segment.from(), segment.to(), false);
         }
+        // Only AbstractBoat#tick's later pass sweeps from oldPosition.
+        if (!effects && oldFrom != from && actorTickPasses(actor) > 1)
+            effects = InsideBlockEffectScan.mayHaveEffects(player, oldFrom, to, false);
         if (!effects) return null;
-        return new Scan(actor, end, from, to, originalMovement, recordedBefore);
+        return new Scan(actor, end, from, to, originalMovement, recordedBefore, oldFrom);
     }
 
     public static State resolve(
@@ -277,8 +324,9 @@ public final class JavaInsideBlockEffects {
                 || BlockIds.is(
                         player.compensatedWorld.getBlockStateIdAt(BlockPos.containing(end.x, end.y, end.z)),
                         BlockIds.POWDER_SNOW);
-        // AbstractBoat#tick invokes applyEffectsFromBlocks twice. The second pass
-        // has no recorded axis-dependent movement and uses oldPosition -> position.
+        // AbstractBoat#tick invokes applyEffectsFromBlocks twice. The first consumes the recorded movements; the
+        // second finds none and sweeps oldPosition -> position without axis steps, which after floatBoat's setPos
+        // starts below the recorded move.
         int passes = actorTick ? actorTickPasses(actor) : 1;
         for (int pass = 0; pass < passes; pass++) {
             // Entity#applyEffectsFromBlocks runs Block#stepOn before this pass's inside-block callbacks.
@@ -349,11 +397,14 @@ public final class JavaInsideBlockEffects {
             };
             // Entity#checkInsideBlocks shares Entity#visitedBlocks across the movements of one pass.
             LongSet visited = new LongOpenHashSet();
-            if (pass == 0)
+            if (pass == 0) {
                 for (Segment recorded : scan.recordedBefore())
                     visitMovement(
                             version, recorded.from(), recorded.to(), recorded.originalMovement(), visited, visitor);
-            visitMovement(version, from, to, pass == 0 ? originalMovement : null, visited, visitor);
+                visitMovement(version, from, to, originalMovement, visited, visitor);
+            } else {
+                visitMovement(version, scan.oldFrom(), to, null, visited, visitor);
+            }
         }
         return current[0];
     }

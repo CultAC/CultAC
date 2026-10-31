@@ -149,9 +149,7 @@ public final class JavaFallDistance {
         // change; the ray runs only inside its setPos branch.
         JavaMoveCollision forward = result.getCollideAxisData() instanceof JavaMoveCollision move ? move : null;
         Vec3 callbackMovement = forward == null ? movement : forward.collided();
-        boolean setPosition = forward == null
-                || callbackMovement.lengthSqr() > 1.0E-7
-                || forward.attempted().lengthSqr() - callbackMovement.lengthSqr() < 1.0E-7;
+        boolean setPosition = forward == null || forward.recordsMovement();
         if (!context.isNoPhysics()
                 && distance != 0
                 && setPosition

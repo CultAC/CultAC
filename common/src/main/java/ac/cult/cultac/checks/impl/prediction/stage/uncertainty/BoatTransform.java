@@ -47,12 +47,28 @@ public class BoatTransform implements UncertaintyHandler {
             Vec3 stuck = velocity.collisionStuckSpeedMultiplier(context);
             double unscaledY = stuck == null ? snap.y : snap.y / stuck.y;
             Vec3 base = new Vec3(0, unscaledY, 0);
-            moved = moved.withPosition(velocity.withY(unscaledY, "boat setPos before move"))
+            moved = moved.withPosition(velocity.withY(unscaledY, WATER_ENTRY_SET_POS))
                     .withPreCollisionVelocity(new Vec3(velocity.x, 0, velocity.z))
                     .addPositionOnlyDelta(snap)
                     .addCollisionBaseOffset(base);
         }
         return moved;
+    }
+
+    /** The trace step holding floatBoat's water-entry setPos, which moves the boat before Entity#move. */
+    private static final String WATER_ENTRY_SET_POS = "boat setPos before move";
+
+    /**
+     * How far AbstractBoat#floatBoat's water-entry setPos raised {@code trace}'s boat before its Entity#move, which
+     * records its movement from there; zero when the trace took no such setPos.
+     */
+    public static double setPosBeforeMove(SimulationContext context, MovementTrace trace) {
+        PredVector position = trace.position();
+        if (!position.hasReason(WATER_ENTRY_SET_POS)) return 0;
+        // handleMovementTrace stored the snap divided by the stuck multiplier, as it did the collision base.
+        Vec3 stuck = position.collisionStuckSpeedMultiplier(context);
+        double unscaledY = position.vectorAtFirstReason(WATER_ENTRY_SET_POS).y;
+        return stuck == null ? unscaledY : unscaledY * stuck.y;
     }
 
     @Override
