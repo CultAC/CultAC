@@ -85,7 +85,7 @@ class JavaRiderInterpolationTest {
                     0,
                     ClientPistonDeltas.NONE,
                     false);
-            var replay = JavaBlockEntityPass.runDetachedEntity(f.player, pig, pass, start, null);
+            var replay = JavaBlockEntityPass.runDetachedEntity(f.player, pig, pass, start);
             SimpleCollisionBox displaced = box(f, pig, replay.state().position());
             assertEquals(SEAT.x - .51, centerX(displaced), 1e-12);
             pig.recordRiderInterpolationPass(displaced, replay.interpolation(), replay.oldInterpolation());

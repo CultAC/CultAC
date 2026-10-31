@@ -79,7 +79,8 @@ final class JavaBlockEntityMove {
      * The tick's constants: the player, the prediction context whose actor and attributes it uses, the pose
      * Player#updatePlayerPose left, the shift key (Player#isSuppressingBounce and Entity#isSteppingCarefully), the
      * position the tick started at (Entity#oldPosition) and Level#getGameTime. A {@code detached} remote actor's moves
-     * are only computed, never applied to the tracked entity.
+     * are only computed, never applied to the tracked entity. A remote actor has no {@code movementPatch}, so protocol
+     * 773 follows the assumed 1.21.10 rules.
      */
     record Environment(
             CultPlayer player,

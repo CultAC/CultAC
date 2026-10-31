@@ -67,7 +67,7 @@ public final class JavaFishingHookFlight {
                     rayVelocity = rayVelocity.add(0, player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)
                             ? -(double) 0.03F : -0.03, 0);
                 var env = new JavaBlockEntityMove.Environment(player, null, Pose.STANDING, 1, false, start,
-                        player.compensatedWorld.endedTickGameTime(), hook, hook.pistonMovementPatch());
+                        player.compensatedWorld.endedTickGameTime(), hook, null);
                 var moved = JavaBlockEntityMove.moveDetached(env, old.withVelocity(rayVelocity), rayVelocity);
                 var state = JavaBlockEntityMove.applyTravelEffects(env, moved.state(), start,
                         moved.recordedMovement() ? moved.delta() : null);

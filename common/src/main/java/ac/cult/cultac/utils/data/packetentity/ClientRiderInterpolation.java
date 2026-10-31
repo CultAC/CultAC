@@ -10,14 +10,14 @@ import java.util.List;
  * active packet paths are replayed; ordinary remote riding trees still have no passenger tick or position pass.
  */
 final class ClientRiderInterpolation {
-    private JavaPistonEntityStates.Snapshot state;
-    private JavaPistonEntityStates.Snapshot preview;
+    private ClientPhysicsSnapshot state;
+    private ClientPhysicsSnapshot preview;
     private List<SimpleCollisionBox> pushBoxes;
     private int previewTick = Integer.MIN_VALUE;
     private boolean running;
 
     ClientRiderInterpolation(PacketEntity entity, SimpleCollisionBox physical) {
-        state = entity.capturePistonPhysics(true);
+        state = entity.capturePhysics(true);
         run(entity, () -> entity.setRiderReplayPosition(physical));
     }
 
@@ -35,21 +35,21 @@ final class ClientRiderInterpolation {
     }
 
     void resumeTracked(PacketEntity entity) {
-        entity.restorePistonPhysics(state);
+        entity.restorePhysics(state);
     }
 
     /** Existing packet handlers and proof handling operate on the detached state, preserving their ordering. */
     void run(PacketEntity entity, Runnable operation) {
-        var tracked = entity.capturePistonPhysics(false);
+        var tracked = entity.capturePhysics(false);
         running = true;
         try {
-            entity.restorePistonPhysics(state);
+            entity.restorePhysics(state);
             operation.run();
-            state = entity.capturePistonPhysics(false);
+            state = entity.capturePhysics(false);
             preview = null;
             pushBoxes = null;
         } finally {
-            entity.restorePistonPhysics(tracked);
+            entity.restorePhysics(tracked);
             running = false;
         }
     }
@@ -62,22 +62,22 @@ final class ClientRiderInterpolation {
     private void preview(CultPlayer player, PacketEntity entity) {
         int tick = player.packetStateData.acceptedClientTick;
         if (preview != null && previewTick == tick) return;
-        var tracked = entity.capturePistonPhysics(false);
+        var tracked = entity.capturePhysics(false);
         running = true;
         long phase = player.compensatedEntities.passTickedThroughOrder();
         try {
             player.compensatedEntities.setPassTickedThroughOrder(entity.tickingOrder(player));
-            entity.restorePistonPhysics(state);
+            entity.restorePhysics(state);
             // Prediction can read this tick repeatedly. Only tick-end adopts these copies.
             entity.oldPacketLocation =
                     state.oldLocation() == null ? null : state.oldLocation().copy();
             entity.newPacketLocation = state.location().copy();
             entity.replayRiderCommonTick(player);
-            preview = entity.capturePistonPhysics(false);
+            preview = entity.capturePhysics(false);
             pushBoxes = entity.getPossibleMovementCollisionBoxCandidates();
             previewTick = tick;
         } finally {
-            entity.restorePistonPhysics(tracked);
+            entity.restorePhysics(tracked);
             player.compensatedEntities.setPassTickedThroughOrder(phase);
             running = false;
         }
@@ -87,14 +87,14 @@ final class ClientRiderInterpolation {
     void finishTick(CultPlayer player, PacketEntity entity, SimpleCollisionBox seat) {
         preview(player, entity);
         state = preview;
-        var tracked = entity.capturePistonPhysics(false);
+        var tracked = entity.capturePhysics(false);
         running = true;
         try {
-            entity.restorePistonPhysics(state);
+            entity.restorePhysics(state);
             entity.setRiderReplayPosition(seat);
-            state = entity.capturePistonPhysics(false);
+            state = entity.capturePhysics(false);
         } finally {
-            entity.restorePistonPhysics(tracked);
+            entity.restorePhysics(tracked);
             running = false;
         }
     }
@@ -107,16 +107,16 @@ final class ClientRiderInterpolation {
     void afterPass(
             PacketEntity entity, SimpleCollisionBox box, ReachInterpolationData path, ReachInterpolationData oldPath) {
         // Do not invalidate this tick's push preview: the block entities ran after that push.
-        var tracked = entity.capturePistonPhysics(false);
+        var tracked = entity.capturePhysics(false);
         running = true;
         try {
-            entity.restorePistonPhysics(state);
+            entity.restorePhysics(state);
             if (path != null) entity.newPacketLocation = path;
             if (oldPath != null) entity.oldPacketLocation = oldPath;
             entity.setRiderReplayPosition(box);
-            state = entity.capturePistonPhysics(false);
+            state = entity.capturePhysics(false);
         } finally {
-            entity.restorePistonPhysics(tracked);
+            entity.restorePhysics(tracked);
             running = false;
         }
     }

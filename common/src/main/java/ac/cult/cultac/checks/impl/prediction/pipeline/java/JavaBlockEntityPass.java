@@ -234,11 +234,7 @@ public final class JavaBlockEntityPass {
      * trees: the result is where the pass leaves it, and the entity itself is left as it was.
      */
     public static Result runDetachedEntity(
-            CultPlayer player,
-            PacketEntity actor,
-            ClientBlockEntityPass pass,
-            JavaPassState start,
-            JavaMovementPatch patch) {
+            CultPlayer player, PacketEntity actor, ClientBlockEntityPass pass, JavaPassState start) {
         var env = new JavaBlockEntityMove.Environment(
                 player,
                 null,
@@ -248,7 +244,7 @@ public final class JavaBlockEntityPass {
                 start.position(),
                 pass.gameTime(),
                 actor,
-                patch,
+                null,
                 true);
         return run(env, pass, start);
     }
@@ -301,7 +297,7 @@ public final class JavaBlockEntityPass {
                 start,
                 pass.gameTime(),
                 actor,
-                actor.pistonMovementPatch(),
+                null,
                 detached);
     }
 
@@ -465,7 +461,6 @@ public final class JavaBlockEntityPass {
                         || actor.newPacketLocation == null
                         || !actor.clientPhysicalPositionExact
                         || actor.oldPacketLocation != null
-                        || actor.hasPistonPatchStates()
                         || !selection.mayCollide(actor)) continue;
                 SimpleCollisionBox box = actor.getExactMovementCollisionBox();
                 if (box == null || !pass.mayReach(box) || peekMayReach(pass, box)) continue;

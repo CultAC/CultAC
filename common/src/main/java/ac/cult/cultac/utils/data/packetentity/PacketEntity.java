@@ -17,7 +17,6 @@ package ac.cult.cultac.utils.data.packetentity;
 
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
-import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementPatch;
 import ac.cult.cultac.network.packet.EntityPositionPath;
 import ac.cult.cultac.network.packet.PacketCodecUtil;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -118,29 +117,12 @@ public class PacketEntity {
     // Entity fields retained between the block-entity moves of a remote root.
     public ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassState blockEntityState;
     private SimpleCollisionBox blockEntityPhysicalBox;
-    private JavaPistonEntityStates pistonStates;
     // Where the last block-entity pass left this untracked rider; allocated only once a pass reaches its vehicle.
     private List<SimpleCollisionBox> riderPushBoxes;
     private int riderPushPass;
     // Entity#pistonDeltas of an untracked rider after the last block-entity pass that reached it, one per push box.
     public List<ac.cult.cultac.utils.data.ClientPistonDeltas> riderPistonDeltas;
     private ClientRiderInterpolation riderInterpolation;
-
-    public void ensurePistonPatchStates() {
-        if (pistonStates == null) pistonStates = new JavaPistonEntityStates(this);
-    }
-
-    public boolean hasPistonPatchStates() {
-        return pistonStates != null;
-    }
-
-    public boolean runPistonPatchStates(Runnable operation) {
-        if (pistonStates == null || pistonStates.running()) return false;
-        pistonStates.run(this, operation);
-        if (pistonStates.canMerge(this)) pistonStates = null;
-        clientPositionChanged();
-        return true;
-    }
 
     private void clientPositionChanged() {
         if (riderPosition != null && riding != null && (riderInterpolation == null || !riderInterpolation.running())) {
@@ -149,17 +131,12 @@ public class PacketEntity {
         }
         if (tracker != null
                 && !readingTickPositions
-                && (pistonStates == null || !pistonStates.running())
                 && (riderInterpolation == null || !riderInterpolation.running()))
             tracker.onClientEntityPositionChanged(this);
     }
 
-    public JavaMovementPatch pistonMovementPatch() {
-        return pistonStates == null ? null : pistonStates.patch();
-    }
-
-    JavaPistonEntityStates.Snapshot capturePistonPhysics(boolean copy) {
-        return new JavaPistonEntityStates.Snapshot(
+    ClientPhysicsSnapshot capturePhysics(boolean copy) {
+        return new ClientPhysicsSnapshot(
                 oldPacketLocation == null ? null : copy ? oldPacketLocation.copy() : oldPacketLocation,
                 copy ? newPacketLocation.copy() : newPacketLocation,
                 blockEntityState,
@@ -174,7 +151,7 @@ public class PacketEntity {
                 clientPhysicalYawCurrent);
     }
 
-    void restorePistonPhysics(JavaPistonEntityStates.Snapshot state) {
+    void restorePhysics(ClientPhysicsSnapshot state) {
         oldPacketLocation = state.oldLocation();
         newPacketLocation = state.location();
         blockEntityState = state.pass();
@@ -191,13 +168,11 @@ public class PacketEntity {
 
     public void setPacketDeltaMovement(Vec3 movement) {
         if (runPhysicsPaths(() -> setPacketDeltaMovement(movement))) return;
-        if (pistonStates != null && runPistonPatchStates(() -> setPacketDeltaMovement(movement))) return;
         deltaMovement = movement;
     }
 
     public void setPacketOnGround(boolean ground) {
         if (runPhysicsPaths(() -> setPacketOnGround(ground))) return;
-        if (pistonStates != null && runPistonPatchStates(() -> setPacketOnGround(ground))) return;
         onGround = ground;
     }
 
@@ -437,19 +412,6 @@ public class PacketEntity {
         if (runPhysicsPaths(() -> onFirstTransaction(
                 relative, hasPos, relX, relY, relZ, hasYaw, yaw, hasPitch, pitch, player, uncertainInitialSteps)))
             return;
-        if (pistonStates != null
-                && runPistonPatchStates(() -> onFirstTransaction(
-                        relative,
-                        hasPos,
-                        relX,
-                        relY,
-                        relZ,
-                        hasYaw,
-                        yaw,
-                        hasPitch,
-                        pitch,
-                        player,
-                        uncertainInitialSteps))) return;
         applyEntityPositionUpdate(relative, hasPos, relX, relY, relZ);
         if (desyncClientPos == null) {
             return;
@@ -563,9 +525,6 @@ public class PacketEntity {
         prepareRiderInterpolation(player);
         if (runPhysicsPaths(() -> onPositionPath(path, hasPosition, hasYaw, yaw, hasPitch, pitch, player, bundled)))
             return;
-        if (pistonStates != null
-                && runPistonPatchStates(
-                        () -> onPositionPath(path, hasPosition, hasYaw, yaw, hasPitch, pitch, player, bundled))) return;
         if (hasPosition) desyncClientPos = path.endPosition();
         if (ignoresLerp(player)) return;
         if (skipsInterpolation(player)) {
@@ -726,10 +685,6 @@ public class PacketEntity {
         prepareRiderInterpolation(player);
         if (runPhysicsPaths(
                 () -> onBundleTransaction(relative, hasPos, relX, relY, relZ, hasYaw, yaw, hasPitch, pitch, player)))
-            return;
-        if (pistonStates != null
-                && runPistonPatchStates(() ->
-                        onBundleTransaction(relative, hasPos, relX, relY, relZ, hasYaw, yaw, hasPitch, pitch, player)))
             return;
         if (hasPos) {
             if (relative) {
@@ -1019,7 +974,6 @@ public class PacketEntity {
     // Remove the possibility of the old packet location
     public void onSecondTransaction() {
         if (runPhysicsPaths(this::onSecondTransaction)) return;
-        if (pistonStates != null && runPistonPatchStates(this::onSecondTransaction)) return;
         ReachInterpolationData dropped = oldPacketLocation;
         this.oldPacketLocation = null;
         recycleInterpolation(dropped);
@@ -1027,8 +981,8 @@ public class PacketEntity {
 
     /** Keeps a snapshot that no field references any more for {@link #nextInterpolation} to restart. */
     private void recycleInterpolation(@Nullable ReachInterpolationData dropped) {
-        // These paths retain snapshots outside the ordinary interpolation fields.
-        if (pistonStates != null || riderInterpolation != null) return;
+        // A rider's detached interpolation retains snapshots outside the ordinary interpolation fields.
+        if (riderInterpolation != null) return;
         if (dropped == null || dropped.usesSteppedInterpolation()) return;
         if (dropped == newPacketLocation || dropped == oldPacketLocation) return;
         if (dropped == settledInterpolation) settledInterpolation = null;
@@ -1054,7 +1008,6 @@ public class PacketEntity {
         ReachInterpolationData spare = spareInterpolation;
         spareInterpolation = null;
         if (spare != null
-                && pistonStates == null
                 && riderInterpolation == null
                 && spare.restart(
                         player,
@@ -1237,19 +1190,13 @@ public class PacketEntity {
                 readingTickPositions = false;
             }
         }
-        if (pistonStates != null && runPistonPatchStates(() -> tickPhysicalInterpolation(player))) return;
         tickPhysicalInterpolation(player);
-    }
-
-    JavaPistonEntityStates.Snapshot otherPistonPhysics() {
-        return pistonStates == null ? null : pistonStates.other();
     }
 
     private boolean hasChangingTickPosition() {
         return oldPacketLocation != null
                 || blockEntityPhysicalBox != null
-                || newPacketLocation.hasActiveInterpolationTarget()
-                || otherPistonPhysics() != null;
+                || newPacketLocation.hasActiveInterpolationTarget();
     }
 
     private List<SimpleCollisionBox> tickPositionView() {
@@ -1272,9 +1219,9 @@ public class PacketEntity {
         }
     }
 
-    /** The same target carry as stepInterpolation, on a copy of one protocol-773 physics path. */
+    /** The same target carry as stepInterpolation, on a copy of the entity's physics state. */
     void carryInterpolationTargetForPreview(
-            CultPlayer player, ReachInterpolationData interpolation, JavaPistonEntityStates.Snapshot state) {
+            CultPlayer player, ReachInterpolationData interpolation, ClientPhysicsSnapshot state) {
         if (player.getClientVersion().isOlderThan(ClientVersion.V_1_21_5)
                 || !state.exact()
                 || placedAtPacketPosition(player)
@@ -1644,7 +1591,6 @@ public class PacketEntity {
      */
     private void setPositionRaw(SimpleCollisionBox box, @Nullable Vec3 position) {
         if (runPhysicsPaths(() -> setPositionRaw(box, position))) return;
-        if (pistonStates != null && !pistonStates.running()) pistonStates = null;
         blockEntityPhysicalBox = null;
         blockEntityState = null;
         // The client snaps ridden/attached entities straight onto the packet
@@ -1657,7 +1603,6 @@ public class PacketEntity {
         this.clientPhysicalPositionExact = true;
         // Snapping to an exact position means interpolation is disabled
         if (newPacketLocation == null
-                || pistonStates != null
                 || riderInterpolation != null
                 || newPacketLocation == oldPacketLocation
                 || !newPacketLocation.resetFinished(box)) {
@@ -1855,7 +1800,6 @@ public class PacketEntity {
      */
     public void snapTo(CultPlayer player, SimpleCollisionBox box, float yaw, float pitch) {
         if (runPhysicsPaths(() -> snapTo(player, box, yaw, pitch))) return;
-        if (pistonStates != null && runPistonPatchStates(() -> snapTo(player, box, yaw, pitch))) return;
         if (newPacketLocation == null
                 || !newPacketLocation.hasActiveInterpolationTarget()
                 || newPacketLocation.getExactMovementLocation() == null) {
@@ -1927,7 +1871,6 @@ public class PacketEntity {
     /** {@code Entity#refreshDimensions}: the current, pending and seated positions take the entity's new dimensions. */
     public void refreshDimensions(CultPlayer player) {
         if (runPhysicsPaths(() -> refreshDimensions(player))) return;
-        if (pistonStates != null && runPistonPatchStates(() -> refreshDimensions(player))) return;
         float width = BoundingBoxSize.getWidth(player, this);
         float height = BoundingBoxSize.getHeight(player, this);
         newPacketLocation.resize(width, height);
@@ -1953,8 +1896,6 @@ public class PacketEntity {
         if (unbundledReachLocation != null)
             ReachInterpolationData.combineCollisionBox(
                     out, unbundledReachLocation.getPossibleLocationCombined(scratch), out);
-        var other = pistonStates == null ? null : pistonStates.other();
-        if (other != null) ReachInterpolationData.combineCollisionBox(out, other.bounds(false, scratch), out);
         return out;
     }
 
@@ -1983,10 +1924,7 @@ public class PacketEntity {
             for (int i = 1; i < view.size(); i++) out.union(view.get(i));
             return out;
         }
-        primaryCollisionBoxes(true, out, scratch);
-        var other = pistonStates == null ? null : pistonStates.other();
-        if (other != null) ReachInterpolationData.combineCollisionBox(out, other.bounds(true, scratch), out);
-        return out;
+        return primaryCollisionBoxes(true, out, scratch);
     }
 
     /**
@@ -2082,13 +2020,6 @@ public class PacketEntity {
         }
         List<SimpleCollisionBox> view = tickPositionView();
         if (view != null) return tickPositions.shareable(view);
-        if (pistonStates != null && pistonStates.other() != null) {
-            int count = possibleMovementCollisionBoxCandidateCount();
-            var candidates = new ArrayList<SimpleCollisionBox>(count);
-            for (int i = 0; i < count; i++)
-                candidates.add(possibleMovementCollisionBoxCandidate(i, new SimpleCollisionBox()));
-            return candidates;
-        }
         if (passengerPhysicalBox != null && riding != null) return List.of(passengerPhysicalBox.copy());
         if (blockEntityPhysicalBox != null) return List.of(blockEntityPhysicalBox.copy());
         List<SimpleCollisionBox> candidates = new ArrayList<>();
@@ -2112,11 +2043,6 @@ public class PacketEntity {
         if (lazyRiderPosition()) return tracker.riderPositionCount(this);
         List<SimpleCollisionBox> view = tickPositionView();
         if (view != null) return view.size();
-        var other = pistonStates == null ? null : pistonStates.other();
-        return primaryMovementCandidateCount() + (other == null ? 0 : other.candidates());
-    }
-
-    private int primaryMovementCandidateCount() {
         if (passengerPhysicalBox != null && riding != null) return 1;
         if (blockEntityPhysicalBox != null) return 1;
         int count = newPacketLocation.possibleMovementLocationCount();
@@ -2133,11 +2059,6 @@ public class PacketEntity {
         if (lazyRiderPosition()) return riderCandidate(index, out);
         List<SimpleCollisionBox> view = tickPositionView();
         if (view != null) return out.set(view.get(index));
-        var other = pistonStates == null ? null : pistonStates.other();
-        if (other != null) {
-            int count = primaryMovementCandidateCount();
-            if (index >= count) return other.candidate(index - count, out);
-        }
         if (passengerPhysicalBox != null && riding != null) return out.set(passengerPhysicalBox);
         if (blockEntityPhysicalBox != null) return out.set(blockEntityPhysicalBox);
         if (oldPacketLocation != null) {
@@ -2176,19 +2097,14 @@ public class PacketEntity {
         }
         List<SimpleCollisionBox> view = tickPositionView();
         if (view != null) return view.size() == 1 ? view.getFirst().copy() : null;
-        SimpleCollisionBox primary = primaryExactMovementCollisionBox();
-        var other = pistonStates == null ? null : pistonStates.other();
-        if (other == null || primary == null) return primary;
-        SimpleCollisionBox alternate = other.exactBox();
-        return alternate != null
-                        && primary.minX == alternate.minX
-                        && primary.maxX == alternate.maxX
-                        && primary.minY == alternate.minY
-                        && primary.maxY == alternate.maxY
-                        && primary.minZ == alternate.minZ
-                        && primary.maxZ == alternate.maxZ
-                ? primary
-                : null;
+        if (passengerPhysicalBox != null && riding != null) return passengerPhysicalBox.copy();
+        if (blockEntityPhysicalBox != null) return blockEntityPhysicalBox.copy();
+        if (newPacketLocation == null || oldPacketLocation != null) {
+            return null;
+        }
+
+        List<SimpleCollisionBox> locations = newPacketLocation.getPossibleMovementLocations();
+        return locations.size() == 1 ? locations.getFirst() : null;
     }
 
     /**
@@ -2201,17 +2117,6 @@ public class PacketEntity {
         if (exact != null) return exact;
         return possibleMovementCollisionBoxCandidate(
                 possibleMovementCollisionBoxCandidateCount() - 1, new SimpleCollisionBox());
-    }
-
-    private SimpleCollisionBox primaryExactMovementCollisionBox() {
-        if (passengerPhysicalBox != null && riding != null) return passengerPhysicalBox.copy();
-        if (blockEntityPhysicalBox != null) return blockEntityPhysicalBox.copy();
-        if (newPacketLocation == null || oldPacketLocation != null) {
-            return null;
-        }
-
-        List<SimpleCollisionBox> locations = newPacketLocation.getPossibleMovementLocations();
-        return locations.size() == 1 ? locations.getFirst() : null;
     }
 
     public long getClientTickOrder() {

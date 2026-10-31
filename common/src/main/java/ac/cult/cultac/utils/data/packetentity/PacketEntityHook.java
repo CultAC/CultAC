@@ -46,7 +46,7 @@ public class PacketEntityHook extends PacketEntity {
     private int synchronizedDraws;
     private final HookPhysicsPaths paths = new HookPhysicsPaths();
 
-    record State(JavaPistonEntityStates.Snapshot physics, PacketEntity hookedIn, boolean hookedState,
+    record State(ClientPhysicsSnapshot physics, PacketEntity hookedIn, boolean hookedState,
             boolean discarded, List<Vec3> positions, Vec3 codec, PacketEntity target, boolean before,
             boolean flyingTick, boolean bobbing, boolean leftOwner, int age, int life, Long seed, int draws) {
         boolean sameSettledState(State other) {
@@ -66,12 +66,12 @@ public class PacketEntityHook extends PacketEntity {
     }
 
     State captureState() {
-        return new State(capturePistonPhysics(true), hookedIn, hookedState, discarded, followPositions, codecAtFollow,
+        return new State(capturePhysics(true), hookedIn, hookedState, discarded, followPositions, codecAtFollow,
                 followTarget, followsBeforeTarget, flyingTick, bobbing, leftOwner, age, life, synchronizedSeed, synchronizedDraws);
     }
 
     void restoreState(State state) {
-        restorePistonPhysics(state.physics());
+        restorePhysics(state.physics());
         hookedIn = state.hookedIn();
         hookedState = state.hookedState();
         discarded = state.discarded();

@@ -82,9 +82,7 @@ final class ClientTickPositions {
         if (!after || entity.interpolatedBeforeLocalTravel(player)) return null;
         if (preview == null || previewEpoch != epoch) {
             preview = new ArrayList<>();
-            append(entity, player, entity.capturePistonPhysics(false), preview);
-            var other = entity.otherPistonPhysics();
-            if (other != null) append(entity, player, other, preview);
+            append(entity, player, entity.capturePhysics(false), preview);
             previewEpoch = epoch;
         }
         return preview;
@@ -97,7 +95,7 @@ final class ClientTickPositions {
     private static void append(
             PacketEntity entity,
             CultPlayer player,
-            JavaPistonEntityStates.Snapshot state,
+            ClientPhysicsSnapshot state,
             List<SimpleCollisionBox> boxes) {
         ReachInterpolationData next = state.location().copy();
         entity.carryInterpolationTargetForPreview(player, next, state);

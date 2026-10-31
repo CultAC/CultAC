@@ -6,7 +6,6 @@ import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.impl.combat.FairReach;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
-import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementPatch;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
@@ -127,7 +126,6 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         private final DeltaMovementChange deltaMovement;
         private final boolean relativeToClientPosition;
         private int proofTransaction;
-        private @Nullable EntityMovement otherPistonPath;
         private @Nullable ControlledRootTeleport controlledRootTeleport;
 
         private EntityMovement copy(DeltaMovementChange delta) {
@@ -146,14 +144,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                     onGround,
                     delta,
                     relativeToClientPosition);
-            copy.otherPistonPath = otherPistonPath;
             copy.controlledRootTeleport = controlledRootTeleport;
-            return copy;
-        }
-
-        private EntityMovement withOtherPistonPath(EntityMovement other) {
-            EntityMovement copy = copy(deltaMovement);
-            copy.otherPistonPath = other;
             return copy;
         }
 
@@ -163,10 +154,6 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             return copy;
         }
 
-        private @Nullable EntityMovement otherPistonPath() {
-            return otherPistonPath;
-        }
-
         private @Nullable ControlledRootTeleport controlledRootTeleport() {
             return controlledRootTeleport;
         }
@@ -174,12 +161,6 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         /** This movement as the client's handler applies it. */
         private EntityMovement asHandled() {
             return controlledRootTeleport == null ? this : controlledRootTeleport.movement();
-        }
-
-        private EntityMovement forEntity(PacketEntity entity) {
-            return otherPistonPath != null && entity.pistonMovementPatch() == JavaMovementPatch.V_1_21_10
-                    ? otherPistonPath
-                    : this;
         }
 
         private EntityMovement(
@@ -504,7 +485,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         }
     }
 
-    private record PacketHandlerDeltaMovement(double x, double y, double z, int sequence, Vec3 otherPistonPath) {}
+    private record PacketHandlerDeltaMovement(double x, double y, double z, int sequence) {}
 
     /** An entity's packet-handler transform; a map entry is live only in the client tick it was written in. */
     private static final class PacketHandlerEntityTransform {
@@ -514,7 +495,6 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         private float yRot;
         private float xRot;
         private long tick;
-        private PacketHandlerEntityTransform otherPistonPath;
 
         private PacketHandlerEntityTransform set(double x, double y, double z, float yRot, float xRot) {
             this.x = x;
@@ -915,12 +895,9 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         }
         PacketEntity entity = player.compensatedEntities.getEntity(teleport.entityId());
         TrackerData data = player.compensatedEntities.getTrackedEntity(teleport.entityId());
-        EntityMovement[] paths = teleportPaths(teleport, change, packetFlags, entity, data, false);
-        int sequence = recordPacketHandlerDeltaMovement(
-                teleport.entityId(),
-                paths[0].deltaMovement().movement(),
-                paths[1] == null ? null : paths[1].deltaMovement().movement());
-        EntityMovement movement = withDeltaSequence(paths, sequence);
+        EntityMovement path = teleportPath(teleport, change, packetFlags, entity, data, false);
+        int sequence = recordPacketHandlerDeltaMovement(teleport.entityId(), path.deltaMovement().movement());
+        EntityMovement movement = withDeltaSequence(path, sequence);
         if (!player.isBedrockMovement()
                 && packetFlags.getMask() != 0
                 && player.compensatedEntities.vehicles.canClientAuthoritativelyMoveVisibleRoot(entity)) {
@@ -932,39 +909,26 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
     /**
      * What ClientPacketListener#handleTeleportEntity sets, from the PositionMoveRotation#of(entity) it starts from:
-     * the packet-handler transform at send, or the client's own transform once it has handled the packet. A relative
-     * teleport reads it independently on the two source physics paths.
+     * the packet-handler transform at send, or the client's own transform once it has handled the packet.
      */
-    private EntityMovement[] teleportPaths(
+    private EntityMovement teleportPath(
             ClientboundTeleportEntity teleport,
             TeleportChange change,
             RelativeFlag flags,
             @Nullable PacketEntity entity,
             @Nullable TrackerData data,
             boolean handled) {
-        EntityMovement[] paths = new EntityMovement[2];
-        Runnable calculate = () -> {
-            PacketHandlerEntityTransform source = handled
-                    ? packetHandlerTransformFallback(entity, data, new PacketHandlerEntityTransform())
-                    : packetHandlerTransformSource(entity, data);
-            Vec3 pos = calculateAbsolutePosition(source.position(), change.position(), flags);
-            float finalYaw = calculateAbsoluteYaw(source.yRot, change.yRot(), flags);
-            float finalPitch = calculateAbsolutePitch(source.xRot, change.xRot(), flags);
-            DeltaMovementChange delta = teleportDeltaMovement(
-                    entity,
-                    new RiderRelativeDelta(
-                            change.deltaMovement(), source.yRot, source.xRot, finalYaw, finalPitch, flags));
-            int index = entity != null && entity.pistonMovementPatch() == JavaMovementPatch.V_1_21_10 ? 1 : 0;
-            paths[index] = teleportEntityPacket(
-                    teleport.entityId(), pos, finalYaw, finalPitch, teleport.onGround(), delta, flags.getMask() != 0);
-        };
-        if (entity == null || !entity.runPistonPatchStates(calculate)) calculate.run();
-        return paths;
-    }
-
-    private EntityMovement withDeltaSequence(EntityMovement[] paths, int sequence) {
-        EntityMovement movement = withDeltaSequence(paths[0], sequence);
-        return paths[1] == null ? movement : movement.withOtherPistonPath(withDeltaSequence(paths[1], sequence));
+        PacketHandlerEntityTransform source = handled
+                ? packetHandlerTransformFallback(entity, data, new PacketHandlerEntityTransform())
+                : packetHandlerTransformSource(entity, data);
+        Vec3 pos = calculateAbsolutePosition(source.position(), change.position(), flags);
+        float finalYaw = calculateAbsoluteYaw(source.yRot, change.yRot(), flags);
+        float finalPitch = calculateAbsolutePitch(source.xRot, change.xRot(), flags);
+        DeltaMovementChange delta = teleportDeltaMovement(
+                entity,
+                new RiderRelativeDelta(change.deltaMovement(), source.yRot, source.xRot, finalYaw, finalPitch, flags));
+        return teleportEntityPacket(
+                teleport.entityId(), pos, finalYaw, finalPitch, teleport.onGround(), delta, flags.getMask() != 0);
     }
 
     /**
@@ -1013,7 +977,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             handled = entity == null
                     ? asSent.withControlledRootTeleport(null)
                     : withDeltaSequence(
-                            teleportPaths(
+                            teleportPath(
                                     teleport,
                                     change,
                                     flags,
@@ -1102,10 +1066,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         if (entity != null) {
             PacketHandlerEntityTransform deferredTransform = packetHandlerEntityTransforms.get(entity.getEntityId());
             if (deferredTransform != null && deferredTransform.tick == transformTick) {
-                return entity.pistonMovementPatch() == JavaMovementPatch.V_1_21_10
-                                && deferredTransform.otherPistonPath != null
-                        ? deferredTransform.otherPistonPath
-                        : deferredTransform;
+                return deferredTransform;
             }
         }
         return packetHandlerTransformFallback(entity, data, out);
@@ -2180,8 +2141,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                     absoluteZ,
                     movement.hasRotation(),
                     movement.rotationYaw(),
-                    movement.rotationPitch(),
-                    movement.otherPistonPath());
+                    movement.rotationPitch());
         }
 
         if (relative) {
@@ -2349,9 +2309,6 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     }
 
     private void applyBundleFirstMovement(PacketEntity entity, EntityMovement movement) {
-        if (entity.hasPistonPatchStates()
-                && entity.runPistonPatchStates(() -> applyBundleFirstMovement(entity, movement.forEntity(entity))))
-            return;
         if (applyClientPath(entity, movement, true)) return;
         entity.onBundleFirstTransaction(
                 movement.relative(),
@@ -2366,8 +2323,6 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     }
 
     private void applyBundledMovement(PacketEntity entity, EntityMovement movement) {
-        if (entity.hasPistonPatchStates()
-                && entity.runPistonPatchStates(() -> applyBundledMovement(entity, movement.forEntity(entity)))) return;
         if (applyClientPath(entity, movement, true)) return;
         entity.onBundleTransaction(
                 movement.relative(),
@@ -2382,9 +2337,6 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     }
 
     private void applyEntityRotationAndGround(PacketEntity entity, EntityMovement movement) {
-        if (entity.hasPistonPatchStates()
-                && entity.runPistonPatchStates(() -> applyEntityRotationAndGround(entity, movement.forEntity(entity))))
-            return;
         if (entity instanceof PacketEntityTrackXRot && movement.hasRotation()) {
             PacketEntityTrackXRot xRotEntity = (PacketEntityTrackXRot) entity;
             xRotEntity.packetYaw = movement.rotationYaw();
@@ -2448,35 +2400,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
     private void recordPacketHandlerTransform(
             int entityId, boolean hasPos, double x, double y, double z, boolean hasRotation, float yaw, float pitch) {
-        recordPacketHandlerTransform(entityId, hasPos, x, y, z, hasRotation, yaw, pitch, null);
-    }
-
-    private void recordPacketHandlerTransform(
-            int entityId,
-            boolean hasPos,
-            double x,
-            double y,
-            double z,
-            boolean hasRotation,
-            float yaw,
-            float pitch,
-            EntityMovement other) {
         PacketEntity entity = player.compensatedEntities.getEntity(entityId);
         TrackerData data = player.compensatedEntities.getTrackedEntity(entityId);
-        PacketHandlerEntityTransform[] otherTarget =
-                entity != null && entity.hasPistonPatchStates() ? new PacketHandlerEntityTransform[1] : null;
-        if (otherTarget != null)
-            entity.runPistonPatchStates(() -> {
-                if (entity.pistonMovementPatch() != JavaMovementPatch.V_1_21_10) return;
-                PacketHandlerEntityTransform previous = packetHandlerTransformSource(entity, data);
-                otherTarget[0] = new PacketHandlerEntityTransform()
-                        .set(
-                                hasPos ? (other == null ? x : other.x()) : previous.x,
-                                hasPos ? (other == null ? y : other.y()) : previous.y,
-                                hasPos ? (other == null ? z : other.z()) : previous.z,
-                                hasRotation ? (other == null ? yaw : other.rotationYaw()) : previous.yRot,
-                                hasRotation ? (other == null ? pitch : other.rotationPitch()) : previous.xRot);
-            });
         PacketHandlerEntityTransform source = packetHandlerTransformSource(entity, data, transformScratch);
         double nextX = hasPos ? x : source.x;
         double nextY = hasPos ? y : source.y;
@@ -2495,7 +2420,6 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             packetHandlerEntityTransforms.put(entityId, entry);
         }
         entry.set(nextX, nextY, nextZ, nextYRot, nextXRot).tick = transformTick;
-        entry.otherPistonPath = otherTarget == null ? null : otherTarget[0];
     }
 
     private boolean isLocalAuthoritativeRootVehicleAsSent(int entityId) {
@@ -2516,9 +2440,6 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     }
 
     private void applyDeltaMovementUpdate(PacketEntity entity, EntityMovement movementInput) {
-        if (entity.hasPistonPatchStates()
-                && entity.runPistonPatchStates(() -> applyDeltaMovementUpdate(entity, movementInput.forEntity(entity))))
-            return;
         DeltaMovementChange update = movementInput.deltaMovement();
         if (!update.present()) {
             return;
@@ -2535,13 +2456,9 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     }
 
     private int recordPacketHandlerDeltaMovement(int entityId, Vec3 movement) {
-        return recordPacketHandlerDeltaMovement(entityId, movement, null);
-    }
-
-    private int recordPacketHandlerDeltaMovement(int entityId, Vec3 movement, Vec3 other) {
         int sequence = ++packetHandlerDeltaMovementSequence;
         packetHandlerDeltaMovements.put(
-                entityId, new PacketHandlerDeltaMovement(movement.x, movement.y, movement.z, sequence, other));
+                entityId, new PacketHandlerDeltaMovement(movement.x, movement.y, movement.z, sequence));
         return sequence;
     }
 
@@ -2568,9 +2485,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
         PacketHandlerDeltaMovement movement = packetHandlerDeltaMovements.get(entity.getEntityId());
         if (movement == null) return entity.deltaMovement;
-        return entity.pistonMovementPatch() == JavaMovementPatch.V_1_21_10 && movement.otherPistonPath() != null
-                ? movement.otherPistonPath()
-                : new Vec3(movement.x(), movement.y(), movement.z());
+        return new Vec3(movement.x(), movement.y(), movement.z());
     }
 
     public void addEntity(

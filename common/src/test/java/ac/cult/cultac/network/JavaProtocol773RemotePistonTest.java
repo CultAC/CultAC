@@ -2,7 +2,6 @@ package ac.cult.cultac.network;
 
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -100,7 +99,6 @@ class JavaProtocol773RemotePistonTest {
             }
             f.pongThrough(f.player.lastTransactionSent.get());
             assertEquals(starts.getFirst() + 3, actor.newPacketLocation.targetCenterX(), 1e-12);
-            assertFalse(actor.hasPistonPatchStates());
         }
     }
 
@@ -125,7 +123,6 @@ class JavaProtocol773RemotePistonTest {
             f.pongThrough(f.player.lastTransactionSent.get());
             assertEquals(velocity, actor.deltaMovement);
             assertTrue(actor.onGround);
-            assertFalse(actor.hasPistonPatchStates());
             assertEquals(before, positions(actor));
         }
     }
@@ -172,6 +169,5 @@ class JavaProtocol773RemotePistonTest {
         var positions = positions(entity);
         assertEquals(1, positions.size(), positions.toString());
         assertEquals(x, positions.getFirst(), 1e-12);
-        assertFalse(entity.hasPistonPatchStates());
     }
 }

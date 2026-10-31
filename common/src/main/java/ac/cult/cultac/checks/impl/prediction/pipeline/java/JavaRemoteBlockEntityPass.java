@@ -66,13 +66,7 @@ public final class JavaRemoteBlockEntityPass {
             SimpleCollisionBox box = actor.getPossibleMovementCollisionBoxes();
             if (!mayReach(pass, box)) {
                 // The pass misses this root, but may still move a rider seated on or beside it.
-                if (!actor.passengers.isEmpty() && !actor.hasPistonPatchStates())
-                    recordRidersOfUnmovedRoot(player, actor, box, pass, riderPass);
-                continue;
-            }
-            // A protocol-773 root replays each of its physics paths alone.
-            if (actor.hasPistonPatchStates()) {
-                tickActor(player, actor, pass, riderPass);
+                if (!actor.passengers.isEmpty()) recordRidersOfUnmovedRoot(player, actor, box, pass, riderPass);
                 continue;
             }
             if (moved == null) moved = new java.util.ArrayList<>(2);
@@ -81,12 +75,6 @@ public final class JavaRemoteBlockEntityPass {
         if (moved == null) return;
         var results = JavaBlockEntityPass.runEntities(player, moved, pass);
         for (int i = 0; i < moved.size(); i++) commit(player, moved.get(i).actor(), results.get(i), pass, riderPass);
-    }
-
-    private static void tickActor(CultPlayer player, PacketEntity actor, ClientBlockEntityPass pass, int riderPass) {
-        if (actor.runPhysicsPaths(() -> tickActor(player, actor, pass, riderPass))) return;
-        if (!actor.clientPhysicalPositionExact || actor.oldPacketLocation != null) return;
-        commit(player, actor, JavaBlockEntityPass.runEntity(player, actor, pass, start(actor)), pass, riderPass);
     }
 
     /** The Entity fields the root carries into the pass. */
@@ -119,7 +107,7 @@ public final class JavaRemoteBlockEntityPass {
             var entities = player.compensatedEntities;
             // The riders of the player's own riding trees are positioned, and never push it.
             if (actor != entities.selfRidingRoot() && actor != entities.serverVehicleRoot()) {
-                recordRiders(player, actor, pass, riderPass, actor.pistonMovementPatch(), new SimpleCollisionBox());
+                recordRiders(player, actor, pass, riderPass, new SimpleCollisionBox());
             }
         }
     }
@@ -133,7 +121,6 @@ public final class JavaRemoteBlockEntityPass {
             PacketEntity vehicle,
             ClientBlockEntityPass pass,
             int riderPass,
-            JavaMovementPatch patch,
             SimpleCollisionBox scratch) {
         var passengers = vehicle.passengers;
         for (int i = 0; i < passengers.size(); i++) {
@@ -156,14 +143,14 @@ public final class JavaRemoteBlockEntityPass {
                     rider.movementBoxAt(scratch.set(original));
                     boolean moves = mayReach(pass, scratch);
                     for (ClientPistonDeltas deltas : heldDeltas(rider, held, count, candidate)) {
-                        Moved moved = moves ? movedRider(player, rider, original, pass, patch, deltas) : null;
+                        Moved moved = moves ? movedRider(player, rider, original, pass, deltas) : null;
                         rider.recordRiderPushBox(riderPass, moved == null ? original : moved.box());
                         after.add(moved == null ? deltas : moved.deltas());
                     }
                 }
                 rider.riderPistonDeltas = List.copyOf(after);
             }
-            if (!rider.passengers.isEmpty()) recordRiders(player, rider, pass, riderPass, patch, scratch);
+            if (!rider.passengers.isEmpty()) recordRiders(player, rider, pass, riderPass, scratch);
         }
     }
 
@@ -191,7 +178,7 @@ public final class JavaRemoteBlockEntityPass {
                         rootBox.maxY + up,
                         rootBox.maxZ + side)
                 && !heldRiderMayReach(player, root, pass, rootBox, 0)) return;
-        recordRiders(player, root, pass, riderPass, root.pistonMovementPatch(), rootBox);
+        recordRiders(player, root, pass, riderPass, rootBox);
     }
 
     /** A non-ticking rider can keep its old seat after a packet moved its parent arbitrarily far away. */
@@ -268,7 +255,6 @@ public final class JavaRemoteBlockEntityPass {
             PacketEntity rider,
             SimpleCollisionBox seat,
             ClientBlockEntityPass pass,
-            JavaMovementPatch patch,
             ClientPistonDeltas deltas) {
         Vec3 start = new Vec3((seat.minX + seat.maxX) / 2.0, seat.minY, (seat.minZ + seat.maxZ) / 2.0);
         // Entity#rideTick zeroes a passenger's deltaMovement, and a remote rider never travels.
@@ -281,7 +267,7 @@ public final class JavaRemoteBlockEntityPass {
                 0,
                 deltas,
                 false);
-        var replay = JavaBlockEntityPass.runDetachedEntity(player, rider, pass, state, patch);
+        var replay = JavaBlockEntityPass.runDetachedEntity(player, rider, pass, state);
         Vec3 end = replay.state().position();
         SimpleCollisionBox box = end.equals(start)
                 ? seat
