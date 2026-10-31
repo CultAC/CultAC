@@ -73,6 +73,9 @@ public class CompensatedEntities {
     // Reused only by the sequential client entity traversal, never exposed to readers.
     private final SimpleCollisionBox riderTickBox = new SimpleCollisionBox();
     private final SimpleCollisionBox riderTickPoint = new SimpleCollisionBox();
+    // The roots of the tickClientEntities call in progress, empty between calls; a nested call takes its own list.
+    private final ArrayList<PacketEntity> tickRoots = new ArrayList<>();
+    private boolean tickRootsInUse;
     // Type-filtered entityMap values in entityMap iteration order, current while typeViewsAt matches the map.
     private int typeViewsAt = -1;
     private List<PacketEntity> pushOrCollideCandidates = List.of();
@@ -1728,20 +1731,39 @@ public class CompensatedEntities {
     }
 
     public void tickClientEntities(Consumer<PacketEntity> tick) {
+        boolean owned = !tickRootsInUse;
         List<PacketEntity> roots = rootsInAddOrder();
         if (roots == null) {
-            roots = new ArrayList<>(entityMap.values());
+            roots = rootsList(entityMap.size() + 1);
+            roots.addAll(entityMap.values());
             roots.add(getSelf());
             roots.removeIf(entity -> entity.getRiding() != null || !isTicking(entity));
             roots.sort(Comparator.comparingLong(PacketEntity::getClientTickOrder));
         }
         boolean frozen =
                 player.packetStateData.serverTicksFrozen && player.packetStateData.serverFrozenTickStepsRemaining == 0;
-        for (PacketEntity root : roots) {
-            if (frozen && !containsPlayer(root)) continue;
-            tickEntityTree(root, tick);
+        tickRootsInUse = true;
+        try {
+            for (PacketEntity root : roots) {
+                if (frozen && !containsPlayer(root)) continue;
+                tickEntityTree(root, tick);
+            }
+        } finally {
+            if (owned) {
+                // Retain no entity between ticks.
+                tickRoots.clear();
+                tickRootsInUse = false;
+            }
         }
         finishRiderInterpolations();
+    }
+
+    /** The empty owned roots list, or a new one while a tickClientEntities call is iterating it. */
+    private List<PacketEntity> rootsList(int capacity) {
+        if (tickRootsInUse) return new ArrayList<>(capacity);
+        tickRoots.clear();
+        tickRoots.ensureCapacity(capacity);
+        return tickRoots;
     }
 
     /**
@@ -1887,7 +1909,8 @@ public class CompensatedEntities {
 
     /**
      * The ticking roots, self included, in the stable client tick order sort of entityMap values then self; null
-     * unless the add order holds exactly the entityMap values with strictly increasing tick orders.
+     * unless the add order holds exactly the entityMap values with strictly increasing tick orders. The list is
+     * {@link #rootsList}'s.
      */
     private List<PacketEntity> rootsInAddOrder() {
         int size = addOrder.size();
@@ -1897,7 +1920,7 @@ public class CompensatedEntities {
         long selfOrder = self.getClientTickOrder();
         boolean selfPending = self.getRiding() == null && isTicking(self);
         // Tracked passengers ride, so they are never roots.
-        List<PacketEntity> roots = new ArrayList<>(Math.max(1, size + 1 - trackedPassengers));
+        List<PacketEntity> roots = rootsList(Math.max(1, size + 1 - trackedPassengers));
         long previous = Long.MIN_VALUE;
         for (int i = 0; i < size; i++) {
             PacketEntity entity = addOrder.get(i);
