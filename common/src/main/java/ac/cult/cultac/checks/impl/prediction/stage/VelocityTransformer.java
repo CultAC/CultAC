@@ -35,6 +35,8 @@ public class VelocityTransformer {
     private static final Vec3 attackSlowMultiplier = new Vec3(0.6, 1, 0.6);
     // A velocity outside FluidCurrent#compute's slow square.
     private static final Vec3 FAST = new Vec3(1, 0, 1);
+    // The lineage step of the ridden input that the travel's LivingEntity#moveRelative adds.
+    public static final String RIDDEN_INPUT = "rideable input";
 
     public List<PredVector> generateMovementVectors(CultPlayer player, List<PredVector> input) {
         if (ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiddenTravel.clearsWithoutTravel(
@@ -92,11 +94,10 @@ public class VelocityTransformer {
         }
 
         if (simulationContext.getVehicle() instanceof PacketEntityNautilus) {
-            // LivingEntity#aiStep thresholds deltaMovement before travelRidden runs AbstractNautilus#tickRidden's dash
-            // and AbstractNautilus#travelInWater adds the ridden input.
+            // LivingEntity#aiStep thresholds deltaMovement before travelRidden runs AbstractNautilus#tickRidden's dash.
+            // The travel's moveRelative then adds the ridden input to the dashed deltaMovement.
             input = applyMovementThreshold(input, simulationContext.getVersion(), false);
-            input = applyRideableInput(player, input);
-            return applyJumps(player, input);
+            return applyRideableInput(player, applyJumps(player, input));
         }
 
         input = applyRideableInput(player, input);
@@ -338,7 +339,7 @@ public class VelocityTransformer {
         List<PredVector> transformed = new ArrayList<>(input.size() * inputVectors.size());
         for (PredVector vector : input) {
             for (Vec3 inputVector : inputVectors) {
-                addDistinctPredVector(transformed, vector.add(inputVector, "rideable input"));
+                addDistinctPredVector(transformed, vector.add(inputVector, RIDDEN_INPUT));
             }
         }
         return transformed;

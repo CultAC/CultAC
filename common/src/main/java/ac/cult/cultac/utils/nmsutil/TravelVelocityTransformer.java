@@ -2,9 +2,11 @@ package ac.cult.cultac.utils.nmsutil;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
+import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaInsideBlockEffects;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
+import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldStageBuilder;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -55,10 +57,7 @@ public final class TravelVelocityTransformer {
         List<Vec3> frictions = new ArrayList<>(4);
         boolean inWater = result.getSimulationContext().getWorldData().isInWater();
         boolean inLava = result.getSimulationContext().getWorldData().isInLava();
-        // The deltaMovement LivingEntity#travelInFluid starts with: moveRelative adds no vertical input.
-        double travelStartY = VelocityCandidates.hasEngineTrace(result)
-                ? VelocityCandidates.preCollisionVelocity(result).y
-                : playerVelocity.y;
+        double travelStartY = VelocityCandidates.hasEngineTrace(result) ? fluidTravelStartY(result) : playerVelocity.y;
         Boolean shallowLava = null;
 
         int branchStart = frictions.size();
@@ -74,7 +73,7 @@ public final class TravelVelocityTransformer {
             boolean lavaTravel = !waterTravel && inLava && fluidTravel;
             // AbstractNautilus#travelInWater replaces LivingEntity#travelInWater: no climbing 0.2 and no fluid hop.
             boolean nautilusWaterTravel = waterTravel && context.getVehicle() instanceof PacketEntityNautilus;
-            // LivingEntity#travelInFluid reads isFalling and getEffectiveGravity before its Entity#move.
+            // LivingEntity#travelInFluid reads isFalling and getEffectiveGravity before its moveRelative.
             // travelInAir reads getEffectiveGravity after its move, from the stored deltaMovement rather than
             // the collision-clipped packet displacement. Both matter when a slow-falling player hits a ceiling.
             boolean falling = (waterTravel || lavaTravel ? travelStartY : movedVelocity.y) <= 0.0D;
@@ -176,5 +175,19 @@ public final class TravelVelocityTransformer {
         }
 
         return frictions;
+    }
+
+    /**
+     * The Y of the deltaMovement LivingEntity#travelInFluid starts with: the trace's pre-collision velocity before the
+     * travel's moveRelative input. Only AbstractNautilus#getRiddenInput gives that input a vertical component, and
+     * AbstractNautilus#tickRidden's dash precedes it. A later shift of the velocity moves this start with it.
+     */
+    private static double fluidTravelStartY(PredictionResult result) {
+        double moved = VelocityCandidates.preCollisionVelocity(result).y;
+        PredVector start = result.getInitialStartingVel();
+        if (!start.hasReason(VelocityTransformer.RIDDEN_INPUT)) return moved;
+        double before = start.vectorBeforeFirstReason(VelocityTransformer.RIDDEN_INPUT).y;
+        double steered = start.vectorAtFirstReason(VelocityTransformer.RIDDEN_INPUT).y;
+        return before == steered ? moved : before + (moved - steered);
     }
 }
