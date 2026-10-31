@@ -12,8 +12,9 @@ import ac.cult.cultac.utils.nmsutil.BlockProperties;
 /**
  * LivingEntity#removeFrost then #tryAddFrost: the minecraft:powder_snow movement_speed modifier for a synced
  * DATA_TICKS_FROZEN count. From 1.17, which added powder snow, through 1.21.4, LivingEntity#aiStep runs them after
- * travel on the client too, for the local player and its vehicle alike. From 1.21.5 only the server runs them, so
- * the client keeps the modifier of the last attribute packet.
+ * travel on the client too, for every living entity the client ticks: the local player, its vehicle and remote
+ * entities alike. From 1.21.5 only the server runs them, so the client keeps the modifier of the last attribute
+ * packet.
  */
 public final class ClientFrost {
     /** Entity#getTicksRequiredToFreeze. */

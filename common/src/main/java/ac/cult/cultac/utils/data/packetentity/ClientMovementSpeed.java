@@ -41,7 +41,15 @@ public final class ClientMovementSpeed {
         this.ticksFrozen = ticksFrozen;
     }
 
-    /** LivingEntity#aiStep's frost replacement after a travel to {@code position}; whether the value changed. */
+    /** Entity#getTicksFrozen above 0: LivingEntity#tryAddFrost adds a frost over a block that is not air. */
+    public boolean frozen() {
+        return ticksFrozen > 0;
+    }
+
+    /**
+     * LivingEntity#aiStep's frost replacement after a travel to {@code position}; whether the value changed. Unless
+     * {@link #frozen()}, it reads neither the position nor the support.
+     */
     public boolean replaceClientFrost(CultPlayer player, Vec3 position, MainSupportingBlockData support) {
         return ClientFrost.replace(player, attribute, ticksFrozen, position, support);
     }

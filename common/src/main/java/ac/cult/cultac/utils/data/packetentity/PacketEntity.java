@@ -25,7 +25,9 @@ import ac.cult.cultac.protocol.value.EntityPose;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.BoatData;
+import ac.cult.cultac.utils.data.ClientFrost;
 import ac.cult.cultac.utils.data.KnownInput;
+import ac.cult.cultac.utils.data.MainSupportingBlockData;
 import ac.cult.cultac.utils.data.ReachInterpolationData;
 import ac.cult.cultac.utils.enums.BoatEntityStatus;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
@@ -266,6 +268,37 @@ public class PacketEntity {
 
     /** Copies {@link #riddenMovementSpeed()}'s value into the field this vehicle's ridden travel reads. */
     public void refreshRiddenMovementSpeed() {}
+
+    /**
+     * LivingEntity#aiStep's removeFrost and tryAddFrost after this entity's client tick interpolated it, on the
+     * clients that run them ({@link ClientFrost}). A vehicle the local player drives replaces its frost after its
+     * ridden travel instead.
+     */
+    public void tickClientFrost(CultPlayer player) {
+        ClientMovementSpeed speed = riddenMovementSpeed();
+        if (speed == null || !ClientFrost.replacedAfterTravel(player)) return;
+        // tryAddFrost reads the block below only for a frozen entity.
+        MainSupportingBlockData support = speed.frozen() ? clientSupport(player) : null;
+        if (speed.replaceClientFrost(player, clientPhysicalPosition, support)) refreshRiddenMovementSpeed();
+    }
+
+    /** Whether {@link #tickClientFrost} reads this entity's position. */
+    public boolean clientFrostReadsPosition(CultPlayer player) {
+        ClientMovementSpeed speed = riddenMovementSpeed();
+        return speed != null && speed.frozen() && ClientFrost.replacedAfterTravel(player);
+    }
+
+    /**
+     * Entity#mainSupportingBlockPos as this remote entity's client holds it: the last block-entity pass's, else the
+     * last ridden travel's while the local player drove it, else none.
+     */
+    public MainSupportingBlockData clientSupport(CultPlayer player) {
+        if (blockEntityState != null) return blockEntityState.support();
+        var last = player.checkManager.getSimulationProcessor().getLastPrediction();
+        if (last != null && last.getSimulationContext().getVehicle() == this)
+            return last.getSimulationContext().getWorldData().getMainSupportingBlockPos();
+        return new MainSupportingBlockData(null, false);
+    }
 
     public boolean isMinecart() {
         return minecart;

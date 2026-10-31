@@ -573,6 +573,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 return;
             }
             entity.onMovement(player);
+            // LivingEntity#aiStep replaces frost after interpolating, for remote entities too.
+            entity.tickClientFrost(player);
         };
         if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_17)) {
             player.compensatedEntities.tickClientEntities(tick);

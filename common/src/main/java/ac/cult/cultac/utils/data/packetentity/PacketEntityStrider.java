@@ -39,12 +39,7 @@ public class PacketEntityStrider extends PacketEntityRideable {
     protected void onBaseTick(CultPlayer player, Vec3 at) {
         if (!noAI) {
             // Strider#tick reads the previous Entity#baseTick fluid cache, then writes the flag AND modifier.
-            MainSupportingBlockData support = blockEntityState == null
-                    ? new MainSupportingBlockData(null, false)
-                    : blockEntityState.support();
-            var last = player.checkManager.getSimulationProcessor().getLastPrediction();
-            if (blockEntityState == null && last != null && last.getSimulationContext().getVehicle() == this)
-                support = last.getSimulationContext().getWorldData().getMainSupportingBlockPos();
+            MainSupportingBlockData support = clientSupport(player);
             boolean warm = isWarmBlock(
                             player, player.compensatedWorld.getBlockStateIdAt(BlockPos.containing(at.x, at.y, at.z)))
                     || isWarmBlock(player, BlockProperties.getOnPos(player, support, at))

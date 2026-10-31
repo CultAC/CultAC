@@ -2029,7 +2029,8 @@ public class CompensatedEntities {
         boolean needsPhysical = rider instanceof PacketEntityStrider
                 || rider instanceof PacketEntityHook
                 || rider instanceof PacketEntityFirework
-                || rider instanceof PacketEntityHurtingProjectile;
+                || rider instanceof PacketEntityHurtingProjectile
+                || rider.clientFrostReadsPosition(player);
         if (needsPhysical) {
             rider.setLazyRiderPhysicalPosition(rider.lazyRiderCommittedBox(riderTickBox, true));
             rider.clientPhysicalPositionExact = beforeCount == 1;
