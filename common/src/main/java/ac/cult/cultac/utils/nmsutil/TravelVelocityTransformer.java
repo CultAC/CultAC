@@ -100,9 +100,7 @@ public final class TravelVelocityTransformer {
                     && !nautilusWaterTravel
                     && (climbing.determineOptimistically() || powderBoost)
                     && (horizontalCollision
-                            || !waterTravel
-                                    && context.getVehicle() == null
-                                    && player.packetStateData.knownInput.jump());
+                            || !waterTravel && context.getVehicle() == null && ClientKeyInput.jumping(player));
             // LivingEntity raises the returned movement after Entity#move, before travel drag.
             // getEffectiveGravity still reads the entity's stored deltaMovement, not that returned Y.
             if (climbBoost) {

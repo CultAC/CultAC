@@ -9,6 +9,7 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
+import ac.cult.cultac.utils.nmsutil.ClientKeyInput;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
 
 public class AquaticUpdateSwim implements UncertaintyHandler {
@@ -46,8 +47,9 @@ public class AquaticUpdateSwim implements UncertaintyHandler {
         if (exactInput) {
             if (player.isFlying) return start;
             var position = context.getStart();
+            // Player#travel reads LivingEntity#jumping, which aiStep cleared for an immobile player.
             if (lookYAmount > 0.0D
-                    && !player.packetStateData.knownInput.jump()
+                    && !ClientKeyInput.jumping(player)
                     && ClientFluidQueries.fluidAt(
                                     player.compensatedWorld,
                                     BlockPos.containing(position.x, position.y + 1.0D - 0.1D, position.z))

@@ -27,6 +27,8 @@ import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import java.nio.ByteBuffer;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 /**
  * A client in deep water starts sprinting while its eye is under the surface. Entity#updateSwimming swims it on the next
@@ -39,6 +41,8 @@ class JavaSprintSwimStartTest {
             new ServerboundPlayerInput(true, false, false, false, false, false, false);
     private static final ServerboundPlayerInput FORWARD_SPRINT =
             new ServerboundPlayerInput(true, false, false, false, false, false, true);
+    private static final ServerboundPlayerInput FORWARD_SPRINT_JUMP =
+            new ServerboundPlayerInput(true, false, false, false, true, false, true);
     private static final ServerboundPlayerInput BACK_SPRINT =
             new ServerboundPlayerInput(false, true, false, false, false, false, true);
     private static final ServerboundPlayerInput BACK_LEFT_SPRINT =
@@ -108,6 +112,61 @@ class JavaSprintSwimStartTest {
                 velocity = new Vec3(delta.x * 0.8F, fluidFalling(y <= 0.0, y * 0.8F), delta.z * 0.8F);
             }
         }
+    }
+
+    /**
+     * Player#travel pulls a swimmer looking up toward its look only while its head is in water or LivingEntity#jumping
+     * is set. LivingEntity#aiStep clears jumping, with xxa and zza, while a dead player is immobile, though PLAYER_INPUT
+     * still reports the held jump key; a living swimmer's jump first adds LivingEntity#jumpInLiquid's 0.04.
+     */
+    @ParameterizedTest(name = "dead {0}")
+    @CsvSource({"false", "true"})
+    void onlyALivingSwimmersJumpPullsItWithItsHeadOverTheWater(boolean dead) throws Exception {
+        try (var f = pool(FLOOR_Y + 2)) {
+            float yaw = 0.0F;
+            float pitch = -30.0F;
+            f.player.xRot = yaw;
+            f.player.yRot = pitch;
+            double lookY = -f.player.trigHandler.sin(pitch * ((float) Math.PI / 180F));
+            Vec3 position = new Vec3(0.5, FLOOR_Y + 1.2, 0.5);
+            f.place(position, Vec3.ZERO);
+            f.input(FORWARD);
+            Vec3 delta = ClientMoveInput.of(f, FORWARD, 1.0F, 0.02F, yaw);
+            position = position.add(delta);
+            assertExact(f.tick(position, false), "first tick");
+            Vec3 velocity = new Vec3(delta.x * 0.8F, -0.005, delta.z * 0.8F);
+
+            command(f, PlayerCommandAction.START_SPRINTING);
+            f.input(FORWARD_SPRINT);
+            int tick = 1;
+            for (; tick == 1 || headInWater(f, position); tick++) {
+                assertTrue(tick < 40, "the swimmer never raised its head over the surface");
+                double y = swimPitch(f, velocity.y, lookY, position, tick > 1);
+                Vec3 input = ClientMoveInput.of(f, FORWARD_SPRINT, 1.0F, 0.02F, yaw);
+                delta = new Vec3(velocity.x + input.x, y, velocity.z + input.z);
+                position = position.add(delta);
+                assertExact(f.tick(position, false), "sprint tick " + tick);
+                velocity = new Vec3(delta.x * 0.9F, y * 0.8F, delta.z * 0.9F);
+            }
+            assertEquals(Pose.SWIMMING, f.player.pose);
+
+            if (dead) DeadPlayerSetbackTest.die(f);
+            f.input(FORWARD_SPRINT_JUMP);
+            double y = Math.abs(velocity.y) < 0.003 ? 0.0 : velocity.y;
+            Vec3 input = Vec3.ZERO;
+            if (!dead) {
+                y += 0.04F;
+                y += (lookY - y) * (lookY < -0.2 ? 0.085 : 0.06);
+                input = ClientMoveInput.of(f, FORWARD_SPRINT_JUMP, 1.0F, 0.02F, yaw);
+            }
+            delta = new Vec3(velocity.x + input.x, y, velocity.z + input.z);
+            position = position.add(delta);
+            assertExact(f.tick(position, false), (dead ? "dead" : "living") + " jump tick " + tick);
+        }
+    }
+
+    private static boolean headInWater(JavaTickFixture f, Vec3 position) {
+        return f.player.compensatedWorld.getWaterFluidLevelAt(position.x, position.y + 0.9, position.z) > 0;
     }
 
     /**

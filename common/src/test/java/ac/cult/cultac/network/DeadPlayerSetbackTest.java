@@ -330,7 +330,7 @@ class DeadPlayerSetbackTest {
     }
 
     /** The server's SET_HEALTH of 0, which the client handles before its next tick. */
-    private static void die(JavaTickFixture f) {
+    static void die(JavaTickFixture f) {
         var packet = new ClientboundSetHealth(0.0F, 20, 5.0F);
         var event = new PacketSendEvent<>(
                 f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.SET_HEALTH, packet, false);

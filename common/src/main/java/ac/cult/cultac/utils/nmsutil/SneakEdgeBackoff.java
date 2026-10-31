@@ -203,7 +203,7 @@ public final class SneakEdgeBackoff {
                 ReachUtils.getLook(player, context.getXRot(), context.getYRot()).getY();
         Vec3 from = context.getStart();
         if (!(lookY <= 0.0D)
-                && !player.packetStateData.knownInput.jump()
+                && !ClientKeyInput.jumping(player)
                 && player.compensatedWorld.getFluidLevelAt(
                                 CultMath.floor(from.x), CultMath.floor(from.y + 1.0D - 0.1D), CultMath.floor(from.z))
                         == 0.0D) {

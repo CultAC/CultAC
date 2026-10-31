@@ -10,6 +10,7 @@ import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.platform.api.world.PlatformWorld;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
@@ -17,6 +18,7 @@ import ac.cult.cultac.utils.math.Vec3;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.mockito.Mockito;
 
 /**
  * A 26.3 client moves off a vine faster than the climb allows. LivingEntity#moveRelative adds the input to
@@ -101,6 +103,35 @@ class JavaClimbableCarryTest {
             f.input(new ServerboundPlayerInput(false, false, false, false, false, false, false));
             PredictionResult rise = f.tick(slide.add(expected), false);
             assertTrue(exact(rise), describe(rise));
+        }
+    }
+
+    /**
+     * LivingEntity#handleRelativeFrictionAndCalculateMovement raises a climber's Y to 0.2 only for horizontalCollision
+     * or LivingEntity#jumping, which LivingEntity#aiStep clears, with xxa and zza, while a dead player is immobile,
+     * though PLAYER_INPUT still reports the held jump key. A dead player standing in a ladder stays on the floor.
+     */
+    @Test
+    void aDeadPlayerHoldingJumpInALadderGetsNoClimbBoost() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.player.nettyScheduler.removeScheduler();
+            Mockito.when(f.fixture.user.getPlayer().getWorld()).thenReturn(Mockito.mock(PlatformWorld.class));
+            var registry = DataTables.defaults().registry();
+            int ladder = registry.with(BlockIds.LADDER.defaultState(), "facing", "north");
+            for (int y = FLOOR_Y; y <= FLOOR_Y + 6; y++) {
+                f.player.compensatedWorld.updateBlock(new BlockPos(0, y, 0), ladder);
+                f.player.compensatedWorld.updateBlock(new BlockPos(0, y, 1), BlockIds.STONE.defaultState());
+            }
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            Vec3 standing = new Vec3(0.5, FLOOR_Y, 0.5);
+            f.place(standing, new Vec3(0, FALL, 0));
+            f.player.packetStateData.playerLoadedIntoLevel = true;
+            DeadPlayerSetbackTest.die(f);
+            f.input(new ServerboundPlayerInput(false, false, false, false, true, false, false));
+            for (int tick = 0; tick < 3; tick++) {
+                PredictionResult still = f.tick(standing, true);
+                assertTrue(exact(still), "dead tick " + tick + ": " + describe(still));
+            }
         }
     }
 

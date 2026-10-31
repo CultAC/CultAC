@@ -3,6 +3,7 @@ package ac.cult.cultac.checks.impl.prediction.pipeline.java;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.nmsutil.ClientKeyInput;
 
 /** LocalPlayer#goDownInWater before the aiStep cutoff, then LivingEntity#jumpInLiquid after it. */
 public final class JavaFluidInputs {
@@ -22,9 +23,7 @@ public final class JavaFluidInputs {
     }
 
     public static PredVector jumpInLiquid(CultPlayer player, SimulationContext context, PredVector velocity) {
-        if (!appliesTo(player, context) || !player.packetStateData.knownInput.jump()) return velocity;
-        // LivingEntity#aiStep clears jumping while isImmobile: health at most 0, or Player#isImmobile's sleeping.
-        if (player.isInBed || !player.compensatedEntities.getSelf().actionAlive) return velocity;
+        if (!appliesTo(player, context) || !ClientKeyInput.jumping(player)) return velocity;
         boolean water = context.getWorldData().isInWater();
         boolean lava = context.getWorldData().isInLava();
         if (!water && !lava) return velocity;

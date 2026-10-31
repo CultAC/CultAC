@@ -23,6 +23,16 @@ public final class ClientKeyInput {
     private ClientKeyInput() {}
 
     /**
+     * LivingEntity#jumping as the travel reads it: LocalPlayer#applyInput's reported jump key, which LivingEntity#aiStep
+     * clears while isImmobile, at receipt-proven health at most 0 or Player#isImmobile's sleeping.
+     */
+    public static boolean jumping(CultPlayer player) {
+        return player.packetStateData.knownInput.jump()
+                && player.compensatedEntities.getSelf().actionAlive
+                && (player.isBedrockMovement() || !player.isInBed);
+    }
+
+    /**
      * LivingEntity#moveRelative's addition for {@code keys}: KeyboardInput#tick, LocalPlayer#modifyInput with
      * {@code itemUseMultiplier} and {@code movingSlowlyFactor}, and Entity#getInputVector at {@code speed}.
      * LocalPlayer#aiStep computes crouching from the previous keys before Input#tick. The caller supplies each
