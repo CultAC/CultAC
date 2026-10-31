@@ -14,22 +14,30 @@ public final class JavaBlockPushOut {
 
     private JavaBlockPushOut() {}
 
-    public static Vec3 apply(CultPlayer player, SimulationContext context, Vec3 velocity) {
+    /**
+     * The four calls for {@code context}. Each tests only blocks around the start and its pose, never the velocity,
+     * so one result holds for every velocity of the context.
+     */
+    public static Pushes pushes(CultPlayer player, SimulationContext context) {
         if (player.isBedrockMovement() || context.getVehicle() != null || player.gamemode == GameMode.SPECTATOR)
-            return velocity;
+            return Pushes.NONE;
         SimpleCollisionBox box = context.getFromActualPose();
         double width = context.getPose().width * context.getScale() * 0.35D;
         Vec3 start = context.getStart();
-        velocity = corner(player, box, start.x - width, start.z + width, velocity);
-        velocity = corner(player, box, start.x - width, start.z - width, velocity);
-        velocity = corner(player, box, start.x + width, start.z - width, velocity);
-        return corner(player, box, start.x + width, start.z + width, velocity);
+        int first = corner(player, box, start.x - width, start.z + width);
+        int second = corner(player, box, start.x - width, start.z - width);
+        int third = corner(player, box, start.x + width, start.z - width);
+        int fourth = corner(player, box, start.x + width, start.z + width);
+        return first < 0 && second < 0 && third < 0 && fourth < 0
+                ? Pushes.NONE
+                : new Pushes(first, second, third, fourth);
     }
 
-    private static Vec3 corner(CultPlayer player, SimpleCollisionBox box, double x, double z, Vec3 velocity) {
+    /** The direction the call at this corner pushes towards, or -1 when it leaves the velocity unchanged. */
+    private static int corner(CultPlayer player, SimpleCollisionBox box, double x, double z) {
         int blockX = (int) Math.floor(x);
         int blockZ = (int) Math.floor(z);
-        if (!suffocates(player, box, blockX, blockZ)) return velocity;
+        if (!suffocates(player, box, blockX, blockZ)) return -1;
         double localX = x - blockX;
         double localZ = z - blockZ;
         double closest = Double.MAX_VALUE;
@@ -42,14 +50,28 @@ public final class JavaBlockPushOut {
                 chosen = i;
             }
         }
-        if (chosen < 0) return velocity;
-        return chosen < 2
-                ? new Vec3(0.1D * X[chosen], velocity.y, velocity.z)
-                : new Vec3(velocity.x, velocity.y, 0.1D * Z[chosen]);
+        return chosen;
     }
 
     private static boolean suffocates(CultPlayer player, SimpleCollisionBox box, int x, int z) {
         return Collisions.suffocatesAt(
                 player, new SimpleCollisionBox(x, box.minY, z, x + 1.0D, box.maxY, z + 1.0D).expand(-1.0E-7D));
+    }
+
+    /** The direction each call pushes towards in order, -1 for a call that leaves the velocity unchanged. */
+    public record Pushes(int first, int second, int third, int fourth) {
+        static final Pushes NONE = new Pushes(-1, -1, -1, -1);
+
+        /** {@code velocity} after the calls; the same instance when none pushes. */
+        public Vec3 apply(Vec3 velocity) {
+            return push(fourth, push(third, push(second, push(first, velocity))));
+        }
+
+        private static Vec3 push(int direction, Vec3 velocity) {
+            if (direction < 0) return velocity;
+            return direction < 2
+                    ? new Vec3(0.1D * X[direction], velocity.y, velocity.z)
+                    : new Vec3(velocity.x, velocity.y, 0.1D * Z[direction]);
+        }
     }
 }

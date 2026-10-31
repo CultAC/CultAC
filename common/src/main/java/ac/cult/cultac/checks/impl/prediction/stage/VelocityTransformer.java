@@ -33,6 +33,8 @@ public class VelocityTransformer {
     SimulationContext simulationContext;
 
     private static final Vec3 attackSlowMultiplier = new Vec3(0.6, 1, 0.6);
+    // A velocity outside FluidCurrent#compute's slow square.
+    private static final Vec3 FAST = new Vec3(1, 0, 1);
 
     public List<PredVector> generateMovementVectors(CultPlayer player, List<PredVector> input) {
         if (ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiddenTravel.clearsWithoutTravel(
@@ -52,10 +54,12 @@ public class VelocityTransformer {
         input = applyAttackSlow(input);
         input = applyBaseTickFluidCurrents(player, input);
         input = applyLegacyLivingVehicleDrag(player, input);
-        if (!player.isBedrockMovement() && simulationContext.getVehicle() == null) {
+        if (!player.isBedrockMovement() && simulationContext.getVehicle() == null && !input.isEmpty()) {
+            // Each moveTowardsClosestSpace call tests blocks around the start, so one set holds for every velocity.
+            JavaBlockPushOut.Pushes pushes = JavaBlockPushOut.pushes(player, simulationContext);
             List<PredVector> pushed = new ArrayList<>(input.size());
             for (PredVector velocity : input) {
-                Vec3 moved = JavaBlockPushOut.apply(player, simulationContext, velocity);
+                Vec3 moved = pushes.apply(velocity);
                 pushed.add(
                         moved == velocity
                                 ? velocity
@@ -222,10 +226,11 @@ public class VelocityTransformer {
             return input;
         }
 
+        var currents = new BaseTickCurrents(player);
         List<PredVector> transformed = new ArrayList<>(input.size());
         for (PredVector vector : input) {
-            for (PredVector wet : withCurrent(player, vector, false))
-                transformed.addAll(withCurrent(player, wet, true));
+            for (PredVector wet : withCurrent(currents, vector, false))
+                transformed.addAll(withCurrent(currents, wet, true));
         }
         return transformed;
     }
@@ -234,18 +239,17 @@ public class VelocityTransformer {
      * {@code vector} after one fluid's current. A weak current grows to its minimum push only for velocities whose X
      * and Z are both under 0.003, so a range that straddles that square splits, each part with its own current.
      */
-    private List<PredVector> withCurrent(CultPlayer player, PredVector vector, boolean lava) {
-        Vec3 current = current(player, vector, lava);
+    private List<PredVector> withCurrent(BaseTickCurrents currents, PredVector vector, boolean lava) {
+        Vec3 current = currents.of(vector, lava);
         if (current == null || !isFinite(current)) return List.of(vector);
         String reason = lava ? "lava current" : "water current";
         List<PredVector> parts = JavaVelocityRange.splitAtSlowSquare(vector);
         // A current at or above the minimum push is the same on both sides: no split.
-        if (parts.size() == 1
-                || java.util.Objects.equals(current(player, Vec3.ZERO, lava), current(player, new Vec3(1, 0, 1), lava)))
+        if (parts.size() == 1 || java.util.Objects.equals(currents.of(Vec3.ZERO, lava), currents.of(FAST, lava)))
             return List.of(vector.add(current, reason));
         var split = new ArrayList<PredVector>(parts.size());
         for (PredVector part : parts) {
-            Vec3 own = current(player, part, lava);
+            Vec3 own = currents.of(part, lava);
             split.add(own == null || !isFinite(own) ? part : part.add(own, reason));
         }
         return split;
@@ -257,6 +261,31 @@ public class VelocityTransformer {
         return lava
                 ? WaterCurrent.calculateLavaCurrent(player, simulationContext, start, velocity)
                 : WaterCurrent.calculateWaterCurrent(player, simulationContext, start, velocity);
+    }
+
+    /**
+     * The currents of one {@link #applyBaseTickFluidCurrents}, each computed at most once. A fluid's scan reads only
+     * the blocks at the start; the velocity enters FluidCurrent#compute only through its slow-square test, so each
+     * fluid has one current for slow velocities and one for the rest.
+     */
+    private final class BaseTickCurrents {
+        private final CultPlayer player;
+        private final Vec3[] currents = new Vec3[4];
+        private final boolean[] computed = new boolean[4];
+
+        private BaseTickCurrents(CultPlayer player) {
+            this.player = player;
+        }
+
+        private Vec3 of(Vec3 velocity, boolean lava) {
+            boolean slow = Math.abs(velocity.x) < 0.003 && Math.abs(velocity.z) < 0.003;
+            int index = (lava ? 2 : 0) + (slow ? 1 : 0);
+            if (!computed[index]) {
+                currents[index] = current(player, slow ? Vec3.ZERO : FAST, lava);
+                computed[index] = true;
+            }
+            return currents[index];
+        }
     }
 
     private boolean isFinite(Vec3 vector) {
