@@ -71,11 +71,17 @@ public final class EntityPositionWorlds {
             if (seated == null) return null;
             box = selection.collisionBox(entity, seated);
         } else {
-            // Bounds are broad-phase only. They never clip a move or substitute for the client-tick shape below.
-            SimpleCollisionBox broad =
-                    selection.broadBox(entity, entity.getPossibleMovementCollisionBoxes(bounds, scratch));
-            if (!query.intersects(broad.minX, broad.minY, broad.minZ, broad.maxX, broad.maxY, broad.maxZ)) return null;
-            box = selection.collisionBox(entity, entity.getClientMovementCollisionBox());
+            SimpleCollisionBox passBox = player.compensatedEntities.passCollisionBox(entity);
+            if (passBox != null) {
+                box = selection.collisionBox(entity, passBox);
+            } else {
+                // Bounds are broad-phase only. They never clip a move or substitute for the client-tick shape below.
+                SimpleCollisionBox broad =
+                        selection.broadBox(entity, entity.getPossibleMovementCollisionBoxes(bounds, scratch));
+                if (!query.intersects(broad.minX, broad.minY, broad.minZ, broad.maxX, broad.maxY, broad.maxZ))
+                    return null;
+                box = selection.collisionBox(entity, entity.getClientMovementCollisionBox());
+            }
         }
         return query.intersects(box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ)
                         && selection.collidesAt(entity, box)

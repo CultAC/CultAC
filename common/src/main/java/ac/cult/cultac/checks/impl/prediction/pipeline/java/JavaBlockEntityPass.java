@@ -10,6 +10,8 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ClientFluidHeights;
+import ac.cult.cultac.utils.data.ClientPistonDeltas;
+import ac.cult.cultac.utils.data.MainSupportingBlockData;
 import ac.cult.cultac.utils.data.ReachInterpolationData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.enums.Pose;
@@ -18,6 +20,7 @@ import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.latency.CompensatedWorldPistons;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
 import java.util.List;
 
@@ -271,6 +274,10 @@ public final class JavaBlockEntityPass {
         List<JavaBlockEntityPath.Step> localMoves = null;
         boolean recordLocal = env.authoritative() && env.context().getVehicle() == null;
         Vec3 previousLocal = entities.passLocalPlayerPosition();
+        var previousBoxes = entities.passCollisionBoxes();
+        List<Replay> remotes = recordLocal ? remoteColliders(env, pass, start) : List.of();
+        java.util.Map<PacketEntity, SimpleCollisionBox> boxes =
+                remotes.isEmpty() ? null : new java.util.IdentityHashMap<>(remotes.size());
         int moverIndex = 0;
         try (var ignored = world.beginBlockEntityReplay(pass)) {
             for (ClientBlockEntityPass.Mover mover : pass.movers()) {
@@ -288,14 +295,31 @@ public final class JavaBlockEntityPass {
                         world.advanceLidReplay(lids.get(lid++));
                     blockEntityMovers++;
                 }
-                if (mover instanceof ClientBlockEntityPass.Piston piston) {
-                    replay.tick(piston);
-                    pistons.advanceReplay(piston.pos(), piston.storedProgress());
-                } else if (mover instanceof ClientBlockEntityPass.ShulkerBox shulkerBox) {
-                    replay.shulkerBox(shulkerBox);
-                } else if (mover instanceof ClientBlockEntityPass.ShulkerPeek peek) {
-                    replay.shulkerPeek(peek);
+                if (remotes.isEmpty() || mover instanceof ClientBlockEntityPass.ShulkerPeek) {
+                    replay.step(mover);
+                } else {
+                    if (entities.passCollisionBoxes() != boxes) {
+                        // The block entities tick once every entity has; the colliders start where the tick left them.
+                        for (Replay remote : remotes) boxes.put(remote.env.actor(), remote.box());
+                        entities.setPassCollisionBoxes(boxes);
+                    }
+                    // Level#getEntities lists the entities a mover moves before moving any of them, in section
+                    // order: the colliders listed ahead of the player move first, and it meets them where they end.
+                    boolean[] first = new boolean[remotes.size()];
+                    for (int i = 0; i < remotes.size(); i++) {
+                        Replay remote = remotes.get(i);
+                        first[i] = !entities.localPlayerPrecedesInEntityQuery(
+                                remote.env.actor(), before, remote.state.position(), null, moverIndex);
+                        if (first[i]) stepRemote(entities, boxes, remote, mover, before);
+                    }
+                    entities.setPassLocalPlayerPosition(previousLocal);
+                    replay.step(mover);
+                    for (int i = 0; i < remotes.size(); i++)
+                        if (!first[i]) stepRemote(entities, boxes, remotes.get(i), mover, replay.state.position());
+                    entities.setPassLocalPlayerPosition(previousLocal);
                 }
+                if (mover instanceof ClientBlockEntityPass.Piston piston)
+                    pistons.advanceReplay(piston.pos(), piston.storedProgress());
                 if (recordLocal && !before.equals(replay.state.position())) {
                     if (localMoves == null) localMoves = new java.util.ArrayList<>();
                     localMoves.add(new JavaBlockEntityPath.Step(moverIndex, replay.state.position()));
@@ -305,6 +329,7 @@ public final class JavaBlockEntityPass {
         } finally {
             entities.setPassTickedThroughOrder(tickedThrough);
             entities.setPassLocalPlayerPosition(previousLocal);
+            entities.setPassCollisionBoxes(previousBoxes);
         }
         return new Result(
                 replay.state,
@@ -319,6 +344,101 @@ public final class JavaBlockEntityPass {
                 replay.oldInterpolation,
                 localMoves == null ? null : new JavaBlockEntityPath(pass, start.position(), List.copyOf(localMoves)),
                 replay.recorded());
+    }
+
+    /**
+     * The tracked remote roots the local player can collide with that this pass's block entities may move, each
+     * replayed beside the player without committing: JavaRemoteBlockEntityPass commits them after the selected travel.
+     * From the first block entity on, their in-pass boxes stand in for their client-tick boxes while the player's moves
+     * read entity collisions. A root a leading Shulker#onPeekAmountChange may move keeps its client-tick box.
+     */
+    private static List<Replay> remoteColliders(
+            JavaBlockEntityMove.Environment env, ClientBlockEntityPass pass, JavaPassState start) {
+        CultPlayer player = env.player();
+        CompensatedEntities entities = player.compensatedEntities;
+        PacketEntity self = entities.getSelf();
+        PacketEntity selfRoot = entities.rootOfSelf();
+        PacketEntity serverRoot = entities.serverVehicleRoot();
+        var selection = new ac.cult.cultac.utils.nmsutil.EntityCollisionSelection(player, self, start.position());
+        List<Replay> remotes = null;
+        long tickedThrough = entities.passTickedThroughOrder();
+        try {
+            // Every entity has ticked before Level#tickBlockEntities.
+            entities.setPassTickedThroughOrder(Long.MAX_VALUE);
+            for (PacketEntity actor : entities.pushOrCollideCandidates()) {
+                if (actor == self
+                        || actor.getRiding() != null
+                        || (actor == selfRoot || actor == serverRoot)
+                                && entities.vehicles.isLocallyTickedVelocityRoot(actor)
+                        || actor.newPacketLocation == null
+                        || !actor.clientPhysicalPositionExact
+                        || actor.oldPacketLocation != null
+                        || actor.hasPistonPatchStates()
+                        || !selection.mayCollide(actor)) continue;
+                SimpleCollisionBox box = actor.getExactMovementCollisionBox();
+                if (box == null || !pass.mayReach(box) || peekMayReach(pass, box)) continue;
+                Vec3 at = actor.clientPhysicalPosition;
+                SimpleCollisionBox held = GetBoundingBox.getPacketEntityBoundingBox(player, at.x, at.y, at.z, actor);
+                Vec3 position = sameBox(held, box)
+                        ? at
+                        : new Vec3(
+                                (box.maxX - box.minX) / 2 + box.minX, box.minY, (box.maxZ - box.minZ) / 2 + box.minZ);
+                JavaPassState previous = actor.blockEntityState;
+                var state = new JavaPassState(
+                        position,
+                        actor.type == EntityTypeIds.SHULKER ? Vec3.ZERO : actor.deltaMovement,
+                        actor.onGround,
+                        previous == null ? new MainSupportingBlockData(null, actor.onGround) : previous.support(),
+                        previous == null ? null : previous.stuckSpeed(),
+                        previous == null ? 0 : previous.fallDistance(),
+                        previous == null ? ClientPistonDeltas.NONE : previous.pistonDeltas(),
+                        false);
+                var remoteEnv = new JavaBlockEntityMove.Environment(
+                        player,
+                        null,
+                        null,
+                        actor.scale,
+                        (actor.actionSharedFlags & 2) != 0,
+                        position,
+                        pass.gameTime(),
+                        actor,
+                        actor.pistonMovementPatch(),
+                        true);
+                if (remotes == null) remotes = new java.util.ArrayList<>(1);
+                remotes.add(new Replay(remoteEnv, state));
+            }
+        } finally {
+            entities.setPassTickedThroughOrder(tickedThrough);
+        }
+        return remotes == null ? List.of() : remotes;
+    }
+
+    /** One remote collider's moves by {@code mover}, which meet the local player at {@code local}. */
+    private static void stepRemote(
+            CompensatedEntities entities,
+            java.util.Map<PacketEntity, SimpleCollisionBox> boxes,
+            Replay remote,
+            ClientBlockEntityPass.Mover mover,
+            Vec3 local) {
+        entities.setPassLocalPlayerPosition(local);
+        remote.step(mover);
+        boxes.put(remote.env.actor(), remote.box());
+    }
+
+    private static boolean peekMayReach(ClientBlockEntityPass pass, SimpleCollisionBox box) {
+        for (ClientBlockEntityPass.Mover mover : pass.movers())
+            if (mover instanceof ClientBlockEntityPass.ShulkerPeek peek
+                    && peek.reach().isIntersected(box)) return true;
+        return false;
+    }
+
+    private static boolean sameBox(SimpleCollisionBox a, SimpleCollisionBox b) {
+        return a.minX == b.minX
+                && a.minY == b.minY
+                && a.minZ == b.minZ
+                && a.maxX == b.maxX
+                && a.maxY == b.maxY
+                && a.maxZ == b.maxZ;
     }
 
     private static Vec3 localPlayerAtMover(
@@ -398,6 +518,13 @@ public final class JavaBlockEntityPass {
         private void removeLatestMovementRecording() {
             if (recordedMoves != null && !recordedMoves.isEmpty()) recordedMoves.removeLast();
             else removedBefore++;
+        }
+
+        /** Whatever {@code mover} does to this actor. */
+        private void step(ClientBlockEntityPass.Mover mover) {
+            if (mover instanceof ClientBlockEntityPass.Piston piston) tick(piston);
+            else if (mover instanceof ClientBlockEntityPass.ShulkerBox shulkerBox) shulkerBox(shulkerBox);
+            else if (mover instanceof ClientBlockEntityPass.ShulkerPeek peek) shulkerPeek(peek);
         }
 
         /** PistonMovingBlockEntity#tick of a block entity whose progress is below 1. */

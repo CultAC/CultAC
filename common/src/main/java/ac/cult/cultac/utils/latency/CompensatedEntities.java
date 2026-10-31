@@ -1773,6 +1773,8 @@ public class CompensatedEntities {
     }
 
     private Vec3 passLocalPlayerPosition;
+    // The position boxes a replayed block-entity pass has moved remote roots to so far, or null outside one.
+    private java.util.Map<PacketEntity, SimpleCollisionBox> passCollisionBoxes;
     private JavaBlockEntityPath localBlockEntityPath;
     private long[] localBlockEntitySectionEntries;
 
@@ -1782,6 +1784,23 @@ public class CompensatedEntities {
 
     public void setPassLocalPlayerPosition(Vec3 position) {
         passLocalPlayerPosition = position;
+    }
+
+    /**
+     * Where the block-entity pass being replayed has moved {@code entity} by now, as its movement box, or null when the
+     * replay does not move it: Level#tickBlockEntities moves each entity in turn, and a later move collides with the
+     * entities where the earlier ones left them.
+     */
+    public SimpleCollisionBox passCollisionBox(PacketEntity entity) {
+        return passCollisionBoxes == null ? null : passCollisionBoxes.get(entity);
+    }
+
+    public java.util.Map<PacketEntity, SimpleCollisionBox> passCollisionBoxes() {
+        return passCollisionBoxes;
+    }
+
+    public void setPassCollisionBoxes(java.util.Map<PacketEntity, SimpleCollisionBox> boxes) {
+        passCollisionBoxes = boxes;
     }
 
     public void observeLocalPlayerPosition(Vec3 position) {
