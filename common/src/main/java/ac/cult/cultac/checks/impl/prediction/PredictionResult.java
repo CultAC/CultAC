@@ -5,6 +5,7 @@ import ac.cult.cultac.checks.impl.prediction.checks.HorizontalAnalyzer;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFallDistance;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassState;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaTravelInputs;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHelper;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
@@ -212,11 +213,24 @@ public class PredictionResult {
     }
 
     public Vec3 getInputVectorAndVerticals() {
-        Vec3 closest = getAcceptedClosestToTarget();
-        Vec3 diff = getTarget().subtract(closest);
-        Vec3 minimumInputRequired = HorizontalAnalyzer.getBestTheoreticalPlayerInput(
-                diff, getSimulationContext().getXRot(), getSimulationContext().getVersion());
-        return new Vec3(minimumInputRequired.x, closest.y, minimumInputRequired.z);
+        Vec3 input = getHorizontalInput();
+        return new Vec3(input.x, getAcceptedClosestToTarget().y, input.z);
+    }
+
+    /**
+     * The strafe (x) and forward (z) input of this result's travel at its moveRelative speed, before
+     * Entity#getInputVector rotates it. An exact-input candidate already added that input in LivingEntity#moveRelative
+     * before Entity#move, so what is left of the report past it is no input; otherwise the input is the least that
+     * explains that remainder.
+     */
+    public Vec3 getHorizontalInput() {
+        Vec3 movement = JavaTravelInputs.isExact(initialStartingVel)
+                ? initialStartingVel.getTravelInput()
+                : getTarget().subtract(getAcceptedClosestToTarget());
+        return HorizontalAnalyzer.getBestTheoreticalPlayerInput(
+                movement,
+                getSimulationContext().getXRot(),
+                getSimulationContext().getVersion());
     }
 
     public boolean isBetterThan(PredictionResult other) {

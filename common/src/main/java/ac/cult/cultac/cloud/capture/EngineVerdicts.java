@@ -4,7 +4,6 @@ import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
-import ac.cult.cultac.checks.impl.prediction.checks.HorizontalAnalyzer;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
@@ -117,11 +116,7 @@ public final class EngineVerdicts {
         int strafe = 0;
         if (!result.isExempt() && context.getVehicle() == null && !context.usesFallFlyingMovement()) {
             float speed = context.getMaxSpeed(player);
-            Vec3 residual = result.getTarget()
-                    .subtract(result.getAcceptedClosestToTarget())
-                    .multiply(1, 0, 1);
-            Vec3 input =
-                    HorizontalAnalyzer.getBestTheoreticalPlayerInput(residual, context.getXRot(), context.getVersion());
+            Vec3 input = result.getHorizontalInput();
             forward = speed > 0 ? hundredths(input.z / speed) : 0;
             strafe = speed > 0 ? hundredths(input.x / speed) : 0;
         }
