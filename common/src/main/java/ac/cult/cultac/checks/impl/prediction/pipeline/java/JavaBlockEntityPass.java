@@ -327,6 +327,9 @@ public final class JavaBlockEntityPass {
         java.util.Map<PacketEntity, SimpleCollisionBox> boxes =
                 actors > 1 ? new java.util.IdentityHashMap<>(remotes.size()) : null;
         List<JavaBlockEntityPath.Step> localMoves = null;
+        // Without a local replay, the selected travel's path puts the local player at each mover.
+        JavaBlockEntityPath localPath = local == null ? localPath(player, pass) : null;
+        int[] localMovers = localPath == null ? null : entities.localPathMoverIndexes(localPath, pass);
         int blockEntityMovers = 0, lid = 0, moverIndex = 0;
         try (var ignored = world.beginBlockEntityReplay(pass)) {
             for (ClientBlockEntityPass.Mover mover : pass.movers()) {
@@ -348,9 +351,10 @@ public final class JavaBlockEntityPass {
                     }
                 }
                 Vec3 localBefore = local == null ? null : local.state.position();
+                int localMover = localMovers == null ? -1 : localMovers[moverIndex];
                 if (order == null) {
                     if (local != null) local.step(mover);
-                    else stepEntity(entities, boxes, pass, mover, remotes.getFirst());
+                    else stepEntity(entities, boxes, localPath, localMover, mover, remotes.getFirst());
                 } else {
                     queryOrder(entities, remotes, local, moverIndex, order);
                     for (int actor : order) {
@@ -358,7 +362,7 @@ public final class JavaBlockEntityPass {
                             entities.setPassLocalPlayerPosition(previousLocal);
                             local.step(mover);
                         } else if (local == null) {
-                            stepEntity(entities, boxes, pass, mover, remotes.get(actor));
+                            stepEntity(entities, boxes, localPath, localMover, mover, remotes.get(actor));
                         } else if (!peek) {
                             // Beside the local player's replay, a leading peek reaches none of its colliders.
                             Replay remote = remotes.get(actor);
@@ -385,14 +389,19 @@ public final class JavaBlockEntityPass {
         return localMoves;
     }
 
-    /** One actor's moves by {@code mover} while the local player stands where the selected travel's pass put it. */
+    /**
+     * One actor's moves by {@code mover} while the local player stands where the selected travel's pass put it: at
+     * mover {@code localMover} of {@code localPath}'s pass.
+     */
     private static void stepEntity(
             CompensatedEntities entities,
             java.util.Map<PacketEntity, SimpleCollisionBox> boxes,
-            ClientBlockEntityPass pass,
+            JavaBlockEntityPath localPath,
+            int localMover,
             ClientBlockEntityPass.Mover mover,
             Replay replay) {
-        entities.setPassLocalPlayerPosition(localPlayerAtMover(replay.env, pass, mover, replay.state.position()));
+        entities.setPassLocalPlayerPosition(
+                localPlayerAtMover(replay.env, localPath, localMover, replay.state.position()));
         replay.step(mover);
         if (boxes != null && entities.passCollisionBoxes() == boxes) boxes.put(replay.env.actor(), replay.box());
     }
@@ -501,12 +510,8 @@ public final class JavaBlockEntityPass {
                 && a.maxZ == b.maxZ;
     }
 
-    private static Vec3 localPlayerAtMover(
-            JavaBlockEntityMove.Environment env,
-            ClientBlockEntityPass pass,
-            ClientBlockEntityPass.Mover mover,
-            Vec3 actorPosition) {
-        var player = env.player();
+    /** The selected local travel's path through the client tick of {@code pass}, or null. */
+    private static JavaBlockEntityPath localPath(CultPlayer player, ClientBlockEntityPass pass) {
         var prediction = player.checkManager.getSimulationProcessor().getLastPrediction();
         var selected = prediction == null ? null : JavaMovementEngine.passAfterTravel(prediction);
         var path = selected == null ? null : selected.result().path();
@@ -514,12 +519,18 @@ public final class JavaBlockEntityPass {
                 || path.pass().gameTime() != pass.gameTime()
                 || prediction.getSimulationContext().getItemUse().tick() != player.packetStateData.acceptedClientTick)
             return null;
-        int index = path.pass().movers().indexOf(mover);
-        if (index < 0) return null;
+        return path;
+    }
+
+    /** Where the local player is when mover {@code index} of {@code path}'s pass queries the actor. */
+    private static Vec3 localPlayerAtMover(
+            JavaBlockEntityMove.Environment env, JavaBlockEntityPath path, int index, Vec3 actorPosition) {
+        if (path == null || index < 0) return null;
         Vec3 before = path.position(index, false);
         // Level#getEntities captures its section-ordered list before moving any of its entries.
-        boolean localFirst = player.compensatedEntities.localPlayerPrecedesInEntityQuery(
-                env.actor(), before, actorPosition, path, index);
+        boolean localFirst = env.player()
+                .compensatedEntities
+                .localPlayerPrecedesInEntityQuery(env.actor(), before, actorPosition, path, index);
         return path.position(index, localFirst);
     }
 

@@ -175,6 +175,9 @@ public class CompensatedEntities {
         fishingRodPulls.clear();
         ravagerRoars.clear();
         fishingPulls.reset();
+        localMoverPath = null;
+        localMoverPass = null;
+        localMoverIndexes = null;
         resetClientTickOrder();
     }
 
@@ -1812,6 +1815,10 @@ public class CompensatedEntities {
     private java.util.Map<PacketEntity, SimpleCollisionBox> passCollisionBoxes;
     private JavaBlockEntityPath localBlockEntityPath;
     private long[] localBlockEntitySectionEntries;
+    // localPathMoverIndexes for the last local path and replayed pass.
+    private JavaBlockEntityPath localMoverPath;
+    private ClientBlockEntityPass localMoverPass;
+    private int[] localMoverIndexes;
 
     public Vec3 passLocalPlayerPosition() {
         return passLocalPlayerPosition;
@@ -1857,6 +1864,26 @@ public class CompensatedEntities {
             localBlockEntitySectionEntries[i] = clientTickMembership.localSectionEntry();
             observeLocalPlayerPosition(path.position(i, true));
         }
+    }
+
+    /**
+     * For each of {@code pass}'s movers, List#indexOf of it in the movers of {@code path}'s own pass, which can be a
+     * different pass object: computed once for all the actors that replay the same pass beside the same local path.
+     * Read only.
+     */
+    public int[] localPathMoverIndexes(JavaBlockEntityPath path, ClientBlockEntityPass pass) {
+        if (path != localMoverPath || pass != localMoverPass) {
+            List<ClientBlockEntityPass.Mover> local = path.pass().movers();
+            Map<ClientBlockEntityPass.Mover, Integer> first = new HashMap<>(local.size() * 2);
+            for (int i = 0; i < local.size(); i++) first.putIfAbsent(local.get(i), i);
+            List<ClientBlockEntityPass.Mover> movers = pass.movers();
+            int[] indexes = new int[movers.size()];
+            for (int i = 0; i < indexes.length; i++) indexes[i] = first.getOrDefault(movers.get(i), -1);
+            localMoverPath = path;
+            localMoverPass = pass;
+            localMoverIndexes = indexes;
+        }
+        return localMoverIndexes;
     }
 
     public boolean localPlayerPrecedesInEntityQuery(
