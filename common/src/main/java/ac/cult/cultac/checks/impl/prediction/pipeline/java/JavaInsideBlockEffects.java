@@ -294,7 +294,8 @@ public final class JavaInsideBlockEffects {
                 boolean berry = (effects & InsideBlockEffectScan.BERRY) != 0;
                 boolean honey = (effects & InsideBlockEffectScan.HONEY) != 0;
                 boolean bubble = (effects & InsideBlockEffectScan.BUBBLE) != 0;
-                VoxelShape shape = powder
+                // Through 1.21.4 PowderSnowBlock keeps BlockBehaviour#getEntityInsideCollisionShape's Shapes.block().
+                VoxelShape shape = powder && version.isNewerThanOrEquals(ClientVersion.V_1_21_5)
                         ? JavaCollisionState.of(player, actor, current[0].fallDistance())
                                 .powderSnowShape(pos.getY(), end.y)
                         : Shapes.block();
