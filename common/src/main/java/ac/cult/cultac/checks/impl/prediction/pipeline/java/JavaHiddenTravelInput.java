@@ -56,14 +56,15 @@ public final class JavaHiddenTravelInput {
             // Entity#move scales the input-inclusive delta by the stuck multiplier before Entity#collide.
             for (boolean climbing : Ladder.clampsDeltaMovement(context).getStates()) {
                 Vec3 delta = JavaPassAfterTravel.travelDelta(player, result, trace, input, climbing);
-                var move = JavaPassAfterTravel.collideTravel(player, result, delta);
-                var variant = new Variant(
-                        input,
-                        fixedX,
-                        !CultMath.equal(move.attempted().x, move.movement().x),
-                        fixedZ,
-                        !CultMath.equal(move.attempted().z, move.movement().z));
-                if (!variants.contains(variant)) variants.add(variant);
+                for (var move : JavaPassAfterTravel.collideTravel(player, result, delta)) {
+                    var variant = new Variant(
+                            input,
+                            fixedX,
+                            !CultMath.equal(move.attempted().x, move.movement().x),
+                            fixedZ,
+                            !CultMath.equal(move.attempted().z, move.movement().z));
+                    if (!variants.contains(variant)) variants.add(variant);
+                }
             }
         }
         return variants;

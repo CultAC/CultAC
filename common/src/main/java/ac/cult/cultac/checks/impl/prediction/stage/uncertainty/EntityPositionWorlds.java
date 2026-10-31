@@ -16,7 +16,10 @@ import org.jetbrains.annotations.Nullable;
 public final class EntityPositionWorlds {
     private EntityPositionWorlds() {}
 
-    /** One collision set from compensated client state; reach bounds and animation envelopes are never colliders. */
+    /**
+     * All possible colliders for presence queries and broad-phase discovery. Movement resolution must use
+     * {@link #forActor}: alternative positions of one entity cannot clip the same move together.
+     */
     public static List<SimpleCollisionBox> colliders(
             CultPlayer player, PacketEntity actor, Vec3 playerPos, SimpleCollisionBox region) {
         var entities = player.compensatedEntities;
@@ -35,7 +38,7 @@ public final class EntityPositionWorlds {
         PacketEntity serverRoot = entities.serverVehicleRoot();
         for (PacketEntity entity : candidates) {
             if (!selection.mayCollide(entity)) continue;
-            SimpleCollisionBox box = collider(
+            List<SimpleCollisionBox> choices = choices(
                     player,
                     selection,
                     entity,
@@ -43,7 +46,10 @@ public final class EntityPositionWorlds {
                     entities.isUntrackedRider(entity, ownRoot, serverRoot),
                     bounds,
                     scratch);
-            if (box != null) boxes.add(box);
+            for (int i = 0; i < choices.size(); i++) {
+                SimpleCollisionBox box = choices.get(i);
+                if (box != null) boxes.add(box);
+            }
         }
         return boxes;
     }
@@ -63,32 +69,92 @@ public final class EntityPositionWorlds {
             boolean untrackedRider,
             SimpleCollisionBox bounds,
             SimpleCollisionBox scratch) {
-        SimpleCollisionBox box;
-        if (untrackedRider) {
-            var entities = player.compensatedEntities;
-            if (!entities.untrackedRiderMayReach(entity, query, bounds, scratch)) return null;
-            SimpleCollisionBox seated = entities.untrackedRiderCollisionBox(entity);
-            if (seated == null) return null;
-            box = selection.collisionBox(entity, seated);
-        } else {
-            // Bounds are broad-phase only. They never clip a move or substitute for the client-tick shape below.
-            SimpleCollisionBox broad =
-                    entity.toBoundingBox(player, entity.getPossibleMovementCollisionBoxes(bounds, scratch));
-            if (!query.intersects(broad.minX, broad.minY, broad.minZ, broad.maxX, broad.maxY, broad.maxZ)) return null;
-            box = selection.collisionBox(entity, entity.getClientMovementCollisionBox());
-        }
-        return query.intersects(box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ)
-                        && selection.collidesAt(entity, box)
-                ? box
-                : null;
+        List<SimpleCollisionBox> boxes = choices(player, selection, entity, query, untrackedRider, bounds, scratch);
+        return boxes.isEmpty() ? null : boxes.getFirst();
     }
 
-    /** Compatibility for readers of collision sets: there is exactly one compensated set. */
+    /** The distinct collision choices for one entity, including no collider when a valid position is outside. */
+    private static List<SimpleCollisionBox> choices(
+            CultPlayer player,
+            EntityCollisionSelection selection,
+            PacketEntity entity,
+            SimpleCollisionBox query,
+            boolean untrackedRider,
+            SimpleCollisionBox bounds,
+            SimpleCollisionBox scratch) {
+        if (untrackedRider) {
+            if (!player.compensatedEntities.untrackedRiderMayReach(entity, query, bounds, scratch)) return List.of();
+        } else {
+            // Bounds are broad-phase only. They never clip a move or substitute for a client-tick shape.
+            SimpleCollisionBox broad =
+                    entity.toBoundingBox(player, entity.getPossibleMovementCollisionBoxes(bounds, scratch));
+            if (!intersects(query, broad)) return List.of();
+        }
+        List<SimpleCollisionBox> boxes = new ArrayList<>();
+        boolean outside = false;
+        for (int i = 0, count = entity.possibleMovementCollisionBoxCandidateCount(); i < count; i++) {
+            SimpleCollisionBox box =
+                    selection.collisionBox(entity, entity.possibleMovementCollisionBoxCandidate(i, scratch));
+            if (!intersects(query, box) || !selection.collidesAt(entity, box)) outside = true;
+            else if (!containsBox(boxes, box)) boxes.add(box);
+        }
+        if (outside && !boxes.isEmpty()) boxes.add(null);
+        return boxes;
+    }
+
+    private static boolean intersects(SimpleCollisionBox query, SimpleCollisionBox box) {
+        return query.intersects(box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ);
+    }
+
+    private static boolean containsBox(List<SimpleCollisionBox> boxes, SimpleCollisionBox box) {
+        for (SimpleCollisionBox other : boxes) {
+            if (other.minX == box.minX && other.minY == box.minY && other.minZ == box.minZ
+                    && other.maxX == box.maxX && other.maxY == box.maxY && other.maxZ == box.maxZ) return true;
+        }
+        return false;
+    }
+
+    /** One box per entity per world, as EntityGetter#getEntityCollisions supplies to Entity#collide. */
+    public static List<List<SimpleCollisionBox>> forActor(
+            CultPlayer player, PacketEntity actor, Vec3 playerPos, SimpleCollisionBox region) {
+        var entities = player.compensatedEntities;
+        var selection = new EntityCollisionSelection(player, actor, playerPos);
+        Collection<PacketEntity> candidates =
+                selection.includesPushables() ? entities.entityMap.values() : entities.unknownCollisionCandidates();
+        List<List<SimpleCollisionBox>> worlds = new ArrayList<>();
+        worlds.add(new ArrayList<>());
+        if (((region.maxX - region.minX) + (region.maxY - region.minY) + (region.maxZ - region.minZ)) / 3.0 < 1.0E-7)
+            return worlds;
+        SimpleCollisionBox query = region.copy().expand(1.0E-7);
+        SimpleCollisionBox bounds = new SimpleCollisionBox();
+        SimpleCollisionBox scratch = new SimpleCollisionBox();
+        PacketEntity ownRoot = entities.selfRidingRoot();
+        PacketEntity serverRoot = entities.serverVehicleRoot();
+        for (PacketEntity entity : candidates) {
+            if (!selection.mayCollide(entity)) continue;
+            List<SimpleCollisionBox> choices = choices(
+                    player, selection, entity, query, entities.isUntrackedRider(entity, ownRoot, serverRoot),
+                    bounds, scratch);
+            if (choices.isEmpty()) continue;
+            int count = worlds.size();
+            // Clone the preceding worlds before adding this entity, retaining the no-collider choice too.
+            for (int i = 1; i < choices.size(); i++) {
+                for (int w = 0; w < count; w++) worlds.add(new ArrayList<>(worlds.get(w)));
+            }
+            for (int i = 0; i < choices.size(); i++) {
+                SimpleCollisionBox box = choices.get(i);
+                if (box == null) continue;
+                for (int w = 0; w < count; w++) worlds.get(i * count + w).add(box);
+            }
+        }
+        return worlds;
+    }
+
     public static List<List<SimpleCollisionBox>> of(
             CultPlayer player, SimulationContext context, Vec3 playerPos, SimpleCollisionBox region) {
         if (player.isBedrockMovement()) return null;
         PacketEntity actor = context.getVehicle() == null ? player.compensatedEntities.getSelf() : context.getVehicle();
-        return List.of(colliders(player, actor, playerPos, region));
+        return forActor(player, actor, playerPos, region);
     }
 
     /** 26.3 Entity#collide gathers entities up to maxUpStep above the movement; earlier Java versions do not. */

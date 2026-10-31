@@ -129,7 +129,24 @@ public record JavaPassAfterTravel(
         SimulationContext context = prediction.getSimulationContext();
         Vec3 originalDelta = travelDelta(player, prediction, trace, input, climbing);
         Vec3 base = trace.collisionBaseOffset().multiply(context.getLastStuckSpeed());
-        TravelMove movedTravel = collideTravel(player, prediction, originalDelta, base);
+        var results = new ArrayList<JavaPassAfterTravel>();
+        for (TravelMove movedTravel : collideTravel(player, prediction, originalDelta, base)) {
+            results.addAll(replayMove(player, prediction, trace, pass, input, climbing, originalDelta, base, movedTravel));
+        }
+        return results;
+    }
+
+    private static List<JavaPassAfterTravel> replayMove(
+            CultPlayer player,
+            PredictionResult prediction,
+            MovementTrace trace,
+            ClientBlockEntityPass pass,
+            Vec3 input,
+            boolean climbing,
+            Vec3 originalDelta,
+            Vec3 base,
+            TravelMove movedTravel) {
+        SimulationContext context = prediction.getSimulationContext();
         Vec3 delta = movedTravel.attempted();
         Vec3 travel = movedTravel.movement();
         double travelLength = travel.lengthSqr();
@@ -228,22 +245,25 @@ public record JavaPassAfterTravel(
     record TravelMove(Vec3 attempted, Vec3 movement, JavaMoveCollision collision) {}
 
     /** The replayed travel uses Player#maybeBackOffFromEdge, then Entity#collide's actor and entity shapes. */
-    static TravelMove collideTravel(CultPlayer player, PredictionResult prediction, Vec3 delta) {
+    static List<TravelMove> collideTravel(CultPlayer player, PredictionResult prediction, Vec3 delta) {
         return collideTravel(player, prediction, delta, Vec3.ZERO);
     }
 
-    private static TravelMove collideTravel(CultPlayer player, PredictionResult prediction, Vec3 delta, Vec3 base) {
+    private static List<TravelMove> collideTravel(CultPlayer player, PredictionResult prediction, Vec3 delta, Vec3 base) {
         var context = prediction.getSimulationContext();
         delta = SneakEdgeBackoff.travelMovement(player, prediction, delta);
         var box = context.getFromActualPose().offset(base);
-        JavaMoveCollision collision = JavaForwardMove.collide(
+        var results = new ArrayList<TravelMove>();
+        for (JavaMoveCollision collision : JavaForwardMove.collisions(
                 player,
                 context,
                 box,
                 delta,
                 context.getLastOnGround().determineOptimistically(),
                 player.getMaxUpStep(),
-                JavaFallDistance.beforeMove(player, context, prediction.getInitialStartingVel()));
-        return new TravelMove(delta, collision.collided(), collision);
+                JavaFallDistance.beforeMove(player, context, prediction.getInitialStartingVel()))) {
+            results.add(new TravelMove(delta, collision.collided(), collision));
+        }
+        return results;
     }
 }

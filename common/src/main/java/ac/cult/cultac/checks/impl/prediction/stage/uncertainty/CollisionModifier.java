@@ -190,8 +190,7 @@ public class CollisionModifier implements UncertaintyHandler {
             return nearest;
         }
         PredVector attempted = start;
-        // A vehicle's entity colliders are worlds like the player's; unknown colliders remain only where the worlds
-        // exceed EntityPositionWorlds#MAX_POSITION_SETS, which collides every axis at once as for the player.
+        // Java entity alternatives clip the whole move in separate worlds; Bedrock keeps unknown colliders.
         if (!isJavaVehicleMove(context) || !collide.getUnknown().isEmpty()) {
             start = clampWithinCollisions(collide, start, end);
         } else {

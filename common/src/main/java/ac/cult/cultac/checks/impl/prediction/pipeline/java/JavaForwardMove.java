@@ -12,6 +12,7 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.JavaCollisionState;
 import ac.cult.cultac.utils.nmsutil.SneakEdgeBackoff;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -102,12 +103,13 @@ public final class JavaForwardMove {
         JavaMoveCollision best = null;
         double distance = Double.POSITIVE_INFINITY;
         for (boolean onGround : context.getLastOnGround().getStates()) {
-            JavaMoveCollision candidate = collide(player, context, box, delta, onGround, stepHeight, actor);
-            double offset = JavaMoveCollision.unscale(shown(delta, candidate.collided()), stuck)
-                    .distanceToSqr(movementTarget);
-            if (best == null || offset < distance) {
-                best = candidate;
-                distance = offset;
+            for (JavaMoveCollision candidate : collisions(player, context, box, delta, onGround, stepHeight, actor)) {
+                double offset = JavaMoveCollision.unscale(shown(delta, candidate.collided()), stuck)
+                        .distanceToSqr(movementTarget);
+                if (best == null || offset < distance) {
+                    best = candidate;
+                    distance = offset;
+                }
             }
         }
         Vec3 bestCollided = best.collided();
@@ -190,8 +192,8 @@ public final class JavaForwardMove {
         return Collisions.collideEntity(player, box, delta, onGround, stepHeight, actor, entities);
     }
 
-    /** Resolves one movement against the compensated entity boxes at this client-tick boundary. */
-    static JavaMoveCollision collide(
+    /** Resolves each valid collision world independently at this client-tick boundary. */
+    static List<JavaMoveCollision> collisions(
             CultPlayer player,
             SimulationContext context,
             SimpleCollisionBox box,
@@ -202,9 +204,12 @@ public final class JavaForwardMove {
         SimpleCollisionBox region =
                 EntityPositionWorlds.withStepEntities(player, box.copy().expandToCoordinate(delta.x, delta.y, delta.z));
         var mover = context.getVehicle() == null ? player.compensatedEntities.getSelf() : context.getVehicle();
-        List<SimpleCollisionBox> entities = EntityPositionWorlds.colliders(player, mover, Collisions.feet(box), region);
-        Vec3 collided = collide(player, box, delta, onGround, stepHeight, actor, entities);
-        return JavaMoveCollision.of(delta, collided, NO_STUCK_SPEED, entities);
+        var results = new ArrayList<JavaMoveCollision>();
+        for (List<SimpleCollisionBox> entities : EntityPositionWorlds.forActor(player, mover, Collisions.feet(box), region)) {
+            Vec3 collided = collide(player, box, delta, onGround, stepHeight, actor, entities);
+            results.add(JavaMoveCollision.of(delta, collided, NO_STUCK_SPEED, entities));
+        }
+        return results;
     }
 
     /** Entity#move's setPos guard: the collided move, or zero where it skips setPos for a move under 1.0E-7. */
