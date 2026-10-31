@@ -2130,6 +2130,18 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     exactWithheldTravel = true;
                     this.handlePossibleRealities(result);
                 }
+            } else if (physical != null && end != position) {
+                // The travel ended where it started, short of the last sent position: LocalPlayer#sendPosition
+                // withheld it, and the client stays where its earlier withheld travel left it.
+                PredictionResult still = this.callPrediction(
+                        Vec3.ZERO, position, position, false, xRot, yRot, null, movementProfile);
+                if (!still.isExempt() && still.getFlags().isEmpty()) {
+                    result = still;
+                    movement = Vec3.ZERO;
+                    end = position;
+                    exactWithheldTravel = true;
+                    this.handlePossibleRealities(result);
+                }
             }
         }
         if (result.getFlags().isEmpty() && !result.isExempt()) {

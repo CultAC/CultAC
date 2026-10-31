@@ -43,9 +43,10 @@ public final class JavaWithheldTravel {
         Vec3 before = prediction.getValidMovements().getClosestTrace().preCollisionMovement();
         double bound = threshold * threshold;
         var reported = player.packetStateData.knownInput;
-        if (reported.forwardImpulse() == 0
-                && reported.strafeImpulse() == 0
-                && (before.lengthSqr() == 0 || before.lengthSqr() > bound)) return null;
+        // An idle tick at the last sent position leaves nothing to commit. After withheld travel the client is not
+        // there: an idle tick ends where that travel did, which only the replay finds.
+        boolean nothingToReplay = before.lengthSqr() > bound || before.lengthSqr() == 0 && startsAt(prediction, sent);
+        if (reported.forwardImpulse() == 0 && reported.strafeImpulse() == 0 && nothingToReplay) return null;
         List<Vec3> keys = ClientKeyInput.travelInputs(player, context, prediction.getInitialStartingVel());
         if (keys.isEmpty()) return null;
         boolean movingInput = false;
@@ -53,7 +54,7 @@ public final class JavaWithheldTravel {
             movingInput |= key.lengthSqr() > 0;
         }
         // Ordinary grounded idle ticks need no additional replay. This also admits a tiny carried fall with no keys.
-        if (!movingInput && (before.lengthSqr() == 0 || before.lengthSqr() > bound)) return null;
+        if (!movingInput && nothingToReplay) return null;
         Vec3[] ends = new Vec3[2];
         var realities = new ArrayList<PredictionResult>();
         realities.add(prediction);
@@ -83,5 +84,16 @@ public final class JavaWithheldTravel {
         if (ends[0] == null) ends[0] = ends[1];
         if (ends[1] == null) ends[1] = ends[0];
         return ends;
+    }
+
+    /** Whether every accepted candidate's travel starts at {@code sent}, LocalPlayer#sendPosition's last position. */
+    private static boolean startsAt(PredictionResult prediction, Vec3 sent) {
+        if (!sent.equals(prediction.getSimulationContext().getStart())) return false;
+        for (var reality : prediction.getRealities()) {
+            if (reality.getFlagSeverity() == 0
+                    && reality.getSimulationContext() != null
+                    && !sent.equals(reality.getSimulationContext().getStart())) return false;
+        }
+        return true;
     }
 }
