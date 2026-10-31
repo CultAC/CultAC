@@ -454,36 +454,37 @@ public class VelocityTransformer {
                 ? simulationContext.getCamelRiderSprinting(player).getStates()
                 : List.of(true);
         for (boolean riderSprinting : riderSprintStates) {
-            if (water) {
-                addDistinctInputVector(
-                        vectors,
-                        inputVectorForSpeed(
-                                player,
-                                riddenInput,
-                                simulationContext.getMoveRelativeSpeed(player, false, true, false, riderSprinting)));
-            }
+            for (boolean onGround : simulationContext.getWorldData().getLastOnGround().getStates()) {
+                // AbstractHorse#tickRidden runs a grounded camel's dash in every travel medium, setting the dash
+                // cooldown before LivingEntity#travelRidden's Camel#getRiddenSpeed reads it for the sprint bonus.
+                boolean dashes = onGround && horse instanceof PacketEntityCamel && horse.horseJump > 0.0F;
+                boolean sprintBonus = riderSprinting && !dashes;
+                if (water) {
+                    addDistinctInputVector(
+                            vectors,
+                            inputVectorForSpeed(
+                                    player,
+                                    riddenInput,
+                                    simulationContext.getMoveRelativeSpeed(player, false, true, false, sprintBonus)));
+                }
 
-            if (lava) {
-                addDistinctInputVector(
-                        vectors,
-                        inputVectorForSpeed(
-                                player,
-                                riddenInput,
-                                simulationContext.getMoveRelativeSpeed(player, false, false, true, riderSprinting)));
-            }
+                if (lava) {
+                    addDistinctInputVector(
+                            vectors,
+                            inputVectorForSpeed(
+                                    player,
+                                    riddenInput,
+                                    simulationContext.getMoveRelativeSpeed(player, false, false, true, sprintBonus)));
+                }
 
-            if (!water && !lava) {
-                for (boolean onGround :
-                        simulationContext.getWorldData().getLastOnGround().getStates()) {
-                    // A grounded camel's dash sets its cooldown in tickRidden before getRiddenSpeed reads it.
-                    boolean dashes = onGround && horse instanceof PacketEntityCamel && horse.horseJump > 0.0F;
+                if (!water && !lava) {
                     addDistinctInputVector(
                             vectors,
                             inputVectorForSpeed(
                                     player,
                                     riddenInput,
                                     simulationContext.getMoveRelativeSpeed(
-                                            player, onGround, false, false, riderSprinting && !dashes)));
+                                            player, onGround, false, false, sprintBonus)));
                 }
             }
         }
