@@ -147,7 +147,7 @@ public final class ClientKeyInput {
         if (context.usesFallFlyingMovement() && !context.getWorldData().isInLiquid()) return List.of(Vec3.ZERO);
         KnownInput keys = player.packetStateData.knownInput;
         ClientItemUseState.Snapshot use = context.getItemUse();
-        float[] itemUses = {use.legalMultiplier(), use.requiredMultiplier(), use.slowestMultiplier()};
+        List<Float> itemUses = use.multipliers();
         float[] slows = movingSlowlyFactors(player, context);
         List<Vec3> inputs = new ArrayList<>(2);
         for (float speed : moveRelativeSpeeds(player, context, candidate)) {
@@ -202,9 +202,11 @@ public final class ClientKeyInput {
         if (!player.compensatedEntities.getSelf().actionAlive || !player.isBedrockMovement() && player.isInBed)
             return List.of(Vec3.ZERO);
         ClientItemUseState.Snapshot use = context.getItemUse();
-        float[] itemUses = use.legalMultiplier() < 1.0F
-                ? new float[] {use.legalMultiplier(), use.requiredMultiplier(), use.slowestMultiplier(), 1.0F}
-                : new float[] {use.legalMultiplier(), use.requiredMultiplier(), use.slowestMultiplier()};
+        List<Float> itemUses = use.multipliers();
+        if (use.legalMultiplier() < 1.0F && !itemUses.contains(1.0F)) {
+            itemUses = new ArrayList<>(itemUses);
+            itemUses.add(1.0F);
+        }
         float[] slows = movingSlowlyFactors(player, context);
         List<Float> speeds = collisionInput ? List.of(1.0F) : moveRelativeSpeeds(player, context, candidate);
         var inputs = new ArrayList<Vec3>(4);
@@ -228,7 +230,7 @@ public final class ClientKeyInput {
             KnownInput keys,
             List<Float> speeds,
             float[] slows,
-            float[] itemUses) {
+            List<Float> itemUses) {
         for (float speed : speeds) {
             for (float slow : slows) {
                 for (float itemUse : itemUses) {
@@ -245,7 +247,7 @@ public final class ClientKeyInput {
         if (context.usesFallFlyingMovement() && !context.getWorldData().isInLiquid()) return List.of(Vec3.ZERO);
         if (!player.compensatedEntities.getSelf().actionAlive) return List.of(Vec3.ZERO);
         ClientItemUseState.Snapshot use = context.getItemUse();
-        float[] itemUses = {use.legalMultiplier(), use.requiredMultiplier(), use.slowestMultiplier()};
+        List<Float> itemUses = use.multipliers();
         float[] slows = movingSlowlyFactors(player, context);
         var inputs = new ArrayList<Vec3>();
         for (int forward = -1; forward <= 1; forward++) {

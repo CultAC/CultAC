@@ -236,6 +236,24 @@ class ClientItemUseStateTest {
     }
 
     @Test
+    void everyPossibleUseKeepsItsOwnMultiplier() {
+        var spyglass = ItemUtil.modelItems().stack("minecraft:spyglass", 1);
+        var bow = ItemUtil.modelItems().stack("minecraft:bow", 1);
+        bow.components(
+                bow.components().with("minecraft:use_effects", JsonParser.parseString("{\"speed_multiplier\":0.5}")));
+        var hotbar = new ArrayList<>(Collections.nCopies(9, SimItemStack.EMPTY));
+        hotbar.set(0, spyglass);
+        hotbar.set(1, bow);
+        var state = new ClientItemUseState();
+        // Metadata starts the use of whichever hotbar stack the client selected; an empty slot may start none.
+        state.serverFlags(true, Hand.MAIN_HAND, spyglass, SimItemStack.EMPTY, hotbar);
+        var snapshot = state.prepare(0, 1, ClientVersion.V_1_21_11, bow, SimItemStack.EMPTY, hotbar);
+        assertEquals(1, snapshot.legalMultiplier());
+        assertEquals(0.2F, snapshot.slowestMultiplier());
+        assertEquals(List.of(1.0F, 0.2F, 0.5F), snapshot.multipliers());
+    }
+
+    @Test
     void releaseAfterMovementCannotRetroactivelyClearTheTravelSnapshot() {
         var state = new ClientItemUseState();
         var food = food();

@@ -22,7 +22,9 @@ public final class ClientItemUseState {
     /**
      * One client tick's use state. {@code possiblyUsing} is whether LivingEntity#isUsingItem may hold, and
      * {@code possiblyBlocksSprint} whether a use it may hold lacks UseEffects#canSprint
-     * (LocalPlayer#isSlowDueToUsingItem from 1.21.11).
+     * (LocalPlayer#isSlowDueToUsingItem from 1.21.11). {@code multipliers} holds every LocalPlayer#modifyInput
+     * item-use multiplier the client may travel with: 1 while it may not be using, each use it may hold, and the
+     * outstanding one. The legal, required and slowest multipliers are among them.
      */
     public record Snapshot(
             long session,
@@ -35,8 +37,41 @@ public final class ClientItemUseState {
             boolean required,
             boolean definitelyUsing,
             boolean possiblyUsing,
-            boolean possiblyBlocksSprint) {
+            boolean possiblyBlocksSprint,
+            List<Float> multipliers) {
         public static final Snapshot NONE = new Snapshot(0, -1, -1, 1, 1, 1, true, false, false, false, false);
+
+        public Snapshot {
+            multipliers = List.copyOf(multipliers);
+        }
+
+        /** A snapshot whose only possible multipliers are its legal, required and slowest ones. */
+        public Snapshot(
+                long session,
+                int tick,
+                int proof,
+                float legalMultiplier,
+                float requiredMultiplier,
+                float slowestMultiplier,
+                boolean canSprint,
+                boolean required,
+                boolean definitelyUsing,
+                boolean possiblyUsing,
+                boolean possiblyBlocksSprint) {
+            this(
+                    session,
+                    tick,
+                    proof,
+                    legalMultiplier,
+                    requiredMultiplier,
+                    slowestMultiplier,
+                    canSprint,
+                    required,
+                    definitelyUsing,
+                    possiblyUsing,
+                    possiblyBlocksSprint,
+                    distinct(legalMultiplier, requiredMultiplier, slowestMultiplier));
+        }
 
         /** A snapshot whose possible uses are exactly its definite one. */
         public Snapshot(
@@ -61,6 +96,12 @@ public final class ClientItemUseState {
                     definitelyUsing,
                     definitelyUsing,
                     definitelyUsing && !canSprint);
+        }
+
+        private static List<Float> distinct(float... multipliers) {
+            var distinct = new ArrayList<Float>(multipliers.length);
+            for (float multiplier : multipliers) if (!distinct.contains(multiplier)) distinct.add(multiplier);
+            return distinct;
         }
     }
 
@@ -179,15 +220,19 @@ public final class ClientItemUseState {
         float slowest = 1;
         boolean canSprint = inactive;
         boolean blocksSprint = false;
+        var multipliers = new ArrayList<Float>(candidates.size() + 2);
+        if (inactive) multipliers.add(1.0F);
         for (Use use : candidates) {
             var effects = effects(use.stack(), version);
             legal = Math.max(legal, effects.speedMultiplier());
             slowest = Math.min(slowest, effects.speedMultiplier());
             canSprint |= effects.canSprint();
             blocksSprint |= !effects.canSprint();
+            if (!multipliers.contains(effects.speedMultiplier())) multipliers.add(effects.speedMultiplier());
         }
         float required =
                 obligation == null ? 1 : effects(obligation.stack(), version).speedMultiplier();
+        if (!multipliers.contains(required)) multipliers.add(required);
         prepared = new Snapshot(
                 session,
                 tick,
@@ -199,7 +244,8 @@ public final class ClientItemUseState {
                 obligation != null && required < 1,
                 !inactive && !candidates.isEmpty(),
                 !candidates.isEmpty(),
-                blocksSprint);
+                blocksSprint,
+                multipliers);
         return prepared;
     }
 
