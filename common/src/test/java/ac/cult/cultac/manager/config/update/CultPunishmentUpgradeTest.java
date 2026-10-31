@@ -3,6 +3,7 @@ package ac.cult.cultac.manager.config.update;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ac.cult.cultac.manager.PunishmentRules;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -376,6 +377,61 @@ class CultPunishmentUpgradeTest {
         assertEquals(1800, group(data, "Cloud").get("remove-violations-after"));
         assertEquals(6, data.get("cult-config-version"));
         assertTrue(Files.readString(file).contains("# compact"));
+    }
+
+    @Test
+    void extendsAFlowStyleGroupWhoseCommandsAliasAnAnchorElsewhere() throws Exception {
+        Path file = write("""
+                cult-config-version: 5
+                base-commands: &commands
+                  - '1:1 [alert]'
+                Punishments:
+                  Simulation: {checks: [Simulation], commands: *commands}
+                """);
+        assertTrue(upgrade(file).migrated);
+        var data = read(file);
+        assertEquals(6, data.get("cult-config-version"));
+        assertEquals(List.of("Simulation", "Phase"), checks(data, "Simulation"));
+        assertEquals(List.of("1:1 [alert]"), group(data, "Simulation").get("commands"));
+        assertTrue(Files.readString(file).contains("commands: *commands}"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                // Block-style selectors aliasing a list written elsewhere, in either style.
+                "base-checks: &checks\n  - Simulation\nPunishments:\n  Simulation:\n    checks: *checks\n"
+                        + "    commands: ['1:1 [alert]']\n",
+                "base-checks: &checks [Simulation]\nPunishments:\n  Simulation:\n    checks: *checks\n"
+                        + "    commands: ['1:1 [alert]']\n",
+                // A flow-style group holding an anchor another group aliases.
+                "Punishments:\n  Simulation: {checks: [Simulation], commands: &commands ['1:1 [alert]']}\n"
+                        + "  Combat: {checks: [Reach], commands: *commands}\n",
+                // An anchored flow-style group, and anchored inline selectors.
+                "Punishments:\n  Simulation: &sim {checks: [Simulation], commands: ['1:1 [alert]']}\n  Copy: *sim\n",
+                "Punishments:\n  Simulation:\n    checks: &sim [Simulation]\n    commands: ['1:1 [alert]']\n"
+                        + "  Copy:\n    checks: *sim\n    commands: ['1:1 [log]']\n"
+            })
+    void extendsAGroupAsYamlWhoseAnchorsAndAliasesStillResolve(String punishments) throws Exception {
+        Path file = write("cult-config-version: 5\n" + punishments);
+        assertTrue(upgrade(file).migrated);
+        var data = read(file);
+        assertEquals(6, data.get("cult-config-version"));
+        assertEquals(List.of("Simulation", "Phase"), checks(data, "Simulation"));
+        assertEquals(List.of("1:1 [alert]"), group(data, "Simulation").get("commands"));
+    }
+
+    @Test
+    void leavesTheFileAndItsVersionAsTheyWereWhenAPatchWouldBreakIt() throws Exception {
+        // The new Simulation group rewrites the one-line Punishments map, which cannot keep the anchor `other` names.
+        String original = """
+                cult-config-version: 5
+                Punishments: {Custom: {checks: [Reach], commands: &cmds ['1:1 custom']}}
+                other: *cmds
+                """;
+        Path file = write(original);
+        assertThrows(IOException.class, () -> upgrade(file));
+        assertEquals(original, Files.readString(file));
     }
 
     @Test

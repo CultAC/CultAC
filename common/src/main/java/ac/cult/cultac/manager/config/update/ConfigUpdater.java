@@ -396,10 +396,9 @@ public final class ConfigUpdater {
         for (ConfigPatcher.PendingChange c : pending) {
             patcher.applyChange(c);
         }
-        patcher.save();
         // List replacements can shift parents; rebuild positions before inserting new paths.
         if (!additions.isEmpty()) {
-            patcher = new ConfigPatcher(configFile);
+            patcher.remap();
             for (WriteLog.Entry addition : additions) {
                 if (patcher.inFlowCollection(addition.path())) {
                     patcher.replaceInFlowCollection(addition.path(), addition.value());
@@ -407,8 +406,9 @@ public final class ConfigUpdater {
                     patcher.addMissingValue(addition.path(), addition.value());
                 }
             }
-            patcher.save();
         }
+        // One write once every change applied: a failed one leaves the old file, version included, to retry.
+        patcher.save();
     }
 
     @SuppressWarnings("unchecked")
