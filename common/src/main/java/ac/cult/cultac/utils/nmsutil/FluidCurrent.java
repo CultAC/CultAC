@@ -70,6 +70,7 @@ public final class FluidCurrent {
         double currentZ = 0.0D;
         int currentCount = 0;
         double height = 0.0D;
+        boolean touched = false;
         boolean interaction = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_1);
         // Entity measures from the deflated box; EntityFluidInteraction measures from the entity's box.
         double entityMinY = interaction ? entityBox.minY : fluidMinY;
@@ -80,10 +81,11 @@ public final class FluidCurrent {
                     this.pos.set(blockX, blockY, blockZ);
                     SimFluidState fluidState = ClientFluidQueries.fluidAt(player.compensatedWorld, this.pos);
                     // The old Entity updater counts tagged EmptyFluid's zero flow in its average; 26.1 skips it.
-                    if (fluidState.isEmpty() && !ClientFluidQueries.usesLegacyFluidDepth(player)
-                            || !ClientFluidTagOrder.currentMatches(player, fluidState, fluidTag)) {
-                        continue;
-                    }
+                    if (fluidState.isEmpty() && !ClientFluidQueries.usesLegacyFluidDepth(player)) continue;
+                    // 26.3 tracks contact per fluid holder, apart from the one current accumulator it selects.
+                    boolean contact = ClientFluidTagOrder.contactMatches(player, fluidState, fluidTag);
+                    boolean current = ClientFluidTagOrder.currentMatches(player, fluidState, fluidTag);
+                    if (!contact && !current) continue;
 
                     float fluidHeight = ClientFluidQueries.height(player.compensatedWorld, this.pos, fluidState);
                     // Entity's int + float rounds before promotion; EntityFluidInteraction adds to a double Y.
@@ -92,6 +94,8 @@ public final class FluidCurrent {
                         continue;
                     }
 
+                    touched |= contact;
+                    if (!current) continue;
                     height = Math.max(fluidTop - entityMinY, height);
                     FluidTypeFlowing.flow(this.view, blockX, blockY, blockZ, fluidState, this.flow);
                     double flowX = this.flow[0];
@@ -112,7 +116,7 @@ public final class FluidCurrent {
         }
 
         double lengthSqr = currentX * currentX + currentY * currentY + currentZ * currentZ;
-        this.touching = currentCount != 0;
+        this.touching = touched;
         // The accumulated-current cutoff belongs to EntityFluidInteraction, added in 26.1.
         if (currentCount == 0 || (interaction ? lengthSqr < 1.0E-5F : !(Math.sqrt(lengthSqr) > 0.0D))) {
             return false;
