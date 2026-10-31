@@ -53,6 +53,7 @@ import ac.cult.cultac.protocol.value.Relative;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
+import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
 import java.util.List;
@@ -85,6 +86,8 @@ class CreativeFlightTest {
             new ServerboundPlayerInput(true, false, false, false, true, true, false);
     private static final ServerboundPlayerInput FORWARD_JUMP_SPRINT =
             new ServerboundPlayerInput(true, false, false, false, true, false, true);
+    private static final ServerboundPlayerInput FORWARD_SPRINT =
+            new ServerboundPlayerInput(true, false, false, false, false, false, true);
     private static final float FLYING_SPEED = 0.05F;
     /** LivingEntity#getFrictionInfluencedSpeed on stone at 0.1 movement speed. */
     private static final float GROUND_SPEED = 0.1F * (0.21600002F / (0.6F * 0.6F * 0.6F));
@@ -985,6 +988,45 @@ class CreativeFlightTest {
         }
     }
 
+    /**
+     * Entity#baseTick runs Player#updateSwimming before LocalPlayer#aiStep's double-tap stops flight, so a sprinter
+     * stopping flight under water is not swimming in that tick's travel and takes no Player#travel pull toward its
+     * look. Entity#updateSwimming swims it from the next tick.
+     */
+    @Test
+    void aSprintingFlightStopUnderWaterSwimsFromTheNextTick() throws Exception {
+        for (ClientVersion version : SPRINT_VERSIONS) {
+            Vec3 start = new Vec3(0.5, FLOOR_Y + 1, 0.5);
+            try (var f = flying(version, start, true)) {
+                f.water(new BlockPos(-3, FLOOR_Y, -3), new BlockPos(3, FLOOR_Y + 4, 3));
+                var run = new SprintRun(f, start);
+                float pitch = 60.0F;
+                f.player.yRot = pitch;
+                // Entity#calculateViewVector's y.
+                double lookY = -f.player.trigHandler.sin(pitch * ((float) Math.PI / 180F));
+                f.command(PlayerCommandAction.START_SPRINTING);
+                assertPredicted(run.fly(FORWARD_SPRINT), version + " sprint");
+                // The press arming Player#jumpTriggerTime, then its release.
+                assertPredicted(run.fly(FORWARD_JUMP_SPRINT), version + " arm");
+                assertPredicted(run.fly(FORWARD_SPRINT), version + " release");
+
+                f.abilities(false);
+                // LivingEntity#jumpInLiquid, with no swimming pitch.
+                PredictionResult stopped = run.swim(FORWARD_JUMP_SPRINT, run.velocity.y + 0.04F);
+                assertFalse(f.player.isFlying, "the toggle did not stop flight " + version);
+                assertPredicted(stopped, version + " stop");
+                assertEquals(Pose.STANDING, f.player.pose, version + " stop");
+
+                for (int tick = 0; tick < 3; tick++) {
+                    String where = version + " swim tick " + tick;
+                    double y = Math.abs(run.velocity.y) < 0.003 ? 0.0 : run.velocity.y;
+                    assertPredicted(run.swim(FORWARD_SPRINT, y + (lookY - y) * 0.085), where);
+                    assertEquals(Pose.SWIMMING, f.player.pose, where);
+                }
+            }
+        }
+    }
+
     /** Entity#updateSwimming needs the sprint flag, so a wader that never sprinted toggles on an armed press. */
     @Test
     void aTakeoffKeptByAWadingPressFlags() throws Exception {
@@ -1727,6 +1769,10 @@ class CreativeFlightTest {
         assertTrue(result.getOffset() < 1.0E-5, describe(result));
     }
 
+    private static void assertPredicted(PredictionResult result, String where) {
+        assertTrue(result.getOffset() < 1.0E-5, where + ": " + describe(result));
+    }
+
     private static void assertJudgedExact(PredictionResult result, String where) {
         assertTrue(exact(result), where + ": " + describe(result));
     }
@@ -1806,6 +1852,15 @@ class CreativeFlightTest {
             Vec3 move = travel(keys, SPRINT_AIR_SPEED, velocity.y);
             position = position.add(move);
             velocity = new Vec3(move.x * 0.91F, (move.y - 0.08) * 0.98F, move.z * 0.91F);
+            return f.tick(position, false);
+        }
+
+        /** A sprinter's LivingEntity#travelInWater from {@code y}: no fluid gravity, 0.9 of X and Z, 0.8 of Y. */
+        PredictionResult swim(ServerboundPlayerInput keys, double y) {
+            f.input(keys);
+            Vec3 move = travel(keys, 0.02F, y);
+            position = position.add(move);
+            velocity = new Vec3(move.x * 0.9F, y * 0.8F, move.z * 0.9F);
             return f.tick(position, false);
         }
 

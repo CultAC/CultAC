@@ -9,43 +9,34 @@ package ac.cult.cultac.utils.data;
  *   <li>Player#updatePlayerPose reads it at the end of the tick; the server never sends the local player its pose.
  * </ul>
  *
- * Where the engine's fluid, eye or flying state is uncertain the model keeps the client swimming. A Bedrock client
+ * Where the engine's fluid or eye state is uncertain the model keeps the client swimming. A Bedrock client
  * holds only the server's flag.
  */
 public final class ClientSwimState {
     private boolean swimming;
-    private boolean flewLastTick;
 
     /** Entity shared flag 4 from self entity data, applied by its bundled proof. */
     public void onServerFlag(boolean swimming) {
         this.swimming = swimming;
     }
 
-    /** A Java client tick's Entity#updateSwimming result and its Abilities#flying when the tick ended. */
-    public void onClientTick(boolean swimming, boolean flying) {
+    /** A Java client tick's Entity#updateSwimming result. */
+    public void onClientTick(boolean swimming) {
         this.swimming = swimming;
-        this.flewLastTick = flying;
     }
 
     /** ClientPacketListener#handleRespawn copies the old shared flags only for KEEP_ENTITY_DATA. */
     public void onRespawn(boolean keepEntityData) {
         if (!keepEntityData) swimming = false;
-        flewLastTick = false;
     }
 
     /** ClientPacketListener#handleLogin creates a fresh LocalPlayer. */
     public void reset() {
         swimming = false;
-        flewLastTick = false;
     }
 
     /** Entity#isSwimming's shared flag as the client holds it. */
     public boolean swimming() {
         return swimming;
-    }
-
-    /** Whether the client flew when its last tick ended, which the next Player#updateSwimming reads. */
-    public boolean flewLastTick() {
-        return flewLastTick;
     }
 }

@@ -1595,8 +1595,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.player.compensatedEntities.ravagerRoars.clear();
             this.player.compensatedEntities.fishingPulls.clear();
             if (!this.player.isBedrockMovement()) {
-                this.player.swimState.onClientTick(
-                        result.getSimulationContext().getWorldData().isSwimming(), this.player.isFlying);
+                this.player.swimState.onClientTick(result.getSimulationContext().getWorldData().isSwimming());
             }
             JavaPassAfterTravel posePass = JavaMovementEngine.passAfterTravel(result);
             if (posePass == null) this.player.refreshPlayerPose();

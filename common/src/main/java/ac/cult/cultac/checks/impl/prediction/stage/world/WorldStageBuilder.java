@@ -40,6 +40,7 @@ import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
 import ac.cult.cultac.utils.nmsutil.Collisions;
+import ac.cult.cultac.utils.nmsutil.FlightToggle;
 import ac.cult.cultac.utils.nmsutil.FluidTypeFlowing;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.RiptideUtil;
@@ -227,7 +228,7 @@ public class WorldStageBuilder {
             }
         }
         // Entity#updateSwimming runs in Entity#baseTick, before LocalPlayer#aiStep updates the sprint and flying
-        // flags; Player#updateSwimming clears it while flying, which only a flight kept since last tick proves.
+        // flags; Player#updateSwimming clears it while flying, so a flight this tick's aiStep stops still clears it.
         boolean waterAtFeet =
                 player.isBedrockMovement() || simulationContext.getVersion().isOlderThan(ClientVersion.V_1_21_2)
                         ? player.compensatedWorld.getWaterFluidLevelAt(from.x, from.y, from.z) > 0
@@ -237,7 +238,7 @@ public class WorldStageBuilder {
                                         player.compensatedWorld, BlockPos.containing(from.x, from.y, from.z)),
                                 FluidTags.WATER);
         boolean swimming = simulationContext.getVehicle() == null
-                && !(player.isFlying && player.swimState.flewLastTick())
+                && (player.isBedrockMovement() || !FlightToggle.flyingBeforeAiStep(player))
                 && player.sprintState.flagBeforeAiStep()
                 && (player.swimState.swimming() && player.gamemode != GameMode.SPECTATOR
                         ? (bedrockFluidBounds == null ? isInWater : bedrockFluidBounds.water())
