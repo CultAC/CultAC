@@ -187,6 +187,8 @@ public class PacketPlayerRespawn {
                     player.isRiptidePose = false;
                     player.riptideSpinAttackTicks = 0;
                     player.riptideSpinCertain = false;
+                    // Its synched data starts at the defaults: DATA_TICKS_FROZEN is 0 until the server sends more.
+                    player.powderSnowFrozenTicks = 0;
                     player.packetStateData.packetPlayerOnGround = false;
                     player.checkManager.getSimulationProcessor().handleRespawn();
                 }

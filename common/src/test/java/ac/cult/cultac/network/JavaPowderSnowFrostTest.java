@@ -7,26 +7,35 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.blocksim.data.BlockIds;
+import ac.cult.cultac.events.packets.PacketServerRegistries;
 import ac.cult.cultac.events.packets.listeners.PacketSelfMetadataListener;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.platform.api.world.PlatformWorld;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketType;
+import ac.cult.cultac.protocol.packet.ClientboundPackets;
+import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.AttributeModifier;
 import ac.cult.cultac.protocol.value.AttributeSnapshot;
+import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.Mockito;
 
 class JavaPowderSnowFrostTest {
     private static final double DRAG = 0.6F * 0.91F;
@@ -42,6 +51,49 @@ class JavaPowderSnowFrostTest {
             f.fixture.respawn(keep ? ClientboundRespawn.KEEP_ENTITY_DATA : (byte) 0);
             f.pongThrough(f.player.lastTransactionSent.get());
             assertEquals(keep ? 140 : 0, f.player.powderSnowFrozenTicks);
+        }
+    }
+
+    /**
+     * Minecraft#clearClientLevel discards the LocalPlayer when a backend switch reconfigures, and
+     * ClientPacketListener#handleLogin creates the next one with a default DATA_TICKS_FROZEN of 0. A 1.21.4 client's
+     * LivingEntity#tryAddFrost then adds no powder_snow modifier, so it walks at the full movement speed.
+     */
+    @Test
+    void aBackendSwitchStartsTheNewPlayerUnfrozen() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_1_21_4);
+            f.player.nettyScheduler.removeScheduler();
+            Mockito.when(f.fixture.user.getPlayer().getWorld()).thenReturn(Mockito.mock(PlatformWorld.class));
+            f.player.powderSnowFrozenTicks = 140;
+
+            var type = ClientboundPackets.FINISH_CONFIGURATION;
+            var finish =
+                    new PacketSendEvent<>(f.player.user, ConnectionPhase.CONFIGURATION, type, new Opaque(type), false);
+            new PacketServerRegistries().onFinishConfiguration(finish, f.player, new Opaque(type));
+            finish.getTasksAfterSend().forEach(Runnable::run);
+            f.pongThrough(ItemUseTestSupport.login(f.player, GameMode.SURVIVAL));
+            assertEquals(0, f.player.powderSnowFrozenTicks);
+
+            // The LOGIN replaced the ClientLevel; the new backend sends the floor again and places the player.
+            for (int x = -1; x <= 1; x++) {
+                for (int z = -1; z <= 1; z++) f.player.compensatedWorld.ensureValidationChunkLoaded(x, z);
+            }
+            for (int x = -8; x <= 8; x++) {
+                for (int z = -8; z <= 8; z++) {
+                    f.player.compensatedWorld.updateBlock(
+                            new BlockPos(x, FLOOR_Y - 1, z), BlockIds.STONE.defaultState());
+                }
+            }
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            Vec3 position = new Vec3(0.5, FLOOR_Y, 0.5);
+            f.playerPosition(position, Vec3.ZERO, Set.of());
+            f.player.packetStateData.playerLoadedIntoLevel = true;
+            f.place(position, GROUNDED);
+            f.tickEnd();
+            f.input(FORWARD);
+            var result = f.tick(position.add(0, 0, (double) 0.98F * 0.1F), true);
+            assertTrue(exact(result), describe(result));
         }
     }
 
