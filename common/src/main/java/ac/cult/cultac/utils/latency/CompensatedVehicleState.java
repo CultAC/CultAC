@@ -328,6 +328,7 @@ public final class CompensatedVehicleState implements Debuggable {
             position = frame.toWorld(new Vec3((float) local.x, (float) local.y, (float) local.z));
         }
         entity.setPositionRaw(
+                position,
                 GetBoundingBox.getPacketEntityBoundingBox(player, position.x, position.y, position.z, entity),
                 yaw,
                 pitch);
@@ -371,6 +372,7 @@ public final class CompensatedVehicleState implements Debuggable {
         }
 
         vehicle.setPositionRaw(
+                to,
                 GetBoundingBox.getPacketEntityBoundingBox(player, to.x, to.y, to.z, vehicle),
                 physicalYaw,
                 physicalPitch);
@@ -390,6 +392,7 @@ public final class CompensatedVehicleState implements Debuggable {
             else if (vehicle instanceof PacketEntityHappyGhast ghast) physicalYaw = ghast.getRiddenTickYaw(player.xRot);
         }
         vehicle.moveLocallyControlledRoot(
+                physical,
                 GetBoundingBox.getPacketEntityBoundingBox(player, physical.x, physical.y, physical.z, vehicle),
                 physicalYaw,
                 physicalPitch);

@@ -1616,13 +1616,23 @@ public class PacketEntity {
 
     // This is for handling riding and entities attached to one another.
     public void setPositionRaw(SimpleCollisionBox box) {
-        if (runPhysicsPaths(() -> setPositionRaw(box))) return;
+        setPositionRaw(box, null);
+    }
+
+    /**
+     * {@link #setPositionRaw(SimpleCollisionBox)} at {@code position}, whose box is {@code box}. Entity#setPos stores
+     * the position itself; near the origin a box cannot rebuild its bits, and a vehicle answers with them.
+     */
+    private void setPositionRaw(SimpleCollisionBox box, @Nullable Vec3 position) {
+        if (runPhysicsPaths(() -> setPositionRaw(box, position))) return;
         if (pistonStates != null && !pistonStates.running()) pistonStates = null;
         blockEntityPhysicalBox = null;
         blockEntityState = null;
         // The client snaps ridden/attached entities straight onto the packet
         // position, desync be damned — mirror that flawed client-sided logic.
-        Vec3 snappedPosition = positionFromCollisionBox(box, clientPhysicalPosition);
+        Vec3 snappedPosition = position == null
+                ? positionFromCollisionBox(box, clientPhysicalPosition)
+                : position(position.x, position.y, position.z, clientPhysicalPosition);
         this.desyncClientPos = snappedPosition;
         this.clientPhysicalPosition = snappedPosition;
         this.clientPhysicalPositionExact = true;
@@ -1803,7 +1813,16 @@ public class PacketEntity {
     }
 
     public void setPositionRaw(SimpleCollisionBox box, float yaw, float pitch) {
-        setPositionRaw(box);
+        setPositionRaw(box, null, yaw, pitch);
+    }
+
+    /** {@link #setPositionRaw(SimpleCollisionBox, float, float)} at exactly {@code position}, the feet of {@code box}. */
+    public void setPositionRaw(Vec3 position, SimpleCollisionBox box, float yaw, float pitch) {
+        setPositionRaw(box, position, yaw, pitch);
+    }
+
+    private void setPositionRaw(SimpleCollisionBox box, @Nullable Vec3 position, float yaw, float pitch) {
+        setPositionRaw(box, position);
         setClientPhysicalRotation(yaw, pitch);
         this.newPacketLocation.setCurrentAndTargetRotation(yaw, pitch);
     }
@@ -1838,22 +1857,22 @@ public class PacketEntity {
     }
 
     /**
-     * Moves a root the client moves itself to {@code box}. A 26.3 path it still follows keeps its steps and
-     * codec base, since ClientPacketListener#handleMoveVehicle alone cancels it; without one this is
-     * {@link #setPositionRaw(SimpleCollisionBox, float, float)}.
+     * Moves a root the client moves itself to {@code position}, whose box is {@code box}. A 26.3 path it still follows
+     * keeps its steps and codec base, since ClientPacketListener#handleMoveVehicle alone cancels it; without one this
+     * is {@link #setPositionRaw(Vec3, SimpleCollisionBox, float, float)}.
      */
-    public void moveLocallyControlledRoot(SimpleCollisionBox box, float yaw, float pitch) {
+    public void moveLocallyControlledRoot(Vec3 position, SimpleCollisionBox box, float yaw, float pitch) {
         if (!hasActiveLocalRootInterpolation()) {
             // Local travel's setPos preserves the Entity fields the following block-entity phase reads.
             var previousPass = blockEntityState;
             Vec3 codecBase = desyncClientPos;
-            setPositionRaw(box, yaw, pitch);
+            setPositionRaw(position, box, yaw, pitch);
             // Entity#move(SELF) never writes ClientPacketListener's relative-position codec.
             if (positionPlayer != null && !positionPlayer.isBedrockMovement()) desyncClientPos = codecBase;
             blockEntityState = previousPass;
             return;
         }
-        clientPhysicalPosition = positionFromCollisionBox(box);
+        clientPhysicalPosition = position;
         clientPhysicalPositionExact = true;
         blockEntityPhysicalBox = box.copy();
         setClientPhysicalRotation(yaw, pitch);
