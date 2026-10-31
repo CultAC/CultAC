@@ -155,8 +155,8 @@ public final class CompensatedVehicleState implements Debuggable {
 
     /**
      * The client tick of a living root the client does not move. LivingEntity#aiStep scales the delta movement by
-     * 0.98 while the root is not interpolating, then zeroes each component below 0.003. A strider also takes
-     * Entity#baseTick's fluid currents first and Strider#floatStrider last.
+     * 0.98 while the root is not interpolating, then zeroes each component below 0.003. A pig or strider also takes
+     * Entity#baseTick's fluid currents first, and a strider runs Strider#floatStrider last.
      */
     private void tickUncontrolledRootVelocity(PacketEntity root) {
         // Through 26.2 aiStep tests the active path BEFORE stepping it; 26.3 tests AFTER Entity#commonTick.
@@ -183,8 +183,8 @@ public final class CompensatedVehicleState implements Debuggable {
     }
 
     private Vec3 uncontrolledTick(PacketEntity root, Vec3 velocity, boolean interpolating, boolean buoyed) {
-        // Entity#baseTick pushes the strider with the fluid currents before LivingEntity#aiStep.
-        if (root instanceof PacketEntityStrider strider) velocity = strider.withBaseTickCurrents(player, velocity);
+        // Entity#baseTick pushes the root with the fluid currents before LivingEntity#aiStep.
+        if (root instanceof PacketEntityRideable rideable) velocity = rideable.withBaseTickCurrents(player, velocity);
         velocity = uncontrolledLivingAiStep(velocity, interpolating);
         return buoyed ? velocity.scale(0.5D).add(0.0D, 0.05D, 0.0D) : velocity;
     }

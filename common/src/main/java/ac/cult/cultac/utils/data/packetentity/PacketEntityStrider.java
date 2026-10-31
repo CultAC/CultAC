@@ -14,16 +14,11 @@ import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
-import ac.cult.cultac.utils.nmsutil.WaterCurrent;
 import java.util.List;
-import org.jetbrains.annotations.Nullable;
 
 public class PacketEntityStrider extends PacketEntityRideable {
     private boolean suffocating;
     private ClientFluidHeights fluidHeights = ClientFluidHeights.EMPTY;
-    /** Where this tick's Entity#baseTick refreshed fluids and applied their currents. */
-    private @Nullable Vec3 baseTickPosition;
-    private int stateTick = Integer.MIN_VALUE;
     private float walkAnimationSpeed = 0.0F;
     private float walkAnimationPosition = 0.0F;
 
@@ -41,26 +36,7 @@ public class PacketEntityStrider extends PacketEntityRideable {
     }
 
     @Override
-    public void onMovement(CultPlayer player) {
-        boolean commonInterpolation = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3);
-        if (!commonInterpolation) tickStriderState(player);
-        super.onMovement(player);
-        if (commonInterpolation) tickStriderState(player);
-    }
-
-    @Override
-    public void interpolateBeforeLocalTravel(CultPlayer player) {
-        boolean commonInterpolation = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3);
-        if (!commonInterpolation) tickStriderState(player);
-        super.interpolateBeforeLocalTravel(player);
-        if (commonInterpolation) tickStriderState(player);
-    }
-
-    private void tickStriderState(CultPlayer player) {
-        if (player.isBedrockMovement() || stateTick == player.packetStateData.acceptedClientTick) return;
-        stateTick = player.packetStateData.acceptedClientTick;
-        Vec3 at = clientPhysicalPosition;
-        if (at == null) return;
+    protected void onBaseTick(CultPlayer player, Vec3 at) {
         if (!noAI) {
             // Strider#tick reads the previous Entity#baseTick fluid cache, then writes the flag AND modifier.
             MainSupportingBlockData support = blockEntityState == null
@@ -85,21 +61,6 @@ public class PacketEntityStrider extends PacketEntityRideable {
         var body = GetBoundingBox.getBoundingBoxFromPosAndSize(
                 at.x, at.y, at.z, BoundingBoxSize.getWidth(player, this), BoundingBoxSize.getHeight(player, this));
         fluidHeights = ClientFluidHeights.capture(player, body);
-        baseTickPosition = at;
-    }
-
-    /**
-     * Entity#baseTick's water then lava current on a tick the client does not move the strider: updateFluidInteraction
-     * pushes every entity, controlled or not.
-     */
-    public Vec3 withBaseTickCurrents(CultPlayer player, Vec3 velocity) {
-        if (baseTickPosition == null || stateTick != player.packetStateData.acceptedClientTick) return velocity;
-        var box = GetBoundingBox.getPacketEntityBoundingBox(
-                player, baseTickPosition.x, baseTickPosition.y, baseTickPosition.z, this);
-        Vec3 water = WaterCurrent.calculateNonPlayerWaterCurrent(player, box, velocity);
-        if (water != null) velocity = velocity.add(water);
-        Vec3 lava = WaterCurrent.calculateNonPlayerLavaCurrent(player, box, velocity);
-        return lava == null ? velocity : velocity.add(lava);
     }
 
     /** Strider#floatStrider's test of Entity#isInLava, the fluid cache from this tick's Entity#baseTick. */
