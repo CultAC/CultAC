@@ -47,9 +47,11 @@ public class VelocityTransformer {
             return input;
         }
 
+        // Minecraft#tick runs handleKeybinds, whose MultiPlayerGameMode#attack reaches Player#attack's X/Z damping,
+        // before ClientLevel#tickEntities runs this tick's Entity#baseTick current.
+        input = applyAttackSlow(input);
         input = applyBaseTickFluidCurrents(player, input);
         input = applyLegacyLivingVehicleDrag(player, input);
-        input = applyAttackSlow(input);
         if (!player.isBedrockMovement() && simulationContext.getVehicle() == null) {
             List<PredVector> pushed = new ArrayList<>(input.size());
             for (PredVector velocity : input) {
