@@ -107,6 +107,7 @@ public class ValidMovements {
     private double reportRadius;
 
     /** The collision-ignored trace this candidate's forward Entity#move ran on. */
+    @Getter
     private MovementTrace beforeForwardMove;
 
     /** The selected trace before the debug allowance moved it, or null when the allowance did not run. */

@@ -35,6 +35,7 @@ import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngine;
 import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngines;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAiStepSprint;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaBlockEntityPass;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaCameraTravel;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMathRouter;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
@@ -150,6 +151,9 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     private ClientPistonDeltas pistonDeltas = ClientPistonDeltas.NONE;
     // Whether the prediction under way runs at a tick end, after the world advanced past that tick's block entities.
     private boolean predictingAtTickEnd;
+    // A tick while another entity was the camera left the client somewhere the engine could not follow; no later
+    // camera tick can start from it until the client reports a position.
+    private boolean cameraTravelUnknown;
     // PacketStateData#acceptedClientTick of the client tick whose entity moves before travel have been replayed.
     private int entityMovesTick = Integer.MIN_VALUE;
     private int debugUncertaintyTick = Integer.MIN_VALUE;
@@ -718,10 +722,12 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                         // still collide before Level#tickBlockEntities, including a tick with no movement packet.
                         try (var ignored = this.player.compensatedWorld.beginBlockEntityReplay(
                                 this.player.compensatedWorld.lastBlockEntityPass())) {
-                            this.advanceNoPositionClientTick(
-                                    new Vec3(this.player.x, this.player.y, this.player.z),
-                                    this.player.xRot,
-                                    this.player.yRot);
+                            Vec3 position = new Vec3(this.player.x, this.player.y, this.player.z);
+                            if (this.player.cameraEntity.isSelf()) {
+                                this.advanceNoPositionClientTick(position, this.player.xRot, this.player.yRot);
+                            } else {
+                                this.advanceCameraClientTick(position, this.player.xRot, this.player.yRot);
+                            }
                         } finally {
                             this.predictingAtTickEnd = false;
                         }
@@ -825,6 +831,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     }
 
     public void onPositionUpdate(PositionUpdate positionUpdate) {
+        this.cameraTravelUnknown = false;
         if (positionUpdate.getTeleportData().isTeleport()) {
             this.handleTeleport(positionUpdate.getTeleportData());
         } else {
@@ -2057,6 +2064,44 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
 
         return result;
+    }
+
+    /**
+     * A client tick while another entity is the camera (ClientPacketListener#handleSetCamera). Unless isControlledCamera,
+     * LocalPlayer#sendPosition sends nothing but its sprint change, so this tick end bounds no position: neither the
+     * 2.0E-4 threshold nor positionReminder applies. LocalPlayer#tick still travelled, by LivingEntity#applyInput's
+     * decayed xxa/zza and kept jumping, at a look the client no longer reports. Holding neither, outside flight, that
+     * travel is the engine's own where its candidates agree: commit it as the client's position. Otherwise the position
+     * is unknown until the client reports one, and nothing is predicted.
+     */
+    private void advanceCameraClientTick(Vec3 position, float xRot, float yRot) {
+        if (this.cameraTravelUnknown || this.player.isFlying || !this.passengerRideTick.keepsNoInput(this.player)) {
+            this.cameraTravelUnknown = true;
+            return;
+        }
+        MovementProfile movementProfile = MovementProfiles.forPlayer(this.player);
+        PredictionResult probe =
+                this.callPrediction(Vec3.ZERO, position, position, true, xRot, yRot, null, movementProfile);
+        this.player.compensatedEntities.vehicles.consumeVehicleSwitchPredictionOffset(probe);
+        JavaCameraTravel.End end = probe.isExempt() ? null : JavaCameraTravel.unique(this.player, probe);
+        if (end == null) {
+            this.cameraTravelUnknown = true;
+            return;
+        }
+        Vec3 movement = end.position().subtract(position);
+        // Entity#move set onGround; sendPosition's cached ground bit stays the one it last sent.
+        this.player.onGround = end.onGround();
+        PredictionResult travelled =
+                this.callPrediction(movement, position, end.position(), false, xRot, yRot, null, movementProfile);
+        if (travelled.isExempt() || !travelled.getFlags().isEmpty()) {
+            this.cameraTravelUnknown = true;
+            return;
+        }
+        this.handlePossibleRealities(travelled);
+        this.commitPlayerPosition(end.position());
+        this.callPredictionEndListeners(travelled, null);
+        this.commitPredictionState(travelled, end.position(), movement, xRot, yRot, movementProfile);
+        this.lastOnGround = DesyncStatus.fromBoolean(end.onGround());
     }
 
     // LocalPlayer#aiStep stops flight after a grounded travel; any other stop is the double-jump toggle before it.

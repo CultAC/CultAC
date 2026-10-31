@@ -66,6 +66,16 @@ public final class PassengerRideTick {
         useSeats = false;
     }
 
+    /**
+     * Whether the local player's LivingEntity holds neither xxa/zza nor jumping. Another entity's camera only decays
+     * xxa/zza and keeps jumping (LivingEntity#applyInput), so this is decided by the last tick the player was its own
+     * camera, at either side of the decay.
+     */
+    public boolean keepsNoInput(CultPlayer player) {
+        if (observedSelf != player.compensatedEntities.getSelf()) return true;
+        return movementInput.lengthSqr() == 0 && !jumping;
+    }
+
     /** Called once at each tick end; repeated notifications for the same boundary are idempotent. */
     public void offVehicle(CultPlayer player, PredictionResult result) {
         if (observedSelf != player.compensatedEntities.getSelf()) {
