@@ -49,10 +49,14 @@ public final class PacketEntityNautilus extends PacketEntityTrackXRot {
         }
     }
 
-    /** A START_RIDING_JUMP the client sent after this nautilus's tick arms its next one. */
+    /**
+     * A START_RIDING_JUMP the client sent after this nautilus's tick arms its next one. LocalPlayer#aiStep releases the
+     * jump in ClientLevel#tickPassenger, after the root's whole tick, so AbstractNautilus#onPlayerJump reads the
+     * cooldown tickDashCooldown left this tick.
+     */
     public void tickPendingJump() {
         if (nextPendingJumpScale > 0.0D) {
-            pendingJumpScale = nextPendingJumpScale;
+            if (hasSaddle && dashCooldown <= 0) pendingJumpScale = nextPendingJumpScale;
             nextPendingJumpScale = 0.0D;
         }
     }

@@ -69,7 +69,9 @@ public class PacketEntityAction {
                                 instanceof PacketEntityNautilus value
                         ? value
                         : null;
-                if (nautilus != null && nautilus.hasSaddle && nautilus.dashCooldown <= 0) {
+                if (nautilus != null) {
+                    // LocalPlayer#aiStep releases after the nautilus's whole tick, whose cooldown tail runs at the
+                    // client tick end, so the tick end judges AbstractNautilus#onPlayerJump after that tail.
                     nautilus.nextPendingJumpScale = packet.data() >= 90 ? 1.0F : 0.4F + 0.4F * packet.data() / 90.0F;
                     break;
                 }
