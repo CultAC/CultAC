@@ -1438,7 +1438,8 @@ public class CompensatedEntities {
         // can still send this packet to the player. If it arrives, MCP's client
         // handler applies LivingEntity#setItemSlot even for the local entity.
         SimItemStack converted = stack.copy();
-        player.getInventory().inventory.getInventoryStorage().setItem(inventorySlot, converted);
+        CompensatedInventory inventory = player.getInventory();
+        inventory.applyServerUpdate(() -> inventory.inventory.getInventoryStorage().setItem(inventorySlot, converted));
     }
 
     public void updateEntityMetadata(int entityID, List<EntityMetadata.Entry> watchableObjects) {

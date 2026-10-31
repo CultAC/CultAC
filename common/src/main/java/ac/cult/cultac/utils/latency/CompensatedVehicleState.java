@@ -1117,8 +1117,8 @@ public final class CompensatedVehicleState implements Debuggable {
     /**
      * Whether the last tick-end control decision still names the item the client holds. It holds at that tick end and
      * for the packets the client handles before its next tick: Minecraft#runTick runs ClientPacketListener before
-     * Minecraft#tick, whose MultiPlayerGameMode#tick reports a changed slot first. That claim, or the tick's movement,
-     * ends it.
+     * Minecraft#tick, whose MultiPlayerGameMode#tick reports a changed slot first. That claim, the tick's movement or
+     * a server change to the hands ({@link #onServerHandChange()}) ends it.
      */
     private boolean itemControlDecisionHolds() {
         int tick = player.packetStateData.acceptedClientTick;
@@ -1126,6 +1126,17 @@ public final class CompensatedVehicleState implements Debuggable {
                 || itemControlDecisionTick == tick - 1
                         && !player.packetStateData.carriedItemClaimedThisClientTick
                         && !player.packetStateData.receivedMovementThisClientTick;
+    }
+
+    /**
+     * Call when a handled server packet sets the selected slot or changes the item in either hand. The client applies
+     * it as it handles the packet (ClientPacketListener#handleSetHeldSlot, #handleContainerSetSlot,
+     * #handleContainerContent, #handleSetPlayerInventory, #handleSetEquipment), and Pig and
+     * Strider#getControllingPassenger read Player#isHolding again for each later entity packet. The tick-end decision
+     * no longer names the held item, so the current hands decide until the next tick end.
+     */
+    public void onServerHandChange() {
+        itemControlRoot = null;
     }
 
     private boolean canLocalClientAuthoritativelyMove(PacketEntity vehicle) {
