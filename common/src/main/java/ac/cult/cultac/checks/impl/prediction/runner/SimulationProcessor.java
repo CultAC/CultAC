@@ -1811,19 +1811,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
     }
 
-    /** Each candidate once per sprint modifier it can travel with while a possible attack reset leaves it open. */
-    private static List<PredVector> withSprintOutcomes(
-            CultPlayer player, SimulationContext context, List<PredVector> candidates) {
-        if (context.getVehicle() != null || !player.sprintState.outcomeOpen()) return candidates;
-        List<PredVector> split = new ArrayList<>(candidates.size() * 2);
-        for (PredVector candidate : candidates) {
-            for (ClientSprintState.Outcome outcome : player.sprintState.outcomesFor(candidate.getAttackSlows())) {
-                split.add(candidate.withSprintOutcome(outcome));
-            }
-        }
-        return split;
-    }
-
     private void applyProfileCommit(PredictionCommit commit) {
         if (commit == null) {
             this.validPlayerStartingVels.clear();
@@ -2739,11 +2726,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                             lastPrediction,
                             contextPacketStart))) {
                 SimulationContext releaseContext = release.context();
-                List<PredVector> validInitialVelocities = withSprintOutcomes(
-                        player,
-                        releaseContext,
-                        engine.startingVelocities(
-                                new VelocityTransformer(releaseContext), player, release.velocities(), releaseContext));
+                List<PredVector> validInitialVelocities = engine.startingVelocities(
+                        new VelocityTransformer(releaseContext), player, release.velocities(), releaseContext);
                 Vec3 sortTarget = releaseContext.getTarget();
                 boolean java = !player.isBedrockMovement();
                 TransactionVel receivedVelocity =

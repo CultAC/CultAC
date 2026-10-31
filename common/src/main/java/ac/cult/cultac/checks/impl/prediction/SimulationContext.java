@@ -104,6 +104,10 @@ public class SimulationContext implements Cloneable {
     boolean sprintModifier = true;
 
     private float[][] groundMoveRelativeSpeeds;
+
+    @Getter(AccessLevel.NONE)
+    private float[][] waterMoveRelativeSpeeds;
+
     // JavaAiStepSprint#clearsModifier for this context's aiStep; null until read, and again after its world changes.
     @Getter(AccessLevel.NONE)
     private DesyncStatus aiStepSprintClear;
@@ -300,6 +304,7 @@ public class SimulationContext implements Cloneable {
         this.aiStepSprintClear = null;
         this.aiStepSprintRestart = null;
         this.groundMoveRelativeSpeeds = null;
+        this.waterMoveRelativeSpeeds = null;
     }
 
     /**
@@ -335,6 +340,7 @@ public class SimulationContext implements Cloneable {
             copy.aiStepSprintClear = null;
             copy.aiStepSprintRestart = null;
             copy.groundMoveRelativeSpeeds = null;
+            copy.waterMoveRelativeSpeeds = null;
             return copy;
         } catch (CloneNotSupportedException impossible) {
             throw new AssertionError(impossible);
@@ -686,6 +692,52 @@ public class SimulationContext implements Cloneable {
         return getFrictionInfluencedSpeed(blockUnderPlayer, player, onGround, water, lava);
     }
 
+    /**
+     * Every {@link #getMoveRelativeSpeed} the client's sprint modifier allows in {@code outcome}. Only
+     * LivingEntity#travelInWater has more than one here: it reads Player#getSpeed(), the movement_speed that carries the
+     * minecraft:sprinting modifier the client holds. On the ground see {@link #getGroundMoveRelativeSpeeds}.
+     */
+    public float[] getMoveRelativeSpeeds(
+            CultPlayer player, boolean onGround, boolean water, boolean lava, ClientSprintState.Outcome outcome) {
+        if (water && playerWaterSprintSpeed(player)) return getWaterMoveRelativeSpeeds(player, outcome);
+        return new float[] {getMoveRelativeSpeed(player, onGround, water, lava)};
+    }
+
+    /** A player's LivingEntity#travelInWater reads getSpeed(), which may carry minecraft:sprinting. */
+    private boolean playerWaterSprintSpeed(CultPlayer player) {
+        return vehicle == null && sprintModifier && fluidTravel(player);
+    }
+
+    /** Player#isAffectedByFluids is false in flight, so LivingEntity#travel takes travelInAir in water and lava. */
+    private boolean fluidTravel(CultPlayer player) {
+        return (vehicle != null || !player.isFlying) && !worldData.isCanStandOnStartFluid();
+    }
+
+    /**
+     * LivingEntity#travelInWater's moveRelative speed for each Player#getSpeed() the client's sprint modifier allows in
+     * {@code outcome}, the same values {@link #getGroundMoveRelativeSpeeds} reads on the ground.
+     */
+    private float[] getWaterMoveRelativeSpeeds(CultPlayer player, ClientSprintState.Outcome outcome) {
+        if (waterMoveRelativeSpeeds == null) {
+            waterMoveRelativeSpeeds = new float[ClientSprintState.Outcome.values().length][];
+        }
+        float[] cached = waterMoveRelativeSpeeds[outcome.ordinal()];
+        if (cached == null) {
+            double[] speeds = playerMovementSpeeds(player, outcome);
+            cached = new float[speeds.length];
+            for (int i = 0; i < speeds.length; i++) cached[i] = waterMoveRelativeSpeed(speeds[i]);
+            waterMoveRelativeSpeeds[outcome.ordinal()] = cached;
+        }
+        return cached;
+    }
+
+    /** LivingEntity#travelInWater lerps 0.02 toward getSpeed() by water_movement_efficiency, halved off the ground. */
+    private float waterMoveRelativeSpeed(double livingSpeed) {
+        float speed = 0.02f;
+        if (waterMovementEfficiency > 0) speed += ((float) livingSpeed - speed) * waterMovementEfficiency;
+        return speed;
+    }
+
     /** The moveRelative speed of a ridden camel whose controller's sprint flag is {@code riderSprinting}. */
     public float getMoveRelativeSpeed(
             CultPlayer player, boolean onGround, boolean water, boolean lava, boolean riderSprinting) {
@@ -767,25 +819,14 @@ public class SimulationContext implements Cloneable {
             return (float) normalSpeed;
         }
 
-        // Player#isAffectedByFluids is false in flight, so LivingEntity#travel takes travelInAir in water and lava.
-        boolean fluidTravel = (vehicle != null || !player.isFlying) && !worldData.isCanStandOnStartFluid();
+        boolean fluidTravel = fluidTravel(player);
         if (water && fluidTravel) {
-            float speed = 0.02f;
-
-            if (waterMovementEfficiency > 0) {
-                // A player's getSpeed carries minecraft:sprinting only while applied; a vehicle's is getRiddenSpeed
-                float livingSpeed = (float)
-                        (vehicle == null && sprintModifier && aiStepSprintClear(player) != DesyncStatus.TRUE
-                                ? entities.getMaxPlayerMovementSpeed(
-                                        !player.sprintState.modifier()
-                                                || aiStepSprintRestart(player) == DesyncStatus.UNKNOWN,
-                                        aiStepSprintRestart(player) == DesyncStatus.TRUE
-                                                ? ClientSprintState.Outcome.CANONICAL
-                                                : outcome)
-                                : normalSpeed);
-                speed += (livingSpeed - speed) * waterMovementEfficiency;
-            }
-            return speed;
+            // A player's getSpeed carries minecraft:sprinting only while applied; a vehicle's is getRiddenSpeed
+            if (!playerWaterSprintSpeed(player)) return waterMoveRelativeSpeed(normalSpeed);
+            float[] speeds = getWaterMoveRelativeSpeeds(player, outcome);
+            float max = speeds[0];
+            for (float speed : speeds) max = Math.max(max, speed);
+            return max;
         }
 
         if (lava && fluidTravel) {

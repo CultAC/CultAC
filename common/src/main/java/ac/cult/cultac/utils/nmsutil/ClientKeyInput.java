@@ -8,6 +8,7 @@ import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.ClientItemUseState;
+import ac.cult.cultac.utils.data.ClientSprintState;
 import ac.cult.cultac.utils.data.KnownInput;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
@@ -267,10 +268,11 @@ public final class ClientKeyInput {
     }
 
     /**
-     * The moveRelative speeds of the travel: in LivingEntity#travelInAir on the ground every speed the sprint modifier
-     * allows. Player#isAffectedByFluids is false in flight, so a flyer travels in air even in water or lava, and
-     * LivingEntity#getFrictionInfluencedSpeed reads getSpeed() on the ground before Player#getFlyingSpeed. A flyer is
-     * on the ground for the travel after LocalPlayer#aiStep's double-tap takeoff: jumpFromGround keeps onGround.
+     * The moveRelative speeds of {@code candidate}'s travel: in LivingEntity#travelInAir on the ground and in
+     * LivingEntity#travelInWater, one per getSpeed() its sprint modifier outcome allows. Player#isAffectedByFluids is
+     * false in flight, so a flyer travels in air even in water or lava, and LivingEntity#getFrictionInfluencedSpeed
+     * reads getSpeed() on the ground before Player#getFlyingSpeed. A flyer is on the ground for the travel after
+     * LocalPlayer#aiStep's double-tap takeoff: jumpFromGround keeps onGround.
      */
     private static List<Float> moveRelativeSpeeds(CultPlayer player, SimulationContext context, PredVector candidate) {
         WorldData world = context.getWorldData();
@@ -279,10 +281,10 @@ public final class ClientKeyInput {
         boolean lava = world.isInLava();
         boolean flying = player.isFlying;
         boolean inAir = context.getVehicle() == null && (flying || !water && !lava);
+        ClientSprintState.Outcome outcome = context.getSprintOutcome(player, candidate);
         for (boolean onGround : world.getLastOnGround().getStates()) {
             if (inAir && onGround && context.isSprintModifier()) {
-                for (float speed :
-                        context.getGroundMoveRelativeSpeeds(player, context.getSprintOutcome(player, candidate)))
+                for (float speed : context.getGroundMoveRelativeSpeeds(player, outcome))
                     if (!speeds.contains(speed)) speeds.add(speed);
             } else if (inAir && !onGround && !flying) {
                 // Player#getFlyingSpeed reads the sprint flag.
@@ -291,8 +293,8 @@ public final class ClientKeyInput {
                     if (!speeds.contains(speed)) speeds.add(speed);
                 }
             } else {
-                float speed = context.getMoveRelativeSpeed(player, onGround, water, lava);
-                if (!speeds.contains(speed)) speeds.add(speed);
+                for (float speed : context.getMoveRelativeSpeeds(player, onGround, water, lava, outcome))
+                    if (!speeds.contains(speed)) speeds.add(speed);
             }
         }
         return speeds;

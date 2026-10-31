@@ -16,6 +16,7 @@ import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldStageBuilder;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.data.ClientSprintState;
 import ac.cult.cultac.utils.data.MainSupportingBlockData;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
@@ -132,8 +133,11 @@ public final class JavaMovementEngine implements MovementEngine {
                     () -> JavaTravelInputs.withInputs(
                             player,
                             context,
-                            transformer.generateMovementVectors(
-                                    player, JavaEntityVelocityTicks.beforeTravel(player, context, starts)))));
+                            withSprintOutcomes(
+                                    player,
+                                    context,
+                                    transformer.generateMovementVectors(
+                                            player, JavaEntityVelocityTicks.beforeTravel(player, context, starts))))));
         }
         List<PredVector> routed = JavaMathRouter.route(context, candidates);
         List<PredVector> gliding = ElytraTransform.candidates(context, routed);
@@ -150,6 +154,23 @@ public final class JavaMovementEngine implements MovementEngine {
             withGlideWalls.addAll(walls);
         }
         return withGlideWalls == null ? ends : withGlideWalls;
+    }
+
+    /**
+     * Each candidate once per sprint modifier it can travel with while a possible attack reset leaves it open. This
+     * runs after Player#causeExtraKnockback's damping decides the outcomes and before moveRelative's input, whose
+     * getSpeed() reads that outcome's modifier.
+     */
+    private static List<PredVector> withSprintOutcomes(
+            CultPlayer player, SimulationContext context, List<PredVector> candidates) {
+        if (context.getVehicle() != null || !player.sprintState.outcomeOpen()) return candidates;
+        List<PredVector> split = new ArrayList<>(candidates.size() * 2);
+        for (PredVector candidate : candidates) {
+            for (ClientSprintState.Outcome outcome : player.sprintState.outcomesFor(candidate.getAttackSlows())) {
+                split.add(candidate.withSprintOutcome(outcome));
+            }
+        }
+        return split;
     }
 
     @Override
