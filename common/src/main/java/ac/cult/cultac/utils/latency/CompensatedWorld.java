@@ -1345,6 +1345,19 @@ public class CompensatedWorld {
         return 0;
     }
 
+    /**
+     * LevelChunk#getBlockState of the stored column, which ClientChunkCache's view range does not hide: a
+     * block-entity ticker reads its own chunk. {@code -1} when no column is stored at the position.
+     */
+    int storedBlockStateIdAt(BlockPos pos) {
+        CachedChunk column = chunks.get(chunkPositionToLong(pos.getX() >> 4, pos.getZ() >> 4));
+        if (column == null) return -1;
+        int y = pos.getY() - minHeight;
+        if (y < 0 || (y >> 4) >= column.sectionCount()) return 0;
+        CachedSection section = column.getSection(y >> 4);
+        return section == null ? 0 : section.getStateId(CachedChunk.index(pos.getX() & 0xF, y & 0xF, pos.getZ() & 0xF));
+    }
+
     public int getHeight() {
         return maxHeight - minHeight;
     }

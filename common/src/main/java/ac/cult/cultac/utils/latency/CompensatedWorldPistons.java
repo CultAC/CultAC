@@ -486,11 +486,23 @@ public final class CompensatedWorldPistons {
         return boxes;
     }
 
+    /**
+     * Whether the PistonMovingBlockEntity at {@code state}'s position still ticks. LevelChunk$BoundTickingBlockEntity
+     * reads its own chunk, which ClientChunkCache's view center never hides, and Level#tickBlockEntities ticks it in or
+     * out of that range. A block change there ({@link #handleBlockStateApplied}) or ClientLevel#unload
+     * ({@link #forgetChunk}) removes it; a view resize drops the column without unloading it, so its ticker keeps the
+     * state it had.
+     */
+    private boolean ticks(MovingPistonState state) {
+        int stored = world.storedBlockStateIdAt(state.pos());
+        return stored < 0 || BlockIds.is(stored, BlockIds.MOVING_PISTON);
+    }
+
     private void tickMovingPistonStates() {
         List<MovingPistonState> finished = new ArrayList<>();
         movingPistonStates.long2ObjectEntrySet().removeIf(entry -> {
             MovingPistonState state = entry.getValue();
-            if (!BlockIds.is(world.getBlockStateIdAt(state.pos()), BlockIds.MOVING_PISTON)) {
+            if (!ticks(state)) {
                 return true;
             }
             boolean remove = state.tickIfGuaranteedFinished();
@@ -796,8 +808,7 @@ public final class CompensatedWorldPistons {
      */
     void addPassMovers(List<CompensatedWorld.OrderedMover> movers) {
         for (MovingPistonState state : movingPistonStates.values()) {
-            if (state.progress() >= 1.0F || !BlockIds.is(world.getBlockStateIdAt(state.pos()), BlockIds.MOVING_PISTON))
-                continue;
+            if (state.progress() >= 1.0F || !ticks(state)) continue;
             movers.add(new CompensatedWorld.OrderedMover(
                     state.tickerOrder,
                     new ClientBlockEntityPass.Piston(
