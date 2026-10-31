@@ -130,8 +130,6 @@ public final class CompensatedVehicleState implements Debuggable {
         if (!player.isBedrockMovement()
                 && rootTicked
                 && root.isLivingEntity()
-                && (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)
-                        || isItemControlledVehicleType(root))
                 && !canClientAuthoritativelyMoveVisibleRoot(root)) {
             tickUncontrolledRootVelocity(root);
         }
@@ -155,8 +153,10 @@ public final class CompensatedVehicleState implements Debuggable {
 
     /**
      * The client tick of a living root the client does not move. LivingEntity#aiStep scales the delta movement by
-     * 0.98 while the root is not interpolating, then zeroes each component below 0.003. A pig or strider also takes
-     * Entity#baseTick's fluid currents first, and a strider runs Strider#floatStrider last.
+     * 0.98 while the root is not interpolating, then zeroes each component below 0.003. Every release does this for
+     * every living type, such as a happy ghast without its harness or staying still: through 1.21.4 behind
+     * !isEffectiveAi, then behind !canSimulateMovement. A pig or strider also takes Entity#baseTick's fluid currents
+     * first, and a strider runs Strider#floatStrider last.
      */
     private void tickUncontrolledRootVelocity(PacketEntity root) {
         // Through 26.2 aiStep tests the active path BEFORE stepping it; 26.3 tests AFTER Entity#commonTick.
