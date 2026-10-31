@@ -6,9 +6,11 @@ import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.Components;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.engine.SimItemStack;
@@ -22,6 +24,7 @@ import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.packet.InventoryPackets;
+import ac.cult.cultac.network.packet.PacketCodecUtil;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.ProtocolVersion;
@@ -32,6 +35,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundMountScreenOpen;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveEntity;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.EntityDelta;
 import ac.cult.cultac.protocol.value.EquipmentSlot;
 import ac.cult.cultac.protocol.value.Vec3d;
@@ -44,11 +48,13 @@ import ac.cult.cultac.utils.inventory.inventory.WindowClickType;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.latency.CompensatedVehicleState;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -64,6 +70,7 @@ class SaddleControlSwitchTest {
     private static final int DONKEY = 100;
     private static final int NAUTILUS = 101;
     private static final int OTHER_DONKEY = 102;
+    private static final int HORSE = 103;
     /** How far a first controlled move lands from where the model puts the root. */
     private static final double NEAR = 0.025;
 
@@ -320,6 +327,70 @@ class SaddleControlSwitchTest {
             assertWalksForwardAlongPath(f, 1.0, (float) (0.25 * 0.225));
             assertEquals(0, badPackets.violations);
         }
+    }
+
+    /**
+     * LivingEntity#recreateFromPacket absSnapTo's a spawned horse to the packet position and starts no
+     * SteppedInterpolationHandler path, even where its box's centre misses that position by an ulp. With no
+     * interpolation target, Entity#getClientPositionAndRotation is the physical position, so the first controlled
+     * tick's ServerboundMoveVehiclePacket#fromEntity reports the move the spawn velocity carries.
+     */
+    @Test
+    void aSpawnedRootReportsTheMoveItsSpawnVelocityCarries() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            Vec3 spawn = new Vec3(255.50211240720833, FLOOR_Y, 167.18699414555957);
+            stoneAround(f, spawn);
+            f.place(spawn.add(0, 1, 0), Vec3.ZERO);
+            // 0.25 forward as LpVec3 encodes it: 0.2500152597204419.
+            Vec3 velocity = PacketCodecUtil.quantizeLpVec3(new Vec3(0, 0, 0.25));
+            send(
+                    f,
+                    ClientboundPackets.ADD_ENTITY,
+                    new ClientboundAddEntity(
+                            HORSE,
+                            "minecraft:horse",
+                            JavaTickFixture.vec3d(spawn),
+                            0,
+                            0,
+                            0,
+                            new UUID(0, 0),
+                            JavaTickFixture.vec3d(velocity)));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            PacketEntity horse = f.player.compensatedEntities.getEntity(HORSE);
+            var box = GetBoundingBox.getPacketEntityBoundingBox(f.player, spawn.x, spawn.y, spawn.z, horse);
+            assertNotEquals(spawn.x, (box.minX + box.maxX) / 2.0D, "the box must not rebuild the spawn position");
+            // AbstractHorse's DATA_ID_FLAGS with FLAG_TAME: AbstractHorse#canUseSlot opens the saddle slot.
+            f.player.compensatedEntities.updateEntityMetadata(
+                    HORSE, List.of(new EntityMetadata.Entry(18, (byte) 0x02, ByteBuffer.allocate(0))));
+
+            f.setPassengers(HORSE, List.of(f.player.entityID));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            sendSaddle(f, HORSE, saddleItem());
+            f.pongThrough(f.player.lastTransactionSent.get());
+            assertTrue(controls(f));
+
+            // No ridden input: LivingEntity#travelInAir moves it by its velocity alone, and the level move leaves it
+            // off the ground.
+            PredictionResult result = f.rideTick(spawn.add(velocity), false);
+            assertTrue(exact(result), describe(result));
+        }
+    }
+
+    /** Stone on the floor layer within five blocks of {@code at}, settled past the block-change timing. */
+    private static void stoneAround(JavaTickFixture f, Vec3 at) {
+        int blockX = (int) Math.floor(at.x);
+        int blockZ = (int) Math.floor(at.z);
+        for (int chunkX = (blockX >> 4) - 1; chunkX <= (blockX >> 4) + 1; chunkX++) {
+            for (int chunkZ = (blockZ >> 4) - 1; chunkZ <= (blockZ >> 4) + 1; chunkZ++) {
+                f.player.compensatedWorld.ensureValidationChunkLoaded(chunkX, chunkZ);
+            }
+        }
+        for (int x = blockX - 5; x <= blockX + 5; x++) {
+            for (int z = blockZ - 5; z <= blockZ + 5; z++) {
+                f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y - 1, z), BlockIds.STONE.defaultState());
+            }
+        }
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
     }
 
     /**
