@@ -5,8 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.impl.movement.timer.AbstractTimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
@@ -21,6 +23,7 @@ import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.manager.config.BaseConfigManager;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.packet.InventoryPackets;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
@@ -48,6 +51,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundSetCarriedItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
+import ac.cult.cultac.protocol.value.EquipmentSlot;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.PlayerAction;
@@ -208,6 +212,17 @@ final class JavaTickFixture implements AutoCloseable {
                 fixture.user, ConnectionPhase.PLAY, ClientboundPackets.SET_PASSENGERS, packet, false);
         player.packetEntityReplication.onSetPassengers(event, player, packet);
         event.tasksAfter().forEach(Runnable::run);
+    }
+
+    /** ClientPacketListener#handleSetEquipment putting {@code item} in {@code slot} of {@code entity}. */
+    void equip(int entity, EquipmentSlot slot, SimItemStack item) {
+        player.compensatedEntities.updateEntityEquipment(
+                entity, List.of(new InventoryPackets.EquipmentEntry(slot, item)));
+    }
+
+    /** A vanilla harness in {@code ghast}'s EquipmentSlot.BODY. */
+    void harness(int ghast) {
+        equip(ghast, EquipmentSlot.BODY, OfflineCultTestBootstrap.item("minecraft:white_harness"));
     }
 
     /**

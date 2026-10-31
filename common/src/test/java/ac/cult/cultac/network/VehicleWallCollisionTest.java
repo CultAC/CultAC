@@ -336,7 +336,7 @@ class VehicleWallCollisionTest {
             f.place(seat, Vec3.ZERO);
             f.player.compensatedWorld.applyClientTime(new WorldPackets.TimeUpdate(24_000L, Map.of()));
             f.player.compensatedEntities.addEntity(VEHICLE, EntityTypeIds.HAPPY_GHAST, seat, 0, 0, 0);
-            ((PacketEntityHappyGhast) f.player.compensatedEntities.getEntity(VEHICLE)).hasBodyArmor = true;
+            f.harness(VEHICLE);
             f.setPassengers(VEHICLE, List.of(f.player.entityID));
             Vec3 other = new Vec3(seat.x, FLOOR_Y, seat.z + 4.0 + GHAST_GAP);
             f.player.compensatedEntities.addEntity(VEHICLE + 1, EntityTypeIds.HAPPY_GHAST, other, 0, 0, 0);

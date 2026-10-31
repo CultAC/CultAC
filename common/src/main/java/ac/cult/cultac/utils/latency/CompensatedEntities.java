@@ -1398,7 +1398,7 @@ public class CompensatedEntities {
                     nautilus.hasSaddle = hasSaddle;
                 }
             } else if (slot.slot() == EquipmentSlot.BODY && entity instanceof PacketEntityHappyGhast happyGhast) {
-                happyGhast.hasBodyArmor = !slot.item().isEmpty();
+                happyGhast.bodyItem = slot.item();
             }
         }
         vehicles.markSaddleControlSwitch(entity, controlled);

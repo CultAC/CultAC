@@ -11,7 +11,6 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.Vec3d;
-import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -49,8 +48,7 @@ class JavaHappyGhastTurnTest {
     private static void mount(JavaTickFixture f, Vec3 start, float yaw, Vec3 carried) {
         f.place(start, Vec3.ZERO);
         f.player.compensatedEntities.addEntity(GHAST, EntityTypeIds.HAPPY_GHAST, start, yaw, 0, 0);
-        PacketEntityHappyGhast ghast = (PacketEntityHappyGhast) f.player.compensatedEntities.getEntity(GHAST);
-        ghast.hasBodyArmor = true;
+        f.harness(GHAST);
         f.setPassengers(GHAST, List.of(f.player.entityID));
         f.pongThrough(f.player.lastTransactionSent.get());
         f.input(FORWARD);

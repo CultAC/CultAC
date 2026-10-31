@@ -1163,7 +1163,7 @@ public final class CompensatedVehicleState implements Debuggable {
         if (vehicle instanceof PacketEntityHorse horse) return horse.hasSaddle;
         if (vehicle instanceof PacketEntityNautilus nautilus) return nautilus.hasSaddle;
         if (vehicle instanceof PacketEntityHappyGhast happyGhast)
-            return happyGhast.hasBodyArmor && !happyGhast.staysStill;
+            return happyGhast.isWearingBodyArmor() && !happyGhast.staysStill;
         // Callers check the controlling passenger, using the incoming list for a mount.
         // AbstractBoat is the only other getControllingPassenger override that can return
         // a player; Entity#getControllingPassenger (e.g. minecarts) and Mob's return no player.

@@ -1,14 +1,18 @@
 package ac.cult.cultac.utils.data.packetentity;
 
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.EquipmentSlot;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.inventory.ClientEquippable;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 
 public class PacketEntityHappyGhast extends PacketEntityTrackXRot {
     private final CultPlayer player;
-    public boolean hasBodyArmor = false;
+    // The EquipmentSlot.BODY item, which a harness fills.
+    public SimItemStack bodyItem = SimItemStack.EMPTY;
     public boolean staysStill = false;
     public float movementSpeedAttribute = 0.05F;
     public float flyingSpeedAttribute = 0.05F;
@@ -37,6 +41,17 @@ public class PacketEntityHappyGhast extends PacketEntityTrackXRot {
     @Override
     protected float sanitizeScale(float scale) {
         return player.isBedrockMovement() ? scale : Math.min(scale, 1.0F);
+    }
+
+    /**
+     * Mob#isWearingBodyArmor: the BODY item fits a happy ghast's BODY slot, which HappyGhast#canUseSlot opens only to a
+     * live adult. Vanilla reads this each time, so a death or a change of age decides control without new equipment.
+     */
+    public boolean isWearingBodyArmor() {
+        return !bodyItem.isEmpty()
+                && actionAlive
+                && !isBaby
+                && ClientEquippable.fitsSlot(player, this, bodyItem, EquipmentSlot.BODY);
     }
 
     public float getRiddenTickYaw(float controllerYaw) {
