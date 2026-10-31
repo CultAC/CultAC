@@ -144,7 +144,10 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
         return new JavaPredictionCarry(actor, fallDistance, transformed, powderContact);
     }
 
-    /** A protocol-773 pass can leave two exact starting positions before the following report distinguishes them. */
+    /**
+     * A protocol-773 pass, or a withheld travel whose end depends on the trig table, can leave two exact starting
+     * positions before the following report distinguishes them.
+     */
     public record PistonStart(
             Vec3 position, boolean onGround, MainSupportingBlockData support, ClientPistonDeltas pistonDeltas) {}
 
@@ -248,6 +251,22 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
                     spinRebound,
                     fallDistanceMax,
                     vanilla);
+        }
+
+        /** This state starting its next travel at {@code start} instead. */
+        public State withPistonStart(PistonStart start) {
+            return new State(
+                    velocity,
+                    fallDistance,
+                    stuckSpeed,
+                    movementPatch,
+                    start,
+                    powderContact,
+                    playerEyeFluidContact,
+                    fluidTagOrder,
+                    spinRebound,
+                    fallDistanceMax,
+                    vanillaMath);
         }
 
         /** Whether the fall distance is a range rather than one value. */

@@ -20,6 +20,22 @@ public final class JavaWithheldTravel {
      * only when those source candidates agree; reporting tolerance never becomes deltaMovement.
      */
     public static Vec3 uniquePosition(CultPlayer player, PredictionResult prediction, Vec3 sent, double threshold) {
+        Vec3[] ends = tableEnds(player, prediction, sent, threshold);
+        return ends != null && ends[0] != null && ends[0].equals(ends[1]) ? ends[0] : null;
+    }
+
+    /**
+     * The withheld travel's end for each trig table, {vanilla, fast}, when the candidates of each table agree but the
+     * tables do not: Entity#getInputVector's rotation hides which table the client used until a report shows it, so
+     * each end stays a position of its own. Null otherwise.
+     */
+    public static Vec3[] tablePositions(CultPlayer player, PredictionResult prediction, Vec3 sent, double threshold) {
+        Vec3[] ends = tableEnds(player, prediction, sent, threshold);
+        return ends != null && ends[0] != null && ends[1] != null && !ends[0].equals(ends[1]) ? ends : null;
+    }
+
+    /** The end each table's candidates agree on, {vanilla, fast}, or null when candidates of one table disagree. */
+    private static Vec3[] tableEnds(CultPlayer player, PredictionResult prediction, Vec3 sent, double threshold) {
         if (player.isBedrockMovement()
                 || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2)
                 || !VelocityCandidates.hasEngineTrace(prediction)) return null;
@@ -38,7 +54,7 @@ public final class JavaWithheldTravel {
         }
         // Ordinary grounded idle ticks need no additional replay. This also admits a tiny carried fall with no keys.
         if (!movingInput && (before.lengthSqr() == 0 || before.lengthSqr() > bound)) return null;
-        Vec3 selected = null;
+        Vec3[] ends = new Vec3[2];
         var realities = new ArrayList<PredictionResult>();
         realities.add(prediction);
         for (var reality : prediction.getRealities()) if (reality != prediction) realities.add(reality);
@@ -47,6 +63,7 @@ public final class JavaWithheldTravel {
             var state = reality.getSimulationContext();
             var pass = state.getPassAfterTravel();
             if (pass == null) pass = new ClientBlockEntityPass(List.of(), player.compensatedWorld.clientGameTime());
+            var math = reality.getInitialStartingVel().firstInLineage(JavaMovementMath.class);
             List<Vec3> legalKeys =
                     JavaTravelInputs.reportedReplayInputs(player, state, reality.getInitialStartingVel());
             for (Vec3 input : JavaTravelInputs.replayInputs(player, state, reality.getInitialStartingVel())) {
@@ -54,11 +71,17 @@ public final class JavaWithheldTravel {
                         player, reality, reality.getValidMovements().getClosestTrace(), pass, input)) {
                     Vec3 end = candidate.result().state().position();
                     if (sent.distanceToSqr(end) > bound || !legalKeys.contains(input)) continue;
-                    if (selected != null && !selected.equals(end)) return null;
-                    selected = end;
+                    for (int table = 0; table < 2; table++) {
+                        if (math != null && math.vanilla() != (table == 0)) continue;
+                        if (ends[table] != null && !ends[table].equals(end)) return null;
+                        ends[table] = end;
+                    }
                 }
             }
         }
-        return selected;
+        // A table no candidate reached travels like the other.
+        if (ends[0] == null) ends[0] = ends[1];
+        if (ends[1] == null) ends[1] = ends[0];
+        return ends;
     }
 }

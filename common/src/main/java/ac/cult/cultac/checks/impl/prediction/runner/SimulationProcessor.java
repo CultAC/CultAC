@@ -437,7 +437,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                             end.fallDistance(),
                             end.stuckSpeed(),
                             state.movementPatch(),
-                            state.movementPatch() == null
+                            state.movementPatch() == null && state.pistonStart() == null
                                     ? null
                                     : new JavaPredictionCarry.PistonStart(
                                             end.position(), end.onGround(), end.support(), end.pistonDeltas()),
@@ -2050,10 +2050,46 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         this.handlePossibleRealities(result);
         this.player.compensatedEntities.vehicles.consumeVehicleSwitchPredictionOffset(result);
         boolean exactWithheldTravel = false;
+        PredictionCommit tableCommit = null;
         if (!result.isExempt() && result.getFlags().isEmpty()) {
             Vec3 physical = JavaWithheldTravel.uniquePosition(
                     this.player, result, sent == null ? position : sent, this.player.getMovementThreshold());
-            if (physical != null && !physical.equals(position)) {
+            Vec3[] tables = physical != null
+                    ? null
+                    : JavaWithheldTravel.tablePositions(
+                            this.player, result, sent == null ? position : sent, this.player.getMovementThreshold());
+            if (tables != null) {
+                // Each trig table travelled to its own end; the position takes the evaluated-first table's, and the
+                // other table's state starts its next travel at its own end until a report tells them apart.
+                boolean table = this.player.trigHandler.isPreferredVanillaMath();
+                Vec3 own = tables[table ? 0 : 1];
+                Vec3 other = tables[table ? 1 : 0];
+                PredictionResult otherTravel = this.callPrediction(
+                        other.subtract(position), position, other, true, xRot, yRot, null, movementProfile);
+                PredictionResult travelled = this.callPrediction(
+                        own.subtract(position), position, own, false, xRot, yRot, null, movementProfile);
+                if (!travelled.isExempt()
+                        && travelled.getFlags().isEmpty()
+                        && !otherTravel.isExempt()
+                        && otherTravel.getFlags().isEmpty()) {
+                    tableCommit = this.tableCommit(
+                            travelled,
+                            own.subtract(position),
+                            table,
+                            otherTravel,
+                            other.subtract(position),
+                            other,
+                            reportedOnGround,
+                            movementProfile);
+                }
+                if (tableCommit != null) {
+                    result = travelled;
+                    movement = own.subtract(position);
+                    end = own;
+                    exactWithheldTravel = true;
+                    this.handlePossibleRealities(result);
+                }
+            } else if (physical != null && !physical.equals(position)) {
                 Vec3 physicalMovement = physical.subtract(position);
                 PredictionResult travelled = this.callPrediction(
                         physicalMovement, position, physical, false, xRot, yRot, null, movementProfile);
@@ -2087,7 +2123,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 this.commitPlayerPosition(end);
             }
             this.callPredictionEndListeners(committed, null);
-            this.commitPredictionState(committed, end, movement, xRot, yRot, movementProfile);
+            this.commitPredictionState(committed, end, movement, xRot, yRot, movementProfile, tableCommit);
             this.lastOnGround = DesyncStatus.fromBoolean(reportedOnGround);
         } else if (!result.isExempt() && result.hasEffectiveFlags()) {
             // LocalPlayer#sendPosition withholds a position only within 2.0E-4 of xLast and before the 20th tick, so
@@ -2149,6 +2185,49 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         this.callPredictionEndListeners(travelled, null);
         this.commitPredictionState(travelled, end.position(), movement, xRot, yRot, movementProfile);
         this.lastOnGround = DesyncStatus.fromBoolean(end.onGround());
+    }
+
+    /**
+     * One commit of a withheld travel whose end depends on the trig table: {@code own}'s states, tied to {@code table},
+     * and {@code other}'s, tied to the other table and starting their next travel at {@code otherEnd}. Null when either
+     * commit carries no complete state.
+     */
+    private PredictionCommit tableCommit(
+            PredictionResult own,
+            Vec3 ownMovement,
+            boolean table,
+            PredictionResult other,
+            Vec3 otherMovement,
+            Vec3 otherEnd,
+            boolean onGround,
+            MovementProfile movementProfile) {
+        MovementEngine engine = MovementEngines.requireForProfile(movementProfile);
+        PredictionCommit ownCommit =
+                engine.commitNextTick(this.player, own, this.lastPrediction, ownMovement, this.profileCarry);
+        PredictionCommit otherCommit =
+                engine.commitNextTick(this.player, other, this.lastPrediction, otherMovement, this.profileCarry);
+        if (!(ownCommit.carry() instanceof JavaPredictionCarry ownCarry)
+                || !(otherCommit.carry() instanceof JavaPredictionCarry otherCarry)
+                || ownCarry.actor() != otherCarry.actor()
+                || ownCarry.states().isEmpty()
+                || otherCarry.states().isEmpty()) return null;
+        // LocalPlayer#sendPosition's cached ground is the next travel's start for either end.
+        var anchor = new JavaPredictionCarry.PistonStart(
+                otherEnd,
+                onGround,
+                other.getSimulationContext().getWorldData().getMainSupportingBlockPos(),
+                this.getPistonDeltas(ownCarry.actor()));
+        var states = new ArrayList<JavaPredictionCarry.State>();
+        for (var state : ownCarry.states())
+            if (state.vanillaMath() == null || state.vanillaMath() == table) states.add(state.withVanillaMath(table));
+        for (var state : otherCarry.states())
+            if (state.vanillaMath() == null || state.vanillaMath() != table)
+                states.add(state.withVanillaMath(!table).withPistonStart(anchor));
+        var velocities = new java.util.LinkedHashSet<Vec3>();
+        for (var state : states) velocities.add(state.velocity());
+        return new PredictionCommit(
+                new JavaPredictionCarry(ownCarry.actor(), ownCarry.fallDistance(), states, ownCarry.powderContact()),
+                velocities);
     }
 
     // LocalPlayer#aiStep stops flight after a grounded travel; any other stop is the double-jump toggle before it.
