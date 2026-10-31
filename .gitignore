@@ -87,6 +87,8 @@ __pycache__/
 .ignored/
 /workspace.gradle.kts
 /mappings-generator/
+# ./gradlew mcsrc / mcsrcSnapshot output (decompiled Minecraft patches; never commit)
+/mc-sources/
 
 # Local validation run output stays out of git. The harness is the :velocity-validation module.
 /validation/*
