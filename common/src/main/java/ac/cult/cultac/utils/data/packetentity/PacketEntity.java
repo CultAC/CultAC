@@ -1731,8 +1731,8 @@ public class PacketEntity {
         applyClientPosition(player, box, movement);
     }
 
-    /** Entity#setPos without recordMovement, used by FishingHook's hooked-entity follow. */
-    public void applyClientPosition(CultPlayer player, SimpleCollisionBox box, Vec3 recordedMovement) {
+    /** Entity#setPos, with the block-entity move's recordMovement when there is one. */
+    private void applyClientPosition(CultPlayer player, SimpleCollisionBox box, Vec3 recordedMovement) {
         if (runPhysicsPaths(() -> applyClientPosition(player, box, recordedMovement))) return;
         if (!newPacketLocation.hasActiveInterpolationTarget()) {
             // An idle handler's interpolate cancels without setting the entity's position.

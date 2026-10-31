@@ -52,7 +52,7 @@ class JavaSlowFallingHookPullTest {
             f.addRemotePlayer(OWNER, OWNER_AT, GameMode.SURVIVAL);
             f.player.compensatedEntities.addEntity(HOOK, EntityTypeIds.FISHING_BOBBER, BOBBER, 0, 0, OWNER);
             var hook = assertInstanceOf(PacketEntityHook.class, f.player.compensatedEntities.getEntity(HOOK));
-            JavaTickFixture.setField(PacketEntityHook.class, hook, "bobbing", true);
+            JavaTickFixture.setField(PacketEntityHook.class, hook, "mayBeBobbing", true);
             hook.setAttached(f.player, f.player.entityID);
             f.player.compensatedEntities.fishingPulls.receive(
                     f.player, HOOK, f.player.lastTransactionReceived.get(), f.player.nextImpulseSequence());

@@ -57,15 +57,16 @@ public final class ClientFishingPulls {
                     .map(PacketEntityHook::feet)
                     .distinct()
                     .toList();
+        var source = hook.pullSource(player);
         var impulses = new ArrayList<Vec3>();
-        for (Vec3 source : owners) {
-            for (Vec3 position : hook.pullPositions(player)) {
-                Vec3 impulse = source.subtract(position).scale(0.1);
+        for (Vec3 from : owners) {
+            for (Vec3 position : source.positions()) {
+                Vec3 impulse = from.subtract(position).scale(0.1);
                 if (!impulses.contains(impulse)) impulses.add(impulse);
             }
         }
-        // FishingHook#pullEntity adds (owner - hook) * 0.1: a bobbing hook's range enters the pull negated.
-        SimpleCollisionBox hookRange = hook.pullRange(player);
+        // FishingHook#pullEntity adds (owner - hook) * 0.1: the hook's range enters the pull negated.
+        SimpleCollisionBox hookRange = source.range();
         SimpleCollisionBox range = hookRange == null ? null : new SimpleCollisionBox(
                 -0.1 * hookRange.maxX, -0.1 * hookRange.maxY, -0.1 * hookRange.maxZ,
                 -0.1 * hookRange.minX, -0.1 * hookRange.minY, -0.1 * hookRange.minZ);
@@ -128,7 +129,7 @@ public final class ClientFishingPulls {
             return impulses;
         }
 
-        /** Offsets around each impulse that a hook's hidden bobbing leaves possible, or null when exact. */
+        /** Offsets around each impulse that the hook's unfollowed position leaves possible, or null when exact. */
         public SimpleCollisionBox range() {
             return range;
         }

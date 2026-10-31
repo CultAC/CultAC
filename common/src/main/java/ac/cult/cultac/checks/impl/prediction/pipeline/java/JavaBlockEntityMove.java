@@ -150,11 +150,6 @@ final class JavaBlockEntityMove {
         return moved;
     }
 
-    /** The same resolver without committing a remote actor while its discrete outcomes are compared. */
-    static Moved moveDetached(Environment env, JavaPassState state, Vec3 delta) {
-        return moveEntity(env, state, Mover.SELF, delta, false);
-    }
-
     private static Moved moveEntity(Environment env, JavaPassState state, Mover mover, Vec3 delta, boolean commit) {
         CultPlayer player = env.player();
         if (env.actor() == player.compensatedEntities.getSelf()

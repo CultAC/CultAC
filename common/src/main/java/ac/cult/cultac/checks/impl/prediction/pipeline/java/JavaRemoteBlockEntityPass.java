@@ -47,8 +47,8 @@ public final class JavaRemoteBlockEntityPass {
         // The roots the pass reaches move together, mover by mover in client order.
         List<JavaBlockEntityPass.EntityStart> moved = null;
         for (var actor : actors) {
-            if (actor instanceof PacketEntityHook hook && hook.isBobbing()) {
-                tickBobbing(player, hook, pass);
+            if (actor instanceof PacketEntityHook hook) {
+                pushFollowedHook(player, hook, pass);
                 continue;
             }
             // Controlled roots receive the authoritative local pass. A passive own root still receives
@@ -277,22 +277,29 @@ public final class JavaRemoteBlockEntityPass {
     }
 
     /**
-     * A BOBBING hook's hidden Y (and any earlier possible shove) decides whether a block entity reaches it: replay
-     * the pass from the possible hook position nearest the first mover that can reach it, and leave that shove
-     * possible rather than certain.
+     * Block entities move after FishingHook#tick put a hooked hook on its entity, and the hook keeps that shove until
+     * its next tick: replay the pass from the followed position nearest the first mover that can reach it, and leave
+     * that shove possible rather than certain. Pulls read an unfollowed hook's position as a range already.
      */
-    private static void tickBobbing(CultPlayer player, PacketEntityHook hook, ClientBlockEntityPass pass) {
-        SimpleCollisionBox column = hook.bobbingColumn(player);
-        SimpleCollisionBox range = hook.pullRange(player);
-        Vec3 at = hook.clientPhysicalPosition;
-        double height = column.maxY - column.minY - (range.maxY - range.minY);
+    private static void pushFollowedHook(CultPlayer player, PacketEntityHook hook, ClientBlockEntityPass pass) {
+        SimpleCollisionBox positions = hook.followedPositions();
+        if (positions == null) return;
+        SimpleCollisionBox size = GetBoundingBox.getPacketEntityBoundingBox(player, 0, 0, 0, hook);
+        SimpleCollisionBox column = new SimpleCollisionBox(
+                positions.minX + size.minX,
+                positions.minY + size.minY,
+                positions.minZ + size.minZ,
+                positions.maxX + size.maxX,
+                positions.maxY + size.maxY,
+                positions.maxZ + size.maxZ);
+        double height = size.maxY - size.minY;
         for (var mover : pass.movers()) {
             SimpleCollisionBox area = area(mover);
             if (area == null || !area.isIntersected(column)) continue;
             Vec3 start = new Vec3(
-                    clamp((area.minX + area.maxX) / 2, at.x + range.minX, at.x + range.maxX),
-                    clamp((area.minY + area.maxY - height) / 2, at.y + range.minY, at.y + range.maxY),
-                    clamp((area.minZ + area.maxZ) / 2, at.z + range.minZ, at.z + range.maxZ));
+                    clamp((area.minX + area.maxX) / 2, positions.minX, positions.maxX),
+                    clamp((area.minY + area.maxY - height) / 2, positions.minY, positions.maxY),
+                    clamp((area.minZ + area.maxZ) / 2, positions.minZ, positions.maxZ));
             var state = new JavaPassState(
                     start,
                     hook.deltaMovement,
@@ -302,9 +309,9 @@ public final class JavaRemoteBlockEntityPass {
                     0,
                     ClientPistonDeltas.NONE,
                     false);
-            Vec3 end = hook.withoutCommitting(() -> JavaBlockEntityPass.runEntity(player, hook, pass, state)
+            Vec3 end = JavaBlockEntityPass.runDetachedEntity(player, hook, pass, state)
                     .state()
-                    .position());
+                    .position();
             hook.addPush(end.subtract(start));
             return;
         }

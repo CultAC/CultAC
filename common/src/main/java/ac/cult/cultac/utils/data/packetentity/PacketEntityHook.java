@@ -1,97 +1,59 @@
 package ac.cult.cultac.utils.data.packetentity;
 
+import ac.cult.blocksim.data.FluidTags;
 import ac.cult.blocksim.entity.EntityTypeIds;
-import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFishingHookFlight;
+import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
-import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.enums.Pose;
+import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
-import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
-import java.util.Random;
-import java.util.UUID;
 
+/**
+ * A fishing hook, tracked only as far as FishingHook#pullEntity reads it: the pull adds (owner - hook) * 0.1 from the
+ * client's own hook position. Once that hook has followed its hooked entity, the position is exact. Before then, and
+ * whenever the hook may be BOBBING (which never follows), the client moved the hook itself, so the pull reads a bounded
+ * region around where the server last put it instead of a replay of that flight.
+ */
 public class PacketEntityHook extends PacketEntity {
+    // FishingHook's 0.03 gravity under its 0.92 inertia never falls faster than this.
+    private static final double TERMINAL_FALL = 0.03 * 0.92 / (1 - 0.92);
+    // ProjectileUtil#getHitResultOnMoveVector widens a hook's target by at most 0.3.
+    private static final double HIT_MARGIN = 0.3;
+    // A hook that may be anywhere in more blocks than this may be in water; they are not scanned.
+    private static final int MAX_WATER_SCAN = 4096;
+
     public int owner;
     public int attached = -1;
     private final PacketEntity clientOwner;
     private PacketEntity hookedIn;
-    private boolean hookedState;
     private boolean discarded;
+    // HOOKED_IN_ENTITY: the first tick that sees hookedIn enters it without moving the hook.
+    private boolean hookedState;
+    // Where the last HOOKED_IN_ENTITY tick put the hook, or null before one did.
     private List<Vec3> followPositions;
-    private Vec3 codecAtFollow;
-    private PacketEntity followTarget;
-    private boolean followsBeforeTarget;
-    private boolean flyingTick;
-    private boolean bobbing;
-    // deltaMovement when FLYING became BOBBING, and whether DATA_BITING was set while bobbing.
-    private Vec3 bobbingEntryVelocity = Vec3.ZERO;
-    private boolean bitBobbing;
-    // X/Z offsets block entities may have shoved the BOBBING hook by, as its hidden Y decides whether they reached.
-    private SimpleCollisionBox pushOffsets;
     // Offsets around a followed self position that a block-entity pass after travel left unproven.
     private SimpleCollisionBox followRange;
-    private boolean leftOwner;
-    private int age;
-    private int life;
-    private Long synchronizedSeed;
-    private int synchronizedDraws;
-    private final HookPhysicsPaths paths = new HookPhysicsPaths();
+    // Offsets a block entity may have shoved the followed hook by before its next tick.
+    private SimpleCollisionBox pushOffsets;
+    private PacketEntity followTarget;
+    private boolean followsBeforeTarget;
+    // A FLYING hook enters BOBBING in water, and a BOBBING hook never follows a hooked entity.
+    private boolean mayBeBobbing;
+    // DATA_BITING drags a BOBBING hook further down.
+    private boolean bit;
+    // The fastest velocity the server has given the hook.
+    private double fastest;
 
-    record State(ClientPhysicsSnapshot physics, PacketEntity hookedIn, boolean hookedState,
-            boolean discarded, List<Vec3> positions, Vec3 codec, PacketEntity target, boolean before,
-            boolean flyingTick, boolean bobbing, boolean leftOwner, int age, int life, Long seed, int draws) {
-        boolean sameSettledState(State other) {
-            return physics.oldLocation() == null && other.physics.oldLocation() == null
-                    && !physics.location().hasActiveInterpolationTarget()
-                    && !other.physics.location().hasActiveInterpolationTarget()
-                    && Objects.equals(physics.physicalPosition(), other.physics.physicalPosition())
-                    && Objects.equals(physics.velocity(), other.physics.velocity())
-                    && physics.ground() == other.physics.ground()
-                    && Objects.equals(physics.pass(), other.physics.pass())
-                    && hookedIn == other.hookedIn && hookedState == other.hookedState && discarded == other.discarded
-                    && Objects.equals(positions, other.positions) && Objects.equals(codec, other.codec)
-                    && target == other.target && before == other.before && flyingTick == other.flyingTick
-                    && bobbing == other.bobbing && leftOwner == other.leftOwner && age == other.age && life == other.life
-                    && Objects.equals(seed, other.seed) && draws == other.draws;
-        }
-    }
-
-    State captureState() {
-        return new State(capturePhysics(true), hookedIn, hookedState, discarded, followPositions, codecAtFollow,
-                followTarget, followsBeforeTarget, flyingTick, bobbing, leftOwner, age, life, synchronizedSeed, synchronizedDraws);
-    }
-
-    void restoreState(State state) {
-        restorePhysics(state.physics());
-        hookedIn = state.hookedIn();
-        hookedState = state.hookedState();
-        discarded = state.discarded();
-        followPositions = state.positions();
-        codecAtFollow = state.codec();
-        followTarget = state.target();
-        followsBeforeTarget = state.before();
-        flyingTick = state.flyingTick();
-        bobbing = state.bobbing();
-        leftOwner = state.leftOwner();
-        age = state.age();
-        life = state.life();
-        synchronizedSeed = state.seed();
-        synchronizedDraws = state.draws();
-    }
-
-    @Override
-    public boolean runPhysicsPaths(Runnable operation) {
-        return paths != null && paths.run(this, operation);
-    }
+    /** Where FishingHook#pullEntity may read the hook: each position, and the offsets around it (null when exact). */
+    public record PullSource(List<Vec3> positions, SimpleCollisionBox range) {}
 
     public PacketEntityHook(CultPlayer player, int entityId, int type, double x, double y, double z, int owner) {
         super(player, entityId, type, x, y, z);
@@ -102,22 +64,16 @@ public class PacketEntityHook extends PacketEntity {
     }
 
     public void setAttached(CultPlayer player, int id) {
-        if (runPhysicsPaths(() -> setAttached(player, id))) return;
         attached = id;
         // onSyncedDataUpdated resolves the reference once, not when the missing entity later spawns.
         hookedIn = player.compensatedEntities.getEntity(id);
     }
 
-    /** onSyncedDataUpdated(DATA_BITING): its RNG is known only after the hook's first tick seeded it. */
+    /** onSyncedDataUpdated(DATA_BITING): the server sets it only from FishingHook#catchingFish, while BOBBING. */
     public void setBiting(boolean biting) {
-        if (runPhysicsPaths(() -> setBiting(biting))) return;
-        if (biting && bobbing) bitBobbing = true;
-        if (!biting || synchronizedSeed == null) return;
-        Random random = new Random(synchronizedSeed);
-        for (int i = 0; i < synchronizedDraws; i++) random.nextFloat();
-        float next = 0.6F + random.nextFloat() * (1.0F - 0.6F);
-        synchronizedDraws++;
-        deltaMovement = new Vec3(deltaMovement.x, -0.4F * next, deltaMovement.z);
+        if (!biting) return;
+        mayBeBobbing = true;
+        bit = true;
     }
 
     public PacketEntity hookedIn() {
@@ -140,40 +96,20 @@ public class PacketEntityHook extends PacketEntity {
 
     @Override
     public void onMovement(CultPlayer player) {
-        if (runPhysicsPaths(() -> onMovement(player))) return;
         super.onMovement(player);
         if (player.isBedrockMovement() || discarded) return;
         if (clientOwner(player) == null) {
             discarded = true;
             return;
         }
-        if (scoreboardName != null) {
-            synchronizedSeed = UUID.fromString(scoreboardName).getLeastSignificantBits()
-                    ^ player.compensatedWorld.endedTickGameTime();
-            synchronizedDraws = 0;
-        }
-        if (clientPhysicalPosition.y < player.compensatedWorld.getMinHeight() - 64) {
-            discarded = true;
-            return;
-        }
-        age++;
-        life = onGround ? life + 1 : 0;
-        if (life >= 1200) {
-            discarded = true;
-            return;
-        }
+        fastest = Math.max(fastest, deltaMovement.length());
         if (!hookedState) {
-            // BOBBING never enters the hooked state merely because the attachment metadata changes. Its
-            // Entity.random draws are absent from the protocol, so pulls use pullRange around this position.
-            if (bobbing) return;
-            if (hookedIn != null) {
-                deltaMovement = Vec3.ZERO;
-                hookedState = true;
-                followPositions = null;
-                return;
-            }
-            flyingTick = true;
-            player.compensatedEntities.fishingPulls.followed(this);
+            // FLYING enters BOBBING in water, which may lie anywhere the client's flight reached.
+            if (!mayBeBobbing) mayBeBobbing = mayReachWater(player);
+            if (hookedIn == null) return;
+            // FLYING enters HOOKED_IN_ENTITY without moving. BOBBING never does; pullSource keeps both.
+            deltaMovement = Vec3.ZERO;
+            hookedState = true;
             return;
         }
         if (hookedIn == null) return;
@@ -182,48 +118,27 @@ public class PacketEntityHook extends PacketEntity {
                         && (hookedIn.isDead || !hookedIn.actionAlive
                                 || hookedIn == player.compensatedEntities.getSelf()
                                         && player.gamemode == GameMode.SPECTATOR)) {
+            // FishingHook#tick drops the entity and flies again from where it followed it.
             hookedIn = null;
             hookedState = false;
+            followPositions = null;
             return;
         }
         followTarget = hookedIn;
         followsBeforeTarget = player.compensatedEntities.clientTickOrder(this)
                 < player.compensatedEntities.clientTickOrder(hookedIn);
-        codecAtFollow = desyncClientPos;
         // The local player's idle prediction has not run yet. Resolve its side after that prediction.
         player.compensatedEntities.fishingPulls.followed(this);
     }
 
+    /** HOOKED_IN_ENTITY puts the hook at its entity's X, Y(0.8) and Z, as that entity stands at the hook's tick. */
     public void finishClientTick(CultPlayer player) {
-        if (runPhysicsPaths(() -> finishClientTick(player))) return;
-        if (flyingTick) {
-            flyingTick = false;
-            var entities = player.compensatedEntities;
-            long previous = entities.passTickedThroughOrder();
-            entities.beginMovementPositionReads();
-            entities.setPassTickedThroughOrder(entities.clientTickOrder(this) - 1);
-            try {
-                var results = JavaFishingHookFlight.tick(player, this, blockEntityState, leftOwner, age);
-                State before = captureState();
-                applyFlight(player, results.getFirst());
-                State primary = captureState();
-                for (int i = 1; i < results.size(); i++) {
-                    restoreState(before);
-                    applyFlight(player, results.get(i));
-                    paths.branch(captureState());
-                }
-                restoreState(primary);
-            } finally {
-                entities.setPassTickedThroughOrder(previous);
-                entities.endMovementPositionReads();
-            }
-            return;
-        }
         if (followTarget == null) return;
         var entities = player.compensatedEntities;
         var prediction = player.checkManager.getSimulationProcessor().getLastPrediction();
         var context = prediction == null ? null : prediction.getSimulationContext();
         followRange = null;
+        pushOffsets = null;
         if (followTarget == entities.getSelf()) {
             Vec3 position = new Vec3(player.x, player.y, player.z);
             float height = player.getBukkitHeight();
@@ -248,96 +163,130 @@ public class PacketEntityHook extends PacketEntity {
             entities.beginMovementPositionReads();
             entities.setPassTickedThroughOrder(entities.clientTickOrder(this) - 1);
             try {
-                followPositions = new ArrayList<>();
-                var boxes = followTarget.getPossibleMovementCollisionBoxCandidates();
+                var positions = new ArrayList<Vec3>();
                 double height = (double) BoundingBoxSize.getHeight(player, followTarget) * 0.8;
-                for (var box : boxes) {
+                for (var box : followTarget.getPossibleMovementCollisionBoxCandidates()) {
                     Vec3 position = feet(box).add(0, height, 0);
-                    if (!followPositions.contains(position)) followPositions.add(position);
+                    if (!positions.contains(position)) positions.add(position);
                 }
+                followPositions = positions;
             } finally {
                 entities.setPassTickedThroughOrder(previous);
                 entities.endMovementPositionReads();
             }
         }
-        State before = captureState();
-        List<Vec3> positions = followPositions;
-        for (int i = 0; i < positions.size(); i++) {
-            restoreState(before);
-            Vec3 position = positions.get(i);
-            applyClientPosition(player, GetBoundingBox.getPacketEntityBoundingBox(
-                    player, position.x, position.y, position.z, this), null);
-            followPositions = List.of(position);
-            followTarget = null;
-            if (i > 0) paths.branch(captureState());
-        }
-        if (positions.size() > 1) {
-            restoreState(before);
-            Vec3 position = positions.getFirst();
-            applyClientPosition(player, GetBoundingBox.getPacketEntityBoundingBox(
-                    player, position.x, position.y, position.z, this), null);
-            followPositions = List.of(position);
-        }
         followTarget = null;
     }
 
-    private void applyFlight(CultPlayer player, JavaFishingHookFlight.Result result) {
-        Vec3 position = result.state().position();
-        applyClientPosition(player, GetBoundingBox.getPacketEntityBoundingBox(
-                player, position.x, position.y, position.z, this), result.recordedMovement());
-        blockEntityState = result.state();
-        deltaMovement = result.state().velocity();
-        onGround = result.state().onGround();
-        leftOwner = result.leftOwner();
-        if (result.bobbing() && !bobbing) {
-            bobbingEntryVelocity = deltaMovement;
-            bitBobbing = false;
-            pushOffsets = null;
-        }
-        bobbing = result.bobbing();
-        followPositions = List.of(position);
-        codecAtFollow = desyncClientPos;
-    }
-
-    public List<Vec3> pullPositions(CultPlayer player) {
-        return paths.values(this, () -> currentPullPositions(player));
-    }
-
-    /** Whether this hook is BOBBING, so its Y is hidden (see {@link #pullRange}). */
-    public boolean isBobbing() {
-        return bobbing && !hookedState && !discarded;
+    public PullSource pullSource(CultPlayer player) {
+        if (followPositions != null && !mayBeBobbing)
+            return new PullSource(followPositions, pushOffsets == null ? followRange : sum(followRange, pushOffsets));
+        SimpleCollisionBox region = followPositions == null ? flightRegion(player) : followedHull();
+        if (mayBeBobbing) region.union(bobRegion(player));
+        Vec3 centre = new Vec3((region.minX + region.maxX) / 2, (region.minY + region.maxY) / 2,
+                (region.minZ + region.maxZ) / 2);
+        return new PullSource(List.of(centre), region.offset(-centre.x, -centre.y, -centre.z));
     }
 
     /**
-     * The offsets around each pull position that a BOBBING hook may hold. FishingHook#tick pulls Y toward the
-     * feet cell's water surface by Entity.random, whose seed the client never sends, so the hook rises through the
-     * water column and settles about -0.29..+0.21 around its top; a bite (DATA_BITING) drags it down further. X/Z
-     * only decay from the entry velocity (0.9 then 0.92 per tick), plus any shove a block entity may have given it.
-     * This is a bounded approximation.
+     * Where block entities may shove a followed hook from before its next tick, or null when the pull does not read
+     * the followed positions exactly.
      */
-    public SimpleCollisionBox pullRange(CultPlayer player) {
-        if (hookedState && !discarded) return followRange;
-        if (!isBobbing()) return null;
-        Vec3 at = clientPhysicalPosition;
-        double toSurface = waterTop(player, at) - at.y;
-        double drift = 0.9 / (1 - 0.9 * 0.92);
-        double dx = bobbingEntryVelocity.x * drift, dz = bobbingEntryVelocity.z * drift;
+    public SimpleCollisionBox followedPositions() {
+        if (followPositions == null || mayBeBobbing) return null;
+        return pushOffsets == null ? followedHull() : sum(followedHull(), pushOffsets);
+    }
+
+    /** A block entity may have shoved the followed hook by {@code movement}, or missed it. */
+    public void addPush(Vec3 movement) {
         SimpleCollisionBox push = pushOffsets == null ? new SimpleCollisionBox(0, 0, 0, 0, 0, 0) : pushOffsets;
-        return new SimpleCollisionBox(
-                Math.min(0, dx) - 0.02 + push.minX,
-                Math.min(0, toSurface) - (bitBobbing ? 3.0 : 0.35),
-                Math.min(0, dz) - 0.02 + push.minZ,
-                Math.max(0, dx) + 0.02 + push.maxX,
-                Math.max(0, toSurface) + 0.25,
-                Math.max(0, dz) + 0.02 + push.maxZ);
+        pushOffsets = push.copy().union(push.copy().offset(movement));
+    }
+
+    /** The farthest the hook flies in a tick: its fastest velocity, plus all that gravity adds under its inertia. */
+    private double travel() {
+        return fastest + TERMINAL_FALL;
+    }
+
+    /**
+     * Every position a FLYING hook may hold: around where the server last put it, and once the server hooked an entity,
+     * anywhere FishingHook#checkCollision may have met that entity, since the hook still flies the whole tick.
+     */
+    private SimpleCollisionBox flightRegion(CultPlayer player) {
+        Vec3 at = desyncClientPos;
+        var region = new SimpleCollisionBox(at.x, at.y, at.z, at.x, at.y, at.z);
+        if (hookedIn != null) region.union(targetBox(player).expand(HIT_MARGIN));
+        return region.expand(travel());
+    }
+
+    /** The hooked entity's boxes; the local player's from where its last tick started to where it ended. */
+    private SimpleCollisionBox targetBox(CultPlayer player) {
+        if (hookedIn != player.compensatedEntities.getSelf()) return hookedIn.getPossibleMovementCollisionBoxes();
+        return player.boundingBox.copy().expandToCoordinate(
+                player.lastX - player.x, player.lastY - player.y, player.lastZ - player.z);
+    }
+
+    /**
+     * Every position a BOBBING hook may hold. FishingHook#tick pulls its Y toward the water surface by Entity.random,
+     * whose seed the client never sends, so it settles about -0.29..+0.21 around the top; a bite drags it lower.
+     */
+    private SimpleCollisionBox bobRegion(CultPlayer player) {
+        Vec3 at = desyncClientPos;
+        double top = waterTop(player, at);
+        return new SimpleCollisionBox(at.x, Math.min(at.y, top) - (bit ? 3.0 : 0.35), at.z,
+                        at.x, Math.max(at.y, top) + 0.25, at.z)
+                .expand(travel(), 0, travel());
+    }
+
+    private SimpleCollisionBox followedHull() {
+        SimpleCollisionBox hull = null;
+        for (Vec3 position : followPositions) {
+            var point = new SimpleCollisionBox(position.x, position.y, position.z, position.x, position.y, position.z);
+            hull = hull == null ? point : hull.union(point);
+        }
+        return followRange == null ? hull : sum(hull, followRange);
+    }
+
+    /** {@code box} moved by every offset in {@code offsets}. */
+    private static SimpleCollisionBox sum(SimpleCollisionBox box, SimpleCollisionBox offsets) {
+        if (box == null) return offsets.copy();
+        return new SimpleCollisionBox(box.minX + offsets.minX, box.minY + offsets.minY, box.minZ + offsets.minZ,
+                box.maxX + offsets.maxX, box.maxY + offsets.maxY, box.maxZ + offsets.maxZ);
+    }
+
+    /** Whether the FLYING hook may have reached water: around the server's position, or past its hooked entity. */
+    private boolean mayReachWater(CultPlayer player) {
+        Vec3 at = desyncClientPos;
+        var around = new SimpleCollisionBox(at.x, at.y, at.z, at.x, at.y, at.z).expand(travel());
+        if (holdsWater(player, around)) return true;
+        return hookedIn != null && holdsWater(player, targetBox(player).expand(HIT_MARGIN + travel()));
+    }
+
+    /** Whether a hook position in {@code region} may lie in water: FishingHook bobs where the fluid has height. */
+    private static boolean holdsWater(CultPlayer player, SimpleCollisionBox region) {
+        int minX = (int) Math.floor(region.minX), maxX = (int) Math.floor(region.maxX);
+        int minY = (int) Math.floor(region.minY), maxY = (int) Math.floor(region.maxY);
+        int minZ = (int) Math.floor(region.minZ), maxZ = (int) Math.floor(region.maxZ);
+        if ((double) (maxX - minX + 1) * (maxY - minY + 1) * (maxZ - minZ + 1) > MAX_WATER_SCAN) return true;
+        var world = player.compensatedWorld;
+        for (int x = minX; x <= maxX; x++) {
+            for (int y = minY; y <= maxY; y++) {
+                for (int z = minZ; z <= maxZ; z++) {
+                    BlockPos pos = new BlockPos(x, y, z);
+                    var fluid = ClientFluidQueries.fluidAt(world, pos);
+                    if (!fluid.isEmpty() && ClientFluidQueries.is(player, fluid, FluidTags.WATER)
+                            && ClientFluidQueries.height(world, pos, fluid) > 0.0F) return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
      * Where the other matching candidates of a ranged travel ended before the block-entity pass: the pass hid which
      * one the client ran, and FishingHook#tick read that travel's end.
      */
-    private static SimpleCollisionBox travelEndRange(
-            ac.cult.cultac.checks.impl.prediction.PredictionResult prediction, Vec3 position) {
+    private static SimpleCollisionBox travelEndRange(PredictionResult prediction, Vec3 position) {
         var origin = prediction.getInitialStartingVel() == null ? null : prediction.getInitialStartingVel().getRangeOrigin();
         if (origin == null || prediction.getRealities() == null) return null;
         SimpleCollisionBox range = null;
@@ -365,57 +314,6 @@ public class PacketEntityHook extends PacketEntity {
             fluid = next;
         }
         return cell.getY() + ClientFluidQueries.height(player.compensatedWorld, cell, fluid);
-    }
-
-    /** Every box the BOBBING hook may occupy, for whether a block entity can reach it. */
-    public SimpleCollisionBox bobbingColumn(CultPlayer player) {
-        SimpleCollisionBox range = pullRange(player);
-        SimpleCollisionBox box = GetBoundingBox.getPacketEntityBoundingBox(
-                player, clientPhysicalPosition.x, clientPhysicalPosition.y, clientPhysicalPosition.z, this);
-        return new SimpleCollisionBox(box.minX + range.minX, box.minY + range.minY, box.minZ + range.minZ,
-                box.maxX + range.maxX, box.maxY + range.maxY, box.maxZ + range.maxZ);
-    }
-
-    /** Runs {@code replay} and restores everything it changed on this hook. */
-    public <T> T withoutCommitting(java.util.function.Supplier<T> replay) {
-        State before = captureState();
-        try {
-            return replay.get();
-        } finally {
-            restoreState(before);
-        }
-    }
-
-    /** A block entity may have shoved the hook by {@code movement}, or missed it. */
-    public void addPush(Vec3 movement) {
-        SimpleCollisionBox push = pushOffsets == null ? new SimpleCollisionBox(0, 0, 0, 0, 0, 0) : pushOffsets;
-        pushOffsets = new SimpleCollisionBox(
-                Math.min(push.minX, push.minX + movement.x), 0, Math.min(push.minZ, push.minZ + movement.z),
-                Math.max(push.maxX, push.maxX + movement.x), 0, Math.max(push.maxZ, push.maxZ + movement.z));
-    }
-
-    private List<Vec3> currentPullPositions(CultPlayer player) {
-        if (clientPhysicalPositionExact) return List.of(clientPhysicalPosition);
-        var positions = new ArrayList<Vec3>();
-        for (var box : super.getPossibleMovementCollisionBoxCandidates()) {
-            Vec3 position = feet(box);
-            if (!positions.contains(position)) positions.add(position);
-        }
-        return positions;
-    }
-
-    @Override
-    public List<SimpleCollisionBox> getPossibleMovementCollisionBoxCandidates() {
-        if (paths == null) return super.getPossibleMovementCollisionBoxCandidates();
-        return paths.values(this, super::getPossibleMovementCollisionBoxCandidates);
-    }
-
-    @Override
-    public SimpleCollisionBox getPossibleMovementCollisionBoxes(SimpleCollisionBox out, SimpleCollisionBox scratch) {
-        List<SimpleCollisionBox> boxes = getPossibleMovementCollisionBoxCandidates();
-        out.set(boxes.getFirst());
-        for (int i = 1; i < boxes.size(); i++) out.union(boxes.get(i));
-        return out;
     }
 
     private static float poseHeight(Pose pose, float scale) {
