@@ -613,6 +613,40 @@ class JavaEntityPushTest {
     }
 
     /**
+     * ClientLevel#tickPassenger runs a non-player passenger's rideTick, whose LivingEntity#aiStep pushes, only while
+     * that passenger is in tickingEntities itself. AbstractBoat#getPassengerAttachmentPoint seats an Animal first
+     * passenger 0.4 along the boat, rotated by -yRot, so at yaw 90 the pig sits in chunk -1 while its boat stays in
+     * chunk 0. Once the client unloads chunk -1, the boat keeps ticking but the pig neither pushes nor is reseated.
+     */
+    @Test
+    void aRiderWhoseOwnChunkStoppedTickingDoesNotPushWhileItsVehicleTicks() throws Exception {
+        try (var f = falling()) {
+            var entities = f.player.compensatedEntities;
+            entities.addEntity(100, EntityTypeIds.OAK_BOAT, new Vec3(0.25, CONTACT.y - 0.8, 0.5), 90, 0, 0);
+            PacketEntity boat = entities.entityMap.get(100);
+            entities.addEntity(RIDER, EntityTypeIds.PIG, AWAY, 0, 0, 0);
+            PacketEntity pig = entities.entityMap.get(RIDER);
+            pig.mount(boat);
+            entities.addEntity(102, EntityTypeIds.ARMOR_STAND, AWAY, 0, 0, 0);
+            entities.entityMap.get(102).mount(boat);
+            // The established tree: the last tick's positionRider seated the pig, overlapping the falling player.
+            entities.tickClientEntities(entity -> {});
+            f.player.packetStateData.acceptedClientTick++;
+            SimpleCollisionBox seat = pig.getPossibleMovementCollisionBoxes();
+            assertEquals(-0.15, (seat.minX + seat.maxX) / 2, 1.0E-6);
+
+            f.player.compensatedWorld.removeChunkLater(-1, 0, 0);
+            assertTrue(entities.isTicking(boat));
+            assertFalse(entities.ticksInClientTick(pig));
+
+            assertExact(f.tick(CONTACT, false));
+            assertExact(f.tick(START.add(0, FIRST_FALL + SECOND_FALL, 0), false));
+            seat = pig.getPossibleMovementCollisionBoxes();
+            assertEquals(-0.15, (seat.minX + seat.maxX) / 2, 1.0E-6, "a non-ticking passenger keeps its seat");
+        }
+    }
+
+    /**
      * PistonMovingBlockEntity#moveCollidedEntities shoves the vehicle east, but its rider sits above the piston's reach
      * and keeps the seat Entity#positionRider gave it: the rider's next Entity#rideTick pushes from there before
      * positionRider reseats it on the moved vehicle.

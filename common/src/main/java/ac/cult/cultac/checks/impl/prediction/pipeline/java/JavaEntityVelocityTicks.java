@@ -152,8 +152,9 @@ public final class JavaEntityVelocityTicks {
                     boolean rider = entities.isUntrackedRider(entity);
                     List<SimpleCollisionBox> boxes;
                     if (rider) {
-                        var root = entities.rootOf(entity);
-                        if (root == null || !entities.ticksInClientTick(root)) continue;
+                        // ClientLevel#tickPassenger runs the rider's rideTick only below a ticked vehicle chain and
+                        // while the rider is in tickingEntities itself; its own chunk may have stopped ticking.
+                        if (entities.rootOf(entity) == null || !entities.ticksInClientTick(entity)) continue;
                         // The rider pushes before positionRider reseats it: from its last seat, or where the last
                         // block-entity pass left it. Neither depends on this read's place in the tick.
                         boxes = entities.untrackedRiderPushBoxes(entity, box, rootBox, scratch);
