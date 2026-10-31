@@ -18,6 +18,7 @@ import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.EntityPush;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
+import ac.cult.cultac.network.packet.WorldPackets;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
@@ -694,6 +695,37 @@ class JavaEntityPushTest {
             assertExact(f.tick(CONTACT, false));
             SimpleCollisionBox box = rider.getPossibleMovementCollisionBoxes();
             assertEquals(0.51, box.minX, 1.0E-6, "the piston must find the held rider independently of its root");
+        }
+    }
+
+    /**
+     * Entity#limitPistonMovement holds the piston moves an entity takes at one Level#getGameTime to 0.51 per axis, and
+     * Entity#pistonDeltas stays on the rider between block-entity passes. A time packet that sets the game time back
+     * makes the stone's second stroke run at the game time of its first, so the held rider moves only what is left.
+     */
+    @Test
+    void aRepeatedGameTimeLimitsAHeldRidersSecondShove() throws Exception {
+        try (var f = falling()) {
+            PacketEntity root = entity(f, 100, BELOW_TOUCHING);
+            seatSlime(f, root);
+            PacketEntity rider = f.player.compensatedEntities.getEntity(RIDER);
+            snap(f, root, new Vec3(1000.5, FLOOR_Y, 1000.5));
+            double seat = rider.getPossibleMovementCollisionBoxes().minX;
+            extendStoneEast(f, FLOOR_Y + 9);
+            long gameTime = f.player.compensatedWorld.clientGameTime();
+            assertExact(f.tick(CONTACT, false));
+            double first = rider.getPossibleMovementCollisionBoxes().minX - seat;
+            assertEquals(0.51 - seat, first, 1.0E-6, "the first stroke shoves the rider clear of its face");
+
+            f.player.compensatedWorld.applyClientTime(new WorldPackets.TimeUpdate(gameTime, java.util.Map.of()));
+            f.tick(START.add(0, FIRST_FALL + SECOND_FALL, 0), false);
+            // The second stroke's face reaches x 1, which would shove the rider 1.01 - 0.51 = 0.5 more.
+            double shoved = rider.getPossibleMovementCollisionBoxes().minX - seat;
+            assertEquals(
+                    Math.min(0.51, first + 0.5),
+                    shoved,
+                    1.0E-6,
+                    "the rider's piston deltas carry the first stroke's move within that game time");
         }
     }
 

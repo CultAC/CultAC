@@ -12,6 +12,7 @@ import ac.cult.cultac.utils.latency.ClientBlockEntityPass;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import java.util.List;
 
 /** The tracked pushers' Level#tickBlockEntities, after their interpolation and LivingEntity#pushEntities. */
 public final class JavaRemoteBlockEntityPass {
@@ -125,12 +126,19 @@ public final class JavaRemoteBlockEntityPass {
                 var seats = new java.util.ArrayList<SimpleCollisionBox>(count);
                 for (int candidate = 0; candidate < count; candidate++)
                     seats.add(rider.positionCollisionBoxCandidate(candidate, new SimpleCollisionBox()));
-                for (SimpleCollisionBox original : seats) {
+                List<ClientPistonDeltas> held = rider.riderPistonDeltas;
+                var after = new java.util.ArrayList<ClientPistonDeltas>(count);
+                for (int candidate = 0; candidate < count; candidate++) {
+                    SimpleCollisionBox original = seats.get(candidate);
                     rider.movementBoxAt(scratch.set(original));
-                    SimpleCollisionBox seat =
-                            mayReach(pass, scratch) ? movedRider(player, rider, original, pass, patch) : original;
-                    rider.recordRiderPushBox(riderPass, seat);
+                    boolean moves = mayReach(pass, scratch);
+                    for (ClientPistonDeltas deltas : heldDeltas(rider, held, count, candidate)) {
+                        Moved moved = moves ? movedRider(player, rider, original, pass, patch, deltas) : null;
+                        rider.recordRiderPushBox(riderPass, moved == null ? original : moved.box());
+                        after.add(moved == null ? deltas : moved.deltas());
+                    }
                 }
+                rider.riderPistonDeltas = List.copyOf(after);
             }
             if (!rider.passengers.isEmpty()) recordRiders(player, rider, pass, riderPass, patch, scratch);
         }
@@ -215,13 +223,30 @@ public final class JavaRemoteBlockEntityPass {
         return reach;
     }
 
+    /**
+     * The Entity#pistonDeltas the rider at seat candidate {@code candidate} holds: Entity#positionRider keeps them, so
+     * they are what the last pass that moved it left there, or, before any, the ones it had as a root. When the
+     * candidates no longer match the held ones, each held value remains possible.
+     */
+    private static List<ClientPistonDeltas> heldDeltas(
+            PacketEntity rider, List<ClientPistonDeltas> held, int count, int candidate) {
+        if (held == null)
+            return List.of(
+                    rider.blockEntityState == null ? ClientPistonDeltas.NONE : rider.blockEntityState.pistonDeltas());
+        if (held.size() == count) return List.of(held.get(candidate));
+        return held.stream().distinct().toList();
+    }
+
+    private record Moved(SimpleCollisionBox box, ClientPistonDeltas deltas) {}
+
     /** Where the pass leaves a rider seated at {@code seat}; it moves on its own, apart from its vehicle. */
-    private static SimpleCollisionBox movedRider(
+    private static Moved movedRider(
             CultPlayer player,
             PacketEntity rider,
             SimpleCollisionBox seat,
             ClientBlockEntityPass pass,
-            JavaMovementPatch patch) {
+            JavaMovementPatch patch,
+            ClientPistonDeltas deltas) {
         Vec3 start = new Vec3((seat.minX + seat.maxX) / 2.0, seat.minY, (seat.minZ + seat.maxZ) / 2.0);
         // Entity#rideTick zeroes a passenger's deltaMovement, and a remote rider never travels.
         var state = new JavaPassState(
@@ -231,7 +256,7 @@ public final class JavaRemoteBlockEntityPass {
                 new MainSupportingBlockData(null, rider.onGround),
                 null,
                 0,
-                ClientPistonDeltas.NONE,
+                deltas,
                 false);
         var replay = JavaBlockEntityPass.runDetachedEntity(player, rider, pass, state, patch);
         Vec3 end = replay.state().position();
@@ -239,7 +264,7 @@ public final class JavaRemoteBlockEntityPass {
                 ? seat
                 : GetBoundingBox.getPacketEntityBoundingBox(player, end.x, end.y, end.z, rider);
         rider.recordRiderInterpolationPass(box, replay.interpolation(), replay.oldInterpolation());
-        return box;
+        return new Moved(box, replay.state().pistonDeltas());
     }
 
     /**

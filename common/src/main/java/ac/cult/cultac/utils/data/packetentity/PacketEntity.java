@@ -122,6 +122,8 @@ public class PacketEntity {
     // Where the last block-entity pass left this untracked rider; allocated only once a pass reaches its vehicle.
     private List<SimpleCollisionBox> riderPushBoxes;
     private int riderPushPass;
+    // Entity#pistonDeltas of an untracked rider after the last block-entity pass that reached it, one per push box.
+    public List<ac.cult.cultac.utils.data.ClientPistonDeltas> riderPistonDeltas;
     private ClientRiderInterpolation riderInterpolation;
 
     public void ensurePistonPatchStates() {
