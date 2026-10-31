@@ -2832,23 +2832,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 movementProfile,
                 carryLastRequiredStuckSpeed);
         if (!player.isBedrockMovement() && player.getClientVersion() == ClientVersion.V_1_21_9) {
-            primary.setMovementPatch(JavaMovementPatch.V_1_21_9);
-            SimulationContext patched = this.createSimulationContext(
-                    player,
-                    lastPrediction,
-                    target,
-                    start,
-                    end,
-                    testing,
-                    xRot,
-                    yRot,
-                    authoredMovementFrame,
-                    movementProfile,
-                    carryLastRequiredStuckSpeed,
-                    null,
-                    CarryWorld.of(primary));
-            patched.setMovementPatch(JavaMovementPatch.V_1_21_10);
-            return List.of(primary, patched);
+            primary.setMovementPatch(JavaMovementPatch.V_1_21_10);
         }
         return List.of(primary);
     }
@@ -2925,7 +2909,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         return ordered;
     }
 
-    /** Protocol 773 permits either source behavior each tick; each keeps the complete state it starts from. */
+    /** Protocol 773 uses the assumed 1.21.10 behavior, retaining the complete state it starts from. */
     private List<JavaPredictionCarry.State> movementPatchStates(List<JavaPredictionCarry.State> states) {
         if (this.player.getClientVersion() != ClientVersion.V_1_21_9) return states;
         var patched = new java.util.LinkedHashSet<JavaPredictionCarry.State>();

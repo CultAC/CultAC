@@ -67,12 +67,7 @@ public final class JavaRemoteBlockEntityPass {
                     recordRidersOfUnmovedRoot(player, actor, box, pass, riderPass);
                 continue;
             }
-            if (player.getClientVersion() == ClientVersion.V_1_21_9) {
-                actor.ensurePistonPatchStates();
-                actor.runPistonPatchStates(() -> tickActor(player, actor, pass, riderPass));
-            } else {
-                tickActor(player, actor, pass, riderPass);
-            }
+            tickActor(player, actor, pass, riderPass);
         }
     }
 

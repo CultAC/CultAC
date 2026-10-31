@@ -47,10 +47,10 @@ import org.mockito.Mockito;
 class JavaProtocol773PistonTest {
     private static final BlockRegistry BLOCKS = DataTables.defaults().registry();
 
-    /** Three real-client paired trials prove the 0.4F/0.5 second shoves; the midpoint is neither client. */
+    /** Protocol 773 assumes the 1.21.10 unscaled shove; scaled and intermediate reports are rejected. */
     @ParameterizedTest
-    @CsvSource({"0.800000011920929, true", "1.0, true", "0.9, false"})
-    void protocol773AcceptsBothExactBerryShovesAndRejectsTheGap(double scale, boolean valid) throws Exception {
+    @CsvSource({"0.800000011920929, false", "1.0, true", "0.9, false"})
+    void protocol773AcceptsOnlyThe12110BerryShove(double scale, boolean valid) throws Exception {
         try (var f = new JavaTickFixture()) {
             JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_1_21_9);
             Vec3 start = new Vec3(0.7, FLOOR_Y, 0.5);
@@ -62,26 +62,26 @@ class JavaProtocol773PistonTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"0.800000011920929, false", "1.0, false", "0.800000011920929, true", "1.0, true"})
-    void aSecondStrokeCanUseEitherExactPatchBehaviorAfterTeleport(double scale, boolean switchPatch) throws Exception {
+    @CsvSource({"0.800000011920929, false", "1.0, true", "0.9, false"})
+    void aSecondStrokeStillUses12110AfterTeleport(double scale, boolean valid) throws Exception {
         try (var f = new JavaTickFixture()) {
             JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_1_21_9);
             Mockito.when(f.fixture.user.getPlayer().getWorld()).thenReturn(Mockito.mock(PlatformWorld.class));
             f.place(new Vec3(0.7, FLOOR_Y, 0.5), new Vec3(0, -0.0784000015258789, 0));
             f.input(new ServerboundPlayerInput(false, false, false, false, false, false, false));
-            var first = shoveThroughBerry(f, 0, scale);
+            var first = shoveThroughBerry(f, 0, 1.0);
             assertTrue(exact(first), () -> describe(first));
             f.playerPosition(new Vec3(0.7, FLOOR_Y, 3.5), Vec3.ZERO, Set.of());
-            double nextScale = switchPatch ? (scale == 1.0 ? 0.800000011920929 : 1.0) : scale;
-            var second = shoveThroughBerry(f, 3, nextScale);
-            assertTrue(exact(second), () -> describe(second));
+            assertTrue(exact(f.tick(new Vec3(0.7, FLOOR_Y, 3.5), false)));
+            var second = shoveThroughBerry(f, 3, scale);
+            assertEquals(valid, exact(second), () -> describe(second));
         }
     }
 
     /** handleMovePlayer adds a relative coordinate to the physical piston position, before the next travel report. */
     @ParameterizedTest
-    @CsvSource({"0.800000011920929, true", "1.0, true", "0.9, false"})
-    void aRelativeTeleportCanEchoEitherExactPistonStartButNotTheGap(double scale, boolean valid) throws Exception {
+    @CsvSource({"0.800000011920929, false", "1.0, true", "0.9, false"})
+    void aRelativeTeleportUsesOnlyThe12110PistonStart(double scale, boolean valid) throws Exception {
         try (var f = new JavaTickFixture()) {
             JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_1_21_9);
             Mockito.when(f.fixture.user.getPlayer().getWorld()).thenReturn(Mockito.mock(PlatformWorld.class));
@@ -135,7 +135,7 @@ class JavaProtocol773PistonTest {
                     ClientPistonDeltas.NONE);
             var patches = modernFirst
                     ? List.of(JavaMovementPatch.V_1_21_10, JavaMovementPatch.V_1_21_9)
-                    : JavaMovementPatch.PROTOCOL_773;
+                    : List.of(JavaMovementPatch.V_1_21_9, JavaMovementPatch.V_1_21_10);
             var states = new ArrayList<JavaPredictionCarry.State>();
             for (var patch : patches) {
                 var after = JavaBlockEntityPass.run(
@@ -185,7 +185,8 @@ class JavaProtocol773PistonTest {
 
     private static PredictionResult shoveThroughBerry(JavaTickFixture f, int z, double scale) {
         Vec3 first = firstBerryShove(f, z);
-        return f.tick(first.add(0.5 * scale, 0, 0), true);
+        // The horizontal piston clears onGround and motion; the next zero-Y travel has no ground collision.
+        return f.tick(first.add(0.5 * scale, 0, 0), false);
     }
 
     private static Vec3 firstBerryShove(JavaTickFixture f, int z) {

@@ -2,6 +2,7 @@ package ac.cult.cultac.network;
 
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -9,7 +10,6 @@ import ac.cult.blocksim.data.BlockRegistry;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.EntityPositionWorlds;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -24,40 +24,25 @@ import ac.cult.cultac.protocol.value.EntityDelta;
 import ac.cult.cultac.protocol.value.Relative;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 
 class JavaProtocol773RemotePistonTest {
     private static final BlockRegistry BLOCKS = DataTables.defaults().registry();
 
-    /** AbstractBoat#canVehicleCollide clips against either retained zombie position, one box per move. */
-    @ParameterizedTest
-    @ValueSource(ints = {0, 1})
-    void aControlledBoatCollidesWithEitherRetainedPistonPosition(int path) throws Exception {
-        boatCollision(path, false);
-    }
-
+    /** A controlled boat reaches the zombie's one 1.21.10 collision face and completes prediction. */
     @Test
-    void aControlledBoatCannotInventAStopBetweenTheRetainedPistonPositions() throws Exception {
-        boatCollision(0, true);
-    }
-
-    private static void boatCollision(int path, boolean between) throws Exception {
+    void aControlledBoatCollidesWithTheAssumed12110PistonPosition() throws Exception {
         try (var f = new JavaTickFixture()) {
             PacketEntity actor = pushedActor(f);
-            var before = positions(actor);
-            Vec3 park = new Vec3(4.5, FLOOR_Y, 4.5);
+            double x = positions(actor).getFirst();
             for (int i = 0; i < 3; i++) {
-                f.tick(park, true);
-                assertEquals(before, positions(actor));
+                f.tick(new Vec3(4.5, FLOOR_Y, 4.5), true);
+                assertPosition(actor, x);
             }
-            double face = before.get(path) + (double) (0.6F / 2);
+            double face = x + (double) (0.6F / 2);
             Vec3 start = new Vec3(2.7, FLOOR_Y, 0.5);
             f.place(start, Vec3.ZERO);
             f.player.compensatedEntities.addEntity(101, EntityTypeIds.OAK_BOAT, start, 0, 0, 0);
@@ -65,69 +50,32 @@ class JavaProtocol773RemotePistonTest {
             f.setPassengers(101, List.of(f.player.entityID));
             f.pongThrough(f.player.lastTransactionSent.get());
             f.rideTick(start, true);
-            assertEquals(before, positions(actor));
             f.player.checkManager.getSimulationProcessor().seedStartingVelocity(new Vec3(-2, 0, 0));
-            double targetFace = between ? face + (before.get(1) - before.get(0)) / 2 : face;
-            var result = f.rideTick(new Vec3(targetFace + 1.375 / 2, FLOOR_Y, 0.5), true);
-            if (between) {
-                assertEquals((before.get(1) - before.get(0)) / 2, result.getOffset(), 1e-12);
-                assertTrue(result.getFlags().stream()
-                        .anyMatch(flag -> flag.getCheck().getCheckName().equals("VehicleOffset")));
-                return;
-            }
+            var result = f.rideTick(new Vec3(face + 1.375 / 2, FLOOR_Y, 0.5), true);
             JavaTickFixture.assertVehicleExact(result, 0);
             var collision = assertInstanceOf(JavaMoveCollision.class, result.getCollideAxisData());
-            assertEquals(1, collision.entities().size(), "one position of the zombie clips the whole move");
+            assertEquals(1, collision.entities().size());
             assertEquals(face, collision.entities().getFirst().maxX, 1e-12);
             assertTrue(collision.collidedX());
         }
     }
 
-    /** A position outside EntityGetter's query contributes no shape, even when another valid position intersects. */
+    /** Protocol 773 assumes 1.21.10: the unscaled piston position persists until interpolation moves it. */
     @Test
-    void aCollisionWorldMayLeaveTheZombieOutsideTheQuery() throws Exception {
-        try (var f = new JavaTickFixture()) {
-            PacketEntity actor = pushedActor(f);
-            var before = positions(actor);
-            double halfWidth = (double) (0.6F / 2);
-            var query = new SimpleCollisionBox(
-                    before.get(0) + halfWidth + 0.02, FLOOR_Y, 0.4,
-                    before.get(1) + halfWidth - 0.02, FLOOR_Y + 0.1, 0.6);
-            Vec3 at = new Vec3(2.7, FLOOR_Y, 0.5);
-            f.player.compensatedEntities.addEntity(101, EntityTypeIds.OAK_BOAT, at, 0, 0, 0);
-            var boat = f.player.compensatedEntities.getEntity(101);
-            var worlds = EntityPositionWorlds.forActor(f.player, boat, at, query);
-            assertEquals(2, worlds.size());
-            assertEquals(1, worlds.stream().filter(List::isEmpty).count());
-            assertEquals(before.get(1) + halfWidth, worlds.stream()
-                    .filter(world -> !world.isEmpty()).findFirst().orElseThrow().getFirst().maxX, 1e-12);
-            actor.onBundledPositionSyncTransaction(3.5, FLOOR_Y, 0.5, f.player);
-            for (int i = 0; i < 3; i++) actor.onMovement(f.player);
-            assertTrue(EntityPositionWorlds.noEntities(EntityPositionWorlds.forActor(f.player, boat, at, query)));
-            var converged = EntityPositionWorlds.forActor(
-                    f.player, boat, at, new SimpleCollisionBox(3, FLOOR_Y, 0, 4, FLOOR_Y + 1, 1));
-            assertEquals(1, converged.size(), "equivalent positions produce one collision world");
-            assertEquals(1, converged.getFirst().size());
-        }
-    }
-
-    /** Remote Entity#move also consumes berry speed; both clients keep the resulting physical position at rest. */
-    @Test
-    void bothRemotePistonPositionsSurviveIdleTicksAndThenFollowTheirOwnInterpolation() throws Exception {
+    void theAssumed12110PistonPositionSurvivesIdleTicksAndFollowsInterpolation() throws Exception {
         try (var f = new JavaTickFixture()) {
             PacketEntity actor = pushedActor(f);
             Vec3 park = new Vec3(4.5, FLOOR_Y, 4.5);
             double first = 0.5 + (double) (0.6F / 2) + 0.01;
-            double oldPosition = first + 0.5 * 0.8F;
             double newPosition = first + 0.5;
-            assertPositions(actor, oldPosition, newPosition);
+            assertPosition(actor, newPosition);
             for (int i = 0; i < 3; i++) {
                 f.tick(park, true);
-                assertPositions(actor, oldPosition, newPosition);
+                assertPosition(actor, newPosition);
             }
             actor.onBundledPositionSyncTransaction(3.5, FLOOR_Y, 0.5, f.player);
             actor.onMovement(f.player);
-            assertPositions(actor, oldPosition + (3.5 - oldPosition) / 3, newPosition + (3.5 - newPosition) / 3);
+            assertPosition(actor, newPosition + (3.5 - newPosition) / 3);
             actor.onMovement(f.player);
             actor.onMovement(f.player);
             for (double x : positions(actor)) assertEquals(3.5, x, 1e-12);
@@ -136,9 +84,9 @@ class JavaProtocol773RemotePistonTest {
         }
     }
 
-    /** PositionMoveRotation.of reads each path's live position; two packets before a proof compose per path. */
+    /** PositionMoveRotation.of composes relative packets from the one assumed client position. */
     @Test
-    void relativeTeleportsBeforeTheirProofPreserveBothPistonAnchors() throws Exception {
+    void relativeTeleportsBeforeTheirProofPreserveThe12110PistonAnchor() throws Exception {
         try (var f = new JavaTickFixture()) {
             PacketEntity actor = pushedActor(f);
             var starts = positions(actor);
@@ -151,16 +99,14 @@ class JavaProtocol773RemotePistonTest {
                 event.tasksAfter().forEach(Runnable::run);
             }
             f.pongThrough(f.player.lastTransactionSent.get());
-            var targets = new ArrayList<Double>();
-            assertTrue(actor.runPistonPatchStates(() -> targets.add(actor.newPacketLocation.targetCenterX())));
-            targets.sort(Double::compare);
-            assertEquals(List.of(starts.get(0) + 3, starts.get(1) + 3), targets);
+            assertEquals(starts.getFirst() + 3, actor.newPacketLocation.targetCenterX(), 1e-12);
+            assertFalse(actor.hasPistonPatchStates());
         }
     }
 
-    /** ClientPacketListener's motion and ground writes affect both source paths without changing their positions. */
+    /** Motion and ground packets update the assumed client state without changing its position. */
     @Test
-    void normalPacketMotionAndGroundReachBothPistonPaths() throws Exception {
+    void normalPacketMotionAndGroundReachThe12110PistonState() throws Exception {
         try (var f = new JavaTickFixture()) {
             PacketEntity actor = pushedActor(f);
             var before = positions(actor);
@@ -177,10 +123,9 @@ class JavaProtocol773RemotePistonTest {
             f.player.packetEntityReplication.onMoveEntity(groundEvent, f.player, ground);
             groundEvent.tasksAfter().forEach(Runnable::run);
             f.pongThrough(f.player.lastTransactionSent.get());
-            assertTrue(actor.runPistonPatchStates(() -> {
-                assertEquals(velocity, actor.deltaMovement);
-                assertTrue(actor.onGround);
-            }));
+            assertEquals(velocity, actor.deltaMovement);
+            assertTrue(actor.onGround);
+            assertFalse(actor.hasPistonPatchStates());
             assertEquals(before, positions(actor));
         }
     }
@@ -223,10 +168,10 @@ class JavaProtocol773RemotePistonTest {
                 .toList();
     }
 
-    private static void assertPositions(PacketEntity entity, double oldPosition, double newPosition) {
+    private static void assertPosition(PacketEntity entity, double x) {
         var positions = positions(entity);
-        assertEquals(2, positions.size(), positions.toString());
-        assertEquals(oldPosition, positions.get(0), 1e-12);
-        assertEquals(newPosition, positions.get(1), 1e-12);
+        assertEquals(1, positions.size(), positions.toString());
+        assertEquals(x, positions.getFirst(), 1e-12);
+        assertFalse(entity.hasPistonPatchStates());
     }
 }
