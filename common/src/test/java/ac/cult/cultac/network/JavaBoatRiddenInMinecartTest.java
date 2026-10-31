@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.blocksim.data.BlockDefinition;
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.entity.EntityTypeIds;
@@ -15,6 +16,7 @@ import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsVehicle;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.events.packets.listeners.PacketBlockAction;
 import ac.cult.cultac.events.packets.worldreader.PacketWorldReaderTwentySix;
 import ac.cult.cultac.manager.config.BaseConfigManager;
@@ -34,6 +36,7 @@ import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
+import ac.cult.cultac.utils.enums.BoatEntityStatus;
 import ac.cult.cultac.utils.math.Vec3;
 import java.lang.reflect.Field;
 import java.util.List;
@@ -335,6 +338,84 @@ class JavaBoatRiddenInMinecartTest {
             eject(f);
             assertExact(f.rideTick(seat.add(0, -.08, 0), false));
         }
+    }
+
+    @ParameterizedTest(name = "{0}: water in a nested boat's baseTick resets its fall distance")
+    @MethodSource("ac.cult.cultac.network.JavaPistonReleaseCases#releases")
+    void waterResetsANestedBoatsFallDistance(String release, ClientVersion version) throws Exception {
+        fluidBaseTick(version, BlockIds.WATER, 0);
+    }
+
+    @ParameterizedTest(name = "{0}: lava in a nested boat's baseTick halves its fall distance")
+    @MethodSource("ac.cult.cultac.network.JavaPistonReleaseCases#releases")
+    void lavaHalvesANestedBoatsFallDistance(String release, ClientVersion version) throws Exception {
+        fluidBaseTick(version, BlockIds.LAVA, .5);
+    }
+
+    /**
+     * A boat falls 3.12 blocks, then rides a minecart while it stands in {@code fluid}. That first ridden tick's
+     * Entity#baseTick scales the fall distance by {@code kept}, and AbstractBoat#checkFallDamage never changes a
+     * passenger's. Ejected above powder snow, the boat falls into it: PowderSnowBlock#getCollisionShape gives its 0.9
+     * surface only to an entity whose fall distance exceeds 2.5.
+     */
+    private static void fluidBaseTick(ClientVersion version, BlockDefinition fluid, double kept) throws Exception {
+        try (var f = new JavaTickFixture();
+                var ignored = observeOnly()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
+            Vec3 at = new Vec3(.5, FLOOR_Y + 12, .5);
+            f.place(at, Vec3.ZERO);
+            f.player.xRot = 0;
+            f.player.yRot = 0;
+            f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, at, 0, 0, 0);
+            PacketEntity boat = f.player.compensatedEntities.getEntity(BOAT);
+            boat.boatStatus = BoatEntityStatus.IN_AIR;
+            f.setPassengers(BOAT, List.of(f.player.entityID));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            f.input(NONE);
+            // floatBoat's air gravity: twelve ticks fall .04 + .08 + ... + .48.
+            double velocity = 0;
+            for (int tick = 0; tick < 12; tick++) {
+                velocity -= .04;
+                at = at.add(0, velocity, 0);
+                assertExact(f.rideTick(at, false));
+            }
+            double fell = boatFallDistance(f);
+            // 1.21.4's Entity#move skips checkFallDamage for a client-controlled vehicle: its boat accumulates none.
+            assertEquals(version == ClientVersion.V_1_21_4 ? 0 : 3.12, fell, 1e-5, "the root fall");
+            // The first ridden tick starts where the boat fell, before positionRider seats it on the minecart.
+            for (int x = -1; x <= 1; x++)
+                for (int y = FLOOR_Y + 8; y <= FLOOR_Y + 9; y++)
+                    for (int z = -1; z <= 1; z++)
+                        f.player.compensatedWorld.updateBlock(new BlockPos(x, y, z), fluid.defaultState());
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            Vec3 cart = new Vec3(3.5, FLOOR_Y + 3.75, .5);
+            f.player.compensatedEntities.addEntity(MINECART, minecart(), cart, 0, 0, 0);
+            f.setPassengers(MINECART, List.of(BOAT));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            f.rideTick();
+            assertEquals(fell * kept, boatFallDistance(f), 1e-12, "the fall distance baseTick left");
+            // A ridden tick on the seat, clear of the fluid: rideTick zeroes the delta and floatBoat leaves -0.04.
+            f.rideTick();
+            Vec3 seat = cart.add(0, .1875, 0);
+            assertPosition(seat, boat);
+            assertEquals(fell * kept, boatFallDistance(f), 1e-12, "a passenger's checkFallDamage");
+            // The powder snow's 0.9 surface (y=67.9) lies within the ejected boat's .08 fall from its seat.
+            for (int x = 2; x <= 4; x++)
+                for (int z = -1; z <= 1; z++)
+                    f.player.compensatedWorld.updateBlock(
+                            new BlockPos(x, FLOOR_Y + 3, z), BlockIds.POWDER_SNOW.defaultState());
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            eject(f);
+            assertExact(f.rideTick(seat.add(0, -.08, 0), false));
+        }
+    }
+
+    /** The fall distance the boat's last tick, reported or not, carries into its next one. */
+    private static double boatFallDistance(JavaTickFixture f) {
+        var carry = f.player.checkManager.getSimulationProcessor().getCurrentPredictionCarry();
+        var boat = f.player.compensatedEntities.getEntity(BOAT);
+        assertTrue(carry instanceof JavaPredictionCarry java && java.actor() == boat, "no carry for the boat");
+        return ((JavaPredictionCarry) carry).fallDistance();
     }
 
     private static void assertPosition(Vec3 expected, PacketEntity entity) {

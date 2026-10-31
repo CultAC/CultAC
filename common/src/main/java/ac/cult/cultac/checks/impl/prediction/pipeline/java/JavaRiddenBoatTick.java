@@ -85,17 +85,20 @@ public final class JavaRiddenBoatTick {
                 var boatTick = BoatTransform.unreportedTick(player, context, yaw);
                 Vec3 from = start.add(0, boatTick.snapY(), 0);
                 Vec3 scanFrom = player.getClientVersion().isOlderThan(ClientVersion.V_1_21_5) ? start : from;
+                boolean water = touches(player, startBox, FluidTags.WATER);
+                boolean lava = touches(player, startBox, FluidTags.LAVA);
                 before = new JavaPassState(
                         from,
                         boatTick.velocity(),
                         before.onGround(),
                         before.support(),
                         before.stuckSpeed(),
-                        before.fallDistance(),
+                        // AbstractBoat#checkFallDamage leaves a passenger's distance alone; only baseTick changes it.
+                        JavaFallDistance.afterBaseTick(player.getClientVersion(), before.fallDistance(), water, lava),
                         before.pistonDeltas(),
                         false,
-                        touches(player, startBox, FluidTags.WATER),
-                        touches(player, startBox, FluidTags.LAVA));
+                        water,
+                        lava);
                 var env = new JavaBlockEntityMove.Environment(
                         player,
                         context,

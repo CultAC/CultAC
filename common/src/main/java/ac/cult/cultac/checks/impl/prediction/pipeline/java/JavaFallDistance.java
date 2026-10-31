@@ -65,6 +65,14 @@ public final class JavaFallDistance {
         return reset ? 0.0 : distance;
     }
 
+    /**
+     * Entity#baseTick's own fall-distance writes, before the entity moves: water contact resets the distance in the
+     * water update (updateFluidInteraction from 26.1), then lava contact halves it.
+     */
+    static double afterBaseTick(ClientVersion version, double distance, boolean water, boolean lava) {
+        return storedDistance(version, beforeMove(distance, lava, water, false, 0));
+    }
+
     public record Moved(
             double fallDistance,
             Vec3 movement,
