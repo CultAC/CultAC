@@ -2081,7 +2081,7 @@ public class PacketEntity {
             return boxes;
         }
         List<SimpleCollisionBox> view = tickPositionView();
-        if (view != null) return view;
+        if (view != null) return tickPositions.shareable(view);
         if (pistonStates != null && pistonStates.other() != null) {
             int count = possibleMovementCollisionBoxCandidateCount();
             var candidates = new ArrayList<SimpleCollisionBox>(count);
