@@ -63,6 +63,7 @@ import ac.cult.cultac.utils.nmsutil.NextTickVelocityDeriver;
 import ac.cult.cultac.utils.nmsutil.VelocityCandidates;
 import ac.grim.grimac.api.event.events.GrimPlayerSetbackEvent;
 import ac.grim.grimac.api.event.events.GrimTeleportEvent;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Random;
@@ -151,6 +152,9 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
     private SetBackData droppedVehicleSetback = null;
     private volatile BedrockVehicleSetback bedrockVehicleSetback;
     public SetbackPosWithVector lastKnownGoodPosition;
+    // The Java prediction whose commit gives this safe state the deltaMovement it carries on.
+    private PredictionResult uncommittedSafeCarry;
+    private SetbackPosWithVector uncommittedSafeState;
     // The position of the last Bedrock movement packet actually forwarded to
     // Paper (Geyser's Java projection or a teleport echo), captured at the
     // packet level after all cancellation decisions. Never derived from
@@ -192,6 +196,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
 
         Vec3 afterTickFriction = Vec3.ZERO;
         PredictionSetbackState profileState = null;
+        PredictionResult carriedBy = null;
         if (player.isBedrockMovement()) {
             profileState = MovementEngines.requireForProfile(MovementProfiles.forPlayer(player))
                     .captureSetbackState(predictionComplete.getPreparedCommit());
@@ -201,6 +206,9 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             }
         } else if (!predictionComplete.isTeleport()) {
             final PredictionResult result = predictionComplete.getPredictionResult();
+            // An estimate only for a setback this prediction's later listeners request:
+            // onJavaPredictionCommitted replaces it with the deltaMovement the commit carries.
+            carriedBy = result;
             PredVector initialVel = result.getInitialStartingVel();
             final SimulationContext context = result.getSimulationContext();
             final PredictionResult previousResult =
@@ -260,6 +268,8 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             if (!completedPrediction.getSetBackData().isBedrockTransportOnly()) {
                 lastKnownGoodPosition =
                         new SetbackPosWithVector(to, afterTickFriction, player.totalFlyingPacketsSent, profileState);
+                uncommittedSafeCarry = carriedBy;
+                uncommittedSafeState = lastKnownGoodPosition;
                 lastKnownGoodPosition.setSprintOutcomes(SimulationProcessor.sprintOutcomesAfter(
                         player, predictionComplete.isTeleport() ? null : completedPrediction));
             }
@@ -274,11 +284,28 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             // As we didn't setback here, the new position is known to be safe!
             lastKnownGoodPosition =
                     new SetbackPosWithVector(to, afterTickFriction, player.totalFlyingPacketsSent, profileState);
+            uncommittedSafeCarry = carriedBy;
+            uncommittedSafeState = lastKnownGoodPosition;
             lastKnownGoodPosition.setSprintOutcomes(SimulationProcessor.sprintOutcomesAfter(
                     player, predictionComplete.isTeleport() ? null : completedPrediction));
         }
 
         if (requiredSetBack != null) requiredSetBack.tick();
+    }
+
+    /**
+     * SimulationProcessor committed {@code result}, carrying {@code carried} into the next client tick, the selected
+     * travel's first. That is the deltaMovement LivingEntity#travel left after Entity#move cleared each collided axis
+     * and the travel's friction: the velocity of a safe state taken from this prediction.
+     */
+    public void onJavaPredictionCommitted(PredictionResult result, Collection<Vec3> carried) {
+        SetbackPosWithVector state = uncommittedSafeState;
+        if (uncommittedSafeCarry != result) return;
+        uncommittedSafeCarry = null;
+        uncommittedSafeState = null;
+        // A setback sent from this state in the meantime keeps the velocity it sent.
+        if (state != lastKnownGoodPosition || isPendingSetback() || carried.isEmpty()) return;
+        state.setVector(carried.iterator().next());
     }
 
     public void executeForceResync(String cause) {
