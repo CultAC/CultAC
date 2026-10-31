@@ -1374,6 +1374,7 @@ public class CompensatedEntities {
         boolean controlled = vehicles.canClientAuthoritativelyMoveVisibleRoot(entity);
         for (EquipmentEntry slot : slots) {
             updateSelfEquipment(entityID, slot.slot(), slot.item());
+            if (entity instanceof PacketEntityPlayer remote) remote.onEquipment(slot.slot(), slot.item());
 
             if (slot.slot() == EquipmentSlot.SADDLE) {
                 entity.saddleItem = slot.item();

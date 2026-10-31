@@ -3,6 +3,7 @@ package ac.cult.cultac.utils.data.packetentity;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.inventory.ItemTypes;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.WaterCurrent;
@@ -53,6 +54,7 @@ public class PacketEntityRideable extends PacketEntity {
         if (!commonInterpolation) baseTick(player);
         super.onMovement(player);
         if (commonInterpolation) baseTick(player);
+        tickRemoteControlledBoost(player);
     }
 
     @Override
@@ -90,5 +92,21 @@ public class PacketEntityRideable extends PacketEntity {
         if (water != null) velocity = velocity.add(water);
         Vec3 lava = WaterCurrent.calculateNonPlayerLavaCurrent(player, box, velocity);
         return lava == null ? velocity : velocity.add(lava);
+    }
+
+    /**
+     * LivingEntity#aiStep calls travelRidden for any controlling player, and Pig/Strider#tickRidden advance the boost
+     * there before travelRidden tests canSimulateMovement. So this client advances the boost while a remote player
+     * steers the mount. The local controller's ticks are counted from its Rot -> MoveVehicle instead.
+     */
+    private void tickRemoteControlledBoost(CultPlayer player) {
+        if (player.isBedrockMovement() || !actionAlive || !hasSaddle || passengers.isEmpty()) return;
+        // Pig/Strider#getControllingPassenger: the first passenger, if a player holding the steering item.
+        var steering = type == EntityTypeIds.PIG ? ItemTypes.CARROT_ON_A_STICK : ItemTypes.WARPED_FUNGUS_ON_A_STICK;
+        if (passengers.getFirst() instanceof PacketEntityPlayer controller
+                && controller.actionPresent
+                && controller.isHolding(steering)) {
+            boost.tick(player.packetStateData.acceptedClientTick);
+        }
     }
 }

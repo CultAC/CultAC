@@ -1284,8 +1284,12 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 return;
             }
         }
-        player.latencyUtils.addRealTimeTaskNow(
-                () -> player.compensatedEntities.updateEntityEquipment(packet.entityId(), packet.slots()));
+        // As with handleSetEntityData, ClientPacketListener#handleSetEquipment writes the slots in the flush
+        // bundle's task. A remote rider's hands decide whether it steers a pig or strider from the next tick.
+        int flushProof = player.appendFlushProofTransaction(event);
+        Runnable apply = () -> player.compensatedEntities.updateEntityEquipment(packet.entityId(), packet.slots());
+        if (flushProof > 0) player.latencyUtils.addRealTimeTask(flushProof, apply);
+        else player.latencyUtils.addRealTimeTaskNow(apply);
     }
 
     private void handleUpdateMobEffect(
