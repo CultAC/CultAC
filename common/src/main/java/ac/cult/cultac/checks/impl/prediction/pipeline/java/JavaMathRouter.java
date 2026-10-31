@@ -42,6 +42,7 @@ public final class JavaMathRouter {
                                 || world.isInLiquid()
                                 || world.getClimbingAtStart() != DesyncStatus.FALSE)
                 || vertical && (context.isGliding() || world.isSwimming())
+                || JavaEntityVelocityTicks.readsLookAfterTravel(result.getPlayer(), context)
                 || use != null && use.state().required() && use.slowedOffset() > reportRounding(context);
         boolean mismatch = !result.getFlags().isEmpty() || result.selectionOffset() > reportRounding(context);
         return (mismatch || hidden) && !samePlayerTables(context);

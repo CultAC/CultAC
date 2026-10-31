@@ -108,7 +108,13 @@ public final class JavaMovementEngine implements MovementEngine {
         // handleOnClimbable and Entity#move: each candidate carries one exact input from here on.
         var candidates = new ArrayList<PredVector>(input.size() * 2);
         Boolean requested = player.trigHandler.getPredictionMath();
-        int modes = requested != null || JavaMathRouter.samePlayerTables(context) ? 1 : 2;
+        boolean sameTables = JavaMathRouter.samePlayerTables(context);
+        // A state the other table left travels only in its own: that table's attempt runs it.
+        Boolean carried = carriedTable(context);
+        if (carried != null && requested != null && carried != requested.booleanValue() && !sameTables)
+            return new ArrayList<>();
+        if (carried != null) requested = carried;
+        int modes = requested != null || sameTables ? 1 : 2;
         for (int mode = 0; mode < modes; mode++) {
             boolean vanilla = requested != null ? requested : mode == 0;
             var starts = new ArrayList<PredVector>(input.size());
@@ -258,10 +264,12 @@ public final class JavaMovementEngine implements MovementEngine {
         List<PredictionResult> family = result.getValidMovements().debugCarried();
         if (collisionAlternatives.isEmpty() && !boxed && family.isEmpty()) return selected;
         boolean exact = contextUsesExactEffects(result.getSimulationContext());
+        // With both trig tables committed, each state keeps the table it travelled with until a report decides.
+        boolean bothTables = committedBothTables(result, collisionAlternatives, family);
         // Each alternative has already proved its own collisions. Commit its velocity with its own block effects.
         boolean replacePartialWater = replacesPartialWaterInput(result, collisionAlternatives);
         var states = new LinkedHashSet<JavaPredictionCarry.State>();
-        if (!replacePartialWater) states.addAll(commitStates(selected));
+        if (!replacePartialWater) states.addAll(withTable(commitStates(selected), result, bothTables));
         // Which spin outcomes each committed candidate reached; -1 once two disagree.
         int spinOutcomes = spinOutcomes(commitStates(selected));
         if (!family.isEmpty()) {
@@ -271,8 +279,10 @@ public final class JavaMovementEngine implements MovementEngine {
                 if (reading == result) continue;
                 NextTickVelocityDeriver.Scratch nested = scratch.take();
                 try {
-                    var readingStates =
-                            commitStates(commitCandidate(player, reading, lastPrediction, acceptedDiff, nested));
+                    var readingStates = withTable(
+                            commitStates(commitCandidate(player, reading, lastPrediction, acceptedDiff, nested)),
+                            reading,
+                            bothTables);
                     states.addAll(readingStates);
                     spinOutcomes = agreed(spinOutcomes, readingStates);
                 } finally {
@@ -291,7 +301,7 @@ public final class JavaMovementEngine implements MovementEngine {
                                         .getEnd()
                                         .subtract(other.getSimulationContext().getStart());
                 PredictionCommit alternative = commitCandidate(player, other, lastPrediction, otherDiff, nested);
-                states.addAll(commitStates(alternative));
+                states.addAll(withTable(commitStates(alternative), other, bothTables));
                 spinOutcomes = agreed(spinOutcomes, commitStates(alternative));
             } finally {
                 nested.release();
@@ -320,6 +330,41 @@ public final class JavaMovementEngine implements MovementEngine {
                         exact ? stateList : List.of(),
                         carry.powderContact()),
                 velocities);
+    }
+
+    /** Whether the committed candidates travelled with both trig tables. */
+    private static boolean committedBothTables(
+            PredictionResult selected, List<PredictionResult> alternatives, List<PredictionResult> family) {
+        Boolean table = table(selected);
+        if (table == null) return false;
+        for (PredictionResult other : alternatives) if (Boolean.valueOf(!table).equals(table(other))) return true;
+        for (PredictionResult other : family) if (Boolean.valueOf(!table).equals(table(other))) return true;
+        return false;
+    }
+
+    private static Boolean table(PredictionResult candidate) {
+        var math = candidate.getInitialStartingVel() == null
+                ? null
+                : candidate.getInitialStartingVel().firstInLineage(JavaMovementMath.class);
+        return math == null ? null : math.vanilla();
+    }
+
+    /** {@code states} tagged with {@code candidate}'s trig table when both tables were committed, else with none. */
+    private static List<JavaPredictionCarry.State> withTable(
+            List<JavaPredictionCarry.State> states, PredictionResult candidate, boolean bothTables) {
+        if (!bothTables) return states;
+        Boolean table = table(candidate);
+        var tagged = new ArrayList<JavaPredictionCarry.State>(states.size());
+        for (var state : states) tagged.add(state.withVanillaMath(table));
+        return tagged;
+    }
+
+    /** The trig table {@code context}'s carried state is tied to, or null when either table may travel from it. */
+    public static Boolean carriedTable(SimulationContext context) {
+        return context.getProfileCarry() instanceof JavaPredictionCarry carry
+                        && carry.states().size() == 1
+                ? carry.states().getFirst().vanillaMath()
+                : null;
     }
 
     /** Which of LivingEntity#checkAutoSpinAttack's outcomes {@code states} hold: 1 without the rebound, 2 with. */

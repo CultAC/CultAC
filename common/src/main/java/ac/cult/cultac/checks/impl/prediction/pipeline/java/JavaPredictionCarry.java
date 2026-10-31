@@ -40,7 +40,8 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
                     state.playerEyeFluidContact(),
                     state.fluidTagOrder(),
                     state.spinRebound(),
-                    state.fallDistanceMax()));
+                    state.fallDistanceMax(),
+                    state.vanillaMath()));
         return withStates(next);
     }
 
@@ -75,7 +76,8 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
                             state.playerEyeFluidContact(),
                             state.fluidTagOrder(),
                             state.spinRebound(),
-                            state.fallDistanceMax()));
+                            state.fallDistanceMax(),
+                            state.vanillaMath()));
         }
         return next == null ? this : withStates(next);
     }
@@ -135,7 +137,8 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
                     state.playerEyeFluidContact(),
                     state.fluidTagOrder(),
                     state.spinRebound(),
-                    state.fallDistanceMax());
+                    state.fallDistanceMax(),
+                    state.vanillaMath());
             if (!transformed.contains(next)) transformed.add(next);
         }
         return new JavaPredictionCarry(actor, fallDistance, transformed, powderContact);
@@ -161,7 +164,34 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
             int playerEyeFluidContact,
             ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder fluidTagOrder,
             boolean spinRebound,
-            double fallDistanceMax) {
+            double fallDistanceMax,
+            Boolean vanillaMath) {
+        /** A state either trig table may travel from. */
+        public State(
+                Vec3 velocity,
+                double fallDistance,
+                Vec3 stuckSpeed,
+                JavaMovementPatch movementPatch,
+                PistonStart pistonStart,
+                boolean powderContact,
+                int playerEyeFluidContact,
+                ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder fluidTagOrder,
+                boolean spinRebound,
+                double fallDistanceMax) {
+            this(
+                    velocity,
+                    fallDistance,
+                    stuckSpeed,
+                    movementPatch,
+                    pistonStart,
+                    powderContact,
+                    playerEyeFluidContact,
+                    fluidTagOrder,
+                    spinRebound,
+                    fallDistanceMax,
+                    null);
+        }
+
         public State(
                 Vec3 velocity,
                 double fallDistance,
@@ -197,7 +227,27 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
                     playerEyeFluidContact,
                     fluidTagOrder,
                     spinRebound,
-                    high);
+                    high,
+                    vanillaMath);
+        }
+
+        /**
+         * This state as only {@code vanilla}'s trig table left it, or as either table may when null: committed beside
+         * the other table's state, a candidate keeps the table it travelled with until a report tells them apart.
+         */
+        public State withVanillaMath(Boolean vanilla) {
+            return new State(
+                    velocity,
+                    fallDistance,
+                    stuckSpeed,
+                    movementPatch,
+                    pistonStart,
+                    powderContact,
+                    playerEyeFluidContact,
+                    fluidTagOrder,
+                    spinRebound,
+                    fallDistanceMax,
+                    vanilla);
         }
 
         /** Whether the fall distance is a range rather than one value. */
@@ -255,7 +305,8 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
                     playerEyeFluidContact,
                     fluidTagOrder,
                     spinRebound,
-                    fallDistanceMax);
+                    fallDistanceMax,
+                    vanillaMath);
         }
 
         /** WATER membership at refresh; the raw cache is the state carried into later queries. */
@@ -315,7 +366,8 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
                     playerEyeFluidContact,
                     fluidTagOrder,
                     spinRebound,
-                    fallDistanceMax);
+                    fallDistanceMax,
+                    vanillaMath);
         }
 
         public State withFluidTagOrder(ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder order) {
@@ -329,7 +381,8 @@ public record JavaPredictionCarry(PacketEntity actor, double fallDistance, List<
                     playerEyeFluidContact,
                     order,
                     spinRebound,
-                    fallDistanceMax);
+                    fallDistanceMax,
+                    vanillaMath);
         }
 
         public State {

@@ -445,7 +445,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                             end.playerEyeFluidContact(),
                             state.fluidTagOrder(),
                             state.spinRebound())
-                    .withFallDistance(end.fallDistance(), fallHigh);
+                    .withFallDistance(end.fallDistance(), fallHigh)
+                    .withVanillaMath(state.vanillaMath());
             if (!after.contains(next)) after.add(next);
         }
         if (movedSelf) this.hardCollisionAfterPass = passHard;
@@ -771,15 +772,25 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         var states = new ArrayList<JavaPredictionCarry.State>();
         Vec3 end = new Vec3(this.player.x, this.player.y, this.player.z);
         var carried = carry.states();
-        var velocities = new ArrayList<Vec3>(carried.size());
-        for (var state : carried) velocities.add(state.velocity());
-        var pushed = ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaEntityVelocityTicks.afterPlayerTick(
-                this.player, context, this.lastPrediction.getInitialStartingVel(), end, velocities);
-        for (int i = 0; i < carried.size(); i++) {
-            var state = carried.get(i);
-            for (Vec3 velocity : pushed.get(i)) {
-                var next = state.withVelocity(velocity);
-                if (!states.contains(next)) states.add(next);
+        // A rocket reads Entity#getLookAngle with the trig table each state travelled with; untied states with the
+        // committed travel's.
+        for (Boolean table : new Boolean[] {null, Boolean.TRUE, Boolean.FALSE}) {
+            var group = new ArrayList<JavaPredictionCarry.State>(carried.size());
+            for (var state : carried) if (java.util.Objects.equals(table, state.vanillaMath())) group.add(state);
+            if (group.isEmpty()) continue;
+            var velocities = new ArrayList<Vec3>(group.size());
+            for (var state : group) velocities.add(state.velocity());
+            PredVector math = table == null
+                    ? this.lastPrediction.getInitialStartingVel()
+                    : new JavaMovementMath(new PredVector(Vec3.ZERO), table);
+            var pushed = ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaEntityVelocityTicks.afterPlayerTick(
+                    this.player, context, math, end, velocities);
+            for (int i = 0; i < group.size(); i++) {
+                var state = group.get(i);
+                for (Vec3 velocity : pushed.get(i)) {
+                    var next = state.withVelocity(velocity);
+                    if (!states.contains(next)) states.add(next);
+                }
             }
         }
         this.profileCarry = carry.withStates(states);
@@ -2457,6 +2468,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         Boolean previousRequest = trig.getPredictionMath();
         boolean previousMath = trig.isVanillaMath();
         boolean preferred = trig.isPreferredVanillaMath();
+        // States each trig table left travel only with that table: both attempts run while both remain.
+        boolean carriesPreferred = carriesTable(preferred);
+        boolean carriesOther = carriesTable(!preferred);
+        if (carriesOther && !carriesPreferred && !carriesUntagged()) preferred = !preferred;
         try {
             trig.setPredictionMath(preferred);
             trig.setVanillaMath(preferred);
@@ -2480,6 +2495,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                                     unread(player.checkManager.getExplosionHandler().secondBread))
                             != 0;
             if (JavaMathRouter.needsAlternate(first)
+                    || carriesPreferred && carriesOther
                     || missingImpulse && !JavaMathRouter.samePlayerTables(first.getSimulationContext())) {
                 trig.setPredictionMath(!preferred);
                 trig.setVanillaMath(!preferred);
@@ -2510,6 +2526,21 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             trig.setPredictionMath(previousRequest);
             trig.setVanillaMath(previousMath);
         }
+    }
+
+    /** Whether a carried state is tied to {@code vanilla}'s trig table. */
+    private boolean carriesTable(boolean vanilla) {
+        if (!(this.profileCarry instanceof JavaPredictionCarry carry)) return false;
+        for (var state : carry.states()) if (Boolean.valueOf(vanilla).equals(state.vanillaMath())) return true;
+        return false;
+    }
+
+    /** Whether a carried state, or the carry's absence of states, leaves the table to each attempt. */
+    private boolean carriesUntagged() {
+        if (!(this.profileCarry instanceof JavaPredictionCarry carry)
+                || carry.states().isEmpty()) return true;
+        for (var state : carry.states()) if (state.vanillaMath() == null) return true;
+        return false;
     }
 
     /** Both attempts share the same pre-tick state, and their complete traces feed the existing carry and checks. */

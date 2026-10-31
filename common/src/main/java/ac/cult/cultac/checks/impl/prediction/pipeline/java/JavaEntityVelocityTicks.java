@@ -43,6 +43,23 @@ public final class JavaEntityVelocityTicks {
         return afterPlayerTick(player, context, candidate, end, velocity);
     }
 
+    /**
+     * Whether a rocket ticking after LocalPlayer boosts this travel's stored velocity along Entity#getLookAngle: its
+     * trig table shows only in the next travel, never in this report.
+     */
+    public static boolean readsLookAfterTravel(CultPlayer player, SimulationContext context) {
+        if (player.isBedrockMovement()
+                || context.getVehicle() != null
+                || !context.isGliding()
+                || context.stopsFallFlyingAfterTravel()) return false;
+        var entities = context.getEntities();
+        long localOrder = entities.clientTickOrder(entities.getSelf());
+        boolean[] late = {false};
+        player.compensatedFireworks.forEachTickingRocket(
+                rocket -> late[0] |= rocket.tickingOrder(player) >= localOrder);
+        return late[0];
+    }
+
     /** Before 26.3, late entity ticks follow the report and are committed by CLIENT_TICK_END. */
     public static List<Vec3> afterPlayerTick(
             CultPlayer player, SimulationContext context, PredVector candidate, Vec3 end, Vec3 velocity) {
