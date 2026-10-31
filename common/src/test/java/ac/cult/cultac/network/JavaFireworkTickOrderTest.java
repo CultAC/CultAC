@@ -87,6 +87,51 @@ class JavaFireworkTickOrderTest {
         }
     }
 
+    /**
+     * Entity#baseTick discards a rocket that starts its tick below the world (Entity#checkBelowWorld) without stopping
+     * the rest of FireworkRocketEntity#tick: that tick still boosts, the following ones do not, long before the
+     * server's remove_entities arrives.
+     */
+    @ParameterizedTest
+    @EnumSource(
+            value = ClientVersion.class,
+            names = {"V_1_21_4", "V_26_3"})
+    void aRocketDiscardedBelowTheWorldBoostsThroughItsDiscardingTickOnly(ClientVersion version) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
+            double belowWorld = f.player.compensatedWorld.getMinY() - 64;
+            Vec3 position = new Vec3(0.5, belowWorld + 2.5, 0.5);
+            Vec3 velocity = new Vec3(0.05, -1.5, 0.05);
+            f.place(position, velocity);
+            f.player.isGliding = true;
+            f.player.pose = Pose.FALL_FLYING;
+            f.player.boundingBox = GetBoundingBox.getPlayerBoundingBox(f.player, position.x, position.y, position.z);
+            f.player.xRot = 0;
+            f.player.yRot = 60;
+            rocket(f, 100)
+                    .setPositionRaw(GetBoundingBox.getBoundingBoxFromPosAndSize(
+                            position.x, position.y, position.z, 0.25F, 0.25F));
+            // The rocket ticks after LocalPlayer: it starts each tick where its last tick put it, at the player.
+            double rocketY = position.y;
+            boolean present = true;
+            int unboosted = 0;
+            for (int tick = 0; tick < 5; tick++) {
+                var look = ReachUtils.getLook(f.player, f.player.xRot, f.player.yRot);
+                Vec3 movement = ElytraTransform.getElytraMovement(f.player, velocity, look, f.player.yRot, 0.08);
+                boolean boosts = present;
+                present &= rocketY >= belowWorld;
+                if (!boosts) unboosted++;
+                position = position.add(movement);
+                var result = f.tick(position, false);
+                assertFalse(result.hasEffectiveFlags(), JavaTickFixture.describe(result));
+                assertEquals(0.0, result.getOffset(), 1e-13, "tick " + tick + ": " + JavaTickFixture.describe(result));
+                velocity = boosts ? boost(movement, look) : movement;
+                rocketY = position.y;
+            }
+            assertEquals(2, unboosted);
+        }
+    }
+
     @Test
     void tickingMembershipOrderAndRemovalDetermineTheBoostCount() throws Exception {
         try (var f = new JavaTickFixture()) {

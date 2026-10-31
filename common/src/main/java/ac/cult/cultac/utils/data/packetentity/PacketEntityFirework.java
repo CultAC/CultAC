@@ -11,8 +11,12 @@ import ac.cult.cultac.utils.nmsutil.ReachUtils;
 
 /** FireworkRocketEntity's attachment cache; changing metadata does not replace an already resolved target. */
 public final class PacketEntityFirework extends PacketEntity {
+    private static final int PRESENT = Integer.MIN_VALUE;
+
     public int attachment = -1;
     private PacketEntity attachedEntity;
+    /** The client tick whose Entity#checkBelowWorld discarded this rocket from the client level. */
+    private int discardedAt = PRESENT;
 
     public PacketEntityFirework(CultPlayer player, int id, int type, Vec3 position) {
         super(player, id, type, position.x, position.y, position.z);
@@ -25,8 +29,23 @@ public final class PacketEntityFirework extends PacketEntity {
         return target == player.compensatedEntities.getSelf();
     }
 
+    /**
+     * Whether the client level still ticks this rocket in the client tick in progress. Entity#discard during a tick
+     * does not stop the rest of FireworkRocketEntity#tick, so the discarding tick still boosts.
+     */
+    public boolean inClientLevel(CultPlayer player) {
+        return discardedAt == PRESENT || discardedAt == player.packetStateData.acceptedClientTick;
+    }
+
     @Override
     public void onMovement(CultPlayer player) {
+        if (discardedAt != PRESENT) return;
+        // Entity#baseTick: Entity#checkBelowWorld discards the rocket from the position it starts its tick at,
+        // whether its own last tick or a server position placed it there.
+        if (!player.isBedrockMovement()
+                && clientPhysicalPosition != null
+                && clientPhysicalPosition.y < player.compensatedWorld.getMinY() - 64)
+            discardedAt = player.packetStateData.acceptedClientTick;
         super.onMovement(player);
         if (attachment < 0) return;
         if (attachedEntity == null) {

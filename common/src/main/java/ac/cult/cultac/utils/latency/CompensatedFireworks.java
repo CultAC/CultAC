@@ -60,6 +60,7 @@ public class CompensatedFireworks extends CultProcessor implements PostPredictio
             var entity = entities.getEntity(activeFireworks.getInt(i));
             if (entity instanceof PacketEntityFirework rocket
                     && rocket.boostsPlayer(player)
+                    && rocket.inClientLevel(player)
                     && (rocket.tickedThisTick(player) || entities.ticksInClientTick(rocket))
                     && (rocket.tickingOrder(player) < playerOrder) == beforePlayer) count++;
         }
@@ -72,6 +73,7 @@ public class CompensatedFireworks extends CultProcessor implements PostPredictio
             var entity = entities.getEntity(activeFireworks.getInt(i));
             if (entity instanceof PacketEntityFirework rocket
                     && rocket.boostsPlayer(player)
+                    && rocket.inClientLevel(player)
                     && (rocket.tickedThisTick(player) || entities.ticksInClientTick(rocket))) tick.accept(rocket);
         }
     }
