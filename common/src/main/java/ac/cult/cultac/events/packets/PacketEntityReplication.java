@@ -2271,50 +2271,38 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     }
 
     private void scheduleTransactionBoundMovement(EntityMovement movement, int firstTransaction) {
-        var bound = new TransactionBoundMovement(movement);
+        var bound = new TransactionBoundMovement(movement, firstTransaction);
         player.latencyUtils.addRealTimeTaskWithNextTransaction(firstTransaction, bound::apply, bound::settle);
     }
 
     /**
-     * A movement applied at its transaction and settled at the next one. The settling half waits in the applying
-     * half's place, and does nothing when the movement was not applied.
+     * A movement sent without the reach bundle delimiter, between the ping before it and the next one. Minecraft#runTick
+     * handles queued packets before each frame's client ticks, so a client tick between the two pongs may meet the move
+     * handled or not. Collision and prediction take it as a bundle would deliver it, handled with the ping before it:
+     * one compensated position per entity. Until the next ping proves it handled, the reach bounds also keep the
+     * position the entity would hold without it. The settling half waits in the applying half's place.
      */
     private final class TransactionBoundMovement {
         private final EntityMovement movement;
-        private final int entityId;
-        private final MovementKind kind;
-        private final int deltaMovementSequence;
-        private boolean applied;
-        private @Nullable PacketEntity unbundledPathEntity;
+        private @Nullable PacketEntity held;
+        private @Nullable Object reachLocation;
 
-        private TransactionBoundMovement(EntityMovement movement) {
+        private TransactionBoundMovement(EntityMovement movement, int firstTransaction) {
             this.movement = movement;
-            this.entityId = movement.entityId();
-            this.kind = movement.kind();
-            this.deltaMovementSequence = movement.deltaMovement().packetHandlerSequence();
+            movement.proofTransaction = firstTransaction;
         }
 
         private void apply() {
-            EntityMovement handled = movement.asHandled();
-            PacketEntity entity = applicableMovementEntity(handled);
-            if (entity == null) {
-                return;
+            PacketEntity entity = player.compensatedEntities.getEntity(movement.entityId());
+            if (entity != null && !shouldIgnoreEntityMovement(movement)) {
+                held = entity;
+                reachLocation = entity.holdUnbundledReachLocation();
             }
-            applyEntityRotationAndGround(entity, handled);
-            int unprovenPaths = entity.unprovenUnbundledPaths();
-            applyFirstMovement(entity, handled);
-            if (entity.unprovenUnbundledPaths() > unprovenPaths) unbundledPathEntity = entity;
-            markUncertainPosition(entity, handled);
-            applyDeltaMovementUpdate(entity, handled);
-            clearPacketHandlerDeltaMovement(handled);
-            player.compensatedEntities.updatePassengerPositions();
-            applied = true;
+            movement.run();
         }
 
         private void settle() {
-            if (!applied) return;
-            if (unbundledPathEntity != null) unbundledPathEntity.onUnbundledPathProven();
-            applySecondMovement(entityId, kind, deltaMovementSequence, false);
+            if (held != null) held.releaseUnbundledReachLocation(reachLocation);
         }
     }
 
@@ -2356,23 +2344,6 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                         && player.getClientVersion().isOlderThan(ClientVersion.V_26_3))) {
             entity.markPositionInexact();
         }
-    }
-
-    private void applyFirstMovement(PacketEntity entity, EntityMovement movement) {
-        if (entity.hasPistonPatchStates()
-                && entity.runPistonPatchStates(() -> applyFirstMovement(entity, movement.forEntity(entity)))) return;
-        // TODO: Figure out how to accomplish this pathing type interpolation without bundles
-        if (applyClientPath(entity, movement, false)) return;
-        entity.onFirstTransaction(
-                movement.relative(),
-                movement.hasPosition(),
-                movement.x(),
-                movement.y(),
-                movement.z(),
-                movement.hasRotation(),
-                movement.rotationYaw(),
-                movement.rotationPitch(),
-                player);
     }
 
     private void applyBundleFirstMovement(PacketEntity entity, EntityMovement movement) {

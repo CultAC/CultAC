@@ -200,6 +200,8 @@ public class PacketEntity {
     }
 
     public ReachInterpolationData oldPacketLocation;
+    // Reach bounds only: where the entity is without an unbundled move its next ping has not proven handled yet.
+    private @Nullable ReachInterpolationData unbundledReachLocation;
     public ReachInterpolationData newPacketLocation;
     // Set by an unproven receipt, fold, teleport, far sync, seat placement or uncertain vehicle; holds for life.
     private boolean trackedPositionInexact;
@@ -1082,6 +1084,20 @@ public class PacketEntity {
                 uncertainInitialSteps);
     }
 
+    /**
+     * Keeps, for the reach bounds alone, the location this entity holds before an unbundled move is applied, until
+     * {@link #releaseUnbundledReachLocation} with the returned token. Collision and prediction never read it.
+     */
+    public Object holdUnbundledReachLocation() {
+        unbundledReachLocation = newPacketLocation == null ? null : newPacketLocation.copy();
+        return unbundledReachLocation;
+    }
+
+    /** The next ping proves the unbundled move of {@code token} handled. */
+    public void releaseUnbundledReachLocation(@Nullable Object token) {
+        if (token != null && token == unbundledReachLocation) unbundledReachLocation = null;
+    }
+
     public int unprovenUnbundledPaths() {
         return unprovenUnbundledPaths;
     }
@@ -1305,6 +1321,7 @@ public class PacketEntity {
             oldPacketLocation.tickMovement(true);
             widenStartingLocationByOldLocation();
         }
+        if (unbundledReachLocation != null) unbundledReachLocation.tickMovement(true);
         if (idleProbe
                 && newPacketLocation == interpolation
                 && oldPacketLocation == null
@@ -1931,6 +1948,9 @@ public class PacketEntity {
     public SimpleCollisionBox getPossibleCollisionBoxes(SimpleCollisionBox out, SimpleCollisionBox scratch) {
         if (lazyRiderPosition()) return riderBounds(out, scratch);
         primaryCollisionBoxes(false, out, scratch);
+        if (unbundledReachLocation != null)
+            ReachInterpolationData.combineCollisionBox(
+                    out, unbundledReachLocation.getPossibleLocationCombined(scratch), out);
         var other = pistonStates == null ? null : pistonStates.other();
         if (other != null) ReachInterpolationData.combineCollisionBox(out, other.bounds(false, scratch), out);
         return out;
@@ -2170,13 +2190,15 @@ public class PacketEntity {
     }
 
     /**
-     * Collision readers require the single compensated box at their client-tick position. A bundled update's
-     * proof fixes its interpolation state, and ClientTickPositions supplies the side of its tick being read.
-     * Reach bounds and stale physical positions must never substitute for that box.
+     * The one compensated box collision readers meet at their client-tick position. A bundled update's proof fixes its
+     * interpolation state, and ClientTickPositions supplies the side of its tick being read. While the position is not
+     * proven exact, they meet the newest candidate; reach bounds and stale physical positions never substitute for it.
      */
     public SimpleCollisionBox getClientMovementCollisionBox() {
-        return java.util.Objects.requireNonNull(
-                getExactMovementCollisionBox(), "Entity collision requires exact compensated client-tick state");
+        SimpleCollisionBox exact = getExactMovementCollisionBox();
+        if (exact != null) return exact;
+        return possibleMovementCollisionBoxCandidate(
+                possibleMovementCollisionBoxCandidateCount() - 1, new SimpleCollisionBox());
     }
 
     private SimpleCollisionBox primaryExactMovementCollisionBox() {
