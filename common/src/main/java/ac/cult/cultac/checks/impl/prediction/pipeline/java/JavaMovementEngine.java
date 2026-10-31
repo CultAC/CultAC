@@ -669,13 +669,14 @@ public final class JavaMovementEngine implements MovementEngine {
             Set<Vec3> velocities = NextTickVelocityDeriver.beforeBlockEffects(player, result, lastPrediction, scratch);
             JavaInsideBlockEffects.Scan scan = JavaInsideBlockEffects.scan(player, result, moved.movement());
             Vec3 end = result.getSimulationContext().getStart().add(moved.movement());
-            var states = carriedStates(player, result, moved, scan, end, velocities, fallRange);
+            TickGround tick = tickGround(player, result.getSimulationContext(), moved);
+            var states = carriedStates(player, result, moved, scan, end, velocities, fallRange, tick);
             if (forksBubbleRule(player, result, scan)) {
                 // The 1.21.9 alternative: BubbleColumnBlock#entityInside also for blocks the end box left.
                 var context = result.getSimulationContext();
                 context.setMovementPatch(JavaMovementPatch.V_1_21_9);
                 try {
-                    var legacy = carriedStates(player, result, moved, scan, end, velocities, fallRange);
+                    var legacy = carriedStates(player, result, moved, scan, end, velocities, fallRange, tick);
                     for (var state : legacy)
                         if (!states.contains(state.withPatch(JavaMovementPatch.V_1_21_10))) states.add(state);
                 } finally {
@@ -686,9 +687,14 @@ public final class JavaMovementEngine implements MovementEngine {
             var nextVelocities = new LinkedHashSet<Vec3>(states.size());
             for (var state : states) nextVelocities.add(state.velocity());
             // Contexts for subsequent ticks consume the complete per-candidate state below.
-            result.getSimulationContext()
-                    .getWorldData()
-                    .setStuckSpeed(new ac.cult.cultac.utils.data.StuckSpeedData(sharedStuckSpeed(stateList), null));
+            WorldData world = result.getSimulationContext().getWorldData();
+            world.setStuckSpeed(new ac.cult.cultac.utils.data.StuckSpeedData(sharedStuckSpeed(stateList), null));
+            JavaPassAfterTravel pass = passAfterTravel(result);
+            if (tick.floated() && (pass == null || !pass.result().moved())) {
+                // The next tick starts on floatStrider's support, unless a 26.3 pass's own move replaced it.
+                world.setMainSupportingBlockPos(tick.support());
+                world.setOnBlock(BlockProperties.getOnPos(player, tick.support(), end));
+            }
             var actor = result.getSimulationContext().getVehicle() == null
                     ? player.compensatedEntities.getSelf()
                     : result.getSimulationContext().getVehicle();
@@ -731,17 +737,35 @@ public final class JavaMovementEngine implements MovementEngine {
             JavaInsideBlockEffects.Scan scan,
             Vec3 end,
             Set<Vec3> velocities,
-            double fallRange) {
+            double fallRange,
+            TickGround tick) {
         var states = new LinkedHashSet<JavaPredictionCarry.State>(velocities.size());
         for (Vec3 velocity : velocities) {
             for (var outcome : beforeBlockEntityPass(player, result, moved, scan, end, velocity)) {
                 var effects = outcome.effects();
                 var pass = passAfterTravel(result);
                 if (pass != null) effects = afterPass(player, result, pass, end, effects);
-                states.add(carriedState(result, moved, end, effects, outcome.spinRebound(), fallRange));
+                states.add(carriedState(result, moved, end, effects, outcome.spinRebound(), fallRange, tick));
             }
         }
         return states;
+    }
+
+    /**
+     * The root's Entity#onGround and supporting block once its own tick ends, before any later pass moves it, and
+     * whether Strider#floatStrider set them.
+     */
+    private record TickGround(boolean onGround, MainSupportingBlockData support, boolean floated) {}
+
+    /**
+     * The ground the travel's Entity#move left, and Strider#floatStrider's Entity#setOnGround(true) after it. Every
+     * callback the carried states replay ran before floatStrider, and so still reads the move's own support.
+     */
+    private static TickGround tickGround(CultPlayer player, SimulationContext context, JavaFallDistance.Moved moved) {
+        MainSupportingBlockData support = context.getWorldData().getMainSupportingBlockPos();
+        if (!JavaStriderFloat.grounds(player, context, moved)) return new TickGround(moved.landed(), support, false);
+        Vec3 end = context.getStart().add(moved.movement());
+        return new TickGround(true, JavaStriderFloat.support(player, context, end, support), true);
     }
 
     /**
@@ -805,14 +829,15 @@ public final class JavaMovementEngine implements MovementEngine {
         }
     }
 
-    /** A carried velocity's end-of-tick state after {@code scan}'s block pass. */
+    /** A carried velocity's end-of-tick state after {@code scan}'s block pass, on the root's ground {@code tick}. */
     private static JavaPredictionCarry.State carriedState(
             PredictionResult result,
             JavaFallDistance.Moved moved,
             Vec3 end,
             JavaInsideBlockEffects.State effects,
             boolean spinRebound,
-            double fallRange) {
+            double fallRange,
+            TickGround tick) {
         SimulationContext context = result.getSimulationContext();
         var start = context.getPistonStartState();
         // A block callback that reset the travel's fall distance (Entity#makeStuckInBlock...) reset both ends.
@@ -826,10 +851,7 @@ public final class JavaMovementEngine implements MovementEngine {
                 context.getMovementPatch() == null
                         ? null
                         : new JavaPredictionCarry.PistonStart(
-                                end,
-                                moved.landed(),
-                                context.getWorldData().getMainSupportingBlockPos(),
-                                start.pistonDeltas()),
+                                end, tick.onGround(), tick.support(), start.pistonDeltas()),
                 effects.powderContact(),
                 passAfterTravel(result) == null
                         ? moved.playerEyeFluidContact()
@@ -946,21 +968,12 @@ public final class JavaMovementEngine implements MovementEngine {
         // Strider#tick -> floatStrider is AFTER LivingEntity's inside-block callbacks.
         // From 26.1, checkFallDamage can refresh lava during Entity#move, so the entering move
         // must already float using that cache rather than the pre-travel WorldData flag.
-        if (context.getVehicle() != null && context.getVehicle().isStrider() && moved.touchingLava()) {
-            Vec3 end = context.getStart().add(moved.movement());
-            boolean onSurface = ac.cult.cultac.utils.nmsutil.Above.isAbove(end.y)
-                    && !ac.cult.blocksim.data.FluidTags.LAVA.test(
-                            ac.cult.cultac.utils.nmsutil.ClientFluidQueries.fluidAt(
-                                    player.compensatedWorld,
-                                    ac.cult.cultac.protocol.value.BlockPos.containing(end.x, end.y, end.z)
-                                            .above()));
-            if (!onSurface)
-                return new JavaInsideBlockEffects.State(
-                        state.fallDistance(),
-                        state.velocity().scale(0.5).add(0, 0.05, 0),
-                        state.stuckSpeed(),
-                        state.powderContact());
-        }
+        if (JavaStriderFloat.buoys(player, context, moved))
+            return new JavaInsideBlockEffects.State(
+                    state.fallDistance(),
+                    state.velocity().scale(0.5).add(0, 0.05, 0),
+                    state.stuckSpeed(),
+                    state.powderContact());
         return state;
     }
 

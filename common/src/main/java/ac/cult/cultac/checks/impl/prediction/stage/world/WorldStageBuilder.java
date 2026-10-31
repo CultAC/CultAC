@@ -1272,6 +1272,21 @@ public class WorldStageBuilder {
         return new MainSupportingBlockData(supportingBlock, true);
     }
 
+    /**
+     * Entity#setOnGround(true)'s checkSupportingBlock(true, null) for the box {@code maxPose} at {@code ownPosition},
+     * from the support {@code previous}. With no movement to offset the search by, a block missed below the box
+     * leaves the previous support's block, unless that support already had none; either way none was found.
+     */
+    public MainSupportingBlockData findMainSupportingBlockPosWithoutMovement(
+            CultPlayer player, MainSupportingBlockData previous, SimpleCollisionBox maxPose, Vec3 ownPosition) {
+        SimpleCollisionBox slightlyBelow = new SimpleCollisionBox(
+                maxPose.minX, maxPose.minY - 1.0E-6D, maxPose.minZ, maxPose.maxX, maxPose.minY, maxPose.maxZ);
+        BlockPos supportingBlock = findSupportingBlock(player, slightlyBelow, ownPosition);
+        if (supportingBlock != null || previous.lastOnGroundAndNoBlock())
+            return new MainSupportingBlockData(supportingBlock, true);
+        return new MainSupportingBlockData(previous.getBlockPos(), true, true);
+    }
+
     /** The supporting block Entity#checkSupportingBlock picks inside {@code searchBox}, or null. */
     private BlockPos findSupportingBlock(CultPlayer player, SimpleCollisionBox searchBox, Vec3 ownPosition) {
         SupportScan scan = supportScan.inUse ? new SupportScan() : supportScan;

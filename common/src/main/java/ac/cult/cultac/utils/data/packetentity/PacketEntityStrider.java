@@ -68,9 +68,12 @@ public class PacketEntityStrider extends PacketEntityRideable {
      * strider is set on the ground instead of buoyed.
      */
     public boolean floatsOnLavaSurface(CultPlayer player) {
-        Vec3 at = clientPhysicalPosition;
-        return at != null
-                && Above.isAbove(at.y)
+        return clientPhysicalPosition != null && floatsOnLavaSurface(player, clientPhysicalPosition);
+    }
+
+    /** {@link #floatsOnLavaSurface(CultPlayer)} for a strider at {@code at}. */
+    public static boolean floatsOnLavaSurface(CultPlayer player, Vec3 at) {
+        return Above.isAbove(at.y)
                 && !FluidTags.LAVA.test(ClientFluidQueries.fluidAt(
                         player.compensatedWorld, BlockPos.containing(at.x, at.y, at.z).above()));
     }

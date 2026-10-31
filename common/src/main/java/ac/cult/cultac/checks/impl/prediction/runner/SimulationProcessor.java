@@ -551,6 +551,12 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 player, previous, movement.x, movement.z, box, onGround, ownPosition);
     }
 
+    /** Entity#setOnGround(true)'s support, after {@code previous}, for the mover's box at {@code ownPosition}. */
+    public MainSupportingBlockData mainSupportingBlockAfterSetOnGround(
+            MainSupportingBlockData previous, SimpleCollisionBox box, Vec3 ownPosition) {
+        return this.worldStageBuilder.findMainSupportingBlockPosWithoutMovement(player, previous, box, ownPosition);
+    }
+
     public MainSupportingBlockData mainSupportingBlockAfter(SimpleCollisionBox box, Vec3 movement, boolean onGround) {
         return this.worldStageBuilder.findMainSupportingBlockPos(
                 player,

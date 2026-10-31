@@ -8,6 +8,7 @@ import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldStageBuilder;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.data.MainSupportingBlockData;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.latency.ClientBlockEntityPass;
 import ac.cult.cultac.utils.math.CultMath;
@@ -184,6 +185,13 @@ public record JavaPassAfterTravel(
                 delta);
         var fall = JavaFallDistance.afterCollision(player, replay, movement);
         replay.setJavaCommittedMove(fall);
+        // Strider#tick's floatStrider runs before Level#tickBlockEntities: the pass starts from the ground it set.
+        boolean passGround = onGround;
+        MainSupportingBlockData passSupport = support;
+        if (JavaStriderFloat.grounds(player, travelContext, fall)) {
+            passGround = true;
+            passSupport = JavaStriderFloat.support(player, travelContext, end, support);
+        }
         var scan = JavaInsideBlockEffects.travelScan(player, travelContext, context.getStart(), end, delta);
         var velocities = NextTickVelocityDeriver.beforeBlockEffects(
                 player, replay, player.checkManager.getSimulationProcessor().getLastPrediction(), null);
@@ -194,8 +202,8 @@ public record JavaPassAfterTravel(
                 var state = new JavaPassState(
                         end,
                         effects.velocity(),
-                        onGround,
-                        support,
+                        passGround,
+                        passSupport,
                         effects.stuckSpeed(),
                         effects.fallDistance(),
                         player.checkManager
