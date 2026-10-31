@@ -115,7 +115,7 @@ public final class JavaInsideBlockEffects {
             List<RecordedMove> recordedBefore) {
         PacketEntity actor =
                 context.getVehicle() == null ? context.getEntities().getSelf() : context.getVehicle();
-        if (actor.isDead || player.gamemode == GameMode.SPECTATOR) return null;
+        if (!actor.actionAlive || player.gamemode == GameMode.SPECTATOR) return null;
         SimpleCollisionBox to = pose == null || context.getVehicle() != null
                 ? context.getToActualPose().offset(end.subtract(context.getEnd()))
                 : boxAt(context, pose, end);
@@ -154,7 +154,9 @@ public final class JavaInsideBlockEffects {
             SimpleCollisionBox to,
             Vec3 originalMovement,
             List<Segment> recordedBefore) {
-        if (actor.isDead) return null;
+        // Entity#checkInsideBlocks stops at !isAlive(): the DATA_HEALTH_ID the client has handled, which
+        // LivingEntity#isImmobile also reads. SET_HEALTH's leading ping, which sets isDead, does not prove it.
+        if (!actor.actionAlive) return null;
         boolean effects = InsideBlockEffectScan.mayHaveEffects(player, from, to, false);
         for (int i = 0; !effects && i < recordedBefore.size(); i++) {
             Segment segment = recordedBefore.get(i);
