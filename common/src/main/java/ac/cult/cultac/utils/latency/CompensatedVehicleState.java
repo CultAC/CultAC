@@ -105,7 +105,20 @@ public final class CompensatedVehicleState implements Debuggable {
 
     public void onClientTickEnd() {
         PacketEntity root = getVelocityMovementVehicle();
-        if (!player.isBedrockMovement() && isItemControlledVehicleType(root)) {
+        boolean loadingLevel = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_4)
+                && !player.packetStateData.playerLoadedIntoLevel;
+        if (!player.isBedrockMovement()
+                && loadingLevel
+                && root != null
+                && root.getRiding() == null
+                && canClientAuthoritativelyMoveVisibleRoot(root)) {
+            // Minecraft#tick still ticks the root while LocalPlayer#sendChanges waits for hasClientLoaded.
+            // Keep those unreported ticks in the existing switch window; its unchanged budget forces a resync
+            // when the first resumed report includes more travel than the buffer can cover.
+            markVehicleSwitchBufferWindow(root);
+        }
+        if (!player.isBedrockMovement() && !loadingLevel && isItemControlledVehicleType(root)) {
+            // Only a loaded player's sendChanges guarantees a MoveVehicle for an item-controlled root.
             itemControlDecisionTick = player.packetStateData.acceptedClientTick;
             itemControlRoot = root;
             itemControlDecision = player.packetStateData.clientTickVehicleMovePacketsThisClientTick > 0;
