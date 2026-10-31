@@ -5,6 +5,7 @@ import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFallDistance;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementMath;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -79,6 +80,15 @@ public class BoatTransform implements UncertaintyHandler {
     }
 
     public static void commitAcceptedBoatTickState(CultPlayer player, PredictionResult result) {
+        boolean previous = JavaMovementMath.select(player, result.getInitialStartingVel());
+        try {
+            commitBoatTick(player, result);
+        } finally {
+            JavaMovementMath.restore(player, previous);
+        }
+    }
+
+    private static void commitBoatTick(CultPlayer player, PredictionResult result) {
         SimulationContext context = result.getSimulationContext();
         if (context.getVehicle() == null || !EntityTypeUtil.isBoat(context.getVehicle().type)) return;
 

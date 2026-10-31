@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.prediction.stage.uncertainty;
 
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementMath;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.TrigHandler;
@@ -33,8 +34,8 @@ public final class Riptide {
         final PredVector carried;
         final Vec3 push;
 
-        private Pushed(PredVector carried, Vec3 push) {
-            super(carried.add(push), carried, PUSH);
+        private Pushed(PredVector carried, Vec3 push, boolean vanilla) {
+            super(carried.add(push), new JavaMovementMath(carried, vanilla), PUSH);
             this.carried = carried;
             this.push = push;
         }
@@ -43,14 +44,19 @@ public final class Riptide {
     /** Entity#push, independently of whether releaseUsing also runs its grounded move. */
     public static List<PredVector> releasePushes(SimulationContext context, List<PredVector> velocities) {
         float strength = 3.0F * ((1.0F + context.getRiptideLevel()) / 4.0F);
-        List<Vec3> pushes = new ArrayList<>(2);
-        for (int fastMath = 0; fastMath < 2; fastMath++) {
-            Vec3 push = push(context.getTrig(), context.getXRot(), context.getYRot(), strength);
-            if (!pushes.contains(push)) pushes.add(push);
-            context.getTrig().toggleShitMath();
+        List<PredVector> outputs = new ArrayList<>(velocities.size() * 2);
+        boolean previous = context.getTrig().isVanillaMath();
+        try {
+            Boolean requested = context.getTrig().getPredictionMath();
+            for (int mode = 0; mode < (requested == null ? 2 : 1); mode++) {
+                boolean vanilla = requested != null ? requested : mode == 0;
+                context.getTrig().setVanillaMath(vanilla);
+                Vec3 push = push(context.getTrig(), context.getXRot(), context.getYRot(), strength);
+                for (PredVector velocity : velocities) outputs.add(new Pushed(velocity, push, vanilla));
+            }
+        } finally {
+            context.getTrig().setVanillaMath(previous);
         }
-        List<PredVector> outputs = new ArrayList<>(velocities.size() * pushes.size());
-        for (Vec3 push : pushes) for (PredVector velocity : velocities) outputs.add(new Pushed(velocity, push));
         return outputs;
     }
 

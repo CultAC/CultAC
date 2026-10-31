@@ -9,12 +9,31 @@ public class TrigHandler {
     @Getter
     private boolean isVanillaMath = true;
 
+    @Getter
+    private boolean preferredVanillaMath = true;
+
+    @Getter
+    private Boolean predictionMath;
+
+    public void setPredictionMath(Boolean vanilla) {
+        predictionMath = vanilla;
+    }
+
+    /** Evaluation order only: a failing or ambiguous prediction must still try the other profile. */
+    public void preferVanillaMath(boolean vanilla) {
+        preferredVanillaMath = vanilla;
+    }
+
     public TrigHandler(CultPlayer player) {
         this.player = player;
     }
 
     public void toggleShitMath() {
         isVanillaMath = !isVanillaMath;
+    }
+
+    public void setVanillaMath(boolean vanilla) {
+        isVanillaMath = vanilla;
     }
 
     public float sin(float f) {

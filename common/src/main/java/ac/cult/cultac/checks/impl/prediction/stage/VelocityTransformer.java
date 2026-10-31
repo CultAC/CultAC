@@ -808,16 +808,19 @@ public class VelocityTransformer {
                 modified.setJump();
 
                 if (isSprinting) {
-                    for (int shitMath = 0; shitMath < 2; shitMath++) {
+                    for (int shitMath = 0; shitMath < (player.isBedrockMovement() ? 2 : 1); shitMath++) {
                         float f2 = simulationContext.getXRot() * ((float) Math.PI / 180F);
-                        Vec3 jumpBonus = new Vec3(
-                                -simulationContext.getTrig().sin(f2) * 0.2f,
-                                0.0,
-                                simulationContext.getTrig().cos(f2) * 0.2f);
+                        float sin = simulationContext.getTrig().sin(f2);
+                        float cos = simulationContext.getTrig().cos(f2);
+                        Vec3 jumpBonus = !player.isBedrockMovement()
+                                        && simulationContext.getVersion().isNewerThanOrEquals(ClientVersion.V_1_20_5)
+                                ? new Vec3(-sin * 0.2D, 0.0, cos * 0.2D)
+                                : new Vec3(-sin * 0.2F, 0.0, cos * 0.2F);
                         // ensure to not change the original vector
                         outputs.add(modified.add(jumpBonus, "Jumping sprinting"));
-                        // By doing this twice, we brute-force FastMath
-                        simulationContext.getTrig().toggleShitMath();
+                        // Java's whole candidate already selected one table before jumpFromGround and moveRelative.
+                        if (player.isBedrockMovement())
+                            simulationContext.getTrig().toggleShitMath();
                     }
                 } else {
                     // no sprinting, fastmath can't fuck this up

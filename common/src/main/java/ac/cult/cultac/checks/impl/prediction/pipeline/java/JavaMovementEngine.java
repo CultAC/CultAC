@@ -62,7 +62,8 @@ public final class JavaMovementEngine implements MovementEngine {
             startingVelocities = filtered;
         }
         // Minecraft#tick sends CLIENT_TICK_END even without a position packet, so the runner simulates every
-        // travel from its carried velocity. ValidMovements#withheldReport checks sendPosition's withheld-position bound.
+        // travel from its carried velocity. ValidMovements#withheldReport checks sendPosition's withheld-position
+        // bound.
         return modifiers.applyModifers(player, startingVelocities, context, lastPrediction);
     }
 
@@ -105,31 +106,30 @@ public final class JavaMovementEngine implements MovementEngine {
             VelocityTransformer transformer, CultPlayer player, List<PredVector> input, SimulationContext context) {
         // LivingEntity#travel adds moveRelative's input to the deltaMovement LivingEntity#aiStep left, before
         // handleOnClimbable and Entity#move: each candidate carries one exact input from here on.
-        if (!context.isGliding())
-            return JavaVelocityRange.ends(
+        var candidates = new ArrayList<PredVector>(input.size() * 2);
+        Boolean requested = player.trigHandler.getPredictionMath();
+        int modes = requested != null || JavaMathRouter.samePlayerTables(context) ? 1 : 2;
+        for (int mode = 0; mode < modes; mode++) {
+            boolean vanilla = requested != null ? requested : mode == 0;
+            var starts = new ArrayList<PredVector>(input.size());
+            for (PredVector velocity : input) {
+                var releaseMath =
+                        context.getRiptideLevel() == 0 ? null : velocity.firstInLineage(JavaMovementMath.class);
+                if (releaseMath == null) starts.add(new JavaMovementMath(velocity, vanilla));
+                else if (releaseMath.vanilla() == vanilla) starts.add(velocity);
+            }
+            if (starts.isEmpty()) continue;
+            candidates.addAll(JavaMovementMath.calculate(
                     player,
-                    context,
-                    JavaTravelInputs.withInputs(
+                    starts.getFirst(),
+                    () -> JavaTravelInputs.withInputs(
                             player,
                             context,
                             transformer.generateMovementVectors(
-                                    player, JavaEntityVelocityTicks.beforeTravel(player, context, input))));
-        var candidates = new ArrayList<PredVector>(input.size() * 2);
-        for (PredVector velocity : input) {
-            for (boolean vanilla : new boolean[] {true, false}) {
-                var math = new JavaMovementMath(velocity, vanilla);
-                candidates.addAll(JavaMovementMath.calculate(
-                        player,
-                        math,
-                        () -> JavaTravelInputs.withInputs(
-                                player,
-                                context,
-                                transformer.generateMovementVectors(
-                                        player,
-                                        JavaEntityVelocityTicks.beforeTravel(player, context, List.of(math))))));
-            }
+                                    player, JavaEntityVelocityTicks.beforeTravel(player, context, starts)))));
         }
-        List<PredVector> gliding = ElytraTransform.candidates(context, candidates);
+        List<PredVector> routed = JavaMathRouter.route(context, candidates);
+        List<PredVector> gliding = ElytraTransform.candidates(context, routed);
         List<PredVector> ends = JavaVelocityRange.ends(player, context, gliding);
         // LivingEntity#updateFallFlyingMovement turns one axis's range into others': a collision can switch inside an
         // axis that had no range before the glide.
@@ -249,6 +249,7 @@ public final class JavaMovementEngine implements MovementEngine {
         if (failedChecks(result) || !VelocityCandidates.hasEngineTrace(result)) return selected;
         List<PredictionResult> collisionAlternatives =
                 new ArrayList<>(result.getValidMovements().collisionVelocityAlternatives(lastPrediction));
+        addMathSiblings(result, collisionAlternatives);
         addCompatiblePatchCandidate(result, collisionAlternatives);
         boolean ranged = addRangeSiblings(result, collisionAlternatives);
         var pinned = debugAllowanceSet(player) ? pinnedMovedRange(result) : null;
@@ -507,7 +508,8 @@ public final class JavaMovementEngine implements MovementEngine {
             if (kept != null) {
                 PredVector carried = velocity instanceof PredVector vector ? vector : new PredVector(velocity);
                 var range = carried.getVelocityRange();
-                velocity = carried.withVelocityRange(range == null ? kept : range.copy().union(kept));
+                velocity = carried.withVelocityRange(
+                        range == null ? kept : range.copy().union(kept));
             }
             ranged.add(state.withVelocity(velocity));
         }
@@ -516,7 +518,35 @@ public final class JavaMovementEngine implements MovementEngine {
 
     /** Whether the travel failed a check. An exemption drops the flags' severity, not the failed travel. */
     private static boolean failedChecks(PredictionResult result) {
-        return result.hasEffectiveFlags() || result.isExempt() && !result.getFlags().isEmpty();
+        return result.hasEffectiveFlags()
+                || result.isExempt() && !result.getFlags().isEmpty();
+    }
+
+    /** A wall can hide which table travelled, while a later rocket or swimming update keeps different velocity. */
+    private static void addMathSiblings(PredictionResult selected, List<PredictionResult> alternatives) {
+        var choice = selected.getInitialStartingVel().firstInLineage(JavaMovementMath.class);
+        if (choice == null) return;
+        for (PredictionResult other : selected.getRealities()) {
+            var math = other.getInitialStartingVel().firstInLineage(JavaMovementMath.class);
+            if (other == selected
+                    || math == null
+                    || math.vanilla() == choice.vanilla()
+                    || failedChecks(other)
+                    || alternatives.contains(other)
+                    || !other.getSimulationContext()
+                            .getStart()
+                            .equals(selected.getSimulationContext().getStart())
+                    || !other.getInitialStartingVel().hasSameStartAs(selected.getInitialStartingVel())
+                    || other.getInitialStartingVel().getAttackSlows()
+                            != selected.getInitialStartingVel().getAttackSlows()
+                    || other.getInitialStartingVel().getSprintOutcome()
+                            != selected.getInitialStartingVel().getSprintOutcome()
+                    || other.selectionOffset()
+                            > Math.max(
+                                    selected.selectionOffset(),
+                                    JavaMathRouter.reportRounding(selected.getSimulationContext()))) continue;
+            alternatives.add(other);
+        }
     }
 
     private static void addCompatiblePatchCandidate(PredictionResult selected, List<PredictionResult> alternatives) {
@@ -567,9 +597,12 @@ public final class JavaMovementEngine implements MovementEngine {
             PredictionResult lastPrediction,
             Vec3 acceptedDiff,
             NextTickVelocityDeriver.Scratch scratch) {
+        boolean previousMath = JavaMovementMath.select(player, result.getInitialStartingVel());
         try (var ignored =
                 ClientFluidTagOrder.use(player, result.getSimulationContext().getFluidTagOrder())) {
             return commitCandidateWithFluidOrder(player, result, lastPrediction, acceptedDiff, scratch);
+        } finally {
+            JavaMovementMath.restore(player, previousMath);
         }
     }
 
@@ -723,8 +756,9 @@ public final class JavaMovementEngine implements MovementEngine {
             afterSpin = GeyserVelocity.applyToState(player, result, end, afterSpin);
             for (Vec3 next : JavaEntityVelocityTicks.afterTravel(
                     player, context, result.getInitialStartingVel(), end, afterSpin.velocity()))
-                states.add(new TravelState(new JavaInsideBlockEffects.State(
-                        afterSpin.fallDistance(), next, afterSpin.stuckSpeed(), afterSpin.powderContact()),
+                states.add(new TravelState(
+                        new JavaInsideBlockEffects.State(
+                                afterSpin.fallDistance(), next, afterSpin.stuckSpeed(), afterSpin.powderContact()),
                         spin.rebound()));
         }
         return states;
@@ -784,25 +818,26 @@ public final class JavaMovementEngine implements MovementEngine {
         MainSupportingBlockData support = JavaRiddenTravel.clearsWithoutTravel(context)
                 ? context.getLastTickMainSupportingBlockData()
                 : player.checkManager
-                .getSimulationProcessor()
-                .mainSupportingBlockAfter(
-                        context.getLastTickMainSupportingBlockData(),
-                        context.getFromActualPose().offset(movement),
-                        movement,
-                        collidedBelow);
+                        .getSimulationProcessor()
+                        .mainSupportingBlockAfter(
+                                context.getLastTickMainSupportingBlockData(),
+                                context.getFromActualPose().offset(movement),
+                                movement,
+                                collidedBelow);
         WorldData world = context.getWorldData();
         world.setMainSupportingBlockPos(support);
         world.setOnBlock(BlockProperties.getOnPos(player, support, end));
     }
 
     private static JavaInsideBlockEffects.State afterActorTick(
-            CultPlayer player, SimulationContext context, JavaFallDistance.Moved moved, JavaInsideBlockEffects.State state) {
+            CultPlayer player,
+            SimulationContext context,
+            JavaFallDistance.Moved moved,
+            JavaInsideBlockEffects.State state) {
         // Strider#tick -> floatStrider is AFTER LivingEntity's inside-block callbacks.
         // From 26.1, checkFallDamage can refresh lava during Entity#move, so the entering move
         // must already float using that cache rather than the pre-travel WorldData flag.
-        if (context.getVehicle() != null
-                && context.getVehicle().isStrider()
-                && moved.touchingLava()) {
+        if (context.getVehicle() != null && context.getVehicle().isStrider() && moved.touchingLava()) {
             Vec3 end = context.getStart().add(moved.movement());
             boolean onSurface = ac.cult.cultac.utils.nmsutil.Above.isAbove(end.y)
                     && !ac.cult.blocksim.data.FluidTags.LAVA.test(

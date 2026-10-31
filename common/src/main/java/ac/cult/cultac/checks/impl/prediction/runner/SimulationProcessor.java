@@ -35,8 +35,10 @@ import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngine;
 import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngines;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAiStepSprint;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaBlockEntityPass;
-import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMathRouter;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementMath;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementPatch;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassAfterTravel;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassState;
@@ -392,9 +394,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 DesyncStatus hard = last == null
                         ? DesyncStatus.UNKNOWN
                         : ac.cult.cultac.checks.impl.prediction.ClientHorizontalCollision.afterMove(
-                                this.lastPrediction,
-                                last.delta(),
-                                last.movement());
+                                this.lastPrediction, last.delta(), last.movement());
                 passHard = passHard == null || passHard == hard ? hard : DesyncStatus.UNKNOWN;
             }
             JavaPassState end = result.state();
@@ -551,7 +551,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     public StepCollisionMemo getStepCollisionMemo() {
         return this.stepCollisionMemo;
     }
-
 
     public Set<Vec3> getValidPlayerStartingVels() {
         return this.validPlayerStartingVels;
@@ -749,7 +748,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.stopFlyingAfterTravel();
         }
         // Foreign entities' piston moves also follow the player's travel, including deferred idle prediction.
-        if (!this.player.isBedrockMovement()) this.player.compensatedEntities.fishingPulls.finishClientTick(this.player);
+        if (!this.player.isBedrockMovement())
+            this.player.compensatedEntities.fishingPulls.finishClientTick(this.player);
         JavaRemoteBlockEntityPass.tick(this.player);
     }
 
@@ -1616,7 +1616,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
         var pass = JavaMovementEngine.passAfterTravel(result);
         var moved = result.getJavaCommittedMove();
-        Vec3 travelEnd = pass != null ? pass.travel().position()
+        Vec3 travelEnd = pass != null
+                ? pass.travel().position()
                 : moved == null ? context.getEnd() : context.getStart().add(moved.movement());
         var entities = this.player.compensatedEntities;
         entities.beginMovementPositionReads();
@@ -1780,9 +1781,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     private static Set<Vec3> withZeroY(Set<Vec3> velocities) {
         Set<Vec3> next = new HashSet<>();
         for (var velocity : velocities)
-            next.add(velocity instanceof PredVector vector
-                    ? vector.withY(0, "PlayerInfo spectator")
-                    : velocity.with(ac.cult.cultac.protocol.value.Direction.Axis.Y, 0));
+            next.add(
+                    velocity instanceof PredVector vector
+                            ? vector.withY(0, "PlayerInfo spectator")
+                            : velocity.with(ac.cult.cultac.protocol.value.Direction.Axis.Y, 0));
         return next;
     }
 
@@ -1878,7 +1880,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         JavaPredictionCarry carry = this.passengerRideTick.carry(this.player, this.validPlayerStartingVels);
         this.profileCarry = carry;
         this.lastWorldEyeFluidContact = carry.states().stream()
-                .mapToInt(JavaPredictionCarry.State::playerEyeFluidContact).reduce(0, (a, b) -> a | b);
+                .mapToInt(JavaPredictionCarry.State::playerEyeFluidContact)
+                .reduce(0, (a, b) -> a | b);
         this.lastOnGround = this.passengerRideTick.onGround();
         this.player.onGround = this.lastOnGround.determinePessimistically();
     }
@@ -2353,6 +2356,111 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             float yRot,
             AuthoredMovementFrame authoredMovementFrame,
             MovementProfile movementProfile) {
+        if (MovementEngines.requireForProfile(movementProfile) != JavaMovementEngine.INSTANCE) {
+            PredictionResult result = predictOnce(
+                    player,
+                    startingVel,
+                    lastPrediction,
+                    target,
+                    start,
+                    end,
+                    testing,
+                    xRot,
+                    yRot,
+                    authoredMovementFrame,
+                    movementProfile);
+            movementProfile.evaluatePredictionResult(player, result);
+            return result;
+        }
+        var trig = player.trigHandler;
+        Boolean previousRequest = trig.getPredictionMath();
+        boolean previousMath = trig.isVanillaMath();
+        boolean preferred = trig.isPreferredVanillaMath();
+        try {
+            trig.setPredictionMath(preferred);
+            trig.setVanillaMath(preferred);
+            PredictionResult first = predictOnce(
+                    player,
+                    startingVel,
+                    lastPrediction,
+                    target,
+                    start,
+                    end,
+                    testing,
+                    xRot,
+                    yRot,
+                    authoredMovementFrame,
+                    movementProfile);
+            PredictionResult selected = first;
+            boolean missingImpulse = first.getInitialStartingVel().getAttackSlows() < player.minPlayerAttackSlow
+                    || missing(
+                                    first.getInitialStartingVel(),
+                                    unread(player.checkManager.getKnockbackHandler().secondBread),
+                                    unread(player.checkManager.getExplosionHandler().secondBread))
+                            != 0;
+            if (JavaMathRouter.needsAlternate(first)
+                    || missingImpulse && !JavaMathRouter.samePlayerTables(first.getSimulationContext())) {
+                trig.setPredictionMath(!preferred);
+                trig.setVanillaMath(!preferred);
+                PredictionResult second = predictOnce(
+                        player,
+                        startingVel,
+                        lastPrediction,
+                        target,
+                        start,
+                        end,
+                        testing,
+                        xRot,
+                        yRot,
+                        authoredMovementFrame,
+                        movementProfile);
+                mergeMathRealities(first, second);
+                if (JavaMovementEngine.INSTANCE.isBetterCandidate(second, first)) selected = second;
+            }
+            if (!testing
+                    && selected.getFlags().isEmpty()
+                    && selected.selectionOffset() <= JavaMathRouter.reportRounding(selected.getSimulationContext())) {
+                var choice = selected.getInitialStartingVel().firstInLineage(JavaMovementMath.class);
+                if (choice != null) trig.preferVanillaMath(choice.vanilla());
+            }
+            movementProfile.evaluatePredictionResult(player, selected);
+            return selected;
+        } finally {
+            trig.setPredictionMath(previousRequest);
+            trig.setVanillaMath(previousMath);
+        }
+    }
+
+    /** Both attempts share the same pre-tick state, and their complete traces feed the existing carry and checks. */
+    private static void mergeMathRealities(PredictionResult first, PredictionResult second) {
+        var realities = new ArrayList<PredictionResult>();
+        addAllOnce(realities, first.getRealities());
+        addAllOnce(realities, second.getRealities());
+        var all = new ArrayList<PredictionResult>();
+        addAllOnce(all, first.getAnyReality());
+        addAllOnce(all, second.getAnyReality());
+        first.getRealities().clear();
+        first.getRealities().addAll(realities);
+        second.getRealities().clear();
+        second.getRealities().addAll(realities);
+        first.getAnyReality().clear();
+        first.getAnyReality().addAll(all);
+        second.getAnyReality().clear();
+        second.getAnyReality().addAll(all);
+    }
+
+    private PredictionResult predictOnce(
+            CultPlayer player,
+            Set<Vec3> startingVel,
+            PredictionResult lastPrediction,
+            Vec3 target,
+            Vec3 start,
+            Vec3 end,
+            boolean testing,
+            float xRot,
+            float yRot,
+            AuthoredMovementFrame authoredMovementFrame,
+            MovementProfile movementProfile) {
         List<PredictionResult> alternativeRealities = new ArrayList<>();
         List<PredictionResult> invalidOrValidRealities = new ArrayList<>();
         List<ValidMovements> valid = new ArrayList<>();
@@ -2372,15 +2480,15 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 movementProfile)) {
             player.clientFluidTagOrder = curSimulationContext.getFluidTagOrder();
             List<PredVector> contextPacketStart = engine.applyModifiers(
-                    new MovementModifiers(),
-                    player,
-                    startingVel,
-                    curSimulationContext,
-                    lastPrediction);
+                    new MovementModifiers(), player, startingVel, curSimulationContext, lastPrediction);
             for (JavaRiptideRelease.Prepared release : JavaSpinAttack.sprintContexts(
                     player,
                     JavaRiptideRelease.prepare(
-                            player, this.worldStageBuilder, curSimulationContext, lastPrediction, contextPacketStart))) {
+                            player,
+                            this.worldStageBuilder,
+                            curSimulationContext,
+                            lastPrediction,
+                            contextPacketStart))) {
                 SimulationContext releaseContext = release.context();
                 List<PredVector> validInitialVelocities = withSprintOutcomes(
                         player,
@@ -2424,70 +2532,79 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
             do {
                 PredictionResult thisResult = validMovements.getResult();
-                player.clientFluidTagOrder = thisResult.getSimulationContext().getFluidTagOrder();
-                SimpleCollisionBox attemptedExtents = validMovements.getCollisionIgnoredMaxStartingVelExtents();
-                boolean forward = engine == JavaMovementEngine.INSTANCE;
-                if (forward) {
-                    validMovements.computeCollisionIgnoredMovement(lastPrediction);
-                    validMovements.applyForwardMove(lastPrediction);
-                } else {
-                    thisResult.setCollideAxisData(probeCollisions(
-                            player,
-                            engine,
-                            thisResult,
-                            attemptedExtents,
-                            thisResult.getSimulationContext().getTarget(),
-                            validMovements.isCanStep()));
-                    validMovements.computeClosest(lastPrediction);
-                }
-                if (!player.isBedrockMovement() && !JavaSpinAttack.validSprintContext(player, thisResult)) break;
-                if (debugUncertainty) {
+                boolean previousMath = JavaMovementMath.select(player, thisResult.getInitialStartingVel());
+                try {
+                    player.clientFluidTagOrder =
+                            thisResult.getSimulationContext().getFluidTagOrder();
+                    SimpleCollisionBox attemptedExtents = validMovements.getCollisionIgnoredMaxStartingVelExtents();
+                    boolean forward = engine == JavaMovementEngine.INSTANCE;
                     if (forward) {
-                        // Rank by how far off the candidate was before the allowance, which can make many fit.
-                        engine.evaluateCandidate(player, thisResult);
-                        thisResult.selectionOffset();
+                        validMovements.computeCollisionIgnoredMovement(lastPrediction);
+                        validMovements.applyForwardMove(lastPrediction);
+                    } else {
+                        thisResult.setCollideAxisData(probeCollisions(
+                                player,
+                                engine,
+                                thisResult,
+                                attemptedExtents,
+                                thisResult.getSimulationContext().getTarget(),
+                                validMovements.isCanStep()));
+                        validMovements.computeClosest(lastPrediction);
                     }
-                    validMovements.applyDebugUncertainty();
-                }
-                engine.evaluateCandidate(player, thisResult);
-                this.flagger.handleResult(thisResult, lastPrediction);
-                bestResult = engine.isBetterCandidate(thisResult, bestResult) ? thisResult : bestResult;
-                if (thisResult.getFlagSeverity() == 0.0) {
-                    alternativeRealities.add(thisResult);
-                }
+                    if (!player.isBedrockMovement() && !JavaSpinAttack.validSprintContext(player, thisResult)) break;
+                    if (debugUncertainty) {
+                        if (forward) {
+                            // Rank by how far off the candidate was before the allowance, which can make many fit.
+                            engine.evaluateCandidate(player, thisResult);
+                            thisResult.selectionOffset();
+                        }
+                        validMovements.applyDebugUncertainty();
+                    }
+                    engine.evaluateCandidate(player, thisResult);
+                    this.flagger.handleResult(thisResult, lastPrediction);
+                    bestResult = engine.isBetterCandidate(thisResult, bestResult) ? thisResult : bestResult;
+                    if (thisResult.getFlagSeverity() == 0.0) {
+                        alternativeRealities.add(thisResult);
+                    }
 
-                invalidOrValidRealities.add(thisResult);
-                if (allowStep || forward) {
-                    break;
-                }
+                    invalidOrValidRealities.add(thisResult);
+                    if (allowStep || forward) {
+                        break;
+                    }
 
-                CollideAxisData probedCollisions = thisResult.getCollideAxisData();
-                allowStep = thisResult.getInitialStartingVel().maxUpStep(player) > 0.0
-                        && (thisResult.getSimulationContext().getLastOnGround().determineOptimistically()
-                                || probedCollisions.getYNeg() != null
-                                        && probedCollisions.getYNeg().isLikelyCollide()
-                                        && probedCollisions.getYNeg().getResult() + 0.001
-                                                > thisResult
-                                                        .getValidMovements()
-                                                        .getCollisionIgnoredMaxStartingVelExtents()
-                                                        .minY);
-                if (allowStep) {
-                    CollideAxisData stepEligibility = probedCollisions;
-                    allowStep = stepEligibility.couldCollideHorizontally();
-                }
-                if (allowStep) {
-                    thisResult = new PredictionResult(
-                            player,
-                            thisResult.getInitialStartingVel(),
-                            thisResult.getSimulationContext(),
-                            thisResult.getSimulationContext().getTarget(),
-                            null,
-                            alternativeRealities,
-                            invalidOrValidRealities);
-                    validMovements = engine.createValidMovements(
-                                    thisResult.getInitialStartingVel(), player, thisResult, false)
-                            .computeExtents(lastPrediction);
-                    validMovements.setCanStep(true);
+                    CollideAxisData probedCollisions = thisResult.getCollideAxisData();
+                    allowStep = thisResult.getInitialStartingVel().maxUpStep(player) > 0.0
+                            && (thisResult
+                                            .getSimulationContext()
+                                            .getLastOnGround()
+                                            .determineOptimistically()
+                                    || probedCollisions.getYNeg() != null
+                                            && probedCollisions.getYNeg().isLikelyCollide()
+                                            && probedCollisions.getYNeg().getResult() + 0.001
+                                                    > thisResult
+                                                            .getValidMovements()
+                                                            .getCollisionIgnoredMaxStartingVelExtents()
+                                                            .minY);
+                    if (allowStep) {
+                        CollideAxisData stepEligibility = probedCollisions;
+                        allowStep = stepEligibility.couldCollideHorizontally();
+                    }
+                    if (allowStep) {
+                        thisResult = new PredictionResult(
+                                player,
+                                thisResult.getInitialStartingVel(),
+                                thisResult.getSimulationContext(),
+                                thisResult.getSimulationContext().getTarget(),
+                                null,
+                                alternativeRealities,
+                                invalidOrValidRealities);
+                        validMovements = engine.createValidMovements(
+                                        thisResult.getInitialStartingVel(), player, thisResult, false)
+                                .computeExtents(lastPrediction);
+                        validMovements.setCanStep(true);
+                    }
+                } finally {
+                    JavaMovementMath.restore(player, previousMath);
                 }
             } while (allowStep);
         }
@@ -2501,10 +2618,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
 
         assert bestResult != null;
-        movementProfile.evaluatePredictionResult(player, bestResult);
         return bestResult;
     }
-
 
     private static int compareStartingVelocities(
             PredVector first, PredVector second, Vec3 target, TransactionVel velocity, TransactionVel explosion) {
@@ -2659,7 +2774,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             AuthoredMovementFrame authoredMovementFrame,
             MovementProfile movementProfile) {
         if (player.isBedrockMovement()
-                || this.profileCarry instanceof JavaPredictionCarry carry && !carry.states().isEmpty()
+                || this.profileCarry instanceof JavaPredictionCarry carry
+                        && !carry.states().isEmpty()
                 || lastPrediction == null
                 || !lastPrediction.getSimulationContext().getWorldData().isSpinAttackTarget()) return contexts;
         List<SimulationContext> split = new ArrayList<>(contexts.size() * 2);
@@ -3103,7 +3219,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         context.setRiptideReleaseCertain(player.packetStateData.riptideReleaseCertain);
         context.setProfileCarry(selectedCarry == null ? this.profileCarry : selectedCarry);
         if (selectedCarry != null && !selectedCarry.states().isEmpty())
-            context.setSpinRebound(selectedCarry.states().getFirst().spinRebound() ? SpinRebound.ONLY : SpinRebound.NONE);
+            context.setSpinRebound(
+                    selectedCarry.states().getFirst().spinRebound() ? SpinRebound.ONLY : SpinRebound.NONE);
         context.setFluidTagOrder(
                 selectedCarry != null && !selectedCarry.states().isEmpty()
                         ? selectedCarry.states().getFirst().fluidTagOrder()

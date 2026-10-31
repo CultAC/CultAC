@@ -7,6 +7,7 @@ import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaForwardMove;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementMath;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVelocityRange;
 import ac.cult.cultac.checks.impl.prediction.stage.UncertaintyPipeline;
 import ac.cult.cultac.player.CultPlayer;
@@ -172,6 +173,16 @@ public class ValidMovements {
     }
 
     private MovementTrace transformTraceTowards(
+            UncertaintyHandler[] handlers, int count, Vec3 end, PredictionResult lastResult) {
+        boolean previous = JavaMovementMath.select(player, initialStartingVel);
+        try {
+            return transformWithMath(handlers, count, end, lastResult);
+        } finally {
+            JavaMovementMath.restore(player, previous);
+        }
+    }
+
+    private MovementTrace transformWithMath(
             UncertaintyHandler[] handlers, int count, Vec3 end, PredictionResult lastResult) {
         MovementTrace trace = startTrace;
         SimulationContext context = result.getSimulationContext();

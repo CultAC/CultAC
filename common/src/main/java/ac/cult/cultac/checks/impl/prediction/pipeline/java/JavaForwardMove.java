@@ -41,6 +41,15 @@ public final class JavaForwardMove {
      * {@code target}. A late block-entity pass replays travel and its subsequent moves through this same resolver.
      */
     public static Result move(CultPlayer player, PredictionResult result, MovementTrace trace, Vec3 target) {
+        boolean previous = JavaMovementMath.select(player, result.getInitialStartingVel());
+        try {
+            return moveWithMath(player, result, trace, target);
+        } finally {
+            JavaMovementMath.restore(player, previous);
+        }
+    }
+
+    private static Result moveWithMath(CultPlayer player, PredictionResult result, MovementTrace trace, Vec3 target) {
         SimulationContext context = result.getSimulationContext();
         if (!result.getInitialStartingVel().hasTravelInput() && context.getVehicle() == null) {
             // Select the existing input allowance before collision, so it cannot move through a clipped face later.
