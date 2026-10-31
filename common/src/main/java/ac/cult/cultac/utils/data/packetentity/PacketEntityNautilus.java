@@ -38,6 +38,16 @@ public final class PacketEntityNautilus extends PacketEntityTrackXRot {
         movementSpeedAttribute = (float) movementSpeed.value();
     }
 
+    /**
+     * ClientLevel#tickEntities runs AbstractNautilus#tick, ridden or not, only for a nautilus in a ticking section that
+     * a tick freeze does not hold. The traversal skips the mount this client moves; VehiclePredictionRunner ticks it.
+     */
+    @Override
+    public void onMovement(CultPlayer player) {
+        super.onMovement(player);
+        tickDashCooldown();
+    }
+
     /** AbstractNautilus#tick's dash tail, after Entity#baseTick has cleared firstTick. */
     public void tickDashCooldown() {
         firstTick = false;

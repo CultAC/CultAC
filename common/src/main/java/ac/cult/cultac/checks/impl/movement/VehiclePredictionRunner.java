@@ -46,12 +46,12 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
         }
         player.vehicleData.camelSprintingState = riderSprinting ? SprintingState.STARTED : SprintingState.STOPPED;
         PacketEntity root = player.compensatedEntities.vehicles.getVelocityMovementVehicle();
-        // ClientLevel#tickEntities runs AbstractNautilus#tick for every nautilus, ridden or not.
-        List<PacketEntityNautilus> nautiluses = player.compensatedEntities.nautiluses();
-        for (int i = 0, size = nautiluses.size(); i < size; i++) {
-            nautiluses.get(i).tickDashCooldown();
-        }
         if (root instanceof PacketEntityNautilus nautilus) {
+            // End-of-tick interpolation runs every other nautilus's AbstractNautilus#tick but skips the locally
+            // ticked root, so run that root's tail here, before the rider's release.
+            if (player.compensatedEntities.vehicles.isLocallyTickedVelocityRoot(nautilus)) {
+                nautilus.tickDashCooldown();
+            }
             nautilus.tickPendingJump();
         }
         // ClientLevel#tickEntities runs Camel#tick for every camel, ridden or not.

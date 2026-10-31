@@ -77,7 +77,7 @@ class NautilusDashCooldownTest {
         }
     }
 
-    /** ClientLevel#tickEntities runs AbstractNautilus#tick for every nautilus, so an unridden one's cooldown expires. */
+    /** ClientLevel#tickEntities runs AbstractNautilus#tick for a nautilus nobody rides, so its cooldown expires. */
     @Test
     void anUnriddenNautilusRunsDownItsCooldown() throws Exception {
         try (var f = new JavaTickFixture()) {
@@ -92,6 +92,65 @@ class NautilusDashCooldownTest {
             mount(f);
             jump(f);
             assertEquals(1.0F, nautilus.pendingJumpScale);
+        }
+    }
+
+    /**
+     * The rider's mount and then the dismounted nautilus each take one AbstractNautilus#tick a client tick: the
+     * cooldown left at the dismount runs out before the remount, whose release arms a dash.
+     */
+    @Test
+    void aCooldownLeftAtTheDismountRunsOutBeforeTheRemount() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            PacketEntityNautilus nautilus = spawn(f);
+            nautilus.isTame = true;
+            f.tick(ON_FOOT, true);
+            mount(f);
+            // The server's DASH after the rider's dash.
+            metadata(f, true);
+            assertEquals(DASH_COOLDOWN, nautilus.dashCooldown);
+            for (int tick = 1; tick <= 10; tick++) {
+                f.rideTick();
+                assertEquals(DASH_COOLDOWN - tick, nautilus.dashCooldown, "ridden tick " + tick);
+            }
+
+            f.setPassengers(NAUTILUS, List.of());
+            f.pongThrough(f.player.lastTransactionSent.get());
+            for (int tick = 11; tick <= DASH_COOLDOWN; tick++) {
+                f.tickEnd();
+                assertEquals(DASH_COOLDOWN - tick, nautilus.dashCooldown, "unridden tick " + tick);
+            }
+            mount(f);
+            jump(f);
+            assertEquals(1.0F, nautilus.pendingJumpScale);
+        }
+    }
+
+    /**
+     * ClientLevel#tickEntities skips a nautilus no player rides while TickRateManager#isEntityFrozen holds, and one
+     * outside the ticking sections; neither tick runs the cooldown down.
+     */
+    @Test
+    void aFrozenOrUntickedNautilusKeepsItsCooldown() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            PacketEntityNautilus nautilus = spawn(f);
+            f.tick(ON_FOOT, true);
+            metadata(f, true);
+            assertEquals(DASH_COOLDOWN, nautilus.dashCooldown);
+
+            f.player.packetStateData.serverTicksFrozen = true;
+            for (int tick = 0; tick < 5; tick++) f.tick(ON_FOOT, true);
+            f.player.packetStateData.serverTicksFrozen = false;
+            assertEquals(DASH_COOLDOWN, nautilus.dashCooldown, "the frozen nautilus ran its cooldown down");
+
+            var box = nautilus.getClientMovementCollisionBox();
+            nautilus.setPositionRaw(box.copy().offset(0, 0, 160));
+            for (int tick = 0; tick < 5; tick++) f.tick(ON_FOOT, true);
+            assertEquals(DASH_COOLDOWN, nautilus.dashCooldown, "the unticked nautilus ran its cooldown down");
+
+            nautilus.setPositionRaw(box);
+            f.tick(ON_FOOT, true);
+            assertEquals(DASH_COOLDOWN - 1, nautilus.dashCooldown);
         }
     }
 
