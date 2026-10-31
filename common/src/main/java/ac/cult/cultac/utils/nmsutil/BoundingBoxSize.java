@@ -250,11 +250,13 @@ public class BoundingBoxSize {
                 && entities.ticksInClientTick(entity);
     }
 
-    // MCP-Reborn 26.3 Camel#getBodyAnchorAnimationYOffset at partialTicks 0.
+    // MCP-Reborn 26.3 Camel#getBodyAnchorAnimationYOffset at partialTicks 0. Through 26.1.2 the seat drop is
+    // 0.375F * getScale() * getAgeScale(), in float; 26.2 made it a fixed drop per age.
     private static double getCamelBodyAnchorYOffset(
             PacketEntityCamel camel, ClientVersion version, boolean isFront, float scale, long poseTime) {
-        double ageSitYOffset = camel.isBaby ? 0.09375 : 0.375;
-        double baseSitOffset = getCamelPoseHeight(camel, version) - ageSitYOffset;
+        double baseSitOffset = version.isNewerThanOrEquals(ClientVersion.V_26_2)
+                ? getCamelPoseHeight(camel, version) - (camel.isBaby ? 0.09375 : 0.375)
+                : getCamelPoseHeight(camel, version) - 0.375F * scale;
         float sittingHeightDifference = scale * 1.43F;
         float verticalDrop = sittingHeightDifference - scale * 0.2F;
         float bottomPoint = sittingHeightDifference - verticalDrop;
