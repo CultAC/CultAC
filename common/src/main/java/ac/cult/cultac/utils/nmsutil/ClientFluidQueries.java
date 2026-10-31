@@ -229,13 +229,7 @@ public final class ClientFluidQueries {
         if (vehicle == null) return false;
         // LivingEntity#floatInLiquidWhileRidden reads the pre-travel body depth.
         // 26.3 selects both the entity and the fluid through synchronized tags.
-        if (usesTagBasedFluidRules(player)) {
-            return clientTags(player)
-                            .entities()
-                            .getOrDefault(CAN_FLOAT_WHILE_RIDDEN, List.of())
-                            .contains(EntityTypeUtil.modelType(vehicle.type).key())
-                    && depth(player, context.getFromMinimumExtent(), FluidTags.ENTITY_FLOATABLE) > 0.4D;
-        }
+        if (usesTagBasedFluidRules(player)) return floatWhileRiddenAt(player, context, context.getFromMinimumExtent());
         // The received entity tag has controlled this helper since its introduction in 1.21.11.
         if (!clientTags(player)
                         .entities()
@@ -243,6 +237,18 @@ public final class ClientFluidQueries {
                         .contains(EntityTypeUtil.modelType(vehicle.type).key())
                 || !(waterDepth > 0.4D)) return false;
         return inWater;
+    }
+
+    /** 26.3 LivingEntity#floatInLiquidWhileRidden with the fluid interaction last refreshed at {@code box}. */
+    public static boolean floatWhileRiddenAt(CultPlayer player, SimulationContext context, SimpleCollisionBox box) {
+        var vehicle = context.getVehicle();
+        return vehicle != null
+                && usesTagBasedFluidRules(player)
+                && clientTags(player)
+                        .entities()
+                        .getOrDefault(CAN_FLOAT_WHILE_RIDDEN, List.of())
+                        .contains(EntityTypeUtil.modelType(vehicle.type).key())
+                && depth(player, box, FluidTags.ENTITY_FLOATABLE) > 0.4D;
     }
 
     public static double depth(CultPlayer player, SimpleCollisionBox entityBox, FluidTags tag) {

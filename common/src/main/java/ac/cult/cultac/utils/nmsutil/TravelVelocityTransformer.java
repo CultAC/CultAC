@@ -147,7 +147,7 @@ public final class TravelVelocityTransformer {
                         else if (free == DesyncStatus.UNKNOWN) frictions.add(JavaFluidHopVelocity.hop(velocity));
                     }
                 if (waterTravel || context.getVersion().isNewerThanOrEquals(ClientVersion.V_26_3))
-                    RiddenWaterFloatVelocity.apply(result, frictions, branchStart);
+                    RiddenWaterFloatVelocity.apply(player, result, frictions, branchStart, lavaTravel);
             }
         }
 
