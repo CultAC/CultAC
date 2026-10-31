@@ -66,6 +66,7 @@ class UntrackedRiderTest {
     private static final int CART_SHULKER = 2301;
     private static final int SHULKER_MOUNT = 2400;
     private static final int OPEN_SHULKER = 2401;
+    private static final int FAR_VEHICLE = 2500;
 
     enum Client {
         LEGACY(ClientVersion.V_1_21_11),
@@ -146,6 +147,43 @@ class UntrackedRiderTest {
             double beforeNear = reachViolations(player);
             attack(player, MOUNTED);
             assertEquals(beforeNear, reachViolations(player), "a legal attack used the rider's stale spawn box");
+        } finally {
+            close(player);
+        }
+    }
+
+    /**
+     * Entity#startRiding first calls stopRiding, which moves nothing on the client: a rider sent straight onto another
+     * vehicle keeps its last seat until Entity#positionRider seats it there. A new vehicle in a chunk that does not
+     * tick never runs that positionRider, so a legal attack on the kept seat stays legal.
+     */
+    @ParameterizedTest
+    @EnumSource(Client.class)
+    void aRiderSentStraightOntoANonTickingVehicleKeepsItsLastSeat(Client client) {
+        CultPlayer player = world(client.version);
+        try {
+            add(player, FAR_VEHICLE, EntityTypeIds.ZOMBIE, 40, 0);
+            PacketEntity root = entity(player, VEHICLE);
+            root.setPositionRaw(GetBoundingBox.getPacketEntityBoundingBox(player, 2.0, 62.2, 0.0, root));
+            player.packetStateData.acceptedClientTick++;
+            player.packetEntityReplication.onPlayerTickEnd(null);
+            PacketEntity mounted = entity(player, MOUNTED);
+            SimpleCollisionBox seat = seatBox(player, VEHICLE, MOUNTED);
+            assertBoxEquals(seat, mounted.getPossibleCollisionBoxes());
+
+            mount(player, FAR_VEHICLE, MOUNTED);
+            assertSame(entity(player, FAR_VEHICLE), mounted.getRiding());
+            assertFalse(player.compensatedEntities.isTicking(entity(player, FAR_VEHICLE)));
+            assertTrue(mounted.getPossibleCollisionBoxes().isIntersected(seat), "the rider lost its last seat");
+            player.packetStateData.acceptedClientTick++;
+            player.packetEntityReplication.onPlayerTickEnd(null);
+            assertTrue(mounted.getPossibleCollisionBoxes().isIntersected(seat), "a non-ticking vehicle seated it");
+
+            player.xRot = -90.0F;
+            player.yRot = 0.0F;
+            double before = reachViolations(player);
+            attack(player, MOUNTED);
+            assertEquals(before, reachViolations(player), "a legal attack used the rider's stale spawn box");
         } finally {
             close(player);
         }

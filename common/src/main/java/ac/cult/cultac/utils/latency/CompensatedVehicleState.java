@@ -982,6 +982,9 @@ public final class CompensatedVehicleState implements Debuggable {
             if (passenger == null || passenger == vehicle) continue;
             // Entity#startRiding refuses a vehicle the passenger already rides or one that rides the passenger.
             if (passenger.getRiding() == vehicle || entities.ridesIndirectly(vehicle, passenger)) continue;
+            // Its stopRiding moves nothing on the client: a rider sent straight from another vehicle leaves it from
+            // its last seat there, as when that vehicle's own set_passengers comes first.
+            if (passenger.getRiding() != null) entities.settleIfUntrackedRider(passenger);
             passenger.mount(vehicle);
             // A boat retains its exact pre-mount position until Entity#rideTick ends.
             if (player.isBedrockMovement() || !passenger.isBoat()) passenger.markPositionInexact();
