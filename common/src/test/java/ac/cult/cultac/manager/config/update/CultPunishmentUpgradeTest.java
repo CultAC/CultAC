@@ -341,6 +341,43 @@ class CultPunishmentUpgradeTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "  Simulation: {checks: [Simulation, GroundSpoof, Timer, NoFall], commands: ['100:40 [alert]']}\n",
+                "  Simulation: {\n    checks: [Simulation, GroundSpoof,\n      Timer, NoFall],\n"
+                        + "    commands: ['100:40 [alert]']\n  }\n",
+                "  Simulation:\n    checks: [Simulation, GroundSpoof,\n      Timer, NoFall]\n"
+                        + "    commands: ['100:40 [alert]']\n"
+            })
+    void extendsAFlowStyleGroupAsValidYaml(String simulation) throws Exception {
+        Path file = write("cult-config-version: 5\nPunishments:\n" + simulation
+                + "  Misc:\n    checks: [Vehicle]  # kept\n    commands: ['1:1 [log]']\n");
+        upgrade(file);
+        var data = read(file);
+        assertEquals(List.of("Simulation", "GroundSpoof", "Timer", "NoFall", "Phase"), checks(data, "Simulation"));
+        assertEquals(List.of("100:40 [alert]"), group(data, "Simulation").get("commands"));
+        assertEquals(List.of("Vehicle"), checks(data, "Misc"));
+        assertTrue(Files.readString(file).contains("# kept"));
+        assertNull(PunishmentRules.parse(new ArrayList<>(((Map<?, ?>) data.get("Punishments")).values()))
+                .failure());
+    }
+
+    @Test
+    void addsGroupsInsideAFlowStylePunishmentsMap() throws Exception {
+        Path file = write("cult-config-version: 1\n"
+                + "Punishments: {Custom: {checks: [Reach], commands: ['1:1 custom']}}  # compact\n");
+        upgrade(file);
+        var data = read(file);
+        assertEquals(List.of("Reach"), checks(data, "Custom"));
+        assertEquals(List.of("1:1 custom"), group(data, "Custom").get("commands"));
+        assertEquals(List.of("KeepSprint"), checks(data, "Knockback"));
+        assertEquals(List.of("Cloud"), checks(data, "Cloud"));
+        assertEquals(1800, group(data, "Cloud").get("remove-violations-after"));
+        assertEquals(6, data.get("cult-config-version"));
+        assertTrue(Files.readString(file).contains("# compact"));
+    }
+
     @Test
     void excludesTheCloudChecksFromAnUnmodifiedDefaultMisc() throws Exception {
         Path file = write(REVISION_4);

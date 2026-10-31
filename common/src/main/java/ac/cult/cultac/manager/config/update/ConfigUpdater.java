@@ -383,7 +383,9 @@ public final class ConfigUpdater {
                                 + " is not yet supported; expected the bundled default to drop the key");
                 continue;
             }
-            ConfigPatcher.NodePosition pos = patcher.getNodePosition(e.path());
+            // A flow collection ({checks: [a]}) has no block lines to replace or insert below.
+            ConfigPatcher.NodePosition pos =
+                    patcher.inFlowCollection(e.path()) ? null : patcher.getNodePosition(e.path());
             if (pos == null) {
                 additions.add(e);
                 continue;
@@ -398,7 +400,13 @@ public final class ConfigUpdater {
         // List replacements can shift parents; rebuild positions before inserting new paths.
         if (!additions.isEmpty()) {
             patcher = new ConfigPatcher(configFile);
-            for (WriteLog.Entry addition : additions) patcher.addMissingValue(addition.path(), addition.value());
+            for (WriteLog.Entry addition : additions) {
+                if (patcher.inFlowCollection(addition.path())) {
+                    patcher.replaceInFlowCollection(addition.path(), addition.value());
+                } else {
+                    patcher.addMissingValue(addition.path(), addition.value());
+                }
+            }
             patcher.save();
         }
     }

@@ -10,12 +10,21 @@ import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.yaml.snakeyaml.DumperOptions;
+import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.nodes.CollectionNode;
+import org.yaml.snakeyaml.nodes.MappingNode;
+import org.yaml.snakeyaml.nodes.Node;
+import org.yaml.snakeyaml.nodes.NodeTuple;
+import org.yaml.snakeyaml.nodes.ScalarNode;
 
 public final class ConfigPatcher {
 
     private final File file;
     private final List<String> lines;
     private final Map<List<String>, NodePosition> locationMap;
+    // Flow collections ({a: 1} or [a, b]) by the literal keys of the node they are, with the text they span.
+    private final Map<List<String>, FlowSpan> flowCollections = new HashMap<>();
 
     // ... (formatValue and YAML_KEYWORDS/SPECIAL_CHARS constants are unchanged) ...
     private static final Set<String> YAML_KEYWORDS_TO_QUOTE = new HashSet<>(Arrays.asList(
@@ -62,9 +71,59 @@ public final class ConfigPatcher {
         String indent = " ".repeat(parent == null ? 0 : parent.indent() + 2);
         List<String> inserted = yaml.lines().map(line -> indent + line).toList();
         lines.addAll(parent == null ? lines.size() : parent.lineIndex() + 1, inserted);
-        locationMap.clear();
-        mapFile();
+        remap();
     }
+
+    /** Whether the node at path is, or lies inside, a flow collection, whose text the line map does not cover. */
+    public boolean inFlowCollection(List<String> path) {
+        return flowCollectionHolding(path) != null;
+    }
+
+    /**
+     * Sets path inside the flow collection holding it, rewriting that collection as one flow-style value in place of
+     * its text. The text around the collection, its key and a trailing comment included, stays.
+     */
+    public void replaceInFlowCollection(List<String> path, Object value) {
+        List<String> holder = flowCollectionHolding(path);
+        if (holder == null) throw new IllegalArgumentException("no flow collection holds " + path);
+        FlowSpan span = flowCollections.get(holder);
+        String text = String.join("\n", lines);
+        int start = text.offsetByCodePoints(0, span.startIndex());
+        int end = text.offsetByCodePoints(0, span.endIndex());
+        Object collection = new Yaml().load(text.substring(start, end));
+        DumperOptions options = new DumperOptions();
+        options.setDefaultFlowStyle(DumperOptions.FlowStyle.FLOW);
+        options.setSplitLines(false);
+        String flow = new Yaml(options)
+                .dump(withValue(collection, path.subList(holder.size(), path.size()), value))
+                .strip();
+        String rewritten = text.substring(0, start) + flow + text.substring(end);
+        lines.clear();
+        lines.addAll(Arrays.asList(rewritten.split("\n", -1)));
+        remap();
+    }
+
+    private List<String> flowCollectionHolding(List<String> path) {
+        for (int depth = path.size(); depth >= 0; depth--) {
+            List<String> keys = path.subList(0, depth);
+            if (flowCollections.containsKey(keys)) return keys;
+        }
+        return null;
+    }
+
+    /** {@code collection} with the value at keys set, the way {@link YamlMap#put} nests missing maps. */
+    @SuppressWarnings("unchecked")
+    private static Object withValue(Object collection, List<String> keys, Object value) {
+        if (keys.isEmpty()) return value;
+        Map<Object, Object> map = collection instanceof Map<?, ?> existing
+                ? new LinkedHashMap<>((Map<Object, Object>) existing)
+                : new LinkedHashMap<>();
+        map.put(keys.get(0), withValue(map.get(keys.get(0)), keys.subList(1, keys.size()), value));
+        return map;
+    }
+
+    /** A flow collection's text, as code point indexes into the lines joined by {@code \n}. */
+    private record FlowSpan(int startIndex, int endIndex) {}
 
     /**
      * One pending YAML value-replacement, sortable by descending line index
@@ -78,14 +137,22 @@ public final class ConfigPatcher {
         }
     }
 
+    private void remap() {
+        locationMap.clear();
+        flowCollections.clear();
+        mapFile();
+    }
+
     private void mapFile() {
+        // A line inside a flow collection holds no block-style key, even where it reads like one.
+        BitSet insideFlow = mapFlowCollections();
         List<String> pathStack = new ArrayList<>();
         List<Integer> indentStack = new ArrayList<>();
         Pattern keyPattern = Pattern.compile("^(\\s*)([^#:]+):(.*)");
 
         for (int i = 0; i < lines.size(); i++) {
             String line = lines.get(i);
-            if (line.trim().isEmpty() || line.trim().startsWith("#")) continue;
+            if (line.trim().isEmpty() || line.trim().startsWith("#") || insideFlow.get(i)) continue;
             Matcher matcher = keyPattern.matcher(line);
             if (matcher.matches()) {
                 int currentIndent = matcher.group(1).length();
@@ -99,6 +166,47 @@ public final class ConfigPatcher {
                 locationMap.put(List.copyOf(pathStack), new NodePosition(i, currentIndent));
             }
         }
+    }
+
+    /** Records every flow collection outside another one; returns the lines they span, other than their key's. */
+    private BitSet mapFlowCollections() {
+        BitSet insideFlow = new BitSet();
+        String text = String.join("\n", lines);
+        Node root;
+        try {
+            root = new Yaml().compose(new java.io.StringReader(text));
+        } catch (RuntimeException unparseable) {
+            return insideFlow;
+        }
+        if (root != null) mapFlowCollections(root, List.of(), null, text, insideFlow);
+        return insideFlow;
+    }
+
+    private void mapFlowCollections(Node node, List<String> keys, Node keyNode, String text, BitSet insideFlow) {
+        if (node instanceof CollectionNode<?> collection && collection.getFlowStyle() == DumperOptions.FlowStyle.FLOW) {
+            int start = node.getStartMark().getIndex();
+            int end = node.getEndMark().getIndex();
+            flowCollections.put(keys, new FlowSpan(start, end));
+            insideFlow.set(line(text, start), line(text, end) + 1);
+            if (keyNode != null)
+                insideFlow.clear(line(text, keyNode.getStartMark().getIndex()));
+            return;
+        }
+        if (!(node instanceof MappingNode mapping)) return;
+        for (NodeTuple tuple : mapping.getValue()) {
+            if (!(tuple.getKeyNode() instanceof ScalarNode key)) continue;
+            List<String> child = new ArrayList<>(keys);
+            child.add(key.getValue());
+            mapFlowCollections(tuple.getValueNode(), List.copyOf(child), key, text, insideFlow);
+        }
+    }
+
+    /** The line holding a code point index into the lines joined by {@code \n}. */
+    private static int line(String text, int codePointIndex) {
+        int offset = text.offsetByCodePoints(0, Math.min(codePointIndex, text.codePointCount(0, text.length())));
+        int line = 0;
+        for (int i = text.indexOf('\n'); i >= 0 && i < offset; i = text.indexOf('\n', i + 1)) line++;
+        return line;
     }
 
     /** The key a quoted YAML key names; a plain key, dots included, is already literal. */
