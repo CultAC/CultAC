@@ -73,7 +73,7 @@ public final class EntityPositionWorlds {
         } else {
             // Bounds are broad-phase only. They never clip a move or substitute for the client-tick shape below.
             SimpleCollisionBox broad =
-                    entity.toBoundingBox(player, entity.getPossibleMovementCollisionBoxes(bounds, scratch));
+                    selection.broadBox(entity, entity.getPossibleMovementCollisionBoxes(bounds, scratch));
             if (!query.intersects(broad.minX, broad.minY, broad.minZ, broad.maxX, broad.maxY, broad.maxZ)) return null;
             box = selection.collisionBox(entity, entity.getClientMovementCollisionBox());
         }

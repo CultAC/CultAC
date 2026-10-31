@@ -1,6 +1,7 @@
 package ac.cult.cultac.utils.nmsutil;
 
 import ac.cult.blocksim.data.Box;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaLivingEntityPushes;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.blockplace.ClientEntityQueries;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -51,9 +52,34 @@ public final class EntityCollisionSelection {
         return pushables && self != actor && !sharesRootVehicle(self);
     }
 
-    /** The Java bounding box of {@code entity} at {@code candidate}, one of its possible position boxes. */
+    /**
+     * The Java bounding box of {@code entity} at {@code candidate}, one of its possible position boxes. Position boxes
+     * keep the type's dimensions; Avatar#getDefaultDimensions sizes a player or mannequin by its pose, which
+     * Entity#refreshDimensions applies when DATA_POSE arrives.
+     */
     public SimpleCollisionBox collisionBox(PacketEntity entity, SimpleCollisionBox candidate) {
+        if (entity.isAvatar() && !player.isBedrockMovement())
+            return JavaLivingEntityPushes.physicalBox(player, entity, candidate);
         return entity.toBoundingBox(player, candidate.copy());
+    }
+
+    /**
+     * Grows {@code positions}, the union of {@code entity}'s position boxes, to cover each {@link #collisionBox} of
+     * them: a pose can be wider or taller than the type's dimensions only for an avatar, a sleeping or dying one below
+     * a scale of 1/9.
+     */
+    public SimpleCollisionBox broadBox(PacketEntity entity, SimpleCollisionBox positions) {
+        SimpleCollisionBox box = entity.toBoundingBox(player, positions);
+        if (!entity.isAvatar() || player.isBedrockMovement()) return box;
+        double grow = Math.max(
+                0.0D,
+                (PacketEntity.avatarWidth(entity.actionPose, entity.scale) - BoundingBoxSize.getWidth(player, entity))
+                        / 2.0D);
+        box.expand(grow, 0.0D, grow);
+        box.maxY += Math.max(
+                0.0D,
+                PacketEntity.avatarHeight(entity.actionPose, entity.scale) - BoundingBoxSize.getHeight(player, entity));
+        return box;
     }
 
     /**
