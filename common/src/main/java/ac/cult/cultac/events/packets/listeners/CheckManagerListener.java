@@ -923,6 +923,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         player.packetStateData.vehicleMovementStartOnGround =
                 packetRoot == null ? vehiclePacket.onGround() : packetRoot.onGround;
         player.packetStateData.vehicleMovementOnGroundPresent = clientReportsOnGround;
+        player.packetStateData.vehicleMovementReportedOnGround = clientReportsOnGround && vehiclePacket.onGround();
         if (checkableClientTick && firstClientTickVehicleMove) {
             packetRoot.interpolateBeforeLocalTravel(player);
         }
@@ -992,10 +993,13 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             if (teleportData.isTeleport()) {
                 applyAcceptedVehicleTeleportState(player, packetRoot, physicalNewPos, vehiclePacket, teleportData);
             } else if (checkableClientTick) {
+                // The root's ground is the one its own move set; the prediction stages it where the report differs.
                 player.compensatedEntities.vehicles.applyControlledVehicleMove(
                         packetRoot,
                         physicalNewPos,
-                        clientReportsOnGround ? vehiclePacket.onGround() : packetRoot.onGround,
+                        clientReportsOnGround
+                                ? player.packetStateData.desiredOnGroundOr(vehiclePacket.onGround())
+                                : packetRoot.onGround,
                         physicalYaw,
                         physicalPitch);
             }

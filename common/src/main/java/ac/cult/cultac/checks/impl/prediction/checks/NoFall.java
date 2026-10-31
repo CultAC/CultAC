@@ -7,6 +7,7 @@ import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoFallPseudo;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassAfterTravel;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRootGround;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
@@ -27,7 +28,10 @@ public class NoFall implements EngineCheck {
         CollideAxisData.CollideResult downCollide = result.getCollideAxisData().getYNeg();
         boolean canCollideDown = downCollide != null && downCollide.isLikelyCollide();
 
-        if (result.getSimulationContext().getVehicle() != null) return;
+        if (result.getSimulationContext().getVehicle() != null) {
+            handleVehicleResult(player, result);
+            return;
+        }
 
         boolean flaggedNoFall = false;
         final NoFallPseudo noFallPseudo = player.checkManager.getListener(NoFallPseudo.class);
@@ -95,6 +99,20 @@ public class NoFall implements EngineCheck {
                     ? pass.result().state().onGround()
                     : forward != null ? forward.verticalCollisionBelow() : canCollideDown);
         }
+    }
+
+    /**
+     * From 1.21.4 ServerboundMoveVehiclePacket#fromEntity reports the root's Entity#onGround after its tick, and
+     * ServerGamePacketListenerImpl#handleMoveVehicle applies it to the root's ground and fall damage.
+     */
+    private static void handleVehicleResult(CultPlayer player, PredictionResult result) {
+        if (!player.packetStateData.vehicleMovementOnGroundPresent) return;
+        Boolean moved = JavaRootGround.after(player, result);
+        if (moved == null) return;
+        boolean reported = player.packetStateData.vehicleMovementReportedOnGround;
+        if (reported == moved) return;
+        result.addFlag(player.checkManager.getListener(NoFallPseudo.class), () -> String.valueOf(reported), 0.1);
+        result.setDesiredOnGround(moved);
     }
 
     private static void handleBedrockResult(

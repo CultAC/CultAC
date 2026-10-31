@@ -105,6 +105,8 @@ public class PacketStateData {
     public boolean vehicleMovementStartOnGround = false;
     // Original-client-reported ground, excluding fields synthesized by protocol translation.
     public boolean vehicleMovementOnGroundPresent = true;
+    // The root's Entity#onGround the vehicle move reported, when vehicleMovementOnGroundPresent.
+    public boolean vehicleMovementReportedOnGround = false;
     // Transaction observed at the last tick-end packet; used to prove tick-boundary state ordering.
     public int lastClientTickEndTransaction = Integer.MIN_VALUE;
 
@@ -121,6 +123,11 @@ public class PacketStateData {
 
     public void stageDesiredOnGround(boolean onGround) {
         desiredOnGround = onGround;
+    }
+
+    /** The ground staged for the packet being handled, or {@code reported} when none is staged. */
+    public boolean desiredOnGroundOr(boolean reported) {
+        return desiredOnGround == null ? reported : desiredOnGround;
     }
 
     public Boolean consumeDesiredOnGround() {

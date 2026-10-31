@@ -4,11 +4,13 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRootGround;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.BoatTransform;
 import ac.cult.cultac.checks.impl.vehicle.VehicleC;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.checks.type.VehicleListener;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.VehiclePositionUpdate;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -159,8 +161,13 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
             // after the root tick, and ServerboundMoveVehiclePacket#fromEntity copies the
             // root entity's post-tick Entity#onGround exactly on protocol versions
             // which carry that field. The next ridden LivingEntity tick uses that
-            // carried onGround state to choose grounded vs flying speed.
-            nextLastOnGround = DesyncStatus.fromBoolean(vehicleUpdate.isOnGround());
+            // carried onGround state to choose grounded vs flying speed. Where the
+            // root's own move set a different ground, the prediction staged it.
+            nextLastOnGround =
+                    DesyncStatus.fromBoolean(player.packetStateData.desiredOnGroundOr(vehicleUpdate.isOnGround()));
+        } else if (vehicleMovementFromClientTick && riding != null && !vehicleUpdate.isHasOnGround()) {
+            Boolean ground = unreportedRootGround(result);
+            if (ground != null) nextLastOnGround = DesyncStatus.fromBoolean(ground);
         }
         player.checkManager.getSimulationProcessor().setLastOnGround(nextLastOnGround);
         if (vehicleMovementFromClientTick
@@ -238,6 +245,17 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
                 }
             }
         }
+    }
+
+    /**
+     * Through 1.21.3 ServerboundMoveVehiclePacket carries no ground, so the root keeps the one its own move set. From
+     * 1.21.4 handleMoveVehicle applies the packet's ground, so where the packet carries one it is staged to match.
+     */
+    private Boolean unreportedRootGround(PredictionResult result) {
+        if (result.isExempt() || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2)) return null;
+        Boolean ground = JavaRootGround.after(player, result);
+        if (ground != null) player.packetStateData.stageDesiredOnGround(ground);
+        return ground;
     }
 
     void evaluateItemControlledVehicle(PacketEntity riding) {

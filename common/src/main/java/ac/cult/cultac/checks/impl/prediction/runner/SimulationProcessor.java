@@ -979,7 +979,16 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 positionUpdate.getXRot(),
                 positionUpdate.getYRot());
         if (positionUpdate.isHasOnGround()) {
-            this.lastOnGround = DesyncStatus.fromBoolean(positionUpdate.isOnGround());
+            boolean ground = positionUpdate.isOnGround();
+            if (result != null
+                    && !result.isExempt()
+                    && result.hasFlag(NoFallPseudo.class)
+                    && result.getDesiredOnGround() != null) {
+                // The root's own move set its ground, and the server applies the same one.
+                ground = result.getDesiredOnGround();
+                this.player.packetStateData.stageDesiredOnGround(ground);
+            }
+            this.lastOnGround = DesyncStatus.fromBoolean(ground);
         }
 
         return result;
