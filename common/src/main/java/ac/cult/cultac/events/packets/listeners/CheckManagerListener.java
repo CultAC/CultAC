@@ -892,6 +892,11 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             return;
         }
 
+        if (checkableClientTick && !reportedRootTicked(player, packetRoot)) {
+            processUntickedRootReport(event, player, packetRoot, vehiclePacket, newPos, teleportData);
+            return;
+        }
+
         player.packetStateData.lastPacketWasTeleport = teleportData.isTeleport();
         player.packetStateData.lastPacketMatchedTeleportPosition = false;
 
@@ -1046,6 +1051,67 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                     vehiclePacket.yaw(),
                     vehiclePacket.pitch());
         }
+    }
+
+    /**
+     * Whether the client tick that sent this checked MoveVehicle ran its root's entity tick. Before 26.3
+     * LocalPlayer#tick sends it from the rider's Entity#rideTick, which ClientLevel#tickPassenger only runs under the
+     * root's tick. From 26.3 Minecraft#tick runs LocalPlayer#sendChanges after ClientLevel#tickEntities whether or not
+     * that skipped the root. The report has not moved the root yet, so its ticking section is the one the tick began
+     * with.
+     */
+    private static boolean reportedRootTicked(CultPlayer player, PacketEntity root) {
+        return player.getClientVersion().isOlderThan(ClientVersion.V_26_3)
+                || player.compensatedEntities.ticksInClientTick(root);
+    }
+
+    /**
+     * A 26.3 LocalPlayer#sendChanges report of a root ClientLevel#tickEntities skipped. Neither AbstractBoat#tick nor
+     * LivingEntity#travel ran, so the report advances no vehicle state, and ServerboundMoveVehiclePacket#fromEntity
+     * states the root where it was: any other position is a move the client cannot make.
+     */
+    private void processUntickedRootReport(
+            PacketReceiveEvent<ServerboundMoveVehicle> event,
+            CultPlayer player,
+            PacketEntity root,
+            ServerboundMoveVehicle packet,
+            Vec3 reported,
+            TeleportAcceptData teleportData) {
+        player.packetStateData.lastPacketWasTeleport = false;
+        player.packetStateData.lastPacketMatchedTeleportPosition = false;
+        player.packetStateData.markVehicleMove(true, false);
+        player.packetStateData.clientTickVehicleMovePacketsThisClientTick++;
+        player.packetStateData.receivedMovementThisClientTick = true;
+        if (!reportsUnmovedRoot(player, root, reported)) {
+            player.checkManager.getCheck(VehicleTimer.class).onMoveVehicle(event, player, packet);
+            event.setCancelled(true);
+            if (!shouldBlockVehicleMovementForSetback(player, teleportData)) {
+                player.compensatedEntities.vehicles.forceResyncVehicleSwitchBuffer(root, "unticked-root-moved");
+                player.checkManager.getCheck(BadPacketsVehicle.class).handleInvalidVehiclePacket(true);
+            }
+            clearTransientPacketState(player);
+            return;
+        }
+
+        dispatchPrePredictionReceive(event, player);
+        // ServerGamePacketListenerImpl#handleMoveVehicle applies the reported ground; the root kept its own.
+        if (packet.hasOnGround()) player.packetStateData.stageDesiredOnGround(root.onGround);
+        if (!player.compensatedEntities.vehicles.serverMovesVehicleFor(root)) event.setCancelled(true);
+        dispatchReceiveHandlers(event, player);
+        clearTransientPacketState(player);
+    }
+
+    /**
+     * ServerboundMoveVehiclePacket#fromEntity of a root that did not move: its interpolation target while it has one,
+     * read back from the target's box, or else its position.
+     */
+    private boolean reportsUnmovedRoot(CultPlayer player, PacketEntity root, Vec3 reported) {
+        var interpolation = root.newPacketLocation;
+        if (interpolation != null && interpolation.hasActiveInterpolationTarget()) {
+            return reported.distanceToSqr(interpolation.targetPosition()) < 1.0E-12D;
+        }
+        Vec3 position = currentVehiclePhysicalPosition(player, root, new Vec3(player.x, player.y, player.z));
+        return reported.x == position.x && reported.y == position.y && reported.z == position.z;
     }
 
     private boolean shouldTickControlledBoatForClientVehiclePacket(PacketEntity root, boolean checkableClientTick) {
