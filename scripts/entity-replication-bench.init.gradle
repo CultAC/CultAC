@@ -1,0 +1,19 @@
+allprojects {
+    tasks.withType(Test).configureEach {
+        testLogging.showStandardStreams = true
+        if (providers.gradleProperty('benchmarkJava26').getOrElse('false') == 'true') {
+            javaLauncher = project.javaToolchains.launcherFor {
+                languageVersion = JavaLanguageVersion.of(26)
+            }
+        }
+    }
+    plugins.withId('java') {
+        if (project.name == 'common') {
+            tasks.register('exportBenchmarkClasspath') {
+                doLast {
+                    rootProject.file('benchmark-runtime-classpath.txt').text = sourceSets.test.runtimeClasspath.asPath
+                }
+            }
+        }
+    }
+}

@@ -818,9 +818,10 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         }
         PacketEntity entity = player.compensatedEntities.getEntity(teleport.entityId());
         TrackerData data = player.compensatedEntities.getTrackedEntity(teleport.entityId());
-        Vec3 sourcePosition = teleportSourcePosition(entity, data);
-        float sourceYaw = teleportSourceYaw(entity, data);
-        float sourcePitch = teleportSourcePitch(entity, data);
+        PacketHandlerEntityTransform source = packetHandlerTransformSource(entity, data, transformScratch);
+        Vec3 sourcePosition = source.position();
+        float sourceYaw = source.yRot;
+        float sourcePitch = source.xRot;
         Vec3 pos = calculateAbsolutePosition(sourcePosition, change.position(), packetFlags);
         float finalYaw = calculateAbsoluteYaw(sourceYaw, change.yRot(), packetFlags);
         float finalPitch = calculateAbsolutePitch(sourcePitch, change.xRot(), packetFlags);
@@ -841,7 +842,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                         finalPitch,
                         teleport.onGround(),
                         deltaMovementChange,
-                        relativeToClientPosition));
+                        relativeToClientPosition),
+                data);
     }
 
     private void handleRemovedPlayerVehicleTeleport(
@@ -897,22 +899,6 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                         player.yRot,
                         finalYaw,
                         finalPitch);
-    }
-
-    private Vec3 teleportSourcePosition(PacketEntity entity, TrackerData data) {
-        return packetHandlerTransformSource(entity, data).position();
-    }
-
-    private float teleportSourceYaw(PacketEntity entity, TrackerData data) {
-        return packetHandlerTransformSource(entity, data).yRot;
-    }
-
-    private float teleportSourcePitch(PacketEntity entity, TrackerData data) {
-        return packetHandlerTransformSource(entity, data).xRot;
-    }
-
-    private PacketHandlerEntityTransform packetHandlerTransformSource(PacketEntity entity, TrackerData data) {
-        return packetHandlerTransformSource(entity, data, new PacketHandlerEntityTransform());
     }
 
     /** The transform the packet handler starts from: the entity's live entry, else one written into {@code out}. */
@@ -1042,8 +1028,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         // Wire decoding has already applied the native rotation-byte quantization.
         handleMoveEntity(
                 event,
-                minecartPacket(
-                        packet.entityId(), position.x(), position.y(), position.z(), step.yaw(), step.pitch()));
+                minecartPacket(packet.entityId(), position.x(), position.y(), position.z(), step.yaw(), step.pitch()));
     }
 
     private void handleSetEntityData(PacketSendEvent<EntityMetadata> event, EntityMetadata packet) {
@@ -2094,34 +2079,45 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         applyDeltaMovementUpdate(entity, movement.deltaMovement());
         clearPacketHandlerDeltaMovement(movement);
         applySecondMovement(
-                entity, movement.entityId(), movement.kind(), movement.deltaMovement().packetHandlerSequence(), true);
+                entity,
+                movement.entityId(),
+                movement.kind(),
+                movement.deltaMovement().packetHandlerSequence(),
+                true);
         positionApplied(movement, proofTransaction);
     }
 
     private void scheduleTransactionBoundMovement(EntityMovement movement, int firstTransaction) {
         var bound = new TransactionBoundMovement(movement, firstTransaction);
-        player.latencyUtils.addRealTimeTaskWithNextTransaction(firstTransaction, bound::apply, bound::settle);
+        player.latencyUtils.addRealTimeTaskWithNextTransaction(firstTransaction, bound, bound);
     }
 
     /**
      * A movement applied at its transaction and settled at the next one. The settling half waits in the applying
      * half's place, and does nothing when the movement was not applied.
      */
-    private final class TransactionBoundMovement {
+    private final class TransactionBoundMovement implements Runnable {
         private final EntityMovement movement;
         private final int firstTransaction;
-        private final int entityId;
-        private final MovementKind kind;
-        private final int deltaMovementSequence;
+        private boolean awaitingSettlement;
         private boolean applied;
         private @Nullable PacketEntity unbundledPathEntity;
 
         private TransactionBoundMovement(EntityMovement movement, int firstTransaction) {
             this.movement = movement;
             this.firstTransaction = firstTransaction;
-            this.entityId = movement.entityId();
-            this.kind = movement.kind();
-            this.deltaMovementSequence = movement.deltaMovement().packetHandlerSequence();
+        }
+
+        @Override
+        public void run() {
+            if (awaitingSettlement) {
+                settle();
+            } else {
+                // The queue retains the continuation in this task's original insertion slot.
+                // Advance before applying: a failed apply must not be retried by that continuation.
+                awaitingSettlement = true;
+                apply();
+            }
         }
 
         private void apply() {
@@ -2143,7 +2139,11 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         private void settle() {
             if (!applied) return;
             if (unbundledPathEntity != null) unbundledPathEntity.onUnbundledPathProven();
-            applySecondMovement(entityId, kind, deltaMovementSequence, false);
+            applySecondMovement(
+                    movement.entityId(),
+                    movement.kind(),
+                    movement.deltaMovement().packetHandlerSequence(),
+                    false);
             positionApplied(movement, firstTransaction);
         }
     }
@@ -2152,7 +2152,9 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         if (player.isBedrockMovement() || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2)) return false;
         if (movement.kind() == MovementKind.POSITION_SYNC
                 && (!player.compensatedEntities.isTicking(entity)
-                        || entity.clientPhysicalPosition.distanceToSqr(movement.path().endPosition()) > 4096.0D)) {
+                        || entity.clientPhysicalPosition.distanceToSqr(
+                                        movement.path().endPosition())
+                                > 4096.0D)) {
             Vec3 target = movement.path().endPosition();
             entity.snapTo(
                     player,
@@ -2306,21 +2308,28 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             boolean hasRotation,
             float yaw,
             float pitch) {
-        PacketEntity entity = player.compensatedEntities.getEntity(entityId);
         PacketHandlerEntityTransform entry = packetHandlerEntityTransforms.get(entityId);
-        PacketHandlerEntityTransform source;
-        if (entity != null && entity.getEntityId() != entityId) {
-            source = packetHandlerTransformSource(entity, data, transformScratch);
-        } else if (entity != null && entry != null && entry.tick == transformTick) {
-            source = entry;
-        } else {
-            source = packetHandlerTransformFallback(entity, data, transformScratch);
+        // A full transform replaces every component; only partial updates need the old client transform.
+        if (!hasPos || !hasRotation) {
+            PacketEntity entity = player.compensatedEntities.getEntity(entityId);
+            PacketHandlerEntityTransform source;
+            if (entity != null && entity.getEntityId() != entityId) {
+                source = packetHandlerTransformSource(entity, data, transformScratch);
+            } else if (entity != null && entry != null && entry.tick == transformTick) {
+                source = entry;
+            } else {
+                source = packetHandlerTransformFallback(entity, data, transformScratch);
+            }
+            if (!hasPos) {
+                x = source.x;
+                y = source.y;
+                z = source.z;
+            }
+            if (!hasRotation) {
+                yaw = source.yRot;
+                pitch = source.xRot;
+            }
         }
-        double nextX = hasPos ? x : source.x;
-        double nextY = hasPos ? y : source.y;
-        double nextZ = hasPos ? z : source.z;
-        float nextYRot = hasRotation ? yaw : source.yRot;
-        float nextXRot = hasRotation ? pitch : source.xRot;
         if (entry == null) {
             if (packetHandlerEntityTransforms.size() >= MAX_REUSED_TRANSFORMS
                     && transformsPrunedTick != transformTick) {
@@ -2331,7 +2340,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             entry = new PacketHandlerEntityTransform();
             packetHandlerEntityTransforms.put(entityId, entry);
         }
-        entry.set(nextX, nextY, nextZ, nextYRot, nextXRot).tick = transformTick;
+        entry.set(x, y, z, yaw, pitch).tick = transformTick;
     }
 
     private boolean isEntityMovementIgnoredForLocalAuthoritativeVehicle(int entityId) {

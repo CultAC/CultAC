@@ -1,0 +1,26 @@
+{
+  "baseline": {
+    "tests": 380,
+    "failures": 10,
+    "errors": 0,
+    "skipped": 0
+  },
+  "optimized": {
+    "tests": 385,
+    "failures": 10,
+    "errors": 0,
+    "skipped": 0
+  },
+  "identical_failure_details": {
+    "ac.cult.cultac.network.EntityCodecBaseTest::[1] V_1_21_2": "org.opentest4j.AssertionFailedError: the paddle stroke is predicted, offset 1.1999999284756264E-5 ==> expected: <true> but was: <false>",
+    "ac.cult.cultac.network.EntityCodecBaseTest::[2] V_1_21_4": "org.opentest4j.AssertionFailedError: the paddle stroke is predicted, offset 1.1999999284756264E-5 ==> expected: <true> but was: <false>",
+    "ac.cult.cultac.network.EntityCodecBaseTest::[3] V_1_21_5": "org.opentest4j.AssertionFailedError: the paddle stroke is predicted, offset 1.1999999284756264E-5 ==> expected: <true> but was: <false>",
+    "ac.cult.cultac.network.EntityCodecBaseTest::[4] V_1_21_6": "org.opentest4j.AssertionFailedError: the paddle stroke is predicted, offset 1.1999999284756264E-5 ==> expected: <true> but was: <false>",
+    "ac.cult.cultac.network.EntityCodecBaseTest::[5] V_1_21_7": "org.opentest4j.AssertionFailedError: the paddle stroke is predicted, offset 1.1999999284756264E-5 ==> expected: <true> but was: <false>",
+    "ac.cult.cultac.network.EntityCodecBaseTest::[6] V_1_21_9": "org.opentest4j.AssertionFailedError: the paddle stroke is predicted, offset 1.1999999284756264E-5 ==> expected: <true> but was: <false>",
+    "ac.cult.cultac.network.EntityCodecBaseTest::[7] V_1_21_11": "org.opentest4j.AssertionFailedError: the paddle stroke is predicted, offset 1.1999999284756264E-5 ==> expected: <true> but was: <false>",
+    "ac.cult.cultac.network.EntityCodecBaseTest::[8] V_26_1": "org.opentest4j.AssertionFailedError: the paddle stroke is predicted, offset 1.1999999284756264E-5 ==> expected: <true> but was: <false>",
+    "ac.cult.cultac.network.EntityCodecBaseTest::[9] V_26_2": "org.opentest4j.AssertionFailedError: the paddle stroke is predicted, offset 1.1999999284756264E-5 ==> expected: <true> but was: <false>",
+    "ac.cult.cultac.network.EntityCodecBaseTest::[10] V_26_3": "org.opentest4j.AssertionFailedError: the paddle stroke is predicted, offset 1.1999999284756264E-5 ==> expected: <true> but was: <false>"
+  }
+}
