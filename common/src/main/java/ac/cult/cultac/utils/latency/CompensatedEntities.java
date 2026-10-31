@@ -280,16 +280,21 @@ public class CompensatedEntities {
      * client-tick traversal, never by a sweep after an unrelated entity packet.
      */
     public void updatePassengerPositions() {
+        updatePassengerPositions(List.of());
+    }
+
+    /** A passenger relink keeps established seats until rideTick, including a co-rider's pre-reseat push. */
+    public void updatePassengerPositions(List<PacketEntity> keptSeats) {
         if (trackedPassengers == 0) return;
         PacketEntity selfRoot = selfRidingRoot();
         PacketEntity serverRoot = serverVehicleRoot();
-        if (selfRoot != null) positionTree(selfRoot);
-        if (serverRoot != null && serverRoot != selfRoot) positionTree(serverRoot);
+        if (selfRoot != null) positionTree(selfRoot, keptSeats);
+        if (serverRoot != null && serverRoot != selfRoot) positionTree(serverRoot, keptSeats);
     }
 
-    private void positionTree(PacketEntity root) {
+    private void positionTree(PacketEntity root, List<PacketEntity> keptSeats) {
         for (PacketEntity passenger : root.passengers) {
-            tickPassenger(root, passenger);
+            tickPassenger(root, passenger, keptSeats);
         }
     }
 
@@ -1053,14 +1058,14 @@ public class CompensatedEntities {
         return d1;
     }
 
-    private void tickPassenger(PacketEntity riding, PacketEntity passenger) {
+    private void tickPassenger(PacketEntity riding, PacketEntity passenger, List<PacketEntity> keptSeats) {
         if (riding == null || passenger == null) {
             return;
         }
 
-        positionPassenger(riding, passenger);
+        if (!keptSeats.contains(passenger)) positionPassenger(riding, passenger);
         for (PacketEntity passengerPassenger : passenger.passengers) {
-            tickPassenger(passenger, passengerPassenger);
+            tickPassenger(passenger, passengerPassenger, keptSeats);
         }
     }
 

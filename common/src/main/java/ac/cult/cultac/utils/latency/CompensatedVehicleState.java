@@ -943,10 +943,23 @@ public final class CompensatedVehicleState implements Debuggable {
         PacketEntity previousRoot = entities.playerEntity.getRiding();
         PacketEntity vehicle = entities.getEntity(vehicleId);
         if (vehicle == null) return false;
+        List<PacketEntity> keptSeats = new ArrayList<>(0);
         for (PacketEntity passenger : vehicle.passengers) {
             if (!containsId(passengerIds, passenger.getEntityId())) entities.settleIfUntrackedRider(passenger);
+            else if (!player.isBedrockMovement() && passenger != entities.playerEntity) {
+                // A lazy rider can become part of the local tree in this update. Its ordinary position readers
+                // must then inherit the committed seat, rather than the spawn position its storage still holds.
+                if (entities.isUntrackedRider(passenger)) {
+                    passenger.setPassengerPosition(player, entities.currentMovementBox(passenger));
+                }
+                keptSeats.add(passenger);
+            }
         }
-        for (PacketEntity passenger : List.copyOf(vehicle.passengers)) passenger.eject();
+        // The client ejects and relinks without moving retained riders. Preserve their lazy position and packet
+        // interpolation too: our ordinary eject/mount paths discard those only when a rider changes vehicles.
+        for (PacketEntity passenger : List.copyOf(vehicle.passengers)) {
+            if (!keptSeats.contains(passenger)) passenger.eject();
+        }
         for (int passengerId : passengerIds) {
             PacketEntity passenger = entities.getEntity(passengerId);
             if (passenger == null || passenger == vehicle) continue;
@@ -956,7 +969,15 @@ public final class CompensatedVehicleState implements Debuggable {
             // A boat retains its exact pre-mount position until Entity#rideTick ends.
             if (player.isBedrockMovement() || !passenger.isBoat()) passenger.markPositionInexact();
         }
-        entities.updatePassengerPositions();
+        if (!keptSeats.isEmpty()) {
+            vehicle.passengers.sort(java.util.Comparator.comparingInt(passenger -> {
+                for (int i = 0; i < passengerIds.length; i++) {
+                    if (passengerIds[i] == passenger.getEntityId()) return i;
+                }
+                return Integer.MAX_VALUE;
+            }));
+        }
+        entities.updatePassengerPositions(keptSeats);
         seedStartingVelocityIfRootChanged(previousRoot);
         if (player.isBedrockMovement() && previousRoot == null && !containsLocalPlayer(passengerIds)) {
             player.getSetbackTeleportUtil().transferBedrockVehicleSetback(vehicleId);
