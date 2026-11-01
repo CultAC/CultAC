@@ -72,6 +72,14 @@ public final class JavaRemoteBlockEntityPass {
             if (moved == null) moved = new java.util.ArrayList<>(2);
             moved.add(new JavaBlockEntityPass.EntityStart(actor, start(actor)));
         }
+        // PistonMovingBlockEntity#moveCollidedEntities moves each rider on its own, so a root the player neither
+        // pushes nor collides with still leaves its riders to the pass.
+        if (entities.hasTrackedPassengers()) {
+            for (PacketEntity root : entities.entityMap.values()) {
+                if (root.passengers.isEmpty() || root.getRiding() != null || root.mayPushOrCollide()) continue;
+                recordRidersOfUnmovedRoot(player, root, root.getPossibleMovementCollisionBoxes(), pass, riderPass);
+            }
+        }
         if (moved == null) return;
         var results = JavaBlockEntityPass.runEntities(player, moved, pass);
         for (int i = 0; i < moved.size(); i++) commit(player, moved.get(i).actor(), results.get(i), pass, riderPass);

@@ -815,6 +815,35 @@ class JavaEntityPushTest {
     }
 
     /**
+     * PistonMovingBlockEntity#moveCollidedEntities moves each entity its area meets on its own, riders included. An
+     * armor stand neither pushes nor collides with the player, yet a boat seated on it is shoved like one seated on a
+     * zombie, and its collision and reach boxes hold where the stone left it until its next Entity#rideTick.
+     */
+    @Test
+    void aPistonMovesABoatRidingARootThePlayerNeitherPushesNorCollidesWith() throws Exception {
+        for (int rootType : new int[] {EntityTypeIds.ZOMBIE, EntityTypeIds.ARMOR_STAND}) {
+            try (var f = falling()) {
+                var entities = f.player.compensatedEntities;
+                // Both roots stay below the stone; each seats the boat across its lower half, south of the player.
+                entities.addEntity(100, rootType, new Vec3(0.5, FLOOR_Y + 7, 1.5), 0, 0, 0);
+                entities.addEntity(RIDER, EntityTypeIds.OAK_BOAT, AWAY, 0, 0, 0);
+                PacketEntity boat = entities.getEntity(RIDER);
+                boat.mount(entities.getEntity(100));
+                entities.tickClientEntities(entity -> {});
+                f.player.packetStateData.acceptedClientTick++;
+                assertEquals(-0.1875, boat.getPossibleMovementCollisionBoxes().minX, 1.0E-6);
+                extendStoneEast(f, FLOOR_Y + 9);
+
+                assertExact(f.tick(CONTACT, false));
+                // The stone's face reaches half a block east; Entity#limitPistonMovement holds the shove to 0.51.
+                String root = EntityTypes.defaults().byId(rootType).key();
+                assertEquals(0.3225, boat.getPossibleMovementCollisionBoxes().minX, 1.0E-6, root + " collision");
+                assertEquals(0.3225, boat.getPossibleCollisionBoxes().minX, 1.0E-6, root + " reach");
+            }
+        }
+    }
+
+    /**
      * Entity#limitPistonMovement holds the piston moves an entity takes at one Level#getGameTime to 0.51 per axis, and
      * Entity#pistonDeltas stays on the rider between block-entity passes. A time packet that sets the game time back
      * makes the stone's second stroke run at the game time of its first, so the held rider moves only what is left.

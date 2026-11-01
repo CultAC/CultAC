@@ -309,6 +309,11 @@ public class CompensatedEntities {
         trackedPassengers -= entity.passengers.size();
     }
 
+    /** Whether any entity in entityMap carries a passenger. */
+    public boolean hasTrackedPassengers() {
+        return trackedPassengers != 0;
+    }
+
     /** Called when PacketEntity#mount adds a passenger to an entity in this tracker's entityMap. */
     public void onPassengerAdded() {
         trackedPassengers++;
