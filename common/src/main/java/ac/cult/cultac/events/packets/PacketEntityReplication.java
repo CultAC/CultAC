@@ -1573,7 +1573,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
         if (removesLocalPlayer) {
             // Entity#stopRiding moves nothing on the client, so the resync keeps the player at its last ride-tick
-            // seat. A vehicle the player could control has its position in player.x/y/z from MoveVehicle instead.
+            // seat, whether or not it controlled the vehicle.
             Vec3 seat = vehicle == null ? null : player.compensatedEntities.dismountSeat(vehicle);
             SelfDismountResyncState dismountResyncState =
                     CultAPI.INSTANCE.getConfigManager().isObserveOnly()

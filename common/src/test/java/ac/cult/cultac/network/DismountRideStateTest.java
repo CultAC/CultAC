@@ -334,7 +334,17 @@ class DismountRideStateTest {
             f.rideTick();
             f.input(NONE);
             dismount(f, removeSeat);
-            pushedMove(f, null);
+            if (!removeSeat) {
+                pushedMove(f, null);
+                return;
+            }
+            // Entity#setRemoved's stopRiding leaves the rider at its seat, 0.4125 into the floor under the boat, so
+            // Entity#collide stops the unslowed push at the west face of the floor block east of it.
+            f.pongThrough(f.velocity(new Vec3(PUSH, 0, 0)));
+            Vec3 from = new Vec3(f.player.x, f.player.y, f.player.z);
+            assertEquals(seat, from);
+            PredictionResult move = f.tick(from.add(1.0 - (from.x + halfWidth), 0, 0), false);
+            assertTrue(exact(move), describe(move));
         }
     }
 

@@ -1210,16 +1210,12 @@ public class CompensatedEntities {
     /**
      * The seat the local player stays at when it leaves {@code vehicle} now, or null when the engine position must
      * not come from the seat. Client-side Entity#stopRiding moves nothing, so the player keeps the position the last
-     * Entity#rideTick gave it through Entity#positionRider. A vehicle the player could control carries the engine
-     * position through its MoveVehicle packets instead, so this never applies to one, whatever the client sends.
+     * Entity#rideTick gave it through Entity#positionRider. That holds for a vehicle it controls too: there the
+     * engine position its MoveVehicle packets carry is the vehicle's, not the rider's.
      */
     public Vec3 dismountSeat(PacketEntity vehicle) {
         if (player.isBedrockMovement() || rideTickSeat == null || playerEntity.getRiding() != vehicle) return null;
-        PacketEntity root = rootOf(vehicle);
-        if (root == null || vehicles.mayLocalPlayerControl(vehicle) || vehicles.mayLocalPlayerControl(root)) {
-            return null;
-        }
-        return rideTickSeat;
+        return rootOf(vehicle) == null ? null : rideTickSeat;
     }
 
     /**
