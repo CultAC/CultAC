@@ -4,12 +4,12 @@ set -euo pipefail
 root="$PWD"
 case "${1:-}" in
   java)
-    cultac/gradlew -p cultac :bukkit:devShadowJar --rerun-tasks \
+    cultac/gradlew -p cultac :bukkit:devShadowJar --rerun-tasks --offline \
       --no-daemon --console=plain --stacktrace --max-workers=2
     cult_jar="$root/cultac/build/libs/CultAC-dev.jar"
     test -f "$cult_jar"
     cd mcp-client-smoketest
-    ./gradlew setupSmoketestServer writeSmoketestWorkspaceManifest \
+    ./gradlew --offline setupSmoketestServer writeSmoketestWorkspaceManifest \
       --no-daemon --console=plain --stacktrace --max-workers=2 \
       -Psmoketest.grim.devJar="$cult_jar" -Psmoketest.cultac.repoRoot="$root/cultac"
 
@@ -50,7 +50,7 @@ case "${1:-}" in
     exit "$status"
     ;;
   bedrock)
-    cultac/gradlew -p cultac :bukkit:shadowJar --no-daemon --console=plain --max-workers=2
+    cultac/gradlew -p cultac :bukkit:shadowJar --offline --no-daemon --console=plain --max-workers=2
     mkdir -p artifacts
     git -C replay rev-parse HEAD > artifacts/replay-revision.txt
     git -C scenarios rev-parse HEAD > artifacts/scenarios-revision.txt
@@ -70,7 +70,7 @@ subprocess.run([
     'python3', 'replay/scripts/run-movement-regressions.py',
     '--scenarios', 'scenarios/scenarios', '--cultac-jar', str(jars[0]),
     '--server-dir', 'server', '--artifacts', 'artifacts', '--seed', '42',
-    '--replay-runtime-lock', 'ci/scripts/smoketests/bedrock-replay-runtime.json',
+    '--replay-runtime-lock', 'replay/.ci-runtime-offline.json',
 ], check=True)
 PYRUN
     ;;

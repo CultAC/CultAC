@@ -1,9 +1,13 @@
-"""Copy container evidence without following attacker-authored links on the host."""
+"""Copy trusted-branch test evidence with strict type and size limits."""
 import os
 from pathlib import Path
 import shutil
 import stat
 import sys
+
+MAX_FILES = 1000
+MAX_FILE_BYTES = 64 * 1024 * 1024
+MAX_TOTAL_BYTES = 256 * 1024 * 1024
 
 
 def collect(sandbox: Path, destination: Path, suite: str) -> None:
@@ -13,22 +17,26 @@ def collect(sandbox: Path, destination: Path, suite: str) -> None:
     }[suite]
     workspace = sandbox / 'workspace'
     destination.mkdir(parents=True, exist_ok=True)
+    count = total = 0
     for relative in roots:
         source = workspace / relative
-        # os.walk does not follow child directory links; also reject linked roots
-        # and ancestors before walking. The container has exited, so no writer runs.
         if any(p.is_symlink() for p in (source, *source.parents)):
             continue
-        for directory, _, filenames in os.walk(source, followlinks=False):
-            for filename in filenames:
+        for directory, subdirs, filenames in os.walk(source, followlinks=False):
+            subdirs[:] = sorted(name for name in subdirs if not (Path(directory) / name).is_symlink())
+            for filename in sorted(filenames):
                 path = Path(directory) / filename
-                if not stat.S_ISREG(path.lstat().st_mode):
+                metadata = path.lstat()
+                if not stat.S_ISREG(metadata.st_mode):
                     continue
-                # Keep .real-validation out of the uploaded tree: upload-artifact
-                # excludes hidden directories by default.
+                if (count >= MAX_FILES or metadata.st_size > MAX_FILE_BYTES or
+                        total + metadata.st_size > MAX_TOTAL_BYTES):
+                    continue
                 target = destination / source.name / path.relative_to(source)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(path, target)
+                total += metadata.st_size
+                count += 1
 
 
 if __name__ == '__main__':

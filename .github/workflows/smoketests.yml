@@ -3,11 +3,10 @@ name: Smoketests
 on:
   push:
     branches: [main, experimental, dev]
-  # The workflow and CI scripts come from the trusted base, never the PR.
-  # Private fixtures are checked out on the host; PR code runs only in Docker.
-  pull_request_target:
+  # Untrusted PRs never receive private fixtures or repository secrets.
+  pull_request:
     branches: [main, experimental, dev]
-    types: [opened, synchronize, reopened, ready_for_review, edited]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 permissions:
@@ -18,12 +17,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  pr-build:
+    if: github.event_name == 'pull_request'
+    name: Untrusted PR build (no private fixtures)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out trusted sandbox scripts
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: ci
+          persist-credentials: false
+
+      - name: Check out PR merge revision as data
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: cultac
+          persist-credentials: false
+
+      - name: Build trusted sandbox image
+        run: docker build -t cultac-smoketest ci/.github/scripts/smoketest-container
+
+      - name: Compile untrusted PR without private fixtures or credentials
+        run: bash ci/.github/scripts/run-untrusted-pr-build.sh
+
   smoketest:
     if: >-
-      github.event_name == 'pull_request_target' ||
-      github.ref == 'refs/heads/main' ||
-      github.ref == 'refs/heads/experimental' ||
-      github.ref == 'refs/heads/dev'
+      github.event_name != 'pull_request' &&
+      (github.ref == 'refs/heads/main' ||
+       github.ref == 'refs/heads/experimental' ||
+       github.ref == 'refs/heads/dev')
     name: ${{ matrix.suite }} smoketests
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -101,7 +126,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           # Separate namespace: never restore caches from the old mixed-trust job.
-          key: trusted-smoketest-v1-${{ matrix.suite }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.inputs.outputs.revision }}
+          key: trusted-smoketest-v2-${{ matrix.suite }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.inputs.outputs.revision }}
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
@@ -115,10 +140,36 @@ jobs:
           SUITE: ${{ matrix.suite }}
         run: bash ci/.github/scripts/prepare-smoketests.sh "$SUITE"
 
-      - name: Save trusted prerequisites before checking out tested code
-        if: >-
-          github.event_name != 'pull_request_target' &&
-          steps.cache.outputs.cache-hit != 'true'
+      - name: Check out protected-branch revision under test
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: cultac
+          persist-credentials: false
+
+      - name: Warm trusted Gradle dependencies before network isolation
+        working-directory: cultac
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: |
+          set -euo pipefail
+          if [ "$SUITE" = java ]; then task=:bukkit:devShadowJar; else task=:bukkit:shadowJar; fi
+          ./gradlew "$task" --no-daemon --console=plain --max-workers=2
+
+      - name: Prepare trusted Java workspace manifest
+        if: matrix.suite == 'java'
+        working-directory: mcp-client-smoketest
+        run: |
+          ./gradlew writeSmoketestWorkspaceManifest --no-daemon --console=plain --max-workers=2 \
+            -Psmoketest.grim.devJar="$GITHUB_WORKSPACE/cultac/build/libs/CultAC-dev.jar" \
+            -Psmoketest.cultac.repoRoot="$GITHUB_WORKSPACE/cultac"
+
+      - name: Download and verify pinned Bedrock runtime before isolation
+        if: matrix.suite == 'bedrock'
+        run: python3 ci/.github/scripts/prefetch-bedrock-runtime.py "$GITHUB_WORKSPACE"
+
+      - name: Save trusted branch prerequisites (never from PRs)
+        if: steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           key: ${{ steps.cache.outputs.cache-primary-key }}
@@ -132,16 +183,6 @@ jobs:
 
       - name: Build trusted sandbox image
         run: docker build -t cultac-smoketest ci/.github/scripts/smoketest-container
-
-      - name: Check out CultAC revision under test as data
-        uses: actions/checkout@v4
-        with:
-          # Missing/conflicted merge refs must fail checkout, never test the base.
-          ref: ${{ github.event_name == 'pull_request_target' && format('refs/pull/{0}/merge', github.event.pull_request.number) || github.sha }}
-          path: cultac
-          persist-credentials: false
-          # Only the disposable copy is executed, without runner credentials.
-          allow-unsafe-pr-checkout: true
 
       - name: Run selected smoketests without host credentials or writable caches
         id: sandbox

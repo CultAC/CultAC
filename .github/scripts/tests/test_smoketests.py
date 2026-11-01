@@ -96,6 +96,7 @@ print('::set-env name=EVIL::malicious output')
                           '--env-file', '--network=host', 'GITHUB_TOKEN', 'ACTIONS_RUNTIME_TOKEN'):
             self.assertNotIn(forbidden, '\n'.join(args))
         self.assertIn('--read-only', args)
+        self.assertIn('--network=none', args)
         self.assertIn('--cap-drop=ALL', args)
         self.assertIn('--security-opt=no-new-privileges:true', args)
         lines = result.stdout.splitlines()
@@ -152,35 +153,67 @@ pathlib.Path('replay-args.json').write_text(json.dumps(sys.argv[1:]))
             '--scenarios', 'scenarios/scenarios',
             '--cultac-jar', 'cultac/bukkit/build/libs/CultAC-paper.jar',
             '--server-dir', 'server', '--artifacts', 'artifacts', '--seed', '42',
-            '--replay-runtime-lock', 'ci/scripts/smoketests/bedrock-replay-runtime.json',
+            '--replay-runtime-lock', 'replay/.ci-runtime-offline.json',
         ])
 
     def test_workflow_trust_order_and_branch_filters(self):
-        # PyYAML is optional locally; the adversarial tests above need only stdlib.
         import yaml
         workflow = yaml.safe_load((ROOT / '.github/workflows/smoketests.yml').read_text())
         events = workflow.get('on', workflow.get(True))
-        for event in ('push', 'pull_request_target'):
+        for event in ('push', 'pull_request'):
             self.assertEqual(events[event]['branches'], ['main', 'experimental', 'dev'])
-        self.assertNotIn('pull_request', events)
+        self.assertNotIn('pull_request_target', events)
+        self.assertNotIn('edited', events['pull_request']['types'])
         self.assertEqual(workflow['permissions'], {'contents': 'read'})
-        job = workflow['jobs']['smoketest']
-        self.assertEqual(job['strategy']['matrix']['suite'], ['java', 'bedrock'])
-        steps = job['steps']
-        save = next(i for i, step in enumerate(steps) if step.get('uses', '').startswith('actions/cache/save@'))
-        checkout = next(i for i, step in enumerate(steps) if step.get('with', {}).get('path') == 'cultac')
-        execute = next(i for i, step in enumerate(steps) if step.get('id') == 'sandbox')
-        self.assertLess(save, checkout)
-        self.assertLess(checkout, execute)
-        self.assertIn("github.event_name != 'pull_request_target'", steps[save]['if'])
-        self.assertIn('refs/pull/{0}/merge', steps[checkout]['with']['ref'])
-        self.assertIn("github.event_name == 'pull_request_target'", steps[checkout]['with']['ref'])
-        self.assertTrue(steps[checkout]['with']['allow-unsafe-pr-checkout'])
+        jobs = workflow['jobs']
+        self.assertEqual(jobs['smoketest']['strategy']['matrix']['suite'], ['java', 'bedrock'])
+        self.assertIn("github.event_name != 'pull_request'", jobs['smoketest']['if'])
+        self.assertEqual(jobs['pr-build']['if'], "github.event_name == 'pull_request'")
+        pr_steps = jobs['pr-build']['steps']
+        self.assertFalse(any('secrets.' in str(s) or 'actions/cache' in str(s) for s in pr_steps))
+        self.assertFalse(any('upload-artifact' in str(s) for s in pr_steps))
+        for step in pr_steps:
+            if step.get('uses', '').startswith('actions/checkout@'):
+                self.assertFalse(step['with']['persist-credentials'])
+        steps = jobs['smoketest']['steps']
+        save = next(i for i, s in enumerate(steps) if s.get('uses', '').startswith('actions/cache/save@'))
+        checkout = next(i for i, s in enumerate(steps) if s.get('with', {}).get('path') == 'cultac')
+        execute = next(i for i, s in enumerate(steps) if s.get('id') == 'sandbox')
+        self.assertLess(checkout, save)
+        self.assertLess(save, execute)
+        self.assertIn('trusted-smoketest-v2', str(steps))
+        self.assertFalse(any('allow-unsafe-pr-checkout' in str(s) for s in steps))
         for step in steps:
             self.assertNotEqual(step.get('uses', ''), 'actions/cache@v4')
             self.assertNotIn('gradle/actions/setup-gradle', step.get('uses', ''))
             if step.get('uses', '').startswith('actions/checkout@'):
                 self.assertFalse(step['with']['persist-credentials'])
+
+    def test_artifact_size_and_file_count_limits(self):
+        sandbox = self.root / 'sandbox'
+        logs = sandbox / 'workspace/server/logs'
+        logs.mkdir(parents=True)
+        (logs / 'small.log').write_text('ok')
+        (logs / 'huge.log').write_bytes(b'x' * (collector.MAX_FILE_BYTES + 1))
+        destination = self.root / 'evidence'
+        collector.collect(sandbox, destination, 'bedrock')
+        self.assertEqual((destination / 'logs/small.log').read_text(), 'ok')
+        self.assertFalse((destination / 'logs/huge.log').exists())
+
+    def test_pr_wrapper_has_no_private_inputs(self):
+        content = (SCRIPTS / 'run-untrusted-pr-build.sh').read_text()
+        self.assertIn('GITHUB_WORKSPACE/cultac', content)
+        self.assertNotIn('mcp-client-smoketest', content)
+        self.assertNotIn('replay/.', content)
+        self.assertNotIn('--env-file', content)
+        self.assertNotIn('ACTIONS_RUNTIME_TOKEN', content)
+        self.assertNotIn('docker.sock', content.replace('Docker socket', ''))
+
+    def test_runtime_prefetch_requires_hashes_and_pinned_urls(self):
+        content = (SCRIPTS / 'prefetch-bedrock-runtime.py').read_text()
+        self.assertIn('sha256', content)
+        self.assertIn('https://', content)
+        self.assertIn('.ci-runtime-offline.json', content)
 
 
 if __name__ == '__main__':

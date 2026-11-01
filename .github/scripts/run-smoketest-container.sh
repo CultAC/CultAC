@@ -29,7 +29,7 @@ done
 marker="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
 echo "::stop-commands::$marker"
 trap 'echo "::$marker::"' EXIT
-docker run --rm --init --read-only \
+docker run --rm --init --read-only --network=none \
   --user "$(id -u):$(id -g)" \
   --cap-drop=ALL --security-opt=no-new-privileges:true \
   --pids-limit=1024 --memory=6g --memory-swap=6g --cpus=2 \

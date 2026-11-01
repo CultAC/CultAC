@@ -1,57 +1,48 @@
-# CI smoketests
+# CI smoketests: security model
 
-`smoketests.yml` runs on pushes and pull requests targeting `main`, `experimental`,
-and `dev`. Manual runs are limited to those same branches. The Java job runs only
-chunk deduplication and combat reach, retaining the existing thresholds and bot
-settings. The Bedrock job runs the existing capture regression runner, including
-its repeated baseline rounds and mutations. Full Java movement scenarios and
-unrelated harness unit suites are not invoked.
+Protected-branch pushes and manual runs on main, experimental, and dev execute only the
+private-fixture reach, chunk-deduplication, and Bedrock replay smoketests.
+Both internal and fork pull requests run build-only verification without private
+fixtures or secrets. A PR build pass is not a private smoketest pass.
 
 ## Trust boundary
 
-The private harness and replay repositories require `SMOKETEST_REPO_TOKEN` with
-read access. `CULTAC_REPLAY_READ_TOKEN` remains a fallback when it has access to
-the required fixture repository. The workflow uses `pull_request_target` to make
-those trusted checkouts available for fork PRs. The workflow and control scripts
-always come from `github.workflow_sha`, not the PR. Checkout credentials are not
-persisted, and the job's `GITHUB_TOKEN` has only `contents: read`.
+- PR events use pull_request, never pull_request_target. A trusted-base Docker
+  image and wrapper compile the PR merge revision inside an isolated container.
+  No private repositories, repository secrets, runner home, shared Gradle cache,
+  workflow command files, Docker socket, or artifacts are mounted or uploaded.
+  Outbound network is permitted in the PR compiler solely for Gradle dependencies.
+- Private fixtures are available only to the separate trusted-branch job.
+  Secret-backed checkouts run before sandbox execution; trusted branch code can
+  safely prepare its Gradle dependencies on the host.
+- The trusted branch job downloads and verifies pinned Bedrock runtime jars
+  before starting the Docker container. Its generated offline lock references
+  local, SHA-256-verified paths; Gradle always uses --offline in the container.
+- The actual reach, dedup, and Bedrock test container uses --network=none,
+  retaining loopback for local Minecraft traffic while blocking external egress.
+- Only trusted-branch jobs explicitly save cache entries under the separate
+  trusted-smoketest-v2 namespace. No PR job restores or saves them.
+- Test containers use dropped capabilities, no-new-privileges, resource limits,
+  a read-only root and independent workspace/cache copies.
+- Artifacts come only from trusted-branch runs. Collector rejects symlinks and
+  special files and limits file count and byte size. It cannot inspect arbitrary
+  regular-file content for secrets, so untrusted PRs never reach this phase.
 
-The Actions host prepares only trusted harness code and prerequisites. It restores
-an exact trusted cache namespace without legacy fallback keys, then explicitly
-saves prerequisites **before** checking out the code under test. Only pushes and
-manual runs on the three allowed branches can save caches. No Gradle or cache
-action registers an automatic post-test save.
+Arbitrary PRs cannot run the confidential fixture suites safely under the
+old same-container architecture. For full PR smoke coverage, use sanitized
+public fixtures or isolate the plugin/server in a different security domain
+from the private test harness and its evidence controller.
 
-PR checkout deliberately opts into `allow-unsafe-pr-checkout` **as data only**.
-The PR merge ref is tested; a missing/conflicted merge ref fails checkout instead
-of silently testing the base. Neither the PR's build scripts nor plugin jar are
-executed on the Actions host.
-
-Builds and tests run in an unprivileged Docker container with a read-only root
-filesystem, dropped capabilities, no-new-privileges, and bounded CPU, memory, and
-process count. Its only writable bind mounts are disposable copies of the input
-workspaces and Gradle prerequisites. Those copies preserve absolute paths needed
-by MCP, but do not share writable files with host caches. The runner's home,
-credentials, workflow command files, and Docker socket are not mounted or
-forwarded. Workflow command processing is suspended around container stdout.
-
-After the container exits, the host copies only regular evidence files, skipping
-symlinks, linked ancestor directories, and special files. This prevents artifact
-paths authored by PR code from reading host files during upload. Private source
-checkouts and prerequisite directories are not uploaded as artifacts.
-
-Changes to this boundary must preserve both the cache-save ordering and the
-container mount/environment allowlists. Local orchestration checks:
+## Local validation
 
 ```sh
 python3 -m unittest discover -s .github/scripts/tests -v
 bash -n .github/scripts/prepare-smoketests.sh \
+  .github/scripts/run-untrusted-pr-build.sh \
   .github/scripts/run-smoketest-container.sh \
   .github/scripts/run-selected-smoketests.sh
 ```
 
-The workflow policy check uses PyYAML. These local checks exercise command
-selection, failure propagation, disposable cache copies, credential forwarding,
-and hostile artifact links. They do not substitute for a live GitHub-hosted
-Minecraft run. Because `pull_request_target` uses the installed trusted workflow,
-new workflow changes take effect after they land on the trusted branch.
+Live Docker/Minecraft execution and offline dependency completeness require a
+real GitHub Actions run. Missing dependencies must be prepared on a trusted
+host; do not turn network access back on in the smoketest container.
