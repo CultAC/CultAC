@@ -82,6 +82,13 @@ public class OffsetHandler extends Check implements PostPredictionListener {
         }
     }
 
+    /** Whether this move is explained within the flag threshold, so that onPredictionComplete neither flags it. */
+    public boolean accepts(PredictionResult predictionResult) {
+        if (predictionResult.flagSeverity == 0.0) return true;
+        double offset = setbackOffset(predictionResult);
+        return offset < threshold && offset < immediateSetbackThreshold;
+    }
+
     private double setbackOffset(PredictionResult predictionResult) {
         double offset = predictionResult.getOffset();
         for (PredictionResult.Flag flag : predictionResult.getFlags()) {

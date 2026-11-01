@@ -51,8 +51,11 @@ public final class SprintE extends Check implements PostPredictionListener {
         }
 
         PredictionResult result = complete.getPredictionResult();
-        // A move the prediction did not explain leaves its collision unknown.
-        boolean checked = !complete.isExempt() && result != null && result.getFlagSeverity() == 0.0;
+        // A move Simulation accepts commits its explaining candidate, collision included; one it flags leaves the
+        // collision unknown. A residual below its threshold therefore cannot hide a hard collision.
+        boolean checked = !complete.isExempt()
+                && result != null
+                && player.checkManager.getOffsetHandler().accepts(result);
         boolean inWater = result != null
                 && result.getSimulationContext().getWorldData().isInWater();
 
