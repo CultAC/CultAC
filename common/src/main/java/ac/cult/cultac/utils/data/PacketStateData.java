@@ -19,6 +19,9 @@ public class PacketStateData {
     // This client tick's LocalPlayer#tick start has been applied, and whether LocalPlayer#tick ran in it.
     public boolean localPlayerTickStarted = false;
     public boolean localPlayerTickRan = false;
+    // Entity#noPhysics as the last Player#tick assigned it (isSpectator); the entities ticking before the player
+    // read it in Entity#push until this tick's Player#tick reassigns it.
+    public boolean localPlayerNoPhysics = false;
     // A flight stop LocalPlayer#aiStep may have sent after travel on landing; that tick still travelled flying.
     public boolean flyingStopAfterTravel = false;
     // A flight start LocalPlayer#aiStep sent this client tick, ahead of its player_input and move.

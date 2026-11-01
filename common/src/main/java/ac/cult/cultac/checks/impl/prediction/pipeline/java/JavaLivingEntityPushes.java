@@ -13,9 +13,15 @@ import ac.cult.cultac.utils.math.Vec3;
 public final class JavaLivingEntityPushes {
     private JavaLivingEntityPushes() {}
 
-    public static boolean playerPushable(CultPlayer player, SimulationContext context, Vec3 position, boolean gliding) {
+    /**
+     * Whether a push in this tick moves the player. Entity#push also skips a player with noPhysics, which an entity
+     * ticking {@code before} the player reads as the last Player#tick assigned it.
+     */
+    public static boolean playerPushable(
+            CultPlayer player, SimulationContext context, Vec3 position, boolean gliding, boolean before) {
         return !player.isDead()
                 && player.gamemode != GameMode.SPECTATOR
+                && !(before && player.packetStateData.localPlayerNoPhysics)
                 && !context.getEntities().selfCertainlyCarriesPassenger()
                 && !ac.cult.cultac.utils.nmsutil.Collisions.onClimbable(
                         player, position.x, position.y, position.z, gliding);

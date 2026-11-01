@@ -58,6 +58,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
+import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
@@ -1343,6 +1344,8 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             onLocalPlayerSprintTick(player);
             if (playerTicked) onLocalPlayerAttackTick(player);
             dispatchReceiveHandlers(event, player);
+            // Player#tick assigned noPhysics from isSpectator; the next tick's early pushes read it.
+            if (playerTicked) player.packetStateData.localPlayerNoPhysics = player.gamemode == GameMode.SPECTATOR;
             // FlightToggle reads this tick's ClientSprintState#flagBeforeAiStep, which onClientTickEnd releases.
             if (localPlayerTicked(player)) FlightToggle.onClientTick(player);
             player.sprintState.onClientTickEnd();

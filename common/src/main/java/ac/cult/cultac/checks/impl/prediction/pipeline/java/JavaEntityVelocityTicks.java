@@ -131,7 +131,7 @@ public final class JavaEntityVelocityTicks {
             });
         if (context.getVehicle() == null
                 && !entities.pushOrCollideCandidates().isEmpty()
-                && JavaLivingEntityPushes.playerPushable(player, context, position, gliding)) {
+                && JavaLivingEntityPushes.playerPushable(player, context, position, gliding, before)) {
             var pose = passengerPose != null ? passengerPose : before
                     ? context.getPose()
                     : player.updatedPose(

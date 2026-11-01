@@ -16,6 +16,7 @@ import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaLivingEntityPushe
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CarriedPush;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.EntityPush;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
+import ac.cult.cultac.events.packets.PacketChangeGameState;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.packet.WorldPackets;
@@ -25,11 +26,13 @@ import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityEvent;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityPositionSync;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundGameEvent;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveEntities;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.EntityPose;
+import ac.cult.cultac.protocol.value.GameEventType;
 import ac.cult.cultac.protocol.value.PositionPath;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -131,6 +134,69 @@ class JavaEntityPushTest {
 
             assertExact(f.tick(START.add(0, FIRST_FALL, PUSH), false));
         }
+    }
+
+    /**
+     * Player#tick assigns noPhysics from isSpectator at its start, and Entity#push skips a player with noPhysics. In the
+     * first tick out of spectator an entity ticking before the player still meets the spectator's noPhysics, so only
+     * the next tick is pushed, and the ticks after the flight grace carry that push alone.
+     */
+    @Test
+    void anEntityTickingBeforeThePlayerFirstPushesItTheTickAfterSpectator() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            leaveSpectatorBeside(f, -1L);
+
+            PredictionResult first = f.tick(START, false);
+            assertTrue(first.getOffset() < 1.0E-5, describe(first));
+            PredictionResult pushed = f.tick(CONTACT.add(0, 0, PUSH), false);
+            assertTrue(pushed.getOffset() < 1.0E-5, describe(pushed));
+            removeEntity(f, 100);
+            f.pongThrough(f.player.lastTransactionSent.get());
+            assertCarried(f, PUSH * 0.91F);
+        }
+    }
+
+    /** Spectator noPhysics never reaches an entity ticking after the player: Player#tick has reassigned it. */
+    @Test
+    void anEntityTickingAfterThePlayerPushesItFromTheFirstTickAfterSpectator() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            leaveSpectatorBeside(f, Long.MAX_VALUE);
+
+            PredictionResult first = f.tick(START, false);
+            assertTrue(first.getOffset() < 1.0E-5, describe(first));
+            PredictionResult pushed = f.tick(CONTACT.add(0, 0, PUSH), false);
+            assertTrue(pushed.getOffset() < 1.0E-5, describe(pushed));
+            removeEntity(f, 100);
+            f.pongThrough(f.player.lastTransactionSent.get());
+            // Entity#push after the second travel, from 0.5 - PUSH along Z.
+            double dz = 0.5 - PUSH;
+            assertCarried(f, PUSH * 0.91F - dz / Math.sqrt(dz) * 0.05F);
+        }
+    }
+
+    /**
+     * The third and fourth falling ticks with no pusher left, carrying {@code velocityZ} from the second through the
+     * 0.91F air drag; the fourth is past the flight grace.
+     */
+    private static void assertCarried(JavaTickFixture f, double velocityZ) {
+        Vec3 third = CONTACT.add(0, SECOND_FALL, PUSH + velocityZ);
+        PredictionResult result = f.tick(third, false);
+        assertTrue(result.getOffset() < 1.0E-5, describe(result));
+        assertExact(f.tick(third.add(0, fall(SECOND_FALL), velocityZ * 0.91F), false));
+    }
+
+    /**
+     * One spectator tick hovering at {@link #START}, then a zombie at {@link #TOUCHING} ticking at {@code order} and the
+     * return to survival, whose GameType#updatePlayerAbilities stops the flight.
+     */
+    private static void leaveSpectatorBeside(JavaTickFixture f, long order) throws Exception {
+        f.place(START, Vec3.ZERO);
+        f.input(NONE);
+        gameMode(f, 3);
+        f.tick(START, false);
+        PacketEntity zombie = entity(f, 100, TOUCHING);
+        if (order != Long.MAX_VALUE) zombie.setClientTickOrder(order);
+        gameMode(f, 0);
     }
 
     /** AABB spans a negative height below the position, and LivingEntity#pushEntities pushes from that box. */
@@ -954,6 +1020,16 @@ class JavaEntityPushTest {
     private static PacketEntity entity(JavaTickFixture f, int id, Vec3 position) {
         f.player.compensatedEntities.addEntity(id, EntityTypeIds.ZOMBIE, position, 0, 0, 0);
         return f.player.compensatedEntities.entityMap.get(id);
+    }
+
+    /** A CHANGE_GAME_MODE game event, answered through its ping. */
+    private static void gameMode(JavaTickFixture f, int mode) {
+        var packet = new ClientboundGameEvent(GameEventType.CHANGE_GAME_MODE, mode);
+        var event = new PacketSendEvent<>(
+                f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.GAME_EVENT, packet, false);
+        f.player.checkManager.getListener(PacketChangeGameState.class).onGameEvent(event, f.player, packet);
+        event.getTasksAfterSend().forEach(Runnable::run);
+        f.pongThrough(f.player.lastTransactionSent.get());
     }
 
     /** An adult camel ticking before the player, 1.0 along Z from it and 1.5 below its feet, in {@code pose}. */
