@@ -200,7 +200,8 @@ public final class JavaEntityVelocityTicks {
                         impulse = shulker.livingPushImpulse(rider ? from : null, box, position);
                     } else {
                         var physical = JavaLivingEntityPushes.physicalBox(player, entity, from);
-                        if (rider && !JavaLivingEntityPushes.intersects(physical, box)) continue;
+                        // AbstractBoat#tick pushes from its box inflated by 0.2, -0.01, 0.2; boatPush tests that.
+                        if (rider && !boat && !JavaLivingEntityPushes.intersects(physical, box)) continue;
                         impulse = boat
                                 ? EntityPush.boatPush(physical, box, position)
                                 : JavaLivingEntityPushes.push(physical, box, position);

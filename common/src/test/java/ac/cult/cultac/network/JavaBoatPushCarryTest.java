@@ -76,6 +76,36 @@ class JavaBoatPushCarryTest {
         }
     }
 
+    /**
+     * ClientLevel#tickPassenger runs a riding boat's AbstractBoat#tick right after its root's tick, and that tick
+     * pushes what its box inflated by 0.2, -0.01, 0.2 meets, though its own box stays clear of the player.
+     */
+    @ParameterizedTest
+    @EnumSource(
+            value = ClientVersion.class,
+            names = {"V_26_2", "V_26_3"})
+    void aRidingBoatPushesFromItsInflatedBox(ClientVersion version) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
+            var entities = f.player.compensatedEntities;
+            // An armor stand seats its passenger at its 1.975 height: the boat rests where boat(f, 100, 0.5) puts one.
+            entities.addEntity(99, EntityTypeIds.ARMOR_STAND, new Vec3(START.x + 1.1, FLOOR_Y - 1.975, 0.5), 0, 0, 0);
+            entities.getEntity(99).setClientTickOrder(entities.getSelf().getClientTickOrder() + 1);
+            boat(f, 100, 0.5);
+            entities.getEntity(100).mount(entities.getEntity(99));
+            entities.tickClientEntities(entity -> {});
+            f.player.packetStateData.acceptedClientTick++;
+            f.place(START, new Vec3(0.04, GRAVITY, 0));
+            f.input(NONE);
+            Vec3 position = START.add(0.04, 0, 0);
+            var result = f.tick(position, true);
+            assertTrue(exact(result), describe(result));
+            assertTrue(covers(f, 0.04 * FRICTION - PUSH, 0), "the riding boat pushes after the player's tick");
+            var next = f.tick(position.add(0.04 * FRICTION - PUSH, 0, 0), true);
+            assertTrue(exact(next), describe(next));
+        }
+    }
+
     @Test
     void aLateBoatInterpolatesIntoContactBeforePushing() throws Exception {
         try (var f = new JavaTickFixture()) {
