@@ -3239,14 +3239,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         int minX = (int) Math.floor(start.x - 0.3 - reach), maxX = (int) Math.floor(start.x + 0.3 + reach);
         int minY = (int) Math.floor(start.y - reach), maxY = (int) Math.floor(start.y + 1.8 + reach);
         int minZ = (int) Math.floor(start.z - 0.3 - reach), maxZ = (int) Math.floor(start.z + 0.3 + reach);
-        for (int x = minX; x <= maxX; x++)
-            for (int y = minY; y <= maxY; y++)
-                for (int z = minZ; z <= maxZ; z++)
-                    if (ac.cult.blocksim.data.BlockIds.is(
-                            this.player.compensatedWorld.getBlockStateIdAt(
-                                    new ac.cult.cultac.protocol.value.BlockPos(x, y, z)),
-                            ac.cult.blocksim.data.BlockIds.POWDER_SNOW)) return true;
-        return false;
+        return this.player.compensatedWorld.containsBlock(
+                minX, minY, minZ, maxX, maxY, maxZ, ac.cult.blocksim.data.BlockIds.POWDER_SNOW);
     }
 
     /** A JVM's tag order remains attached to its complete state across ticks, including dry ticks. */

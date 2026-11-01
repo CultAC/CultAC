@@ -377,6 +377,11 @@ public class CompensatedWorld {
             return nonEmptyBlockCount == 0;
         }
 
+        /** False only when no index holds a state matching {@code predicate}. */
+        public boolean maybeHas(java.util.function.IntPredicate predicate) {
+            return states.maybeHas(predicate);
+        }
+
         public boolean hasFluid() {
             return fluidCount > 0;
         }
@@ -1343,6 +1348,76 @@ public class CompensatedWorld {
         }
 
         return 0;
+    }
+
+    /**
+     * Whether {@link #getBlockStateIdAt} reads a state of {@code block} anywhere in the box. Visits only the columns
+     * getChunk returns and the sections whose palette may hold the block.
+     */
+    public boolean containsBlock(
+            int minX, int minY, int minZ, int maxX, int maxY, int maxZ, ac.cult.blocksim.data.BlockDefinition block) {
+        java.util.function.IntPredicate matches = state -> ac.cult.blocksim.data.BlockIds.is(state, block);
+        if (readingSelectionSnapshot) {
+            for (var entry : selectionOriginalStates.long2IntEntrySet()) {
+                BlockPos at = BlockPos.of(entry.getLongKey());
+                if (matches.test(entry.getIntValue())
+                        && at.getX() >= minX
+                        && at.getX() <= maxX
+                        && at.getY() >= minY
+                        && at.getY() <= maxY
+                        && at.getZ() >= minZ
+                        && at.getZ() <= maxZ) return true;
+            }
+        }
+        int minChunkX = minX >> 4, maxChunkX = maxX >> 4, minChunkZ = minZ >> 4, maxChunkZ = maxZ >> 4;
+        long columns = ((long) maxChunkX - minChunkX + 1) * ((long) maxChunkZ - minChunkZ + 1);
+        if (columns > chunks.size()) {
+            for (long key : chunks.keySet()) {
+                int chunkX = chunkXFromPosition(key), chunkZ = chunkZFromPosition(key);
+                if (chunkX >= minChunkX
+                        && chunkX <= maxChunkX
+                        && chunkZ >= minChunkZ
+                        && chunkZ <= maxChunkZ
+                        && columnContains(chunkX, chunkZ, minX, minY, minZ, maxX, maxY, maxZ, matches)) return true;
+            }
+            return false;
+        }
+        for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++)
+            for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++)
+                if (columnContains(chunkX, chunkZ, minX, minY, minZ, maxX, maxY, maxZ, matches)) return true;
+        return false;
+    }
+
+    private boolean columnContains(
+            int chunkX,
+            int chunkZ,
+            int minX,
+            int minY,
+            int minZ,
+            int maxX,
+            int maxY,
+            int maxZ,
+            java.util.function.IntPredicate matches) {
+        CachedChunk column = getChunk(chunkX, chunkZ);
+        if (column == null) return false;
+        // getBlockStateIdAt reads air below the column and from its top section up.
+        long low = Math.max((long) minY - minHeight, 0);
+        long high = Math.min((long) maxY - minHeight, column.sectionCount() * 16L - 1);
+        int fromX = Math.max(minX, chunkX << 4), toX = Math.min(maxX, chunkX << 4 | 15);
+        int fromZ = Math.max(minZ, chunkZ << 4), toZ = Math.min(maxZ, chunkZ << 4 | 15);
+        for (long sectionY = low >> 4; sectionY <= high >> 4; sectionY++) {
+            CachedSection section = column.getSection((int) sectionY);
+            if (section == null || !section.maybeHas(matches)) continue;
+            int fromY = (int) Math.max(low, sectionY << 4), toY = (int) Math.min(high, sectionY << 4 | 15);
+            for (int x = fromX; x <= toX; x++)
+                for (int y = fromY; y <= toY; y++)
+                    for (int z = fromZ; z <= toZ; z++) {
+                        if (readingSelectionSnapshot
+                                && selectionOriginalStates.containsKey(BlockPos.asLong(x, y + minHeight, z))) continue;
+                        if (matches.test(section.getStateId(CachedChunk.index(x & 0xF, y & 0xF, z & 0xF)))) return true;
+                    }
+        }
+        return false;
     }
 
     /**
