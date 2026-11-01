@@ -5,9 +5,7 @@ import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFallDistance;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.checks.impl.prediction.stage.MovementModifiers;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.math.Vec3;
 
 /**
@@ -31,17 +29,8 @@ final class JavaFluidHopVelocity {
         if (Collisions.getCollisionBoxes(
                 player, probe, null, true, end.y, JavaCollisionState.of(player, actor, moved.fallDistance())))
             return DesyncStatus.FALSE;
-        // LevelReader#containsAnyLiquid checks whole block cells, without comparing the fluid's surface height.
-        // 26.3's findBlocksIn includes the cell containing the maximum corner, even on an integer face.
-        boolean inclusive = context.getVersion().isNewerThanOrEquals(ClientVersion.V_26_3);
-        int maxX = inclusive ? (int) Math.floor(probe.maxX) + 1 : (int) Math.ceil(probe.maxX);
-        int maxY = inclusive ? (int) Math.floor(probe.maxY) + 1 : (int) Math.ceil(probe.maxY);
-        int maxZ = inclusive ? (int) Math.floor(probe.maxZ) + 1 : (int) Math.ceil(probe.maxZ);
-        for (int x = (int) Math.floor(probe.minX); x < maxX; x++)
-            for (int y = (int) Math.floor(probe.minY); y < maxY; y++)
-                for (int z = (int) Math.floor(probe.minZ); z < maxZ; z++)
-                    if (!ClientFluidQueries.fluidAt(player.compensatedWorld, new BlockPos(x, y, z))
-                            .isEmpty()) return DesyncStatus.FALSE;
+        if (ClientFluidQueries.containsAnyLiquid(player.compensatedWorld, context.getVersion(), probe))
+            return DesyncStatus.FALSE;
         // CollisionGetter#noEntityCollision, at the travel's end: an entity only touching the box still blocks it.
         return RootVehicleInterpolationCollision.noEntityCollision(player, actor, end, probe);
     }

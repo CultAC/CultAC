@@ -292,6 +292,60 @@ class DismountRideTickVelocityTest {
         }
     }
 
+    /**
+     * LivingEntity#jumpOutOfFluid after the rider presses into a wall: the isFree box ends on the wall's face. 26.3's
+     * LevelReader#findBlocksIn includes the cell beyond that face, so a waterlogged trapdoor there keeps the 26.3 rider
+     * in the water's fluid gravity, while older clients scan only to the face and hop.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"V_26_3", "V_26_2", "V_1_21_4"})
+    void aLiquidCellPastTheWallFaceBlocksOnly26_3sPassengerHop(String release) throws Exception {
+        ClientVersion version = ClientVersion.valueOf(release);
+        try (var f = fixture(version);
+                var ignored = observeOnly(true)) {
+            var registry = DataTables.defaults().registry();
+            int trapdoor = registry.with(registry.block("minecraft:oak_trapdoor").defaultState(), "facing", "east");
+            trapdoor = registry.with(registry.with(trapdoor, "open", "true"), "waterlogged", "true");
+            for (int z = -1; z <= 1; z++) {
+                for (int y = FLOOR_Y; y <= FLOOR_Y + 3; y++) {
+                    for (int x = -1; x <= 1; x++) {
+                        f.player.compensatedWorld.updateBlock(new BlockPos(x, y, z),
+                                y <= FLOOR_Y + 1 ? BlockIds.WATER.defaultState() : BlockIds.AIR.defaultState());
+                    }
+                    f.player.compensatedWorld.updateBlock(new BlockPos(2, y, z),
+                            y == FLOOR_Y + 2 && z == 0 ? trapdoor : BlockIds.STONE.defaultState());
+                }
+            }
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            // The seat's feet sit at 65.5, in the upper water cell; the isFree box starts above the water.
+            Vec3 stand = new Vec3(1.69, FLOOR_Y + 0.125, 0.5);
+            f.place(new Vec3(stand.x, FLOOR_Y, stand.z), Vec3.ZERO);
+            f.player.xRot = -90;
+            f.tick(new Vec3(stand.x, FLOOR_Y, stand.z), true);
+            f.player.compensatedEntities.addEntity(VEHICLE, EntityTypeIds.ARMOR_STAND, stand, 0, 0, 0);
+            f.setPassengers(VEHICLE, List.of(f.player.entityID));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            assertTrue(f.player.compensatedEntities.getSelf().inVehicle());
+            f.input(FORWARD);
+            f.rideTick();
+            f.rideTick();
+            f.input(NONE);
+            dismount(f, false);
+            for (int z = -1; z <= 1; z++) {
+                for (int y = FLOOR_Y; y <= FLOOR_Y + 3; y++) {
+                    for (int x = -1; x <= 2; x++) {
+                        f.player.compensatedWorld.updateBlock(new BlockPos(x, y, z), BlockIds.AIR.defaultState());
+                    }
+                }
+            }
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            // LivingEntity#travelInWater: the 0.8 drag of a zero delta, then the fluid gravity of 0.08 / 16.
+            double carried = version.isNewerThanOrEquals(ClientVersion.V_26_3) ? -0.005 : 0.3F;
+            PredictionResult move = f.tick(position(f).add(0, carried, 0), false);
+            assertTrue(exact(move), describe(move));
+        }
+    }
+
     /** A ride tick in powder snow travels in air, then PowderSnowBlock#entityInside sticks the first move. */
     @ParameterizedTest
     @MethodSource("endings")

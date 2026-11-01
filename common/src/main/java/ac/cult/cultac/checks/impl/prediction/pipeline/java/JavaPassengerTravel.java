@@ -258,12 +258,9 @@ public final class JavaPassengerTravel {
             CultPlayer player, JavaBlockEntityMove.Environment env, JavaPassState state, Vec3 velocity, double oldY) {
         Vec3 offset = new Vec3(velocity.x, velocity.y + .6F - state.position().y + oldY, velocity.z);
         SimpleCollisionBox box = env.box(state.position()).offset(offset);
-        if (!Collisions.isEmpty(player, box, state.position().y)) return false;
-        for (int x = (int) Math.floor(box.minX); x < Math.ceil(box.maxX); x++)
-            for (int y = (int) Math.floor(box.minY); y < Math.ceil(box.maxY); y++)
-                for (int z = (int) Math.floor(box.minZ); z < Math.ceil(box.maxZ); z++)
-                    if (!ClientFluidQueries.modelFluid(player.compensatedWorld.getBlockStateIdAt(x, y, z)).isEmpty())
-                        return false;
+        if (!Collisions.isEmpty(player, box, state.position().y)
+                || ClientFluidQueries.containsAnyLiquid(player.compensatedWorld, env.context().getVersion(), box))
+            return false;
         for (var collider : RootVehicleInterpolationCollision.entityCollisionBoxes(player, env.actor(), state.position(), box))
             if (box.isIntersected(collider)) return false;
         return true;

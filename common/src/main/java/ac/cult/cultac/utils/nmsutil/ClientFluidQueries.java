@@ -52,6 +52,22 @@ public final class ClientFluidQueries {
         return modelFluid(world.getBlockStateIdAt(pos));
     }
 
+    /**
+     * LevelReader#containsAnyLiquid checks whole block cells, without comparing the fluid's surface height.
+     * 26.3's findBlocksIn includes the cell containing the maximum corner, even on an integer face.
+     */
+    public static boolean containsAnyLiquid(CompensatedWorld world, ClientVersion version, SimpleCollisionBox box) {
+        boolean inclusive = version.isNewerThanOrEquals(ClientVersion.V_26_3);
+        int maxX = inclusive ? (int) Math.floor(box.maxX) + 1 : (int) Math.ceil(box.maxX);
+        int maxY = inclusive ? (int) Math.floor(box.maxY) + 1 : (int) Math.ceil(box.maxY);
+        int maxZ = inclusive ? (int) Math.floor(box.maxZ) + 1 : (int) Math.ceil(box.maxZ);
+        for (int x = (int) Math.floor(box.minX); x < maxX; x++)
+            for (int y = (int) Math.floor(box.minY); y < maxY; y++)
+                for (int z = (int) Math.floor(box.minZ); z < maxZ; z++)
+                    if (!modelFluid(world.getBlockStateIdAt(x, y, z)).isEmpty()) return true;
+        return false;
+    }
+
     /** Uses the same owned shape cache as action raycasts. Ordinary fluid height queries stay uncached. */
     public static VoxelShape raycastShape(CompensatedWorld world, BlockPos pos, int state) {
         return FluidQueries.shape(
