@@ -66,6 +66,7 @@ public class BoundingBoxSize {
         if (version.isOlderThan(ClientVersion.V_26_1) && path.equals("rabbit")) {
             return 0.4F;
         }
+        if (javaBeeBefore26Dot2(packetEntity, version, bedrock)) return 0.7F;
         float exactWidth = baseDimensions(packetEntity).width();
         if (packetEntity instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityPufferfish fish)
             exactWidth *= fish.puffScale();
@@ -382,6 +383,7 @@ public class BoundingBoxSize {
         if (version.isOlderThan(ClientVersion.V_26_1) && path.equals("rabbit")) {
             return 0.5F;
         }
+        if (javaBeeBefore26Dot2(packetEntity, version, bedrock)) return 0.6F;
         float exactHeight = baseDimensions(packetEntity).height();
         if (packetEntity instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityPufferfish fish)
             exactHeight *= fish.puffScale();
@@ -541,6 +543,14 @@ public class BoundingBoxSize {
                     "piglin_brute" -> 0.99F;
             default -> null;
         };
+    }
+
+    /**
+     * Java EntityType#BEE is sized(0.7F, 0.6F) through 26.1; 26.2 made it the bundled 26.3 model's 0.55 by 0.5.
+     * Bedrock keeps the model's size.
+     */
+    private static boolean javaBeeBefore26Dot2(PacketEntity entity, ClientVersion version, boolean bedrock) {
+        return !bedrock && entity.type == EntityTypeIds.BEE && version.isOlderThan(ClientVersion.V_26_2);
     }
 
     private static EntityTypes.Type baseDimensions(PacketEntity packetEntity) {

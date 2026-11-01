@@ -64,6 +64,10 @@ class JavaEntityPushTest {
     private static final double SECOND_FALL = fall(FIRST_FALL);
     private static final Vec3 CONTACT = START.add(0, FIRST_FALL, 0);
     private static final Vec3 AWAY = new Vec3(4.5, FLOOR_Y, 4.5);
+    /** 0.6 along Z: a 26.1 bee's 0.7-wide box reaches the player's box, the 0.55-wide bee from 26.2 does not. */
+    private static final Vec3 BEE_EDGE = new Vec3(0.5, START.y, 1.1);
+    /** Entity#push from {@link #BEE_EDGE}. */
+    private static final double BEE_PUSH = -0.05 * 0.6 / Math.sqrt(0.6);
     /** A zombie whose top stays below the player's contact box while a slime seated on it reaches into it. */
     private static final Vec3 BELOW_TOUCHING = TOUCHING.add(0, -1.5, 0);
 
@@ -113,6 +117,28 @@ class JavaEntityPushTest {
             assertExact(first);
             assertEquals(0, first.getSimulationContext().getWorldData().getNumPushing());
             assertExact(f.tick(START.add(0, FIRST_FALL + SECOND_FALL, PUSH), false));
+        }
+    }
+
+    /** EntityType#BEE is sized(0.7F, 0.6F) through 26.1, so its box still touches the player's from here. */
+    @Test
+    void a26Dot1BeePushesFromItsWiderBox() throws Exception {
+        try (var f = falling(ProtocolVersion.V26_1, ClientVersion.V_26_1)) {
+            bee(f, 100, BEE_EDGE);
+
+            assertExact(f.tick(START.add(0, FIRST_FALL, 0), false));
+            assertExact(f.tick(START.add(0, FIRST_FALL + SECOND_FALL, BEE_PUSH), false));
+        }
+    }
+
+    /** From 26.2 EntityType#BEE is sized(0.55F, 0.5F), whose box does not reach the player's from the same place. */
+    @Test
+    void a26Dot2BeeDoesNotReachThePlayerFromThere() throws Exception {
+        try (var f = falling()) {
+            bee(f, 100, BEE_EDGE);
+
+            assertExact(f.tick(START.add(0, FIRST_FALL, 0), false));
+            assertExact(f.tick(START.add(0, FIRST_FALL + SECOND_FALL, 0), false));
         }
     }
 
@@ -1159,7 +1185,14 @@ class JavaEntityPushTest {
 
     /** A client that has just stepped off into the air at {@link #START}. */
     private static JavaTickFixture falling() throws Exception {
-        JavaTickFixture f = new JavaTickFixture();
+        return falling(new JavaTickFixture());
+    }
+
+    private static JavaTickFixture falling(ProtocolVersion protocol, ClientVersion client) throws Exception {
+        return falling(new JavaTickFixture(protocol, client));
+    }
+
+    private static JavaTickFixture falling(JavaTickFixture f) throws Exception {
         f.place(START, Vec3.ZERO);
         f.input(NONE);
         assertExact(f.tick(START, false));
@@ -1174,6 +1207,10 @@ class JavaEntityPushTest {
     private static PacketEntity entity(JavaTickFixture f, int id, Vec3 position) {
         f.player.compensatedEntities.addEntity(id, EntityTypeIds.ZOMBIE, position, 0, 0, 0);
         return f.player.compensatedEntities.entityMap.get(id);
+    }
+
+    private static void bee(JavaTickFixture f, int id, Vec3 position) {
+        f.player.compensatedEntities.addEntity(id, EntityTypeIds.BEE, position, 0, 0, 0);
     }
 
     /** A CHANGE_GAME_MODE game event, answered through its ping. */
