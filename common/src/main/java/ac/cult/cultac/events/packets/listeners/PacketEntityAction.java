@@ -70,15 +70,20 @@ public class PacketEntityAction {
                         : null;
                 if (nautilus != null) {
                     // LocalPlayer#aiStep releases after the nautilus's whole tick, whose cooldown tail runs at the
-                    // client tick end, so the tick end judges AbstractNautilus#onPlayerJump after that tail.
-                    nautilus.nextPendingJumpScale = packet.data() >= 90 ? 1.0F : 0.4F + 0.4F * packet.data() / 90.0F;
+                    // client tick end, so the tick end judges AbstractNautilus#onPlayerJump after that tail. Unlike
+                    // AbstractHorse#onPlayerJump, it does not clamp a negative amount.
+                    nautilus.nextPendingJumpScale = pendingJumpScale(packet.data());
                     break;
                 }
                 PacketEntityHorse horse = player.compensatedEntities.vehicles.getClientVisibleHorseRoot();
                 // Camel#onPlayerJump also needs no dash cooldown and the ground, as Camel#tick's move and cooldown
                 // tail leave them before this release. The client tick end judges them after both have run.
                 if (horse != null && horse.hasSaddle) {
-                    double jumpScale = packet.data() >= 90 ? 1.0F : 0.4F + 0.4F * packet.data() / 90.0F;
+                    // AbstractHorse#onPlayerJump clamps a negative amount to 0, and only a non-negative one allows
+                    // stand sliding and calls standIfPossible(). LocalPlayer#aiStep sends a negative amount for a
+                    // jump held through a camel's dash cooldown: getJumpCooldown() skips the riding block, so
+                    // jumpRidingTicks keeps the last release's -10 and then counts up from it while the jump is held.
+                    int jumpAmount = packet.data();
                     // MCP-Reborn ClientLevel#tickNonPassenger ticks the root
                     // horse before tickPassenger runs LocalPlayer#rideTick.
                     // LocalPlayer#aiStep calls onPlayerJump(...) during that
@@ -88,17 +93,25 @@ public class PacketEntityAction {
                     // serialized by LocalPlayer#tick. The same callback also
                     // sets AbstractHorse#allowStandSliding and calls
                     // standIfPossible() for that next tick.
-                    horse.nextHorseJump = jumpScale;
-                    horse.nextAllowStandSliding = true;
-                    // Before 1.21.5, Entity#isEffectiveAi is !level().isClientSide, so the client horse never stands.
-                    if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5)) {
-                        horse.armClientRidingJumpStand();
+                    horse.nextHorseJump = pendingJumpScale(Math.max(jumpAmount, 0));
+                    if (jumpAmount >= 0) {
+                        horse.nextAllowStandSliding = true;
+                        // Before 1.21.5, Entity#isEffectiveAi is !level().isClientSide, so the client horse never
+                        // stands.
+                        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5)) {
+                            horse.armClientRidingJumpStand();
+                        }
                     }
                 }
                 break;
             default:
                 break;
         }
+    }
+
+    /** PlayerRideableJumping#getPlayerJumpPendingScale. */
+    private static float pendingJumpScale(int jumpAmount) {
+        return jumpAmount >= 90 ? 1.0F : 0.4F + 0.4F * jumpAmount / 90.0F;
     }
 
     static boolean lavaPreventsGlideActivation(CultPlayer player) {

@@ -47,6 +47,8 @@ class CamelDashCooldownTest {
 
     private static final float FULL_CHARGE = 1.0F;
     private static final int FULL_JUMP = 90;
+    /** LocalPlayer#sendRidingJump's amount for jumpRidingTicks -6: -61. */
+    private static final int HELD_THROUGH_COOLDOWN = (int) Math.floor(-6 * 0.1F * 100.0F);
 
     private static final Vec3 START = new Vec3(0.5, FLOOR_Y, 0.5);
     private static final Vec3 ON_FOOT = new Vec3(4.5, FLOOR_Y, 0.5);
@@ -205,6 +207,33 @@ class CamelDashCooldownTest {
             f.command(PlayerCommandAction.START_JUMPING_WITH_HORSE);
             assertExact(ride(f, START, true));
             assertEquals(TAPPED_CHARGE, camel.horseJump, "Camel#onPlayerJump refused the release");
+            dash(f, START, TAPPED_CHARGE, 12);
+        }
+    }
+
+    /**
+     * A jump held through the dash cooldown: LocalPlayer#aiStep skips the riding block while getJumpCooldown() is
+     * nonzero, so jumpRidingTicks keeps the last release's -10. Once the cooldown is spent, two held ticks count it
+     * to -8 and -6, and the release sends Mth.floor(-6 * 0.1F * 100.0F). AbstractHorse#onPlayerJump clamps that
+     * negative amount to 0, and the camel dashes at the tapped charge.
+     */
+    @Test
+    void aJumpHeldThroughTheCooldownDashesAtTheTappedCharge() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            PacketEntityCamel camel = spawn(f);
+            metadata(f, false);
+            assertExact(f.tick(ON_FOOT, true));
+
+            metadata(f, true);
+            for (int tick = 0; tick < DASH_COOLDOWN - 2; tick++) assertExact(f.tick(ON_FOOT, true));
+            board(f, IDLE);
+            assertExact(ride(f, START, true));
+            assertEquals(0, camel.dashCooldown);
+            assertExact(ride(f, START, true));
+
+            f.command(PlayerCommandAction.START_JUMPING_WITH_HORSE, HELD_THROUGH_COOLDOWN);
+            assertExact(ride(f, START, true));
+            assertEquals(TAPPED_CHARGE, camel.horseJump, "AbstractHorse#onPlayerJump did not clamp the amount");
             dash(f, START, TAPPED_CHARGE, 12);
         }
     }
