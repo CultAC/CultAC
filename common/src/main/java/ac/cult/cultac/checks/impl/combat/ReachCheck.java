@@ -299,13 +299,11 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
                 isPrediction);
     }
 
-    /** {@code reachEntity}'s lag-compensated box as the client's pick sees it. */
+    /**
+     * {@code reachEntity}'s lag-compensated box as the client's pick sees it. An end crystal's is its 2 by 2 type box,
+     * which a crystal riding another entity holds at the seat Entity#positionRider gives it, not at its last packet.
+     */
     public SimpleCollisionBox getReachBox(PacketEntity reachEntity) {
-        if (reachEntity.type == EntityTypeIds.END_CRYSTAL) { // Hardcode end crystal box
-            return new SimpleCollisionBox(
-                    reachEntity.desyncClientPos.subtract(1, 0, 1), reachEntity.desyncClientPos.add(1, 2, 1));
-        }
-
         SimpleCollisionBox movementBox = reachEntity.toBoundingBox(player, reachEntity.getPossibleCollisionBoxes());
         float movementWidth = BoundingBoxSize.getWidth(player, reachEntity);
         float movementHeight = BoundingBoxSize.getHeight(player, reachEntity);

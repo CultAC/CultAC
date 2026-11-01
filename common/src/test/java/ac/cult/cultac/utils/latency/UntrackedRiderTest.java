@@ -67,6 +67,8 @@ class UntrackedRiderTest {
     private static final int SHULKER_MOUNT = 2400;
     private static final int OPEN_SHULKER = 2401;
     private static final int FAR_VEHICLE = 2500;
+    private static final int CRYSTAL_VEHICLE = 2600;
+    private static final int CRYSTAL = 2601;
 
     enum Client {
         LEGACY(ClientVersion.V_1_21_11),
@@ -147,6 +149,38 @@ class UntrackedRiderTest {
             double beforeNear = reachViolations(player);
             attack(player, MOUNTED);
             assertEquals(beforeNear, reachViolations(player), "a legal attack used the rider's stale spawn box");
+        } finally {
+            close(player);
+        }
+    }
+
+    /**
+     * ServerEntity#sendChanges sends a passenger no position, so a mounted end crystal's last packet stays where it
+     * spawned while Entity#positionRider seats it. The client picks its 2 by 2 box at that seat.
+     */
+    @ParameterizedTest
+    @EnumSource(Client.class)
+    void aMountedEndCrystalIsMeasuredForReachAtItsSeat(Client client) {
+        CultPlayer player = world(client.version);
+        try {
+            add(player, CRYSTAL_VEHICLE, EntityTypeIds.ZOMBIE, 12, 0);
+            add(player, CRYSTAL, EntityTypeIds.END_CRYSTAL, 12, 0);
+            mount(player, CRYSTAL_VEHICLE, CRYSTAL);
+            // Control: twelve blocks away the attack flags.
+            attack(player, CRYSTAL);
+            double flagged = reachViolations(player);
+            assertTrue(flagged > 0, "the harness cannot flag reach");
+
+            PacketEntity root = entity(player, CRYSTAL_VEHICLE);
+            root.setPositionRaw(GetBoundingBox.getPacketEntityBoundingBox(player, 2.0, 62.2, 0.0, root));
+            player.packetStateData.acceptedClientTick++;
+            player.packetEntityReplication.onPlayerTickEnd(null);
+            assertBoxEquals(
+                    seatBox(player, CRYSTAL_VEHICLE, CRYSTAL), entity(player, CRYSTAL).getPossibleCollisionBoxes());
+            player.xRot = -90.0F;
+            player.yRot = 0.0F;
+            attack(player, CRYSTAL);
+            assertEquals(flagged, reachViolations(player), "a legal attack used the crystal's stale spawn box");
         } finally {
             close(player);
         }
