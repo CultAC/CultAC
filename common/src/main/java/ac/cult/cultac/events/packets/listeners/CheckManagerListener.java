@@ -651,8 +651,11 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
 
         // A teleport acknowledgement is not LocalPlayer#tick movement.
         if (!player.packetStateData.lastPacketWasTeleport) {
-            // The entities ticking before the player have moved it by the time LocalPlayer#tick sends this.
-            if (!player.packetStateData.receivedMovementThisClientTick && !player.isBedrockMovement())
+            // The entities ticking before the player have moved it by the time LocalPlayer#tick sends this. A rider's
+            // Rot carries no travel: the MoveVehicle LocalPlayer#sendPosition sends after it predicts the root's.
+            if (!player.packetStateData.receivedMovementThisClientTick
+                    && !player.isBedrockMovement()
+                    && !passengerRotationTickPacket)
                 player.checkManager.getSimulationProcessor().applyEntityMovesBeforeTravel();
             player.packetStateData.receivedMovementThisClientTick = true;
             // Only LocalPlayer#tick sends movement, and it requires ClientPacketListener#hasClientLoaded.
@@ -919,7 +922,11 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         }
 
         if (fromClientTick && !player.packetStateData.lastPacketWasTeleport) {
-            if (!player.packetStateData.receivedMovementThisClientTick && !player.isBedrockMovement())
+            // The rider's Rot before this move left the root's pre-travel pass to it.
+            if ((!player.packetStateData.receivedMovementThisClientTick
+                            || firstClientTickVehicleMove
+                                    && player.packetStateData.hasPassengerRotationThisClientTick())
+                    && !player.isBedrockMovement())
                 player.checkManager.getSimulationProcessor().applyEntityMovesBeforeTravel();
             player.packetStateData.receivedMovementThisClientTick = true;
         }
