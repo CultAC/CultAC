@@ -31,6 +31,26 @@ public final class ClientSleepingPosition {
         if (player.isBedrockMovement()) return;
         Vec3 position = bedPosition(player, bed);
         if (position == null) return;
+        moveTo(player, position);
+    }
+
+    /**
+     * ClientPacketListener#handleAnimate's WAKE_UP runs Player#stopSleepInBed on the local player: when the client
+     * still has a BedBlock at its sleeping position, LivingEntity#stopSleeping stands it at
+     * BedBlock#findStandUpPosition, else above the bed. The server's teleport to its own stand-up position may follow
+     * a client tick later. LocalPlayer#sendPosition reports the rotation stopSleeping sets.
+     */
+    public static void stopSleeping(CultPlayer player, BlockPos bed) {
+        if (player.isBedrockMovement() || !player.compensatedWorld.isChunkLoaded(bed.getX() >> 4, bed.getZ() >> 4))
+            return;
+        int state = player.compensatedWorld.getBlockStateIdAt(bed);
+        if (!BlockFamilies.BED.test(state)) return;
+        Direction facing = Direction.valueOf(REGISTRY.value(state, "facing").toUpperCase(Locale.ROOT));
+        Vec3 standUp = ClientBedStandUp.find(player, bed, facing, player.xRot);
+        moveTo(player, standUp != null ? standUp : new Vec3(bed.getX() + 0.5, bed.getY() + 1.1, bed.getZ() + 0.5));
+    }
+
+    private static void moveTo(CultPlayer player, Vec3 position) {
         player.compensatedEntities.observeLocalPlayerPosition(position);
         if (player.compensatedEntities.getSelf().inVehicle()) {
             player.checkManager.getSimulationProcessor().moveRider(position);

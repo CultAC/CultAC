@@ -107,6 +107,46 @@ class JavaBedWakeMovementTest {
         }
     }
 
+    /**
+     * ServerPlayer#stopSleepInBed sends the WAKE_UP animation before its teleport, and the client can tick between
+     * them: Player#stopSleepInBed has already stood it at BedBlock#findStandUpPosition. That tries the side
+     * Direction#isFacingAngle picks first, then walks round the bed, taking the first block DismountHelper finds safe.
+     */
+    @Test
+    void aTickBetweenTheWakeUpAndItsTeleportStartsWhereTheSleeperStoodUp() throws Exception {
+        wakesUpBeforeTheTeleport(false, new Vec3(-0.5, FLOOR_Y, 0.5));
+        wakesUpBeforeTheTeleport(true, new Vec3(-0.5, FLOOR_Y, -0.5));
+    }
+
+    private static void wakesUpBeforeTheTeleport(boolean sideBlocked, Vec3 standUp) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            placeBed(f, "minecraft:red_bed");
+            if (sideBlocked) {
+                int stone = DataTables.defaults().registry().block("minecraft:stone").defaultState();
+                f.player.compensatedWorld.updateBlock(new BlockPos(-1, FLOOR_Y, 0), stone);
+                f.player.compensatedWorld.updateBlock(new BlockPos(-1, FLOOR_Y + 1, 0), stone);
+            }
+            Vec3 start = new Vec3(1.5, FLOOR_Y, 0.5);
+            f.place(start, Vec3.ZERO);
+            f.tick(start, true);
+            Vec3 sleepPosition = new Vec3(0.5, FLOOR_Y + 0.6875, 0.5);
+            f.teleport(sleepPosition, new RelativeFlag(0));
+            sleepingPos(f, Optional.of(HEAD));
+            f.input(NONE);
+            sleepTick(f, sleepPosition, false);
+            sleepTick(f, new Vec3(0.5, FLOOR_Y + 0.60909999847412, 0.5), false);
+            sleepTick(f, new Vec3(0.5, FLOOR_Y + 0.5625, 0.5), true);
+            assertTrue(f.player.isInBed);
+
+            wakeUp(f);
+            assertEquals(standUp, new Vec3(f.player.x, f.player.y, f.player.z), "blocked " + sideBlocked);
+            // Entity#setPos keeps the bounce BedBlock#updateEntityMovementAfterFallOn gave the last landing.
+            PredictionResult result = f.tick(standUp.add(0, 0.6150560409655 - 0.5625, 0), false);
+
+            assertTrue(exact(result), "blocked " + sideBlocked + ": " + describe(result));
+        }
+    }
+
     @Test
     void aSleeperStillMovingWhenItsBedArrivesTravelsOnFromTheBed() throws Exception {
         travelsOnFromTheBed("minecraft:red_bed", 0.6875, 0.5625);

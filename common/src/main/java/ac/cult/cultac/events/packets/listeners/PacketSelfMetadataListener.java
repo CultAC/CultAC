@@ -253,6 +253,12 @@ public class PacketSelfMetadataListener {
             // Player#stopSleepInBed runs LivingEntity#stopSleeping, which sets the STANDING pose whether or not
             // it fits; Player#updatePlayerPose reconsiders it only after the next aiStep.
             addTaskAfterPacketProof(event, player, () -> {
+                if (player.isInBed && player.bedPosition != null) {
+                    ClientSleepingPosition.stopSleeping(
+                            player,
+                            BlockPos.containing(
+                                    player.bedPosition.x, player.bedPosition.y, player.bedPosition.z));
+                }
                 player.isInBed = false;
                 player.refreshPlayerPose(Pose.STANDING);
             });
