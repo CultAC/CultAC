@@ -19,6 +19,7 @@ import ac.cult.cultac.utils.latency.ClientBlockEntityPass;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.latency.CompensatedWorldPistons;
+import ac.cult.cultac.utils.lists.StableIndexSort;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
@@ -320,6 +321,7 @@ public final class JavaBlockEntityPass {
         int actors = remotes.size() + (local == null ? 0 : 1);
         // Working space for the whole pass: each mover reuses the query order and the in-pass boxes.
         int[] order = actors > 1 ? new int[actors] : null;
+        int[] sortScratch = order == null ? null : new int[actors];
         java.util.Map<PacketEntity, SimpleCollisionBox> boxes =
                 actors > 1 ? new java.util.IdentityHashMap<>(remotes.size()) : null;
         List<JavaBlockEntityPath.Step> localMoves = null;
@@ -356,7 +358,7 @@ public final class JavaBlockEntityPass {
                     }
                 } else {
                     int listed = listedActors(remotes, local, mover, order);
-                    queryOrder(entities, remotes, local, moverIndex, order, listed);
+                    queryOrder(entities, remotes, local, moverIndex, order, sortScratch, listed);
                     for (int i = 0; i < listed; i++) {
                         int actor = order[i];
                         if (actor == remotes.size()) {
@@ -424,19 +426,18 @@ public final class JavaBlockEntityPass {
     /**
      * Level#getEntities's order for one mover, by where each actor starts it: EntitySectionStorage's section order,
      * then each section's insertion order. Sorts the first {@code count} entries of {@code order}, the actors
-     * {@link #listedActors} found. Insertion sort: a mover lists few actors.
+     * {@link #listedActors} found. Every actor is a tracked entity with its own section entry, so the order is total.
      */
     private static void queryOrder(
-            CompensatedEntities entities, List<Replay> remotes, Replay local, int moverIndex, int[] order, int count) {
-        for (int i = 1; i < count; i++) {
-            int actor = order[i];
-            int j = i - 1;
-            while (j >= 0 && precedes(entities, remotes, local, moverIndex, actor, order[j])) {
-                order[j + 1] = order[j];
-                j--;
-            }
-            order[j + 1] = actor;
-        }
+            CompensatedEntities entities,
+            List<Replay> remotes,
+            Replay local,
+            int moverIndex,
+            int[] order,
+            int[] scratch,
+            int count) {
+        if (count < 2) return;
+        StableIndexSort.sort(order, scratch, count, (a, b) -> precedes(entities, remotes, local, moverIndex, a, b));
     }
 
     private static boolean precedes(
