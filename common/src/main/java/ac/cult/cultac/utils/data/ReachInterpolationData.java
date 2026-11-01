@@ -588,8 +588,11 @@ public class ReachInterpolationData {
         if (EntityTypeUtil.isMinecart(entity.type)) {
             // Without FeatureFlags.MINECART_IMPROVEMENTS, AbstractMinecart uses
             // OldMinecartBehavior, whose InterpolationHandler is constructed with
-            // the default 3 client ticks.
-            return 3;
+            // the default 3 client ticks. Through 1.21.4 its lerpTo (AbstractMinecart#lerpTo before 1.21.2) runs
+            // the packet's 3 steps plus 2.
+            return !player.isBedrockMovement() && player.getClientVersion().isOlderThan(ClientVersion.V_1_21_5)
+                    ? 5
+                    : 3;
         }
         if (entity.type == EntityTypeIds.SHULKER) {
             return 1;
