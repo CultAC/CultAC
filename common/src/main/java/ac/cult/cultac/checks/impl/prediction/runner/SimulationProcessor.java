@@ -773,6 +773,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         if (!this.player.isBedrockMovement())
             this.player.compensatedEntities.fishingPulls.finishClientTick(this.player);
         JavaRemoteBlockEntityPass.tick(this.player);
+        this.player.checkManager.getDebugHandler().onClientTickEnd(this.validPlayerStartingVels);
     }
 
     /** Through 26.2 the report is inside LocalPlayer#tick; late rockets and boats run before the block entities. */

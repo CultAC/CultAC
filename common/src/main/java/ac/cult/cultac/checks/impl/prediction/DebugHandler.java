@@ -87,6 +87,11 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
     // are committed.
     private PredictionResult awaitingEndOfTick;
     private Set<Vec3> startOfTickVelocities;
+    // A committed prediction whose end-of-tick line waits for the client tick's later passes (entities and block
+    // entities ticking after the report through 26.2), with the velocities it committed for a client without tick ends.
+    private PredictionResult committed;
+    private Set<Vec3> committedStart;
+    private Set<Vec3> committedEnd;
     private String endOfTickLabelColor;
     private String endOfTickColor;
 
@@ -96,6 +101,8 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
 
     @Override
     public void onPredictionComplete(final PredictionComplete predictionComplete) {
+        // No tick end closed the last committed tick: its committed velocities are its end.
+        if (committed != null) publishEndOfTick(committedEnd);
         awaitingEndOfTick = null;
         startOfTickVelocities = null;
         if (predictionComplete.isTeleport()) return;
@@ -217,8 +224,22 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
     public void onPredictionCommitted(PredictionResult result, Set<Vec3> endOfTickVelocities) {
         if (result == null || result != awaitingEndOfTick) return;
         awaitingEndOfTick = null;
-        Set<Vec3> startOfTick = startOfTickVelocities;
+        committed = result;
+        committedStart = startOfTickVelocities;
+        committedEnd = Set.copyOf(endOfTickVelocities);
         startOfTickVelocities = null;
+    }
+
+    /** The client tick ended after every later pass: {@code endOfTickVelocities} are the next travel's starts. */
+    public void onClientTickEnd(Set<Vec3> endOfTickVelocities) {
+        if (committed != null) publishEndOfTick(endOfTickVelocities);
+    }
+
+    private void publishEndOfTick(Set<Vec3> endOfTickVelocities) {
+        Set<Vec3> startOfTick = committedStart;
+        committed = null;
+        committedStart = null;
+        committedEnd = null;
 
         boolean toConsole = outputToConsole && consoleVerbose;
         if (verboseListeners.isEmpty() && !toConsole) return;
