@@ -37,6 +37,7 @@ public final class ClientFishingPulls {
 
     /** Entity#rideTick zeroes the passenger's delta movement, with every pull FishingHook#pullEntity added to it. */
     public void rideTick(PacketEntity passenger) {
+        if (pending.isEmpty()) return;
         pending.removeIf(impulse -> impulse.actor == passenger);
     }
 
