@@ -1,0 +1,36 @@
+# Довідка щодо вебхуків: https://support.discord.com/hc/en-us/articles/228383668
+
+enabled: false
+webhook: ""
+# Встановіть true, щоб вимкнути перевірку формату URL вебхука Discord.
+# Тоді приймається будь-який дійсний HTTPS URL (корисно для проксі або пересилання в Matrix).
+disable-webhook-validation: false
+embed-title: "На %player% спрацювала перевірка %check% [%violations%]"
+embed-color: "#00FFFF"
+include-timestamp: true
+# Нижній колонтитул сповіщення та іконка поруч із ним (URL зображення, порожньо — без іконки).
+embed-footer-text: "v%cult_version%"
+embed-footer-url: ""
+# Зображення у верхньому правому куті сповіщення; %uuid% — гравець, на якого спрацювала перевірка.
+embed-thumbnail-url: "https://crafthead.net/helm/%uuid%"
+# Додає поле "Стан" зі станом клієнта, який Cult відстежує на момент сповіщення (режим гри, спринт, предмети в руках, ...),
+# якщо тільки violation-content не містить %state%, який виводить лише задані записи.
+include-state: true
+# Замінює зворотні лапки у значеннях (наприклад, у брендах клієнтів), щоб вони не ламали форматування тексту в Discord.
+# Встановіть "`", щоб вимкнути цю заміну.
+backtick-replacement-char: "ˋ" # За замовчуванням U+02CB
+violation-content:
+    - "**Гравець**: `%player%`"
+    - "**UUID**: `%uuid%`"
+    - "**Перевірка**: `%check%`"
+    - "**Версія клієнта**: `%version%`"
+    - "**Бренд**: `%brand%`"
+    - "**Чутливість**: `H %h_sensitivity%% / V %v_sensitivity%%`"
+    - "**Пінг**: `%ping%`"
+    - "**TPS**: `%tps%`"
+    - "**Сервер**: `%server%`"
+    - "**Світ**: `%world% (%world_type%)`"
+
+# Маркери схеми — див. заголовний коментар у config.yml.
+config-flavor: V2
+config-version: 5

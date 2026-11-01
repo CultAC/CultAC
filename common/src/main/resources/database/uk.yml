@@ -1,0 +1,120 @@
+# ===========================================================================
+#  Сховище даних Cult
+#
+#  Розподіляє категорії DataStore (violation / session / player-identity /
+#  setting / blob) між конкретними екземплярами бекендів. Кожен бекенд,
+#  указаний у `routing:`, має власний файл налаштувань `databases/<backend-id>.yml`.
+#
+#  Під час першого запуску, якщо є старе сховище (violations.sqlite), воно
+#  автоматично переноситься в нове. Встановіть migration.skip у true, якщо
+#  хочете перенести дані вручну пізніше.
+# ===========================================================================
+
+# Усі ключі сховища знаходяться під цією обгорткою верхнього рівня, щоб
+# простір ключів мав власний префікс — під час роботи Configuralize об'єднує
+# всі yml в один спільний простір ключів, і плоска структура тут конфліктувала
+# б з однаковими ключами верхнього рівня в config.yml / discord.yml (`enabled`,
+# `history` тощо).
+database:
+
+  # Головний перемикач. Встановіть false, щоб повністю вимкнути історію
+  # порушень і /cult history. Перевірки античита працюватимуть далі; просто
+  # спрацювання не зберігатимуться.
+  enabled: true
+
+  # Категорії → id бекендів. Для кожного окремого id тут має існувати
+  # відповідний файл `databases/<id>.yml` (створюється автоматично зі
+  # стандартних значень під час першого запуску) і зареєстрований
+  # BackendProvider. `none` повністю вимикає збереження для цієї категорії.
+  # Різні бекенди можна поєднувати — наприклад, порушення в мережевому
+  # SQL-сховищі, а blob-дані в об'єктному сховищі.
+  routing:
+    violation: sqlite
+    session: sqlite
+    player-identity: sqlite
+    setting: sqlite
+    blob: none
+
+  session:
+    # Використовується лише під час міграції — старий читач V0 не має сигналів
+    # входу/виходу, тому SessionReconstructor об'єднує порушення в сесії, якщо
+    # сусідні спрацювання розділені проміжком, не більшим за цей. Живі сесії
+    # обмежуються з'єднанням, а не цим значенням.
+    gap-ms: 600000
+    scope-per-server: true
+    # Як часто heartbeat підключеного гравця оновлює рядок сесії (upsert), щоб
+    # last_activity_epoch_ms залишався актуальним. Обмежує видиму тривалість
+    # сесії, якщо сервер впаде (при коректному відключенні closed_at
+    # встановлюється завжди). Ціна: приблизно один UPSERT рядка на кожного
+    # гравця онлайн за інтервал. 0 вимикає.
+    heartbeat-interval-ms: 30000
+
+  ownership:
+    # Не дає двом запущеним серверам з однаковим постійним UUID сховища
+    # писати в одну БД. Вимикайте, лише якщо свідомо допускаєте кілька
+    # серверів, що пишуть під одним UUID.
+    enforce-persistent-uuid-ownership: true
+    # Варіанти:
+    # - disable-storage: перевірки працюють, але запис у БД вимкнений до наступного запуску.
+    # - fail-startup: запуск сховища Cult завершується помилкою, якщо знайдено живий дублікат UUID.
+    # - allow-unsafe: лише для експертів; обходить контроль володіння.
+    duplicate-persistent-uuid-action: disable-storage
+    renew-interval-ms: 10000
+    lease-ttl-ms: 20000
+    startup-wait-ms: 20000
+    safety-margin-ms: 5000
+    stale-startup-ttl-ms: 30000
+    recovery-sweep-interval-ms: 10000
+    cleanup-other-servers: true
+
+  write-path:
+    # queue-capacity має бути додатним степенем двійки (вимога кільцевого буфера).
+    # Типові значення: 4096, 8192, 16384, 32768, 65536.
+    queue-capacity: 16384
+    batch-size: 256
+    flush-interval-ms: 1000
+    warn-rate-ms: 10000
+    shutdown-drain-timeout-ms: 5000
+    # Стратегія очікування кільцевого буфера. BLOCKING — безпечне значення за
+    # замовчуванням: очікування на змінній умови, яке мінімізує навантаження на
+    # CPU ціною невеликої затримки при екстремальних сплесках. Обирайте YIELDING
+    # або BUSY_SPIN, лише якщо маєте вільне ядро і виміряли виграш порівняно з BLOCKING.
+    # Варіанти: BLOCKING, TIMEOUT_BLOCKING, SLEEPING, YIELDING, BUSY_SPIN.
+    wait-strategy: BLOCKING
+
+  retention:
+    session:
+      enabled: true
+      max-age-days: 90
+    violation:
+      enabled: true
+      max-age-days: 365
+    player-identity:
+      enabled: false
+    setting:
+      enabled: false
+    blob:
+      enabled: true
+      max-age-days: 30
+
+  migration:
+    skip: false
+    max-duration-ms: 0        # 0 = без тайм-ауту
+
+  name-resolution:
+    # Порядок важливий — перемагає перший непорожній результат.
+    # local-cache читає категорію PlayerIdentity.
+    # offline-mode-uuid обчислює UUID.nameUUIDFromBytes (лише для офлайн-серверів).
+    chain: [local-cache, offline-mode-uuid]
+
+  history:
+    entries-per-page: 15
+    group-interval-ms: 30000
+
+  # Мітка лише для відображення, яка записується в нові записи сесій. Показується
+  # в заголовку сесії в `/cult history`. Можна змінювати під час роботи.
+  server-name: "ChangeMe"
+
+# Маркери схеми — див. заголовний коментар у config.yml.
+config-flavor: V2
+config-version: 1

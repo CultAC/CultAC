@@ -44,7 +44,7 @@ class CommandRootsResolutionTest {
 
     @Test
     void theBundledMessagesCarryTheDefaultAliases() {
-        for (String locale : List.of("de", "en", "es", "fr", "it", "ja", "nl", "pt", "ru", "tr", "zh")) {
+        for (String locale : List.of("de", "en", "es", "fr", "it", "ja", "nl", "pt", "ru", "tr", "uk", "zh")) {
             try (var input = getClass().getResourceAsStream("/messages/" + locale + ".yml")) {
                 String text = new String(input.readAllBytes(), StandardCharsets.UTF_8);
                 assertTrue(text.contains("\ncommand-aliases: [cult, cultac, grim, grimac]"), locale);

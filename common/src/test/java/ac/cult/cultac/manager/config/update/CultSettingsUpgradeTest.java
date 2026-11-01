@@ -40,7 +40,7 @@ class CultSettingsUpgradeTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"de", "en", "es", "fr", "it", "ja", "nl", "pl", "pt", "ro", "ru", "tr", "zh"})
+    @ValueSource(strings = {"de", "en", "es", "fr", "it", "ja", "nl", "pl", "pt", "ro", "ru", "tr", "uk", "zh"})
     void bundledLanguagesShipTheLeniency(String language) throws Exception {
         try (var source = CultConfigSpecs.class.getResourceAsStream("/cult/" + language + ".yml")) {
             assertNotNull(source);

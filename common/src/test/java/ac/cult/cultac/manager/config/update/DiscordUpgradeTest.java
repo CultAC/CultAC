@@ -244,7 +244,7 @@ class DiscordUpgradeTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"de", "en", "es", "fr", "it", "ja", "nl", "pt", "ru", "tr", "zh"})
+    @ValueSource(strings = {"de", "en", "es", "fr", "it", "ja", "nl", "pt", "ru", "tr", "uk", "zh"})
     void bundledLanguagesShipTheNewLayout(String language) throws Exception {
         Map<String, Object> data = bundled(language);
         assertEquals(5, data.get("config-version"));
