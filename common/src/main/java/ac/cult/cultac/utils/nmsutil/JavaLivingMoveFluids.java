@@ -54,8 +54,9 @@ public final class JavaLivingMoveFluids {
 
         if (!player.isBedrockMovement() && actor == player.compensatedEntities.getSelf() && actor.riding != null) {
             Vec3 feet = new Vec3((box.minX + box.maxX) / 2, box.minY, (box.minZ + box.maxZ) / 2);
-            var sampled = JavaPassengerFluids.sample(
-                    player, box, feet, velocity, passengerVehicleBox, feet.y + eyeHeight, !player.isFlying);
+            // Through 1.21.11 this callback pushes the passenger by water only, as below.
+            var sampled = JavaPassengerFluids.sample(player, box, feet, velocity, passengerVehicleBox,
+                    feet.y + eyeHeight, !player.isFlying, version.isNewerThanOrEquals(ClientVersion.V_26_1));
             return new Result(sampled.velocity(), sampled.water(),
                     version.isNewerThanOrEquals(ClientVersion.V_26_1) ? sampled.lava() : inLava,
                     sampled.water(), true, version.isNewerThanOrEquals(ClientVersion.V_26_1) ? sampled.eye() : -1);

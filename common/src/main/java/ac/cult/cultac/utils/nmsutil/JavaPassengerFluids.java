@@ -25,6 +25,16 @@ public final class JavaPassengerFluids {
     public static Sample sample(
             CultPlayer player, SimpleCollisionBox body, Vec3 feet, Vec3 velocity,
             SimpleCollisionBox vehicleBox, double eyeY, boolean pushed) {
+        return sample(player, body, feet, velocity, vehicleBox, eyeY, pushed, true);
+    }
+
+    /**
+     * {@code lavaCurrent} is whether the update also pushes by lava: Entity#baseTick's does in every version, while
+     * through 1.21.11 LivingEntity#checkFallDamage's updateInWaterStateAndDoWaterCurrentPushing pushes by water only.
+     */
+    public static Sample sample(
+            CultPlayer player, SimpleCollisionBox body, Vec3 feet, Vec3 velocity,
+            SimpleCollisionBox vehicleBox, double eyeY, boolean pushed, boolean lavaCurrent) {
         PacketEntity vehicle = player.compensatedEntities.getSelf().getRiding();
         SimpleCollisionBox query = body.copy().expand(-.001D);
         boolean waterAllowed = true;
@@ -75,7 +85,7 @@ public final class JavaPassengerFluids {
             FluidCurrent current = new FluidCurrent();
             if (waterAllowed && current.computePassenger(player, body, query, velocity.x, velocity.z, FluidTags.WATER, .014D))
                 velocity = velocity.add(current.x, current.y, current.z);
-            if (current.computePassenger(player, body, query, velocity.x, velocity.z, FluidTags.LAVA,
+            if (lavaCurrent && current.computePassenger(player, body, query, velocity.x, velocity.z, FluidTags.LAVA,
                     player.compensatedWorld.hasFastLava() ? .007D : .0023333333333333335D))
                 velocity = velocity.add(current.x, current.y, current.z);
         }
