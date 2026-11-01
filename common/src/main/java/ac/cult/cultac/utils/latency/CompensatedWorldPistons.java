@@ -19,6 +19,7 @@ import ac.cult.cultac.utils.data.PistonData;
 import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
 import it.unimi.dsi.fastutil.longs.Long2FloatOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -33,7 +34,7 @@ public final class CompensatedWorldPistons {
     private static final double MAX_PISTON_MOVEMENT_PER_TICK = 0.51D;
     private static final double PISTON_PROGRESS_PER_CLIENT_TICK = 0.5D;
     private static final double PISTON_ENTITY_PUSH_EPSILON = 0.01D;
-    private static final ReplayScope NO_REPLAY = new ReplayScope(null, null, null);
+    private static final ReplayScope NO_REPLAY = new ReplayScope(null, null, null, null, null);
 
     private final CultPlayer player;
     private final CompensatedWorld world;
@@ -42,6 +43,10 @@ public final class CompensatedWorldPistons {
     // A ClientBlockEntityPass replay's piston progress and NOCLIP direction; null outside a replay.
     private Long2FloatOpenHashMap replayProgress;
     private Direction replayNoClip;
+    // A replay's ClientBlockEntityPass.Final entries by position, and those its ticker order has passed; null when the
+    // replayed pass finalizes none.
+    private Long2ObjectOpenHashMap<ClientBlockEntityPass.Final> replayFinals;
+    private LongOpenHashSet replayFinalized;
 
     CompensatedWorldPistons(CultPlayer player, CompensatedWorld world) {
         this.player = player;
@@ -523,18 +528,21 @@ public final class CompensatedWorldPistons {
             return;
         }
 
-        // Modern PistonMovingBlockEntity#tick removes the client block entity
-        // after five death ticks, then replaces MOVING_PISTON with the moved
-        // state after neighbor-shape resolution, or the raw movedState when that
-        // resolution turns it to air. Cult does not expose a full LevelAccessor
-        // here, but it must not keep an empty MOVING_PISTON collision shape after
-        // the real client has restored the moved block.
+        world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), finalState(state));
+    }
+
+    /**
+     * Modern PistonMovingBlockEntity#tick removes the client block entity after five death ticks, then replaces
+     * MOVING_PISTON with the moved state after neighbor-shape resolution, or the raw movedState when that resolution
+     * turns it to air. Cult does not expose a full LevelAccessor here, but it must not keep an empty MOVING_PISTON
+     * collision shape after the real client has restored the moved block.
+     */
+    private static int finalState(MovingPistonState state) {
         int finalState = state.movedState;
         if (BlockProps.WATERLOGGED.has(finalState) && BlockProps.WATERLOGGED.booleanValue(finalState)) {
             finalState = BlockProps.WATERLOGGED.with(finalState, false);
         }
-
-        world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), finalState);
+        return finalState;
     }
 
     private void captureClientTickPistonMovement() {
@@ -793,6 +801,17 @@ public final class CompensatedWorldPistons {
 
     public VoxelShape getMovingPistonCollisionShape(BlockPos pos) {
         MovingPistonState movingPiston = movingPistonStates.get(pos.asLong());
+        ClientBlockEntityPass.Final settled = replayFinals == null ? null : replayFinals.get(pos.asLong());
+        if (settled != null) {
+            if (replayFinalized.contains(pos.asLong())) return world.geometry().collision(settled.finalState(), pos);
+            if (movingPiston == null) {
+                // The tick end already settled this block entity; until its ticker replays it collides at progress 1.
+                movingPiston = new MovingPistonState(
+                        settled.pos(), settled.movedState(), settled.direction(), settled.extending(), settled.source(), 0);
+                movingPiston.progress = 1.0F;
+                return movingPiston.getCollisionShape(world, pos, 1.0F, replayNoClip);
+            }
+        }
         if (movingPiston == null) {
             return Shapes.empty();
         }
@@ -822,24 +841,67 @@ public final class CompensatedWorldPistons {
     }
 
     /**
+     * Adds, with each one's Level#blockEntityTickers position, the moving pistons whose next PistonMovingBlockEntity#tick
+     * is past its fifth client death tick and replaces their MOVING_PISTON.
+     */
+    void addPassFinals(List<CompensatedWorld.OrderedFinal> finals) {
+        for (MovingPistonState state : movingPistonStates.values()) {
+            if (state.progress() < 1.0F || state.deathTicks < 5 || !ticks(state)) continue;
+            int moving = world.getBlockStateIdAt(state.pos());
+            if (!BlockIds.is(moving, BlockIds.MOVING_PISTON)) continue;
+            finals.add(new CompensatedWorld.OrderedFinal(
+                    state.tickerOrder,
+                    state.pos(),
+                    moving,
+                    state.movedState,
+                    state.direction,
+                    state.extending,
+                    state.source,
+                    finalState(state)));
+        }
+    }
+
+    /**
      * Starts replaying {@code pass}: until the scope closes, each of its pistons collides at the progress the replay
      * gives it, the progress its PistonMovingBlockEntity had when that tick ran, rather than this model's current one.
+     * Each block the pass finalizes reads as its MOVING_PISTON until {@link #advanceFinalReplay} reaches its ticker.
      */
     public ReplayScope beginReplay(ClientBlockEntityPass pass) {
         if (pass.isEmpty()) return NO_REPLAY;
-        ReplayScope scope = new ReplayScope(this, replayProgress, replayNoClip);
+        ReplayScope scope = new ReplayScope(this, replayProgress, replayNoClip, replayFinals, replayFinalized);
         Long2FloatOpenHashMap progress = new Long2FloatOpenHashMap();
         for (ClientBlockEntityPass.Mover mover : pass.movers())
             if (mover instanceof ClientBlockEntityPass.Piston piston)
                 progress.put(piston.pos().asLong(), piston.progress());
         replayProgress = progress;
         replayNoClip = null;
+        replayFinals = null;
+        replayFinalized = null;
+        if (!pass.finals().isEmpty()) {
+            replayFinals = new Long2ObjectOpenHashMap<>(pass.finals().size());
+            for (ClientBlockEntityPass.Final settled : pass.finals()) replayFinals.put(settled.pos().asLong(), settled);
+            replayFinalized = new LongOpenHashSet(pass.finals().size());
+        }
         return scope;
     }
 
     /** PistonMovingBlockEntity#tick stored {@code progress} at {@code pos}, after moving entities. */
     public void advanceReplay(BlockPos pos, float progress) {
         if (replayProgress != null) replayProgress.put(pos.asLong(), progress);
+    }
+
+    /** The replay reached {@code settled}'s ticker: its block reads as the final state from here on. */
+    public void advanceFinalReplay(ClientBlockEntityPass.Final settled) {
+        if (replayFinalized != null) replayFinalized.add(settled.pos().asLong());
+    }
+
+    /** The state a replay reads at a block its pass finalizes, or -1 elsewhere and outside a replay. */
+    int replayStateAt(int x, int y, int z) {
+        if (replayFinals == null) return -1;
+        long key = BlockPos.asLong(x, y, z);
+        ClientBlockEntityPass.Final settled = replayFinals.get(key);
+        if (settled == null) return -1;
+        return replayFinalized.contains(key) ? settled.finalState() : settled.movingState();
     }
 
     /** PistonMovingBlockEntity#NOCLIP during moveEntityByPiston, or null between moves. */
@@ -852,12 +914,20 @@ public final class CompensatedWorldPistons {
         private final CompensatedWorldPistons owner;
         private final Long2FloatOpenHashMap previousProgress;
         private final Direction previousNoClip;
+        private final Long2ObjectOpenHashMap<ClientBlockEntityPass.Final> previousFinals;
+        private final LongOpenHashSet previousFinalized;
 
         private ReplayScope(
-                CompensatedWorldPistons owner, Long2FloatOpenHashMap previousProgress, Direction previousNoClip) {
+                CompensatedWorldPistons owner,
+                Long2FloatOpenHashMap previousProgress,
+                Direction previousNoClip,
+                Long2ObjectOpenHashMap<ClientBlockEntityPass.Final> previousFinals,
+                LongOpenHashSet previousFinalized) {
             this.owner = owner;
             this.previousProgress = previousProgress;
             this.previousNoClip = previousNoClip;
+            this.previousFinals = previousFinals;
+            this.previousFinalized = previousFinalized;
         }
 
         @Override
@@ -865,6 +935,8 @@ public final class CompensatedWorldPistons {
             if (owner == null) return;
             owner.replayProgress = previousProgress;
             owner.replayNoClip = previousNoClip;
+            owner.replayFinals = previousFinals;
+            owner.replayFinalized = previousFinalized;
         }
     }
 

@@ -3,10 +3,13 @@ package ac.cult.cultac.network;
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockRegistry;
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaBlockEntityPass;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassState;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.events.packets.listeners.PacketBlockAction;
 import ac.cult.cultac.events.packets.worldreader.PacketWorldReaderTwentySix;
@@ -18,7 +21,13 @@ import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundBlockEvent;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.Direction;
+import ac.cult.cultac.utils.data.ClientPistonDeltas;
+import ac.cult.cultac.utils.data.MainSupportingBlockData;
+import ac.cult.cultac.utils.enums.Pose;
+import ac.cult.cultac.utils.latency.ClientBlockEntityPass;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.List;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
@@ -73,6 +82,47 @@ class JavaPistonHoneyCarryTest {
             } else {
                 assertExact(result);
             }
+        }
+    }
+
+    /**
+     * Entity#move ends with getBlockSpeedFactor, and a MOVING_PISTON's is 1. A PistonMovingBlockEntity past its fifth
+     * client death tick replaces it with the moved honey in its own Level#blockEntityTickers slot, so a shove by a
+     * ticker before that slot keeps the perpendicular velocity and one after it takes honey's 0.4, whether the replay
+     * reads the block before the tick end settled it (26.3) or after (older clients' deferred pass).
+     */
+    @ParameterizedTest(name = "settled at tick end {0}, settling before the shove {1}")
+    @CsvSource({"false, false", "false, true", "true, false", "true, true"})
+    void aSettlingHoneyTickerDampsOnlyTheShovesAfterIt(boolean settledAtTickEnd, boolean settlesFirst)
+            throws Exception {
+        try (var f = new JavaTickFixture()) {
+            int honey = REGISTRY.block("minecraft:honey_block").defaultState();
+            int moving = REGISTRY.with(REGISTRY.block("minecraft:moving_piston").defaultState(), "facing", "east");
+            BlockPos below = new BlockPos(0, FLOOR_Y - 1, 0);
+            f.player.compensatedWorld.updateBlock(below, settledAtTickEnd ? honey : moving);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            Vec3 position = new Vec3(0.5, FLOOR_Y - 0.0625, 0.5);
+            f.place(position, Vec3.ZERO);
+            f.input(NONE);
+            var context = f.tick(position, true).getSimulationContext();
+            var shove = new ClientBlockEntityPass.Piston(
+                    new BlockPos(0, FLOOR_Y, 0), REGISTRY.block("minecraft:stone").defaultState(),
+                    Direction.EAST, true, false, 0);
+            var settles = new ClientBlockEntityPass.Final(
+                    below, moving, honey, Direction.EAST, true, false, honey, settlesFirst ? 0 : 1);
+            var pass = new ClientBlockEntityPass(List.of(shove), List.of(), List.of(settles), 10);
+            var state = new JavaPassState(
+                    position,
+                    new Vec3(0, 0, 0.1),
+                    true,
+                    new MainSupportingBlockData(below, true),
+                    null,
+                    0,
+                    ClientPistonDeltas.NONE);
+            var pushed = JavaBlockEntityPass.run(f.player, context, pass, state, Pose.STANDING, false, position)
+                    .state();
+            assertEquals(0.81 + 0.0000000119209, pushed.position().x, 1e-6);
+            assertEquals(0.1 * (settlesFirst ? (double) 0.4F : 1.0), pushed.velocity().z, 1e-12);
         }
     }
 

@@ -318,6 +318,7 @@ public final class JavaBlockEntityPass {
         Vec3 previousLocal = entities.passLocalPlayerPosition();
         var previousBoxes = entities.passCollisionBoxes();
         List<ClientBlockEntityPass.Lid> lids = pass.lids();
+        List<ClientBlockEntityPass.Final> finals = pass.finals();
         int actors = remotes.size() + (local == null ? 0 : 1);
         // Working space for the whole pass: each mover reuses the query order and the in-pass boxes.
         int[] order = actors > 1 ? new int[actors] : null;
@@ -328,7 +329,7 @@ public final class JavaBlockEntityPass {
         // Without a local replay, the selected travel's path puts the local player at each mover.
         JavaBlockEntityPath localPath = local == null ? localPath(player, pass) : null;
         int[] localMovers = localPath == null ? null : entities.localPathMoverIndexes(localPath, pass);
-        int blockEntityMovers = 0, lid = 0, moverIndex = 0;
+        int blockEntityMovers = 0, lid = 0, settled = 0, moverIndex = 0;
         try (var ignored = world.beginBlockEntityReplay(pass)) {
             for (ClientBlockEntityPass.Mover mover : pass.movers()) {
                 // A move collides with the entities as the tick has left them by then: every entity has ticked
@@ -341,6 +342,9 @@ public final class JavaBlockEntityPass {
                     // box's own update sets the lid its moveCollidedEntities collides with.
                     while (lid < lids.size() && lids.get(lid).beforeMover() <= blockEntityMovers)
                         world.advanceLidReplay(lids.get(lid++));
+                    // A PistonMovingBlockEntity ticking before this one has replaced its finished MOVING_PISTON.
+                    while (settled < finals.size() && finals.get(settled).beforeMover() <= blockEntityMovers)
+                        world.advanceFinalReplay(finals.get(settled++));
                     blockEntityMovers++;
                     if (boxes != null && entities.passCollisionBoxes() != boxes) {
                         // The block entities tick once every entity has; the actors start where the tick left them.

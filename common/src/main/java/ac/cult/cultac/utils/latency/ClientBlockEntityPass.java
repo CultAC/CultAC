@@ -17,14 +17,20 @@ import java.util.List;
  * moveCollidedEntities and moveStuckEntities, held as it was before that tick advanced its progress; each
  * {@link ShulkerBox} is one ShulkerBoxBlockEntity#moveCollidedEntities call. ClientLevel#tickEntities runs before
  * it, and its {@link ShulkerPeek} moves lead the pass in their tick order. Each {@link Lid} is a
- * ShulkerBoxBlockEntity#updateAnimation that changes the lid ShulkerBoxBlock#getShape reads, opening or closing.
+ * ShulkerBoxBlockEntity#updateAnimation that changes the lid ShulkerBoxBlock#getShape reads, opening or closing, and
+ * each {@link Final} a PistonMovingBlockEntity#tick that replaces its MOVING_PISTON with the moved block.
  */
-public record ClientBlockEntityPass(List<Mover> movers, List<Lid> lids, long gameTime) {
+public record ClientBlockEntityPass(List<Mover> movers, List<Lid> lids, List<Final> finals, long gameTime) {
     public static final ClientBlockEntityPass EMPTY = new ClientBlockEntityPass(List.of(), 0L);
 
     public ClientBlockEntityPass {
         movers = List.copyOf(movers);
         lids = List.copyOf(lids);
+        finals = List.copyOf(finals);
+    }
+
+    public ClientBlockEntityPass(List<Mover> movers, List<Lid> lids, long gameTime) {
+        this(movers, lids, List.of(), gameTime);
     }
 
     public ClientBlockEntityPass(List<Mover> movers, long gameTime) {
@@ -42,7 +48,7 @@ public record ClientBlockEntityPass(List<Mover> movers, List<Lid> lids, long gam
         List<Mover> all = new ArrayList<>(entityMoves.size() + movers.size());
         all.addAll(entityMoves);
         all.addAll(movers);
-        return new ClientBlockEntityPass(all, lids, gameTime);
+        return new ClientBlockEntityPass(all, lids, finals, gameTime);
     }
 
     /**
@@ -52,6 +58,21 @@ public record ClientBlockEntityPass(List<Mover> movers, List<Lid> lids, long gam
      * moveCollidedEntities.
      */
     public record Lid(BlockPos pos, BlockEntityData before, BlockEntityData after, int beforeMover) {}
+
+    /**
+     * The client-only PistonMovingBlockEntity#tick past its fifth death tick at {@code pos}: it sets {@code finalState}
+     * over {@code movingState}, the MOVING_PISTON its block entity's fields collided as at progress 1. It runs ahead of
+     * the {@code beforeMover}th piston or shulker box mover, counted as for a {@link Lid}.
+     */
+    public record Final(
+            BlockPos pos,
+            int movingState,
+            int movedState,
+            Direction direction,
+            boolean extending,
+            boolean source,
+            int finalState,
+            int beforeMover) {}
 
     /** Whether some mover's tick can reach an entity whose box lies within {@code box}. */
     public boolean mayReach(SimpleCollisionBox box) {

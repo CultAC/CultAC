@@ -1047,6 +1047,17 @@ public class CompensatedWorld {
     /** A pass mover with its Level#blockEntityTickers position. */
     record OrderedMover(long order, ClientBlockEntityPass.Mover mover) {}
 
+    /** A PistonMovingBlockEntity#tick that settles its block, with its Level#blockEntityTickers position. */
+    record OrderedFinal(
+            long order,
+            BlockPos pos,
+            int movingState,
+            int movedState,
+            Direction direction,
+            boolean extending,
+            boolean source,
+            int finalState) {}
+
     /** A shulker box's ShulkerBoxBlockEntity#updateAnimation with its Level#blockEntityTickers position. */
     record OrderedLid(
             long order,
@@ -1067,7 +1078,9 @@ public class CompensatedWorld {
         List<OrderedMover> ordered = new ArrayList<>(0);
         // In ticker order, the order the block entities' tickers are walked.
         List<OrderedLid> orderedLids = new ArrayList<>(0);
+        List<OrderedFinal> orderedFinals = new ArrayList<>(0);
         pistons.addPassMovers(ordered);
+        pistons.addPassFinals(orderedFinals);
         clientBlockEntities.addPassMovers(ordered, orderedLids);
         if (ordered.isEmpty() && orderedLids.isEmpty()) return new ClientBlockEntityPass(List.of(), clientGameTime);
         ordered.sort(java.util.Comparator.comparingLong(OrderedMover::order));
@@ -1080,7 +1093,23 @@ public class CompensatedWorld {
             while (before < ordered.size() && ordered.get(before).order() < lid.order()) before++;
             lids.add(new ClientBlockEntityPass.Lid(lid.pos(), lid.before(), lid.after(), before));
         }
-        return new ClientBlockEntityPass(movers, lids, clientGameTime);
+        // A settling ticker replaces its MOVING_PISTON between the moves of the tickers either side of it.
+        orderedFinals.sort(java.util.Comparator.comparingLong(OrderedFinal::order));
+        List<ClientBlockEntityPass.Final> finals = new ArrayList<>(orderedFinals.size());
+        before = 0;
+        for (OrderedFinal settled : orderedFinals) {
+            while (before < ordered.size() && ordered.get(before).order() < settled.order()) before++;
+            finals.add(new ClientBlockEntityPass.Final(
+                    settled.pos(),
+                    settled.movingState(),
+                    settled.movedState(),
+                    settled.direction(),
+                    settled.extending(),
+                    settled.source(),
+                    settled.finalState(),
+                    before));
+        }
+        return new ClientBlockEntityPass(movers, lids, finals, clientGameTime);
     }
 
     /**
@@ -1096,6 +1125,11 @@ public class CompensatedWorld {
     /** ShulkerBoxBlockEntity#updateAnimation ran {@code lid}: the replay collides with its box after it from here on. */
     public void advanceLidReplay(ClientBlockEntityPass.Lid lid) {
         clientBlockEntities.advanceReplay(lid);
+    }
+
+    /** PistonMovingBlockEntity#tick settled {@code settled}: the replay reads its final state from here on. */
+    public void advanceFinalReplay(ClientBlockEntityPass.Final settled) {
+        pistons.advanceFinalReplay(settled);
     }
 
     /** A block-entity pass replay; closing it restores the replay it began inside, or none. */
@@ -1336,6 +1370,8 @@ public class CompensatedWorld {
             long position = new BlockPos(x, y, z).asLong();
             if (selectionOriginalStates.containsKey(position)) return selectionOriginalStates.get(position);
         }
+        int replayed = pistons.replayStateAt(x, y, z);
+        if (replayed >= 0) return replayed;
         try {
             CachedChunk column = getChunk(x >> 4, z >> 4);
 
