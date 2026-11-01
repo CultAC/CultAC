@@ -1047,7 +1047,10 @@ public class CompensatedWorld {
     /** A pass mover with its Level#blockEntityTickers position. */
     record OrderedMover(long order, ClientBlockEntityPass.Mover mover) {}
 
-    /** A PistonMovingBlockEntity#tick that settles its block, with its Level#blockEntityTickers position. */
+    /**
+     * A PistonMovingBlockEntity#tick that settles its block, with its Level#blockEntityTickers position and the
+     * Level#setBlock writes it makes.
+     */
     record OrderedFinal(
             long order,
             BlockPos pos,
@@ -1056,7 +1059,8 @@ public class CompensatedWorld {
             Direction direction,
             boolean extending,
             boolean source,
-            int finalState) {}
+            int finalState,
+            List<ClientBlockEntityPass.Write> writes) {}
 
     /** A shulker box's ShulkerBoxBlockEntity#updateAnimation with its Level#blockEntityTickers position. */
     record OrderedLid(
@@ -1080,9 +1084,10 @@ public class CompensatedWorld {
         List<OrderedLid> orderedLids = new ArrayList<>(0);
         List<OrderedFinal> orderedFinals = new ArrayList<>(0);
         pistons.addPassMovers(ordered);
-        pistons.addPassFinals(orderedFinals);
         clientBlockEntities.addPassMovers(ordered, orderedLids);
         if (ordered.isEmpty() && orderedLids.isEmpty()) return new ClientBlockEntityPass(List.of(), clientGameTime);
+        // Only a mover's replay reads a settled block.
+        if (!ordered.isEmpty()) pistons.addPassFinals(orderedFinals);
         ordered.sort(java.util.Comparator.comparingLong(OrderedMover::order));
         List<ClientBlockEntityPass.Mover> movers = new ArrayList<>(ordered.size());
         for (OrderedMover mover : ordered) movers.add(mover.mover());
@@ -1107,7 +1112,8 @@ public class CompensatedWorld {
                     settled.extending(),
                     settled.source(),
                     settled.finalState(),
-                    before));
+                    before,
+                    settled.writes()));
         }
         return new ClientBlockEntityPass(movers, lids, finals, clientGameTime);
     }

@@ -241,6 +241,21 @@ public final class SimLevel {
         if (setBlockInLevel(pos, state, 2, 512, knownPlantAge)) retainedStates.putIfAbsent(pos, old);
     }
 
+    /** Level#removeBlock: the cell's fluid as a legacy block, with a full update. */
+    public boolean removeBlock(BlockPos pos, boolean movedByPiston) {
+        return setBlock(pos, fluidAt(pos).createLegacyBlock(), 3 | (movedByPiston ? 64 : 0));
+    }
+
+    /** BlockStateBase#updateNeighbourShapes(level, pos, flags), as a caller outside setBlock runs it. */
+    public void updateNeighborShapes(int state, BlockPos pos, int flags) {
+        updateNeighborShapes(state, pos, flags, 512);
+    }
+
+    /** BlockStateBase#updateIndirectNeighbourShapes(level, pos, flags), as a caller outside setBlock runs it. */
+    public void updateIndirectNeighborShapes(int state, BlockPos pos, int flags) {
+        behavior(state).updateIndirectShapes(this, state, pos, flags, 512);
+    }
+
     private void updateNeighborShapes(int state, BlockPos pos, int flags, int limit) {
         for (Direction direction : SHAPE_ORDER) {
             updater.shapeUpdate(direction.opposite(), state, pos.relative(direction), pos, flags, limit);

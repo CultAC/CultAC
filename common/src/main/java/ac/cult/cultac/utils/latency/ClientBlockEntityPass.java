@@ -62,7 +62,8 @@ public record ClientBlockEntityPass(List<Mover> movers, List<Lid> lids, List<Fin
     /**
      * The client-only PistonMovingBlockEntity#tick past its fifth death tick at {@code pos}: it sets {@code finalState}
      * over {@code movingState}, the MOVING_PISTON its block entity's fields collided as at progress 1. It runs ahead of
-     * the {@code beforeMover}th piston or shulker box mover, counted as for a {@link Lid}.
+     * the {@code beforeMover}th piston or shulker box mover, counted as for a {@link Lid}. {@code writes} are the
+     * Level#setBlock writes that settling makes in call order, its own and its neighbor shape updates'.
      */
     public record Final(
             BlockPos pos,
@@ -72,7 +73,27 @@ public record ClientBlockEntityPass(List<Mover> movers, List<Lid> lids, List<Fin
             boolean extending,
             boolean source,
             int finalState,
-            int beforeMover) {}
+            int beforeMover,
+            List<Write> writes) {
+        public Final {
+            writes = List.copyOf(writes);
+        }
+
+        public Final(
+                BlockPos pos,
+                int movingState,
+                int movedState,
+                Direction direction,
+                boolean extending,
+                boolean source,
+                int finalState,
+                int beforeMover) {
+            this(pos, movingState, movedState, direction, extending, source, finalState, beforeMover, List.of());
+        }
+    }
+
+    /** One client Level#setBlock that changed {@code pos} from {@code before} to {@code after}. */
+    public record Write(BlockPos pos, int before, int after) {}
 
     /** Whether some mover's tick can reach an entity whose box lies within {@code box}. */
     public boolean mayReach(SimpleCollisionBox box) {

@@ -34,7 +34,9 @@ public final class CompensatedWorldPistons {
     private static final double MAX_PISTON_MOVEMENT_PER_TICK = 0.51D;
     private static final double PISTON_PROGRESS_PER_CLIENT_TICK = 0.5D;
     private static final double PISTON_ENTITY_PUSH_EPSILON = 0.01D;
-    private static final ReplayScope NO_REPLAY = new ReplayScope(null, null, null, null, null);
+    private static final ReplayScope NO_REPLAY = new ReplayScope(null, null, null, null, null, null);
+    private static final java.util.Comparator<MovingPistonState> TICKER_ORDER =
+            java.util.Comparator.comparingLong(state -> state.tickerOrder);
 
     private final CultPlayer player;
     private final CompensatedWorld world;
@@ -47,6 +49,8 @@ public final class CompensatedWorldPistons {
     // replayed pass finalizes none.
     private Long2ObjectOpenHashMap<ClientBlockEntityPass.Final> replayFinals;
     private LongOpenHashSet replayFinalized;
+    // The other positions those finals' settling writes, each with its writes in pass order; null with replayFinals.
+    private Long2ObjectOpenHashMap<List<SettleWrite>> replayWrites;
 
     CompensatedWorldPistons(CultPlayer player, CompensatedWorld world) {
         this.player = player;
@@ -89,47 +93,28 @@ public final class CompensatedWorldPistons {
 
         boolean extending = triggerType == 0;
         boolean sticky = BlockIds.is(pistonState, BlockIds.STICKY_PISTON);
-        PistonStructure structure = PistonStructure.unresolved();
+        PistonStructure structure;
         if (extending) {
+            // MCP-Reborn PistonBaseBlock#moveBlocks resolves an extension before it writes anything.
             structure = resolvePistonStructure(pos, direction, true);
             if (!structure.resolved()) {
                 return;
             }
-        }
-        boolean pistonPiece = false;
-        if (!extending) {
-            // MCP-Reborn PistonBaseBlock#triggerEvent first finalTicks a block entity still moving at the head.
-            finalTickMovingPiston(pos.relative(direction));
-            if (sticky) {
-                // A block two ahead still extending this way is finalTicked in place instead of pulled.
-                BlockPos pullPos = pos.relative(direction, 2);
-                MovingPistonState pulling = movingPistonStates.get(pullPos.asLong());
-                if (pulling != null
-                        && BlockIds.is(world.getBlockStateIdAt(pullPos), BlockIds.MOVING_PISTON)
-                        && pulling.direction == direction
-                        && pulling.extending) {
-                    finalTickMovingPiston(pullPos);
-                    pistonPiece = true;
-                } else if (triggerType == 1) {
-                    int pullState = world.getBlockStateIdAt(pullPos);
-                    if (canStickyPistonPull(pullState, pullPos, direction)) {
-                        structure = resolvePistonStructure(pos, direction, false);
-                    }
-                }
+            ClientPistonLevel level = ClientPistonLevel.of(world);
+            applyClientPistonMoveBlocks(level, pos, direction, true, structure);
+            // PistonBaseBlock#triggerEvent then extends the base with a full update.
+            int base = level.stateAt(pos);
+            if (isPistonBlock(base) && BlockProps.EXTENDED.has(base)) {
+                level.setBlock(pos, BlockProps.EXTENDED.with(base, true), 67);
             }
+        } else {
+            structure = applyClientPistonRetraction(
+                    ClientPistonLevel.of(world), pos, direction, sticky, triggerType, triggerData);
         }
 
         List<SimpleCollisionBox> boxes = new ArrayList<>();
         List<BlockPos> movingPositions = new ArrayList<>();
-        boolean hasSlimeBlock = false;
-        if (structure.resolved()) {
-            for (BlockPos pushed : structure.toPush()) {
-                int pushedState = world.getBlockStateIdAt(pushed);
-                hasSlimeBlock |= BlockIds.is(pushedState, BlockIds.SLIME_BLOCK);
-            }
-        }
-
-        applyClientPistonBlockEvent(pos, pistonState, direction, triggerType, triggerData, structure, pistonPiece);
+        boolean hasSlimeBlock = structure.slime();
 
         Direction movementDirection = extending ? direction : direction.getOpposite();
 
@@ -187,89 +172,132 @@ public final class CompensatedWorldPistons {
         }
     }
 
-    private void applyClientPistonBlockEvent(
+    /**
+     * MCP-Reborn PistonBaseBlock#triggerEvent's retraction as the client runs it, in its order; returns what it pulled,
+     * or an unresolved structure.
+     */
+    private PistonStructure applyClientPistonRetraction(
+            ClientPistonLevel level,
             BlockPos pos,
-            int sourcePistonState,
             Direction direction,
+            boolean sticky,
             int triggerType,
-            int triggerData,
-            PistonStructure structure,
-            boolean pistonPiece) {
-        boolean extending = triggerType == 0;
-        boolean sticky = BlockIds.is(sourcePistonState, BlockIds.STICKY_PISTON);
+            int triggerData) {
+        BlockPos headPos = pos.relative(direction);
+        // A block entity still moving at the head is finalTicked first.
+        finalTickMovingPiston(level, headPos);
 
-        if (extending) {
-            applyClientPistonMoveBlocks(pos, direction, true, structure);
-            int pistonState = world.getBlockStateIdAt(pos);
-            if (isPistonBlock(pistonState) && BlockProps.EXTENDED.has(pistonState)) {
-                world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), BlockProps.EXTENDED.with(pistonState, true));
-            }
-            return;
-        }
-
-        // MCP-Reborn PistonBaseBlock#triggerEvent sets the source piston to a
-        // MOVING_PISTON block entity before optionally pulling a sticky block.
-        // MovingPistonBlock#getCollisionShape is empty without that block entity.
+        // The source piston becomes a MOVING_PISTON whose block entity (MovingPistonBlock#getCollisionShape is empty
+        // without one) is set before the base's neighbors update their shapes against it.
         int movingSourceState = BlockProps.PISTON_TYPE.with(
                 BlockProps.FACING.with(BlockIds.MOVING_PISTON.defaultState(), direction.get3DDataValue()),
                 sticky ? 1 : 0);
         int movedSourceState = BlockProps.FACING.with(
                 (sticky ? BlockIds.STICKY_PISTON : BlockIds.PISTON).defaultState(),
                 Direction.from3DDataValue(triggerData & 7).get3DDataValue());
+        // 276 from 1.21.5, 20 before: UPDATE_SKIP_BLOCK_ENTITY_SIDEEFFECTS (256) is read only on the server.
+        level.setBlock(pos, movingSourceState, 276);
         trackMovingPiston(pos, movedSourceState, direction, false, true);
-        world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), movingSourceState);
+        level.updateNeighbourShapes(movingSourceState, pos);
 
-        if (sticky && triggerType == 1 && structure.resolved()) {
-            applyClientPistonMoveBlocks(pos, direction, false, structure);
-        } else if (!pistonPiece) {
-            BlockPos headPos = pos.relative(direction);
-            world.updateBlock(headPos.getX(), headPos.getY(), headPos.getZ(), AIR_STATE);
+        if (!sticky) {
+            level.removeBlock(headPos);
+            return PistonStructure.unresolved();
         }
+        BlockPos pullPos = pos.relative(direction, 2);
+        int pullState = level.stateAt(pullPos);
+        MovingPistonState pulling = movingPistonStates.get(pullPos.asLong());
+        if (pulling != null
+                && BlockIds.is(pullState, BlockIds.MOVING_PISTON)
+                && pulling.direction == direction
+                && pulling.extending) {
+            // A block two ahead still extending this way is finalTicked in place instead of pulled.
+            finalTickMovingPiston(level, pullPos);
+            return PistonStructure.unresolved();
+        }
+        if (triggerType != 1 || !canStickyPistonPull(pullState, pullPos, direction)) {
+            level.removeBlock(headPos);
+            return PistonStructure.unresolved();
+        }
+
+        // PistonBaseBlock#moveBlocks removes the head before it resolves what the piston pulls.
+        if (BlockIds.is(level.stateAt(headPos), BlockIds.PISTON_HEAD)) level.setBlock(headPos, AIR_STATE, 276);
+        PistonStructure structure = resolvePistonStructure(pos, direction, false);
+        if (structure.resolved()) applyClientPistonMoveBlocks(level, pos, direction, false, structure);
+        return structure;
     }
 
     /**
-     * PistonMovingBlockEntity#finalTick, which on the client always settles: a source piece becomes air and any other
-     * block its moved state, with no death ticks.
+     * PistonMovingBlockEntity#finalTick, which on the client always settles: it removes its block entity, then sets its
+     * MOVING_PISTON to air for a source piece and otherwise to its moved state updated from the neighbors' shapes.
      */
-    private void finalTickMovingPiston(BlockPos pos) {
+    private void finalTickMovingPiston(ClientPistonLevel level, BlockPos pos) {
         MovingPistonState state = movingPistonStates.remove(pos.asLong());
-        if (state == null || !BlockIds.is(world.getBlockStateIdAt(pos), BlockIds.MOVING_PISTON)) return;
-        world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), state.source ? AIR_STATE : state.movedState);
+        if (state == null || !BlockIds.is(level.stateAt(pos), BlockIds.MOVING_PISTON)) return;
+        int settled = state.source ? AIR_STATE : level.updateFromNeighbourShapes(state.movedState, pos);
+        level.setBlock(pos, settled, 3);
     }
 
-    private void applyClientPistonMoveBlocks(
-            BlockPos pistonPos, Direction direction, boolean extending, PistonStructure structure) {
-        // MCP-Reborn PistonBaseBlock#moveBlocks stores each pushed block as a
-        // MOVING_PISTON at its destination, with the original moved state stored
-        // in the PistonMovingBlockEntity. The original positions are then set to
-        // air unless they were overwritten by another moving piston destination.
-        if (!extending) {
-            BlockPos headPos = pistonPos.relative(direction);
-            if (BlockIds.is(world.getBlockStateIdAt(headPos), BlockIds.PISTON_HEAD)) {
-                world.updateBlock(headPos.getX(), headPos.getY(), headPos.getZ(), AIR_STATE);
+    /**
+     * The client-only PistonMovingBlockEntity#tick past its fifth death tick, after it removed its block entity:
+     * returns the state it leaves at its position.
+     */
+    private static int settleMovingPiston(ClientPistonLevel level, MovingPistonState state) {
+        BlockPos pos = state.pos();
+        if (!BlockIds.is(level.stateAt(pos), BlockIds.MOVING_PISTON)) return level.stateAt(pos);
+        int settled = level.updateFromNeighbourShapes(state.movedState, pos);
+        if (REGISTRY.facts(settled).has(StateFacts.AIR)) {
+            // 340 from 1.21.5, 84 before: neither updates shapes. Block#updateOrDestroy destroys only on the server.
+            level.setBlock(pos, state.movedState, 340);
+        } else {
+            if (BlockProps.WATERLOGGED.has(settled) && BlockProps.WATERLOGGED.booleanValue(settled)) {
+                settled = BlockProps.WATERLOGGED.with(settled, false);
             }
+            level.setBlock(pos, settled, 67);
         }
+        return level.stateAt(pos);
+    }
 
-        Map<BlockPos, Integer> originals = new HashMap<>();
+    /**
+     * MCP-Reborn PistonBaseBlock#moveBlocks after it resolved {@code structure}, as the client runs it. Each pushed
+     * block becomes a MOVING_PISTON at its destination, whose neighbors update their shapes before its block entity
+     * exists; the vacated positions turn to air without shape updates, which then run for each in HashMap order.
+     */
+    private void applyClientPistonMoveBlocks(
+            ClientPistonLevel level,
+            BlockPos pistonPos,
+            Direction direction,
+            boolean extending,
+            PistonStructure structure) {
         List<BlockPos> toPush = structure.toPush();
+        List<BlockPos> toDestroy = structure.toDestroy();
+        // Maps.newHashMap with BlockPos keys, whose hash is Vec3i's: the iteration order is the client's.
+        Map<BlockPos, Integer> originals = new HashMap<>();
         List<Integer> movedStates = new ArrayList<>(toPush.size());
         for (BlockPos pushed : toPush) {
-            int pushedState = world.getBlockStateIdAt(pushed);
+            int pushedState = level.stateAt(pushed);
             movedStates.add(pushedState);
             originals.put(pushed, pushedState);
         }
 
+        int[] destroyedStates = new int[toDestroy.size()];
+        for (int i = toDestroy.size() - 1; i >= 0; i--) {
+            destroyedStates[i] = level.stateAt(toDestroy.get(i));
+            level.setBlock(toDestroy.get(i), AIR_STATE, 18);
+        }
+
         Direction movementDirection = extending ? direction : direction.getOpposite();
+        int movingState = BlockProps.FACING.with(BlockIds.MOVING_PISTON.defaultState(), direction.get3DDataValue());
         for (int i = toPush.size() - 1; i >= 0; i--) {
             BlockPos destination = toPush.get(i).relative(movementDirection);
             originals.remove(destination);
-            int movingState = BlockProps.FACING.with(BlockIds.MOVING_PISTON.defaultState(), direction.get3DDataValue());
+            // 324 from 1.21.5, 68 before; Level#setBlockEntity follows the write.
+            level.setBlock(destination, movingState, 324);
             trackMovingPiston(destination, movedStates.get(i), direction, extending, false);
-            world.updateBlock(destination.getX(), destination.getY(), destination.getZ(), movingState);
         }
 
         if (extending) {
-            int pistonType = BlockIds.is(world.getBlockStateIdAt(pistonPos), BlockIds.STICKY_PISTON) ? 1 : 0;
+            int pistonType = BlockIds.is(level.stateAt(pistonPos), BlockIds.STICKY_PISTON) ? 1 : 0;
             int pistonHeadState = BlockProps.PISTON_TYPE.with(
                     BlockProps.FACING.with(BlockIds.PISTON_HEAD.defaultState(), direction.get3DDataValue()),
                     pistonType);
@@ -278,12 +306,20 @@ public final class CompensatedWorldPistons {
                     pistonType);
             BlockPos headPos = pistonPos.relative(direction);
             originals.remove(headPos);
+            level.setBlock(headPos, movingHeadState, 324);
             trackMovingPiston(headPos, pistonHeadState, direction, true, true);
-            world.updateBlock(headPos.getX(), headPos.getY(), headPos.getZ(), movingHeadState);
         }
 
         for (BlockPos original : originals.keySet()) {
-            world.updateBlock(original.getX(), original.getY(), original.getZ(), AIR_STATE);
+            level.setBlock(original, AIR_STATE, 82);
+        }
+        for (Map.Entry<BlockPos, Integer> original : originals.entrySet()) {
+            level.updateIndirectNeighbourShapes(original.getValue(), original.getKey());
+            level.updateNeighbourShapes(AIR_STATE, original.getKey());
+            level.updateIndirectNeighbourShapes(AIR_STATE, original.getKey());
+        }
+        for (int i = toDestroy.size() - 1; i >= 0; i--) {
+            level.updateIndirectNeighbourShapes(destroyedStates[i], toDestroy.get(i));
         }
     }
 
@@ -503,46 +539,30 @@ public final class CompensatedWorldPistons {
         return stored < 0 || BlockIds.is(stored, BlockIds.MOVING_PISTON);
     }
 
-    private void tickMovingPistonStates() {
-        List<MovingPistonState> finished = new ArrayList<>();
-        movingPistonStates.long2ObjectEntrySet().removeIf(entry -> {
-            MovingPistonState state = entry.getValue();
-            if (!ticks(state)) {
-                return true;
-            }
-            boolean remove = state.tickIfGuaranteedFinished();
-            if (remove) {
-                finished.add(state);
-            }
-            return remove;
-        });
-
-        for (MovingPistonState state : finished) {
-            finishMovingPistonState(state);
-        }
-    }
-
-    private void finishMovingPistonState(MovingPistonState state) {
-        BlockPos pos = state.pos();
-        if (!BlockIds.is(world.getBlockStateIdAt(pos), BlockIds.MOVING_PISTON)) {
-            return;
-        }
-
-        world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), finalState(state));
-    }
-
     /**
-     * Modern PistonMovingBlockEntity#tick removes the client block entity after five death ticks, then replaces
-     * MOVING_PISTON with the moved state after neighbor-shape resolution, or the raw movedState when that resolution
-     * turns it to air. Cult does not expose a full LevelAccessor here, but it must not keep an empty MOVING_PISTON
-     * collision shape after the real client has restored the moved block.
+     * Level#tickBlockEntities over the moving pistons in Level#blockEntityTickers order: each one advances, or, past its
+     * fifth client death tick, removes its block entity and settles, the tickers after it seeing its writes.
      */
-    private static int finalState(MovingPistonState state) {
-        int finalState = state.movedState;
-        if (BlockProps.WATERLOGGED.has(finalState) && BlockProps.WATERLOGGED.booleanValue(finalState)) {
-            finalState = BlockProps.WATERLOGGED.with(finalState, false);
+    private void tickMovingPistonStates() {
+        if (movingPistonStates.isEmpty()) return;
+        List<MovingPistonState> ticking = new ArrayList<>(movingPistonStates.values());
+        ticking.sort(TICKER_ORDER);
+        ClientPistonLevel level = null;
+        for (MovingPistonState state : ticking) {
+            long key = state.pos().asLong();
+            if (movingPistonStates.get(key) != state) continue;
+            if (!ticks(state)) {
+                movingPistonStates.remove(key);
+            } else if (state.tickIfGuaranteedFinished()) {
+                movingPistonStates.remove(key);
+                if (level == null) level = ClientPistonLevel.of(world);
+                settleMovingPiston(level, state);
+            }
         }
-        return finalState;
+    }
+
+    private boolean settlesThisPass(MovingPistonState state) {
+        return state.progress() >= 1.0F && state.deathTicks >= 5 && ticks(state);
     }
 
     private void captureClientTickPistonMovement() {
@@ -555,6 +575,7 @@ public final class CompensatedWorldPistons {
 
     private PistonStructure resolvePistonStructure(BlockPos pistonPos, Direction pistonDirection, boolean extending) {
         List<BlockPos> toPush = new ArrayList<>();
+        List<BlockPos> toDestroy = new ArrayList<>(0);
         Direction pushDirection = extending ? pistonDirection : pistonDirection.getOpposite();
         BlockPos startPos = extending ? pistonPos.relative(pistonDirection) : pistonPos.relative(pistonDirection, 2);
         BlockPos retractingHeadPos = extending ? null : pistonPos.relative(pistonDirection);
@@ -562,13 +583,21 @@ public final class CompensatedWorldPistons {
 
         if (!isPistonPushable(startState, startPos, pushDirection, false, pistonDirection)) {
             if (extending && REGISTRY.facts(startState).pushReaction() == StateFacts.PushReaction.POPPED) {
-                return new PistonStructure(true, toPush);
+                toDestroy.add(startPos);
+                return new PistonStructure(true, toPush, toDestroy, false);
             }
             return PistonStructure.unresolved();
         }
 
         if (!addPistonBlockLine(
-                pistonPos, pushDirection, pistonDirection, startPos, pushDirection, retractingHeadPos, toPush)) {
+                pistonPos,
+                pushDirection,
+                pistonDirection,
+                startPos,
+                pushDirection,
+                retractingHeadPos,
+                toPush,
+                toDestroy)) {
             return PistonStructure.unresolved();
         }
 
@@ -576,12 +605,20 @@ public final class CompensatedWorldPistons {
             BlockPos blockPos = toPush.get(i);
             if (isStickyPistonBlock(getPistonStructureStateAt(blockPos, retractingHeadPos))
                     && !addPistonBranchingBlocks(
-                            pistonPos, pushDirection, pistonDirection, blockPos, retractingHeadPos, toPush)) {
+                            pistonPos,
+                            pushDirection,
+                            pistonDirection,
+                            blockPos,
+                            retractingHeadPos,
+                            toPush,
+                            toDestroy)) {
                 return PistonStructure.unresolved();
             }
         }
 
-        return new PistonStructure(true, toPush);
+        boolean slime = false;
+        for (BlockPos pushed : toPush) slime |= BlockIds.is(world.getBlockStateIdAt(pushed), BlockIds.SLIME_BLOCK);
+        return new PistonStructure(true, toPush, toDestroy, slime);
     }
 
     private boolean addPistonBlockLine(
@@ -591,7 +628,8 @@ public final class CompensatedWorldPistons {
             BlockPos start,
             Direction direction,
             BlockPos retractingHeadPos,
-            List<BlockPos> toPush) {
+            List<BlockPos> toPush,
+            List<BlockPos> toDestroy) {
         int blockState = getPistonStructureStateAt(start, retractingHeadPos);
         if (REGISTRY.facts(blockState).has(StateFacts.AIR)) {
             return true;
@@ -641,7 +679,13 @@ public final class CompensatedWorldPistons {
                     BlockPos blockPos = toPush.get(i);
                     if (isStickyPistonBlock(getPistonStructureStateAt(blockPos, retractingHeadPos))
                             && !addPistonBranchingBlocks(
-                                    pistonPos, pushDirection, pistonDirection, blockPos, retractingHeadPos, toPush)) {
+                                    pistonPos,
+                                    pushDirection,
+                                    pistonDirection,
+                                    blockPos,
+                                    retractingHeadPos,
+                                    toPush,
+                                    toDestroy)) {
                         return false;
                     }
                 }
@@ -659,6 +703,7 @@ public final class CompensatedWorldPistons {
             }
 
             if (REGISTRY.facts(blockState).pushReaction() == StateFacts.PushReaction.POPPED) {
+                toDestroy.add(ahead);
                 return true;
             }
 
@@ -678,7 +723,8 @@ public final class CompensatedWorldPistons {
             Direction pistonDirection,
             BlockPos fromPos,
             BlockPos retractingHeadPos,
-            List<BlockPos> toPush) {
+            List<BlockPos> toPush,
+            List<BlockPos> toDestroy) {
         int blockState = getPistonStructureStateAt(fromPos, retractingHeadPos);
 
         for (Direction direction : Direction.values()) {
@@ -690,7 +736,14 @@ public final class CompensatedWorldPistons {
             int branchState = getPistonStructureStateAt(branch, retractingHeadPos);
             if (canPistonStickToEachOther(branchState, blockState)
                     && !addPistonBlockLine(
-                            pistonPos, pushDirection, pistonDirection, branch, direction, retractingHeadPos, toPush)) {
+                            pistonPos,
+                            pushDirection,
+                            pistonDirection,
+                            branch,
+                            direction,
+                            retractingHeadPos,
+                            toPush,
+                            toDestroy)) {
                 return false;
             }
         }
@@ -793,9 +846,13 @@ public final class CompensatedWorldPistons {
                 pos.getX(), pos.getY(), pos.getZ(), pos.getX() + 1, pos.getY() + 1, pos.getZ() + 1, true);
     }
 
-    private record PistonStructure(boolean resolved, List<BlockPos> toPush) {
+    /**
+     * PistonStructureResolver#getToPush and #getToDestroy, in their resolution order, and whether a pushed block is a
+     * slime block.
+     */
+    private record PistonStructure(boolean resolved, List<BlockPos> toPush, List<BlockPos> toDestroy, boolean slime) {
         private static PistonStructure unresolved() {
-            return new PistonStructure(false, Collections.emptyList());
+            return new PistonStructure(false, Collections.emptyList(), Collections.emptyList(), false);
         }
     }
 
@@ -807,7 +864,12 @@ public final class CompensatedWorldPistons {
             if (movingPiston == null) {
                 // The tick end already settled this block entity; until its ticker replays it collides at progress 1.
                 movingPiston = new MovingPistonState(
-                        settled.pos(), settled.movedState(), settled.direction(), settled.extending(), settled.source(), 0);
+                        settled.pos(),
+                        settled.movedState(),
+                        settled.direction(),
+                        settled.extending(),
+                        settled.source(),
+                        0);
                 movingPiston.progress = 1.0F;
                 return movingPiston.getCollisionShape(world, pos, 1.0F, replayNoClip);
             }
@@ -842,22 +904,45 @@ public final class CompensatedWorldPistons {
 
     /**
      * Adds, with each one's Level#blockEntityTickers position, the moving pistons whose next PistonMovingBlockEntity#tick
-     * is past its fifth client death tick and replaces their MOVING_PISTON.
+     * is past its fifth client death tick and replaces their MOVING_PISTON. Each settles on a detached level in ticker
+     * order, over the writes of the settles before it and the progress the tickers before it have stored, as
+     * {@link #tickMovingPistonStates} then settles it.
      */
     void addPassFinals(List<CompensatedWorld.OrderedFinal> finals) {
-        for (MovingPistonState state : movingPistonStates.values()) {
-            if (state.progress() < 1.0F || state.deathTicks < 5 || !ticks(state)) continue;
-            int moving = world.getBlockStateIdAt(state.pos());
-            if (!BlockIds.is(moving, BlockIds.MOVING_PISTON)) continue;
-            finals.add(new CompensatedWorld.OrderedFinal(
-                    state.tickerOrder,
-                    state.pos(),
-                    moving,
-                    state.movedState,
-                    state.direction,
-                    state.extending,
-                    state.source,
-                    finalState(state)));
+        boolean settles = false;
+        for (MovingPistonState state : movingPistonStates.values()) settles |= settlesThisPass(state);
+        if (!settles) return;
+        List<MovingPistonState> ticking = new ArrayList<>(movingPistonStates.size());
+        for (MovingPistonState state : movingPistonStates.values()) if (ticks(state)) ticking.add(state);
+        ticking.sort(TICKER_ORDER);
+        ClientPistonLevel level = ClientPistonLevel.detached(world);
+        float[] stored = new float[ticking.size()];
+        try {
+            for (int i = 0; i < ticking.size(); i++) {
+                MovingPistonState state = ticking.get(i);
+                stored[i] = state.progress;
+                if (!settlesThisPass(state)) {
+                    // PistonMovingBlockEntity#tick stores progress + 0.5 once it has moved entities.
+                    if (state.progress < 1.0F) state.progress = Math.min(1.0F, state.progress + 0.5F);
+                    continue;
+                }
+                int moving = world.getBlockStateIdAt(state.pos());
+                if (!BlockIds.is(moving, BlockIds.MOVING_PISTON)) continue;
+                int from = level.writes().size();
+                int settled = settleMovingPiston(level, state);
+                finals.add(new CompensatedWorld.OrderedFinal(
+                        state.tickerOrder,
+                        state.pos(),
+                        moving,
+                        state.movedState,
+                        state.direction,
+                        state.extending,
+                        state.source,
+                        settled,
+                        List.copyOf(level.writes().subList(from, level.writes().size()))));
+            }
+        } finally {
+            for (int i = 0; i < ticking.size(); i++) ticking.get(i).progress = stored[i];
         }
     }
 
@@ -868,7 +953,8 @@ public final class CompensatedWorldPistons {
      */
     public ReplayScope beginReplay(ClientBlockEntityPass pass) {
         if (pass.isEmpty()) return NO_REPLAY;
-        ReplayScope scope = new ReplayScope(this, replayProgress, replayNoClip, replayFinals, replayFinalized);
+        ReplayScope scope =
+                new ReplayScope(this, replayProgress, replayNoClip, replayFinals, replayFinalized, replayWrites);
         Long2FloatOpenHashMap progress = new Long2FloatOpenHashMap();
         for (ClientBlockEntityPass.Mover mover : pass.movers())
             if (mover instanceof ClientBlockEntityPass.Piston piston)
@@ -877,10 +963,22 @@ public final class CompensatedWorldPistons {
         replayNoClip = null;
         replayFinals = null;
         replayFinalized = null;
+        replayWrites = null;
         if (!pass.finals().isEmpty()) {
             replayFinals = new Long2ObjectOpenHashMap<>(pass.finals().size());
-            for (ClientBlockEntityPass.Final settled : pass.finals()) replayFinals.put(settled.pos().asLong(), settled);
+            for (ClientBlockEntityPass.Final settled : pass.finals())
+                replayFinals.put(settled.pos().asLong(), settled);
             replayFinalized = new LongOpenHashSet(pass.finals().size());
+            for (ClientBlockEntityPass.Final settled : pass.finals()) {
+                for (ClientBlockEntityPass.Write write : settled.writes()) {
+                    long key = write.pos().asLong();
+                    if (replayFinals.containsKey(key)) continue;
+                    if (replayWrites == null) replayWrites = new Long2ObjectOpenHashMap<>();
+                    replayWrites
+                            .computeIfAbsent(key, ignored -> new ArrayList<>(1))
+                            .add(new SettleWrite(settled.pos().asLong(), write.before(), write.after()));
+                }
+            }
         }
         return scope;
     }
@@ -895,14 +993,25 @@ public final class CompensatedWorldPistons {
         if (replayFinalized != null) replayFinalized.add(settled.pos().asLong());
     }
 
-    /** The state a replay reads at a block its pass finalizes, or -1 elsewhere and outside a replay. */
+    /**
+     * The state a replay reads at a block its pass finalizes or a settle there writes: before the first such ticker
+     * the replay reaches, the state the pass started with, then that of the last one it reached. -1 elsewhere and
+     * outside a replay.
+     */
     int replayStateAt(int x, int y, int z) {
         if (replayFinals == null) return -1;
         long key = BlockPos.asLong(x, y, z);
         ClientBlockEntityPass.Final settled = replayFinals.get(key);
-        if (settled == null) return -1;
-        return replayFinalized.contains(key) ? settled.finalState() : settled.movingState();
+        if (settled != null) return replayFinalized.contains(key) ? settled.finalState() : settled.movingState();
+        List<SettleWrite> writes = replayWrites == null ? null : replayWrites.get(key);
+        if (writes == null) return -1;
+        int state = writes.getFirst().before();
+        for (SettleWrite write : writes) if (replayFinalized.contains(write.settled())) state = write.after();
+        return state;
     }
+
+    /** A settle's write at a position other than its own: the final at {@code settled} changed it to {@code after}. */
+    private record SettleWrite(long settled, int before, int after) {}
 
     /** PistonMovingBlockEntity#NOCLIP during moveEntityByPiston, or null between moves. */
     public void setReplayNoClip(Direction noClip) {
@@ -916,18 +1025,21 @@ public final class CompensatedWorldPistons {
         private final Direction previousNoClip;
         private final Long2ObjectOpenHashMap<ClientBlockEntityPass.Final> previousFinals;
         private final LongOpenHashSet previousFinalized;
+        private final Long2ObjectOpenHashMap<List<SettleWrite>> previousWrites;
 
         private ReplayScope(
                 CompensatedWorldPistons owner,
                 Long2FloatOpenHashMap previousProgress,
                 Direction previousNoClip,
                 Long2ObjectOpenHashMap<ClientBlockEntityPass.Final> previousFinals,
-                LongOpenHashSet previousFinalized) {
+                LongOpenHashSet previousFinalized,
+                Long2ObjectOpenHashMap<List<SettleWrite>> previousWrites) {
             this.owner = owner;
             this.previousProgress = previousProgress;
             this.previousNoClip = previousNoClip;
             this.previousFinals = previousFinals;
             this.previousFinalized = previousFinalized;
+            this.previousWrites = previousWrites;
         }
 
         @Override
@@ -937,6 +1049,7 @@ public final class CompensatedWorldPistons {
             owner.replayNoClip = previousNoClip;
             owner.replayFinals = previousFinals;
             owner.replayFinalized = previousFinalized;
+            owner.replayWrites = previousWrites;
         }
     }
 
