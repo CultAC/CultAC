@@ -231,8 +231,11 @@ public final class SneakEdgeBackoff {
      */
     public static boolean groundWithinStep(CultPlayer player, SimpleCollisionBox box, double fallDistance) {
         float maxDownStep = player.getMaxUpStep();
-        return fallDistance < maxDownStep
-                && !canFallAtLeast(player, box, new SimpleCollisionBox(), 0.0, 0.0, maxDownStep - fallDistance);
+        // Entity.fallDistance is a float through 1.21.4, where canFallAtLeast takes the float difference.
+        double minHeight = player.getClientVersion().isOlderThan(ClientVersion.V_1_21_5)
+                ? (double) (maxDownStep - (float) fallDistance)
+                : maxDownStep - fallDistance;
+        return fallDistance < maxDownStep && !canFallAtLeast(player, box, new SimpleCollisionBox(), 0.0, 0.0, minHeight);
     }
 
     /**
