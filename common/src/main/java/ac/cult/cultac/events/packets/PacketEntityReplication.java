@@ -2220,6 +2220,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         if (entity == null) {
             return;
         }
+        boolean seatsLocalRider = seatsLocalRiderAtOnce(entity, movement);
         applyEntityRotationAndGround(entity, movement);
         if (applyClientPath(entity, movement)) {
             // Native RC1 interpolation path was appended at this proof.
@@ -2239,6 +2240,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         applyDeltaMovementUpdate(entity, movement);
         clearPacketHandlerDeltaMovement(movement);
         player.compensatedEntities.updatePassengerPositions();
+        if (seatsLocalRider) seatLocalRider(entity, movement);
     }
 
     // The trailing proof follows the movement in the stream, so its pong proves the handler applied it.
@@ -2248,6 +2250,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         if (entity == null) {
             return;
         }
+        boolean seatsLocalRider = seatsLocalRiderAtOnce(entity, movement);
         applyEntityRotationAndGround(entity, movement);
         applyBundleFirstMovement(entity, movement);
         markUncertainPosition(entity, movement);
@@ -2259,6 +2262,46 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 movement.kind(),
                 movement.deltaMovement().packetHandlerSequence(),
                 true);
+        if (seatsLocalRider) seatLocalRider(entity, movement);
+    }
+
+    /**
+     * Whether the handler places {@code entity}, which the local player rides, without interpolating it, and so runs
+     * Entity#positionRider on the player at once. ClientPacketListener#handleTeleportEntity interpolates a root the
+     * client does not move unless the jump exceeds 64 blocks (setValuesFromPositionPacket); #handleEntityPositionSync
+     * seats the player whenever the root is not interpolating afterwards: snapped, or without a running path.
+     */
+    private boolean seatsLocalRiderAtOnce(PacketEntity entity, EntityMovement movement) {
+        if (player.isBedrockMovement() || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2)) return false;
+        if (!movement.hasPosition() || !ridesIndirectly(entity)) return false;
+        // A root the client moves answers its teleport with a MoveVehicle (ControlledRootTeleport).
+        if (player.compensatedEntities.vehicles.canClientAuthoritativelyMoveVisibleRoot(entity)) return false;
+        return switch (movement.kind()) {
+            // PositionMoveRotation#of measures from the running interpolation target.
+            case TELEPORT_ENTITY ->
+                (entity.newPacketLocation != null && entity.newPacketLocation.hasActiveInterpolationTarget()
+                                        ? entity.newPacketLocation.targetPosition()
+                                        : entity.clientPhysicalPosition)
+                                .distanceToSqr(movement.x(), movement.y(), movement.z())
+                        > 4096.0D;
+            case POSITION_SYNC ->
+                entity.clientPhysicalPosition.distanceToSqr(movement.x(), movement.y(), movement.z()) > 4096.0D
+                        || !player.compensatedEntities.isTicking(entity)
+                        || entity.placedWithoutInterpolation(player);
+            default -> false;
+        };
+    }
+
+    /** Entity#positionRider on the local player from the position the handler set; its next ride tick starts there. */
+    private void seatLocalRider(PacketEntity entity, EntityMovement movement) {
+        if (!ridesIndirectly(entity)) return;
+        Vec3 seat = ac.cult.cultac.utils.nmsutil.BoundingBoxSize.getRidingOffsetFromVehicle(
+                entity,
+                player.compensatedEntities.getSelf(),
+                player,
+                ac.cult.cultac.utils.nmsutil.GetBoundingBox.getPacketEntityBoundingBox(
+                        player, movement.x(), movement.y(), movement.z(), entity));
+        player.checkManager.getSimulationProcessor().moveRider(seat);
     }
 
     private void scheduleTransactionBoundMovement(EntityMovement movement, int firstTransaction) {

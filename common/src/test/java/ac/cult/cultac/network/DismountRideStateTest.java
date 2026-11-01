@@ -452,18 +452,39 @@ class DismountRideStateTest {
         }
     }
 
-    /** The vehicle moves before ClientLevel#tickPassenger runs the ride tick from the prior seat. */
+    /**
+     * ClientPacketListener#handleTeleportEntity interpolates a nearby vehicle the client does not move, so
+     * ClientLevel#tickPassenger runs the ride tick from the prior seat.
+     */
     @ParameterizedTest
     @MethodSource("endings")
-    void aSeatTeleportedFarBeforeTheLastRideTickCarriesThePriorSeatsCobweb(ClientVersion version, boolean removeSeat)
+    void aSeatTeleportedNearBeforeTheLastRideTickCarriesThePriorSeatsCobweb(ClientVersion version, boolean removeSeat)
+            throws Exception {
+        try (var f = riding(version, SEAT)) {
+            web(f, seatTop(rideTickSeat(f)));
+            teleportVehicle(f, SEAT.add(0, 30, 0));
+            f.rideTick();
+            dismount(f, removeSeat);
+            assertCarriedStuckSpeed(f, version, COBWEB);
+            pushedMove(f, Collisions.getCobwebStuckSpeed(f.player));
+        }
+    }
+
+    /**
+     * A jump past 64 blocks is set, not interpolated (setValuesFromPositionPacket), and the handler's
+     * Entity#positionRider seats the player at once: the ride tick runs from the new seat, far from the cobweb.
+     */
+    @ParameterizedTest
+    @MethodSource("endings")
+    void aSeatTeleportedFarBeforeTheLastRideTickLeavesThePriorSeatsCobweb(ClientVersion version, boolean removeSeat)
             throws Exception {
         try (var f = riding(version, SEAT)) {
             web(f, seatTop(rideTickSeat(f)));
             teleportVehicle(f, SEAT.add(0, 1000, 0));
             f.rideTick();
             dismount(f, removeSeat);
-            assertCarriedStuckSpeed(f, version, COBWEB);
-            pushedMove(f, Collisions.getCobwebStuckSpeed(f.player));
+            assertCarriedStuckSpeed(f, version, null);
+            pushedMove(f, null);
         }
     }
 

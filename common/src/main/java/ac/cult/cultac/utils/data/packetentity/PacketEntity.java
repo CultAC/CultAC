@@ -842,6 +842,11 @@ public class PacketEntity {
         return false;
     }
 
+    /** Entity#isInterpolating stays false after Entity#moveOrInterpolateTo: no InterpolationHandler, or one of 0 steps. */
+    public boolean placedWithoutInterpolation(CultPlayer player) {
+        return skipsInterpolation(player);
+    }
+
     private boolean skipsInterpolation(CultPlayer player) {
         // FishingHook lost its no-op lerpTo in 1.21.5, before gaining a handler in 1.21.6.
         if (!player.isBedrockMovement()
