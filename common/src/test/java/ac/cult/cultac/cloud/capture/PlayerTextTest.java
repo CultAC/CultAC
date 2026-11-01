@@ -2,6 +2,7 @@ package ac.cult.cultac.cloud.capture;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -16,6 +17,7 @@ import ac.cult.cultac.protocol.data.ModelRegistryData;
 import ac.cult.cultac.protocol.data.ProtocolData;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
@@ -31,6 +33,7 @@ import org.junit.jupiter.api.Test;
 class PlayerTextTest {
     private static final int PROTOCOL = 777;
     private static final PlayerText text = PlayerText.of(PROTOCOL);
+    private static final PlayerText.TeamNames TEAMS = new PlayerText.TeamNames();
 
     @Test
     void everyProtocolStripsWithItsOwnCodecs() {
@@ -42,7 +45,7 @@ class PlayerTextTest {
                 varInt(out, 2);
                 text(out, "Bob's chest");
             });
-            byte[] kept = PlayerText.of(protocol).clientbound(open, titled, true);
+            byte[] kept = PlayerText.of(protocol).clientbound(open, titled, true, TEAMS);
             assertNotNull(kept, "codecs for " + protocol);
             assertEquals(titled.length - "Bob's chest".length(), kept.length, "title of " + protocol);
             assertTrue(id(protocol, false, "edit_book") >= 0);
@@ -106,10 +109,14 @@ class PlayerTextTest {
             PlayerText text = PlayerText.of(protocol);
             byte[] sign = levelChunk(protocol, chunk, true);
             assertArrayEquals(
-                    levelChunk(protocol, chunk, false), text.clientbound(chunk, sign, true), "chunk " + protocol);
+                    levelChunk(protocol, chunk, false),
+                    text.clientbound(chunk, sign, true, TEAMS),
+                    "chunk " + protocol);
             byte[] bare = levelChunk(protocol, chunk, false);
-            assertSame(bare, text.clientbound(chunk, bare, true), "bare chunk " + protocol);
-            assertNull(text.clientbound(chunk, Arrays.copyOf(sign, sign.length - 1), true), "cut chunk " + protocol);
+            assertSame(bare, text.clientbound(chunk, bare, true, TEAMS), "bare chunk " + protocol);
+            assertNull(
+                    text.clientbound(chunk, Arrays.copyOf(sign, sign.length - 1), true, TEAMS),
+                    "cut chunk " + protocol);
         }
     }
 
@@ -138,7 +145,7 @@ class PlayerTextTest {
         }
         for (String name : PlayerText.WITHHELD_CLIENTBOUND) {
             int id = clientbound.id("minecraft:" + name);
-            if (id >= 0) assertNull(text.clientbound(id, new byte[] {(byte) id, 1, 2, 3}, true), name);
+            if (id >= 0) assertNull(text.clientbound(id, new byte[] {(byte) id, 1, 2, 3}, true, TEAMS), name);
         }
     }
 
@@ -165,26 +172,26 @@ class PlayerTextTest {
         byte[] titled = {(byte) open, 1, 2, 8, 0, 1, 'B'};
         int click = id(PROTOCOL, false, "container_click");
         byte[] clicked = {(byte) click, 0};
-        assertNull(none.clientbound(open, titled, true));
+        assertNull(none.clientbound(open, titled, true, TEAMS));
         assertNull(none.serverbound(click, clicked, true));
         long unstripped = PlayerText.unstripped.sum();
-        assertSame(titled, none.clientbound(open, titled, false));
+        assertSame(titled, none.clientbound(open, titled, false, TEAMS));
         assertSame(clicked, none.serverbound(click, clicked, false));
         assertEquals(unstripped + 2, PlayerText.unstripped.sum());
 
         for (boolean textStripped : new boolean[] {true, false}) {
             for (String name : List.of("player_chat", "set_title_text", "merchant_offers", "transfer")) {
                 int id = id(PROTOCOL, true, name);
-                assertNull(none.clientbound(id, new byte[] {(byte) id, 0}, textStripped), name);
+                assertNull(none.clientbound(id, new byte[] {(byte) id, 0}, textStripped, TEAMS), name);
             }
             for (String name : List.of("chat_command", "sign_update", "edit_book", "custom_payload")) {
                 int id = id(PROTOCOL, false, name);
                 assertNull(none.serverbound(id, new byte[] {(byte) id, 1, 'l'}, textStripped), name);
             }
-            assertNull(none.clientbound(300, new byte[] {0}, textStripped));
+            assertNull(none.clientbound(300, new byte[] {0}, textStripped, TEAMS));
             int moved = id(PROTOCOL, true, "move_entity_pos");
             byte[] movement = {(byte) moved, 1, 2, 3, 4, 5, 6, 7, 1};
-            assertSame(movement, none.clientbound(moved, movement, textStripped));
+            assertSame(movement, none.clientbound(moved, movement, textStripped, TEAMS));
             int ended = id(PROTOCOL, false, "client_tick_end");
             byte[] tickEnd = {(byte) ended};
             assertSame(tickEnd, none.serverbound(ended, tickEnd, textStripped));
@@ -198,22 +205,22 @@ class PlayerTextTest {
         });
         int open = id(PROTOCOL, true, "open_screen");
         byte[] titled = {(byte) open, 1, 2, 8, 0, 1, 'B'};
-        assertNull(broken.clientbound(open, titled, true));
-        assertSame(titled, broken.clientbound(open, titled, false));
+        assertNull(broken.clientbound(open, titled, true, TEAMS));
+        assertSame(titled, broken.clientbound(open, titled, false, TEAMS));
     }
 
     @Test
     void anUnreadablePacketIsNeverSent() {
         byte[] written = slot(true);
         int slot = id(PROTOCOL, true, "container_set_slot");
-        assertNull(text.clientbound(slot, Arrays.copyOf(written, written.length - 1), false));
+        assertNull(text.clientbound(slot, Arrays.copyOf(written, written.length - 1), false, TEAMS));
     }
 
     @Test
     void withoutPacketIdsNothingIsSent() {
         PlayerText unknown = PlayerText.of(999);
         assertNotSame(unknown, PlayerText.of(999));
-        assertNull(unknown.clientbound(1, new byte[] {1, 0}, false));
+        assertNull(unknown.clientbound(1, new byte[] {1, 0}, false, TEAMS));
         assertNull(unknown.serverbound(1, new byte[] {1, 0}, false));
         assertTrue(PlayerText.strips());
     }
@@ -245,9 +252,9 @@ class PlayerTextTest {
         PlayerText text = new PlayerText(
                 PROTOCOL, null, name -> name.equals("move_entity_pos") ? 3 : -1, name -> name.equals("swing") ? 3 : -1);
         byte[] moved = {3, 0};
-        assertSame(moved, text.clientbound(3, moved, true));
-        assertNull(text.clientbound(4, new byte[] {4, 0}, true));
-        assertNull(text.clientbound(300, new byte[] {0}, true));
+        assertSame(moved, text.clientbound(3, moved, true, TEAMS));
+        assertNull(text.clientbound(4, new byte[] {4, 0}, true, TEAMS));
+        assertNull(text.clientbound(300, new byte[] {0}, true, TEAMS));
         byte[] swung = {3, 0};
         assertSame(swung, text.serverbound(3, swung, true));
         assertNull(text.serverbound(4, new byte[] {4, 0}, true));
@@ -271,7 +278,7 @@ class PlayerTextTest {
                 int id = id(protocol, true, name);
                 assertTrue(id >= 0, protocol + " " + name);
                 assertNull(
-                        PlayerText.of(protocol).clientbound(id, new byte[] {(byte) id, 0}, true),
+                        PlayerText.of(protocol).clientbound(id, new byte[] {(byte) id, 0}, true, TEAMS),
                         protocol + " " + name);
             }
         }
@@ -403,7 +410,7 @@ class PlayerTextTest {
                     plain.accept(out);
                     out.write(0xFF);
                 }),
-                old.clientbound(entityData, named, true));
+                old.clientbound(entityData, named, true, TEAMS));
     }
 
     /** A shulker box holding a named blade and a bundle with a lored gem: what is inside loses its text too. */
@@ -559,7 +566,7 @@ class PlayerTextTest {
                         out.write(0);
                         if (resolvable) out.writeBytes(new byte[4]);
                     }),
-                    PlayerText.of(protocol).clientbound(slot, sent, true),
+                    PlayerText.of(protocol).clientbound(slot, sent, true, TEAMS),
                     "skin kept on " + protocol);
             byte[] foreign = head.apply(out -> {
                 if (resolvable) varInt(out, 0);
@@ -573,7 +580,7 @@ class PlayerTextTest {
             });
             assertArrayEquals(
                     head.apply(null),
-                    PlayerText.of(protocol).clientbound(slot, foreign, true),
+                    PlayerText.of(protocol).clientbound(slot, foreign, true, TEAMS),
                     "skin gone on " + protocol);
         }
     }
@@ -662,7 +669,7 @@ class PlayerTextTest {
             int team = id(protocol, true, "set_player_team");
             Function<Boolean, byte[]> added = written -> bytes(out -> {
                 varInt(out, team);
-                string(out, "red");
+                string(out, written ? "red" : TEAMS.of("red"));
                 out.write(0);
                 if (protocol >= 776) {
                     text(out, written ? "Red Team" : "");
@@ -693,17 +700,223 @@ class PlayerTextTest {
             });
             assertArrayEquals(
                     added.apply(false),
-                    PlayerText.of(protocol).clientbound(team, added.apply(true), true),
+                    PlayerText.of(protocol).clientbound(team, added.apply(true), true, TEAMS),
                     "team " + protocol);
-            byte[] joined = bytes(out -> {
+            Function<String, byte[]> joined = name -> bytes(out -> {
                 varInt(out, team);
-                string(out, "red");
+                string(out, name);
                 out.write(3);
                 varInt(out, 1);
                 string(out, "Steve");
             });
-            assertSame(joined, PlayerText.of(protocol).clientbound(team, joined, true), "join " + protocol);
+            assertArrayEquals(
+                    joined.apply(TEAMS.of("red")),
+                    PlayerText.of(protocol).clientbound(team, joined.apply("red"), true, TEAMS),
+                    "join " + protocol);
         }
+    }
+
+    /**
+     * A team goes by a name of the stream's own, and keeps only members that are player names or UUIDs: score holders
+     * such as addresses, emails or sidebar lines go, and the count with them.
+     */
+    @Test
+    void teamsKeepPlayersUnderAnOpaqueName() {
+        String uuid = "0f14d0ab-9605-4a62-a9e4-5ed26688389b";
+        List<String> written = List.of("Steve", "203.0.113.42", uuid, "private-contact@example.test", "§6Coins: 12");
+        PlayerText.TeamNames other = new PlayerText.TeamNames();
+        for (ProtocolVersion version : ProtocolVersion.values()) {
+            int protocol = version.protocol();
+            int team = id(protocol, true, "set_player_team");
+            String name = TEAMS.of("audit");
+            assertEquals(16, name.length());
+            assertNotEquals(name, other.of("audit"), "another stream names it apart");
+            assertArrayEquals(
+                    created(protocol, team, name, List.of("Steve", uuid)),
+                    PlayerText.of(protocol).clientbound(team, created(protocol, team, "audit", written), true, TEAMS),
+                    "create " + protocol);
+            for (int mode : new int[] {3, 4}) {
+                assertArrayEquals(
+                        members(team, name, mode, List.of(uuid)),
+                        PlayerText.of(protocol)
+                                .clientbound(team, members(team, "audit", mode, written.subList(1, 4)), true, TEAMS),
+                        "mode " + mode + " " + protocol);
+            }
+            assertArrayEquals(
+                    members(team, name, 3, List.of()),
+                    PlayerText.of(protocol)
+                            .clientbound(team, members(team, "audit", 3, List.of("10.0.0.1")), true, TEAMS));
+            byte[] removed = bytes(out -> {
+                varInt(out, team);
+                string(out, "audit");
+                out.write(1);
+            });
+            assertArrayEquals(
+                    bytes(out -> {
+                        varInt(out, team);
+                        string(out, name);
+                        out.write(1);
+                    }),
+                    PlayerText.of(protocol).clientbound(team, removed, true, TEAMS));
+            byte[] unknown = bytes(out -> {
+                varInt(out, team);
+                string(out, "audit");
+                out.write(5);
+            });
+            assertNull(PlayerText.of(protocol).clientbound(team, unknown, true, TEAMS), "mode 5 " + protocol);
+        }
+    }
+
+    /**
+     * A team also keeps members the stream's tab list has listed by name, such as an NPC with a space; until then, and
+     * in another stream, they go like any other score holder.
+     */
+    @Test
+    void teamsKeepMembersTheTabListNamed() {
+        String uuid = "0f14d0ab-9605-4a62-a9e4-5ed26688389b";
+        List<String> written = List.of(".Alex", "Some NPC", "Steve", uuid, "play.example.net");
+        List<String> kept = List.of(".Alex", "Some NPC", "Steve", uuid);
+        for (ProtocolVersion version : ProtocolVersion.values()) {
+            int protocol = version.protocol();
+            PlayerText text = PlayerText.of(protocol);
+            PlayerText.TeamNames teams = new PlayerText.TeamNames();
+            PlayerText.TeamNames other = new PlayerText.TeamNames();
+            int team = id(protocol, true, "set_player_team");
+            int info = id(protocol, true, "player_info_update");
+            String name = teams.of("npcs");
+            byte[] create = created(protocol, team, "npcs", written);
+
+            assertArrayEquals(
+                    created(protocol, team, name, List.of(".Alex", "Steve", uuid)),
+                    text.clientbound(team, create, true, teams),
+                    "unlisted " + protocol);
+            byte[] listed = listed(info, List.of(".Alex", "Some NPC"));
+            assertNull(text.clientbound(info, Arrays.copyOf(listed, listed.length - 1), true, teams));
+            assertArrayEquals(
+                    created(protocol, team, name, List.of(".Alex", "Steve", uuid)),
+                    text.clientbound(team, create, true, teams),
+                    "unreadable listing " + protocol);
+
+            assertNotNull(text.clientbound(info, listed, true, teams));
+            assertArrayEquals(
+                    created(protocol, team, name, kept),
+                    text.clientbound(team, create, true, teams),
+                    "create " + protocol);
+            for (int mode : new int[] {3, 4}) {
+                assertArrayEquals(
+                        members(team, name, mode, kept),
+                        text.clientbound(team, members(team, "npcs", mode, written), true, teams),
+                        "mode " + mode + " " + protocol);
+            }
+            assertArrayEquals(
+                    members(team, other.of("npcs"), 3, List.of(".Alex", "Steve", uuid)),
+                    text.clientbound(team, members(team, "npcs", 3, written), true, other),
+                    "other stream " + protocol);
+        }
+    }
+
+    /**
+     * A team keeps a member with the crossplay prefix, a dot and a player name, before the tab list names it; other
+     * dotted strings go.
+     */
+    @Test
+    void aTeamKeepsAPrefixedPlayerBeforeTheTabListNamesThem() {
+        List<String> written = List.of(
+                ".Alex", ".abcdefghijklmno", "Steve", ".abcdefghijklmnop", ".", "..Alex", "a.b", "play.example.net");
+        List<String> kept = List.of(".Alex", ".abcdefghijklmno", "Steve");
+        for (ProtocolVersion version : ProtocolVersion.values()) {
+            int protocol = version.protocol();
+            PlayerText text = PlayerText.of(protocol);
+            PlayerText.TeamNames teams = new PlayerText.TeamNames();
+            int team = id(protocol, true, "set_player_team");
+            int info = id(protocol, true, "player_info_update");
+            String name = teams.of("crossplay");
+
+            assertArrayEquals(
+                    created(protocol, team, name, kept),
+                    text.clientbound(team, created(protocol, team, "crossplay", written), true, teams),
+                    "create " + protocol);
+            assertNotNull(text.clientbound(info, listed(info, List.of(".Alex")), true, teams), "listing " + protocol);
+        }
+    }
+
+    /** A stream holds at most {@link PlayerText.TeamNames#MAX_LISTED} tab list names; later ones are not kept. */
+    @Test
+    void theTabListNamesAStreamHoldsAreBounded() {
+        PlayerText.TeamNames teams = new PlayerText.TeamNames();
+        int info = id(PROTOCOL, true, "player_info_update");
+        int team = id(PROTOCOL, true, "set_player_team");
+        int batch = 64;
+        for (int start = 0; start < PlayerText.TeamNames.MAX_LISTED; start += batch) {
+            List<String> names = new ArrayList<>();
+            for (int i = start; i < start + batch; i++) names.add("NPC " + i);
+            assertNotNull(text.clientbound(info, listed(info, names), true, teams));
+        }
+        assertNotNull(text.clientbound(info, listed(info, List.of("NPC late")), true, teams));
+        String last = "NPC " + (PlayerText.TeamNames.MAX_LISTED - 1);
+        assertArrayEquals(
+                members(team, teams.of("npcs"), 3, List.of("NPC 0", last)),
+                text.clientbound(team, members(team, "npcs", 3, List.of("NPC 0", last, "NPC late")), true, teams));
+    }
+
+    /** A tab list add naming {@code names}, each listed. */
+    private static byte[] listed(int info, List<String> names) {
+        return bytes(out -> {
+            varInt(out, info);
+            out.write(0x01 | 0x08);
+            varInt(out, names.size());
+            for (int i = 0; i < names.size(); i++) {
+                int64(out, 7);
+                int64(out, i);
+                string(out, names.get(i));
+                varInt(out, 0);
+                out.write(1);
+            }
+        });
+    }
+
+    /** A team created with no options set and {@code members}. */
+    private static byte[] created(int protocol, int team, String name, List<String> members) {
+        return bytes(out -> {
+            varInt(out, team);
+            string(out, name);
+            out.write(0);
+            if (protocol >= 776) {
+                text(out, "");
+                text(out, "");
+                text(out, "");
+                varInt(out, 0);
+                varInt(out, 0);
+                out.write(0);
+                out.write(0);
+            } else {
+                text(out, "");
+                out.write(0);
+                if (protocol >= 770) {
+                    varInt(out, 0);
+                    varInt(out, 0);
+                } else {
+                    string(out, "always");
+                    string(out, "always");
+                }
+                varInt(out, 21);
+                text(out, "");
+                text(out, "");
+            }
+            varInt(out, members.size());
+            for (String member : members) string(out, member);
+        });
+    }
+
+    /** Members added to (mode 3) or taken from (mode 4) a team. */
+    private static byte[] members(int team, String name, int mode, List<String> members) {
+        return bytes(out -> {
+            varInt(out, team);
+            string(out, name);
+            out.write(mode);
+            varInt(out, members.size());
+            for (String member : members) string(out, member);
+        });
     }
 
     /** An inline dialog goes as an empty compound and one named by its id stays; a death message goes empty. */
@@ -847,7 +1060,7 @@ class PlayerTextTest {
             });
             assertArrayEquals(
                     minecart.apply(false),
-                    PlayerText.of(protocol).clientbound(entityData, minecart.apply(true), true),
+                    PlayerText.of(protocol).clientbound(entityData, minecart.apply(true), true, TEAMS),
                     "minecart on " + protocol);
         }
     }
@@ -894,7 +1107,7 @@ class PlayerTextTest {
             });
             assertArrayEquals(
                     effect.apply(false),
-                    PlayerText.of(protocol).clientbound(particles, effect.apply(true), true),
+                    PlayerText.of(protocol).clientbound(particles, effect.apply(true), true, TEAMS),
                     "particles on " + protocol);
         }
     }
@@ -945,7 +1158,7 @@ class PlayerTextTest {
             });
             assertArrayEquals(
                     entry.apply(false),
-                    PlayerText.of(protocol).clientbound(info, entry.apply(true), true),
+                    PlayerText.of(protocol).clientbound(info, entry.apply(true), true, TEAMS),
                     "tab entry on " + protocol);
         }
     }
@@ -992,7 +1205,7 @@ class PlayerTextTest {
             });
             assertArrayEquals(
                     framed.apply(false),
-                    PlayerText.of(protocol).clientbound(entityData, framed.apply(true), true),
+                    PlayerText.of(protocol).clientbound(entityData, framed.apply(true), true, TEAMS),
                     "painting on " + protocol);
         }
 
@@ -1012,9 +1225,9 @@ class PlayerTextTest {
             out.write(0xFF);
         });
         assertArrayEquals(
-                shoulder.apply(false), PlayerText.of(768).clientbound(entityData, shoulder.apply(true), true));
+                shoulder.apply(false), PlayerText.of(768).clientbound(entityData, shoulder.apply(true), true, TEAMS));
         byte[] bare = shoulder.apply(false);
-        assertSame(bare, PlayerText.of(768).clientbound(entityData, bare, true));
+        assertSame(bare, PlayerText.of(768).clientbound(entityData, bare, true, TEAMS));
 
         int mannequin = id(PROTOCOL, true, "set_entity_data");
         Function<Boolean, byte[]> profile = written -> bytes(out -> {
@@ -1040,6 +1253,50 @@ class PlayerTextTest {
             out.write(0xFF);
         });
         assertArrayEquals(profile.apply(false), strip(profile.apply(true)));
+    }
+
+    /** A trim whose material overrides eight thousand armour assets is not sent; one overriding two is. */
+    @Test
+    void aTrimWithThousandsOfOverridesIsNotSent() {
+        for (ProtocolVersion version : ProtocolVersion.values()) {
+            int protocol = version.protocol();
+            // 26.3 trim materials carry no overrides.
+            if (version.atLeast(ProtocolVersion.V26_3)) continue;
+            int creative = id(protocol, false, "set_creative_mode_slot");
+            int trim = component(protocol, "trim");
+            Function<Integer, byte[]> slot = overrides -> bytes(out -> {
+                byte[] data = trim(protocol, overrides);
+                varInt(out, creative);
+                int16(out, 36);
+                varInt(out, 1);
+                varInt(out, 900);
+                varInt(out, 1);
+                varInt(out, 0);
+                varInt(out, trim);
+                if (protocol >= 770) varInt(out, data.length);
+                out.writeBytes(data);
+            });
+            assertNotNull(PlayerText.of(protocol).serverbound(creative, slot.apply(2), true), "2 in " + protocol);
+            assertNull(PlayerText.of(protocol).serverbound(creative, slot.apply(8192), true), "8192 in " + protocol);
+        }
+    }
+
+    /** A trim of a direct material with {@code overrides} armour overrides, and a pattern by its registry id. */
+    private static byte[] trim(int protocol, int overrides) {
+        return bytes(out -> {
+            varInt(out, 0);
+            string(out, "evil");
+            if (protocol < 770) varInt(out, 900);
+            if (protocol < 769) int32(out, Float.floatToIntBits(0.5f));
+            varInt(out, overrides);
+            for (int i = 0; i < overrides; i++) {
+                string(out, "%04x".formatted(i));
+                string(out, "x");
+            }
+            text(out, "");
+            varInt(out, 1);
+            if (protocol < 770) out.write(1);
+        });
     }
 
     /** A stack of a hundred thousand model strings walks past the packet's budget and is not sent. */
@@ -1261,7 +1518,7 @@ class PlayerTextTest {
     }
 
     private static byte[] strip(byte[] packet) {
-        return text.clientbound(packet[0] & 0x7F | (packet[0] < 0 ? (packet[1] & 0x7F) << 7 : 0), packet, true);
+        return text.clientbound(packet[0] & 0x7F | (packet[0] < 0 ? (packet[1] & 0x7F) << 7 : 0), packet, true, TEAMS);
     }
 
     private static int id(int protocol, boolean clientbound, String name) {

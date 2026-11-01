@@ -8,7 +8,9 @@ import ac.cult.cultac.utils.latency.ClientBookFields;
 import ac.cult.cultac.utils.latency.ClientContainerFields;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufInputStream;
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -68,13 +70,13 @@ public final class NbtValueCodec {
                     retained.put(name, readContainerItem(input, 1, false, true));
                 } else retained.put(name, readValue(input, childType, 1));
             }
-        } catch (java.io.IOException failure) {
+        } catch (IOException failure) {
             throw new MalformedPacketException("Invalid NBT field name", failure);
         }
         return retained.isEmpty() ? EMPTY : new NbtValue.Compound(retained);
     }
 
-    private static NbtValue.Sequence readContainerItems(ByteBuf input) throws java.io.IOException {
+    private static NbtValue.Sequence readContainerItems(ByteBuf input) throws IOException {
         int elementType = input.readUnsignedByte(), count = input.readInt();
         if (count < 0 || elementType == 0 && count > 0) throw new MalformedPacketException("Invalid NBT list");
         var items = new ArrayList<NbtValue>();
@@ -86,12 +88,12 @@ public final class NbtValueCodec {
     }
 
     private static NbtValue.Compound readContainerItem(ByteBuf input, int depth, boolean listElement)
-            throws java.io.IOException {
+            throws IOException {
         return readContainerItem(input, depth, listElement, false);
     }
 
     private static NbtValue.Compound readContainerItem(ByteBuf input, int depth, boolean listElement, boolean book)
-            throws java.io.IOException {
+            throws IOException {
         if (depth >= 512) throw new MalformedPacketException("NBT depth exceeds 512");
         var fields = new HashMap<String, NbtValue>();
         var stream = new ByteBufInputStream(input);
@@ -118,8 +120,7 @@ public final class NbtValueCodec {
         return onlyWrapper ? wrapped : fields.isEmpty() ? EMPTY : new NbtValue.Compound(fields);
     }
 
-    private static NbtValue.Compound readItemComponents(ByteBuf input, int depth, boolean book)
-            throws java.io.IOException {
+    private static NbtValue.Compound readItemComponents(ByteBuf input, int depth, boolean book) throws IOException {
         if (depth >= 512) throw new MalformedPacketException("NBT depth exceeds 512");
         // Key order still decides duplicate namespace aliases. Keep the names until
         // projection, but skip every unused payload without building its NBT tree.
@@ -148,7 +149,7 @@ public final class NbtValueCodec {
                 : ClientContainerFields.stackLimitComponents(components);
     }
 
-    private static NbtValue.Compound readBookContent(ByteBuf input, int depth) throws java.io.IOException {
+    private static NbtValue.Compound readBookContent(ByteBuf input, int depth) throws IOException {
         if (depth >= 512) throw new MalformedPacketException("NBT depth exceeds 512");
         var fields = new HashMap<String, NbtValue>();
         var stream = new ByteBufInputStream(input);
@@ -159,9 +160,8 @@ public final class NbtValueCodec {
                 int elementType = input.readUnsignedByte(), count = input.readInt();
                 if (count < 0 || elementType == 0 && count > 0) throw new MalformedPacketException("Invalid NBT list");
                 for (int index = 0; index < count; index++) NbtSkipper.skipPayload(input, elementType, depth + 2, 512);
-                // LecternBlockEntity.getPageCount reads only the list size. Share
-                // empty values instead of retaining text, components or filter data.
-                fields.put(name, new NbtValue.Sequence(java.util.Collections.nCopies(count, EMPTY)));
+                // LecternBlockEntity.getPageCount reads only the list size.
+                fields.put(name, new NbtValue.Sequence(Collections.nCopies(count, EMPTY)));
             } else {
                 NbtSkipper.skipPayload(input, type, depth + 1, 512);
                 if (name.equals("pages")) fields.remove(name);
@@ -177,17 +177,5 @@ public final class NbtValueCodec {
         bytes[0] = (byte) type;
         input.getBytes(start, bytes, 1, bytes.length - 1);
         return BinaryNbt.read(bytes, 2097152L);
-    }
-
-    public static NbtValue.Compound readCompound(ByteBuf input) {
-        int start = input.readerIndex();
-        NbtSkipper.skip(input, 512);
-        if (input.getUnsignedByte(start) == 0) return null;
-        byte[] bytes = new byte[input.readerIndex() - start];
-        input.getBytes(start, bytes);
-        // FriendlyByteBuf.readNbt uses the default 2 MiB accounted-heap quota.
-        var tag = BinaryNbt.read(bytes, 2097152L);
-        if (tag instanceof NbtValue.Compound compound) return compound;
-        throw new MalformedPacketException("Expected compound NBT");
     }
 }

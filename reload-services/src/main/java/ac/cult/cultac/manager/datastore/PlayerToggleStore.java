@@ -29,8 +29,9 @@ public interface PlayerToggleStore {
      * Kick off async reads for {@code alerts}, {@code verbose}, {@code brands}
      * keyed by this player's UUID. Returns immediately; results land in the
      * slot via the CompletionStage callback. Safe to call from any thread.
+     * The connection holds the slot until it {@linkplain #evict evicts} it.
      */
-    void prefetch(@NotNull UUID uuid);
+    void prefetch(@NotNull UUID uuid, @NotNull UUID connectionId);
 
     /**
      * Read the slot's current best-known value. Returns {@code null} if no
@@ -57,11 +58,13 @@ public interface PlayerToggleStore {
     void applyUserToggle(@NotNull UUID uuid, @NotNull String key, boolean value);
 
     /**
-     * Drop the in-memory slot. Cancels the pending flush and runs any deferred
-     * persists synchronously so a staff member who quits immediately after
-     * toggling still has their last choice written.
+     * Release this connection's hold on the slot. Two connections may present
+     * the same UUID at once, so the slot is dropped only when no connection
+     * holds it; then the pending flush is cancelled and any deferred persists
+     * run synchronously so a staff member who quits immediately after toggling
+     * still has their last choice written.
      */
-    void evict(@NotNull UUID uuid);
+    void evict(@NotNull UUID uuid, @NotNull UUID connectionId);
 
     /** Called from {@code DataStoreLifecycle.stop()}. Idempotent. */
     void shutdown();
@@ -72,7 +75,7 @@ public interface PlayerToggleStore {
      */
     PlayerToggleStore NOOP = new PlayerToggleStore() {
         @Override
-        public void prefetch(@NotNull UUID uuid) {}
+        public void prefetch(@NotNull UUID uuid, @NotNull UUID connectionId) {}
 
         @Override
         public @Nullable Boolean current(@NotNull UUID uuid, @NotNull String key) {
@@ -86,7 +89,7 @@ public interface PlayerToggleStore {
         public void applyUserToggle(@NotNull UUID uuid, @NotNull String key, boolean value) {}
 
         @Override
-        public void evict(@NotNull UUID uuid) {}
+        public void evict(@NotNull UUID uuid, @NotNull UUID connectionId) {}
 
         @Override
         public void shutdown() {}

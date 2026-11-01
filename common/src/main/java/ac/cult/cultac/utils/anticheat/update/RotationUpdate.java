@@ -6,10 +6,12 @@ import lombok.Getter;
 import lombok.Setter;
 
 @Getter
-@Setter
 public final class RotationUpdate {
     private HeadRotation from, to;
+
+    @Setter
     private AimProcessor processor;
+
     private float deltaYRot, deltaXRot;
     private boolean isCinematic;
     private double sensitivityX, sensitivityY;

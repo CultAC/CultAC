@@ -22,26 +22,15 @@ class CloudConnectionProtocolsTest {
     private static final String NO_ZSTD = "java.lang.UnsatisfiedLinkError: no zstd-jni in java.library.path";
 
     @Test
-    void aServerOffersProtocols3And5WithZstd() {
-        assertEquals(
-                List.of(IntakeWire.PROTOCOL_3, IntakeWire.PROTOCOL_5),
-                CloudConnection.protocols(CloudSettings.SERVER_PROTOCOLS, null));
+    void everyPlatformOffersOnlyProtocol5() {
+        assertEquals(List.of(IntakeWire.PROTOCOL_5), CloudConnection.protocols(CloudSettings.PROTOCOLS, null));
+        assertEquals(List.of(IntakeWire.PROTOCOL_5), CloudConnection.protocols(List.of(3, 5), null));
+        assertEquals(List.of(), CloudConnection.protocols(List.of(3), null));
     }
 
     @Test
-    void aServerOffersOnlyProtocol3WithoutZstd() {
-        assertEquals(
-                List.of(IntakeWire.PROTOCOL_3), CloudConnection.protocols(CloudSettings.SERVER_PROTOCOLS, NO_ZSTD));
-    }
-
-    @Test
-    void aProxyOffersOnlyProtocol5() {
-        assertEquals(List.of(IntakeWire.PROTOCOL_5), CloudConnection.protocols(CloudSettings.PROXY_PROTOCOLS, null));
-    }
-
-    @Test
-    void aProxyOffersNothingWithoutZstd() {
-        assertEquals(List.of(), CloudConnection.protocols(CloudSettings.PROXY_PROTOCOLS, NO_ZSTD));
+    void nothingIsOfferedWithoutZstd() {
+        assertEquals(List.of(), CloudConnection.protocols(CloudSettings.PROTOCOLS, NO_ZSTD));
     }
 
     @Test
@@ -77,12 +66,6 @@ class CloudConnectionProtocolsTest {
             assertTrue(GSON.fromJson(json, CloudConnection.Connected.class).radiusClamped());
         }
         assertEquals(0, connected("{\"protocol\":5,\"chunkRadius\":-3}").chunkRadius());
-    }
-
-    @Test
-    void protocol3HasNoTerrainTerms() {
-        CloudConnection.Terms terms = connected("{\"protocol\":3,\"chunkRadius\":2}");
-        assertEquals(CloudConnection.Terms.PROTOCOL_3, terms);
     }
 
     private static CloudConnection.Terms connected(String json) {

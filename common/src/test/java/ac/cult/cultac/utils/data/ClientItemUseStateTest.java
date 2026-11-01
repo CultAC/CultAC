@@ -20,24 +20,24 @@ class ClientItemUseStateTest {
         var offhand = new ClientItemUseState.Completions(
                 List.of(new ClientItemUseState.Completion(Hand.OFF_HAND, 40)), false);
         state.start(Hand.OFF_HAND, food, ClientItemUseState.duration(food), true);
-        assertEquals(offhand, state.completions(hotbar(SimItemStack.EMPTY), food, 0, false));
+        assertEquals(offhand, state.completions(hotbar(SimItemStack.EMPTY), food));
         var replacement = food.copy();
         assertEquals(
                 new ClientItemUseState.Completions(List.of(), true),
-                state.completions(hotbar(SimItemStack.EMPTY), replacement, 0, false));
+                state.completions(hotbar(SimItemStack.EMPTY), replacement));
         state.prepare(0, 3, ClientVersion.V_1_21_2, SimItemStack.EMPTY, replacement, hotbar(SimItemStack.EMPTY));
-        assertEquals(offhand, state.completions(hotbar(SimItemStack.EMPTY), replacement, 0, false));
+        assertEquals(offhand, state.completions(hotbar(SimItemStack.EMPTY), replacement));
     }
 
     @Test
-    void unconfirmedHotbarCompletesAnyEqualStack() {
+    void anyEqualHotbarStackCanComplete() {
         var state = new ClientItemUseState();
         var first = food();
         var second = food();
         var hotbar = List.of(first, second, first, first, first, first, first, first, first);
         state.start(Hand.MAIN_HAND, first, ClientItemUseState.duration(first), true);
         state.prepare(0, 3, ClientVersion.V_1_21_2, first, SimItemStack.EMPTY, hotbar);
-        var completions = state.completions(hotbar, SimItemStack.EMPTY, 0, true);
+        var completions = state.completions(hotbar, SimItemStack.EMPTY);
         assertFalse(completions.skipped());
         assertEquals(9, completions.completions().size());
         assertEquals(
@@ -46,20 +46,20 @@ class ClientItemUseStateTest {
         // An empty slot is a possible silent stop: completion may do nothing.
         var mixed = List.of(first, second, SimItemStack.EMPTY, first, first, first, first, first, first);
         state.prepare(1, 3, ClientVersion.V_1_21_2, first, SimItemStack.EMPTY, mixed);
-        assertTrue(state.completions(mixed, SimItemStack.EMPTY, 0, true).skipped());
+        assertTrue(state.completions(mixed, SimItemStack.EMPTY).skipped());
     }
 
     @Test
-    void confirmedHotbarCompletesOnlyTheSelectedSlot() {
+    void anUnreportedSelectionCanCompleteAnyBoundSlot() {
         var state = new ClientItemUseState();
         var hotbar = new ArrayList<SimItemStack>();
         for (int slot = 0; slot < 9; slot++) hotbar.add(food());
         state.start(Hand.MAIN_HAND, hotbar.get(4), ClientItemUseState.duration(hotbar.get(4)), true);
         state.prepare(0, 3, ClientVersion.V_1_21_2, hotbar.get(4), SimItemStack.EMPTY, hotbar);
+        var expected = new ArrayList<ClientItemUseState.Completion>();
+        for (int slot = 0; slot < 9; slot++) expected.add(new ClientItemUseState.Completion(Hand.MAIN_HAND, slot));
         assertEquals(
-                new ClientItemUseState.Completions(
-                        List.of(new ClientItemUseState.Completion(Hand.MAIN_HAND, 4)), false),
-                state.completions(hotbar, SimItemStack.EMPTY, 4, false));
+                new ClientItemUseState.Completions(expected, false), state.completions(hotbar, SimItemStack.EMPTY));
     }
 
     @Test
@@ -87,10 +87,9 @@ class ClientItemUseStateTest {
         for (int tick = 0; tick < 3; tick++) {
             var snapshot =
                     state.prepare(tick, 3, ClientVersion.V_1_21_2, hotbar.getFirst(), SimItemStack.EMPTY, hotbar);
-            assertEquals(new ClientItemUseState.Snapshot(1, tick, 3, 0.2F, 0.2F, false, true, true), snapshot);
+            assertEquals(new ClientItemUseState.Snapshot(1, tick, 3, 0.2F, 0.2F, 0.2F, false, true, true), snapshot);
             assertEquals(
-                    new ClientItemUseState.Completions(expected, false),
-                    state.completions(hotbar, SimItemStack.EMPTY, 0, true));
+                    new ClientItemUseState.Completions(expected, false), state.completions(hotbar, SimItemStack.EMPTY));
             assertEquals(Hand.MAIN_HAND, state.hand());
             assertTrue(state.handKnown());
         }

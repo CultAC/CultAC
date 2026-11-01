@@ -1,14 +1,14 @@
 package ac.cult.cultac.companion.command;
 
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Command;
-import ac.cult.cultac.bridge.protocol.BridgeProtocol;
+import ac.cult.cultac.bridge.protocol.CommandRoots;
 import ac.cult.cultac.bridge.protocol.ServerCapability;
 import ac.cult.cultac.companion.api.ApiModule;
 import ac.cult.cultac.companion.bridge.CompanionBridge;
 import com.destroystokyo.paper.event.server.AsyncTabCompleteEvent;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -17,7 +17,6 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
-import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.ConsoleCommandSender;
 import org.bukkit.command.RemoteConsoleCommandSender;
@@ -39,6 +38,8 @@ public final class CommandModule {
             Component.text("Sent to the CultAC proxy; the output goes to this server's log");
     private static final long SWEEP_TICKS = 20;
 
+    private static List<String> roots = CommandRoots.DEFAULT;
+
     private static CommandRelay relay;
     private static Listener completions;
     private static BukkitTask sweeper;
@@ -53,11 +54,25 @@ public final class CommandModule {
                 plugin.getConfig().getBoolean("debug", false));
         bridge.addCapabilities(ServerCapability.COMMANDS.flag());
         bridge.addHandler(created);
-        CommandExecutor executor = (sender, command, label, args) -> {
-            execute(created, plugin, sender, label, args);
-            return true;
-        };
-        Objects.requireNonNull(plugin.getCommand("cult"), "cult command").setExecutor(executor);
+        roots = CommandRoots.resolve(
+                plugin.getConfig().contains(CommandRoots.KEY)
+                        ? plugin.getConfig().getStringList(CommandRoots.KEY)
+                        : null,
+                plugin.getLogger()::warning);
+        org.bukkit.command.Command command =
+                new org.bukkit.command.Command(
+                        roots.getFirst(),
+                        "CultAC commands, run on the proxy.",
+                        "/" + roots.getFirst(),
+                        new ArrayList<>(roots.subList(1, roots.size()))) {
+                    @Override
+                    public boolean execute(CommandSender sender, String label, String[] args) {
+                        if (!plugin.isEnabled()) return false;
+                        CommandModule.execute(created, plugin, sender, label, args);
+                        return true;
+                    }
+                };
+        Bukkit.getCommandMap().register(plugin.getName().toLowerCase(Locale.ROOT), command);
         Listener listener = new Listener() {
             @EventHandler
             public void onTabComplete(AsyncTabCompleteEvent event) {
@@ -66,7 +81,8 @@ public final class CommandModule {
         };
         Bukkit.getPluginManager().registerEvents(listener, plugin);
         ConsoleCommandSender console = Bukkit.getConsoleSender();
-        ApiModule.reloadVia(() -> created.forward(null, console.getName(), "cult reload", console::sendMessage));
+        ApiModule.reloadVia(
+                () -> created.forward(null, console.getName(), roots.getFirst() + " reload", console::sendMessage));
         relay = created;
         completions = listener;
         if (bridge.isEnabled()) {
@@ -147,7 +163,7 @@ public final class CommandModule {
         if (space < 0) return;
         String root = buffer.substring(0, space);
         root = root.substring(root.indexOf(':') + 1).toLowerCase(Locale.ROOT);
-        if (!BridgeProtocol.COMMAND_ROOTS.contains(root)) return;
+        if (!roots.contains(root)) return;
         List<String> suggestions = relay.suggest(root + buffer.substring(space), SUGGEST_WAIT_MILLIS);
         if (suggestions == null) return;
         event.completions(suggestions.stream()

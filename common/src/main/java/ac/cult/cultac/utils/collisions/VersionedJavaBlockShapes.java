@@ -9,6 +9,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.NoCollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.collisions.datatypes.VoxelShapeCollisionBox;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.IntPredicate;
@@ -17,9 +18,7 @@ final class VersionedJavaBlockShapes {
     private static final BlockDefinition DRAGON_HEAD =
             DataTables.defaults().registry().block("minecraft:dragon_head");
     private static final List<ShapeOverride> MOVEMENT_OVERRIDES = List.of(
-            movement(
-                    state -> BlockIds.is(state, BlockIds.PALE_MOSS_CARPET),
-                    VersionedJavaBlockShapes::paleMossCarpetMovement),
+            movement(BlockIds.PALE_MOSS_CARPET, VersionedJavaBlockShapes::paleMossCarpetMovement),
             movement(BlockIds.PITCHER_CROP, VersionedJavaBlockShapes::pitcherCropMovement),
             movement(BlockIds.PISTON_HEAD, VersionedJavaBlockShapes::pistonHeadMovement));
 
@@ -46,9 +45,6 @@ final class VersionedJavaBlockShapes {
     // The same Java geometry rules serve Java clients and the sparse Bedrock catalog's baseline.
     // State remains in the server registry; only the requested shape version changes.
     static Optional<CollisionBox> movement(ClientVersion shapeVersion, int state, int x, int y, int z) {
-        if (state < 0 || shapeVersion == null) {
-            return Optional.empty();
-        }
         return firstMatch(MOVEMENT_OVERRIDES, shapeVersion, state, x, y, z);
     }
 
@@ -99,9 +95,7 @@ final class VersionedJavaBlockShapes {
     private static Optional<CollisionBox> dragonHeadVisual(ClientVersion shapeVersion, int state, int x, int y, int z) {
         // SkullBlock#getShape uses the ordinary 8-pixel skull through 26.2.
         // 26.3 adds the separate 8.5-pixel-high dragon outline, without changing collision.
-        return shapeVersion.isOlderThan(ClientVersion.V_26_3)
-                ? Optional.of(box(x, y, z, 4, 0, 4, 12, 8, 12))
-                : Optional.empty();
+        return Optional.of(box(x, y, z, 4, 0, 4, 12, 8, 12));
     }
 
     private static Optional<CollisionBox> pitcherCropVisual(
@@ -122,7 +116,7 @@ final class VersionedJavaBlockShapes {
 
     private static Optional<CollisionBox> pistonHeadMovement(ClientVersion version, int state, int x, int y, int z) {
         if (version.isNewerThanOrEquals(ClientVersion.V_1_21_5)) return Optional.empty();
-        return Optional.of(new ac.cult.cultac.utils.collisions.datatypes.VoxelShapeCollisionBox(
+        return Optional.of(new VoxelShapeCollisionBox(
                 LegacyPistonHeadShapes.shape(BlockProps.FACING.value(state), BlockProps.SHORT.booleanValue(state))
                         .move(x, y, z)));
     }

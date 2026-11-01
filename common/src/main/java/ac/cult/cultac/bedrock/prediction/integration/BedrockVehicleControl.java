@@ -15,7 +15,7 @@ public final class BedrockVehicleControl {
                 || player.bedrockState.getProtocolVersion().protocol() < 944) return null;
         var riding = player.compensatedEntities.getSelf().getRiding();
         return isSupported(riding)
-                        && !riding.isDead
+                        && riding.actionAlive
                         && (!riding.isBoat() || riding.bedrockBoat != null)
                         && (!(riding instanceof PacketEntityHorse vehicle) || vehicle.hasSaddle)
                         && riding.passengers.indexOf(player.compensatedEntities.getSelf()) == 0

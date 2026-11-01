@@ -5,29 +5,24 @@ import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.BlockProps;
 import ac.cult.blocksim.data.BlockTags;
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.ItemDefinition;
 import ac.cult.blocksim.data.StateFacts;
 import ac.cult.blocksim.engine.SimItemStack;
-import ac.cult.cultac.checks.impl.movement.GhostBlockMitigator;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.Hand;
-import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.collisions.ClientBlockShapes;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.HitData;
-import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.inventory.ItemTypes;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.Vector3dm;
-import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.ClientBlockProperties;
-import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
-import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
 import lombok.Getter;
 import lombok.Setter;
-import org.jetbrains.annotations.Nullable;
 
 public class BlockPlace {
     @Setter
@@ -37,7 +32,6 @@ public class BlockPlace {
     Hand hand;
 
     @Getter
-    @Setter
     boolean replaceClicked;
 
     boolean isCancelled = false;
@@ -54,10 +48,6 @@ public class BlockPlace {
     @Getter
     final BlockDefinition material;
 
-    @Getter
-    @Nullable
-    HitData hitData;
-
     @Setter
     Direction face;
 
@@ -67,9 +57,6 @@ public class BlockPlace {
 
     @Getter
     Vec3 cursor;
-
-    @Getter
-    private boolean placed;
 
     @Getter
     private final boolean block;
@@ -98,7 +85,6 @@ public class BlockPlace {
         this.hand = hand;
         this.face = face;
         this.itemStack = itemStack;
-        this.hitData = hitData;
         this.blockPosition = blockPosition == null ? null : blockPosition.immutable();
         this.sequence = sequence;
 
@@ -110,10 +96,10 @@ public class BlockPlace {
         this.replaceClicked = canBeReplaced(this.material, clickedState, face);
     }
 
-    private static BlockDefinition resolvePlacedType(ac.cult.blocksim.data.ItemDefinition material) {
+    private static BlockDefinition resolvePlacedType(ItemDefinition material) {
         // MCP-Reborn MultiPlayerGameMode#useItemOn sends ServerboundUseItemOnPacket
         // for any in-bounds block hit; an empty hand is interaction, not placement.
-        if (material == null || material == ac.cult.cultac.utils.inventory.ItemTypes.AIR) {
+        if (material == null || material == ItemTypes.AIR) {
             return null;
         }
 
@@ -257,137 +243,9 @@ public class BlockPlace {
         }
     }
 
-    public void set(BlockDefinition material) {
-        set(material.defaultState());
-    }
-
-    public boolean applyResolvedPrimary(BlockPos position, int state) {
-        return applyResolvedState(position, state, true, true);
-    }
-
-    public void applyResolvedSecondary(BlockPos position, int state) {
-        applyResolvedState(position, state, false, false);
-    }
-
     /** Vanilla already checked placement obstruction and supplies the resulting hand count. */
     public boolean applyResolvedPrediction(BlockPos position, int state) {
-        return applyResolvedState(position, state, false, false);
-    }
-
-    public void set(Direction face, int state) {
-        BlockPos blockPos = getPlacedBlockPos().offset(face.getModX(), face.getModY(), face.getModZ());
-        set(blockPos, state);
-    }
-
-    public void set(BlockPos position, int state) {
-        // Hack for scaffolding to be the correct bounding box
         CollisionBox box = ClientBlockShapes.movement(player, state, position.getX(), position.getY(), position.getZ());
-
-        if (player.debugPlaces) player.sendMessage("Placing start " + formatState(state) + " at " + position);
-
-        // Note scaffolding is a special case because it can never intersect with the player's bounding box,
-        // and we fetch it with lastY instead of y which is wrong, so it is easier to just ignore scaffolding here
-        if (!BlockIds.is(state, BlockIds.SCAFFOLDING) && isPlacementObstructed(box)) {
-            return;
-        }
-
-        // If a block already exists here, then we can't override it.
-        int existingState = player.compensatedWorld.getBlockStateIdAt(position);
-        if (!replaceClicked && !canBeReplaced(material, existingState, face)) {
-            return;
-        }
-
-        // Check for min and max bounds of world
-        if (player.compensatedWorld.getMaxHeight() <= position.getY()
-                || position.getY() < player.compensatedWorld.getMinHeight()) {
-            return;
-        }
-
-        // Check for waterlogged
-        if (BlockProps.WATERLOGGED.has(state)) {
-            boolean waterlogged = BlockIds.is(existingState, BlockIds.WATER)
-                    && ClientFluidQueries.modelFluid(existingState).isSourceOfType("minecraft:water");
-            state = BlockProps.WATERLOGGED.with(state, waterlogged);
-        }
-        if (player.debugPlaces) player.sendMessage("Block actually placed " + formatState(state) + " at " + position);
-        placed = true;
-        player.getInventory().onBlockPlace(this);
-        int original = player.compensatedWorld.updateBlock(position.getX(), position.getY(), position.getZ(), state);
-        GhostBlockMitigator mitigator = player.getGhostBlockMitigator();
-
-        mitigator.handleBlockPlace(position, original, state, this);
-    }
-
-    private boolean isPlacementObstructed(CollisionBox box) {
-        // A player cannot place a block in themselves.
-        // 0.03 can desync quite easily
-        // 0.002 desync must be done with teleports, it is very difficult to do with slightly moving.
-        if (box.isIntersected(player.boundingBox)) {
-            return true;
-        }
-
-        // Other entities can also block block-placing
-        // This sucks and desyncs constantly, but what can you do?
-        //
-        // 1.9+ introduced the mechanic where both the client and server must agree upon a block place
-        // 1.8 clients will simply not send the place when it fails, thanks mojang.
-        for (PacketEntity entity : player.compensatedEntities.entityMap.values()) {
-            if (box.isIntersected(currentEntityCollisionBox(entity))) {
-                return true; // Blocking the block placement
-            }
-        }
-        return false;
-    }
-
-    private SimpleCollisionBox currentEntityCollisionBox(PacketEntity entity) {
-        SimpleCollisionBox interpBox = entity.getPossibleMovementCollisionBoxes();
-
-        double width = BoundingBoxSize.getWidth(player, entity);
-        double height = BoundingBoxSize.getHeight(player, entity);
-        double interpWidth = Math.max(interpBox.maxX - interpBox.minX, interpBox.maxZ - interpBox.minZ);
-        double interpHeight = interpBox.maxY - interpBox.minY;
-
-        // If not accurate, fall back to desync pos
-        // This happens due to the lack of an idle packet on 1.9+ clients
-        // On 1.8 clients this should practically never happen
-        if (interpWidth - width > 0.05 || interpHeight - height > 0.05) {
-            Vec3 entityPos = entity.desyncClientPos;
-            return GetBoundingBox.getPacketEntityBoundingBox(player, entityPos.x, entityPos.y, entityPos.z, entity);
-        }
-        return interpBox;
-    }
-
-    private boolean applyResolvedState(BlockPos position, int state, boolean consumeItem, boolean checkIntersections) {
-        CollisionBox box = ClientBlockShapes.movement(player, state, position.getX(), position.getY(), position.getZ());
-
-        if (checkIntersections && !BlockIds.is(state, BlockIds.SCAFFOLDING)) {
-            if (box.isIntersected(player.boundingBox)) {
-                if (player.debugPlaces)
-                    player.sendMessage("Resolved place rejected: collision with player at " + position);
-                return false;
-            }
-
-            for (PacketEntity entity : player.compensatedEntities.entityMap.values()) {
-                SimpleCollisionBox interpBox = entity.getPossibleMovementCollisionBoxes();
-
-                double width = BoundingBoxSize.getWidth(player, entity);
-                double height = BoundingBoxSize.getHeight(player, entity);
-                double interpWidth = Math.max(interpBox.maxX - interpBox.minX, interpBox.maxZ - interpBox.minZ);
-                double interpHeight = interpBox.maxY - interpBox.minY;
-
-                if (interpWidth - width > 0.05 || interpHeight - height > 0.05) {
-                    Vec3 entityPos = entity.desyncClientPos;
-                    interpBox = GetBoundingBox.getPacketEntityBoundingBox(
-                            player, entityPos.x, entityPos.y, entityPos.z, entity);
-                }
-
-                if (box.isIntersected(interpBox)) {
-                    if (player.debugPlaces)
-                        player.sendMessage("Resolved place rejected: collision with entity at " + position);
-                    return false;
-                }
-            }
-        }
 
         // Check for min and max bounds of world
         if (player.compensatedWorld.getMaxHeight() <= position.getY()
@@ -396,22 +254,12 @@ public class BlockPlace {
         }
 
         if (player.debugPlaces) {
-            player.sendMessage(
-                    "Applying resolved " + formatState(state) + " at " + position + " consume=" + consumeItem);
-        }
-
-        placed = true;
-        if (consumeItem) {
-            player.getInventory().onBlockPlace(this);
+            player.sendMessage("Applying resolved " + formatState(state) + " at " + position + " consume=false");
         }
 
         int original = player.compensatedWorld.updateBlock(position.getX(), position.getY(), position.getZ(), state);
         player.getGhostBlockMitigator().handleBlockPlace(position, original, state, this);
         return true;
-    }
-
-    public void set(int state) {
-        set(getPlacedBlockPos(), state);
     }
 
     public void resync() {
@@ -454,18 +302,5 @@ public class BlockPlace {
         intercept.setZ(intercept.getZ() - box.minZ);
 
         return intercept;
-    }
-
-    public void set() {
-        if (material == null) {
-            LogUtil.warn("Block " + null + " has no placed type!");
-            return;
-        }
-        set(material);
-    }
-
-    public void setAbove(int toReplaceWith) {
-        BlockPos placed = getPlacedBlockPos().offset(0, 1, 0);
-        set(placed, toReplaceWith);
     }
 }

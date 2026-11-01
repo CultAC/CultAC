@@ -3,8 +3,11 @@ package ac.cult.cultac.events.packets;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.codec.ConnectionModelValues;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.packet.RegistryData;
 import ac.cult.cultac.network.packet.RegistryTags;
+import ac.cult.cultac.network.packet.WorldPackets;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
@@ -13,21 +16,17 @@ import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 public class PacketServerRegistries {
     @CultPacketHandler
     public void onEnabledFeatures(
-            PacketSendEvent<ac.cult.cultac.network.packet.WorldPackets.EnabledFeatures> event,
+            PacketSendEvent<WorldPackets.EnabledFeatures> event,
             CultPlayer player,
-            ac.cult.cultac.network.packet.WorldPackets.EnabledFeatures packet) {
+            WorldPackets.EnabledFeatures packet) {
         player.compensatedWorld.applyClientFeatures(packet);
     }
 
     @CultPacketHandler
-    public void onTags(
-            PacketSendEvent<ac.cult.cultac.network.packet.RegistryTags> event,
-            CultPlayer player,
-            ac.cult.cultac.network.packet.RegistryTags packet) {
-        if (player.registryState == null)
-            player.registryState = new ac.cult.cultac.utils.latency.ClientComponentRegistries();
+    public void onTags(PacketSendEvent<RegistryTags> event, CultPlayer player, RegistryTags packet) {
+        if (player.registryState == null) player.registryState = new ClientComponentRegistries();
         var state = player.registryState;
-        if (event.getPhase() == ac.cult.cultac.protocol.ConnectionPhase.CONFIGURATION) {
+        if (event.getPhase() == ConnectionPhase.CONFIGURATION) {
             configurationTags(player, packet);
         } else {
             player.sendTransaction();
@@ -49,8 +48,7 @@ public class PacketServerRegistries {
             player.registryState = null;
             return;
         }
-        if (player.registryState == null)
-            player.registryState = new ac.cult.cultac.utils.latency.ClientComponentRegistries();
+        if (player.registryState == null) player.registryState = new ClientComponentRegistries();
         player.registryState.beginConfiguration();
         // Start of configuration removes the server player, ending the use the burst balance tracks.
         player.itemUseBurst.reset();
@@ -62,9 +60,7 @@ public class PacketServerRegistries {
      */
     @CultPacketHandler("clientbound.finish_configuration")
     public void onFinishConfiguration(PacketSendEvent<Opaque> event, CultPlayer player, Opaque packet) {
-        if (!player.isBedrockMovement()
-                && !event.isCancelled()
-                && event.getPhase() == ac.cult.cultac.protocol.ConnectionPhase.CONFIGURATION) {
+        if (!player.isBedrockMovement() && !event.isCancelled() && event.getPhase() == ConnectionPhase.CONFIGURATION) {
             // Invalidate only after the actual server terminal was written. A client
             // acknowledgement cannot authorize a new player or discard its state.
             event.getTasksAfterSend().add(() -> player.packetStateData.javaLocalPlayerPresent = false);
@@ -102,13 +98,9 @@ public class PacketServerRegistries {
     }
 
     @CultPacketHandler
-    public void onRegistryData(
-            PacketSendEvent<ac.cult.cultac.network.packet.RegistryData> event,
-            CultPlayer player,
-            ac.cult.cultac.network.packet.RegistryData packet) {
+    public void onRegistryData(PacketSendEvent<RegistryData> event, CultPlayer player, RegistryData packet) {
         if (player.isBedrockMovement()) return;
-        if (player.registryState == null)
-            player.registryState = new ac.cult.cultac.utils.latency.ClientComponentRegistries();
+        if (player.registryState == null) player.registryState = new ClientComponentRegistries();
         player.getWorldRegistries();
         player.registryState.appendConfigurationRegistryData(packet);
     }

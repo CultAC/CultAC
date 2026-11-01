@@ -26,7 +26,7 @@ public final class InventoryPackets {
     public record Cursor(SimItemStack item) implements ClientboundPacket {}
 
     /** Equipment values remain owned by the packet; consumers copy stacks before predicting changes. */
-    public record EquipmentEntry(EquipmentSlot slot, ac.cult.blocksim.engine.SimItemStack item) {}
+    public record EquipmentEntry(EquipmentSlot slot, SimItemStack item) {}
 
     public record Equipment(int entityId, List<EquipmentEntry> slots) implements ClientboundPacket {
         public Equipment {

@@ -2,6 +2,7 @@ package ac.cult.cultac.utils.data;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -29,12 +30,47 @@ class ReachInterpolationInPlaceTest {
         assertBoxEquals(expected, two);
     }
 
+    /** Entity#refreshDimensions resizes each position a pending second transaction leaves possible around its feet. */
+    @Test
+    void resizeKeepsEveryPossibleStartingPosition() {
+        ReachInterpolationData data = new ReachInterpolationData(START);
+        data.updatePossibleStartingLocation(new SimpleCollisionBox(2, 0, 0, 3, 1, 1));
+        data.resize(3.0F, 2.0F);
+        assertBoxEquals(new SimpleCollisionBox(-1, 0, -1, 4, 2, 2), data.getPossibleMovementLocationCombined());
+    }
+
+    /** A baby start under the adult target it grew into, then a scale drop: the start never shrinks below the size. */
+    @Test
+    void aShrinkPastAStartSmallerThanTheTargetKeepsTheStartAtTheNewSize() throws Exception {
+        ReachInterpolationData data = new ReachInterpolationData(new SimpleCollisionBox(-0.3, 0, -0.3, 0.3, 1.95, 0.3));
+        set(data, "startingLocation", new SimpleCollisionBox(1.85, 0, -0.15, 2.15, 0.975, 0.15));
+        data.resize(0.06F, 0.195F);
+        var field = ReachInterpolationData.class.getDeclaredField("startingLocation");
+        field.setAccessible(true);
+        SimpleCollisionBox start = (SimpleCollisionBox) field.get(data);
+        assertEquals(2.0, (start.minX + start.maxX) / 2.0, 1e-9);
+        assertEquals(0.0, (start.minZ + start.maxZ) / 2.0, 1e-9);
+        assertEquals(0.0, start.minY);
+        assertTrue(start.maxX - start.minX >= 0.06F - 1e-9, "start X " + start.minX + ".." + start.maxX);
+        assertTrue(start.maxZ - start.minZ >= 0.06F - 1e-9, "start Z " + start.minZ + ".." + start.maxZ);
+        assertTrue(start.maxY - start.minY >= 0.195F - 1e-9, "start Y " + start.minY + ".." + start.maxY);
+    }
+
     @Test
     void combinedLocationIntoBox() throws Exception {
         ReachInterpolationData data = data(3, 1, 2);
         SimpleCollisionBox out = new SimpleCollisionBox(9, 9, 9, 10, 10, 10, true);
         assertSame(out, data.getPossibleMovementLocationCombined(out));
         assertBoxEquals(new SimpleCollisionBox(1, 1, 1, 3, 3, 3), out);
+    }
+
+    @Test
+    void exactLocationIntoBox() throws Exception {
+        ReachInterpolationData exact = data(3, 2, 2);
+        SimpleCollisionBox out = new SimpleCollisionBox(9, 9, 9, 10, 10, 10, true);
+        assertSame(out, exact.getExactMovementLocation(out));
+        assertBoxEquals(exact.getExactMovementLocation(), out);
+        assertNull(data(3, 1, 2).getExactMovementLocation(new SimpleCollisionBox()));
     }
 
     @Test

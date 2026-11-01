@@ -29,8 +29,7 @@ public class CultList implements BuildableCommand {
 
     @Override
     public void register(CommandManager<Sender> commandManager, CloudPlatformCommandArguments arguments) {
-        commandManager.command(commandManager
-                .commandBuilder("cult", "cultac", "grim", "grimac")
+        commandManager.command(BuildableCommand.root(commandManager)
                 .literal("list")
                 .permission("cult.list")
                 .required("list", StringParser.stringParser(), SUGGESTIONS)
@@ -91,12 +90,10 @@ public class CultList implements BuildableCommand {
         final Map<UUID, PlatformPlayer> onlinePlayers =
                 CultAPI.INSTANCE.getPlatformPlayerFactory().getOnlinePlayers().stream()
                         .collect(Collectors.toMap(GrimIdentity::getUniqueId, Function.identity()));
-        //
         final Set<PlatformPlayer> unregisteredPlayers = new HashSet<>(onlinePlayers.values());
 
         boolean after = false;
         builder.append(Component.text("Players = [", NamedTextColor.GRAY));
-        //
         for (CultPlayer entry : CultAPI.INSTANCE.getPlayerDataManager().getEntries()) {
             if (after) {
                 builder.append(Component.text(", ").color(NamedTextColor.GRAY));
@@ -109,7 +106,6 @@ public class CultList implements BuildableCommand {
             boolean exempt = !CultAPI.INSTANCE.getPlayerDataManager().shouldCheck(entry.user);
             builder.append(playerComponent(entry.getName(), entry.getUniqueId(), online, exempt));
         }
-        //
         for (PlatformPlayer platformPlayer : unregisteredPlayers) {
             if (after) {
                 builder.append(Component.text(", ").color(NamedTextColor.GRAY));

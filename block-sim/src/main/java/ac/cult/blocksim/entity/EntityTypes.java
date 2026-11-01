@@ -25,8 +25,17 @@ public final class EntityTypes {
         }
         /** EntityAttachments#getClamped(PASSENGER), after EntityDimensions#scale. */
         public Vec3 passengerAttachment(int index, float scale, float yaw) {
+            return passengerAttachment(index, 1.0F, scale, yaw);
+        }
+        /**
+         * EntityAttachments#getClamped(PASSENGER) after the getDefaultDimensions scale ({@code dimensionScale}, e.g.
+         * Phantom's size) and then LivingEntity#getDimensions' getScale.
+         */
+        public Vec3 passengerAttachment(int index, float dimensionScale, float scale, float yaw) {
             if (passengers.isEmpty()) throw new IllegalStateException("No passenger attachment for " + key);
-            return attachment(passengers.get(Math.clamp(index, 0, passengers.size() - 1)), scale, yaw);
+            Vec3 point = passengers.get(Math.clamp(index, 0, passengers.size() - 1));
+            if (!fixed && dimensionScale != 1.0F) point = point.scale(dimensionScale);
+            return attachment(point, scale, yaw);
         }
         /** EntityAttachments#get(VEHICLE, 0), after EntityDimensions#scale. */
         public Vec3 vehicleAttachment(float scale, float yaw) {

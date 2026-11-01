@@ -25,13 +25,14 @@ dependencies {
     implementation("org.incendo:cloud-velocity:2.0.0-beta.10")
     implementation("org.xerial:sqlite-jdbc:3.49.1.0")
     compileOnly("com.velocitypowered:velocity-api:3.4.0")
+    compileOnly(libs.luckperms)
     compileOnly("io.netty:netty-handler:4.2.18.Final")
     testImplementation("com.velocitypowered:velocity-api:3.4.0")
     testImplementation(project(":reload-api"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
     testImplementation("org.mockito:mockito-core:5.22.0")
     testImplementation("io.netty:netty-handler:4.2.18.Final")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.11.4")
     testRuntimeOnly(libs.viaversion)
 }
 tasks.test {
@@ -73,9 +74,13 @@ tasks.shadowJar {
         exclude(project(":reload-integrations"))
     }
     relocate("com.google.protobuf", "ac.cult.cultac.libs.protobuf")
+    shadeNetworkClients()
     exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
     exclude("META-INF/services/javax.annotation.processing.Processor")
     excludeCloudExtras()
+    // RuntimeClassLoader always delegates these packages to the host, so copies here never load.
+    // Exclude by path, not dependency, to keep the jars' service files.
+    exclude("net/kyori/**/*.class", "org/slf4j/**/*.class")
     mergeServiceFiles()
     manifest.attributes(mapOf(
         "Cult-Runtime-SPI" to "1",
@@ -85,6 +90,7 @@ tasks.shadowJar {
         "Cult-Runtime-Entrypoint" to "ac.cult.cultac.platform.velocity.VelocityRuntimeEntrypoint"
     ))
     doLast {
+        pruneUnreferencedClasses(archiveFile.get().asFile, listOf("org/apache/commons/lang3/", SHADED_BOUNCYCASTLE))
         verifyCloudRuntimeJar(archiveFile.get().asFile)
     }
 }

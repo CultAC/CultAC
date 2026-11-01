@@ -1,6 +1,5 @@
 package ac.cult.cultac.events.packets.listeners;
 
-import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -32,6 +31,7 @@ public class PacketServerTeleport {
             // Geyser's Java acknowledgement does not prove Bedrock processed the teleport.
             return;
         }
+        player.getSetbackTeleportUtil().teleportAnswered(ack.id(), ack.position() != null);
         // The wire packet is ID-only through 26.2 and carries position in
         // 26.3. The transport preserves the intercepted endpoint's wire format.
         if (ack.position() == null) {
@@ -138,11 +138,24 @@ public class PacketServerTeleport {
         float finalYaw = calculateRotation(sourceYaw, rotation.yaw(), flags, RelativeFlag.Y_ROT);
         float finalPitch =
                 clamp(calculateRotation(sourcePitch, rotation.pitch(), flags, RelativeFlag.X_ROT), -90.0F, 90.0F);
-        int proofTransaction = appendTrailingProofTransaction(event, player);
+        // A ping earlier in the bundle is answered in the task that handles the rotation, so the next Rot after its
+        // pong is the echo.
+        int bundleTransaction = player.appendLeadingFlushProofTransaction(event);
+        // The pong must follow the Rot that ClientPacketListener#handleRotatePlayer sends, so the proof never
+        // shares an earlier ping in the bundle.
+        CultPlayer.TrackedTransaction proof = player.appendResponseProofTransaction(event);
+        int proofTransaction = proof == null ? -1 : proof.transaction();
 
         player.getSetbackTeleportUtil()
                 .addImmediatePlayerRotationTeleport(
-                        flags, proofTransaction, sourceYaw, sourcePitch, finalYaw, finalPitch, rotation);
+                        flags,
+                        bundleTransaction,
+                        proofTransaction,
+                        sourceYaw,
+                        sourcePitch,
+                        finalYaw,
+                        finalPitch,
+                        rotation);
     }
 
     private void handleMoveVehicle(
@@ -166,14 +179,14 @@ public class PacketServerTeleport {
             return;
         }
 
-        if (player.isBedrockMovement() && BedrockVehicleControl.isSupported(controlledRoot)) {
-            // Geyser translates this packet normally. Cult tracks its own rewind setbacks when sent.
-            return;
-        }
-
-        if (!player.getSetbackTeleportUtil().isSendingSetback) {
-            player.sendTransaction();
-        }
+        // ClientPacketListener#handleMoveVehicle sends the vehicle's MoveVehicle from the handler. Only a ping after
+        // the packet orders its pong after that echo, so a later packet in the flush, such as a dismount, never
+        // shares an earlier ping. A setback's echo keeps the transaction of the setback it completes.
+        int lastSent = player.lastTransactionSent.get();
+        CultPlayer.TrackedTransaction response = player.appendResponseProofTransaction(event);
+        int proofTransaction = player.getSetbackTeleportUtil().isSendingSetback || response == null
+                ? lastSent
+                : response.transaction();
         trackClientboundMoveVehicle(
                 player,
                 rootVehicleId,
@@ -181,7 +194,7 @@ public class PacketServerTeleport {
                 expectedResponsePosition,
                 finalYaw,
                 finalPitch,
-                player.lastTransactionSent.get(),
+                proofTransaction,
                 snaps);
     }
 
@@ -214,6 +227,9 @@ public class PacketServerTeleport {
                         yawTrackedRoot.interpYaw = finalYaw;
                         yawTrackedRoot.steps = 0;
                     }
+                    // The snapped yaw is the one AbstractBoat#controlBoat turns in the client's next tick.
+                    PacketEntity riding = player.compensatedEntities.getSelf().getRiding();
+                    if (controlledRoot.isBoat() && controlledRoot == riding) player.boatYawBeforeTurn = finalYaw;
                 }
             }
         });
@@ -266,11 +282,6 @@ public class PacketServerTeleport {
             mask |= RelativeFlag.X_ROT.getMask();
         }
         return new RelativeFlag(mask);
-    }
-
-    private static int appendTrailingProofTransaction(PacketSendEvent<?> event, CultPlayer player) {
-        CultPlayer.TrackedTransaction transaction = player.appendTrailingProofTransaction(event);
-        return transaction == null ? -1 : transaction.transaction();
     }
 
     private static float clamp(float value, float min, float max) {

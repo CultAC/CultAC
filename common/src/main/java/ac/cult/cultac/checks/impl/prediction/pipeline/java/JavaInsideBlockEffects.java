@@ -4,13 +4,16 @@ import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.BlockProps;
 import ac.cult.blocksim.engine.shapes.Shapes;
 import ac.cult.blocksim.engine.shapes.VoxelShape;
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.InsideBlockEffectScan;
 import ac.cult.cultac.utils.nmsutil.JavaCollisionState;
@@ -81,11 +84,8 @@ public final class JavaInsideBlockEffects {
                         if (stuckAllowed) {
                             if (powder && powderAllowed) speed = new Vec3(0.9F, 1.5, 0.9F);
                             if (web) speed = Collisions.getCobwebStuckSpeed(player);
-                            if (berry
-                                    && living
-                                    && actor.type != ac.cult.blocksim.entity.EntityTypeIds.FOX
-                                    && actor.type != ac.cult.blocksim.entity.EntityTypeIds.BEE)
-                                speed = new Vec3(0.8F, 0.75, 0.8F);
+                            if (berry && actor.type != EntityTypeIds.FOX && actor.type != EntityTypeIds.BEE)
+                                speed = Collisions.getSweetBerryBushStuckSpeed(living);
                         }
                         if (speed != null) state = new State(0, state.velocity(), speed);
                         if (honey && slides(end, pos, to.maxX - to.minX, landed, state.velocity().y)) {
@@ -97,8 +97,7 @@ public final class JavaInsideBlockEffects {
                                             .geometry()
                                             .collision(above, pos)
                                             .isEmpty()
-                                    && ac.cult.cultac.utils.nmsutil.ClientFluidQueries.modelFluid(above)
-                                            .isEmpty();
+                                    && ClientFluidQueries.modelFluid(above).isEmpty();
                             // AbstractBoat overrides the surface callback without changing client velocity.
                             if (context.getVehicle() == null) {
                                 // Player bubble velocity uses the existing uncertainty handler;
@@ -113,6 +112,37 @@ public final class JavaInsideBlockEffects {
                     });
         }
         return current[0];
+    }
+
+    /**
+     * SlimeBlock#stepOn, which Entity#applyEffectsFromBlocks runs before the inside-block callbacks when Entity#move
+     * left the actor on the ground ({@link JavaFallDistance#collidesBelow}): below 0.1 vertical speed it scales the
+     * carried horizontal velocity by 0.4 + |y| * 0.2, ahead of the next tick's LivingEntity#aiStep movement threshold
+     * and ridden input.
+     */
+    public static Vec3 stepOn(CultPlayer player, PredictionResult result, JavaFallDistance.Moved moved, Vec3 velocity) {
+        SimulationContext context = result.getSimulationContext();
+        if (!carriesStepOn(player, context)
+                || !BlockIds.is(context.getWorldData().getOnBlock(), BlockIds.SLIME_BLOCK)
+                // Entity#isSteppingCarefully: the client's shift key, or the vehicle's shared crouching flag.
+                || (context.getVehicle() == null
+                        ? context.isSneaking()
+                        : (context.getVehicle().actionSharedFlags & 2) != 0)
+                || !JavaFallDistance.collidesBelow(attemptedMovement(result).y, moved)) return velocity;
+        double absDeltaY = Math.abs(velocity.y);
+        if (absDeltaY >= 0.1) return velocity;
+        double scale = 0.4 + absDeltaY * 0.2;
+        return velocity.multiply(scale, 1.0, scale);
+    }
+
+    /**
+     * Whether the velocity carried out of {@code context}'s move holds {@link #stepOn}: a Java client's own or its
+     * living vehicle's.
+     */
+    public static boolean carriesStepOn(CultPlayer player, SimulationContext context) {
+        return !player.isBedrockMovement()
+                && JavaMovementEngine.contextUsesExactEffects(context)
+                && (context.getVehicle() == null || context.getVehicle().isLivingEntity());
     }
 
     /**

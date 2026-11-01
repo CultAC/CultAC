@@ -39,8 +39,11 @@ public final class Sections {
         /** The highest section index of the player's dimension. */
         int maxSection();
 
-        /** A section's block states as the server's protocol writes them; null while its column is not loaded. */
-        byte[] blocks(int x, int y, int z);
+        /**
+         * A section's {@code SECTION} record body, its block states as the server's protocol writes them; null while its
+         * column is not loaded.
+         */
+        byte[] section(int x, int y, int z);
     }
 
     /** Where records go. */
@@ -307,10 +310,9 @@ public final class Sections {
             checkedAt = NONE;
             return FULL;
         }
-        byte[] blocks = terrain.blocks(x, y, z);
-        if (blocks == null) return UNLOADED;
+        byte[] body = terrain.section(x, y, z);
+        if (body == null) return UNLOADED;
         long section = pack(x, y, z);
-        byte[] body = IntakeWire.section(x, y, z, blocks);
         if (body.length > out.maxRoom()) {
             tooLarge(section, body.length);
             return SENT;

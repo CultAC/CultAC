@@ -1,6 +1,7 @@
 package ac.cult.cultac.platform.velocity;
 
 import ac.cult.cultac.command.CloudCommandService;
+import ac.cult.cultac.command.IsolatedCommandManager;
 import ac.cult.cultac.platform.api.command.CommandService;
 import ac.cult.cultac.platform.api.command.PlayerSelector;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
@@ -25,7 +26,7 @@ final class VelocityCommands implements CloudPlatformCommandArguments {
     }
 
     CommandService service(Object plugin) {
-        return new CloudCommandService(ac.cult.cultac.command.IsolatedCommandManager::new, this);
+        return new CloudCommandService(IsolatedCommandManager::new, this);
     }
 
     @Override

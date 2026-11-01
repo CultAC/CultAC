@@ -1,7 +1,6 @@
 package ac.cult.cultac.network.protocol.util.reflection;
 
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -24,18 +23,5 @@ public final class Reflection {
         Field field = matches.get(index);
         field.setAccessible(true);
         return field;
-    }
-
-    public static Method getMethod(Class<?> owner, String name, int parameterCount) {
-        for (Class<?> current = owner; current != null; current = current.getSuperclass()) {
-            for (Method method : current.getDeclaredMethods()) {
-                if (method.getName().equals(name) && method.getParameterCount() == parameterCount) {
-                    method.setAccessible(true);
-                    return method;
-                }
-            }
-        }
-        throw new IllegalArgumentException(
-                "Unable to find method " + name + " with " + parameterCount + " parameters on " + owner.getName());
     }
 }

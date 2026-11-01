@@ -87,13 +87,6 @@ bukkit {
         "jedis",
     )
 
-    commands {
-        register("cult") {
-            description = "CultAC administration"
-            aliases = listOf("cultac", "grim", "grimac")
-        }
-    }
-
     permissions {
         register("cult.update") { default = Permission.Default.OP }
         register("cult.runtimes") { default = Permission.Default.OP }
@@ -117,8 +110,18 @@ bukkit {
             default = Permission.Default.OP
         }
 
+        register("cult.info") {
+            description = "Explain what each check catches"
+            default = Permission.Default.OP
+        }
+
         register("cult.brand") {
             description = "Show client brands on join"
+            default = Permission.Default.OP
+        }
+
+        register("cult.findplayer") {
+            description = "Find online players by client brand"
             default = Permission.Default.OP
         }
 
@@ -184,6 +187,26 @@ bukkit {
             default = Permission.Default.OP
         }
 
+        register("cult.cloud.label.clean") {
+            description = "Offer Clean in the label menu"
+            default = Permission.Default.OP
+        }
+
+        register("cult.portal.admin") {
+            description = "Reported to the cloud portal as an admin of this server's organization"
+            default = Permission.Default.FALSE
+        }
+
+        register("cult.portal.moderator") {
+            description = "Reported to the cloud portal as a moderator of this server's organization"
+            default = Permission.Default.FALSE
+        }
+
+        register("cult.portal.viewer") {
+            description = "Reported to the cloud portal as a viewer of this server's organization"
+            default = Permission.Default.FALSE
+        }
+
     }
 }
 
@@ -191,6 +214,18 @@ evaluationDependsOn(":bukkit-runtime")
 val engine = project(":bukkit-runtime").tasks.named<ShadowJar>("shadowJar")
 tasks.shadowJar {
     archiveFileName.set("CultAC-paper.jar")
+    // Paper ships these (META-INF/libraries.list, 1.21.2+) and the plugin classloader is
+    // parent-first, so bundled copies would never be loaded by the host or the runtime.
+    dependencies {
+        exclude(dependency("it.unimi.dsi:fastutil:.*"))
+        exclude(dependency("org.xerial:sqlite-jdbc:.*"))
+        exclude(dependency("com.google.guava:guava:.*"))
+        exclude(dependency("com.google.guava:failureaccess:.*"))
+        exclude(dependency("com.google.code.gson:gson:.*"))
+        exclude(dependency("org.joml:joml:.*"))
+        exclude(dependency("org.yaml:snakeyaml:.*"))
+        exclude(dependency("org.slf4j:slf4j-api:.*"))
+    }
     dependsOn(engine)
     from(engine.flatMap { it.archiveFile }) { into("cult-runtime"); rename { "default.jar" } }
     mergeServiceFiles()

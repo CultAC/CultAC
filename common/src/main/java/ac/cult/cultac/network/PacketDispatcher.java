@@ -8,6 +8,7 @@ import ac.cult.cultac.protocol.*;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Consumer;
 
 /** Owns registration and dispatch. Each packet retains one immutable route entry. */
@@ -15,7 +16,7 @@ public class PacketDispatcher {
     // Bedrock PLAY runs its own engine on the Geyser tick loop. Listeners still see Geyser's
     // Java projection of that movement, with its teleport and tick boundaries, so the projection
     // passes the shared movement gate. Every other PLAY packet is handled by the bridge.
-    private static final java.util.Set<PacketType<?>> BEDROCK_BRIDGE_PLAY = java.util.Set.of(
+    private static final Set<PacketType<?>> BEDROCK_BRIDGE_PLAY = Set.of(
             ServerboundPackets.MOVE_PLAYER,
             ServerboundPackets.MOVE_VEHICLE,
             ServerboundPackets.ACCEPT_TELEPORTATION,
@@ -136,7 +137,7 @@ public class PacketDispatcher {
         }
     }
 
-    void discardFailedDispatch(ac.cult.cultac.network.event.PacketEvent<?> event, Throwable failure) {
+    void discardFailedDispatch(PacketEvent<?> event, Throwable failure) {
         event.discardChanges();
         CultNetworkManager.reportFailure(
                 "packet handler " + event.getPacketType().key(), failure);

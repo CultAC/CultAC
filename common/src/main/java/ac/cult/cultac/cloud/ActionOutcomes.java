@@ -50,6 +50,9 @@ final class ActionOutcomes {
     /** Clicks and held-slot changes awaited at most; past it the oldest goes without an outcome. */
     static final int MAX_AWAITED = 64;
 
+    /** Pops awaiting their shrink at most; past it the oldest goes out without its hand. */
+    static final int MAX_POPS = 16;
+
     /** A click, with its claims, or a held-slot change to {@code held}, the server took and has not answered. */
     private static final class Awaited {
         final ActionRef action;
@@ -167,13 +170,18 @@ final class ActionOutcomes {
         }
     }
 
-    /** The capture left the backend that would answer: awaited actions go without outcomes. */
-    void forgetAwaited() {
+    /** The capture left the backend that would answer: awaited actions, pops and swaps go without outcomes. */
+    void forget() {
         awaited.clear();
+        pops.clear();
+        swap = null;
+        swapUnsettled = false;
     }
 
     /** A totem pop shown on the player's own entity, as the server's update that names its hand awaits. */
     void popped(int selected, long nanos) {
+        expire(nanos);
+        if (pops.size() >= MAX_POPS) sink.outcome(pop(null), null, pops.poll().nanos());
         int mainSlot = Inventory.HOTBAR_OFFSET + selected;
         SimItemStack main = serverSlots.apply(mainSlot);
         SimItemStack off = serverSlots.apply(Inventory.SLOT_OFFHAND);
@@ -182,12 +190,13 @@ final class ActionOutcomes {
         else sink.outcome(pop(null), null, nanos);
     }
 
-    /** A clientbound packet from the server, after CultAC has applied it to the server's view. */
-    void sent(Object packet) {
+    /** A clientbound packet from the server, after CultAC has applied it to the server's view, at {@code nanos}. */
+    void sent(Object packet, long nanos) {
         if (!awaited.isEmpty()) corrected(packet);
         if (!(packet instanceof InventoryPackets.Slot
                 || packet instanceof InventoryPackets.Content
                 || packet instanceof InventoryPackets.PlayerInventory)) return;
+        expire(nanos);
         if (swap != null) swapUpdated();
         Iterator<Pop> waiting = pops.iterator();
         while (waiting.hasNext()) {

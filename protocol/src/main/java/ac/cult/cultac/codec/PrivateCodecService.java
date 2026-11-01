@@ -2,6 +2,8 @@ package ac.cult.cultac.codec;
 
 import ac.cult.cultac.protocol.*;
 import ac.cult.cultac.protocol.data.*;
+import ac.cult.cultac.protocol.wire.NbtSkipper;
+import ac.cult.cultac.protocol.wire.RegistryValueCodec;
 import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.shaded.vialib.ViaManagerImpl;
 import ac.cult.shaded.vialib.api.data.MappingData;
@@ -174,12 +176,6 @@ public final class PrivateCodecService implements WireValueDecoder {
     }
 
     @Override
-    public boolean canWriteComponent(String component) {
-        checkOpen();
-        return ComponentWrites.supports(component);
-    }
-
-    @Override
     public void writeComponent(
             ProtocolVersion version, ByteBuf output, String component, byte[] value, Registries registries) {
         checkOpen();
@@ -213,12 +209,38 @@ public final class PrivateCodecService implements WireValueDecoder {
         return item(decoded.item(), registries, version, decoded.patch(), factory);
     }
 
+    @Override
+    public <T, R> R item(
+            ProtocolVersion version,
+            ByteBuf input,
+            Registries registries,
+            NbtFactory<T> factory,
+            ItemReuse<T, R> reuse) {
+        checkOpen();
+        var type = types(version);
+        var scan = input.duplicate();
+        ItemStructureGuard.scanItemStack(type, version, scan, false);
+        int start = input.readerIndex(), end = scan.readerIndex();
+        R reused = reuse.reuse(input, start, end);
+        if (reused != null) {
+            input.readerIndex(end);
+            return reused;
+        }
+        var decoded = readScanned(type, input, false, false);
+        return reuse.decoded(item(decoded.item(), registries, version, decoded.patch(), factory), input, start, end);
+    }
+
     private ItemInput readItem(ProtocolVersion version, ByteBuf input, boolean creative) {
         checkOpen();
         var type = types(version);
         boolean lengthPrefixed = creative && version.atLeast(ProtocolVersion.V1_21_5);
         // The structure budget runs on a view: an oversized item must never reach the readers below.
         ItemStructureGuard.scanItemStack(type, version, input.duplicate(), lengthPrefixed);
+        return readScanned(type, input, creative, lengthPrefixed);
+    }
+
+    private static ItemInput readScanned(
+            VersionedTypesHolder type, ByteBuf input, boolean creative, boolean lengthPrefixed) {
         int start = input.readerIndex();
         // 1.21.5 introduced the length-prefixed creative component codec.
         Item item = (lengthPrefixed ? type.lengthPrefixedItem() : type.item()).read(input);
@@ -244,26 +266,19 @@ public final class PrivateCodecService implements WireValueDecoder {
     private ItemValue item(Item item, Registries registries, ProtocolVersion version, byte[] wirePatch) {
         if (item == null || item.isEmpty()) return new ItemValue(0, 0, null);
         var context = new ValueContext(registries, version, mappings(version, ProtocolVersion.V26_3));
-        var patch = ComponentValues.patch(item, context);
-        var layouts = ComponentValues.layouts(item, patch, context);
+        var values = ComponentValues.components(item, context);
         ByteBuf output = Unpooled.buffer();
         try {
-            Types.COMPOUND_TAG.write(output, patch);
+            Types.COMPOUND_TAG.write(output, values.patch());
             byte[] components = ByteBufUtil.getBytes(output);
             byte[] layoutBytes = null;
-            if (!layouts.isEmpty()) {
+            if (!values.layouts().isEmpty()) {
                 output.clear();
-                Types.COMPOUND_TAG.write(output, layouts);
+                Types.COMPOUND_TAG.write(output, values.layouts());
                 layoutBytes = ByteBufUtil.getBytes(output);
             }
             // Via's component writers preserve fields that the persistent NBT codec omits.
-            var encodings = new java.util.HashMap<String, ComponentEncoding>();
-            for (var data : item.dataContainer().data().values()) {
-                if (data.isEmpty()) continue;
-                encodings.put(
-                        ac.cult.shaded.vialib.util.Key.namespaced(data.key().identifier()),
-                        ComponentValues.wireEncoding(data, context));
-            }
+            var encodings = values.encodings();
             return new ItemValue(
                     item.identifier(),
                     item.amount(),
@@ -282,18 +297,13 @@ public final class PrivateCodecService implements WireValueDecoder {
             Item item, Registries registries, ProtocolVersion version, byte[] wirePatch, NbtFactory<T> factory) {
         if (item == null || item.isEmpty()) return new DecodedItem<>(0, 0, null, null, Map.of(), null);
         var context = new ValueContext(registries, version, mappings(version, ProtocolVersion.V26_3));
-        var patch = ComponentValues.patch(item, context);
-        var layouts = ComponentValues.layouts(item, patch, context);
-        var encodings = new HashMap<String, ComponentEncoding>();
-        for (var data : item.dataContainer().data().values()) {
-            if (!data.isEmpty())
-                encodings.put(Key.namespaced(data.key().identifier()), ComponentValues.wireEncoding(data, context));
-        }
+        var values = ComponentValues.components(item, context);
+        var encodings = values.encodings();
         return new DecodedItem<>(
                 item.identifier(),
                 item.amount(),
-                PortableNbt.read(patch, factory),
-                layouts.isEmpty() ? null : PortableNbt.read(layouts, factory),
+                PortableNbt.read(values.patch(), factory),
+                values.layouts().isEmpty() ? null : PortableNbt.read(values.layouts(), factory),
                 encodings,
                 wirePatch == null ? null : new ComponentEncoding(version.protocol(), wirePatch, context.references()));
     }
@@ -329,6 +339,12 @@ public final class PrivateCodecService implements WireValueDecoder {
     }
 
     record MetadataTypes(int floatingPoint, int pose, int optionalInt, int painting, int particle, int particles) {}
+
+    private static final Map<ProtocolVersion, MetadataTypes> METADATA_TYPES = new ConcurrentHashMap<>();
+
+    private static MetadataTypes metadataTypes(ProtocolVersion version) {
+        return METADATA_TYPES.computeIfAbsent(version, value -> metadataTypes(types(value)));
+    }
 
     static MetadataTypes metadataTypes(VersionedTypesHolder types) {
         return switch (types.entityDataTypes()) {
@@ -386,7 +402,7 @@ public final class PrivateCodecService implements WireValueDecoder {
 
     @Override
     public int floatSerializer(ProtocolVersion version) {
-        return metadataTypes(types(version)).floatingPoint();
+        return metadataTypes(version).floatingPoint();
     }
 
     @Override
@@ -399,18 +415,19 @@ public final class PrivateCodecService implements WireValueDecoder {
             ProtocolVersion version, ByteBuf input, Registries registries, NbtFactory<T> factory) {
         checkOpen();
         var types = types(version);
-        var serializers = metadataTypes(types);
+        var serializers = metadataTypes(version);
         int pose = serializers.pose(), optional = serializers.optionalInt();
         int painting = serializers.painting();
         int particle = serializers.particle(), particles = serializers.particles();
-        var result = new ArrayList<MetadataValue>();
+        MetadataValue first = null, second = null;
+        ArrayList<MetadataValue> result = null;
         for (int index; (index = input.readUnsignedByte()) != 255; ) {
             int start = input.readerIndex() - 1;
             int id = Types.VAR_INT.readPrimitive(input);
             var values = types.entityDataTypes().values();
             if (id < 0 || id >= values.length) throw new MalformedPacketException("Unknown metadata serializer " + id);
             String kind = "unused";
-            if (id == 0 || id == 1 || id == 3 || id == 8) kind = "value";
+            if (id == 0 || id == 1 || id == 2 || id == 3 || id == 8) kind = "value";
             else if (id == pose) kind = "pose";
             else if (id == optional) kind = "optional_int";
             else if (id == 7) kind = "item";
@@ -448,10 +465,21 @@ public final class PrivateCodecService implements WireValueDecoder {
                     value = new int[] {position.x(), position.y(), position.z()};
                 }
             }
-            result.add(new MetadataValue(
-                    index, kind, value, ByteBufUtil.getBytes(input, start, input.readerIndex() - start)));
+            var decoded = new MetadataValue(index, kind, value, start, input.readerIndex() - start);
+            if (first == null) first = decoded;
+            else if (second == null) second = decoded;
+            else {
+                if (result == null) {
+                    result = new ArrayList<>();
+                    result.add(first);
+                    result.add(second);
+                }
+                result.add(decoded);
+            }
         }
-        return List.copyOf(result);
+        if (result != null) return List.copyOf(result);
+        if (second != null) return List.of(first, second);
+        return first != null ? List.of(first) : List.of();
     }
 
     /** Metadata batches may hold this many particles; vanilla sends a handful. */
@@ -509,10 +537,9 @@ public final class PrivateCodecService implements WireValueDecoder {
             Types.VAR_INT.readPrimitive(input);
             Types.VAR_INT.readPrimitive(input);
             Types.VAR_INT.readPrimitive(input);
-        } else if (type == Types.TRUSTED_TAG || type == Types.COMPOUND_TAG)
-            ac.cult.cultac.protocol.wire.NbtSkipper.skip(input, 512);
+        } else if (type == Types.TRUSTED_TAG || type == Types.COMPOUND_TAG) NbtSkipper.skip(input, 512);
         else if (type == Types.TRUSTED_OPTIONAL_TAG) {
-            if (input.readBoolean()) ac.cult.cultac.protocol.wire.NbtSkipper.skip(input, 512);
+            if (input.readBoolean()) NbtSkipper.skip(input, 512);
         } else type.read(input); // Via supplies boundaries for particle arguments and other complex values.
     }
 
@@ -525,7 +552,7 @@ public final class PrivateCodecService implements WireValueDecoder {
     @Override
     public RegistryValues registry(ByteBuf input) {
         checkOpen();
-        return ac.cult.cultac.protocol.wire.RegistryValueCodec.read(input);
+        return RegistryValueCodec.read(input);
     }
 
     @Override

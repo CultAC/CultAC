@@ -68,8 +68,8 @@ public final class ViaClientBlockShapeMappings {
         }
 
         CollisionBox latest =
-                NativeBlockCollisionHelper.getCollisionBox(player, replacement.dataId(), x, y, z, entityBottom);
-        Optional<CollisionBox> versioned = VersionedJavaBlockShapes.movement(player, replacement.dataId(), x, y, z);
+                NativeBlockCollisionHelper.getCollisionBox(player, replacement.stateId(), x, y, z, entityBottom);
+        Optional<CollisionBox> versioned = VersionedJavaBlockShapes.movement(player, replacement.stateId(), x, y, z);
         return versioned
                 .filter(shape -> !ClientBlockShapes.sameShape(latest, shape))
                 .or(() -> Optional.of(latest));
@@ -82,7 +82,7 @@ public final class ViaClientBlockShapeMappings {
         }
 
         CollisionBox latest = NativeBlockCollisionHelper.getSelectionBox(player, replacement.stateId(), x, y, z);
-        Optional<CollisionBox> versioned = VersionedJavaBlockShapes.visual(player, replacement.dataId(), x, y, z);
+        Optional<CollisionBox> versioned = VersionedJavaBlockShapes.visual(player, replacement.stateId(), x, y, z);
         return versioned
                 .filter(shape -> !ClientBlockShapes.sameShape(latest, shape))
                 .or(() -> Optional.of(latest));
@@ -180,7 +180,7 @@ public final class ViaClientBlockShapeMappings {
             int replacementState =
                     normalizedReplacement < DataTables.defaults().registry().stateCount() ? normalizedReplacement : 0;
             if (replacementState == currentId) continue;
-            replacements.put(currentId, new Replacement(replacementState, replacementState));
+            replacements.put(currentId, new Replacement(replacementState));
         }
 
         return new VersionMappings(Int2ObjectMaps.unmodifiable(replacements), Set.copyOf(needsReplacementByMaterial));
@@ -314,5 +314,5 @@ public final class ViaClientBlockShapeMappings {
         }
     }
 
-    private record Replacement(int stateId, int dataId) {}
+    private record Replacement(int stateId) {}
 }

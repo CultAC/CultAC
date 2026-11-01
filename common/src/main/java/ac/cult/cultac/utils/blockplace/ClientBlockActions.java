@@ -4,6 +4,8 @@ import ac.cult.blocksim.SimAction;
 import ac.cult.blocksim.SimInput;
 import ac.cult.blocksim.SimResult;
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.engine.BlockSimClientVersion;
+import ac.cult.blocksim.engine.Direction;
 import ac.cult.blocksim.engine.EntityCollisionContext;
 import ac.cult.blocksim.engine.SimInventory;
 import ac.cult.blocksim.engine.SimItemStack;
@@ -11,6 +13,8 @@ import ac.cult.blocksim.engine.SimPlayer;
 import ac.cult.blocksim.engine.Vec3;
 import ac.cult.blocksim.interaction.BlockHit;
 import ac.cult.blocksim.interaction.BreakSession;
+import ac.cult.blocksim.interaction.SimInteraction;
+import ac.cult.cultac.checks.impl.multiactions.MultiActionsE;
 import ac.cult.cultac.events.packets.PacketWorldBorder;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ProtocolVersion;
@@ -19,6 +23,7 @@ import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 import ac.cult.cultac.utils.data.ClientItemUseState;
 import ac.cult.cultac.utils.data.ItemUseInventory;
+import ac.cult.cultac.utils.inventory.ItemTypes;
 import ac.cult.cultac.utils.latency.BlockSimulatorInventory;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.nmsutil.ClientMiningState;
@@ -66,11 +71,7 @@ public final class ClientBlockActions {
         var action = new SimAction.UseOn(
                 hand(place.getHand()),
                 new BlockHit(
-                        position(pos),
-                        ac.cult.blocksim.engine.Direction.valueOf(
-                                place.getDirection().name()),
-                        hit,
-                        place.isInside()));
+                        position(pos), Direction.valueOf(place.getDirection().name()), hit, place.isInside()));
         return predict(player, action, yaw, pitch);
     }
 
@@ -82,8 +83,15 @@ public final class ClientBlockActions {
             return;
         }
         var item = player.getInventory().getHandItem(hand);
+        boolean wasUsingItem = player.isClientUsingItem();
         var prediction = predict(player, new SimAction.Use(hand(hand)), player.xRot, player.yRot);
         apply(player, prediction, null);
+        var result = prediction.result();
+        if (!wasUsingItem
+                && result.decline() == null
+                && result.interaction().swing() == SimInteraction.Swing.PREDICTED) {
+            player.checkManager.getCheck(MultiActionsE.class).onPredictedUseSwing(hand);
+        }
         debugPlacement(player, prediction, item, null);
     }
 
@@ -94,11 +102,7 @@ public final class ClientBlockActions {
     public static void completeUse(CultPlayer player) {
         var hotbar = ItemUseInventory.hotbar(player);
         var off = player.getInventory().getHandItem(Hand.OFF_HAND);
-        var realities = player.clientItemUse.completions(
-                hotbar,
-                off,
-                player.getInventory().inventory.selected,
-                player.attackStrength.hasUnconfirmedHotbarChange());
+        var realities = player.clientItemUse.completions(hotbar, off);
         var outcomes = new ArrayList<Prediction>();
         for (var completion : realities.completions()) {
             var outcome = predict(player, new SimAction.CompleteUse(), player.xRot, player.yRot, completion);
@@ -119,14 +123,16 @@ public final class ClientBlockActions {
         slots.forEach((slot, stacks) -> {
             int storageSlot = BlockSimulatorInventory.storageSlot(slot);
             var first = stacks.getFirst();
+            var current = storage.getItem(storageSlot);
             if (!unchanged
                     && stacks.size() == outcomes.size()
                     && stacks.stream().allMatch(stack -> sameStack(stack, first))) {
                 storage.setItem(storageSlot, first);
+                state.carryPossibleChange(current, first);
                 return;
             }
-            var current = storage.getItem(storageSlot);
-            if (current != null && !current.isEmpty()) state.markPossiblyChanged(current);
+            if (current == null || current.isEmpty()) return;
+            for (var stack : stacks) state.markPossiblyChanged(current, state.lowestCountAfter(current, stack));
         });
 
         var groups = new HashMap<String, List<Integer>>();
@@ -256,8 +262,7 @@ public final class ClientBlockActions {
                         player.boundingBox.minY,
                         player.isSneaking,
                         collision == null ? 0.0 : collision.fallDistance(),
-                        player.getInventory().getBoots().getItem()
-                                == ac.cult.cultac.utils.inventory.ItemTypes.LEATHER_BOOTS,
+                        player.getInventory().getBoots().getItem() == ItemTypes.LEATHER_BOOTS,
                         false),
                 new SimPlayer.Movement(player.isGliding));
         var world = new BlockSimulatorWorldView(
@@ -270,8 +275,7 @@ public final class ClientBlockActions {
                 ClientMiningState.of(player),
                 BreakSession.State.initial(items.empty()),
                 binding.tags(),
-                ac.cult.blocksim.engine.BlockSimClientVersion.of(
-                        binding.client().protocol()));
+                BlockSimClientVersion.of(binding.client().protocol()));
         var result = binding.simulator().simulate(action, input);
         var writes = result.writes().stream()
                 .map(write -> Map.entry(

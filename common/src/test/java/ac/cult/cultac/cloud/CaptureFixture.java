@@ -178,7 +178,7 @@ final class CaptureFixture implements AutoCloseable {
         final Map<String, FakeUplink> sockets = new LinkedHashMap<>();
         boolean enabled = true;
         boolean connect = true;
-        CloudConnection.Terms terms = CloudConnection.Terms.PROTOCOL_3;
+        CloudConnection.Terms terms = CloudConnection.Terms.sections(0, 0);
         int opened;
         int released;
 

@@ -24,9 +24,7 @@ public class NoCollisionBox implements CollisionBox {
     }
 
     @Override
-    public void downCast(List<SimpleCollisionBox> list) {
-        /**/
-    }
+    public void downCast(List<SimpleCollisionBox> list) {}
 
     @Override
     public boolean isNull() {

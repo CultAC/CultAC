@@ -1,22 +1,23 @@
 package ac.cult.cultac.events.packets.listeners;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPing;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.grim.grimac.api.event.events.GrimTransactionReceivedEvent;
 
 public class PacketPingListener {
     public static boolean acceptBedrockResponse(CultPlayer player, int id) {
         if (!player.addTransactionResponse(id)) return false;
-        player.checkManager
-                .getCheck(ac.cult.cultac.checks.impl.movement.timer.TimerCheck.class)
-                .onTransactionResponse();
-        Channels.RECEIVED.fire(
-                ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(player), id, true, System.currentTimeMillis());
+        player.checkManager.getCheck(TimerCheck.class).onTransactionResponse();
+        if (!Channels.RECEIVED.isEmpty()) {
+            Channels.RECEIVED.fire(RuntimeEnvironment.outwardUser(player), id, true, System.currentTimeMillis());
+        }
         return true;
     }
 
@@ -33,19 +34,24 @@ public class PacketPingListener {
             boolean shouldCancel = !CultAPI.INSTANCE.getConfigManager().isDisablePongCancelling();
             // Not needed for vanilla as vanilla ignores this packet, needed for packet limiters
             event.setCancelled(shouldCancel);
-            Channels.RECEIVED.fire(
-                    ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(player),
-                    packet.id(),
-                    shouldCancel,
-                    event.getTimestamp());
+            if (!Channels.RECEIVED.isEmpty()) {
+                Channels.RECEIVED.fire(
+                        RuntimeEnvironment.outwardUser(player), packet.id(), shouldCancel, event.getTimestamp());
+            }
+        } else {
+            player.foreignPongReceived(packet.id());
         }
     }
 
     @CultPacketHandler
     public void onPing(PacketSendEvent<ClientboundPing> event, CultPlayer player, ClientboundPing packet) {
         player.packetStateData.lastServerTransWasValid = false;
-        if (player.markTransactionPacketSent(packet.id(), event.getTimestamp())) {
+        int transaction = player.markTrackedPingSent(packet.id(), event.getTimestamp());
+        if (transaction > 0) {
             player.packetStateData.lastServerTransWasValid = true;
+            event.trackedPing(transaction);
+        } else {
+            player.foreignPingSent(packet.id());
         }
     }
 }

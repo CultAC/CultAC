@@ -1,12 +1,10 @@
 package ac.cult.cultac.utils.inventory.slot;
 
 import ac.cult.blocksim.engine.SimItemStack;
-import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.inventory.InventoryStorage;
 
 public class Slot {
     public final int inventoryStorageSlot;
-    public int slotListIndex;
     InventoryStorage container;
 
     public Slot(InventoryStorage container, int slot) {
@@ -41,14 +39,4 @@ public class Slot {
     public int getMaxStackSize(SimItemStack itemstack2) {
         return Math.min(itemstack2.getMaxStackSize(), getMaxStackSize());
     }
-
-    public SimItemStack remove(int p_40227_) {
-        return this.container.removeItem(this.inventoryStorageSlot, p_40227_);
-    }
-
-    public boolean mayPickup(CultPlayer p_40228_) {
-        return true;
-    }
-
-    public void onTake(CultPlayer player, SimItemStack stack) {}
 }

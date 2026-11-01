@@ -44,7 +44,7 @@ class CloudConnectionsTest {
         try (Globals globals = new Globals();
                 Receiver receiver = new Receiver()) {
             CloudConnections connections = receiver.connections;
-            connections.configure(settings(receiver.url(), "test-key", CloudSettings.SERVER_PROTOCOLS));
+            connections.configure(settings(receiver.url(), "test-key", CloudSettings.PROTOCOLS));
             CloudConnection a = connections.forServer("proxy.a");
             CloudConnection b = connections.forServer("proxy.b");
             assertNotSame(a, b);
@@ -74,7 +74,7 @@ class CloudConnectionsTest {
                 Receiver receiver = new Receiver(new CloudConnection.Timing(idle, idle, clock::get))) {
             receiver.unread = true;
             CloudConnections connections = receiver.connections;
-            connections.configure(settings(receiver.url(), "test-key", CloudSettings.PROXY_PROTOCOLS));
+            connections.configure(settings(receiver.url(), "test-key", CloudSettings.PROTOCOLS));
             CloudConnection connection = connections.forServer("proxy.a");
             UUID player = new UUID(1, 2);
             connection.register(player, IDLE_STREAM);
@@ -101,14 +101,22 @@ class CloudConnectionsTest {
     }
 
     @Test
+    void aSocketKeyDoesNotPrintTheApiKey() {
+        String text =
+                new CloudConnections.Key("https://intake.example", "issued-token-0123456789", "proxy.a").toString();
+        assertFalse(text.contains("issued-token-0123456789"), text);
+        assertTrue(text.contains("proxy.a"), text);
+    }
+
+    @Test
     void aReconfigureReplacesEverySocket() throws Exception {
         try (Globals globals = new Globals();
                 Receiver receiver = new Receiver()) {
             CloudConnections connections = receiver.connections;
-            connections.configure(settings(receiver.url(), "test-key", CloudSettings.SERVER_PROTOCOLS));
+            connections.configure(settings(receiver.url(), "test-key", CloudSettings.PROTOCOLS));
             CloudConnection a = connections.forServer("proxy.a");
             CloudConnection b = connections.forServer("proxy.b");
-            connections.configure(settings(receiver.url(), "other-key", CloudSettings.SERVER_PROTOCOLS));
+            connections.configure(settings(receiver.url(), "other-key", CloudSettings.PROTOCOLS));
             assertTrue(a.closed());
             assertTrue(b.closed());
             CloudConnection a2 = connections.forServer("proxy.a");
@@ -124,7 +132,7 @@ class CloudConnectionsTest {
                 Receiver receiver = new Receiver()) {
             long before = transportThreads();
             CloudConnections connections = receiver.connections;
-            connections.configure(settings(receiver.url(), "test-key", CloudSettings.SERVER_PROTOCOLS));
+            connections.configure(settings(receiver.url(), "test-key", CloudSettings.PROTOCOLS));
             receiver.unread = true;
             for (int i = 0; i < 20; i++) {
                 CloudConnection connection = connections.forServer("proxy.s" + i);
@@ -169,16 +177,16 @@ class CloudConnectionsTest {
             CloudConnections connections = receiver.connections;
             List<IntakeWire.Event> findings = new CopyOnWriteArrayList<>();
             connections.onFinding(findings::add);
-            connections.configure(settings(receiver.url(), "test-key", CloudSettings.SERVER_PROTOCOLS));
+            connections.configure(settings(receiver.url(), "test-key", CloudSettings.PROTOCOLS));
             CloudConnection connection = connections.forServer("proxy.a");
             assertNotNull(connection);
             CloudConnectionLoginTest.Recorder recorder = new CloudConnectionLoginTest.Recorder();
-            connection.register(new UUID(3, 4), recorder);
+            UUID player = new UUID(1, 2);
+            connection.register(player, recorder);
             receiver.allowConnect();
             Channel socket = receiver.handshakes.poll(5, TimeUnit.SECONDS);
             assertNotNull(socket);
             recorder.next(recorder.connected);
-            UUID player = new UUID(1, 2);
             byte[] event = Replies.newBuilder()
                     .addReplies(Reply.newBuilder()
                             .setEvent(Event.newBuilder()

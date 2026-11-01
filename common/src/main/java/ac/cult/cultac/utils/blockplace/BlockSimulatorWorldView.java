@@ -1,23 +1,36 @@
 package ac.cult.cultac.utils.blockplace;
 
+import ac.cult.blocksim.data.Box;
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.engine.BlockEntityData;
 import ac.cult.blocksim.engine.BlockPos;
+import ac.cult.blocksim.engine.BorderBounds;
 import ac.cult.blocksim.engine.Direction;
+import ac.cult.blocksim.engine.EntityCollisionContext;
 import ac.cult.blocksim.engine.SimPlayer;
 import ac.cult.blocksim.engine.SimWorldView;
 import ac.cult.blocksim.engine.Vec3;
+import ac.cult.blocksim.engine.shapes.Shapes;
+import ac.cult.blocksim.engine.shapes.VoxelShape;
+import ac.cult.blocksim.entity.EntityTypes;
+import ac.cult.blocksim.entity.PaintingSize;
 import ac.cult.blocksim.environment.BooleanEnvironment;
+import ac.cult.blocksim.interaction.PlacementContext;
+import ac.cult.blocksim.interaction.PlacementObstruction;
 import ac.cult.cultac.events.packets.PacketWorldBorder;
 import ac.cult.cultac.protocol.data.ModelBlockStates;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHanging;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
+import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
+import com.google.gson.JsonElement;
+import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /** Compensated read boundary: native IDs are projected into the single bundled model. */
 public final class BlockSimulatorWorldView implements SimWorldView {
-    private static final int VOID_AIR = ac.cult.blocksim.data.DataTables.defaults()
-            .registry()
-            .block("minecraft:void_air")
-            .defaultState();
+    private static final int VOID_AIR =
+            DataTables.defaults().registry().block("minecraft:void_air").defaultState();
 
     @Override
     public int seaLevel() {
@@ -30,14 +43,12 @@ public final class BlockSimulatorWorldView implements SimWorldView {
     }
     /** BlockItem uses a placement context; standing/wall items use the empty context. */
     public static boolean placementUnobstructed(
-            ac.cult.blocksim.interaction.PlacementContext context,
-            int state,
-            ac.cult.blocksim.interaction.PlacementObstruction.CollisionContext kind) {
+            PlacementContext context, int state, PlacementObstruction.CollisionContext kind) {
         var level = context.level();
         var pos = context.clickedPos();
         var behavior = level.behavior(state);
-        ac.cult.blocksim.engine.shapes.VoxelShape shape;
-        if (kind == ac.cult.blocksim.interaction.PlacementObstruction.CollisionContext.EMPTY) {
+        VoxelShape shape;
+        if (kind == PlacementObstruction.CollisionContext.EMPTY) {
             shape = behavior.collisionShape(level, state, pos);
         } else {
             var facts = context.player().collision();
@@ -45,7 +56,7 @@ public final class BlockSimulatorWorldView implements SimWorldView {
                     level,
                     state,
                     pos,
-                    new ac.cult.blocksim.engine.EntityCollisionContext(
+                    new EntityCollisionContext(
                             facts.bottom(),
                             facts.descending(),
                             facts.fallDistance(),
@@ -106,11 +117,10 @@ public final class BlockSimulatorWorldView implements SimWorldView {
 
             @Override
             public int itemFrameOutputAt(BlockPos pos, Direction direction) {
-                var query =
-                        new ac.cult.blocksim.data.Box(pos.x(), pos.y(), pos.z(), pos.x() + 1, pos.y() + 1, pos.z() + 1);
-                ac.cult.cultac.utils.data.packetentity.PacketEntityHanging found = null;
+                var query = new Box(pos.x(), pos.y(), pos.z(), pos.x() + 1, pos.y() + 1, pos.z() + 1);
+                PacketEntityHanging found = null;
                 for (var entity : world.player.compensatedEntities.entityMap.values())
-                    if (entity instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityHanging frame
+                    if (entity instanceof PacketEntityHanging frame
                             && !frame.typeKey.equals("minecraft:painting")
                             && frame.facing == direction
                             && frame.actionBounds().intersects(query)) {
@@ -137,9 +147,9 @@ public final class BlockSimulatorWorldView implements SimWorldView {
 
     public BlockSimulatorWorldView(
             CompensatedWorld world, PacketWorldBorder border, ModelBlockStates states, Metadata metadata) {
-        this.world = java.util.Objects.requireNonNull(world);
-        this.states = java.util.Objects.requireNonNull(states);
-        this.metadata = java.util.Objects.requireNonNull(metadata);
+        this.world = Objects.requireNonNull(world);
+        this.states = Objects.requireNonNull(states);
+        this.metadata = Objects.requireNonNull(metadata);
         entities = new ClientEntityQueries(world.player, this);
         dimension = world.getVisibleDimension();
         double radius = border.getBlockInteractionDiameter() / 2.0, limit = border.getAbsoluteMaxSize();
@@ -214,7 +224,7 @@ public final class BlockSimulatorWorldView implements SimWorldView {
     }
 
     @Override
-    public boolean hasEntityCollision(ac.cult.blocksim.data.Box box, boolean boatSource) {
+    public boolean hasEntityCollision(Box box, boolean boatSource) {
         return entities.hasEntityCollision(box, boatSource);
     }
 
@@ -234,7 +244,7 @@ public final class BlockSimulatorWorldView implements SimWorldView {
     }
 
     @Override
-    public boolean canSpawn(ac.cult.blocksim.entity.EntityTypes.Type type) {
+    public boolean canSpawn(EntityTypes.Type type) {
         return world.clientCanSpawn(type);
     }
 
@@ -244,58 +254,56 @@ public final class BlockSimulatorWorldView implements SimWorldView {
     }
 
     @Override
-    public boolean hasMinecartIn(ac.cult.blocksim.data.Box box) {
+    public boolean hasMinecartIn(Box box) {
         return entities.hasMinecartIn(box);
     }
 
     @Override
-    public boolean hasEntityIn(ac.cult.blocksim.data.Box box) {
+    public boolean hasEntityIn(Box box) {
         return entities.hasEntityIn(box);
     }
 
     @Override
-    public boolean isUnobstructed(ac.cult.blocksim.engine.shapes.VoxelShape shape) {
+    public boolean isUnobstructed(VoxelShape shape) {
         return entities.isUnobstructed(shape);
     }
 
     @Override
-    public boolean hasHangingEntityOverlap(
-            ac.cult.blocksim.data.Box box, Direction direction, String type, boolean allowSameType) {
+    public boolean hasHangingEntityOverlap(Box box, Direction direction, String type, boolean allowSameType) {
         return world.player.compensatedEntities.entityMap.values().stream()
-                .filter(entity -> entity instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityHanging)
-                .map(entity -> (ac.cult.cultac.utils.data.packetentity.PacketEntityHanging) entity)
+                .filter(entity -> entity instanceof PacketEntityHanging)
+                .map(entity -> (PacketEntityHanging) entity)
                 .anyMatch(entity -> entity.actionBounds().intersects(box)
                         && (entity.facing == direction || !allowSameType && entity.typeKey.equals(type)));
     }
 
     @Override
-    public boolean hasBorderCollision(ac.cult.blocksim.data.Box box, Vec3 source) {
-        return new ac.cult.blocksim.engine.BorderBounds(minX, minZ, maxX, maxZ).collides(box, source);
+    public boolean hasBorderCollision(Box box, Vec3 source) {
+        return new BorderBounds(minX, minZ, maxX, maxZ).collides(box, source);
     }
 
     @Override
-    public java.util.List<ac.cult.blocksim.entity.PaintingSize> placeablePaintings() {
+    public List<PaintingSize> placeablePaintings() {
         return world.player.getWorldRegistries().placeablePaintings();
     }
 
     @Override
-    public ac.cult.blocksim.entity.PaintingSize paintingSize(com.google.gson.JsonElement holder) {
+    public PaintingSize paintingSize(JsonElement holder) {
         if (holder.isJsonObject())
-            return new ac.cult.blocksim.entity.PaintingSize(
+            return new PaintingSize(
                     holder.getAsJsonObject().get("width").getAsInt(),
                     holder.getAsJsonObject().get("height").getAsInt());
         return world.player.getWorldRegistries().painting(holder.getAsString());
     }
 
     @Override
-    public ac.cult.blocksim.engine.shapes.VoxelShape movingPistonCollisionAt(BlockPos pos) {
-        var boxes = ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper.toBoxes(
-                        world.pistons.getMovingPistonCollisionShape(
-                                new ac.cult.cultac.protocol.value.BlockPos(pos.x(), pos.y(), pos.z())))
+    public VoxelShape movingPistonCollisionAt(BlockPos pos) {
+        var boxes = NativeBlockCollisionHelper.toBoxes(world.pistons.getMovingPistonCollisionShape(
+                        new ac.cult.cultac.protocol.value.BlockPos(pos.x(), pos.y(), pos.z())))
                 .stream()
-                .map(box -> new ac.cult.blocksim.data.Box(box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ))
+                .map(box -> new Box(box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ))
                 .toList();
-        return ac.cult.blocksim.engine.shapes.Shapes.fromBoxes(boxes);
+        return Shapes.fromBoxes(boxes);
     }
 
     @Override

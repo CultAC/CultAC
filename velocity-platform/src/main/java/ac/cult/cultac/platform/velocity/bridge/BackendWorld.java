@@ -1,6 +1,5 @@
 package ac.cult.cultac.platform.velocity.bridge;
 
-import ac.cult.cultac.platform.api.world.PlatformChunk;
 import ac.cult.cultac.platform.api.world.PlatformWorld;
 import com.velocitypowered.api.proxy.ServerConnection;
 import java.util.Objects;
@@ -42,11 +41,6 @@ public final class BackendWorld implements PlatformWorld {
     @Override
     public UUID getUID() {
         return uid;
-    }
-
-    @Override
-    public PlatformChunk getChunkAt(int currChunkX, int currChunkZ) {
-        return (localX, y, localZ) -> getBlockAt((currChunkX << 4) + localX, y, (currChunkZ << 4) + localZ);
     }
 
     @Override

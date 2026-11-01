@@ -10,19 +10,19 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundSetCarriedItem;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 
+// OPEN_INVENTORY opens no screen until the server's mount_screen_open, so the actions Minecraft#handleKeybinds runs
+// after LocalPlayer#sendOpenInventory still send the slot through MultiPlayerGameMode#ensureHasSentCarriedItem.
 @CheckData(
         name = "PacketOrderE",
         stableKey = "cult.packetorder.slot_order",
         description = "Changed held item slot during another conflicting action",
         experimental = true)
 public class PacketOrderE extends Check implements PostPredictionListener {
-    private static final Verbose V =
-            Verbose.of("attacking={bool}, rightClicking={bool}, openingInventory={bool}, releasing={bool}"
-                    + ", sneaking={bool}, sprinting={bool}, bed={bool}, gliding={bool}, mountJumping={bool}");
+    private static final Verbose V = Verbose.of("attacking={bool}, rightClicking={bool}, releasing={bool}"
+            + ", sneaking={bool}, sprinting={bool}, bed={bool}, gliding={bool}, mountJumping={bool}");
 
     private static final int ATTACKING = 1 << 0;
     private static final int RIGHT_CLICKING = 1 << 1;
-    private static final int OPENING_INVENTORY = 1 << 2;
     private static final int RELEASING = 1 << 3;
     private static final int SNEAKING = 1 << 4;
     private static final int SPRINTING = 1 << 5;
@@ -41,7 +41,6 @@ public class PacketOrderE extends Check implements PostPredictionListener {
         return V.write(verbose())
                 .bool(has(flags, ATTACKING))
                 .bool(has(flags, RIGHT_CLICKING))
-                .bool(has(flags, OPENING_INVENTORY))
                 .bool(has(flags, RELEASING))
                 .bool(has(flags, SNEAKING))
                 .bool(has(flags, SPRINTING))
@@ -75,7 +74,6 @@ public class PacketOrderE extends Check implements PostPredictionListener {
         int flags = 0;
         if (player.packetOrderProcessor.isAttackingOrStabbing()) flags |= ATTACKING;
         if (player.packetOrderProcessor.isRightClicking()) flags |= RIGHT_CLICKING;
-        if (player.packetOrderProcessor.isOpeningInventory()) flags |= OPENING_INVENTORY;
         if (player.packetOrderProcessor.isReleasing()) flags |= RELEASING;
         if (player.packetOrderProcessor.isSneaking()) flags |= SNEAKING;
         if (player.packetOrderProcessor.isSprinting()) flags |= SPRINTING;

@@ -54,46 +54,6 @@ final class YamlMapImpl implements YamlMap {
     }
 
     @Override
-    public @Nullable Long getLong(@NotNull String dottedPath) {
-        Object v = get(dottedPath);
-        if (v instanceof Number n) return n.longValue();
-        if (v instanceof String s) {
-            try {
-                return Long.parseLong(s.trim());
-            } catch (NumberFormatException ignore) {
-                return null;
-            }
-        }
-        return null;
-    }
-
-    @Override
-    public @Nullable Double getDouble(@NotNull String dottedPath) {
-        Object v = get(dottedPath);
-        if (v instanceof Number n) return n.doubleValue();
-        if (v instanceof String s) {
-            try {
-                return Double.parseDouble(s.trim());
-            } catch (NumberFormatException ignore) {
-                return null;
-            }
-        }
-        return null;
-    }
-
-    @Override
-    public @Nullable Boolean getBool(@NotNull String dottedPath) {
-        Object v = get(dottedPath);
-        if (v instanceof Boolean b) return b;
-        if (v instanceof String s) {
-            String t = s.trim();
-            if (t.equalsIgnoreCase("true")) return Boolean.TRUE;
-            if (t.equalsIgnoreCase("false")) return Boolean.FALSE;
-        }
-        return null;
-    }
-
-    @Override
     public @Nullable List<?> getList(@NotNull String dottedPath) {
         Object v = get(dottedPath);
         return v instanceof List<?> l ? l : null;
@@ -106,33 +66,12 @@ final class YamlMapImpl implements YamlMap {
         return v instanceof Map<?, ?> m ? (Map<String, Object>) m : null;
     }
 
-    @Override
-    public boolean has(@NotNull String dottedPath) {
-        return walkRead(root, dottedPath) != null;
-    }
-
     // ----- writes -----
 
     @Override
     public @NotNull YamlMap put(@NotNull String dottedPath, @NotNull Object value) {
         walkWrite(root, dottedPath, value);
         writeLog.recordPut(dottedPath, value);
-        return this;
-    }
-
-    @Override
-    public @NotNull YamlMap remove(@NotNull String dottedPath) {
-        walkRemove(root, dottedPath);
-        writeLog.recordRemove(dottedPath);
-        return this;
-    }
-
-    @Override
-    public @NotNull YamlMap rename(@NotNull String oldPath, @NotNull String newPath) {
-        Object existing = walkRead(root, oldPath);
-        if (existing == null) return this;
-        put(newPath, existing);
-        remove(oldPath);
         return this;
     }
 
@@ -165,17 +104,5 @@ final class YamlMapImpl implements YamlMap {
             cursor = (Map<String, Object>) next;
         }
         cursor.put(parts[parts.length - 1], value);
-    }
-
-    @SuppressWarnings("unchecked")
-    private static void walkRemove(Map<String, Object> root, String dottedPath) {
-        String[] parts = dottedPath.split("\\.");
-        Map<String, Object> cursor = root;
-        for (int i = 0; i < parts.length - 1; i++) {
-            Object next = cursor.get(parts[i]);
-            if (!(next instanceof Map<?, ?>)) return;
-            cursor = (Map<String, Object>) next;
-        }
-        cursor.remove(parts[parts.length - 1]);
     }
 }

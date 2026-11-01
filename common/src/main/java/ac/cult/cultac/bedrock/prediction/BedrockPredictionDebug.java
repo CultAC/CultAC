@@ -181,6 +181,7 @@ public final class BedrockPredictionDebug {
         CultAPI.INSTANCE
                 .getAlertManager()
                 .sendVerbose(
+                        player,
                         net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer.legacyAmpersand()
                                 .deserialize(message.toString()),
                         null);

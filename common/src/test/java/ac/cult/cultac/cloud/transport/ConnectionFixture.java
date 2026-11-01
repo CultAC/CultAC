@@ -12,12 +12,14 @@ import ac.cult.cultac.cloud.intake.v3.IntakeMessage;
 import ac.cult.cultac.cloud.intake.v3.Refused;
 import ac.cult.cultac.cloud.intake.v3.Replies;
 import ac.cult.cultac.cloud.intake.v3.Reply;
+import ac.cult.cultac.cloud.wire.IntakeWire;
 import ac.cult.cultac.platform.api.PlatformLoader;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.data.ProtocolData;
 import ac.grim.grimac.api.plugin.GrimPlugin;
+import com.github.luben.zstd.ZstdDecompressCtx;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
@@ -41,9 +43,10 @@ import io.netty.handler.codec.http.websocketx.CloseWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.PingWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.WebSocketFrameAggregator;
 import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
-import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
 import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -56,8 +59,6 @@ import java.util.function.BooleanSupplier;
 import java.util.logging.Handler;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
-import java.util.zip.Inflater;
-import java.util.zip.InflaterInputStream;
 import org.mockito.Mockito;
 
 /** A local intake service and the plugin globals the connection tests run against. */
@@ -78,7 +79,24 @@ public final class ConnectionFixture {
     }
 
     public static CloudSettings settings(String url, String key, List<Integer> protocols) {
-        return new CloudSettings(url, key, CloudSettings.DEFAULT_SERVER_ID, "proxy", protocols);
+        return new CloudSettings(url, key, CloudSettings.DEFAULT_SERVER_ID, "proxy", protocols, false, false);
+    }
+
+    /** One message of a socket's zstd frame, from its bytes and the messages before it on {@code zstd}. */
+    static byte[] decompress(ZstdDecompressCtx zstd, byte[] message) {
+        ByteBuffer in = ByteBuffer.allocateDirect(message.length - 1);
+        in.put(message, 1, message.length - 1).flip();
+        ByteBuffer out = ByteBuffer.allocateDirect(64 * 1024);
+        ByteArrayOutputStream records = new ByteArrayOutputStream();
+        while (true) {
+            out.clear();
+            zstd.decompressDirectByteBufferStream(out, in);
+            out.flip();
+            byte[] chunk = new byte[out.remaining()];
+            out.get(chunk);
+            records.writeBytes(chunk);
+            if (!in.hasRemaining() && chunk.length < out.capacity()) return records.toByteArray();
+        }
     }
 
     public static void await(BooleanSupplier condition, String what) throws InterruptedException {
@@ -160,9 +178,19 @@ public final class ConnectionFixture {
                                                     ctx.fireChannelRead(message);
                                                 }
                                             },
-                                            new WebSocketServerProtocolHandler("/intake", null, true, 2 * 1024 * 1024),
+                                            new WebSocketServerProtocolHandler(
+                                                    "/intake", null, true, 2 * 1024 * 1024, false, true),
                                             new WebSocketFrameAggregator(2 * 1024 * 1024),
                                             new SimpleChannelInboundHandler<BinaryWebSocketFrame>() {
+                                                /** The socket's one zstd frame, read message by message. */
+                                                private final ZstdDecompressCtx zstd = new ZstdDecompressCtx();
+
+                                                public void channelInactive(ChannelHandlerContext ctx)
+                                                        throws Exception {
+                                                    zstd.close();
+                                                    super.channelInactive(ctx);
+                                                }
+
                                                 public void userEventTriggered(ChannelHandlerContext ctx, Object event)
                                                         throws Exception {
                                                     if (event
@@ -184,17 +212,9 @@ public final class ConnectionFixture {
                                                         wire.add(bytes);
                                                     }
                                                     if (unread) return;
-                                                    byte[] intake = bytes;
-                                                    if (bytes[0] == 1) {
-                                                        Inflater inflater = new Inflater(true);
-                                                        try (var input = new InflaterInputStream(
-                                                                new ByteArrayInputStream(bytes, 1, bytes.length - 1),
-                                                                inflater)) {
-                                                            intake = input.readAllBytes();
-                                                        } finally {
-                                                            inflater.end();
-                                                        }
-                                                    } else intake = Arrays.copyOfRange(bytes, 1, bytes.length);
+                                                    byte[] intake = bytes[0] == IntakeWire.COMPRESSED
+                                                            ? decompress(zstd, bytes)
+                                                            : Arrays.copyOfRange(bytes, 1, bytes.length);
                                                     for (IntakeMessage message : Intake.parseFrom(intake)
                                                             .getMessagesList()) {
                                                         messages.add(message);
@@ -252,7 +272,7 @@ public final class ConnectionFixture {
         }
 
         void allowConnect() throws InterruptedException {
-            allowConnect("\"protocol\":3");
+            allowConnect("\"protocol\":5");
         }
 
         /** Answers the next connect with {@code terms}, the connect JSON's fields beside its url and message limit. */

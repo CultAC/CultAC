@@ -52,6 +52,7 @@ public class BadPacketsW extends Check implements CheckListener {
 
     private boolean isInvalidEntityTarget(int entityId) {
         return !player.compensatedEntities.entityMap.containsKey(entityId)
-                && !player.compensatedEntities.serverPositionsMap.containsKey(entityId);
+                && !player.compensatedEntities.serverPositionsMap.containsKey(entityId)
+                && player.compensatedEntities.enderDragonOfPart(entityId).isEmpty();
     }
 }

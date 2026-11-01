@@ -44,7 +44,10 @@ final class BedrockEntityContactFactory {
         PlayerDimensionsState dimensions =
                 previous == null ? PlayerDimensionsState.DEFAULT : previous.playerDimensions();
         for (PacketEntity entity : entities.entityMap.values()) {
-            if (entity == null || entity.isDead || entity.getType() != EntityTypeIds.DOLPHIN) {
+            if (entity == null
+                    || entity.isDead
+                    || entity.getType() != EntityTypeIds.DOLPHIN
+                    || entities.isUntrackedRider(entity)) {
                 continue;
             }
             if (isWithinDolphinProximity(

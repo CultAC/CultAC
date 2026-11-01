@@ -16,7 +16,8 @@ public interface RuntimeInstance {
     /**
      * A newer generation has become current. This one keeps serving its pinned connections until it is closed, but
      * must hand over or stop any process-wide external resource the new generation also claims. Called once, before
-     * the generation drains. It runs on the host's management thread and must return within a bounded few seconds.
+     * the generation drains. It runs on a lifecycle worker with the generation's context and should return promptly.
+     * The host bounds its wait and keeps the runtime and class loader alive until the call actually returns.
      */
     default void superseded() {}
 
@@ -47,6 +48,12 @@ public interface RuntimeInstance {
 
     default CompletionStage<java.util.List<String>> suggest(Object sender, String command) {
         return java.util.concurrent.CompletableFuture.completedFuture(java.util.List.of());
+    }
+
+    java.util.List<String> DEFAULT_COMMAND_ROOTS = java.util.List.of("cult", "cultac", "grim", "grimac");
+
+    default java.util.List<String> commandRoots() {
+        return DEFAULT_COMMAND_ROOTS;
     }
 
     default java.util.Map<String, byte[]> configurationFiles() throws Exception {

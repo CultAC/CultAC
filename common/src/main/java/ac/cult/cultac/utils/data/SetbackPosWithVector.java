@@ -12,6 +12,8 @@ public class SetbackPosWithVector {
     private Vec3 vector;
     private final int tick;
     private final PredictionSetbackState profileState;
+    // The sprint modifier state the prediction at this position committed; null keeps the current one.
+    private ClientSprintState.Outcomes sprintOutcomes;
 
     public SetbackPosWithVector(Vec3 pos, Vec3 vector, int tick) {
         this(pos, vector, tick, null);

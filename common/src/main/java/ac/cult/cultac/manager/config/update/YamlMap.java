@@ -32,21 +32,10 @@ public interface YamlMap {
     Integer getInt(@NotNull String dottedPath);
 
     @Nullable
-    Long getLong(@NotNull String dottedPath);
-
-    @Nullable
-    Double getDouble(@NotNull String dottedPath);
-
-    @Nullable
-    Boolean getBool(@NotNull String dottedPath);
-
-    @Nullable
     List<?> getList(@NotNull String dottedPath);
 
     @Nullable
     Map<String, Object> getMap(@NotNull String dottedPath);
-
-    boolean has(@NotNull String dottedPath);
 
     /**
      * Set a value at the given dotted path. Records a write op that the
@@ -55,16 +44,4 @@ public interface YamlMap {
      */
     @NotNull
     YamlMap put(@NotNull String dottedPath, @NotNull Object value);
-
-    /** Remove a key. Records a write op. Returns {@code this} for chaining. */
-    @NotNull
-    YamlMap remove(@NotNull String dottedPath);
-
-    /**
-     * Convenience for the move case: copy the value at {@code oldPath} to
-     * {@code newPath} and remove {@code oldPath}. No-op if {@code oldPath}
-     * doesn't exist.
-     */
-    @NotNull
-    YamlMap rename(@NotNull String oldPath, @NotNull String newPath);
 }

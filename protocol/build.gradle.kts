@@ -26,6 +26,8 @@ dependencies {
     testRuntimeOnly("io.netty:netty-transport:4.2.16.Final")
     testRuntimeOnly("io.netty:netty-codec-base:4.2.16.Final")
     testRuntimeOnly("com.google.guava:guava:33.5.0-jre")
+    // vialib links against the runtime's snakeyaml rather than a private copy.
+    testRuntimeOnly(libs.snakeyaml)
     // Exercise coexistence with the installed translator's original API/resources.
     testImplementation(libs.via.codecs.core) { isTransitive = false }
     testImplementation(testlibs.junitJupiter)

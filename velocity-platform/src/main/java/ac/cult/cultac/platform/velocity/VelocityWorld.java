@@ -2,7 +2,6 @@ package ac.cult.cultac.platform.velocity;
 
 import ac.cult.cultac.bridge.protocol.ServerCapability;
 import ac.cult.cultac.network.CultConnection;
-import ac.cult.cultac.platform.api.world.PlatformChunk;
 import ac.cult.cultac.platform.api.world.PlatformWorld;
 import ac.cult.cultac.platform.velocity.bridge.BridgeSession;
 import ac.cult.cultac.protocol.ConnectionPhase;
@@ -103,10 +102,5 @@ final class VelocityWorld implements PlatformWorld {
             throw new IllegalStateException("Client world is unavailable");
         }
         return player.observed().compensatedWorld.getBlockStateIdAt(x, y, z);
-    }
-
-    @Override
-    public PlatformChunk getChunkAt(int x, int z) {
-        return (localX, y, localZ) -> getBlockAt((x << 4) + localX, y, (z << 4) + localZ);
     }
 }

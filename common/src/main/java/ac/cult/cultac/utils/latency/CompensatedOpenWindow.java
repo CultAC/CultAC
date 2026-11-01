@@ -1,5 +1,8 @@
 package ac.cult.cultac.utils.latency;
 
+import ac.cult.cultac.checks.type.CheckListener;
+import ac.cult.cultac.checks.type.ClientTickEndListener;
+import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.inventory.inventory.MenuType;
@@ -9,8 +12,7 @@ import lombok.Getter;
 import org.jetbrains.annotations.Nullable;
 
 /** Split-state window tracking ported from Grim PR #2848 by ManInMyVan. */
-public final class CompensatedOpenWindow
-        implements ac.cult.cultac.checks.type.CheckListener, ac.cult.cultac.checks.type.ClientTickEndListener {
+public final class CompensatedOpenWindow implements CheckListener, ClientTickEndListener {
     private static final Window PLAYER_INVENTORY = new Window(0, Long.MIN_VALUE, null);
     private final CultPlayer player;
     private final Set<@Nullable Window> possibleOpenWindows = new HashSet<>(2);
@@ -33,7 +35,7 @@ public final class CompensatedOpenWindow
         if (open) {
             openPlayerInventoryTransaction = transaction;
         } else {
-            ticksOpen = 0;
+            onClose();
             closeTransaction = transaction;
         }
     }
@@ -48,6 +50,7 @@ public final class CompensatedOpenWindow
         // before a client tick, so no ping is inserted midway through a bundle.
         event.getWritesBeforeSend().add(before.packet());
         event.getWritesAfterSend().add(after.packet());
+        event.receiptProof(after.transaction());
         event.getTasksAfterSend().add(() -> {
             player.markTrackedTransactionPacketSent(before);
             player.markTrackedTransactionPacketSent(after);
@@ -62,7 +65,7 @@ public final class CompensatedOpenWindow
     private void closeBefore(int transaction, boolean closeEmpty) {
         if (!closeEmpty) {
             closeTransaction = player.lastTransactionReceived.get();
-            ticksOpen = 0;
+            onClose();
         }
         boolean shouldCloseEmpty = closeEmpty && closeTransaction <= transaction;
         boolean shouldClosePlayer = openPlayerInventoryTransaction <= transaction;
@@ -74,7 +77,7 @@ public final class CompensatedOpenWindow
     public void maybeClose() {
         possibleOpenWindows.add(null);
         closeTransaction = player.lastTransactionReceived.get();
-        ticksOpen = 0;
+        onClose();
     }
 
     public void closeFromRespawn() {
@@ -83,11 +86,17 @@ public final class CompensatedOpenWindow
                 || window == PLAYER_INVENTORY && openPlayerInventoryTransaction == transaction
                 || window.transaction < transaction);
         possibleOpenWindows.add(null);
+        onClose();
+    }
+
+    // A closed screen lets the client change its selected slot again before its next tick.
+    private void onClose() {
         ticksOpen = 0;
+        player.packetStateData.heldSlotSetWithScreenOpen = false;
     }
 
     @Override
-    public void onPlayerTickEnd(ac.cult.cultac.network.event.PacketReceiveEvent event) {
+    public void onPlayerTickEnd(PacketReceiveEvent event) {
         if (!player.isBedrockMovement()) onClientTick();
     }
 

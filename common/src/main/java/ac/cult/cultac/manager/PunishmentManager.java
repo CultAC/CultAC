@@ -2,7 +2,8 @@ package ac.cult.cultac.manager;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.Check;
-import ac.cult.cultac.platform.api.player.PlatformPlayer;
+import ac.cult.cultac.command.commands.CultInfo;
+import ac.cult.cultac.manager.AlertManagerImpl.Recipients;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
@@ -40,7 +41,7 @@ public class PunishmentManager implements ConfigReloadable {
 
         alertString = config.getStringElse(
                 "alerts-format",
-                "%prefix% &f%player% &bfailed <hover:show_text:\"&b%check_name%%experimental%\\n&8Description: &f%description%\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%");
+                "%prefix% &f%player% &bfailed <hover:show_text:\"&b%check_name%%experimental%\n&8Description: &f%description%\n&7Click for more info\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%");
 
         testMode = config.getBooleanElse("test-mode", false);
 
@@ -56,6 +57,8 @@ public class PunishmentManager implements ConfigReloadable {
                 check.setEnabled(false);
             }
 
+            AbstractCheck[] known = null;
+            String[] names = null, alternativeNames = null;
             for (Object s : punish) {
                 LinkedHashMap<String, Object> map = (LinkedHashMap<String, Object>) s;
 
@@ -73,18 +76,25 @@ public class PunishmentManager implements ConfigReloadable {
                         exclude = true;
                         command = command.substring(1);
                     }
-                    for (AbstractCheck check : player.getChecks()) { // o(n) * o(n)?
-                        String alternativeName = check.getAlternativeName();
-                        if (check.getCheckName() != null
-                                && (check.getCheckName()
-                                                .toLowerCase(Locale.ROOT)
-                                                .contains(command)
-                                        || (alternativeName != null
-                                                && alternativeName
-                                                        .toLowerCase(Locale.ROOT)
-                                                        .contains(
-                                                                command)))) { // Some checks have equivalent names like
-                            // AntiKB and AntiKnockback
+                    if (known == null) {
+                        known = player.getChecks().toArray(new AbstractCheck[0]);
+                        names = new String[known.length];
+                        alternativeNames = new String[known.length];
+                        for (int i = 0; i < known.length; i++) {
+                            String name = known[i].getCheckName();
+                            String alternativeName = known[i].getAlternativeName();
+                            names[i] = name == null ? null : name.toLowerCase(Locale.ROOT);
+                            alternativeNames[i] =
+                                    alternativeName == null ? null : alternativeName.toLowerCase(Locale.ROOT);
+                        }
+                    }
+                    for (int i = 0; i < known.length; i++) {
+                        AbstractCheck check = known[i];
+                        String alternativeName = alternativeNames[i];
+                        // Some checks have equivalent names like AntiKB and AntiKnockback
+                        if (names[i] != null
+                                && (names[i].contains(command)
+                                        || (alternativeName != null && alternativeName.contains(command)))) {
                             if (exclude) {
                                 excluded.add(check);
                             } else {
@@ -143,18 +153,26 @@ public class PunishmentManager implements ConfigReloadable {
                 final int vl = getViolations(group, check);
                 final int violationCount = group.violations.size();
                 for (ParsedCommand command : group.commands) {
-                    @Nullable Set<@Nullable PlatformPlayer> verboseListeners = null;
+                    @Nullable Recipients verboseListeners = null;
                     // Verbose that prints all flags: /cult verbose subscribers get EVERY flag, not just thresholded
                     // alerts. The verbose string is only rendered (safeGet) when there are listeners, so the flag
                     // path stays lazy when nobody is subscribed.
                     if (command.command.equals("[alert]")
                             && CultAPI.INSTANCE.getAlertManager().hasVerboseListeners()) {
                         sentDebug = true;
-                        String verboseForListeners = safeGet(verbose);
-                        String listenerCmd = replaceAlertPlaceholders(command.command, vl, check, verboseForListeners);
-                        verboseListeners = CultAPI.INSTANCE
-                                .getAlertManager()
-                                .sendVerbose(MessageUtil.miniMessage(listenerCmd), null);
+                        try {
+                            String verboseForListeners = safeGet(verbose);
+                            String listenerCmd =
+                                    replaceAlertPlaceholders(command.command, vl, check, verboseForListeners);
+                            verboseListeners = CultAPI.INSTANCE
+                                    .getAlertManager()
+                                    .sendVerbose(
+                                            player,
+                                            CultInfo.linkCheckName(MessageUtil.miniMessage(listenerCmd), check),
+                                            null);
+                        } catch (RuntimeException e) {
+                            logDeliveryFailure(command, check, e);
+                        }
                     }
                     if (violationCount >= command.threshold) {
                         boolean shouldRun = command.interval == 0
@@ -181,54 +199,62 @@ public class PunishmentManager implements ConfigReloadable {
                             }
                             if (canceled) continue;
 
-                            switch (command.command) {
-                                case "[webhook]" ->
-                                    CultAPI.INSTANCE
-                                            .getDiscordManager()
-                                            .sendAlert(player, renderedVerbose, check.getDisplayName(), vl);
-                                case "[log]" -> {
-                                    // Binary flags already stored a row; avoid an extra legacy text row.
-                                    if (!check.isLastFlagStoredBinaryVerbose()) {
-                                        String verboseWithoutGl = renderedVerbose.replaceAll(" /gl .*", "");
+                            try {
+                                switch (command.command) {
+                                    case "[webhook]" ->
                                         CultAPI.INSTANCE
-                                                .getDataStoreLifecycle()
-                                                .liveWriteHooks()
-                                                .recordFlagFromCheck(player, check, vl, verboseWithoutGl);
-                                    }
-                                }
-                                case "[proxy]" ->
-                                    CultAPI.INSTANCE.getPlatformServer().forwardAlert(cmd);
-                                case "[alert]" -> {
-                                    sentDebug = true;
-                                    Component message = MessageUtil.miniMessage(cmd);
-                                    if (testMode) { // secret test mode
-                                        if (verboseListeners == null
-                                                || verboseListeners.contains(player.platformPlayer)) {
-                                            player.sendMessage(message);
+                                                .getDiscordManager()
+                                                .sendAlert(player, renderedVerbose, check.getDisplayName(), vl);
+                                    case "[log]" -> {
+                                        // Binary flags already stored a row; avoid an extra legacy text row.
+                                        if (!check.isLastFlagStoredBinaryVerbose()) {
+                                            String verboseWithoutGl = renderedVerbose.replaceAll(" /gl .*", "");
+                                            CultAPI.INSTANCE
+                                                    .getDataStoreLifecycle()
+                                                    .liveWriteHooks()
+                                                    .recordFlagFromCheck(player, check, vl, verboseWithoutGl);
                                         }
-                                    } else {
-                                        CultAPI.INSTANCE.getAlertManager().sendAlert(message, verboseListeners);
+                                    }
+                                    case "[proxy]" ->
+                                        CultAPI.INSTANCE.getPlatformServer().forwardAlert(cmd);
+                                    case "[alert]" -> {
+                                        sentDebug = true;
+                                        Component message = CultInfo.linkCheckName(MessageUtil.miniMessage(cmd), check);
+                                        if (testMode) { // secret test mode
+                                            if (verboseListeners == null
+                                                    || verboseListeners
+                                                            .players()
+                                                            .contains(player.platformPlayer)) {
+                                                player.sendMessage(message);
+                                            }
+                                        } else {
+                                            CultAPI.INSTANCE
+                                                    .getAlertManager()
+                                                    .sendAlert(player, message, verboseListeners);
+                                        }
+                                    }
+                                    default -> {
+                                        double violations = check.getViolations();
+                                        CultAPI.INSTANCE
+                                                .getScheduler()
+                                                .getGlobalRegionScheduler()
+                                                .run(
+                                                        CultAPI.INSTANCE.getGrimPlugin(),
+                                                        () -> CultAPI.INSTANCE
+                                                                .getPlatformServer()
+                                                                .dispatchCommand(
+                                                                        CultAPI.INSTANCE
+                                                                                .getPlatformServer()
+                                                                                .getConsoleSender(),
+                                                                        cmd,
+                                                                        player.platformPlayer,
+                                                                        check,
+                                                                        violations,
+                                                                        renderedVerbose));
                                     }
                                 }
-                                default -> {
-                                    double violations = check.getViolations();
-                                    CultAPI.INSTANCE
-                                            .getScheduler()
-                                            .getGlobalRegionScheduler()
-                                            .run(
-                                                    CultAPI.INSTANCE.getGrimPlugin(),
-                                                    () -> CultAPI.INSTANCE
-                                                            .getPlatformServer()
-                                                            .dispatchCommand(
-                                                                    CultAPI.INSTANCE
-                                                                            .getPlatformServer()
-                                                                            .getConsoleSender(),
-                                                                    cmd,
-                                                                    player.platformPlayer,
-                                                                    check,
-                                                                    violations,
-                                                                    renderedVerbose));
-                                }
+                            } catch (RuntimeException e) {
+                                logDeliveryFailure(command, check, e);
                             }
                         }
 
@@ -243,6 +269,10 @@ public class PunishmentManager implements ConfigReloadable {
         }
 
         return sentDebug;
+    }
+
+    private static void logDeliveryFailure(ParsedCommand command, Check check, RuntimeException e) {
+        LogUtil.error("Failed to run " + command.command + " for " + check.getCheckName(), e);
     }
 
     private static String safeGet(Supplier<String> supplier) {
@@ -293,7 +323,7 @@ class ParsedCommand {
     public final int threshold;
     public final int interval;
     public final String command;
-    // Legacy M=0 gate: execute once for this loaded command state.
+    // For M=0, a non-zero count keeps the command from running again in this loaded state.
     public int executeCount;
     // For M>0, the next active violation count that should run this command.
     public int nextBoundary;

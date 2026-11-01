@@ -19,6 +19,7 @@ import ac.cult.cultac.bridge.protocol.BridgeMessage.CommandDone;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.CommandOutput;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Suggest;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.Suggestions;
+import ac.cult.cultac.bridge.protocol.CommandRoots;
 import ac.cult.cultac.bridge.protocol.ServerCapability;
 import ac.cult.cultac.platform.velocity.bridge.BridgeSession;
 import ac.cult.cultac.platform.velocity.bridge.FakeBridgeSession;
@@ -58,6 +59,18 @@ class BridgeCommandHandlerTest {
             "/cult runtime\u017f #1 lpv user x",
             "cult devswap\u0000",
             "cultac runtimes\u001c");
+    private static final List<String> CLOUD_LINES = List.of(
+            "cult label 0f6c1a52-3b1d-4b0e-8f43-7d2a9c5e1b20 killaura high 24h fabricated",
+            "cult label revoke 5d8e2f10-9a4b-4c7d-b1e3-2f6a8c0d4e97 fabricated",
+            "/CULTAC Label list Victim",
+            "grim findings Victim 200",
+            "grimac  TOP",
+            "cult top killaura",
+            "Cult Cloud",
+            "cult findings ",
+            "cult \u2003label 0f6c1a52-3b1d-4b0e-8f43-7d2a9c5e1b20 killaura high 24h fabricated",
+            "cult \u00a0findings Victim 200",
+            "cult \u3000runtimes #1 lpv user x");
 
     private final CommandManager commands = mock(CommandManager.class);
     private final Player staff = mock(Player.class);
@@ -66,6 +79,7 @@ class BridgeCommandHandlerTest {
     private Set<String> foreignRoots = Set.of();
     private final BridgeCommandHandler handler = new BridgeCommandHandler(
             commands,
+            () -> CommandRoots.DEFAULT,
             root -> !foreignRoots.contains(root),
             id -> STAFF.equals(id) ? staff : null,
             () -> now,
@@ -96,14 +110,29 @@ class BridgeCommandHandlerTest {
     @Test
     void onlyOwnedCultAcRootsAreForwardableInAnyCase() {
         Predicate<String> owned = root -> !root.equals("grim");
-        assertTrue(BridgeCommandHandler.forwardable("CULT", owned));
-        assertFalse(BridgeCommandHandler.forwardable("gl", owned));
-        assertTrue(BridgeCommandHandler.forwardable("GrimAC alerts", owned));
-        assertTrue(BridgeCommandHandler.forwardable("cultac reload", owned));
-        assertFalse(BridgeCommandHandler.forwardable("GRIM reload", owned));
-        assertFalse(BridgeCommandHandler.forwardable("cultacx reload", owned));
-        assertFalse(BridgeCommandHandler.forwardable("velocity reload", owned));
-        assertFalse(BridgeCommandHandler.forwardable("", owned));
+        List<String> roots = CommandRoots.DEFAULT;
+        assertTrue(BridgeCommandHandler.forwardable("CULT", roots, owned));
+        assertFalse(BridgeCommandHandler.forwardable("gl", roots, owned));
+        assertTrue(BridgeCommandHandler.forwardable("GrimAC alerts", roots, owned));
+        assertTrue(BridgeCommandHandler.forwardable("cultac reload", roots, owned));
+        assertFalse(BridgeCommandHandler.forwardable("GRIM reload", roots, owned));
+        assertFalse(BridgeCommandHandler.forwardable("cultacx reload", roots, owned));
+        assertFalse(BridgeCommandHandler.forwardable("velocity reload", roots, owned));
+        assertFalse(BridgeCommandHandler.forwardable("", roots, owned));
+    }
+
+    @Test
+    void onlyTheProxysConfiguredRootsAreForwardable() {
+        List<String> roots = List.of("guard", "gd");
+        Predicate<String> owned = roots::contains;
+        assertTrue(BridgeCommandHandler.forwardable("guard alerts", roots, owned));
+        assertTrue(BridgeCommandHandler.forwardable("GD reload", roots, owned));
+        assertFalse(BridgeCommandHandler.forwardable("guard update x.jar", roots, owned));
+        assertFalse(BridgeCommandHandler.forwardable("guard findings Victim", roots, owned));
+        for (String root : CommandRoots.DEFAULT) {
+            assertFalse(BridgeCommandHandler.forwardable(root + " alerts", roots, registered -> true), root);
+        }
+        assertFalse(BridgeCommandHandler.forwardable("guard alerts", roots, root -> false));
     }
 
     @Test
@@ -259,7 +288,7 @@ class BridgeCommandHandlerTest {
         }
 
         verify(commands, never()).executeAsync(any(), anyString());
-        assertEquals(refusals(40), session.sent);
+        assertEquals(refusals(LOADER_LINES, 40), session.sent);
     }
 
     @Test
@@ -271,7 +300,7 @@ class BridgeCommandHandlerTest {
         }
 
         verify(commands, never()).executeAsync(any(), anyString());
-        assertEquals(refusals(50), session.sent);
+        assertEquals(refusals(LOADER_LINES, 50), session.sent);
     }
 
     @Test
@@ -292,10 +321,56 @@ class BridgeCommandHandlerTest {
         assertEquals(expected, session.sent);
     }
 
-    private static List<Object> refusals(int firstId) {
+    @Test
+    void cloudCommandsAreRefusedFromAPrivilegedPlayer() {
+        when(staff.hasPermission(anyString())).thenReturn(true);
+        when(commands.executeAsync(any(), anyString())).thenReturn(CompletableFuture.completedFuture(true));
+
+        for (int i = 0; i < CLOUD_LINES.size(); i++) {
+            handler.onMessage(session, new Command(80 + i, STAFF, "Staff", CLOUD_LINES.get(i)));
+        }
+
+        verify(commands, never()).executeAsync(any(), anyString());
+        assertEquals(refusals(CLOUD_LINES, 80), session.sent);
+
+        handler.onMessage(session, new Command(99, STAFF, "Staff", "cult alerts"));
+        verify(commands).executeAsync(same(staff), eq("cult alerts"));
+    }
+
+    @Test
+    void cloudCommandsAreRefusedFromTheConsole() {
+        when(commands.executeAsync(any(), anyString())).thenReturn(CompletableFuture.completedFuture(true));
+
+        for (int i = 0; i < CLOUD_LINES.size(); i++) {
+            handler.onMessage(session, new Command(100 + i, Command.CONSOLE, "CONSOLE", CLOUD_LINES.get(i)));
+        }
+
+        verify(commands, never()).executeAsync(any(), anyString());
+        assertEquals(refusals(CLOUD_LINES, 100), session.sent);
+    }
+
+    @Test
+    void cloudCommandsGetNoSuggestions() {
+        when(staff.hasPermission(anyString())).thenReturn(true);
+        when(commands.offerSuggestions(any(), anyString()))
+                .thenReturn(CompletableFuture.completedFuture(List.of("Victim")));
+
+        List<Suggestions> expected = new ArrayList<>();
+        for (int i = 0; i < CLOUD_LINES.size(); i++) {
+            handler.onMessage(session, new Suggest(120 + i, STAFF, CLOUD_LINES.get(i)));
+            handler.onMessage(session, new Suggest(140 + i, Command.CONSOLE, CLOUD_LINES.get(i)));
+            expected.add(new Suggestions(120 + i, List.of()));
+            expected.add(new Suggestions(140 + i, List.of()));
+        }
+
+        verify(commands, never()).offerSuggestions(any(), anyString());
+        assertEquals(expected, session.sent);
+    }
+
+    private static List<Object> refusals(List<String> lines, int firstId) {
         String refused = GsonComponentSerializer.gson().serialize(BridgeCommandHandler.NOT_CULTAC);
         List<Object> frames = new ArrayList<>();
-        for (int i = 0; i < LOADER_LINES.size(); i++) {
+        for (int i = 0; i < lines.size(); i++) {
             frames.add(new CommandOutput(firstId + i, refused));
             frames.add(new CommandDone(firstId + i));
         }

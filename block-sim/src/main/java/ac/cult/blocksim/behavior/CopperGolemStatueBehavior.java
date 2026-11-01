@@ -12,7 +12,7 @@ public final class CopperGolemStatueBehavior extends BlockBehavior {
     private final Set<String> statues;
     public CopperGolemStatueBehavior(Set<String> axes, Set<String> statues) { this.axes = Set.copyOf(axes); this.statues = Set.copyOf(statues); }
     @Override
-    public boolean shouldKeepBlockEntity(ac.cult.blocksim.data.BlockRegistry registry, int state, int oldState) {
+    public boolean shouldKeepBlockEntity(BlockRegistry registry, int state, int oldState) {
         return statues.contains(registry.block(oldState).key());
     }
     @Override

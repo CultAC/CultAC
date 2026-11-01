@@ -20,6 +20,7 @@ import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
 import io.netty.channel.Channel;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -29,6 +30,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Predicate;
+import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -50,6 +52,21 @@ public final class CloudBackends implements SegmentBinder, BridgeMessageListener
     static final long POLL_MILLIS = 50;
     /** The longest a bind waits for the backend's facts over a bridge session that is not yet READY. */
     static final long FACTS_WAIT_MILLIS = 1000;
+
+    private static final int MAX_SETTING_CHARS = 32;
+    private static final Pattern BOOLEAN = Pattern.compile("true|false");
+    private static final Pattern INTEGER = Pattern.compile("-?\\d{1,10}");
+    private static final Pattern DECIMAL = Pattern.compile("-?\\d{1,10}(\\.\\d{1,17})?(E-?\\d{1,3})?");
+    /** The settings a companion reports for its server, and the shape of each value. */
+    private static final Map<String, Pattern> SERVER_SETTINGS = Map.of(
+            "update-equipment-on-player-actions", BOOLEAN,
+            "skip-vanilla-damage-tick-when-shield-blocked", BOOLEAN,
+            "keepalive-interval-ms", INTEGER);
+    /** The settings a companion reports for a player, and the shape of each value. */
+    private static final Map<String, Pattern> PLAYER_SETTINGS = Map.of(
+            "max-no-damage-ticks", INTEGER,
+            "attack-speed-base", DECIMAL,
+            "combat-mode", Pattern.compile("1\\.[89]"));
 
     private static volatile @Nullable CloudBackends installed;
 
@@ -298,7 +315,8 @@ public final class CloudBackends implements SegmentBinder, BridgeMessageListener
     }
 
     @Override
-    public void onReady(BridgeSession session) {
+    public synchronized void onReady(BridgeSession session) {
+        if (closed) return;
         companions.add(session.serverName());
         withoutCompanion.remove(session.serverName());
         String version = session.serverVersion();
@@ -313,14 +331,14 @@ public final class CloudBackends implements SegmentBinder, BridgeMessageListener
 
     @Override
     public void onMessage(BridgeSession session, BridgeMessage message) {
+        if (closed) return;
         switch (message) {
-            case CloudFacts facts ->
-                backends.compute(
-                        session.serverName(),
-                        (name, known) -> new ServerFacts(
-                                facts.tickMicros(), known == null ? null : known.server(), facts.settings()));
-            case PlayerFacts facts ->
-                players.put(session.playerId(), new PlayerSettings(session.serverName(), facts.settings()));
+            case CloudFacts facts -> {
+                if (!keepServerFacts(session.serverName(), facts)) return;
+            }
+            case PlayerFacts facts -> {
+                if (!keepPlayerFacts(session, facts)) return;
+            }
             case Marker marker -> {
                 CultPlayer player = CultAPI.INSTANCE.getPlayerDataManager().getPlayer(session.playerId());
                 if (player != null) CloudCapture.markerAnswered(player, marker.marker());
@@ -333,8 +351,43 @@ public final class CloudBackends implements SegmentBinder, BridgeMessageListener
         factsChanged.accept(session.playerId());
     }
 
+    /** Whether the server's facts were kept; false once closed. */
+    private synchronized boolean keepServerFacts(String server, CloudFacts facts) {
+        if (closed) return false;
+        ServerFacts known = backends.get(server);
+        backends.put(
+                server,
+                new ServerFacts(
+                        facts.tickMicros(),
+                        known == null ? null : known.server(),
+                        accepted(facts.settings(), SERVER_SETTINGS)));
+        return true;
+    }
+
+    /** Whether the player's facts were kept and differ from those already kept. */
+    private synchronized boolean keepPlayerFacts(BridgeSession session, PlayerFacts facts) {
+        if (closed) return false;
+        PlayerSettings settings = new PlayerSettings(session.serverName(), accepted(facts.settings(), PLAYER_SETTINGS));
+        return !settings.equals(players.put(session.playerId(), settings));
+    }
+
+    /** The entries of {@code settings} that {@code shapes} names, with values of their shape. */
+    private static Map<String, String> accepted(Map<String, String> settings, Map<String, Pattern> shapes) {
+        Map<String, String> accepted = new LinkedHashMap<>();
+        settings.forEach((key, value) -> {
+            Pattern shape = shapes.get(key);
+            if (shape != null
+                    && value.length() <= MAX_SETTING_CHARS
+                    && shape.matcher(value).matches()) {
+                accepted.put(key, value);
+            }
+        });
+        return accepted;
+    }
+
     @Override
-    public void onClosed(BridgeSession session) {
+    public synchronized void onClosed(BridgeSession session) {
+        if (closed) return;
         if (!companions.contains(session.serverName())) withoutCompanion.add(session.serverName());
         players.computeIfPresent(
                 session.playerId(), (id, settings) -> settings.server().equals(session.serverName()) ? null : settings);
@@ -351,6 +404,7 @@ public final class CloudBackends implements SegmentBinder, BridgeMessageListener
     @Override
     public void close() {
         closed = true;
+        bridge.removeListener(this);
         if (installed == this) {
             installed = null;
             CloudCapture.segmentBinder(SegmentBinder.NONE);
@@ -362,9 +416,11 @@ public final class CloudBackends implements SegmentBinder, BridgeMessageListener
         }
         pending.clear();
         reconfiguring.clear();
-        players.clear();
-        backends.clear();
-        companions.clear();
-        withoutCompanion.clear();
+        synchronized (this) {
+            players.clear();
+            backends.clear();
+            companions.clear();
+            withoutCompanion.clear();
+        }
     }
 }

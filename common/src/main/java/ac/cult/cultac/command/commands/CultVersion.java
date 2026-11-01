@@ -4,6 +4,7 @@ import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.command.BuildableCommand;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.sender.Sender;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.cult.cultac.utils.common.arguments.CommonCultArguments;
@@ -30,8 +31,8 @@ import org.jetbrains.annotations.Nullable;
 public class CultVersion implements BuildableCommand {
 
     private static final AtomicReference<Component> updateMessage = new AtomicReference<>();
-    private static final HttpClient HTTP_CLIENT = ac.cult.cultac.runtime.RuntimeEnvironment.http(
-            Duration.of(CommonCultArguments.URL_TIMEOUT.value(), ChronoUnit.MILLIS));
+    private static final HttpClient HTTP_CLIENT =
+            RuntimeEnvironment.http(Duration.of(CommonCultArguments.URL_TIMEOUT.value(), ChronoUnit.MILLIS));
     private static long lastCheck;
 
     public static void checkForUpdatesAsync(Sender sender) {
@@ -163,8 +164,7 @@ public class CultVersion implements BuildableCommand {
 
     @Override
     public void register(CommandManager<Sender> commandManager, CloudPlatformCommandArguments arguments) {
-        commandManager.command(commandManager
-                .commandBuilder("cult", "cultac", "grim", "grimac")
+        commandManager.command(BuildableCommand.root(commandManager)
                 .literal("version")
                 .permission("cult.version")
                 .handler(this::handleVersion));

@@ -5,6 +5,7 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.CultWrite;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoRemove;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoUpdate;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoUpdate.Action;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoUpdate.Entry;
@@ -13,6 +14,7 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 public class PlayerInfoListener {
@@ -63,24 +65,25 @@ public class PlayerInfoListener {
         if (packet.entries().isEmpty()
                 || !packet.actions().contains(Action.ADD_PLAYER)
                         && !packet.actions().contains(Action.UPDATE_GAME_MODE)) return;
-        Set<java.util.UUID> visibleModes =
-                visibleEntries.stream().map(Entry::profileId).collect(Collectors.toUnmodifiableSet());
-        receiver.sendTransaction();
-        receiver.latencyUtils.addRealTimeTaskNext(() -> receiver.compensatedEntities.clientPlayerModes.update(
+        Set<UUID> visibleModes = visibleEntries.stream().map(Entry::profileId).collect(Collectors.toUnmodifiableSet());
+        prove(event, receiver, () -> receiver.compensatedEntities.clientPlayerModes.update(
                 packet, visibleModes, receiver.compensatedEntities.entityMap.values()));
-        event.getTasksAfterSend().add(receiver::sendTransaction);
+    }
+
+    /** Applies {@code task} once the client has handled the event's packet, at its flush proof. */
+    private static void prove(PacketSendEvent<?> event, CultPlayer receiver, Runnable task) {
+        int proof = receiver.appendFlushProofTransaction(event);
+        if (proof > 0) receiver.latencyUtils.addRealTimeTask(proof, task);
+        else receiver.latencyUtils.addRealTimeTaskNext(task);
     }
 
     @CultPacketHandler
     public void onPlayerInfoRemove(
-            PacketSendEvent<ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoRemove> event,
+            PacketSendEvent<ClientboundPlayerInfoRemove> event,
             CultPlayer receiver,
-            ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerInfoRemove packet) {
+            ClientboundPlayerInfoRemove packet) {
         if (receiver.isBedrockMovement()) return;
         if (packet.profiles().isEmpty()) return;
-        receiver.sendTransaction();
-        receiver.latencyUtils.addRealTimeTaskNext(
-                () -> receiver.compensatedEntities.clientPlayerModes.remove(packet.profiles()));
-        event.getTasksAfterSend().add(receiver::sendTransaction);
+        prove(event, receiver, () -> receiver.compensatedEntities.clientPlayerModes.remove(packet.profiles()));
     }
 }

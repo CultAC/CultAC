@@ -1,8 +1,10 @@
 package ac.cult.cultac.companion.bridge;
 
 import io.papermc.paper.configuration.GlobalConfiguration;
+import java.lang.invoke.MethodHandles;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
+import java.util.logging.Level;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.event.HandlerList;
@@ -76,6 +78,16 @@ public final class BridgeModule {
             plugin.getLogger()
                     .warning("The secret in plugins/CultAC-Companion/config.yml is shorter than " + MIN_SECRET_BYTES
                             + " bytes; use a long random value");
+        }
+        try {
+            MethodHandles.lookup().ensureInitialized(BridgeChannelHandler.class);
+        } catch (LinkageError | IllegalAccessException unsupported) {
+            plugin.getLogger()
+                    .log(
+                            Level.WARNING,
+                            "This server's custom payloads are unsupported; the CultAC proxy bridge stays disabled.",
+                            unsupported);
+            return DISABLED;
         }
         BridgeService bridge = new BridgeService(
                 key, new PaperPlatform(plugin), plugin.getLogger(), config.getBoolean("debug", false));

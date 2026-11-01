@@ -2,11 +2,12 @@ package ac.cult.cultac.utils.nmsutil;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.blocksim.entity.EntityTypes;
+import java.util.List;
 
 /** Queries immutable generated facts using a model entity ID. */
 public final class EntityTypeUtil {
     private static final EntityKey UNKNOWN = new EntityKey("minecraft", "unknown");
-    private static final java.util.List<EntityKey> KEYS = EntityTypes.defaults().types().stream()
+    private static final List<EntityKey> KEYS = EntityTypes.defaults().types().stream()
             .map(type -> EntityKey.parse(type.key()))
             .toList();
 
@@ -31,10 +32,6 @@ public final class EntityTypeUtil {
 
     public static boolean isHappyGhast(int type) {
         return isType(type, "happy_ghast");
-    }
-
-    public static boolean isProjectile(int type) {
-        return hasFamily(type, EntityTypes.PROJECTILE);
     }
 
     public static boolean isLiving(int type) {

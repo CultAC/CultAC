@@ -1,6 +1,7 @@
 package ac.cult.cultac.platform.velocity.bridge;
 
 import ac.cult.cultac.bridge.protocol.BridgeProtocol;
+import ac.cult.cultac.network.CultConnection;
 import com.velocitypowered.api.proxy.ServerConnection;
 import com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier;
 import io.netty.channel.Channel;
@@ -9,6 +10,7 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.util.function.Predicate;
+import org.jetbrains.annotations.Nullable;
 
 /** A Velocity backend connection; writes bypass the channel registrar so they stay in order. */
 public final class VelocityBackend implements BridgeBackend {
@@ -17,11 +19,17 @@ public final class VelocityBackend implements BridgeBackend {
     private final ServerConnection server;
     private final Channel client;
     private final Predicate<ServerConnection> inPlay;
+    private final @Nullable CultConnection ticks;
 
-    VelocityBackend(ServerConnection server, Channel client, Predicate<ServerConnection> inPlay) {
+    VelocityBackend(
+            ServerConnection server,
+            Channel client,
+            Predicate<ServerConnection> inPlay,
+            @Nullable CultConnection ticks) {
         this.server = server;
         this.client = client;
         this.inPlay = inPlay;
+        this.ticks = ticks;
     }
 
     @Override
@@ -37,6 +45,16 @@ public final class VelocityBackend implements BridgeBackend {
     @Override
     public void write(byte[] frame) {
         server.sendPluginMessage(CHANNEL, frame);
+    }
+
+    @Override
+    public boolean midClientTick() {
+        return ticks != null && ticks.midClientTick();
+    }
+
+    @Override
+    public void afterClientTick(Runnable task) {
+        if (ticks != null) ticks.afterClientTick(task);
     }
 
     @Override

@@ -1,11 +1,13 @@
 package ac.cult.cultac.cloud;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.cloud.diag.PredictionDiagnostics;
 import ac.cult.cultac.player.CultPlayer;
 import ac.grim.grimac.api.config.ConfigManager;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Function;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * The anticheat's only way into the cloud upload. Until {@code cloud.url} or {@code cloud.api-key}, or
@@ -31,9 +33,11 @@ public final class CloudModule {
             if (setting(config, System::getenv, "cloud.url", "CULTAC_CLOUD_URL", "")
                             .isEmpty()
                     && apiKey(config, System::getenv).isEmpty()) return;
+            CloudService.listenForTeam();
             loaded = true;
         }
         CloudService.configReloaded();
+        PredictionDiagnostics.readServerFields();
     }
 
     /** This server's intake key: {@code CULTAC_CLOUD_API_KEY}, else {@code cloud.api-key}; empty is off. */
@@ -77,6 +81,11 @@ public final class CloudModule {
     public static void superseded(String drainSuffix) {
         superseded = true;
         if (loaded) CloudService.superseded(drainSuffix);
+    }
+
+    /** The upload's current settings; null until a config names the upload. Any thread. */
+    public static @Nullable CloudSettings settings() {
+        return loaded ? CloudService.settings() : null;
     }
 
     /** The upload's status, one line each. */

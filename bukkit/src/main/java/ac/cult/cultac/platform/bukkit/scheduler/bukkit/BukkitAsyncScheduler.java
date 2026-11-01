@@ -4,6 +4,7 @@ import ac.cult.cultac.platform.api.scheduler.AsyncScheduler;
 import ac.cult.cultac.platform.api.scheduler.PlatformScheduler;
 import ac.cult.cultac.platform.api.scheduler.TaskHandle;
 import ac.cult.cultac.platform.bukkit.CultACBukkitLoaderPlugin;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.grim.grimac.api.plugin.GrimPlugin;
 import java.util.concurrent.TimeUnit;
 import org.bukkit.Bukkit;
@@ -16,7 +17,7 @@ public class BukkitAsyncScheduler implements AsyncScheduler {
 
     @Override
     public TaskHandle runNow(@NotNull GrimPlugin plugin, @NotNull Runnable task) {
-        final Runnable guarded_task = ac.cult.cultac.runtime.RuntimeEnvironment.guard(task);
+        final Runnable guarded_task = RuntimeEnvironment.guard(task);
 
         return new BukkitTaskHandle(
                 bukkitScheduler.runTaskAsynchronously(CultACBukkitLoaderPlugin.LOADER, guarded_task));
@@ -25,7 +26,7 @@ public class BukkitAsyncScheduler implements AsyncScheduler {
     @Override
     public TaskHandle runDelayed(
             @NotNull GrimPlugin plugin, @NotNull Runnable task, long delay, @NotNull TimeUnit timeUnit) {
-        final Runnable guarded_task = ac.cult.cultac.runtime.RuntimeEnvironment.guard(task);
+        final Runnable guarded_task = RuntimeEnvironment.guard(task);
 
         return new BukkitTaskHandle(bukkitScheduler.runTaskLaterAsynchronously(
                 CultACBukkitLoaderPlugin.LOADER, guarded_task, PlatformScheduler.convertTimeToTicks(delay, timeUnit)));
@@ -34,9 +35,9 @@ public class BukkitAsyncScheduler implements AsyncScheduler {
     @Override
     public TaskHandle runAtFixedRate(
             @NotNull GrimPlugin plugin, @NotNull Runnable task, long delay, long period, @NotNull TimeUnit timeUnit) {
-        final Runnable guarded_task = ac.cult.cultac.runtime.RuntimeEnvironment.guard(task);
+        final Runnable guarded_task = RuntimeEnvironment.guard(task);
 
-        return new BukkitTaskHandle(bukkitScheduler.runTaskTimerAsynchronously(
+        return BukkitTaskHandle.repeating(bukkitScheduler.runTaskTimerAsynchronously(
                 CultACBukkitLoaderPlugin.LOADER,
                 guarded_task,
                 PlatformScheduler.convertTimeToTicks(delay, timeUnit),
@@ -46,16 +47,15 @@ public class BukkitAsyncScheduler implements AsyncScheduler {
     @Override
     public TaskHandle runAtFixedRate(
             @NotNull GrimPlugin plugin, @NotNull Runnable task, long initialDelayTicks, long periodTicks) {
-        final Runnable guarded_task = ac.cult.cultac.runtime.RuntimeEnvironment.guard(task);
+        final Runnable guarded_task = RuntimeEnvironment.guard(task);
 
-        return new BukkitTaskHandle(bukkitScheduler.runTaskTimerAsynchronously(
+        return BukkitTaskHandle.repeating(bukkitScheduler.runTaskTimerAsynchronously(
                 CultACBukkitLoaderPlugin.LOADER, guarded_task, initialDelayTicks, periodTicks));
     }
 
     @Override
     public void cancel(@NotNull GrimPlugin plugin) {
-        if (ac.cult.cultac.runtime.RuntimeEnvironment.host() == null)
-            bukkitScheduler.cancelTasks(CultACBukkitLoaderPlugin.LOADER);
-        else ac.cult.cultac.runtime.RuntimeEnvironment.host().resources().close();
+        if (RuntimeEnvironment.host() == null) bukkitScheduler.cancelTasks(CultACBukkitLoaderPlugin.LOADER);
+        else RuntimeEnvironment.host().resources().close();
     }
 }

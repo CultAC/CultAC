@@ -11,6 +11,7 @@ import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
+import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.function.IntPredicate;
 import java.util.function.IntUnaryOperator;
@@ -18,20 +19,47 @@ import java.util.function.IntUnaryOperator;
 /** Connection-owned model IDs; shared sections are copied before mutation. */
 public final class PalettedSection {
     private static final int BLOCK_STATES = DataTables.defaults().registry().stateCount();
+    private static final int[] VALUES_PER_WORD = new int[33];
+    private static final long[] WORD_RECIPROCALS = new long[33];
+    private static final long ABSENT_CODE_WEIGHT = 1L << 50;
+    private static final long[] NO_WORDS = new long[0];
+
+    static {
+        for (int bits = 1; bits <= 32; bits++) {
+            int perWord = 64 / bits;
+            VALUES_PER_WORD[bits] = perWord;
+            WORD_RECIPROCALS[bits] = ((1L << 32) + perWord - 1) / perWord;
+        }
+    }
+
     private final int size, minimumBits, maximumLocalBits, registrySize;
     private int bits, paletteSize;
     private int[] palette;
     private Int2IntOpenHashMap indices;
     private long[] words;
+    private boolean sharedStorage;
 
     private PalettedSection(int size, int minimumBits, int maximumLocalBits, int registrySize, int initial) {
+        this(size, minimumBits, maximumLocalBits, registrySize, 0, new int[] {initial}, 1, NO_WORDS);
+    }
+
+    private PalettedSection(
+            int size,
+            int minimumBits,
+            int maximumLocalBits,
+            int registrySize,
+            int bits,
+            int[] palette,
+            int paletteSize,
+            long[] words) {
         this.size = size;
         this.minimumBits = minimumBits;
         this.maximumLocalBits = maximumLocalBits;
         this.registrySize = registrySize;
-        palette = new int[] {initial};
-        paletteSize = 1;
-        words = new long[0];
+        this.bits = bits;
+        this.palette = palette;
+        this.paletteSize = paletteSize;
+        this.words = words;
     }
 
     public static PalettedSection blocks() {
@@ -59,9 +87,21 @@ public final class PalettedSection {
         return read(input, 64, 1, 3, registrySize, !version.atLeast(ProtocolVersion.V1_21_5));
     }
 
+    /** {@link #readBlocks(ByteBuf, ProtocolVersion, int)} then {@link #remap}, remapping the read storage in place. */
+    public static PalettedSection readBlocks(
+            ByteBuf input, ProtocolVersion version, int registrySize, IntUnaryOperator mapper, int targetRegistrySize) {
+        return readBlocks(input, version, registrySize).remap(mapper, targetRegistrySize, true);
+    }
+
+    /** {@link #readBiomes(ByteBuf, ProtocolVersion, int)} then {@link #remap}, remapping the read storage in place. */
+    public static PalettedSection readBiomes(
+            ByteBuf input, ProtocolVersion version, int registrySize, IntUnaryOperator mapper, int targetRegistrySize) {
+        return readBiomes(input, version, registrySize).remap(mapper, targetRegistrySize, true);
+    }
+
     private static PalettedSection read(
             ByteBuf input, int size, int minimumBits, int maximumLocalBits, int registrySize, boolean lengthPrefixed) {
-        var section = new PalettedSection(size, minimumBits, maximumLocalBits, registrySize, 0);
+        var section = new PalettedSection(size, minimumBits, maximumLocalBits, registrySize, 0, null, 0, NO_WORDS);
         int wireBits = input.readByte();
         section.configure(wireBits);
         if (section.bits == 0 && !section.isGlobal()) {
@@ -72,7 +112,6 @@ public final class PalettedSection {
                     Wire.readLength(input, section.bits <= 4 ? section.palette.length : input.readableBytes());
             if (section.paletteSize > section.palette.length) section.palette = new int[section.paletteSize];
             for (int i = 0; i < section.paletteSize; i++) section.palette[i] = section.readId(input);
-            section.indexPalette();
         }
         if (lengthPrefixed) {
             // 1.21.2-1.21.4 PalettedContainer.read discards readLongArray's result when its
@@ -84,7 +123,16 @@ public final class PalettedSection {
             }
         }
         // Since 1.21.5 arrays have a fixed length derived from the configuration.
-        for (int i = 0; i < section.words.length; i++) section.words[i] = input.readLong();
+        int bytes = section.words.length * Long.BYTES;
+        if (bytes > 0 && input.readableBytes() >= bytes && input.nioBufferCount() == 1) {
+            input.nioBuffer(input.readerIndex(), bytes)
+                    .order(ByteOrder.BIG_ENDIAN)
+                    .asLongBuffer()
+                    .get(section.words);
+            input.skipBytes(bytes);
+        } else {
+            for (int i = 0; i < section.words.length; i++) section.words[i] = input.readLong();
+        }
         return section;
     }
 
@@ -106,6 +154,10 @@ public final class PalettedSection {
      * container is repacked at the target registry's width.
      */
     public PalettedSection remap(IntUnaryOperator mapper, int targetRegistrySize) {
+        return remap(mapper, targetRegistrySize, false);
+    }
+
+    private PalettedSection remap(IntUnaryOperator mapper, int targetRegistrySize, boolean reuseStorage) {
         if (isGlobal()) {
             var result = new PalettedSection(
                     size,
@@ -123,13 +175,16 @@ public final class PalettedSection {
             }
             return result;
         }
-        var result = new PalettedSection(size, minimumBits, maximumLocalBits, targetRegistrySize, 0);
-        result.bits = bits;
-        result.paletteSize = paletteSize;
-        result.palette = palette.clone();
+        var result = new PalettedSection(
+                size,
+                minimumBits,
+                maximumLocalBits,
+                targetRegistrySize,
+                bits,
+                reuseStorage ? palette : palette.clone(),
+                paletteSize,
+                reuseStorage ? words : words.clone());
         for (int i = 0; i < paletteSize; i++) result.palette[i] = mapped(mapper, palette[i], targetRegistrySize);
-        result.words = words.clone();
-        result.indexPalette();
         return result;
     }
 
@@ -156,7 +211,7 @@ public final class PalettedSection {
         palette = global ? null : new int[1 << bits];
         paletteSize = 0;
         indices = null;
-        words = bits == 0 ? new long[0] : new long[(size + 64 / bits - 1) / (64 / bits)];
+        words = bits == 0 ? NO_WORDS : new long[(size + 64 / bits - 1) / (64 / bits)];
     }
 
     private boolean isGlobal() {
@@ -172,8 +227,13 @@ public final class PalettedSection {
 
     private int codeAt(int index) {
         if (bits == 0) return 0;
-        int perWord = 64 / bits;
-        return (int) (words[index / perWord] >>> ((index % perWord) * bits) & ((1L << bits) - 1));
+        int word = wordIndex(index, bits);
+        return (int) (words[word] >>> ((index - word * VALUES_PER_WORD[bits]) * bits) & ((1L << bits) - 1));
+    }
+
+    /** {@code index / (64 / bits)}, exact for {@code 0 <= index < 65536}. */
+    static int wordIndex(int index, int bits) {
+        return (int) (index * WORD_RECIPROCALS[bits] >>> 32);
     }
 
     private void setCode(int index, int code) {
@@ -196,6 +256,7 @@ public final class PalettedSection {
     }
 
     public int getAndSet(int index, int state) {
+        if (sharedStorage) ownStorage();
         int code = idFor(state);
         int previous = get(index);
         setCode(index, code);
@@ -204,6 +265,7 @@ public final class PalettedSection {
 
     private int idFor(int state) {
         if (isGlobal()) return state;
+        if (indices == null) indexPalette();
         int existing = -1;
         if (indices != null) existing = indices.get(state);
         else
@@ -235,13 +297,30 @@ public final class PalettedSection {
     }
 
     public PalettedSection copy() {
-        var result = new PalettedSection(size, minimumBits, maximumLocalBits, registrySize, 0);
-        result.bits = bits;
-        result.palette = palette == null ? null : palette.clone();
-        result.paletteSize = paletteSize;
-        result.words = words.clone();
-        result.indexPalette();
+        return new PalettedSection(
+                size,
+                minimumBits,
+                maximumLocalBits,
+                registrySize,
+                bits,
+                palette == null ? null : palette.clone(),
+                paletteSize,
+                words.clone());
+    }
+
+    /** As {@link #copy}, sharing this section's storage until either section is next written. */
+    public PalettedSection copyOnWrite() {
+        var result = new PalettedSection(
+                size, minimumBits, maximumLocalBits, registrySize, bits, palette, paletteSize, words);
+        result.sharedStorage = true;
+        sharedStorage = true;
         return result;
+    }
+
+    private void ownStorage() {
+        if (palette != null) palette = palette.clone();
+        words = words.clone();
+        sharedStorage = false;
     }
 
     public PalettedSection translated(IntUnaryOperator mapper) {
@@ -252,6 +331,11 @@ public final class PalettedSection {
                 new PalettedSection(size, minimumBits, maximumLocalBits, registrySize, isGlobal() ? 0 : palette[0]);
         for (int i = 0; i < size; i++) result.getAndSet(i, changes.get(get(i)));
         return result;
+    }
+
+    /** The value at every index of a single-entry local palette; -1 for any other section. */
+    public int singleValue() {
+        return bits == 0 && !isGlobal() && paletteSize > 0 ? palette[0] : -1;
     }
 
     /** False for a global palette, whose entries are only known after reading every index. */
@@ -287,10 +371,111 @@ public final class PalettedSection {
         });
     }
 
+    /**
+     * As {@link #forEachCount}, in palette order, when the palette is local with every entry in [0, {@code limit})
+     * and every stored code has an entry; any other section takes {@link #forEachCount} itself.
+     */
+    public void forEachCountWithin(int limit, CountConsumer consumer) {
+        int perWord = bits == 0 ? 0 : 64 / bits;
+        if (paletteSize == 1
+                || bits == 0
+                || !localPaletteWithin(limit)
+                || words.length != (size + perWord - 1) / perWord) {
+            forEachCount(consumer);
+            return;
+        }
+        int[] counts = new int[1 << bits];
+        long mask = (1L << bits) - 1;
+        int index = 0;
+        for (long word : words) {
+            for (int shift = 0; shift < perWord * bits && index < size; shift += bits, index++)
+                counts[(int) (word >>> shift & mask)]++;
+        }
+        int entries = Math.min(paletteSize, counts.length);
+        for (int code = entries; code < counts.length; code++) {
+            if (counts[code] != 0) {
+                forEachCount(consumer);
+                return;
+            }
+        }
+        for (int code = 0; code < entries; code++) if (counts[code] != 0) consumer.accept(palette[code], counts[code]);
+    }
+
+    /**
+     * The sum of {@code weightByState} over every stored state, when the palette is local with every entry inside the
+     * table, every stored code has an entry and every weight is in [0, 2^38); -1 for any other section.
+     */
+    public long weightSumWithin(long[] weightByState) {
+        int perWord = bits == 0 ? 0 : 64 / bits;
+        if (paletteSize == 1
+                || bits == 0
+                || !localPaletteWithin(weightByState.length)
+                || words.length != (size + perWord - 1) / perWord) return -1;
+        long[] weights = new long[1 << bits];
+        Arrays.fill(weights, ABSENT_CODE_WEIGHT);
+        for (int code = 0, entries = Math.min(paletteSize, weights.length); code < entries; code++) {
+            long weight = weightByState[palette[code]];
+            if (weight < 0 || weight >= ABSENT_CODE_WEIGHT / 4096) return -1;
+            weights[code] = weight;
+        }
+        long sum;
+        if (size != words.length * perWord) sum = packedSum(weights, perWord);
+        else if (bits == 4) sum = nibbleSum(weights);
+        else if (bits == 8) sum = byteSum(weights);
+        else sum = packedSum(weights, perWord);
+        return sum >= ABSENT_CODE_WEIGHT ? -1 : sum;
+    }
+
+    private long nibbleSum(long[] weights) {
+        long even = 0, odd = 0;
+        for (long word : words) {
+            for (int shift = 0; shift < 64; shift += 8) {
+                even += weights[(int) (word >>> shift) & 15];
+                odd += weights[(int) (word >>> (shift + 4)) & 15];
+            }
+        }
+        return even + odd;
+    }
+
+    private long byteSum(long[] weights) {
+        long even = 0, odd = 0;
+        for (long word : words) {
+            for (int shift = 0; shift < 64; shift += 16) {
+                even += weights[(int) (word >>> shift) & 255];
+                odd += weights[(int) (word >>> (shift + 8)) & 255];
+            }
+        }
+        return even + odd;
+    }
+
+    private long packedSum(long[] weights, int perWord) {
+        long mask = (1L << bits) - 1, sum = 0;
+        int full = size / perWord;
+        for (int index = 0; index < full; index++) {
+            long word = words[index];
+            for (int slot = 0; slot < perWord; slot++, word >>>= bits) sum += weights[(int) (word & mask)];
+        }
+        if (full < words.length) {
+            long word = words[full];
+            for (int slot = full * perWord; slot < size; slot++, word >>>= bits) sum += weights[(int) (word & mask)];
+        }
+        return sum;
+    }
+
     boolean isUniform() {
-        int first = codeAt(0);
-        for (int i = 1; i < size; i++) if (codeAt(i) != first) return false;
-        return true;
+        if (bits == 0) return true;
+        int first = codeAt(0), perWord = 64 / bits, full = size / perWord;
+        if (words.length != (size + perWord - 1) / perWord) {
+            for (int i = 1; i < size; i++) if (codeAt(i) != first) return false;
+            return true;
+        }
+        long pattern = 0;
+        for (int slot = 0; slot < perWord; slot++) pattern |= (long) first << (slot * bits);
+        long used = perWord * bits == 64 ? -1L : (1L << (perWord * bits)) - 1;
+        for (int index = 0; index < full; index++) if ((words[index] & used) != pattern) return false;
+        if (full == words.length) return true;
+        long tail = (1L << ((size - full * perWord) * bits)) - 1;
+        return (words[full] & tail) == (pattern & tail);
     }
 
     int contentHash() {

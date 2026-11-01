@@ -2,6 +2,7 @@ package ac.cult.cultac.network;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
@@ -44,6 +45,39 @@ class PacketRoutesTest {
             assertNull(routes.get(PacketDirection.SERVERBOUND, ConnectionPhase.PLAY, pong));
             assertNull(routes.get(PacketDirection.SERVERBOUND, ConnectionPhase.PLAY, -1));
             assertNull(routes.get(PacketDirection.SERVERBOUND, ConnectionPhase.PLAY, Integer.MAX_VALUE));
+        }
+    }
+
+    /** Decoders reuse the route their predicate found for a type, and take the route's type as the packet's. */
+    @Test
+    void aTypeLookupReturnsTheEntryEveryBoundIdOfTheTypeReaches() {
+        for (ProtocolVersion version : ProtocolVersion.values()) {
+            ProtocolData data = ProtocolData.load(version);
+            ProtocolRuntime runtime = ProtocolRuntime.create(data);
+            PacketDispatcher routes = new PacketDispatcher(runtime);
+            routes.register(batch -> {
+                batch.receive(ServerboundPackets.MOVE_PLAYER, PacketListenerPriority.NORMAL, (e, p, packet) -> {});
+                batch.send(ClientboundPackets.PING, PacketListenerPriority.NORMAL, (e, p, packet) -> {});
+            });
+            int routed = 0;
+            for (ConnectionPhase phase : ConnectionPhase.values()) {
+                for (PacketDirection direction : PacketDirection.values()) {
+                    for (int id = 0; id < data.packets(phase, direction).size(); id++) {
+                        var binding = runtime.binding(phase, direction, id);
+                        var byId = routes.get(direction, phase, id);
+                        if (binding == null) {
+                            assertNull(byId);
+                            continue;
+                        }
+                        assertSame(byId, routes.get(binding.type()), version + "/" + phase + "/" + id);
+                        if (byId != null) {
+                            assertSame(binding.type(), byId.type());
+                            routed++;
+                        }
+                    }
+                }
+            }
+            assertTrue(routed > 2, version.toString());
         }
     }
 

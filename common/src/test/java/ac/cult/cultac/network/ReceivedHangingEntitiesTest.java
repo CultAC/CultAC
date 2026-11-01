@@ -22,6 +22,8 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityHanging;
 import ac.cult.cultac.utils.math.Vec3;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
+import java.nio.ByteBuffer;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class ReceivedHangingEntitiesTest {
@@ -43,7 +45,7 @@ class ReceivedHangingEntitiesTest {
             var metadata = Unpooled.buffer();
             try {
                 Wire.writeVarInt(metadata, 42);
-                metadata.writeByte(8);
+                metadata.writeByte(9);
                 Wire.writeVarInt(metadata, 7); // Item metadata.
                 Wire.writeVarInt(metadata, 1);
                 var names = ac.cult.cultac.network.codec.ModelRegistryNamesState.defaults();
@@ -57,7 +59,7 @@ class ReceivedHangingEntitiesTest {
                 metadata.writeByte(10).writeByte(5);
                 new io.netty.buffer.ByteBufOutputStream(metadata).writeUTF("opaque");
                 metadata.writeFloat(-0.0F).writeByte(0);
-                metadata.writeByte(9);
+                metadata.writeByte(10);
                 Wire.writeVarInt(metadata, 1); // Rotation integer.
                 Wire.writeVarInt(metadata, 3);
                 metadata.writeByte(255);
@@ -97,7 +99,7 @@ class ReceivedHangingEntitiesTest {
             metadata = Unpooled.buffer();
             try {
                 Wire.writeVarInt(metadata, 44);
-                metadata.writeByte(8);
+                metadata.writeByte(9);
                 Wire.writeVarInt(metadata, 34); // Painting variant metadata.
                 Wire.writeVarInt(metadata, 0); // Inline holder.
                 Wire.writeVarInt(metadata, 4);
@@ -115,6 +117,11 @@ class ReceivedHangingEntitiesTest {
                     painting.actionBounds(), Direction.NORTH, "minecraft:painting", false));
             assertFalse(view.hasHangingEntityOverlap(
                     painting.actionBounds(), Direction.NORTH, "minecraft:item_frame", true));
+            player.compensatedEntities.updateEntityMetadata(
+                    44,
+                    List.of(new EntityMetadata.Entry(
+                            8, ac.cult.cultac.protocol.value.Direction.SOUTH, ByteBuffer.allocate(0))));
+            assertEquals(new Box(-6, 63, 0, -2, 66, 0.0625), painting.actionBounds());
         }
     }
 

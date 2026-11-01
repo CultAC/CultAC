@@ -32,6 +32,7 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -99,6 +100,97 @@ class JavaSetbackPacketOrderingTest {
             assertFalse(teleports.isPendingSetback());
             assertEquals(2, setup.player.x, 1.0E-12);
             assertEquals(2, setup.player.z, 1.0E-12);
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = ProtocolVersion.class,
+            names = {"V26_2", "V26_3"})
+    void everyRelativeTeleportOfABurstSentBeforeTheFirstResponseIsAccepted(ProtocolVersion version)
+            throws Exception {
+        try (var setup = new Setup(version)) {
+            var teleports = setup.player.getSetbackTeleportUtil();
+            int burst = 65;
+            // Each X += 1 teleport follows its own leading ping; all are sent before the client answers the first.
+            for (int id = 1; id <= burst; id++) {
+                teleports.addSentTeleport(new Vec3(1, 64, .5), 20 + 2 * id, RelativeFlag.X, true, id);
+            }
+
+            for (int id = 1; id <= burst; id++) {
+                setup.player.lastTransactionReceived.set(20 + 2 * id);
+                double x = .5 + id;
+                if (version == ProtocolVersion.V26_2) {
+                    var ack = new ServerboundAcceptTeleportation(id, null, 0, 0);
+                    var ackEvent = new PacketReceiveEvent<>(
+                            setup.fixture.user, ConnectionPhase.PLAY, ServerboundPackets.ACCEPT_TELEPORTATION, ack);
+                    new PacketServerTeleport().onAcceptTeleportation(ackEvent, setup.player, ack);
+                    var packet = new ServerboundMovePlayer(x, 64, .5, 0, 0, false, false, true, true);
+                    var event = new PacketReceiveEvent<>(
+                            setup.fixture.user, ConnectionPhase.PLAY, ServerboundPackets.MOVE_PLAYER, packet);
+                    setup.listener.onMovePlayer(event, setup.player, packet);
+                } else {
+                    var packet = new ServerboundAcceptTeleportation(id, new Vec3d(x, 64, .5), 0, 0);
+                    var event = new PacketReceiveEvent<>(
+                            setup.fixture.user, ConnectionPhase.PLAY, ServerboundPackets.ACCEPT_TELEPORTATION, packet);
+                    new PacketServerTeleport().onAcceptTeleportation(event, setup.player, packet);
+                    assertFalse(event.isCancelled(), "teleport " + id);
+                }
+                assertEquals(burst - id, teleports.pendingTeleports.size(), "teleport " + id);
+                assertEquals(x, setup.player.x, 1.0E-12, "teleport " + id);
+                assertFalse(teleports.hasWithheldJavaTeleport(), "teleport " + id);
+            }
+            assertTrue(teleports.pendingTeleports.isEmpty());
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = ProtocolVersion.class,
+            names = {"V26_2", "V26_3"})
+    void aTeleportProcessedWithoutItsResponseIsWithheld(ProtocolVersion version) throws Exception {
+        try (var setup = new Setup(version)) {
+            var teleports = setup.player.getSetbackTeleportUtil();
+            teleports.addSentTeleport(new Vec3(2, 64, 2), 20, new RelativeFlag(0), true, 1);
+            teleports.addSentTeleport(new Vec3(3, 64, 3), 22, new RelativeFlag(0), true, 2);
+            // handleMovePlayer answers before the client handles the trailing ping, so until that pong it may be
+            // in flight.
+            setup.player.lastTransactionReceived.set(20);
+            assertFalse(teleports.hasWithheldJavaTeleport());
+            // From 26.3 a wrong position is still an answer; checkTeleportQueue judges it.
+            var ack = new ServerboundAcceptTeleportation(
+                    1, version == ProtocolVersion.V26_2 ? null : new Vec3d(9, 64, 9), 0, 0);
+            var event = new PacketReceiveEvent<>(
+                    setup.fixture.user, ConnectionPhase.PLAY, ServerboundPackets.ACCEPT_TELEPORTATION, ack);
+            new PacketServerTeleport().onAcceptTeleportation(event, setup.player, ack);
+            if (version == ProtocolVersion.V26_2) setup.posRot(2);
+            setup.player.lastTransactionReceived.set(22);
+            assertFalse(teleports.hasWithheldJavaTeleport());
+
+            setup.player.lastTransactionReceived.set(23);
+            assertTrue(teleports.hasWithheldJavaTeleport());
+        }
+    }
+
+    @Test
+    void anIdBefore26_3IsNoAnswerWithoutThePosRotThatFollowsIt() throws Exception {
+        try (var setup = new Setup(ProtocolVersion.V26_2)) {
+            var teleports = setup.player.getSetbackTeleportUtil();
+            int pending = 128;
+            for (int id = 1; id <= pending; id++) {
+                teleports.addSentTeleport(new Vec3(2, 64, 2), 20 + 2 * id, new RelativeFlag(0), true, id);
+            }
+            setup.player.lastTransactionReceived.set(22);
+            var ack = new ServerboundAcceptTeleportation(1, null, 0, 0);
+            var event = new PacketReceiveEvent<>(
+                    setup.fixture.user, ConnectionPhase.PLAY, ServerboundPackets.ACCEPT_TELEPORTATION, ack);
+            new PacketServerTeleport().onAcceptTeleportation(event, setup.player, ack);
+            assertFalse(teleports.hasWithheldJavaTeleport());
+
+            // handleMovePlayer sends the PosRot right after the ID, before the client handles the trailing ping.
+            setup.player.lastTransactionReceived.set(23);
+            assertTrue(teleports.hasWithheldJavaTeleport());
+            assertEquals(pending, teleports.pendingTeleports.size());
         }
     }
 
@@ -252,6 +344,14 @@ class JavaSetbackPacketOrderingTest {
                     fixture.user, ConnectionPhase.PLAY, ServerboundPackets.MOVE_PLAYER, packet);
             listener.onMovePlayer(event, player, packet);
             return event;
+        }
+
+        void posRot(double xz) {
+            var packet = new ServerboundMovePlayer(xz, 64, xz, 0, 0, false, false, true, true);
+            listener.onMovePlayer(
+                    new PacketReceiveEvent<>(fixture.user, ConnectionPhase.PLAY, ServerboundPackets.MOVE_PLAYER, packet),
+                    player,
+                    packet);
         }
 
         void rotationTick(float yaw) {

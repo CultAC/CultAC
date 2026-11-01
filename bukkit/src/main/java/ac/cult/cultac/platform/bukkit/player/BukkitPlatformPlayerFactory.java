@@ -1,13 +1,10 @@
 package ac.cult.cultac.platform.bukkit.player;
 
 import ac.cult.cultac.platform.api.player.AbstractPlatformPlayerFactory;
-import ac.cult.cultac.platform.api.player.OfflinePlatformPlayer;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.UUID;
 import org.bukkit.Bukkit;
-import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
@@ -38,27 +35,6 @@ public class BukkitPlatformPlayerFactory extends AbstractPlatformPlayerFactory<P
     @Override
     @SuppressWarnings("unchecked")
     protected Collection<Player> getNativeOnlinePlayers() {
-        // Cast Collection<? extends Player> to Collection<Player>
         return (Collection<Player>) Bukkit.getOnlinePlayers();
-    }
-
-    @Override
-    public OfflinePlatformPlayer getOfflineFromUUID(@NotNull UUID uuid) {
-        return new BukkitOfflinePlatformPlayer(Bukkit.getOfflinePlayer(uuid));
-    }
-
-    @Override
-    public OfflinePlatformPlayer getOfflineFromName(@NotNull String name) {
-        return new BukkitOfflinePlatformPlayer(Bukkit.getOfflinePlayer(name));
-    }
-
-    @Override
-    public Collection<OfflinePlatformPlayer> getOfflinePlayers() {
-        OfflinePlayer[] offlinePlayers = Bukkit.getOfflinePlayers();
-        BukkitOfflinePlatformPlayer[] offlinePlatformPlayers = new BukkitOfflinePlatformPlayer[offlinePlayers.length];
-        for (int i = 0; i < offlinePlayers.length; i++) {
-            offlinePlatformPlayers[i] = new BukkitOfflinePlatformPlayer(offlinePlayers[i]);
-        }
-        return Arrays.asList(offlinePlatformPlayers);
     }
 }

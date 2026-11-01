@@ -9,8 +9,18 @@ public final class RegistryNames {
     private final Map<String, IdTable> registries;
 
     public RegistryNames(Map<String, List<String>> names) {
+        this(names, null);
+    }
+
+    /** As {@link #RegistryNames(Map)}, sharing {@code previous}'s table for each registry whose names are equal. */
+    public RegistryNames(Map<String, List<String>> names, RegistryNames previous) {
         var tables = new HashMap<String, IdTable>();
-        names.forEach((registry, entries) -> tables.put(registry, new IdTable(registry, entries)));
+        names.forEach((registry, entries) -> {
+            IdTable shared = previous == null ? null : previous.registries.get(registry);
+            tables.put(
+                    registry,
+                    shared != null && shared.names().equals(entries) ? shared : new IdTable(registry, entries));
+        });
         registries = Map.copyOf(tables);
     }
 

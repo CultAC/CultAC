@@ -22,7 +22,6 @@ import java.util.LinkedList;
 /*
  * @author Inspired and originally written Sim0n
  * Correct digging logic by DefineOutside
- * Modified for use on 1.9+ clients
  */
 public abstract class AutoClickCheck extends Check implements CheckListener, ClientTickEndListener {
     private final LinkedList<Long> samples = new LinkedList<>();
@@ -120,13 +119,13 @@ public abstract class AutoClickCheck extends Check implements CheckListener, Cli
 
     @Override
     public void onPlayerTickEnd(PacketReceiveEvent event) {
+        if (diggingLocation == null) return;
         Vector3dm playerPos = new Vector3dm(player.lastX, player.lastY, player.lastZ);
 
         // If the player isn't within 10 blocks of the block they are digging, don't bother.
-        if (diggingLocation != null
-                && playerPos.distanceSquared(
-                                new Vector3dm(diggingLocation.getX(), diggingLocation.getY(), diggingLocation.getZ()))
-                        < 100) {
+        if (playerPos.distanceSquared(
+                        new Vector3dm(diggingLocation.getX(), diggingLocation.getY(), diggingLocation.getZ()))
+                < 100) {
             if (lastDiggingAction
                     == PlayerAction.START_DESTROY_BLOCK) { // START_BREAK without FINISH_BREAK or CANCEL_BREAK
                 lastDigging.reset();

@@ -6,6 +6,8 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.ProtocolRuntime;
+import java.lang.invoke.CallSite;
+import java.lang.invoke.LambdaMetafactory;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
@@ -25,6 +27,8 @@ public final class PacketHandlerScanner {
     /** Listener, event, player, packet. */
     private static final MethodType DISPATCH_TYPE =
             MethodType.methodType(void.class, Object.class, Object.class, CultPlayer.class, Object.class);
+
+    private static final MethodType INVOKER_FACTORY_TYPE = MethodType.methodType(Invoker.class);
 
     private final ProtocolRuntime runtime;
     private final ClassValue<Schema> schemas = new ClassValue<>() {
@@ -78,9 +82,10 @@ public final class PacketHandlerScanner {
         List<ReceiveRegistration> receives = new ArrayList<>();
         for (Entry entry : schema(listener.getClass()).entries()) {
             if (entry.direction() != PacketDirection.SERVERBOUND || entry.packetType() == null) continue;
-            MethodHandle handle = entry.handle();
+            Invoker invoker = entry.invoker();
+            Method method = entry.method();
             PacketReceiveHandler<Object> callback =
-                    (event, player, packet) -> invoke(handle, entry.method(), listener, event, player, packet);
+                    (event, player, packet) -> invoke(invoker, method, listener, event, player, packet);
             receives.add(new ReceiveRegistration(entry.packetType(), callback, entry.method()));
         }
         return List.copyOf(receives);
@@ -92,9 +97,10 @@ public final class PacketHandlerScanner {
         List<SendRegistration> sends = new ArrayList<>();
         for (Entry entry : schema(listener.getClass()).entries()) {
             if (entry.direction() != PacketDirection.CLIENTBOUND || entry.packetType() == null) continue;
-            MethodHandle handle = entry.handle();
+            Invoker invoker = entry.invoker();
+            Method method = entry.method();
             PacketSendHandler<Object> callback =
-                    (event, player, packet) -> invoke(handle, entry.method(), listener, event, player, packet);
+                    (event, player, packet) -> invoke(invoker, method, listener, event, player, packet);
             sends.add(new SendRegistration(entry.packetType(), callback, entry.method()));
         }
         return List.copyOf(sends);
@@ -128,13 +134,27 @@ public final class PacketHandlerScanner {
                 throw invalid(listenerClass, method, "duplicates " + direction + " handler for " + packetType);
             }
             // Keep unsupported declarations: direction checks still need them.
-            entries.add(new Entry(method, direction, packetType, unboundHandle(listenerClass, method)));
+            entries.add(new Entry(method, direction, packetType, invoker(listenerClass, method)));
         }
         return new Schema(List.copyOf(entries));
     }
 
-    /** {@code handle} takes the listener as its first argument and is shared by every listener of the class. */
-    record Entry(Method method, PacketDirection direction, PacketType<?> packetType, MethodHandle handle) {}
+    /** {@code invoker} takes the listener as its first argument and is shared by every listener of the class. */
+    record Entry(Method method, PacketDirection direction, PacketType<?> packetType, Invoker invoker) {}
+
+    /** Listener, event, player, packet. Public because spun implementations live in the handler's package. */
+    @FunctionalInterface
+    public interface Invoker {
+        void call(Object listener, Object event, CultPlayer player, Object packet) throws Throwable;
+    }
+
+    /** The reflective path for handlers a spun class cannot reach. */
+    record HandleInvoker(MethodHandle handle) implements Invoker {
+        @Override
+        public void call(Object listener, Object event, CultPlayer player, Object packet) throws Throwable {
+            handle.invokeExact(listener, event, player, packet);
+        }
+    }
 
     record Schema(List<Entry> entries) {
         boolean hasDeclaration(PacketDirection direction) {
@@ -205,7 +225,13 @@ public final class PacketHandlerScanner {
         throw invalid(listenerClass, method, "first parameter must be PacketReceiveEvent or PacketSendEvent");
     }
 
-    private static MethodHandle unboundHandle(Class<?> listenerClass, Method method) {
+    private static Invoker invoker(Class<?> listenerClass, Method method) {
+        MethodHandle handle = unboundHandle(listenerClass, method);
+        Invoker direct = directInvoker(method);
+        return direct != null ? direct : new HandleInvoker(handle);
+    }
+
+    static MethodHandle unboundHandle(Class<?> listenerClass, Method method) {
         try {
             method.setAccessible(true);
             return MethodHandles.lookup().unreflect(method).asType(DISPATCH_TYPE);
@@ -214,10 +240,24 @@ public final class PacketHandlerScanner {
         }
     }
 
-    private static void invoke(
-            MethodHandle handle, Method method, Object listener, Object event, CultPlayer player, Object packet) {
+    /** A spun class that calls {@code method} directly, or null when the declaring class's lookup cannot host it. */
+    static Invoker directInvoker(Method method) {
         try {
-            handle.invokeExact(listener, event, player, packet);
+            var lookup = MethodHandles.privateLookupIn(method.getDeclaringClass(), MethodHandles.lookup());
+            MethodHandle target = lookup.unreflect(method);
+            CallSite site = LambdaMetafactory.metafactory(
+                    lookup, "call", INVOKER_FACTORY_TYPE, DISPATCH_TYPE, target, target.type());
+            return (Invoker) site.getTarget().invoke();
+        } catch (Throwable unavailable) {
+            if (unavailable instanceof VirtualMachineError error) throw error;
+            return null;
+        }
+    }
+
+    private static void invoke(
+            Invoker invoker, Method method, Object listener, Object event, CultPlayer player, Object packet) {
+        try {
+            invoker.call(listener, event, player, packet);
         } catch (Throwable failure) {
             throw invocationFailure(method, failure);
         }

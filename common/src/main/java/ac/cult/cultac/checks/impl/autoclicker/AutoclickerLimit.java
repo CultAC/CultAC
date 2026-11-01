@@ -8,7 +8,6 @@ import ac.grim.grimac.api.config.ConfigManager;
 import java.util.LinkedList;
 import org.jetbrains.annotations.NotNull;
 
-// @CheckData(name = "Autoclicker (Limit)", configName = "AutoclickerLimit")
 public class AutoclickerLimit extends AutoClickCheck {
     double maxCps = 25;
 
@@ -17,6 +16,7 @@ public class AutoclickerLimit extends AutoClickCheck {
                 playerData,
                 CheckInfo.builder()
                         .name("AutoClickerLimit")
+                        .description("Clicked too fast")
                         .configName("AutoclickerLimit")
                         .stableKey("cult.autoclicker.limit")
                         .build(),

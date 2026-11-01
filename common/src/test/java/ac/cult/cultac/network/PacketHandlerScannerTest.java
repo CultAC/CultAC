@@ -15,6 +15,7 @@ import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPing;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
+import java.io.IOException;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -114,6 +115,139 @@ class PacketHandlerScannerTest {
     void requestingOneDirectionStillValidatesDeclarationsInTheOtherDirection() {
         assertThrows(IllegalStateException.class, () -> scanner.receiveHandlers(new InvalidSend()));
         assertThrows(IllegalStateException.class, () -> scanner.sendHandlers(new InvalidReceive()));
+    }
+
+    @Test
+    void everyHandlerShapeIsCalledThroughASpunClass() {
+        for (Class<?> type : List.of(
+                Movement.class, Child.class, Duplex.class, Loaded.class, Throwing.class, PrivateHandler.class)) {
+            for (var entry : scanner.schema(type).entries()) {
+                assertFalse(
+                        entry.invoker() instanceof PacketHandlerScanner.HandleInvoker,
+                        entry.method().toString());
+            }
+        }
+    }
+
+    @Test
+    void privateHandlersAreBoundAndCalled() {
+        var listener = new PrivateHandler();
+        scanner.receiveHandlers(listener).getFirst().handler().handle(null, null, new ServerboundPong(3));
+        assertEquals(3, listener.received);
+    }
+
+    @Test
+    void unwrappedFailuresPropagateAsTheSameInstanceInBothDirections() {
+        var listener = new Throwing();
+        PacketReceiveHandler<Object> receive =
+                scanner.receiveHandlers(listener).getFirst().handler();
+        PacketSendHandler<Object> send =
+                scanner.sendHandlers(listener).getFirst().handler();
+        for (Throwable failure : List.<Throwable>of(
+                new IllegalArgumentException("runtime"), new AssertionError("error"), new LinkageError("linkage"))) {
+            listener.failure = failure;
+            assertSame(
+                    failure, assertThrows(Throwable.class, () -> receive.handle(null, null, new ServerboundPong(1))));
+            assertSame(failure, assertThrows(Throwable.class, () -> send.handle(null, null, new ClientboundPing(1))));
+        }
+    }
+
+    @Test
+    void checkedFailuresAreWrappedWithTheHandlerMethod() throws NoSuchMethodException {
+        var listener = new Throwing();
+        var receive = scanner.receiveHandlers(listener).getFirst();
+        var send = scanner.sendHandlers(listener).getFirst();
+        for (Throwable failure : List.<Throwable>of(new IOException("checked"), new Throwable("raw"))) {
+            listener.failure = failure;
+            var received = assertThrows(
+                    IllegalStateException.class, () -> receive.handler().handle(null, null, new ServerboundPong(1)));
+            assertEquals("Packet handler failed: " + receive.method(), received.getMessage());
+            assertSame(failure, received.getCause());
+            var sent = assertThrows(
+                    IllegalStateException.class, () -> send.handler().handle(null, null, new ClientboundPing(1)));
+            assertEquals("Packet handler failed: " + send.method(), sent.getMessage());
+            assertSame(failure, sent.getCause());
+        }
+        assertEquals(
+                Throwing.class.getDeclaredMethod(
+                        "pong", PacketReceiveEvent.class, CultPlayer.class, ServerboundPong.class),
+                receive.method());
+    }
+
+    @Test
+    void spunAndReflectiveInvokersBehaveTheSame() throws Throwable {
+        for (Class<?> type : List.of(Movement.class, Child.class, Duplex.class, PrivateHandler.class)) {
+            for (var entry : scanner.schema(type).entries()) {
+                var reflective = new PacketHandlerScanner.HandleInvoker(
+                        PacketHandlerScanner.unboundHandle(type, entry.method()));
+                Object packet = entry.packetType().recordClass() == ServerboundMovePlayer.class
+                        ? new ServerboundMovePlayer(1, 2, 3, 4, 5, false, false, true, true)
+                        : entry.packetType().recordClass() == ServerboundPong.class
+                                ? new ServerboundPong(9)
+                                : new ClientboundPing(9);
+                Object spunListener = type.getDeclaredConstructor().newInstance();
+                Object reflectiveListener = type.getDeclaredConstructor().newInstance();
+                entry.invoker().call(spunListener, null, null, packet);
+                reflective.call(reflectiveListener, null, null, packet);
+                assertEquals(
+                        state(reflectiveListener),
+                        state(spunListener),
+                        entry.method().toString());
+                assertThrows(ClassCastException.class, () -> entry.invoker().call(spunListener, null, null, "x"));
+                assertThrows(ClassCastException.class, () -> reflective.call(reflectiveListener, null, null, "x"));
+                if (!entry.method().getDeclaringClass().isInterface()) {
+                    assertThrows(ClassCastException.class, () -> entry.invoker().call("x", null, null, packet));
+                    assertThrows(ClassCastException.class, () -> reflective.call("x", null, null, packet));
+                }
+            }
+        }
+        var throwing = new Throwing();
+        var entry = scanner.schema(Throwing.class).entries().getFirst();
+        var reflective = new PacketHandlerScanner.HandleInvoker(
+                PacketHandlerScanner.unboundHandle(Throwing.class, entry.method()));
+        throwing.failure = new IOException("checked");
+        Object packet = entry.packetType().recordClass() == ServerboundPong.class
+                ? new ServerboundPong(1)
+                : new ClientboundPing(1);
+        assertSame(
+                throwing.failure,
+                assertThrows(Throwable.class, () -> entry.invoker().call(throwing, null, null, packet)));
+        assertSame(
+                throwing.failure, assertThrows(Throwable.class, () -> reflective.call(throwing, null, null, packet)));
+    }
+
+    private static String state(Object listener) {
+        return switch (listener) {
+            case Movement movement -> String.valueOf(movement.packet);
+            case Child child -> child.moves + "/" + child.pongs;
+            case Duplex duplex -> duplex.received + "/" + duplex.sent;
+            case PrivateHandler handler -> String.valueOf(handler.received);
+            default -> throw new AssertionError(listener);
+        };
+    }
+
+    static class Throwing {
+        Throwable failure;
+
+        @CultPacketHandler
+        void pong(PacketReceiveEvent<ServerboundPong> event, CultPlayer player, ServerboundPong packet)
+                throws Throwable {
+            throw failure;
+        }
+
+        @CultPacketHandler
+        void ping(PacketSendEvent<ClientboundPing> event, CultPlayer player, ClientboundPing packet) throws Throwable {
+            throw failure;
+        }
+    }
+
+    static class PrivateHandler {
+        int received;
+
+        @CultPacketHandler
+        private void pong(PacketReceiveEvent<ServerboundPong> event, CultPlayer player, ServerboundPong packet) {
+            received = packet.id();
+        }
     }
 
     static class Duplex {

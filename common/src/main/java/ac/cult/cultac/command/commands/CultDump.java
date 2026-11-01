@@ -8,7 +8,6 @@ import ac.cult.cultac.platform.api.PlatformPlugin;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.protocol.ProtocolVersion;
-import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.cult.cultac.utils.common.PropertiesUtil;
 import ac.cult.cultac.utils.reflection.ReflectionUtils;
 import com.google.gson.Gson;
@@ -33,8 +32,7 @@ public class CultDump implements BuildableCommand {
 
     @Override
     public void register(CommandManager<Sender> commandManager, CloudPlatformCommandArguments arguments) {
-        commandManager.command(commandManager
-                .commandBuilder("cult", "cultac", "grim", "grimac")
+        commandManager.command(BuildableCommand.root(commandManager)
                 .literal("dump", Description.of("Generate a debug dump"))
                 .permission("cult.dump")
                 .handler(this::handleDump));
@@ -44,15 +42,16 @@ public class CultDump implements BuildableCommand {
         Sender sender = context.sender();
 
         if (link != null) {
-            sender.sendMessage(MessageUtil.miniMessage(CultAPI.INSTANCE
-                    .getConfigManager()
-                    .getConfig()
-                    .getStringElse("upload-log", "%prefix% &fUploaded debug to: %url%")
-                    .replace("%url%", link)));
+            sender.sendMessage(CultLog.uploadedMessage(
+                    sender,
+                    CultAPI.INSTANCE
+                            .getConfigManager()
+                            .getConfig()
+                            .getStringElse("upload-log", "%prefix% &fUploaded debug to: %url%"),
+                    link));
             return;
         }
-        // TODO: change this back to application/json once allowed
-        CultLog.sendLogAsync(sender, generateDump(), string -> link = string, "text/yaml");
+        CultLog.sendLogAsync(sender, generateDump(), string -> link = string, "text/json");
     }
 
     public static JsonObject getDumpInfo() {
@@ -69,8 +68,7 @@ public class CultDump implements BuildableCommand {
         // state of different properties
         JsonObject states = new JsonObject();
         base.add("states", states);
-        if (CultAPI.INSTANCE.isInitialized())
-            states.addProperty("platform", CultAPI.INSTANCE.getPlatform().toString());
+        states.addProperty("platform", CultAPI.INSTANCE.getPlatform().toString());
         if (ViaVersionUtil.isAvailable()) states.addProperty("has_viaversion", true);
         if (PAPER) states.addProperty("has_paper", true);
         // include some relevant settings if not default

@@ -1,7 +1,5 @@
 package ac.cult.cultac.utils.math;
 
-import ac.cult.cultac.network.protocol.ClientVersion;
-import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import lombok.experimental.UtilityClass;
 import org.jetbrains.annotations.Contract;
@@ -12,13 +10,6 @@ public class VectorUtils {
     // Sentinel velocity magnitude used when probing the extreme corners of the valid
     // starting-velocity envelope; large enough to exceed any legitimate movement.
     public static final double LARGE_MOVEMENT = 1000;
-
-    public static @NotNull Vector3dm cutBoxToVector(
-            @NotNull Vector3dm vectorToCutTo, @NotNull Vector3dm min, @NotNull Vector3dm max) {
-        SimpleCollisionBox box =
-                new SimpleCollisionBox(min.getX(), min.getY(), min.getZ(), max.getX(), max.getY(), max.getZ()).sort();
-        return cutBoxToVector(vectorToCutTo, box);
-    }
 
     @Contract("_, _ -> new")
     public static @NotNull Vector3dm cutBoxToVector(@NotNull Vector3dm vectorCutTo, @NotNull SimpleCollisionBox box) {
@@ -48,27 +39,5 @@ public class VectorUtils {
         double z = CultMath.clamp(toClamp.z, -3.0E7D, 3.0E7D);
 
         return new Vec3(x, y, z);
-    }
-
-    public static Vector3dm normalize(CultPlayer player, Vector3dm vec) {
-        return normalize(player.getClientVersion(), vec);
-    }
-
-    public static Vector3dm normalize(ClientVersion version, Vector3dm vec) {
-        double d0 = getVanillaLength(version, vec);
-        return modern$normalize(vec, d0);
-    }
-
-    public static double getVanillaLength(ClientVersion version, Vector3dm vec) {
-        return getVanillaLength(version, vec.getX(), vec.getY(), vec.getZ());
-    }
-
-    public static double getVanillaLength(ClientVersion version, double x, double y, double z) {
-        double lengthSquared = x * x + y * y + z * z;
-        return Math.sqrt(lengthSquared);
-    }
-
-    private static Vector3dm modern$normalize(Vector3dm vec, double d0) {
-        return d0 < 1.0E-5F ? new Vector3dm() : new Vector3dm(vec.getX() / d0, vec.getY() / d0, vec.getZ() / d0);
     }
 }

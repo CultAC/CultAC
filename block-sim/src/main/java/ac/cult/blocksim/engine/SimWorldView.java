@@ -56,4 +56,9 @@ public interface SimWorldView {
     boolean hasHangingEntityOverlap(ac.cult.blocksim.data.Box box, Direction direction, String type, boolean allowSameType);
     /** MovingPistonBlock delegates to the client-visible piston block entity. Local coordinates. */
     ac.cult.blocksim.engine.shapes.VoxelShape movingPistonCollisionAt(BlockPos pos);
+
+    /** A query whose client answer the host has not proved; the facade converts it to the UNDECIDED decline. */
+    final class UndecidedQueryException extends RuntimeException {
+        public UndecidedQueryException(String query) { super("Undecided simulator input: " + query, null, false, false); }
+    }
 }

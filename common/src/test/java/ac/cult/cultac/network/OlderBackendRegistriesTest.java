@@ -8,6 +8,7 @@ import ac.cult.blocksim.data.nbt.BinaryNbt;
 import ac.cult.blocksim.data.nbt.NbtValue;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.blocksim.entity.PaintingSize;
+import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsF;
 import ac.cult.cultac.events.packets.PacketModelRegistryNames;
@@ -15,6 +16,7 @@ import ac.cult.cultac.events.packets.PacketServerRegistries;
 import ac.cult.cultac.events.packets.PacketWorldBorder;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
 import ac.cult.cultac.events.packets.worldreader.PacketWorldReaderTwentySix;
+import ac.cult.cultac.network.codec.WireRegistryState;
 import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
@@ -238,6 +240,27 @@ class OlderBackendRegistriesTest {
                     fixture.player.getWorldRegistries().placeablePaintings());
             hang(player, wall);
             assertEquals(1, player.getInventory().getHeldItem().getCount(), "Only the 3x2 variant is placeable");
+        }
+    }
+
+    @Test
+    void withdrawnConnectionStartsEachConfigurationAfresh() throws Exception {
+        try (var services = new RecordConsumerServices();
+                var fixture = RecordReceiveFixture.olderHost(HOST)) {
+            listen(fixture);
+            // An exempt or fail-open player is withdrawn but keeps its transport, which still decodes registries.
+            assertTrue(CultAPI.INSTANCE.getPlayerDataManager().remove(fixture.user));
+            var received = (WireRegistryState) fixture.connection
+                    .platform()
+                    .modelValues()
+                    .packetValues(HOST, fixture.connection)
+                    .sourceRegistries();
+            for (int configuration = 0; configuration < 3; configuration++) {
+                reconfigure(fixture);
+                send(fixture, registry(fixture, PAINTING, murals()));
+                finishConfiguration(fixture);
+                assertEquals(murals().size(), received.size(PAINTING));
+            }
         }
     }
 

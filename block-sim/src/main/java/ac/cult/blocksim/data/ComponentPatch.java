@@ -38,7 +38,7 @@ public record ComponentPatch(Components added, Set<String> removed) {
             }
         });
         return values.isEmpty() && removed.isEmpty() ? EMPTY
-                : new ComponentPatch(new Components(values, encoded, details), removed);
+                : new ComponentPatch(Components.adopt(values, encoded, details), removed);
     }
 
     /** Authored codec values; received values use fromNbt to retain their exact NBT kinds. */
@@ -102,10 +102,5 @@ public record ComponentPatch(Components added, Set<String> removed) {
         // including dropping metadata which did not belong to a surviving value.
         return new ComponentPatch(keptAdded == null ? Components.EMPTY : added.subset(keptAdded),
                 keptRemoved == null ? Set.of() : keptRemoved);
-    }
-    public ComponentPatch forget(Set<String> consumed) {
-        var kept = new HashSet<>(added.keys()); kept.removeAll(consumed);
-        var keptRemoved = new HashSet<>(removed); keptRemoved.removeAll(consumed);
-        return new ComponentPatch(added.subset(kept), keptRemoved);
     }
 }

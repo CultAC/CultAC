@@ -97,6 +97,20 @@ class NoSlowClearTest {
         });
     }
 
+    @Test
+    void unslowedMainHandUseIsCorrectedByAdvancingTheRejectedTick() {
+        run(rig -> {
+            rig.useMainHandShield();
+            for (int i = 0; i < 20; i++) rig.move(WALK);
+            // A hotbar key at handleKeybinds can stop a main-hand use before travel without a packet.
+            assertEquals(0, rig.noSlow.violations);
+            assertEquals(20, rig.desync.history().desynced());
+            // Each rejected movement is a client tick; a correction that does not advance it pins the player.
+            verify(rig.setbacks, times(20)).executeViolationSetback();
+            verify(rig.setbacks, never()).executeNonSimulatingSetback();
+        });
+    }
+
     private static void run(Consumer<Rig> scenario) {
         OfflineCultTestBootstrap.installConfig();
         var channel = new EmbeddedChannel();
@@ -115,6 +129,7 @@ class NoSlowClearTest {
         final PlatformPlayer platform = mock(PlatformPlayer.class);
         final SetbackTeleportUtil setbacks = mock(SetbackTeleportUtil.class);
         final NoSlow noSlow;
+        final ItemUseDesync desync;
         final ItemUseAnalyzer analyzer = new ItemUseAnalyzer();
 
         Rig(CultPlayer original) {
@@ -126,6 +141,14 @@ class NoSlowClearTest {
             noSlow = new NoSlow(player);
             noSlow.reload();
             noSlow.violations = 0;
+            desync = new ItemUseDesync(player);
+            desync.reload();
+        }
+
+        void useMainHandShield() {
+            SimItemStack shield = ItemUtil.modelItems().stack("minecraft:shield", 1);
+            player.getInventory().inventory.setHeldItem(shield);
+            player.clientItemUse.start(Hand.MAIN_HAND, shield, ClientItemUseState.duration(shield), true);
         }
 
         void useShield() {
@@ -140,14 +163,17 @@ class NoSlowClearTest {
             var context = mock(SimulationContext.class);
             when(context.getItemUse()).thenReturn(snapshot);
             when(context.getVersion()).thenReturn(ClientVersion.V_26_3);
-            when(context.getMaxSprintInputSpeed(any())).thenReturn(SPEED);
+            when(context.getMaxSprintInputSpeed(any(), any())).thenReturn(SPEED);
             var realities = new ArrayList<PredictionResult>();
             var result = new PredictionResult(
                     player, new PredVector(Vec3.ZERO), context, new Vec3(0, 0, forward), null, realities, realities);
             result.setProfilePredictionVector(Vec3.ZERO);
             realities.add(result);
             analyzer.handleResult(player, result, null);
-            noSlow.onPredictionComplete(new PredictionComplete(result));
+            var complete = new PredictionComplete(result);
+            noSlow.onPredictionComplete(complete);
+            desync.onPredictionComplete(complete);
+            desync.onPlayerTickEnd(null);
             player.packetStateData.acceptedClientTick++;
         }
     }

@@ -4,12 +4,14 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
+import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
@@ -79,7 +81,66 @@ public class CollisionModifierTest {
         assertEquals(clip, result.y, 1.0E-9D);
     }
 
+    @Test
+    public void floorPenetrationRecoveryKeepsPositiveClip() {
+        // VoxelShape#collideX keeps d2 <= 1e-7 on a downward move, so feet sunk under 1e-7 into a floor clip upward.
+        double fall = -0.0784000015258789D;
+        double clip = 5.0E-8D;
+        PredVector start = new PredVector(new Vec3(0.0D, fall, 0.0D));
+        CollideAxisData collide = new CollideAxisData(
+                new CollideAxisData.CollideResult(false, 0.0D),
+                null,
+                new CollideAxisData.CollideResult(true, clip),
+                new CollideAxisData.CollideResult(false, 0.0D),
+                new ArrayList<>());
+
+        PredVector result =
+                CollisionModifier.transformWithCollisions(context(), collide, start, new Vec3(0.0D, clip, 0.0D), null);
+
+        assertEquals(clip, result.y, 1.0E-12D);
+    }
+
+    @Test
+    public void ceilingPenetrationRecoveryKeepsNegativeClip() {
+        // VoxelShape#collideX keeps d2 >= -1e-7 on an upward move, so a head sunk under 1e-7 into a ceiling clips down.
+        double rise = 0.41999998688697815D;
+        double clip = -5.0E-8D;
+        PredVector start = new PredVector(new Vec3(0.0D, rise, 0.0D));
+        CollideAxisData collide = new CollideAxisData(
+                new CollideAxisData.CollideResult(false, 0.0D),
+                new CollideAxisData.CollideResult(true, clip),
+                null,
+                new CollideAxisData.CollideResult(false, 0.0D),
+                new ArrayList<>());
+
+        PredVector result =
+                CollisionModifier.transformWithCollisions(context(), collide, start, new Vec3(0.0D, clip, 0.0D), null);
+
+        assertEquals(clip, result.y, 1.0E-12D);
+    }
+
+    @Test
+    public void vehicleMovingLevelKeepsItsHeightOverAPenetratedFloor() {
+        // Entity#collideWithShapes moves an axis only when its movement is not 0.
+        PredVector start = new PredVector(new Vec3(0.2D, 0.0D, 0.0D));
+        CollideAxisData collide = new CollideAxisData(
+                new CollideAxisData.CollideResult(false, 0.0D),
+                null,
+                new CollideAxisData.CollideResult(true, 5.0E-8D),
+                new CollideAxisData.CollideResult(false, 0.0D),
+                new ArrayList<>());
+
+        PredVector result = CollisionModifier.transformWithCollisions(
+                context(new PacketEntity(EntityTypeIds.HORSE, 1)), collide, start, new Vec3(0.2D, 0.0D, 0.0D), null);
+
+        assertEquals(0.0D, result.y, 0.0D);
+    }
+
     private static SimulationContext context() {
+        return context(null);
+    }
+
+    private static SimulationContext context(PacketEntity vehicle) {
         return new SimulationContext(
                 Vec3.ZERO,
                 Vec3.ZERO,
@@ -87,7 +148,7 @@ public class CollisionModifierTest {
                 ClientVersion.V_1_21_11,
                 null,
                 null,
-                null,
+                vehicle,
                 0.0F,
                 0.0F,
                 0.0F,

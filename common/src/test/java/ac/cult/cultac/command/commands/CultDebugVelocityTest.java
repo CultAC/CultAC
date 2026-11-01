@@ -28,6 +28,43 @@ import org.mockito.Mockito;
 
 public final class CultDebugVelocityTest {
     @Test
+    public void bedrockMotionKeepsItsSandwichWithoutProofsForOtherActors() throws Exception {
+        try (Transport transport = new Transport()) {
+            var player = transport.player;
+            var kb = player.checkManager.getKnockbackHandler();
+            var before = player.createBedrockTransactionAfterClientbound();
+            player.markBedrockTransactionClientbound(before.id());
+            int javaPings = player.lastTransactionSent.get();
+            for (int i = 0; i < 100; i++) {
+                var other = new SetEntityMotionPacket();
+                other.setRuntimeEntityId(456L);
+                other.setMotion(Vector3f.from(1, 0, 0));
+                transport.wire.writeOutbound(BedrockPacketWrapper.create(0, 0, 0, other, null));
+                assertSame(other, transport.read());
+                assertNull(transport.wire.readOutbound());
+            }
+            var motion = new SetEntityMotionPacket();
+            motion.setRuntimeEntityId(123L);
+            motion.setMotion(Vector3f.from(.125F, .42F, -.25F));
+            transport.wire.writeOutbound(BedrockPacketWrapper.create(0, 0, 0, motion, null));
+            transport.javaChannel.runPendingTasks();
+            assertSame(motion, transport.read());
+            var receipt = (NetworkStackLatencyPacket) transport.read();
+            assertNull(transport.wire.readOutbound());
+            assertNull(kb.firstBread);
+            assertNull(kb.secondBread);
+            assertTrue(player.addTransactionResponse(before.id()));
+            assertSame(kb.lastSent, kb.firstBread);
+            assertNull(kb.secondBread);
+            assertTrue(player.addTransactionResponse((int) receipt.getTimestamp()));
+            assertNull(kb.firstBread);
+            assertSame(kb.lastSent, kb.secondBread);
+            assertEquals(.125, kb.secondBread.getVel().x, 0);
+            assertEquals(javaPings, player.lastTransactionSent.get());
+        }
+    }
+
+    @Test
     public void bedrockSilentWriteReachesWireWithoutTrackingAndNormalWriteStillTracks() throws Exception {
         try (Transport transport = new Transport()) {
             SetEntityMotionPacket packet = new SetEntityMotionPacket();

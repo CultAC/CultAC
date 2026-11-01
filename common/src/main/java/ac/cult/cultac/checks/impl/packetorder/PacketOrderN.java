@@ -8,6 +8,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 
 @CheckData(
@@ -24,12 +25,18 @@ public class PacketOrderN extends BlockPlaceCheck {
 
     @Override
     public void onBlockPlace(BlockPlace place) {
-        placing = true;
         if (usingWithoutPlacing) {
             if (flag() && shouldModifyPackets() && shouldCancel()) {
                 place.resync();
             }
         }
+    }
+
+    // Every use_item_on counts, whatever the hand holds: only block-placing items reach onBlockPlace.
+    @CultPacketHandler
+    public void onUseItemOn(
+            PacketReceiveEvent<ServerboundUseItemOn> event, CultPlayer player, ServerboundUseItemOn packet) {
+        placing = true;
     }
 
     @CultPacketHandler

@@ -29,6 +29,10 @@ public interface MigrationContext {
     @NotNull
     YamlMap output();
 
+    /** The bundled default this update writes, before any user value is lifted into it; read-only. */
+    @NotNull
+    YamlMap defaults();
+
     /**
      * Read-or-write view of a sibling file. Reads see that file's current
      * on-disk state (parsed). Writes are queued against that file's apply

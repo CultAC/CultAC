@@ -21,7 +21,7 @@ public class BadPacketsY extends Check implements CheckListener {
     public void onSetCarriedItem(
             PacketReceiveEvent<ServerboundSetCarriedItem> event, CultPlayer player, ServerboundSetCarriedItem packet) {
         final int slot = packet.slot();
-        if (slot > 8 || slot < 0) { // ban
+        if (slot > 8 || slot < 0) {
             if (flag(V.write(verbose()).sint(slot)) && shouldModifyPackets()) {
                 event.setCancelled(true);
                 player.onPacketCancel();

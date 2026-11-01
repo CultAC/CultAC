@@ -42,6 +42,8 @@ public final class ItemStructureGuard {
     private static final int MAX_EXACT_PREDICATES = 1024;
     /** Matches the depth cap of the tag limiters the guarded readers build. */
     private static final int MAX_NBT_DEPTH = 512;
+    /** Armour overrides of a direct trim material; vanilla's materials override a few of its equipment assets. */
+    static final int MAX_TRIM_OVERRIDES = 256;
 
     private final VersionedTypesHolder types;
     private final ProtocolVersion version;
@@ -158,6 +160,10 @@ public final class ItemStructureGuard {
                 else key.type().read(input);
             }
             case "painting/variant" -> paintingVariant(input);
+            case "trim", "provides_trim_material" -> {
+                trimOverrides(input, key);
+                key.type().read(input);
+            }
             default -> key.type().read(input);
         }
     }
@@ -181,6 +187,29 @@ public final class ItemStructureGuard {
 
     private static void optionalTag(ByteBuf input) {
         if (input.readBoolean()) NbtSkipper.skip(input, MAX_NBT_DEPTH);
+    }
+
+    /**
+     * Refuses a direct trim material in {@code value}, a {@code key} component, with more armour overrides than
+     * {@link #MAX_TRIM_OVERRIDES} before Via reads it: its reader puts each override into an array map, whose every
+     * insert scans the keys before it. Reads a duplicate of {@code value}.
+     */
+    static void trimOverrides(ByteBuf value, StructuredDataKey<?> key) {
+        boolean ingredient = key == StructuredDataKey.TRIM1_21_2 || key == StructuredDataKey.TRIM1_21_4;
+        if (!ingredient
+                && key != StructuredDataKey.TRIM1_21_5
+                && key != StructuredDataKey.PROVIDES_TRIM_MATERIAL1_21_5
+                && key != StructuredDataKey.PROVIDES_TRIM_MATERIAL26_1) return;
+        ByteBuf input = value.duplicate();
+        if (key == StructuredDataKey.PROVIDES_TRIM_MATERIAL1_21_5 && !input.readBoolean()) return; // A registry key.
+        if (Wire.readVarInt(input) != 0) return; // A registry reference.
+        Types.STRING.read(input); // Asset.
+        if (ingredient) Wire.readVarInt(input);
+        if (key == StructuredDataKey.TRIM1_21_2) input.readFloat(); // Item model index.
+        int overrides = Wire.readVarInt(input);
+        if (overrides < 0) throw new MalformedPacketException("Negative trim material overrides");
+        if (overrides > MAX_TRIM_OVERRIDES)
+            throw limit("trim material overrides " + overrides + " exceed " + MAX_TRIM_OVERRIDES);
     }
 
     private void container(ByteBuf input) {

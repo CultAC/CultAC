@@ -70,11 +70,16 @@ public enum ClientVersion {
 
     public static ClientVersion fromProtocolVersion(int protocolVersion) {
         ClientVersion selected = V_1_7_10;
+        ClientVersion newestSupported = V_1_7_10;
         for (ClientVersion version : values()) {
+            if (version == HIGHER_THAN_SUPPORTED_VERSIONS) {
+                continue;
+            }
+            newestSupported = version;
             if (protocolVersion >= version.protocolVersion) {
                 selected = version;
             }
         }
-        return selected;
+        return protocolVersion > newestSupported.protocolVersion ? HIGHER_THAN_SUPPORTED_VERSIONS : selected;
     }
 }

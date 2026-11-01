@@ -29,6 +29,7 @@ public class PacketChangeGameState extends CultProcessor implements CheckListene
             case 3 -> GameMode.SPECTATOR;
             default -> GameMode.SURVIVAL;
         };
+        player.serverGamemode = next;
         PlayerObserver observer = player.observer;
         if (observer != null) observer.gameModeSent(next);
         // MultiPlayerGameMode#setLocalMode -> GameType#updatePlayerAbilities. An explicit
@@ -37,10 +38,11 @@ public class PacketChangeGameState extends CultProcessor implements CheckListene
         boolean invulnerable = next == GameMode.CREATIVE || next == GameMode.SPECTATOR;
 
         player.sendTransaction();
+        int preceding = player.lastTransactionSent.get();
         player.latencyUtils.addRealTimeTaskNow(() -> {
             GameMode previous = player.gamemode;
             player.gamemode = next;
-            player.abilitiesSent(instabuild, invulnerable);
+            applyGameModeAbilities(player, next, false);
             player.compensatedEntities.getSelf().onGameModeChange(player.gamemode == GameMode.CREATIVE);
 
             if (previous == GameMode.SPECTATOR && player.gamemode != GameMode.SPECTATOR) {
@@ -48,6 +50,18 @@ public class PacketChangeGameState extends CultProcessor implements CheckListene
             }
         });
 
-        player.runAtTrailingProof(event, () -> player.abilitiesHandled(instabuild, invulnerable));
+        if (!player.runAtTrailingProof(event, () -> player.abilitiesHandled(instabuild, invulnerable))) {
+            player.latencyUtils.addRealTimeTask(preceding, () -> player.abilitiesSent(instabuild, invulnerable));
+        }
+    }
+
+    /**
+     * GameType#updatePlayerAbilities, which MultiPlayerGameMode#setLocalMode runs on the local player. Creative keeps
+     * the flying state, which a new LocalPlayer starts without.
+     */
+    public static void applyGameModeAbilities(CultPlayer player, GameMode mode, boolean newLocalPlayer) {
+        if (mode == GameMode.SPECTATOR) player.isFlying = true;
+        else if (mode != GameMode.CREATIVE || newLocalPlayer) player.isFlying = false;
+        player.canFly = mode == GameMode.CREATIVE || mode == GameMode.SPECTATOR;
     }
 }

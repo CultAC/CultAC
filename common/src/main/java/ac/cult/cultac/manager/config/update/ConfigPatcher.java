@@ -3,7 +3,10 @@ package ac.cult.cultac.manager.config.update;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -245,7 +248,18 @@ public final class ConfigPatcher {
     }
 
     public void save() throws IOException {
-        Files.write(file.toPath(), lines, StandardCharsets.UTF_8);
+        Path target = file.toPath().toAbsolutePath();
+        Path temporary = Files.createTempFile(target.getParent(), ".cult-config-", ".tmp");
+        try {
+            Files.write(temporary, lines, StandardCharsets.UTF_8);
+            try {
+                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException unsupported) {
+                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
     }
 
     public record NodePosition(int lineIndex, int indent) {}

@@ -4,20 +4,28 @@ import ac.cult.cultac.network.logging.JavaPacketLogger;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.protocol.ProtocolRuntime;
-import ac.cult.cultac.utils.anticheat.LogUtil;
+import ac.cult.cultac.utils.anticheat.LogThrottle;
 import io.netty.channel.Channel;
+import java.nio.file.Path;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 public final class CultNetworkManager {
+    /** Hostile input can fail every packet on every connection, so each operation's trace is throttled. */
+    private static volatile LogThrottle failures = new LogThrottle();
+
     private final PacketConnections connections = new PacketConnections();
     private PacketDispatcher dispatcher;
     private Runnable installChannels;
     private Runnable startPlatform;
-    private java.util.function.Supplier<CompletionStage<Void>> removeChannels;
-    private java.util.function.Function<Channel, PacketOwner> ownerResolver = channel -> null;
+    private Supplier<CompletionStage<Void>> removeChannels;
+    private Function<Channel, PacketOwner> ownerResolver = channel -> null;
 
     private boolean loaded;
     private boolean started;
@@ -29,7 +37,7 @@ public final class CultNetworkManager {
     }
 
     public synchronized void initializePacketLogger(
-            java.nio.file.Path directory, String platform, String version, java.util.function.Consumer<String> report) {
+            Path directory, String platform, String version, Consumer<String> report) {
         if (packetLogger != null) return;
         var logger = new JavaPacketLogger(directory, platform, version, report);
         packetLogger = logger;
@@ -40,29 +48,26 @@ public final class CultNetworkManager {
     }
 
     public PacketDispatcher dispatcher() {
-        return java.util.Objects.requireNonNull(dispatcher, "Configure transport before use");
+        return Objects.requireNonNull(dispatcher, "Configure transport before use");
     }
 
     public synchronized void configureTransport(
-            ProtocolRuntime runtime, Runnable install, java.util.function.Supplier<CompletionStage<Void>> remove) {
+            ProtocolRuntime runtime, Runnable install, Supplier<CompletionStage<Void>> remove) {
         configureTransport(runtime, install, () -> {}, remove);
     }
 
     public synchronized void configureTransport(
-            ProtocolRuntime runtime,
-            Runnable install,
-            Runnable start,
-            java.util.function.Supplier<CompletionStage<Void>> remove) {
+            ProtocolRuntime runtime, Runnable install, Runnable start, Supplier<CompletionStage<Void>> remove) {
         if (dispatcher != null) throw new IllegalStateException("Transport already configured");
         dispatcher = new PacketDispatcher(runtime);
-        installChannels = java.util.Objects.requireNonNull(install);
-        startPlatform = java.util.Objects.requireNonNull(start);
-        removeChannels = java.util.Objects.requireNonNull(remove);
+        installChannels = Objects.requireNonNull(install);
+        startPlatform = Objects.requireNonNull(start);
+        removeChannels = Objects.requireNonNull(remove);
     }
 
     public CultConnection createConnection(PlatformConnection platform, Channel channel) {
         var connection = new CultConnection(
-                java.util.Objects.requireNonNull(platform), channel, dispatcher(), ch -> ownerResolver.apply(ch));
+                Objects.requireNonNull(platform), channel, dispatcher(), ch -> ownerResolver.apply(ch));
         var logger = packetLogger;
         if (logger != null) connection.packetObserver(logger.observer(connection));
         connections.attach(connection);
@@ -81,7 +86,7 @@ public final class CultNetworkManager {
             return;
         }
         stopped = null;
-        java.util.Objects.requireNonNull(installChannels, "Configure transport before load")
+        Objects.requireNonNull(installChannels, "Configure transport before load")
                 .run();
         loaded = true;
     }
@@ -93,11 +98,6 @@ public final class CultNetworkManager {
         load();
         startPlatform.run();
         started = true;
-    }
-
-    /** Read-only snapshot; null means shutdown has not started. Does not initiate or retry shutdown. */
-    public synchronized CompletionStage<Void> shutdownCompletion() {
-        return stopped == null ? null : stopped.minimalCompletionStage();
     }
 
     public CompletionStage<Void> stop() {
@@ -172,8 +172,8 @@ public final class CultNetworkManager {
         return connections.getUser(uuid, nativePlayer);
     }
 
-    public void setPacketOwnerResolver(java.util.function.Function<Channel, PacketOwner> resolver) {
-        ownerResolver = java.util.Objects.requireNonNull(resolver);
+    public void setPacketOwnerResolver(Function<Channel, PacketOwner> resolver) {
+        ownerResolver = Objects.requireNonNull(resolver);
     }
 
     public void playerJoined(Channel channel) {
@@ -191,8 +191,17 @@ public final class CultNetworkManager {
 
     /** Cult failures stay out of the host's exception handler, which may disconnect players. */
     public static void reportFailure(String operation, Throwable failure) {
+        report(operation, operation, failure);
+    }
+
+    /** {@link #reportFailure(String, Throwable)} naming a subject, such as a player, that shares the operation's throttle. */
+    public static void reportFailure(String operation, String subject, Throwable failure) {
+        report(operation, operation + " for " + subject, failure);
+    }
+
+    private static void report(String operation, String described, Throwable failure) {
         try {
-            LogUtil.error("CultAC failure in " + operation + "; keeping the connection open", failure);
+            failures.error(operation, "CultAC failure in " + described + "; keeping the connection open", failure);
         } catch (Throwable loggingFailure) {
             // Logging during startup/shutdown must not turn a recovered failure into a kick.
             try {
@@ -202,8 +211,7 @@ public final class CultNetworkManager {
         }
     }
 
-    public Object getChannel(UUID uuid) {
-        User user = getUser(uuid);
-        return user == null ? null : user.getChannel();
+    static void failureThrottle(LogThrottle throttle) {
+        failures = throttle;
     }
 }

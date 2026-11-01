@@ -21,6 +21,7 @@ public final class WatchableIndexUtil {
     public static final int SHULKER_PEEK = 17;
     public static final int FIREWORK_ATTACHED_TO_TARGET = 9;
     public static final int FISHING_HOOKED_ENTITY = 8;
+    public static final int DISPLAY_POS_ROT_INTERPOLATION_DURATION = 10;
 
     private WatchableIndexUtil() {}
 
@@ -60,11 +61,26 @@ public final class WatchableIndexUtil {
     }
     /** AgeableMob adds AGE_LOCKED in 26.1 before TamableAnimal's flags. */
     public static int tameableFlags(ProtocolVersion version) {
+        return afterAgeableMob(version);
+    }
+
+    /** HangingEntity adds DATA_DIRECTION in 1.21.6 before the painting variant and the frame's item and rotation. */
+    public static int hangingData(ProtocolVersion version) {
+        return version.atLeast(ProtocolVersion.V1_21_6) ? 9 : 8;
+    }
+
+    /** PolarBear's DATA_STANDING_ID follows AgeableMob's fields, which gain AGE_LOCKED in 26.1. */
+    public static int polarBearStanding(ProtocolVersion version) {
+        return afterAgeableMob(version);
+    }
+
+    private static int afterAgeableMob(ProtocolVersion version) {
         return version.atLeast(ProtocolVersion.V26_1) ? 18 : 17;
     }
 
     public static EntityMetadata.Entry getIndex(List<EntityMetadata.Entry> objects, int index) {
-        for (EntityMetadata.Entry object : objects) {
+        for (int i = 0; i < objects.size(); i++) {
+            EntityMetadata.Entry object = objects.get(i);
             if (object.id() == index) return object;
         }
 

@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.multiactions;
 
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAutoJump;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -12,15 +13,14 @@ import ac.cult.cultac.protocol.value.*;
 @CheckData(
         name = "MultiActionsH",
         stableKey = "cult.multiactions.inventory_move",
-        description = "Moving while in an inventory",
-        experimental = true)
+        description = "Moving while in an inventory")
 public class MultiActionsH extends Check implements CheckListener, ClientTickEndListener {
     public MultiActionsH(CultPlayer player) {
         super(player);
     }
 
-    private ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAutoJump autoJump() {
-        return player.checkManager.getListener(ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAutoJump.class);
+    private JavaAutoJump autoJump() {
+        return player.checkManager.getListener(JavaAutoJump.class);
     }
 
     @Override

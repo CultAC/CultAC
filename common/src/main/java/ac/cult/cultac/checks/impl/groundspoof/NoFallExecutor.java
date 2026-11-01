@@ -9,7 +9,6 @@ import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 
-// @CheckData(name="NoFall")
 @BedrockSupported
 public class NoFallExecutor extends Check implements CheckListener {
     public NoFallExecutor(CultPlayer cultPlayer) {

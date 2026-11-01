@@ -18,6 +18,7 @@ import ac.grim.grimac.internal.storage.backend.sqlite.SqliteBackend;
 import ac.grim.grimac.internal.storage.checks.CheckRegistry;
 import ac.grim.grimac.internal.storage.verbose.VerboseRegistry;
 import java.util.Map;
+import java.util.UUID;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -116,6 +117,16 @@ public final class DataStoreLifecycle implements StartableInitable, StoppableIni
 
     public @NotNull PlayerToggleStore playerToggleStore() {
         return shared.playerToggleStore();
+    }
+
+    /** Holds the player's toggle slot for this connection. */
+    public void holdToggles(@NotNull UUID uuid, @NotNull UUID connectionId) {
+        playerToggleStore().prefetch(uuid, connectionId);
+    }
+
+    /** Releases this connection's hold on the player's toggle slot. */
+    public void releaseToggles(@NotNull UUID uuid, @NotNull UUID connectionId) {
+        playerToggleStore().evict(uuid, connectionId);
     }
 
     @ApiStatus.Internal

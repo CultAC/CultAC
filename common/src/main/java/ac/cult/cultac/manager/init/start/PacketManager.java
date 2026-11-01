@@ -1,6 +1,8 @@
 package ac.cult.cultac.manager.init.start;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.dialog.DialogClickListener;
+import ac.cult.cultac.events.packets.PacketModelRegistryNames;
 import ac.cult.cultac.events.packets.PacketPluginMessage;
 import ac.cult.cultac.events.packets.PacketServerPlayerRotation;
 import ac.cult.cultac.events.packets.PacketServerRegistries;
@@ -21,7 +23,9 @@ import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.events.packets.listeners.PlayerInfoListener;
 import ac.cult.cultac.events.packets.worldreader.PacketWorldReaderTwentySix;
 import ac.cult.cultac.network.CultNetworkManager;
+import ac.cult.cultac.network.PacketRouteBuilder;
 import ac.cult.cultac.network.event.PacketListenerPriority;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 
 public class PacketManager implements StartableInitable {
@@ -34,66 +38,70 @@ public class PacketManager implements StartableInitable {
 
         networkManager.lifecycleHooks(new PlayerLoginHooks());
 
-        networkManager.dispatcher().register(registrar -> {
-            CheckManagerListener checkManagerListener = new CheckManagerListener();
-            checkManagerListener.registerForwardingEarlyReceivePackets(registrar, PacketListenerPriority.LOW);
+        networkManager.dispatcher().register(PacketManager::registerListeners);
+    }
 
-            PacketConfigurationListener configurationListener = new PacketConfigurationListener();
-            registrar.registerReceiveListener(PacketListenerPriority.NORMAL, configurationListener);
+    /** Every packet listener, in the order a priority shares between them. */
+    public static void registerListeners(PacketRouteBuilder registrar) {
+        CheckManagerListener checkManagerListener = new CheckManagerListener();
+        checkManagerListener.registerForwardingEarlyReceivePackets(registrar, PacketListenerPriority.LOW);
 
-            PacketPingListener pingListener = new PacketPingListener();
-            registrar.registerListener(PacketListenerPriority.LOWEST, pingListener);
+        PacketConfigurationListener configurationListener = new PacketConfigurationListener();
+        registrar.registerReceiveListener(PacketListenerPriority.NORMAL, configurationListener);
 
-            PacketPlayerWindow windowListener = new PacketPlayerWindow();
-            registrar.registerListener(PacketListenerPriority.LOW, windowListener);
+        PacketPingListener pingListener = new PacketPingListener();
+        registrar.registerListener(PacketListenerPriority.LOWEST, pingListener);
 
-            PacketPlayerDigging diggingListener = new PacketPlayerDigging();
-            registrar.registerReceiveListener(PacketListenerPriority.LOW, diggingListener);
+        registrar.registerReceiveListener(PacketListenerPriority.NORMAL, new DialogClickListener());
 
-            PacketPlayerAttack attackListener = new PacketPlayerAttack();
-            registrar.registerReceiveListener(PacketListenerPriority.LOW, attackListener);
+        PacketPlayerWindow windowListener = new PacketPlayerWindow();
+        registrar.registerListener(PacketListenerPriority.LOW, windowListener);
 
-            PacketEntityAction entityActionListener = new PacketEntityAction();
-            registrar.registerReceiveListener(PacketListenerPriority.LOW, entityActionListener);
+        PacketPlayerDigging diggingListener = new PacketPlayerDigging();
+        registrar.registerReceiveListener(PacketListenerPriority.LOW, diggingListener);
 
-            PacketServerTeleport teleportListener = new PacketServerTeleport();
-            registrar.registerListener(PacketListenerPriority.LOW, teleportListener);
+        PacketPlayerAttack attackListener = new PacketPlayerAttack();
+        registrar.registerReceiveListener(PacketListenerPriority.LOW, attackListener);
 
-            registrar.registerReceiveListener(PacketListenerPriority.LOW, checkManagerListener);
-            checkManagerListener.registerForwardingSendPackets(registrar, PacketListenerPriority.LOW);
+        PacketEntityAction entityActionListener = new PacketEntityAction();
+        registrar.registerReceiveListener(PacketListenerPriority.LOW, entityActionListener);
 
-            PacketPlayerSteer steerListener = new PacketPlayerSteer();
-            registrar.registerReceiveListener(PacketListenerPriority.LOW, steerListener);
+        PacketServerTeleport teleportListener = new PacketServerTeleport();
+        registrar.registerListener(PacketListenerPriority.LOW, teleportListener);
 
-            PacketBlockAction blockActionListener = new PacketBlockAction();
-            registrar.registerSendListener(PacketListenerPriority.HIGH, blockActionListener);
+        registrar.registerReceiveListener(PacketListenerPriority.LOW, checkManagerListener);
+        checkManagerListener.registerForwardingSendPackets(registrar, PacketListenerPriority.LOW);
 
-            PacketSelfMetadataListener selfMetadataListener = new PacketSelfMetadataListener();
-            registrar.registerSendListener(PacketListenerPriority.HIGH, selfMetadataListener);
+        PacketPlayerSteer steerListener = new PacketPlayerSteer();
+        registrar.registerReceiveListener(PacketListenerPriority.LOW, steerListener);
 
-            PacketPlayerCooldown cooldownListener = new PacketPlayerCooldown();
-            registrar.registerSendListener(PacketListenerPriority.HIGH, cooldownListener);
+        PacketBlockAction blockActionListener = new PacketBlockAction();
+        registrar.registerSendListener(PacketListenerPriority.HIGH, blockActionListener);
 
-            PacketPlayerRespawn respawnListener = new PacketPlayerRespawn();
-            registrar.registerSendListener(PacketListenerPriority.HIGH, respawnListener);
+        PacketSelfMetadataListener selfMetadataListener = new PacketSelfMetadataListener();
+        registrar.registerSendListener(PacketListenerPriority.HIGH, selfMetadataListener);
 
-            PacketWorldReaderTwentySix worldReader = new PacketWorldReaderTwentySix();
-            registrar.registerSendListener(PacketListenerPriority.HIGH, worldReader);
+        PacketPlayerCooldown cooldownListener = new PacketPlayerCooldown();
+        registrar.registerSendListener(PacketListenerPriority.HIGH, cooldownListener);
 
-            PlayerInfoListener playerInfoListener = new PlayerInfoListener();
-            // PacketHidePlayerInfo was pre-Via HIGHEST. Keep its replacement last so
-            // compensation observes the real packet before spectate visibility rewrites it.
-            registrar.registerSendListener(PacketListenerPriority.HIGHEST, playerInfoListener);
+        PacketPlayerRespawn respawnListener = new PacketPlayerRespawn();
+        registrar.registerSendListener(PacketListenerPriority.HIGH, respawnListener);
 
-            // Proxy details may arrive before a CultPlayer exists.
-            registrar.receiveConnection(
-                    ac.cult.cultac.protocol.packet.ServerboundPackets.CUSTOM_PAYLOAD,
-                    PacketListenerPriority.NORMAL,
-                    new PacketPluginMessage()::handle);
-            registrar.registerSendListener(PacketListenerPriority.LOW, new PacketServerPlayerRotation());
-            registrar.registerSendListener(PacketListenerPriority.NORMAL, new PacketServerRegistries());
-            registrar.registerSendListener(
-                    PacketListenerPriority.LOWEST, new ac.cult.cultac.events.packets.PacketModelRegistryNames());
-        });
+        PacketWorldReaderTwentySix worldReader = new PacketWorldReaderTwentySix();
+        registrar.registerSendListener(PacketListenerPriority.HIGH, worldReader);
+
+        PlayerInfoListener playerInfoListener = new PlayerInfoListener();
+        // HIGHEST keeps this listener last, so compensation observes the real packet before spectate
+        // visibility rewrites it.
+        registrar.registerSendListener(PacketListenerPriority.HIGHEST, playerInfoListener);
+
+        // Proxy details may arrive before a CultPlayer exists.
+        registrar.receiveConnection(
+                ServerboundPackets.CUSTOM_PAYLOAD,
+                PacketListenerPriority.NORMAL,
+                new PacketPluginMessage()::handle);
+        registrar.registerSendListener(PacketListenerPriority.LOW, new PacketServerPlayerRotation());
+        registrar.registerSendListener(PacketListenerPriority.NORMAL, new PacketServerRegistries());
+        registrar.registerSendListener(PacketListenerPriority.LOWEST, new PacketModelRegistryNames());
     }
 }

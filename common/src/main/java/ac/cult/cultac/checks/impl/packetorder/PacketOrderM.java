@@ -6,7 +6,6 @@ import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
@@ -28,9 +27,7 @@ public class PacketOrderM extends Check implements CheckListener {
     @CultPacketHandler
     public void onInteract(
             PacketReceiveEvent<ServerboundInteract> event, CultPlayer player, ServerboundInteract packet) {
-        if ((packet.action() == ac.cult.cultac.protocol.value.InteractAction.ATTACK
-                && ProtocolVersion.V26_3.protocol() >= ac.cult.cultac.protocol.ProtocolVersion.V26_1.protocol()))
-            return;
+        if (packet.action() == InteractAction.ATTACK) return;
         if (packet.action() != InteractAction.ATTACK) {
             interacting = true;
             if (usingWithoutInteract) {

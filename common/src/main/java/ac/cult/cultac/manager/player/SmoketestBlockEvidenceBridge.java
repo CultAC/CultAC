@@ -3,11 +3,13 @@ package ac.cult.cultac.manager.player;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.anticheat.LogUtil;
+import ac.cult.cultac.utils.latency.CompensatedWorld;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.zip.GZIPInputStream;
 
 /** Compares captured client prediction bookkeeping without changing simulated state. */
 final class SmoketestBlockEvidenceBridge {
@@ -17,7 +19,7 @@ final class SmoketestBlockEvidenceBridge {
         if (!"cult:smoketest_block_evidence".equals(channel)) return false;
         try {
             if (data.length >= 2 && data[0] == (byte) 0x1f && data[1] == (byte) 0x8b) {
-                try (var gzip = new java.util.zip.GZIPInputStream(new ByteArrayInputStream(data))) {
+                try (var gzip = new GZIPInputStream(new ByteArrayInputStream(data))) {
                     data = gzip.readNBytes(1024 * 1024 + 1);
                     if (data.length > 1024 * 1024) throw new IOException("evidence exceeds 1 MiB");
                 }
@@ -29,7 +31,7 @@ final class SmoketestBlockEvidenceBridge {
             String scenario = input.readUTF();
             int count = input.readInt();
             if (count < 0 || count > input.available() / 20) throw new IOException("invalid prediction count");
-            var modeled = new HashMap<BlockPos, ac.cult.cultac.utils.latency.CompensatedWorld.PendingPrediction>();
+            var modeled = new HashMap<BlockPos, CompensatedWorld.PendingPrediction>();
             for (var prediction : player.compensatedWorld.pendingPredictionSnapshot()) {
                 modeled.put(prediction.position(), prediction);
             }

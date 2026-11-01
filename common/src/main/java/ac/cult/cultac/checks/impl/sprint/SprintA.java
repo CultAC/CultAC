@@ -1,12 +1,11 @@
 package ac.cult.cultac.checks.impl.sprint;
 
-import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
-import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 
 @CheckData(
@@ -27,9 +26,16 @@ public class SprintA extends Check implements PostPredictionListener {
         if (predictionComplete.isTeleport() || predictionComplete.isExempt()) return;
 
         // Players can sprint if they're able to fly
-        // Players can also sprint if they are on a camel, regardless of their hunger level
-        PacketEntity riding = player.compensatedEntities.getSelf().getRiding();
-        if (player.canFly || (riding != null && riding.type == EntityTypeIds.CAMEL)) return;
+        if (player.canFly) return;
+
+        // LocalPlayer#isSprintingPossible reads the food level only of a player that is not a passenger; a passenger
+        // is judged by the flag sent after a tick on a vehicle that cannot sprint, which stopped it.
+        if (player.compensatedEntities.getSelf().getRiding() != null) {
+            PredictionResult result = predictionComplete.getPredictionResult();
+            PredictionResult lastResult =
+                    player.checkManager.getSimulationProcessor().getLastPrediction();
+            if (result == null || !PassengerSprint.stopped(player, result, lastResult)) return;
+        }
 
         if (player.food <= 6.0F) {
             if (player.isSprinting) {

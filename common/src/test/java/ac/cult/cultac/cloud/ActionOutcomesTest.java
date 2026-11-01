@@ -19,6 +19,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class ActionOutcomesTest {
@@ -49,7 +50,7 @@ class ActionOutcomesTest {
     /** The server updates {@code slot} to {@code item}, as CultAC applies it to the server's view. */
     private void update(int slot, SimItemStack item) {
         server.put(slot, item);
-        actions.sent(new InventoryPackets.Slot(0, 1, slot, item));
+        actions.sent(new InventoryPackets.Slot(0, 1, slot, item), 0);
     }
 
     private void hands(SimItemStack main, SimItemStack off) {
@@ -203,6 +204,67 @@ class ActionOutcomesTest {
     }
 
     @Test
+    void popsStayBoundedAndScansStayShortWithoutTickEnds() {
+        AtomicInteger reads = new AtomicInteger();
+        ActionOutcomes counted = new ActionOutcomes((outcome, action, nanos) -> settled.add(outcome), slot -> {
+            reads.incrementAndGet();
+            return server.get(slot);
+        });
+        hands(TOTEM, SWORD);
+        for (int i = 0; i < 10_000; i++) counted.popped(0, i);
+        assertEquals(10_000 - ActionOutcomes.MAX_POPS, settled.size(), "the oldest go without their hand");
+        assertTrue(settled.stream().noneMatch(Outcome::hasHand));
+        reads.set(0);
+        for (int i = 0; i < 100; i++) counted.sent(new InventoryPackets.Slot(0, 1, OFF, SWORD), 10_000);
+        assertEquals(100 * ActionOutcomes.MAX_POPS, reads.get());
+
+        counted.sent(new InventoryPackets.Slot(0, 1, OFF, SWORD), 10_000 + DUE);
+        assertEquals(10_000, settled.size(), "an update past the answer time expires them first");
+        reads.set(0);
+        counted.sent(new InventoryPackets.Slot(0, 1, OFF, SWORD), 10_000 + DUE);
+        assertEquals(0, reads.get());
+    }
+
+    @Test
+    void aPopIsExpiredWhenTheNextOneIsSeen() {
+        hands(TOTEM, SWORD);
+        actions.popped(0, 0);
+        actions.popped(0, DUE);
+        assertEquals(1, settled.size());
+        assertFalse(settled.get(0).hasHand());
+        assertEquals(0L, seen.get(0));
+    }
+
+    @Test
+    void aPopFromAnEndedSegmentNeverSettlesInTheNext() {
+        hands(TOTEM, TOTEM);
+        actions.popped(0, 0);
+        actions.forget();
+        update(MAIN, SimItemStack.EMPTY);
+        actions.expire(DUE);
+        assertTrue(settled.isEmpty());
+
+        hands(TOTEM, SWORD);
+        actions.popped(0, DUE);
+        update(MAIN, SimItemStack.EMPTY);
+        assertEquals(
+                List.of(Outcome.Hand.HAND_MAIN),
+                settled.stream().map(Outcome::getHand).toList());
+    }
+
+    @Test
+    void aSwapFromAnEndedSegmentLeavesTheNextOneAwaited() {
+        hands(SWORD, TOTEM);
+        actions.swap(null, 0, false, 0, 0);
+        actions.forget();
+        actions.swap(null, 0, false, 0, 1);
+        update(OFF, SWORD);
+        update(MAIN, TOTEM);
+        assertEquals(List.of(Outcome.Status.STATUS_APPLIED), statuses());
+        assertEquals(1L, seen.get(0));
+    }
+
+    @Test
     void aClickTheServerLeavesUncorrectedIsAppliedWhenItsMarkerIsAnswered() {
         actions.click(null, click(0, 36, SWORD), false, 0, false, 7);
         update(36, SWORD);
@@ -223,12 +285,12 @@ class ActionOutcomesTest {
         actions.click(null, click(0, 36, SWORD), false, 0, false, 1);
         update(36, TOTEM);
         actions.click(null, click(0, 36, SWORD), false, 0, false, 2);
-        actions.sent(new InventoryPackets.Cursor(SWORD));
+        actions.sent(new InventoryPackets.Cursor(SWORD), 0);
         actions.click(null, click(0, 36, SWORD), false, 0, false, 3);
-        actions.sent(new InventoryPackets.Content(0, 4, List.of(SimItemStack.EMPTY), SimItemStack.EMPTY));
+        actions.sent(new InventoryPackets.Content(0, 4, List.of(SimItemStack.EMPTY), SimItemStack.EMPTY), 0);
         actions.click(null, click(0, 1, SWORD), false, 0, false, 4);
         List<SimItemStack> contents = new ArrayList<>(List.of(SimItemStack.EMPTY, TOTEM));
-        actions.sent(new InventoryPackets.Content(0, 5, contents, SimItemStack.EMPTY));
+        actions.sent(new InventoryPackets.Content(0, 5, contents, SimItemStack.EMPTY), 0);
 
         assertEquals(List.of(1L, 2L, 4L), seen);
         assertEquals(Outcome.Status.STATUS_REJECTED, settled.get(0).getStatus());
@@ -251,8 +313,8 @@ class ActionOutcomesTest {
     @Test
     void updatesOfAnotherMenuOrUnclaimedSlotsRejectNothing() {
         actions.click(null, click(2, 0, SWORD), false, 2, false, 1);
-        actions.sent(new InventoryPackets.Slot(0, 1, 0, TOTEM));
-        actions.sent(new InventoryPackets.Slot(2, 1, 5, TOTEM));
+        actions.sent(new InventoryPackets.Slot(0, 1, 0, TOTEM), 0);
+        actions.sent(new InventoryPackets.Slot(2, 1, 5, TOTEM), 0);
         actions.answered(actions.marker());
         assertEquals(List.of(Outcome.Status.STATUS_APPLIED), statuses());
     }
@@ -261,7 +323,7 @@ class ActionOutcomesTest {
     void aHeldSlotTheServerSetsBackRejectsTheEarliestChangeToAnotherSlot() {
         actions.held(null, 3, false, false, 1);
         actions.held(null, 5, false, false, 2);
-        actions.sent(new ClientboundSetHeldSlot(0));
+        actions.sent(new ClientboundSetHeldSlot(0), 0);
         actions.answered(actions.marker());
         assertEquals(List.of(Outcome.Status.STATUS_REJECTED, Outcome.Status.STATUS_APPLIED), statuses());
         assertEquals(List.of(1L, 2L), seen);
@@ -269,7 +331,7 @@ class ActionOutcomesTest {
 
         actions.held(null, 3, false, false, 3);
         actions.held(null, 5, false, false, 4);
-        actions.sent(new ClientboundSetHeldSlot(3));
+        actions.sent(new ClientboundSetHeldSlot(3), 0);
         actions.answered(actions.marker());
         assertEquals(List.of(1L, 2L, 4L, 3L), seen, "the server kept 3 and refused 5");
     }
@@ -294,7 +356,7 @@ class ActionOutcomesTest {
 
         actions.click(null, click(0, 36, SWORD), false, 0, false, 4);
         actions.held(null, 2, false, false, 5);
-        actions.sent(new ClientboundContainerClose(0));
+        actions.sent(new ClientboundContainerClose(0), 0);
         actions.answered(actions.marker());
         assertEquals(List.of(5L), seen, "a menu change leaves the clicks before it unknown");
     }
@@ -320,7 +382,7 @@ class ActionOutcomesTest {
         int third = actions.marker();
         actions.answered(second);
         assertEquals(4, seen.size(), "a stale answer settles nothing after it");
-        actions.forgetAwaited();
+        actions.forget();
         actions.answered(third);
         assertEquals(4, seen.size());
     }

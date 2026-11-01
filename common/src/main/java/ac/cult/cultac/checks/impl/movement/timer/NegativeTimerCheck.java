@@ -12,7 +12,6 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 
-// @CheckData(name = "NegativeTimer", configName = "NegativeTimer", setback = 10)
 @DeadCheck(
         reason = DeadCheck.Reason.DEAD_BY_CONSTRUCTION,
         detail = "Never constructed; its only flag call site is commented out.")
@@ -24,7 +23,13 @@ public class NegativeTimerCheck extends AbstractTimerCheck implements PostPredic
     float lastYRot = 0;
 
     public NegativeTimerCheck(CultPlayer cultPlayer) {
-        super(cultPlayer, CheckInfo.builder().name("NegativeTimer").setback(10).build());
+        super(
+                cultPlayer,
+                CheckInfo.builder()
+                        .name("NegativeTimer")
+                        .description("Game ran slower than normal")
+                        .setback(10)
+                        .build());
         this.timerBalanceRealTime = System.nanoTime() + this.clockDrift;
     }
 

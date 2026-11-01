@@ -1,14 +1,18 @@
 package ac.cult.cultac.events.packets.worldreader;
 
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.packet.SectionSnapshot;
 import ac.cult.cultac.network.packet.WorldPackets.Chunk;
+import ac.cult.cultac.network.packet.WorldPackets.ChunkBiomes;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.data.RegistryNames;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.latency.CompensatedGeysers;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedChunk;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedSection;
 import ac.cult.cultac.utils.latency.PalettedSection;
 import io.netty.buffer.Unpooled;
+import java.util.ArrayList;
 
 /** Model sections decoded into owned palettes; packet and transaction order are unchanged. */
 public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
@@ -25,7 +29,7 @@ public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
             for (int i = 0; i < chunks.length; i++) {
                 var section = packet.decodedSections().get(i);
                 chunks[i] = new CachedSection(section.copyBlocks());
-                biomes[i] = section.copyBiomes();
+                biomes[i] = biomeValues(section);
             }
         } else {
             var bytes = Unpooled.wrappedBuffer(packet.sections());
@@ -47,7 +51,6 @@ public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
                 event,
                 player,
                 chunks,
-                true,
                 dimension.dimension(),
                 packet.x(),
                 packet.z(),
@@ -57,20 +60,19 @@ public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
                 packet.motionBlocking());
     }
 
+    private static int[] biomeValues(SectionSnapshot section) {
+        int biome = section.uniformBiome();
+        return biome < 0 ? section.copyBiomes() : CachedChunk.uniformBiomes(biome);
+    }
+
     private static int biomeRegistrySize(CultPlayer player) {
-        return player.user
-                .getCultConnection()
-                .require(ac.cult.cultac.protocol.data.RegistryNames.class)
-                .size("minecraft:worldgen/biome");
+        return player.user.getCultConnection().require(RegistryNames.class).size("minecraft:worldgen/biome");
     }
 
     @Override
-    public void handleBiomes(
-            CultPlayer player,
-            PacketSendEvent<?> event,
-            ac.cult.cultac.network.packet.WorldPackets.ChunkBiomes packet) {
+    public void handleBiomes(CultPlayer player, PacketSendEvent<?> event, ChunkBiomes packet) {
         var dimension = player.compensatedWorld.getLastClientboundDimension();
-        var decoded = new java.util.ArrayList<int[][]>(packet.chunks().size());
+        var decoded = new ArrayList<int[][]>(packet.chunks().size());
         int biomeSize = biomeRegistrySize(player);
         for (var chunk : packet.chunks()) {
             int[][] values = new int[dimension.sectionCount()][];
@@ -78,7 +80,7 @@ public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
                 if (chunk.decodedSections().size() != values.length)
                     throw new IllegalArgumentException("Biome section count differs from the received dimension");
                 for (int i = 0; i < values.length; i++)
-                    values[i] = chunk.decodedSections().get(i).copyBiomes();
+                    values[i] = biomeValues(chunk.decodedSections().get(i));
             } else {
                 var bytes = Unpooled.wrappedBuffer(chunk.sections());
                 try {
@@ -91,7 +93,7 @@ public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
             }
             decoded.add(values);
         }
-        int transaction = appendTrailingProofTransaction(event, player);
+        int transaction = appendFlushProofTransaction(event, player);
         int level = player.compensatedWorld.level();
         player.latencyUtils.addRealTimeTask(transaction, () -> {
             if (level != player.compensatedWorld.level()) return;

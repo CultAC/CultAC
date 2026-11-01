@@ -7,10 +7,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.math.Vec3;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 class JavaCobwebMovementTest {
     private static final ServerboundPlayerInput NONE =
@@ -18,6 +22,8 @@ class JavaCobwebMovementTest {
     private static final ServerboundPlayerInput FORWARD =
             new ServerboundPlayerInput(true, false, false, false, false, false, false);
     private static final double FALL = 0.0784000015258789;
+    private static final double WALK = (double) 0.98F * (double) 0.1F;
+    private static final double FRICTION = 0.6F * 0.91F;
 
     /**
      * Entity#move skips setPos when the collided movement is at most 1e-7 long, measured on the whole delta that
@@ -63,6 +69,51 @@ class JavaCobwebMovementTest {
             Vec3 second = first.add(new Vec3(drift * 0.91F, -FALL, walked * 0.91F));
             assertExact(f.tick(second, false));
         }
+    }
+
+    /**
+     * Before 1.21.9, BlockGetter#boxTraverseBlocks (up to 1.21.4) and #forEachBlockIntersectedBetween (from 1.21.5)
+     * visit only the end box, deflated by 1.0E-5, for a movement shorter than 0.99999. A walk whose start box overlaps
+     * a web and whose end box clears it is not stuck on the next move.
+     */
+    @ParameterizedTest
+    @EnumSource(
+            value = ClientVersion.class,
+            names = {"V_1_21_2", "V_1_21_4", "V_1_21_5", "V_1_21_6", "V_1_21_7"})
+    void aShortWalkOutOfAWebIsNotStuckWhenOnlyTheStartBoxTouchedIt(ClientVersion version) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
+            Vec3 exit = walkOutOfWeb(f);
+            Vec3 free = exit.add(new Vec3(0, 0, WALK));
+            assertExact(f.tick(free, true));
+            assertExact(f.tick(free.add(new Vec3(0, 0, WALK * FRICTION + WALK)), true));
+        }
+    }
+
+    /**
+     * From 1.21.9, BlockGetter#forEachBlockIntersectedBetween sweeps the box from the start position, so a web
+     * overlapped only by the start box still sets the stuck multiplier for the next move.
+     */
+    @Test
+    void aSweptWalkOutOfAWebIsStuckWhenOnlyTheStartBoxTouchedIt() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_1_21_9);
+            Vec3 exit = walkOutOfWeb(f);
+            assertExact(f.tick(exit.add(new Vec3(0, 0, WALK * 0.25)), true));
+        }
+    }
+
+    private static Vec3 walkOutOfWeb(JavaTickFixture f) {
+        web(f, new BlockPos(0, FLOOR_Y, -1));
+        // Box minZ -0.01 sits inside the web; one stuck walk of 0.0245 takes it to 0.0145.
+        Vec3 start = new Vec3(0.5, FLOOR_Y, 0.29);
+        f.place(start, new Vec3(0, -FALL, 0));
+        f.input(NONE);
+        assertExact(f.tick(start, true));
+        f.input(FORWARD);
+        Vec3 exit = start.add(new Vec3(0, 0, WALK * 0.25));
+        assertExact(f.tick(exit, true));
+        return exit;
     }
 
     private static void web(JavaTickFixture f, BlockPos pos) {

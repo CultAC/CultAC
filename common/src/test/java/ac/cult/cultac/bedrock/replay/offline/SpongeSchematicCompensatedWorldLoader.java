@@ -81,11 +81,10 @@ final class SpongeSchematicCompensatedWorldLoader {
     private static void setBlock(CompensatedWorld world, int x, int y, int z, int state) {
         int chunkX = x >> 4;
         int chunkZ = z >> 4;
-        long chunkKey = CompensatedWorld.chunkPositionToLong(chunkX, chunkZ);
-        CompensatedWorld.CachedChunk chunk = world.chunks.get(chunkKey);
+        CompensatedWorld.CachedChunk chunk = world.getChunk(chunkX, chunkZ);
         if (chunk == null) {
             chunk = new CompensatedWorld.CachedChunk(new CompensatedWorld.CachedSection[16], 0);
-            world.chunks.put(chunkKey, chunk);
+            world.putChunk(chunkX, chunkZ, chunk);
         }
         int sectionIndex = y >> 4;
         if (sectionIndex < 0 || sectionIndex >= chunk.sectionCount()) {

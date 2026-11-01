@@ -4,10 +4,7 @@ import ac.cult.blocksim.data.Box;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.math.CultMath;
-import ac.cult.cultac.utils.math.Location;
 import ac.cult.cultac.utils.math.Vec3;
-import ac.cult.cultac.utils.math.Vector3dm;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -22,7 +19,6 @@ public class SimpleCollisionBox implements CollisionBox {
 
     /**
      * Creates a box defined by two points in 3d space; used to represent hitboxes and collision boxes.
-     * If your min/max values are > 1 you should probably check out {@link HexCollisionBox}
      *
      * @param minX      x position of first corner
      * @param minY      y position of first corner
@@ -30,7 +26,7 @@ public class SimpleCollisionBox implements CollisionBox {
      * @param maxX      x position of second corner
      * @param maxY      y position of second corner
      * @param maxZ      z position of second corner
-     * @param fullBlock - whether on not the box is a perfect 1x1x1 sized block
+     * @param fullBlock - whether or not the box is a perfect 1x1x1 sized block
      */
     public SimpleCollisionBox(
             double minX, double minY, double minZ, double maxX, double maxY, double maxZ, boolean fullBlock) {
@@ -41,10 +37,6 @@ public class SimpleCollisionBox implements CollisionBox {
         this.minZ = minZ;
         this.maxZ = maxZ;
         isFullBlock = fullBlock;
-    }
-
-    public SimpleCollisionBox(Vector3dm min, Vector3dm max) {
-        this(min.getX(), min.getY(), min.getZ(), max.getX(), max.getY(), max.getZ());
     }
 
     public SimpleCollisionBox(BlockPos pos) {
@@ -58,8 +50,6 @@ public class SimpleCollisionBox implements CollisionBox {
 
     /**
      * Creates a box defined by two points in 3d space; used to represent hitboxes and collision boxes.
-     * If your min/max values are > 1 you should probably check out {@link HexCollisionBox}
-     * Use only if you don't know the fullBlock status, which is rare
      *
      * @param minX x position of first corner
      * @param minY y position of first corner
@@ -69,13 +59,14 @@ public class SimpleCollisionBox implements CollisionBox {
      * @param maxZ z position of second corner
      */
     public SimpleCollisionBox(double minX, double minY, double minZ, double maxX, double maxY, double maxZ) {
-        this.minX = minX;
-        this.maxX = maxX;
-        this.minY = minY;
-        this.maxY = maxY;
-        this.minZ = minZ;
-        this.maxZ = maxZ;
-        if (minX == 0 && minY == 0 && minZ == 0 && maxX == 1 && maxY == 1 && maxZ == 1) isFullBlock = true;
+        this(
+                minX,
+                minY,
+                minZ,
+                maxX,
+                maxY,
+                maxZ,
+                minX == 0 && minY == 0 && minZ == 0 && maxX == 1 && maxY == 1 && maxZ == 1);
     }
 
     /** Ordered bounds, adapted from PacketEvents' GPLv3 BoundingBox.resize. */
@@ -89,7 +80,7 @@ public class SimpleCollisionBox implements CollisionBox {
                 Math.max(z1, z2));
     }
 
-    /** Non-mutating translations for the migrated native geometry callers. */
+    /** Non-mutating translations. */
     public SimpleCollisionBox move(double x, double y, double z) {
         return between(minX + x, minY + y, minZ + z, maxX + x, maxY + y, maxZ + z);
     }
@@ -167,22 +158,6 @@ public class SimpleCollisionBox implements CollisionBox {
 
     public SimpleCollisionBox(Vec3 min, Vec3 max) {
         this(min.x, min.y, min.z, max.x, max.y, max.z);
-    }
-
-    public SimpleCollisionBox(Location loc, double width, double height) {
-        this(loc.toVector(), width, height);
-    }
-
-    public SimpleCollisionBox(BlockPos vec, double width, double height) {
-        this(vec.getX(), vec.getY(), vec.getZ(), vec.getX(), vec.getY(), vec.getZ());
-        expand(width / 2, 0, width / 2);
-        maxY += height;
-    }
-
-    public SimpleCollisionBox(Vector3dm vec, double width, double height) {
-        this(vec.getX(), vec.getY(), vec.getZ(), vec.getX(), vec.getY(), vec.getZ());
-        expand(width / 2, 0, width / 2);
-        maxY += height;
     }
 
     public SimpleCollisionBox expand(double x, double y, double z) {
@@ -266,14 +241,6 @@ public class SimpleCollisionBox implements CollisionBox {
         return this;
     }
 
-    public SimpleCollisionBox expandToAbsoluteCoordinates(double x, double y, double z) {
-        return expandToCoordinate(x - ((minX + maxX) / 2), y - ((minY + maxY) / 2), z - ((minZ + maxZ) / 2));
-    }
-
-    public SimpleCollisionBox expandToCoordinate(Vec3 vec) {
-        return expandToCoordinate(vec.x, vec.y, vec.z);
-    }
-
     public SimpleCollisionBox expandToCoordinate(double x, double y, double z) {
         if (x < 0.0D) {
             minX += x;
@@ -296,14 +263,6 @@ public class SimpleCollisionBox implements CollisionBox {
         return this;
     }
 
-    public boolean hasPoint(Vec3 point) {
-        return hasPoint(point.x, point.y, point.z);
-    }
-
-    public boolean hasPoint(double x, double y, double z) {
-        return x >= minX && x <= maxX && y >= minY && y <= maxY && z >= minZ && z <= maxZ;
-    }
-
     @Override
     public boolean isCollided(SimpleCollisionBox other) {
         return other.maxX >= this.minX
@@ -322,31 +281,6 @@ public class SimpleCollisionBox implements CollisionBox {
                 && other.minY + SimpleCollisionBox.COLLISION_EPSILON < this.maxY
                 && other.maxZ - SimpleCollisionBox.COLLISION_EPSILON > this.minZ
                 && other.minZ + SimpleCollisionBox.COLLISION_EPSILON < this.maxZ;
-    }
-
-    public boolean isIntersected(CollisionBox other) {
-        // Optimization - don't allocate a list if this is just a SimpleCollisionBox
-        if (other instanceof SimpleCollisionBox) {
-            return isIntersected((SimpleCollisionBox) other);
-        }
-
-        List<SimpleCollisionBox> boxes = new ArrayList<>();
-        other.downCast(boxes);
-
-        for (SimpleCollisionBox box : boxes) {
-            if (isIntersected(box)) return true;
-        }
-
-        return false;
-    }
-
-    public boolean collidesVertically(SimpleCollisionBox other) {
-        return other.maxX > this.minX
-                && other.minX < this.maxX
-                && other.maxY >= this.minY
-                && other.minY <= this.maxY
-                && other.maxZ > this.minZ
-                && other.minZ < this.maxZ;
     }
 
     public SimpleCollisionBox copy() {
@@ -393,10 +327,6 @@ public class SimpleCollisionBox implements CollisionBox {
         return offset(vector.x, vector.y, vector.z);
     }
 
-    public SimpleCollisionBox offset(Direction blockFace) {
-        return offset(blockFace.getModX(), blockFace.getModY(), blockFace.getModZ());
-    }
-
     public SimpleCollisionBox offset(double x, double y, double z) {
         this.minX += x;
         this.minY += y;
@@ -422,10 +352,6 @@ public class SimpleCollisionBox implements CollisionBox {
         return isFullBlock;
     }
 
-    public boolean isFullBlockNoCache() {
-        return minX == 0 && minY == 0 && minZ == 0 && maxX == 1 && maxY == 1 && maxZ == 1;
-    }
-
     public boolean isHorizEmpty() {
         return minX == maxX && minZ == maxZ;
     }
@@ -439,10 +365,6 @@ public class SimpleCollisionBox implements CollisionBox {
      * in the X dimension. return {@code offsetX} if the bounding boxes do not overlap or if {@code offsetX}
      * is closer to {@code 0} then the calculated offset. Otherwise return the calculated offset.
      */
-    public double collideX(SimpleCollisionBox other, double offsetX) {
-        return collideX(other, offsetX, AxisEpsilon.JAVA);
-    }
-
     public double collideX(SimpleCollisionBox other, double offsetX, AxisEpsilon epsilon) {
         if (offsetX != 0
                 && (other.minY - maxY) < -epsilon.y
@@ -472,10 +394,6 @@ public class SimpleCollisionBox implements CollisionBox {
      * in the Y dimension. return {@code offsetY} if the bounding boxes do not overlap or if {@code offsetY}
      * is closer to {@code 0} then the calculated offset. Otherwise return the calculated offset.
      */
-    public double collideY(SimpleCollisionBox other, double offsetY) {
-        return collideY(other, offsetY, AxisEpsilon.JAVA);
-    }
-
     public double collideY(SimpleCollisionBox other, double offsetY, AxisEpsilon epsilon) {
         if (offsetY != 0
                 && (other.minX - maxX) < -epsilon.x
@@ -504,10 +422,6 @@ public class SimpleCollisionBox implements CollisionBox {
      * in the Z dimension. return {@code offsetZ} if the bounding boxes do not overlap or if {@code offsetZ}
      * is closer to {@code 0} then the calculated offset. Otherwise return the calculated offset.
      */
-    public double collideZ(SimpleCollisionBox other, double offsetZ) {
-        return collideZ(other, offsetZ, AxisEpsilon.JAVA);
-    }
-
     public double collideZ(SimpleCollisionBox other, double offsetZ, AxisEpsilon epsilon) {
         if (offsetZ != 0
                 && (other.minX - maxX) < -epsilon.x
@@ -549,35 +463,12 @@ public class SimpleCollisionBox implements CollisionBox {
         }
     }
 
-    public double distance(SimpleCollisionBox box) {
-        double xwidth = (maxX - minX) / 2, zwidth = (maxZ - minZ) / 2;
-        double bxwidth = (box.maxX - box.minX) / 2, bzwidth = (box.maxZ - box.minZ) / 2;
-        double hxz = Math.hypot(minX - box.minX, minZ - box.minZ);
-        return hxz - (xwidth + zwidth + bxwidth + bzwidth) / 4;
-    }
-
     public Vec3 max() {
         return new Vec3(maxX, maxY, maxZ);
     }
 
     public Vec3 min() {
         return new Vec3(minX, minY, minZ);
-    }
-
-    public SimpleCollisionBox toSimpleCollisionBox() {
-        return new SimpleCollisionBox(minX, minY, minZ, maxX, maxY, maxZ);
-    }
-
-    public double middleX() {
-        return (minX + maxX) / 2.0D;
-    }
-
-    public double middleY() {
-        return (minY + maxY) / 2.0D;
-    }
-
-    public double middleZ() {
-        return (minZ + maxZ) / 2.0D;
     }
 
     @Override

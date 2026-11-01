@@ -1,15 +1,21 @@
 package ac.cult.cultac.platform.bukkit;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.events.packets.ProxyAlertMessenger;
+import ac.cult.cultac.platform.api.CommandOutcome;
 import ac.cult.cultac.platform.api.OnlineMode;
 import ac.cult.cultac.platform.api.Platform;
 import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.platform.api.ServerFacts;
+import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
+import java.io.File;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.jetbrains.annotations.Nullable;
 
 public class BukkitPlatformServer implements PlatformServer {
@@ -25,6 +31,20 @@ public class BukkitPlatformServer implements PlatformServer {
         CommandSender commandSender =
                 CultACBukkitLoaderPlugin.INSTANCE.getBukkitSenderFactory().reverse(sender);
         Bukkit.dispatchCommand(commandSender, command);
+    }
+
+    /** On the main thread; {@code false} from Bukkit is an unknown command, and what the command threw fails it. */
+    @Override
+    public CompletableFuture<CommandOutcome> runCommand(
+            Sender sender, String command, @Nullable PlatformPlayer subject) {
+        CommandSender commandSender =
+                CultACBukkitLoaderPlugin.INSTANCE.getBukkitSenderFactory().reverse(sender);
+        try {
+            return CompletableFuture.completedFuture(
+                    CommandOutcome.of(Bukkit.dispatchCommand(commandSender, command)));
+        } catch (RuntimeException failure) {
+            return CompletableFuture.failedFuture(failure);
+        }
     }
 
     @Override
@@ -43,6 +63,11 @@ public class BukkitPlatformServer implements PlatformServer {
     @Override
     public void forwardAlert(String message) {
         ac.cult.cultac.events.packets.ProxyAlertMessenger.sendPluginMessage(message);
+    }
+
+    @Override
+    public boolean receivesForwardedAlerts() {
+        return ProxyAlertMessenger.receivesAlerts();
     }
 
     @Override
@@ -69,11 +94,14 @@ public class BukkitPlatformServer implements PlatformServer {
     }
 
     private static boolean configBoolean(String file, String key, boolean missing) {
-        var path = new java.io.File(file);
-        return path.isFile()
-                ? org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(path)
-                        .getBoolean(key, missing)
-                : missing;
+        YamlConfiguration config = config(file);
+        return config == null ? missing : config.getBoolean(key, missing);
+    }
+
+    /** The server's YAML config {@code file}, relative to the server folder; null when there is no such file. */
+    static @Nullable YamlConfiguration config(String file) {
+        File path = new File(file);
+        return path.isFile() ? YamlConfiguration.loadConfiguration(path) : null;
     }
 
     @Override
@@ -94,6 +122,25 @@ public class BukkitPlatformServer implements PlatformServer {
             return Double.NaN;
         }
         return Bukkit.getTPS()[0];
+    }
+
+    @Override
+    public int onlinePlayers() {
+        try {
+            return Bukkit.getOnlinePlayers().size();
+        } catch (RuntimeException | LinkageError unsupported) {
+            return -1;
+        }
+    }
+
+    @Override
+    public long[] recentTickNanos() {
+        try {
+            long[] times = Bukkit.getServer().getTickTimes();
+            return times == null ? null : times.clone();
+        } catch (RuntimeException | LinkageError unsupported) {
+            return null;
+        }
     }
 
     /** The server's software, target tick length and combat settings, read once. */

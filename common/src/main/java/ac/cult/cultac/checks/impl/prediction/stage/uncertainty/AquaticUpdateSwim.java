@@ -11,6 +11,11 @@ import ac.cult.cultac.utils.nmsutil.ReachUtils;
 
 public class AquaticUpdateSwim implements UncertaintyHandler {
     @Override
+    public boolean skipsContext(CultPlayer player, SimulationContext context, PredictionResult lastResult) {
+        return context.getWorldData().getInWater() == DesyncStatus.FALSE || context.getVehicle() != null;
+    }
+
+    @Override
     public PredVector handleUncertainty(
             CultPlayer player,
             ValidMovements valid,

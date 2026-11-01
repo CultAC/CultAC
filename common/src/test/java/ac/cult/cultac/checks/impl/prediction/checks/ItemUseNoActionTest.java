@@ -139,7 +139,7 @@ class ItemUseNoActionTest {
             var context = mock(SimulationContext.class);
             when(context.getItemUse()).thenReturn(snapshot);
             when(context.getVersion()).thenReturn(ClientVersion.V_26_3);
-            when(context.getMaxSprintInputSpeed(any())).thenReturn(SPEED);
+            when(context.getMaxSprintInputSpeed(any(), any())).thenReturn(SPEED);
             var realities = new ArrayList<PredictionResult>();
             var result = new PredictionResult(
                     player, new PredVector(Vec3.ZERO), context, new Vec3(0, 0, forward), null, realities, realities);

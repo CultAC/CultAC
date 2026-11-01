@@ -14,6 +14,7 @@ import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Set;
 import java.util.function.BiFunction;
 
 /** Name-based received values shared by the native and older-wire adapters. */
@@ -55,7 +56,7 @@ final class ClientMetadataValues {
     /** The stonecutter display suffix is unrelated to interaction input membership. */
     static WorldPackets.RecipeInputs recipes(ByteBuf input, BiFunction<String, Integer, String> names) {
         int count = Wire.readLength(input, input.readableBytes());
-        var inputs = new HashMap<String, java.util.Set<String>>();
+        var inputs = new HashMap<String, Set<String>>();
         for (int index = 0; index < count; index++) {
             String key = Wire.readString(input, Wire.MAX_STRING_LENGTH);
             int size = Wire.readLength(input, input.readableBytes());

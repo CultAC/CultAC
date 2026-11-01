@@ -1,8 +1,12 @@
 package ac.cult.cultac.command.commands;
 
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.bridge.protocol.BridgeMessage.ClientMod;
+import ac.cult.cultac.bridge.protocol.BridgeMessage.ClientMods;
 import ac.cult.cultac.bridge.protocol.ServerCapability;
 import ac.cult.cultac.command.BuildableCommand;
+import ac.cult.cultac.command.CloudCommandService;
 import ac.cult.cultac.manager.player.SmoketestControlBridge;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.command.PlayerSelector;
@@ -20,6 +24,7 @@ import org.incendo.cloud.Command;
 import org.incendo.cloud.CommandManager;
 import org.incendo.cloud.context.CommandContext;
 import org.incendo.cloud.description.Description;
+import org.incendo.cloud.parser.standard.DoubleParser;
 import org.incendo.cloud.parser.standard.StringParser;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -27,9 +32,8 @@ import org.jetbrains.annotations.Nullable;
 public class CultDebug implements BuildableCommand {
 
     public void register(CommandManager<Sender> commandManager, CloudPlatformCommandArguments arguments) {
-        Command.Builder<Sender> cultCommand = commandManager.commandBuilder("cult", "cultac", "grim", "grimac");
+        Command.Builder<Sender> cultCommand = BuildableCommand.root(commandManager);
 
-        // Register "debug" subcommand
         Command.Builder<Sender> debugCommand = cultCommand
                 .literal("debug", Description.of("Toggle debug output for a player"))
                 .permission("cult.debug")
@@ -49,6 +53,20 @@ public class CultDebug implements BuildableCommand {
                 .permission("cult.debug")
                 .optional("target", arguments.singlePlayerSelectorParser())
                 .handler(this::handleDebugPlaces));
+
+        commandManager.command(cultCommand
+                .literal("debug")
+                .literal("channels", Description.of("List the plugin channels a player's client opened"))
+                .permission("cult.debug")
+                .required("target", arguments.singlePlayerSelectorParser())
+                .handler(this::handleDebugChannels));
+
+        commandManager.command(cultCommand
+                .literal("debug")
+                .literal("mods", Description.of("List a player's Lunar Client mods reported through Apollo"))
+                .permission("cult.debug")
+                .required("target", arguments.singlePlayerSelectorParser())
+                .handler(this::handleDebugMods));
 
         commandManager.command(cultCommand
                 .literal("debug")
@@ -79,7 +97,6 @@ public class CultDebug implements BuildableCommand {
                 .optional("target", arguments.singlePlayerSelectorParser())
                 .handler(context -> handleDebugProxyTicks(context, true)));
 
-        // Register "consoledebug" subcommand
         Command.Builder<Sender> consoleDebugCommand = cultCommand
                 .literal("consoledebug", Description.of("Toggle console debug output for a player"))
                 .permission("cult.consoledebug")
@@ -129,10 +146,9 @@ public class CultDebug implements BuildableCommand {
                 .literal("debug")
                 .literal("ignoreinteract", Description.of("Ignore your interactions, then resync"))
                 .permission("cult.debug")
-                .required("seconds", org.incendo.cloud.parser.standard.DoubleParser.doubleParser(0, 300))
+                .required("seconds", DoubleParser.doubleParser(0, 300))
                 .handler(this::handleIgnoreInteract));
 
-        // Register command
         commandManager.command(debugCommand);
         commandManager.command(consoleDebugCommand);
     }
@@ -163,7 +179,8 @@ public class CultDebug implements BuildableCommand {
                     Component.text("Item slowdown debugging requires a Java 1.21.2+ player.", NamedTextColor.RED));
             return;
         }
-        String stopCommand = "/grim debug itemslow" + (selector == null ? "" : " " + target.getName());
+        String stopCommand =
+                CloudCommandService.command("debug itemslow") + (selector == null ? "" : " " + target.getName());
         target.runSafely(() -> {
             boolean enabled = target.checkManager.getDebugHandler().toggleItemSlowListener(sender);
             sender.sendMessage(Component.text(
@@ -213,6 +230,116 @@ public class CultDebug implements BuildableCommand {
         });
     }
 
+    private void handleDebugChannels(@NotNull CommandContext<Sender> context) {
+        Sender sender = context.sender();
+        PlayerSelector selector = context.get("target");
+        CultPlayer target = parseTarget(sender, selector.getSinglePlayer());
+        if (target == null) return;
+        target.runSafely(() -> {
+            var channels = target.pluginChannelManager.channels();
+            if (channels.isEmpty()) {
+                sender.sendMessage(
+                        line(target, "debug-channels-none", "%prefix% &f%player% &bhas no plugin channels open"));
+                return;
+            }
+            sender.sendMessage(line(
+                    target,
+                    "debug-channels-header",
+                    "%prefix% &b%player% has &f%count% &bplugin channels open",
+                    "%count%",
+                    Integer.toString(channels.size())));
+            for (String channel : channels) {
+                sender.sendMessage(line(target, "debug-channels-entry", "&8- &f%channel%", "%channel%", channel));
+            }
+        });
+    }
+
+    private void handleDebugMods(@NotNull CommandContext<Sender> context) {
+        Sender sender = context.sender();
+        PlayerSelector selector = context.get("target");
+        CultPlayer target = parseTarget(sender, selector.getSinglePlayer());
+        if (target == null) return;
+        PlatformPlayer platformPlayer = target.platformPlayer;
+        var request = platformPlayer == null
+                ? java.util.concurrent.CompletableFuture.<ClientMods>completedFuture(null)
+                : platformPlayer.requestClientMods();
+        request.whenComplete((fresh, failure) -> {
+            if (fresh != null) target.clientMods = fresh;
+            sendMods(sender, target, fresh != null ? fresh : target.clientMods);
+        });
+    }
+
+    private static void sendMods(Sender sender, CultPlayer target, @Nullable ClientMods mods) {
+        if (mods == null) {
+            sender.sendMessage(line(
+                    target,
+                    "debug-mods-unavailable",
+                    "%prefix% &cNo Apollo data for &f%player%&c; their server needs Apollo-Bukkit and the CultAC"
+                            + " companion"));
+            return;
+        }
+        if (!mods.lunar()) {
+            sender.sendMessage(line(
+                    target,
+                    "debug-mods-not-lunar",
+                    "%prefix% &f%player% &bis not connected to Apollo; not a Lunar Client player"));
+            return;
+        }
+        sender.sendMessage(line(
+                target,
+                "debug-mods-header",
+                "%prefix% &b%player% has &f%count% &bLunar Client mods",
+                "%count%",
+                Integer.toString(mods.mods().size())));
+        var byType = new java.util.TreeMap<String, java.util.List<ClientMod>>();
+        for (ClientMod mod : mods.mods()) {
+            byType.computeIfAbsent(mod.type(), ignored -> new java.util.ArrayList<>())
+                    .add(mod);
+        }
+        for (var group : byType.entrySet()) {
+            sender.sendMessage(line(target, "debug-mods-type", "&b%type%:", "%type%", group.getKey()));
+            group.getValue()
+                    .sort(java.util.Comparator.comparing(mod -> modName(mod).toLowerCase(Locale.ROOT)));
+            for (ClientMod mod : group.getValue()) {
+                sender.sendMessage(line(
+                        target,
+                        "debug-mods-entry",
+                        "&8- &f%name% &7(%mod%) &8%version%",
+                        "%name%",
+                        modName(mod),
+                        "%mod%",
+                        mod.id(),
+                        "%version%",
+                        mod.version()));
+            }
+        }
+    }
+
+    private static String modName(ClientMod mod) {
+        return mod.name().isEmpty() ? mod.id() : mod.name();
+    }
+
+    private static final java.util.regex.Pattern LINE_PLACEHOLDER = java.util.regex.Pattern.compile("%[a-z_]+%");
+
+    /** The configured line for {@code key} about {@code target}; client-supplied values cannot inject tags. */
+    private static Component line(CultPlayer target, String key, String fallback, String... values) {
+        String message = MessageUtil.replacePlaceholders(
+                target, CultAPI.INSTANCE.getConfigManager().getConfig().getStringElse(key, fallback));
+        var replacements = new java.util.HashMap<String, String>();
+        for (int i = 0; i + 1 < values.length; i += 2) replacements.put(values[i], values[i + 1]);
+        // One pass, so a value holding a placeholder name is shown as it is.
+        var matcher = LINE_PLACEHOLDER.matcher(message);
+        var replaced = new StringBuilder(message.length());
+        while (matcher.find()) {
+            String value = replacements.get(matcher.group());
+            matcher.appendReplacement(
+                    replaced,
+                    java.util.regex.Matcher.quoteReplacement(
+                            value == null ? matcher.group() : MessageUtil.miniMessageSafe(value)));
+        }
+        return MessageUtil.miniMessage(matcher.appendTail(replaced).toString());
+    }
+
     private void handleDebugPlaces(@NotNull CommandContext<Sender> context) {
         Sender sender = context.sender();
         PlayerSelector selector = context.getOrDefault("target", null);
@@ -224,7 +351,8 @@ public class CultDebug implements BuildableCommand {
     private void handleDebugVisibility(@NotNull CommandContext<Sender> context) {
         Sender sender = context.sender();
         if (!sender.isPlayer()) {
-            sender.sendMessage(Component.text("Run /grim debug visibility in-game.", NamedTextColor.RED));
+            sender.sendMessage(Component.text(
+                    "Run " + CloudCommandService.command("debug visibility") + " in-game.", NamedTextColor.RED));
             return;
         }
         CultPlayer player = CultAPI.INSTANCE.getPlayerDataManager().getPlayer(sender.getUniqueId());
@@ -256,7 +384,8 @@ public class CultDebug implements BuildableCommand {
     /** The command sender's own tracked player, or null after telling them why not. */
     private static @Nullable CultPlayer senderPlayer(Sender sender, String command) {
         if (!sender.isPlayer()) {
-            sender.sendMessage(Component.text("Run /cult debug " + command + " in-game.", NamedTextColor.RED));
+            sender.sendMessage(Component.text(
+                    "Run " + CloudCommandService.command("debug " + command) + " in-game.", NamedTextColor.RED));
             return null;
         }
         CultPlayer player = CultAPI.INSTANCE.getPlayerDataManager().getPlayer(sender.getUniqueId());
@@ -283,7 +412,7 @@ public class CultDebug implements BuildableCommand {
         String command = ghostOnly ? "validationpacketblock" : "validationblock";
         if (args.size() != 4 && args.size() != 5) {
             sender.sendMessage(Component.text(
-                    "Usage: /cult debug " + command + " [player] <x> <y> <z> <block|*>"
+                    "Usage: " + CloudCommandService.command("debug " + command) + " [player] <x> <y> <z> <block|*>"
                             + (ghostOnly ? " [silent]" : ""),
                     NamedTextColor.RED));
             return;
@@ -415,7 +544,7 @@ public class CultDebug implements BuildableCommand {
 
     /** Parses {@code namespace:block[property=value,...]} into a model block state. */
     private static int parseBlockState(String text) {
-        var registry = ac.cult.blocksim.data.DataTables.defaults().registry();
+        var registry = DataTables.defaults().registry();
         int properties = text.indexOf('[');
         String key = properties < 0 ? text : text.substring(0, properties);
         int state = registry.block(key).defaultState();
@@ -443,10 +572,7 @@ public class CultDebug implements BuildableCommand {
 
     private static String compensatedBlockId(CultPlayer target, int x, int y, int z) {
         int state = target.compensatedWorld.getBlockStateIdAt(x, y, z);
-        return ac.cult.blocksim.data.DataTables.defaults()
-                .registry()
-                .block(state)
-                .key();
+        return DataTables.defaults().registry().block(state).key();
     }
 
     private void handleDebug(@NotNull CommandContext<Sender> context) {
@@ -488,14 +614,14 @@ public class CultDebug implements BuildableCommand {
         if (cultPlayer == null) return;
 
         String requestedState = context.getOrDefault("state", "toggle");
-        boolean isOutput = switch (requestedState.toLowerCase(java.util.Locale.ROOT)) {
+        boolean isOutput = switch (requestedState.toLowerCase(Locale.ROOT)) {
             case "on", "true", "enable", "enabled" ->
                 cultPlayer.checkManager.getDebugHandler().setConsoleOutput(true);
             case "off", "false", "disable", "disabled" ->
                 cultPlayer.checkManager.getDebugHandler().setConsoleOutput(false);
             default -> cultPlayer.checkManager.getDebugHandler().toggleConsoleOutput();
         };
-        String playerName = cultPlayer.user.getProfile().getName(); // Use user profile for name
+        String playerName = cultPlayer.user.getProfile().getName();
 
         Component message = Component.text()
                 .append(Component.text("Console output for ", NamedTextColor.GRAY))

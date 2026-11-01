@@ -31,14 +31,6 @@ public class EmbedField implements JsonSerializable {
         inline(inline);
     }
 
-    public EmbedField(@NotNull JsonElement jsonElement) {
-        JsonObject json = jsonElement.getAsJsonObject();
-        name(json.get("name").getAsString());
-        value(json.get("value").getAsString());
-        JsonElement inline = json.get("inline");
-        if (inline != null) inline(inline.getAsBoolean());
-    }
-
     @Contract(value = "_ -> this", mutates = "this")
     public @NotNull EmbedField name(@NotNull String name) {
         Objects.requireNonNull(name, "Embed field name cannot be null!");

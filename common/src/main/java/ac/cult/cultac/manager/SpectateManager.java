@@ -5,6 +5,7 @@ import ac.cult.cultac.bridge.protocol.ServerCapability;
 import ac.cult.cultac.manager.init.ReloadableInitable;
 import ac.cult.cultac.manager.init.start.StartableInitable;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
+import ac.cult.cultac.platform.api.world.PlatformWorld;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.math.Location;
@@ -32,7 +33,8 @@ public class SpectateManager implements StartableInitable, ReloadableInitable {
         /** Moves the player to {@code server}; completes true once game mode and teleports work there. */
         CompletableFuture<Boolean> connect(PlatformPlayer player, String server);
 
-        CompletableFuture<Boolean> teleportToPlayer(PlatformPlayer spectator, PlatformPlayer target);
+        /** Teleports the spectator to the target on the server both are on. */
+        CompletableFuture<Boolean> teleportToPlayer(PlatformPlayer spectator, Target target);
 
         /** The player's game mode and location as their server holds them; completes null when it cannot tell. */
         CompletableFuture<@Nullable ServerState> playerState(PlatformPlayer player);
@@ -40,6 +42,16 @@ public class SpectateManager implements StartableInitable, ReloadableInitable {
 
     /** A player's game mode and location on the server they are connected to. */
     public record ServerState(GameMode gameMode, Location location) {}
+
+    /**
+     * The player to spectate: {@code player} when they are on this instance, null when the network roster places them
+     * on another proxy. {@code server} is the backend they are on, or null on a single-server platform.
+     */
+    public record Target(
+            UUID id,
+            String name,
+            @Nullable PlatformPlayer player,
+            @Nullable String server) {}
 
     public static final Router LOCAL = new Router() {
         @Override
@@ -53,8 +65,10 @@ public class SpectateManager implements StartableInitable, ReloadableInitable {
         }
 
         @Override
-        public CompletableFuture<Boolean> teleportToPlayer(PlatformPlayer spectator, PlatformPlayer target) {
-            return spectator.teleportAsync(target.getLocation());
+        public CompletableFuture<Boolean> teleportToPlayer(PlatformPlayer spectator, Target target) {
+            // Without a server to connect to, spectate refuses a remote target before any teleport.
+            return spectator.teleportAsync(
+                    Objects.requireNonNull(target.player(), "player").getLocation());
         }
 
         @Override
@@ -69,7 +83,9 @@ public class SpectateManager implements StartableInitable, ReloadableInitable {
         CONNECT_FAILED,
         TELEPORT_FAILED,
         ALREADY_CONNECTING,
-        STATE_UNAVAILABLE
+        STATE_UNAVAILABLE,
+        /** The target is on another proxy and this platform cannot connect the spectator to their server. */
+        UNREACHABLE
     }
 
     public static final String ALREADY_CONNECTING_MESSAGE =
@@ -132,26 +148,31 @@ public class SpectateManager implements StartableInitable, ReloadableInitable {
         this.router = router == null ? LOCAL : router;
     }
 
+    /** {@code player}, on this instance, as a target on the server the router places them on. */
+    public Target target(PlatformPlayer player) {
+        return new Target(player.getUniqueId(), player.getName(), player, router.serverName(player));
+    }
+
     /**
      * Puts the spectator in spectator mode at the target, connecting to the target's server first if needed.
      *
      * <p>{@code onStarted} runs when this request saved the state that stopspectating restores: on the same server
      * before the game mode changes, across servers once the teleport there completed. Across servers it also runs when
-     * the player's state there cannot be read after the connect, or the connect fails after the player reached that
-     * server, since stopspectating then still returns them. On a single-server platform the teleport is not awaited
-     * and the result is {@link Outcome#SPECTATING} once it is requested.
+     * the player's state there cannot be read after the connect, the connect fails after the player reached that
+     * server, or that server cannot teleport them to a target on another proxy, since stopspectating then still
+     * returns them. On a single-server platform the teleport is not awaited and the result is
+     * {@link Outcome#SPECTATING} once it is requested. A target on another proxy is {@link Outcome#UNREACHABLE} when
+     * their server is unknown or this platform cannot connect the spectator to it.
      */
-    public CompletableFuture<SpectateResult> spectate(
-            PlatformPlayer spectator, PlatformPlayer target, Runnable onStarted) {
+    public CompletableFuture<SpectateResult> spectate(PlatformPlayer spectator, Target target, Runnable onStarted) {
         Router route = router;
         String from = route.serverName(spectator);
-        String to = route.serverName(target);
+        String to = target.server();
+        if (target.player() == null && (from == null || to == null)) return done(Outcome.UNREACHABLE, false);
         boolean crossServer = from != null && to != null && !from.equals(to);
-        PlatformPlayer authority = crossServer ? target : spectator;
-        if (!authority.hasCapability(ServerCapability.TELEPORT)
-                || !authority.hasCapability(ServerCapability.GAMEMODE)) {
-            return done(Outcome.UNSUPPORTED, false);
-        }
+        // A target on another proxy has no session here; its server is checked through the spectator's on arrival.
+        PlatformPlayer authority = crossServer ? target.player() : spectator;
+        if (authority != null && !capable(authority)) return done(Outcome.UNSUPPORTED, false);
         UUID id = spectator.getUniqueId();
         if (!crossServer) {
             if (connecting.containsKey(id)) {
@@ -202,10 +223,14 @@ public class SpectateManager implements StartableInitable, ReloadableInitable {
                 });
     }
 
+    private static boolean capable(PlatformPlayer player) {
+        return player.hasCapability(ServerCapability.TELEPORT) && player.hasCapability(ServerCapability.GAMEMODE);
+    }
+
     private CompletableFuture<SpectateResult> spectateHere(
             Router route,
             PlatformPlayer spectator,
-            PlatformPlayer target,
+            Target target,
             @Nullable String from,
             @Nullable PreviousState saved,
             Runnable onStarted) {
@@ -221,7 +246,7 @@ public class SpectateManager implements StartableInitable, ReloadableInitable {
     private CompletableFuture<SpectateResult> connectAndSpectate(
             Router route,
             PlatformPlayer spectator,
-            PlatformPlayer target,
+            Target target,
             @Nullable String from,
             String to,
             Long generation,
@@ -264,6 +289,10 @@ public class SpectateManager implements StartableInitable, ReloadableInitable {
                                 }
                                 PreviousState state = spectatingPlayers.get(id);
                                 if (state != null) state.target = new TargetMode(to, here.gameMode());
+                                if (target.player() == null && !capable(spectator)) {
+                                    onStarted.run();
+                                    return done(Outcome.TELEPORT_FAILED, started);
+                                }
                                 spectator.setGameMode(GameMode.SPECTATOR);
                                 return route.teleportToPlayer(spectator, target).thenApply(success -> {
                                     if (started) onStarted.run();
@@ -396,7 +425,7 @@ public class SpectateManager implements StartableInitable, ReloadableInitable {
         if (generation != null && !returning(id, generation, previousState)) {
             return CompletableFuture.completedFuture(null);
         }
-        return platformPlayer.teleportAsync(previousState.location).handle((bool, failure) -> {
+        return platformPlayer.teleportAsync(previousState.returnLocation()).handle((bool, failure) -> {
             if (generation != null && !returning(id, generation, previousState)) return null;
             if (failure == null && Boolean.TRUE.equals(bool)) {
                 onDisable(previousState, platformPlayer);
@@ -428,6 +457,8 @@ public class SpectateManager implements StartableInitable, ReloadableInitable {
     private static final class PreviousState {
         private final GameMode gameMode;
         private final Location location;
+        // Location holds its world weakly, and a proxy's backend world has no other holder.
+        private final @Nullable PlatformWorld world;
         private final @Nullable String server;
         // The player's pre-spectator game mode on the server it last connected to for spectating.
         private volatile @Nullable TargetMode target;
@@ -435,7 +466,14 @@ public class SpectateManager implements StartableInitable, ReloadableInitable {
         private PreviousState(GameMode gameMode, Location location, @Nullable String server) {
             this.gameMode = gameMode;
             this.location = location;
+            this.world = location.getWorld();
             this.server = server;
+        }
+
+        private Location returnLocation() {
+            Location back = location.clone();
+            back.setWorld(world);
+            return back;
         }
     }
 

@@ -8,8 +8,10 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.StringJoiner;
 import java.util.TreeMap;
 import java.util.zip.GZIPInputStream;
 
@@ -43,7 +45,7 @@ final class ClientBlockStateNbt {
             var properties = definitions.computeIfAbsent(blockName(state), ignored -> new TreeMap<>());
             stateProperties(state)
                     .forEach((name, value) -> properties
-                            .computeIfAbsent(name, ignored -> new java.util.HashSet<>())
+                            .computeIfAbsent(name, ignored -> new HashSet<>())
                             .add(value));
         }
         var defaults = new HashMap<String, Block>();
@@ -101,7 +103,7 @@ final class ClientBlockStateNbt {
                 if (value != null) values.put(entry.getKey(), value);
             }
         }
-        var serialized = new java.util.StringJoiner(",", name + "[", "]");
+        var serialized = new StringJoiner(",", name + "[", "]");
         values.forEach((key, value) -> serialized.add(key + "=" + value));
         int state = registry.blockStateId(serialized.toString());
         if (state < 0)

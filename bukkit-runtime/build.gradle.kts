@@ -87,6 +87,13 @@ dependencies {
     implementation(project(":common"))
     implementation(project(":protocol-netty"))
     compileOnly(project(":reload-host"))
+
+    testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.11.4")
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 sourceSets.main { java.srcDir(rootProject.file("bukkit/src/main/java")) }
@@ -118,9 +125,13 @@ tasks.shadowJar {
         exclude(project(":reload-integrations"))
     }
     relocate("com.google.protobuf", "ac.cult.cultac.libs.protobuf")
+    shadeNetworkClients()
     exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
     exclude("META-INF/services/javax.annotation.processing.Processor")
     excludeCloudExtras()
+    // RuntimeClassLoader always delegates these packages to the host, so copies here never load.
+    // Exclude by path, not dependency, to keep the jars' service files.
+    exclude("net/kyori/**/*.class", "org/slf4j/**/*.class")
     mergeServiceFiles()
     manifest.attributes(mapOf(
         "paperweight-mappings-namespace" to "mojang",
@@ -134,6 +145,7 @@ tasks.shadowJar {
         "Cult-Runtime-Entrypoint" to "ac.cult.cultac.platform.bukkit.PaperRuntimeEntrypoint"
     ))
     doLast {
+        pruneUnreferencedClasses(archiveFile.get().asFile, listOf("org/apache/commons/lang3/", SHADED_BOUNCYCASTLE))
         check(ProcessBuilder("python3", rootProject.file("scripts/verify-no-bundled-minecraft.py").path,
             archiveFile.get().asFile.path).inheritIO().start().waitFor() == 0)
         check(ProcessBuilder("python3", rootProject.file("scripts/verify-vialib-packaging.py").path,

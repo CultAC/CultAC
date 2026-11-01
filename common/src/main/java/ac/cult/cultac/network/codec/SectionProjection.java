@@ -1,10 +1,13 @@
 package ac.cult.cultac.network.codec;
 
+import ac.cult.cultac.network.packet.SectionSnapshot;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.utils.latency.PalettedSection;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.IntUnaryOperator;
 
 /**
@@ -23,11 +26,11 @@ final class SectionProjection {
             IntUnaryOperator states,
             IntUnaryOperator biomes) {}
 
-    static java.util.List<ac.cult.cultac.network.packet.SectionSnapshot> decodedSections(
+    static List<SectionSnapshot> decodedSections(
             ByteBuf input, ProtocolVersion version, int count, Registries registries) {
-        var sections = new java.util.ArrayList<ac.cult.cultac.network.packet.SectionSnapshot>(count);
+        var sections = new ArrayList<SectionSnapshot>(count);
         for (int i = 0; i < count; i++)
-            sections.add(ac.cult.cultac.network.packet.SectionSnapshot.read(
+            sections.add(SectionSnapshot.read(
                     input,
                     version,
                     registries.sourceStates(),
@@ -36,16 +39,16 @@ final class SectionProjection {
                     registries.modelBiomes(),
                     registries.states(),
                     registries.biomes()));
-        return java.util.List.copyOf(sections);
+        return List.copyOf(sections);
     }
 
-    static java.util.List<ac.cult.cultac.network.packet.SectionSnapshot> decodedBiomes(
+    static List<SectionSnapshot> decodedBiomes(
             ByteBuf input, ProtocolVersion version, int count, Registries registries) {
-        var sections = new java.util.ArrayList<ac.cult.cultac.network.packet.SectionSnapshot>(count);
+        var sections = new ArrayList<SectionSnapshot>(count);
         for (int i = 0; i < count; i++)
-            sections.add(ac.cult.cultac.network.packet.SectionSnapshot.readBiomes(
+            sections.add(SectionSnapshot.readBiomes(
                     input, version, registries.sourceBiomes(), registries.modelBiomes(), registries.biomes()));
-        return java.util.List.copyOf(sections);
+        return List.copyOf(sections);
     }
 
     static byte[] sections(ByteBuf input, ProtocolVersion version, int count, Registries registries) {
@@ -54,10 +57,10 @@ final class SectionProjection {
             for (int section = 0; section < count; section++) {
                 short nonEmpty = input.readShort();
                 short fluids = version.atLeast(ProtocolVersion.V26_1) ? input.readShort() : 0;
-                var states = PalettedSection.readBlocks(input, version, registries.sourceStates())
-                        .remap(registries.states(), registries.modelStates());
-                var biomes = PalettedSection.readBiomes(input, version, registries.sourceBiomes())
-                        .remap(registries.biomes(), registries.modelBiomes());
+                var states = PalettedSection.readBlocks(
+                        input, version, registries.sourceStates(), registries.states(), registries.modelStates());
+                var biomes = PalettedSection.readBiomes(
+                        input, version, registries.sourceBiomes(), registries.biomes(), registries.modelBiomes());
                 output.writeShort(nonEmpty);
                 output.writeShort(fluids);
                 states.write(output);
@@ -73,8 +76,12 @@ final class SectionProjection {
         ByteBuf output = Unpooled.buffer();
         try {
             for (int section = 0; section < count; section++) {
-                PalettedSection.readBiomes(input, version, registries.sourceBiomes())
-                        .remap(registries.biomes(), registries.modelBiomes())
+                PalettedSection.readBiomes(
+                                input,
+                                version,
+                                registries.sourceBiomes(),
+                                registries.biomes(),
+                                registries.modelBiomes())
                         .write(output);
             }
             return ByteBufUtil.getBytes(output);

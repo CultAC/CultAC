@@ -24,8 +24,10 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.jar.JarEntry;
@@ -274,6 +276,18 @@ class BuildUpdatesTest {
     }
 
     @Test
+    void anAlreadyRunningRetryRepairsTheRecordedBuild() throws Exception {
+        publish(142, manifest -> {});
+        install(updates(), 142);
+        Path state = directory.resolve("state.json");
+        UpdateState.write(state, 141, BUNDLED);
+        requests.clear();
+        assertEquals("already on b142", install(updates(), 142));
+        assertEquals(new UpdateState.Entry(142, BUNDLED), UpdateState.read(state));
+        assertTrue(requests.isEmpty());
+    }
+
+    @Test
     void reportsAMissingBuild() throws Exception {
         assertEquals(
                 "update refused: 127.0.0.1 has no manifest at " + releasePath(150, "manifest.json"),
@@ -460,6 +474,129 @@ class BuildUpdatesTest {
         assertEquals(Files.size(directory.resolve("jars/b142.jar")), Files.size(jar));
     }
 
+    BuildUpdates following(String branch) {
+        var base = settings();
+        var follow = new UpdateSettings(
+                base.repository(),
+                base.token(),
+                base.publicKey(),
+                base.webhook(),
+                base.stateFile(),
+                base.pinnedBuild(),
+                branch);
+        return new BuildUpdates(
+                follow, BUNDLED, endpoints(), Duration.ofSeconds(2), Duration.ofSeconds(5), Duration.ofSeconds(5));
+    }
+
+    @Test
+    void aFollowingBootStartsTheNewestBuildOfItsBranchOverTheStateFile() throws Exception {
+        publish(142, manifest -> {});
+        String version = "0.1.0-b144-experimental-bbbbbbb";
+        publish(144, "experimental", jar("b144.jar", version, "next"), version, manifest -> {}, signer);
+        publish(143, manifest -> {});
+        UpdateState.write(directory.resolve("state.json"), 142, BUNDLED);
+        var info = new ArrayList<String>();
+        var warnings = new ArrayList<String>();
+
+        Path jar = following("experimental")
+                .boot("2", engine.updates(), Duration.ofSeconds(10), info::add, warnings::add, "main");
+
+        assertNotNull(jar);
+        assertEquals(List.of("Starting b144 (experimental bbbbbbb)"), info);
+        assertEquals(List.of(), warnings);
+    }
+
+    @Test
+    void aFollowingBootKeepsABundledBuildNewerThanEveryPublishedOne() throws Exception {
+        String version = "0.1.0-b140-experimental-bbbbbbb";
+        publish(140, "experimental", jar("b140.jar", version, "next"), version, manifest -> {}, signer);
+        var info = new ArrayList<String>();
+        var warnings = new ArrayList<String>();
+
+        assertNull(following("experimental")
+                .boot("2", engine.updates(), Duration.ofSeconds(10), info::add, warnings::add, "main"));
+        assertEquals(List.of("Starting the bundled build b141, the newest experimental build"), info);
+        assertEquals(List.of(), warnings);
+    }
+
+    @Test
+    void aBareLatestFollowsTheBundledBranch() throws Exception {
+        publish(142, manifest -> {});
+        String version = "0.1.0-b144-experimental-bbbbbbb";
+        publish(144, "experimental", jar("b144.jar", version, "next"), version, manifest -> {}, signer);
+        var info = new ArrayList<String>();
+        var warnings = new ArrayList<String>();
+
+        assertNotNull(
+                following("").boot("2", engine.updates(), Duration.ofSeconds(10), info::add, warnings::add, "main"));
+        assertEquals(List.of("Starting b142 (main bbbbbbb)"), info);
+
+        assertNull(following("").boot("2", engine.updates(), Duration.ofSeconds(10), info::add, warnings::add, null));
+        assertEquals(
+                List.of("Starting the bundled build b141: update.build follows the bundled branch,"
+                        + " which this jar does not name"),
+                warnings);
+    }
+
+    @Test
+    void aFollowingBootStartsTheBundledBuildWhenItIsTheNewestOrNoneIsUsable() throws Exception {
+        var info = new ArrayList<String>();
+        var warnings = new ArrayList<String>();
+        assertNull(following("main")
+                .boot("2", engine.updates(), Duration.ofSeconds(10), info::add, warnings::add, "main"));
+        assertEquals(1, warnings.size());
+        assertTrue(
+                warnings.getFirst().contains("the newest main build was refused: no build of main"),
+                warnings.getFirst());
+
+        warnings.clear();
+        String version = "0.1.0-b142-experimental-bbbbbbb";
+        publish(142, "experimental", jar("b142.jar", version, "next"), version, manifest -> {}, signer);
+        releases.get(0).getAsJsonObject().addProperty("name", "build-142 (main bbbbbbb)");
+        assertNull(following("main")
+                .boot("2", engine.updates(), Duration.ofSeconds(10), info::add, warnings::add, "main"));
+        assertEquals(1, warnings.size());
+        assertTrue(warnings.getFirst().endsWith("b142 is signed for experimental, not main"), warnings.getFirst());
+        assertEquals(List.of(), info);
+    }
+
+    @Test
+    void readsAFollowedBranch() throws Exception {
+        Files.writeString(directory.resolve("config.yml"), "update:\n  build: latest\n");
+        assertEquals(
+                "",
+                UpdateSettings.read(directory, "CultAC/CultAC", name -> null).followBranch());
+        assertEquals(
+                0, UpdateSettings.read(directory, "CultAC/CultAC", name -> null).pinnedBuild());
+        assertEquals(
+                "experimental",
+                UpdateSettings.read(
+                                directory,
+                                "CultAC/CultAC",
+                                name -> name.equals("CULTAC_UPDATE_BUILD") ? "latest:experimental" : null)
+                        .followBranch());
+        assertNull(UpdateSettings.read(
+                        directory, "CultAC/CultAC", name -> name.equals("CULTAC_UPDATE_BUILD") ? "130" : null)
+                .followBranch());
+        assertEquals(
+                "",
+                UpdateSettings.read(
+                                directory,
+                                "CultAC/CultAC",
+                                name -> name.equals("CULTAC_UPDATE_BUILD") ? "latest:" : null)
+                        .followBranch());
+        assertEquals(
+                "experimental",
+                UpdateSettings.read(
+                                directory,
+                                "CultAC/CultAC",
+                                name -> name.equals("CULTAC_UPDATE_BUILD") ? "Latest: experimental" : null)
+                        .followBranch());
+        assertNull(UpdateSettings.read(
+                        directory, "CultAC/CultAC", name -> name.equals("CULTAC_UPDATE_BUILD") ? "latests" : null)
+                .followBranch());
+    }
+
     @Test
     void bootFallsBackToTheBundledBuild() throws Exception {
         var info = new ArrayList<String>();
@@ -574,6 +711,112 @@ class BuildUpdatesTest {
     }
 
     @Test
+    void aLocalJarWaitsForTheRunningBuildInstall() throws Exception {
+        publish(142, manifest -> {});
+        var started = new CompletableFuture<Void>();
+        var release = new CompletableFuture<Void>();
+        controls.put("entered:start:next", started);
+        controls.put("start:next", release);
+        var numbered =
+                updates().install(engine, 142, task -> Thread.ofPlatform().start(task));
+        started.get(10, TimeUnit.SECONDS);
+        Files.copy(
+                jar("local.jar", "0.1.0-b140-main-ccccccc", "local"),
+                engine.updates().resolve("local.jar"));
+        Path state = directory.resolve("state.json");
+        assertEquals(
+                "update refused: another update is running",
+                BuildUpdates.installFile(engine, "local.jar", state, Runnable::run)
+                        .toCompletableFuture()
+                        .get(5, TimeUnit.SECONDS));
+        release.complete(null);
+        assertTrue(numbered.toCompletableFuture().get(20, TimeUnit.SECONDS).contains(" → b142"));
+        assertEquals(new UpdateState.Entry(142, BUNDLED), UpdateState.read(state));
+        String line = BuildUpdates.installFile(engine, "local.jar", state, Runnable::run)
+                .toCompletableFuture()
+                .get(20, TimeUnit.SECONDS);
+        assertTrue(line.startsWith("Activated 0.1.0-b140-main-ccccccc"), line);
+        assertNull(UpdateState.read(state));
+    }
+
+    @Test
+    void aLateActivationRecordsTheBuildDespiteTheOuterTimeout() throws Exception {
+        publish(142, manifest -> {});
+        var release = new CompletableFuture<Void>();
+        controls.put("start:next", release);
+        var workers = new CopyOnWriteArrayList<Thread>();
+        Executor executor = task -> workers.add(Thread.ofPlatform().start(task));
+        var updates = updates();
+        updates.updateLimit(Duration.ofSeconds(2));
+        String line =
+                updates.install(engine, 142, executor).toCompletableFuture().get(20, TimeUnit.SECONDS);
+        assertEquals("update timed out after 2 s; it may still activate later", line);
+        assertEquals("already on b141", install(updates, 141));
+        release.complete(null);
+        for (var worker : workers) assertTrue(worker.join(Duration.ofSeconds(20)));
+        assertEquals("0.1.0-b142-main-bbbbbbb", engine.currentBuild());
+        assertEquals(new UpdateState.Entry(142, BUNDLED), UpdateState.read(directory.resolve("state.json")));
+    }
+
+    @Test
+    void thePublishedBuildIsRecordedBeforeItsPredecessorStepsAside() throws Exception {
+        publish(142, manifest -> {});
+        var release = new CompletableFuture<Void>();
+        var entered = new CompletableFuture<Void>();
+        controls.put("superseded:initial", release);
+        controls.put("entered:superseded:initial", entered);
+        var worker = new CompletableFuture<Thread>();
+        var updates = updates();
+        updates.updateLimit(Duration.ofSeconds(1));
+        engine.lifecycleTimeout(Duration.ofSeconds(2));
+        try {
+            var result = updates.install(
+                    engine, 142, task -> worker.complete(Thread.ofPlatform().start(task)));
+            entered.get(10, TimeUnit.SECONDS);
+            assertEquals("0.1.0-b142-main-bbbbbbb", engine.currentBuild());
+            assertEquals(new UpdateState.Entry(142, BUNDLED), UpdateState.read(directory.resolve("state.json")));
+            assertEquals(
+                    "update timed out after 1 s; it may still activate later",
+                    result.toCompletableFuture().get(5, TimeUnit.SECONDS));
+        } finally {
+            release.complete(null);
+            assertTrue(worker.get(10, TimeUnit.SECONDS).join(Duration.ofSeconds(10)));
+        }
+    }
+
+    @Test
+    void aLocalJarThatActivatesAfterItsTimeoutClearsTheOldBuildSelection() throws Exception {
+        publish(142, manifest -> {});
+        install(updates(), 142);
+        Files.copy(
+                jar("local.jar", "0.1.0-b140-main-ccccccc", "local"),
+                engine.updates().resolve("local.jar"));
+        var release = new CompletableFuture<Void>();
+        var entered = new CompletableFuture<Void>();
+        var worker = new CompletableFuture<Thread>();
+        controls.put("start:local", release);
+        controls.put("entered:start:local", entered);
+        Path state = directory.resolve("state.json");
+        try {
+            var result = BuildUpdates.installFile(
+                    engine,
+                    "local.jar",
+                    state,
+                    task -> worker.complete(Thread.ofPlatform().start(task)),
+                    Duration.ofMillis(300));
+            entered.get(10, TimeUnit.SECONDS);
+            assertTrue(result.toCompletableFuture().get(5, TimeUnit.SECONDS).startsWith("update timed out"));
+            assertEquals(new UpdateState.Entry(142, BUNDLED), UpdateState.read(state));
+            release.complete(null);
+            assertTrue(worker.get(10, TimeUnit.SECONDS).join(Duration.ofSeconds(10)));
+            assertEquals("0.1.0-b140-main-ccccccc", engine.currentBuild());
+            assertNull(UpdateState.read(state));
+        } finally {
+            release.complete(null);
+        }
+    }
+
+    @Test
     void aBootBuildThatFailsToLoadFallsBackToTheBundledRuntime() throws Exception {
         engine.stop().toCompletableFuture().get(10, TimeUnit.SECONDS);
         var reports = new CopyOnWriteArrayList<String>();
@@ -594,6 +837,32 @@ class BuildUpdatesTest {
                 reports.stream().anyMatch(line -> line.startsWith("Starting the bundled CultAC runtime;")),
                 reports.toString());
         restarted.stop().toCompletableFuture().get(10, TimeUnit.SECONDS);
+        engine = restarted;
+    }
+
+    @Test
+    void aBootBuildThatFailsToStartFallsBackToTheBundledRuntime() throws Exception {
+        engine.stop().toCompletableFuture().get(10, TimeUnit.SECONDS);
+        var reports = new CopyOnWriteArrayList<String>();
+        var restarted = new GenerationManager(
+                directory.resolve("Restarted"),
+                "paper",
+                this,
+                controls,
+                null,
+                getClass().getClassLoader(),
+                reports::add);
+        Path bootBuild = Files.copy(
+                jar("b142.jar", "0.1.0-b142-main-bbbbbbb", "broken"), directory.resolve("build-142-0123456789ab.jar"));
+        restarted.loadInitial(Files.newInputStream(jar("bundled.jar", BUNDLED, "initial")), bootBuild);
+        restarted.startInitial();
+        assertEquals(BUNDLED, restarted.currentBuild());
+        assertFalse(Files.exists(bootBuild));
+        assertTrue(
+                reports.stream().anyMatch(line -> line.startsWith("Starting the bundled CultAC runtime; 0.1.0-b142")),
+                reports.toString());
+        restarted.stop().toCompletableFuture().get(10, TimeUnit.SECONDS);
+        assertTrue(events.contains("broken:close"), events.toString());
         engine = restarted;
     }
 

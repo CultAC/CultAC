@@ -17,10 +17,6 @@ public class EvictingMap<K, V> extends LinkedHashMap<K, V> {
         this.capacity = capacity;
     }
 
-    public int getCapacity() {
-        return capacity;
-    }
-
     @Override
     protected boolean removeEldestEntry(Map.Entry<K, V> eldest) {
         return size() > capacity;

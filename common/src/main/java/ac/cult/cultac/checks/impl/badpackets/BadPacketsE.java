@@ -6,7 +6,6 @@ import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 
@@ -27,22 +26,13 @@ public class BadPacketsE extends Check implements CheckListener {
     @CultPacketHandler
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
-        if (packet.hasPosition()) {
+        if (packet.hasPosition() || player.inVehicle()) {
             noReminderTicks = 0;
             return;
         }
 
         if (!player.packetStateData.lastPacketWasTeleport && ++noReminderTicks > MAX_NO_REMINDER_TICKS) {
             flag(V.write(verbose()).uint(noReminderTicks));
-        }
-    }
-
-    // A mounted LocalPlayer#tick sends the passenger Rot instead of sendPosition(),
-    // so its position reminder does not run.
-    @CultPacketHandler("serverbound.client_tick_end")
-    public void onClientTickEnd(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
-        if (player.inVehicle()) {
-            noReminderTicks = 0;
         }
     }
 

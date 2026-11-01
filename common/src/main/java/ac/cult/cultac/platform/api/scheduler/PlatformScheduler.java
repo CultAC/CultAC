@@ -6,11 +6,11 @@ import org.jetbrains.annotations.NotNull;
 /**
  * A cross-platform scheduler for scheduling tasks across different Minecraft server platforms.
  * This interface provides a unified API for scheduling tasks asynchronously, globally, or tied to specific
- * regions or entities, with platform-specific implementations for Folia, Bukkit (and forks), Fabric, and future platforms.
+ * regions or entities, with platform-specific implementations for Folia, Bukkit (and forks), and future platforms.
  * <p>
  * The scheduler is designed to abstract away platform-specific scheduling differences, allowing developers to write
  * platform-agnostic code. On Folia, the scheduler leverages advanced threading features like region-based and entity-based
- * scheduling. On non-Folia platforms (e.g., Bukkit, Fabric), region and entity scheduling behave synchronously, similar to
+ * scheduling. On non-Folia platforms (e.g., Bukkit), region and entity scheduling behave synchronously, similar to
  * global region scheduling, ensuring compatibility and consistent behavior.
  * </p>
  * <p>
@@ -19,7 +19,7 @@ import org.jetbrains.annotations.NotNull;
  *   <li><b>Folia:</b> Supports advanced threading features, including region-based scheduling (via {@link RegionScheduler}),
  *       entity-based scheduling (via {@link EntityScheduler}), asynchronous scheduling (via {@link AsyncScheduler}),
  *       and global region scheduling (via {@link GlobalRegionScheduler}).</li>
- *   <li><b>Non-Folia Platforms (Bukkit, Fabric, etc.):</b> Region and entity scheduling are implemented synchronously,
+ *   <li><b>Non-Folia Platforms (Bukkit, etc.):</b> Region and entity scheduling are implemented synchronously,
  *       behaving similarly to global region scheduling. Asynchronous scheduling is supported but may have platform-specific
  *       limitations.</li>
  * </ul>
@@ -80,33 +80,6 @@ public interface PlatformScheduler {
     }
 
     /**
-     * Converts the specified number of ticks to a time value expressed in the
-     * desired {@link java.util.concurrent.TimeUnit TimeUnit}.
-     * <p>
-     * Internally the method multiplies the given tick count by <code>50&nbsp;ms</code>
-     * (duration of one tick) and then converts that millisecond value to the
-     * requested unit.
-     * </p>
-     *
-     * <p><b>Example:</b></p>
-     * <pre>
-     * long ticks = 100;                                   // 100 ticks
-     * long seconds = PlatformScheduler.convertTicksToTime(ticks, TimeUnit.SECONDS);
-     * // seconds == 5
-     * </pre>
-     *
-     * @param ticks     The number of ticks to convert.
-     * @param timeUnit  The unit in which you want the result.
-     * @return          The converted time value in the requested unit.
-     *
-     * @see #convertTimeToTicks(long, TimeUnit)
-     */
-    static long convertTicksToTime(long ticks, TimeUnit timeUnit) {
-        long millis = ticks * 50L;
-        return timeUnit.convert(millis, TimeUnit.MILLISECONDS);
-    }
-
-    /**
      * Returns the asynchronous task scheduler.
      * <p>
      * The async task scheduler can be used to schedule tasks that execute asynchronously from the server tick process.
@@ -117,8 +90,7 @@ public interface PlatformScheduler {
      * <b>Platform-Specific Behavior:</b>
      * <ul>
      *   <li><b>Folia:</b> Uses Folia's async scheduler for true asynchronous execution.</li>
-     *   <li><b>Non-Folia Platforms:</b> Uses platform-specific async scheduling (e.g., Bukkit's async tasks, Fabric's
-     *       async executor). Ensure tasks are thread-safe, as async behavior may vary.</li>
+     *   <li><b>Non-Folia Platforms:</b> Uses platform-specific async scheduling (e.g., Bukkit's async tasks). Ensure tasks are thread-safe, as async behavior may vary.</li>
      * </ul>
      * </p>
      * <p>
@@ -156,8 +128,7 @@ public interface PlatformScheduler {
      * <ul>
      *   <li>Use this scheduler for tasks that need to run synchronously with the server tick process but are not tied to
      *       specific locations or entities.</li>
-     *   <li>On non-Folia platforms, this is equivalent to traditional synchronous scheduling (e.g., Bukkit's scheduler,
-     *       Fabric's server tick events).</li>
+     *   <li>On non-Folia platforms, this is equivalent to traditional synchronous scheduling (e.g., Bukkit's scheduler).</li>
      * </ul>
      * </p>
      *

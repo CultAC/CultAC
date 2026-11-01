@@ -27,12 +27,6 @@ public class InventoryStorage {
         return items[index];
     }
 
-    public SimItemStack removeItem(int slot, int amount) {
-        return slot >= 0 && slot < items.length && !items[slot].isEmpty() && amount > 0
-                ? ItemUtil.split(items[slot], amount)
-                : SimItemStack.EMPTY;
-    }
-
     public int getMaxStackSize() {
         return 64;
     }

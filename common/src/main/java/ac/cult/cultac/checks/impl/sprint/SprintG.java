@@ -1,14 +1,13 @@
 package ac.cult.cultac.checks.impl.sprint;
 
-import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
-import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 
 @CheckData(
         name = "SprintG",
@@ -30,8 +29,8 @@ public class SprintG extends Check implements PostPredictionListener {
         PredictionResult lastResult =
                 player.checkManager.getSimulationProcessor().getLastPrediction();
 
-        boolean wasTouchingWater = result != null
-                && result.getSimulationContext().getWorldData().getInWater().determinePessimistically();
+        WorldData world = result == null ? null : result.getSimulationContext().getWorldData();
+        boolean wasTouchingWater = world != null && world.getInWater().determinePessimistically();
         boolean wasWasTouchingWater = lastResult != null
                 && lastResult.getSimulationContext().getWorldData().getInWater().determinePessimistically();
 
@@ -40,15 +39,17 @@ public class SprintG extends Check implements PostPredictionListener {
 
         boolean isChecked = !predictionComplete.isTeleport() && !predictionComplete.isExempt();
 
-        PacketEntity riding = player.compensatedEntities.getSelf().getRiding();
+        // A passenger is judged by the flag sent after a tick on a vehicle that cannot sprint, which stopped it.
+        boolean judged = player.compensatedEntities.getSelf().getRiding() == null
+                || result != null && PassengerSprint.stopped(player, result, lastResult);
 
         if (wasTouchingWater
                 && (wasWasTouchingWater || player.getClientVersion() == ClientVersion.V_1_21_4)
-                && !player.wasEyeInWater
+                && !world.isUnderwater()
                 && wasLastPredictionCompleteChecked
                 && isChecked
-                && !(riding != null && riding.type == EntityTypeIds.CAMEL)
-                && !player.isSwimming) {
+                && judged
+                && !world.isSwimming()) {
             if (player.isSprinting) {
                 flagWithSetback();
             } else {

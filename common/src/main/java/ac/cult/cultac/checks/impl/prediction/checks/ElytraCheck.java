@@ -6,7 +6,6 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
 import ac.cult.cultac.utils.math.Vec3;
 
-// @CheckData(name = "Elytra")
 public class ElytraCheck implements EngineCheck {
 
     @Override

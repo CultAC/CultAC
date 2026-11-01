@@ -6,6 +6,7 @@ import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.ClientSprintState;
 import ac.cult.cultac.utils.data.StuckEdgeData;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
@@ -15,6 +16,15 @@ import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 
 public class Sneaking implements UncertaintyHandler {
+    @Override
+    public boolean skipsContext(CultPlayer player, SimulationContext context, PredictionResult lastResult) {
+        StuckEdgeData lastOnEdge = lastResult == null
+                ? null
+                : lastResult.getSimulationContext().getWorldData().getSneak();
+        return (lastOnEdge == null || !lastOnEdge.isOnEdge())
+                && !context.getWorldData().getSneak().isOnEdge();
+    }
+
     @Override
     public PredVector handleUncertainty(
             CultPlayer player,
@@ -39,7 +49,8 @@ public class Sneaking implements UncertaintyHandler {
             DesyncStatus lastOnGround = result.getSimulationContext().getLastOnGround();
             result.getSimulationContext().getWorldData().setLastOnGround(DesyncStatus.UNKNOWN);
             // Get the speed when the player is on the ground
-            double maxSpeed = context.getMaxSpeed(player) * 1.3;
+            // The hidden velocity built up before this tick's attack, under the modifier held then.
+            double maxSpeed = context.getHorizontalInputAllowance(player, ClientSprintState.Outcome.PRIOR);
             result.getSimulationContext().getWorldData().setLastOnGround(lastOnGround);
 
             Vec3 from = result.getSimulationContext().getStart();

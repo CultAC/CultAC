@@ -4,8 +4,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -27,8 +25,6 @@ abstract class WriteLog {
 
     abstract void recordPut(@NotNull String path, @NotNull Object value);
 
-    abstract void recordRemove(@NotNull String path);
-
     /**
      * Snapshot of the log collapsed into a path -> value map (latest write
      * wins per path; null sentinel = REMOVE). Used by the updater for
@@ -45,13 +41,12 @@ abstract class WriteLog {
     }
 
     /**
-     * Sibling-file log: each {@code recordPut} / {@code recordRemove}
-     * appends to a shared per-filename queue that the updater flushes at
-     * the end of {@code updateAll()}.
+     * Sibling-file log: each {@code recordPut} appends to a shared
+     * per-filename queue that the updater flushes at the end of
+     * {@code updateAll()}.
      */
-    static @NotNull WriteLog sibling(
-            @NotNull String siblingName, @NotNull Map<String, List<Entry>> sharedQueue, @NotNull Logger logger) {
-        return new SiblingLog(siblingName, sharedQueue, logger);
+    static @NotNull WriteLog sibling(@NotNull String siblingName, @NotNull Map<String, List<Entry>> sharedQueue) {
+        return new SiblingLog(siblingName, sharedQueue);
     }
 
     private static final class ActiveLog extends WriteLog {
@@ -60,11 +55,6 @@ abstract class WriteLog {
         @Override
         void recordPut(@NotNull String path, @NotNull Object value) {
             entries.add(new Entry(Op.PUT, path, value));
-        }
-
-        @Override
-        void recordRemove(@NotNull String path) {
-            entries.add(new Entry(Op.REMOVE, path, null));
         }
 
         @Override
@@ -85,9 +75,6 @@ abstract class WriteLog {
         void recordPut(@NotNull String path, @NotNull Object value) {}
 
         @Override
-        void recordRemove(@NotNull String path) {}
-
-        @Override
         @NotNull
         Map<String, Object> finalState() {
             return Map.of();
@@ -97,26 +84,15 @@ abstract class WriteLog {
     private static final class SiblingLog extends WriteLog {
         private final String siblingName;
         private final Map<String, List<Entry>> sharedQueue;
-        private final Logger logger;
 
-        SiblingLog(String siblingName, Map<String, List<Entry>> sharedQueue, Logger logger) {
+        SiblingLog(String siblingName, Map<String, List<Entry>> sharedQueue) {
             this.siblingName = siblingName;
             this.sharedQueue = sharedQueue;
-            this.logger = logger;
         }
 
         @Override
         void recordPut(@NotNull String path, @NotNull Object value) {
             sharedQueue.computeIfAbsent(siblingName, k -> new ArrayList<>()).add(new Entry(Op.PUT, path, value));
-        }
-
-        @Override
-        void recordRemove(@NotNull String path) {
-            logger.log(
-                    Level.FINE,
-                    "[cult-config-updater] cross-file REMOVE op for '"
-                            + path + "' on " + siblingName
-                            + " is not yet supported; expected the bundled default to drop the key");
         }
 
         @Override

@@ -34,6 +34,18 @@ public final class CloudServerIds {
         return id;
     }
 
+    /**
+     * The id this instance itself goes by: on a server the id its own sockets use, on a proxy its {@code proxyId}
+     * sanitized; null when there is none.
+     */
+    public static @Nullable String own(String template, String proxyId, boolean proxy) {
+        if (proxyId.isBlank()) return null;
+        if (!proxy) return resolve(template, proxyId, proxyId);
+        String id = sanitize(proxyId);
+        if (id.length() > MAX_LENGTH) id = id.substring(0, MAX_LENGTH);
+        return id.isEmpty() ? null : id;
+    }
+
     /** {@code id} with {@code suffix} appended, cut short first so the whole stays within {@link #MAX_LENGTH}. */
     static String withSuffix(String id, String suffix) {
         if (suffix.isEmpty()) return id;

@@ -18,7 +18,6 @@ public class FlagCaller extends CultProcessor implements PostPredictionListener 
     public void onPredictionComplete(PredictionComplete predictionComplete) {
         if (!player.shouldEnforceMovementSetbacks()) return;
         boolean sharedSetbacks = MovementProfiles.forPlayer(player).usesSharedOffsetSetbacks(player);
-        if (!sharedSetbacks && !player.isBedrockMovement()) return;
 
         if (!predictionComplete.isExempt() && predictionComplete.getPredictionResult() != null) {
             List<PredictionResult.Flag> flags =

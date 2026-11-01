@@ -41,9 +41,9 @@ spectators:
 # Por defecto, este valor se encuentra en 60 segundos.
 max-transaction-time: 60
 
-# Si CultAC falla (no puede vincularse a un jugador, la versión del cliente no es compatible o ningún ping
-# se responde dentro de max-transaction-time), el jugador sigue jugando sin inspección en lugar de ser
-# desconectado. Las expulsiones por inundación de paquetes y exploits de crasheo siguen aplicándose.
+# Si CultAC falla (no puede vincularse a un jugador o la versión del cliente no es compatible), el jugador
+# sigue jugando sin inspección en lugar de ser desconectado. Las expulsiones por inundación de paquetes,
+# exploits de crasheo y pings sin responder tras max-transaction-time siguen aplicándose.
 launch-safety:
   fail-open: true
 
@@ -271,6 +271,53 @@ cloud:
   # Names this proxy among the writers sharing one api-key, required while server-id uses {proxy}. On a server it
   # is the server's own name, and required.
   proxy-id: ""
+  # When true, sends CPU and allocation stack samples of this server to the intake service: short profiles it asks
+  # for, recorded off the main thread. Off by default; CULTAC_CLOUD_PERF (true/1/yes, false/0/no) wins when set.
+  perf: false
+  # When true, the upload sockets also report the UUID, name and portal role (viewer, moderator or admin) of
+  # players holding cult.portal.viewer, .moderator or .admin, and the stored role of synced players who are offline
+  # when the intake service asks, so the cloud portal lists them in this server's organization while it has team
+  # sync on. Off by default; CULTAC_CLOUD_TEAM_SYNC (true/1/yes, false/0/no) wins when set.
+  team-sync: false
+  # Panel bans: staff ban a player from the cloud panel, and one server that has the command for it runs it as
+  # console, in observe-only mode too. Placeholders: %player% %uuid% %reason% %cheat% %cheat_id% %duration%
+  # (30m, 12h, 7d; empty when permanent) %seconds% %staff% %ban_id% %link% %staff_uuid% (the banning staff
+  # member's Minecraft UUID when the panel knows it) %evidence% (a link to the evidence the ban rests on, such as a
+  # replay); both are empty when unknown.
+  # %reason% and %staff% are free text: put %reason% last, after %duration%, so it is never read as a duration.
+  staff-ban:
+    # Runs when staff ban a player from the cloud panel. Empty: this server never runs panel bans.
+    command: ""
+    # For timed bans. Empty: this server never runs timed panel bans.
+    temp-command: ""
+
+# Hace que los comandos del staff, el autocompletado y las alertas funcionen en todos tus proxies y servidores.
+# Guía de configuración: docs/network.md en el código fuente de CultAC. /cult reload aplica los cambios.
+# Cualquier ajuste de aquí también se puede poner con una variable de entorno CULTAC_NETWORK_*, que tiene prioridad.
+network:
+  # Cómo se comunican tus servidores entre sí:
+  #   none         Desactivado. Los comandos y las alertas solo llegan a los jugadores de este servidor.
+  #   redis        A través de un servidor Redis (Valkey, KeyDB y Dragonfly también sirven). Rellena la sección redis.
+  #   nats         A través de un servidor NATS. Rellena la sección nats.
+  #   redisbungee  Proxies Velocity con RedisBungee. Usa su conexión a Redis, no hay nada más que rellenar.
+  type: none
+  redis:
+    address: localhost:6379
+    username: ""
+    password: ""
+    ssl: false
+  nats:
+    # Para poner más de un servidor, sepáralos con comas.
+    address: localhost:4222
+    username: ""
+    password: ""
+    token: ""
+    # Solo si tu servidor NATS usa cuentas: la ruta a tu archivo .creds.
+    credentials-file: ""
+    ssl: false
+  # El nombre de este servidor en la red. Cada servidor necesita uno propio.
+  # Déjalo vacío para usar el id de proxy de RedisBungee, si no cloud.proxy-id, y si no la IP y el puerto de este servidor.
+  instance-id: ""
 
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with
 # /cult update builds [branch]. Each setting's CULTAC_UPDATE_* environment variable wins when set and not blank.
@@ -292,4 +339,4 @@ update:
   webhook: ""
 
 config-flavor: V2
-config-version: 14
+config-version: 17

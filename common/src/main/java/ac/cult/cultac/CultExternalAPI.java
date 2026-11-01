@@ -3,7 +3,10 @@ package ac.cult.cultac;
 import ac.cult.cultac.cloud.CloudModule;
 import ac.cult.cultac.manager.config.ConfigManagerFileImpl;
 import ac.cult.cultac.manager.init.start.StartableInitable;
+import ac.cult.cultac.network.routing.NetworkModule;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
+import ac.cult.cultac.utils.anticheat.AlertDetails;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.cult.cultac.utils.common.ConfigReloadObserver;
@@ -16,6 +19,7 @@ import ac.grim.grimac.api.event.EventBus;
 import ac.grim.grimac.api.event.events.GrimReloadEvent;
 import ac.grim.grimac.api.plugin.GrimPlugin;
 import ac.grim.grimac.api.storage.backend.BackendRegistry;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
@@ -27,7 +31,6 @@ import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-// This is used for cult's external API. It has its own class just for organization.
 public class CultExternalAPI implements GrimAbstractAPI, ConfigReloadObserver, StartableInitable {
 
     // Holder class — CultExternalAPI is constructed inside CultAPI's ctor,
@@ -97,8 +100,7 @@ public class CultExternalAPI implements GrimAbstractAPI, ConfigReloadObserver, S
     }
 
     private static String resolveCultVersion(CultAPI api) {
-        if (ac.cult.cultac.runtime.RuntimeEnvironment.host() != null)
-            return ac.cult.cultac.runtime.RuntimeEnvironment.host().build();
+        if (RuntimeEnvironment.host() != null) return RuntimeEnvironment.host().build();
         try {
             Properties properties = PropertiesUtil.readProperties(CultExternalAPI.class, "cultac.properties");
             String buildVersion = properties.getProperty("build.version");
@@ -161,20 +163,14 @@ public class CultExternalAPI implements GrimAbstractAPI, ConfigReloadObserver, S
 
     // on load, load the config & register the service
     public void load() {
-        if (!successfulReload(configManagerFile) && ac.cult.cultac.runtime.RuntimeEnvironment.host() != null)
+        if (!successfulReload(configManagerFile) && RuntimeEnvironment.host() != null)
             throw new IllegalStateException("Runtime configuration rejected");
         api.getLoader().registerAPIService();
     }
 
-    // handles any config loading that's needed to be done after load
     @Override
     public void start() {
         started = true;
-        try {
-            CultAPI.INSTANCE.getConfigManager().start();
-        } catch (Exception e) {
-            LogUtil.error("Failed to start config manager.", e);
-        }
     }
 
     @Override
@@ -214,10 +210,10 @@ public class CultExternalAPI implements GrimAbstractAPI, ConfigReloadObserver, S
         try {
             if (read) config.reload();
             CultAPI.INSTANCE.getConfigManager().load(config);
-            if (started) CultAPI.INSTANCE.getConfigManager().start();
             onReload(config);
             if (started) CloudModule.configReloaded();
-            if (started && ac.cult.cultac.runtime.RuntimeEnvironment.host() == null)
+            if (started) NetworkModule.configReloaded();
+            if (started && RuntimeEnvironment.host() == null)
                 CultAPI.INSTANCE
                         .getScheduler()
                         .getAsyncScheduler()
@@ -226,7 +222,7 @@ public class CultExternalAPI implements GrimAbstractAPI, ConfigReloadObserver, S
         } catch (Exception e) {
             LogUtil.error("Failed to reload config", e);
         }
-        if (started && ac.cult.cultac.runtime.RuntimeEnvironment.host() == null)
+        if (started && RuntimeEnvironment.host() == null)
             CultAPI.INSTANCE
                     .getScheduler()
                     .getAsyncScheduler()
@@ -242,9 +238,7 @@ public class CultExternalAPI implements GrimAbstractAPI, ConfigReloadObserver, S
         } else {
             configManager = newConfig;
         }
-        // Update variables
         updateVariables();
-        // Restart
         CultAPI.INSTANCE.getAlertManager().reload(configManager);
         CultAPI.INSTANCE.getDiscordManager().reload();
         CultAPI.INSTANCE.getSpectateManager().reload();
@@ -257,7 +251,6 @@ public class CultExternalAPI implements GrimAbstractAPI, ConfigReloadObserver, S
         if (CultAPI.INSTANCE.getDataStoreLifecycle() != null) {
             CultAPI.INSTANCE.getDataStoreLifecycle().reload();
         }
-        // Reload checks for all players
         for (CultPlayer player : CultAPI.INSTANCE.getPlayerDataManager().getEntries()) {
             player.runSafely(() -> player.reload(configManager));
         }
@@ -267,18 +260,42 @@ public class CultExternalAPI implements GrimAbstractAPI, ConfigReloadObserver, S
         variableReplacements.putIfAbsent("%player%", GrimUser::getName);
         variableReplacements.putIfAbsent("%uuid%", user -> user.getUniqueId().toString());
         variableReplacements.putIfAbsent("%ping%", user -> user.getTransactionPing() + "");
+        variableReplacements.putIfAbsent("%keepalive_ping%", user -> user.getKeepAlivePing() + "");
         variableReplacements.putIfAbsent("%brand%", GrimUser::getBrand);
         variableReplacements.putIfAbsent(
                 "%h_sensitivity%", user -> ((int) Math.round(user.getHorizontalSensitivity() * 200)) + "");
         variableReplacements.putIfAbsent(
                 "%v_sensitivity%", user -> ((int) Math.round(user.getVerticalSensitivity() * 200)) + "");
+        variableReplacements.putIfAbsent(
+                "%h_sensitivity_raw%", user -> String.format(Locale.ROOT, "%.5f", user.getHorizontalSensitivity()));
+        variableReplacements.putIfAbsent(
+                "%v_sensitivity_raw%", user -> String.format(Locale.ROOT, "%.5f", user.getVerticalSensitivity()));
         variableReplacements.putIfAbsent("%fast_math%", user -> !user.isVanillaMath() + "");
         variableReplacements.putIfAbsent(
                 "%tps%",
                 user -> String.format(
                         "%.2f", CultAPI.INSTANCE.getPlatformServer().getTPS(user.getUniqueId())));
         variableReplacements.putIfAbsent("%version%", GrimUser::getVersionName);
-        // static variables
+        variableReplacements.putIfAbsent(
+                "%server%", user -> user instanceof CultPlayer player ? AlertDetails.server(player) : "unknown");
+        variableReplacements.putIfAbsent(
+                "%world%", user -> user instanceof CultPlayer player ? AlertDetails.world(player) : "unknown");
+        variableReplacements.putIfAbsent(
+                "%world_type%", user -> user instanceof CultPlayer player ? AlertDetails.worldType(player) : "unknown");
+        variableReplacements.putIfAbsent(
+                "%gamemode%", user -> user instanceof CultPlayer player ? AlertDetails.gamemode(player) : "unknown");
+        variableReplacements.putIfAbsent(
+                "%location%", user -> user instanceof CultPlayer player ? AlertDetails.location(player) : "unknown");
+        variableReplacements.putIfAbsent(
+                "%clock_behind%",
+                user -> user instanceof CultPlayer player ? player.getClockBehindInMs() + "" : "unknown");
+        variableReplacements.putIfAbsent(
+                "%session_time%",
+                user -> user instanceof CultPlayer player ? AlertDetails.sessionTime(player) : "unknown");
+        variableReplacements.putIfAbsent(
+                "%state%", user -> user instanceof CultPlayer player ? AlertDetails.notableState(player) : "unknown");
+        variableReplacements.putIfAbsent(
+                "%checks%", user -> user instanceof CultPlayer player ? AlertDetails.checks(player) : "unknown");
         staticReplacements.put(
                 "%prefix%",
                 MessageUtil.translateAlternateColorCodes(

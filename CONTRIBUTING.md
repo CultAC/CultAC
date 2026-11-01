@@ -29,5 +29,7 @@ make the process go more smoothly.*
 ### Development Notes
 
 - CultAC is built using [Gradle](https://gradle.org/) kotlin scripts.
+- On Paper, CultAC uses the server's own Adventure. End a component builder with `asComponent()`, never
+  `build()`: the tests pass either way, but `build()` throws `NoSuchMethodError` on Paper.
 - JDK 25 is required to build the project; the plugin classes target Java 21.
 - Bedrock geometry is checked into this repo as it can only be regenerated on Linux

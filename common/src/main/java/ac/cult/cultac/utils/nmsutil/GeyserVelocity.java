@@ -4,12 +4,13 @@ import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.BlockProps;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.StateFacts;
+import ac.cult.blocksim.engine.EntityCollisionContext;
 import ac.cult.blocksim.entity.EntityTags;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaInsideBlockEffects;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -28,8 +29,6 @@ import java.util.Set;
  * the carried deltaMovement and becomes next-tick starting velocity.
  */
 public final class GeyserVelocity {
-    private static final ClientVersion NATIVE_MODEL_VERSION =
-            ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol());
     // Vanilla's literal is 0.2F, promoted to double by Vec3#add.
     private static final double LAUNCH_FORCE = 0.2F;
     private static final float BASE_LAUNCH_SPEED = 0.3F;
@@ -41,17 +40,11 @@ public final class GeyserVelocity {
     private GeyserVelocity() {}
 
     public static Set<Vec3> applyToResult(CultPlayer player, PredictionResult result, Set<Vec3> velocities) {
-        if (player == null
-                || NATIVE_MODEL_VERSION.isOlderThan(ClientVersion.V_26_2)
-                || player.getClientVersion().isOlderThan(ClientVersion.V_26_2)
-                || player.bedrockState != null) {
+        if (player.getClientVersion().isOlderThan(ClientVersion.V_26_2) || player.bedrockState != null) {
             return velocities;
         }
 
         SimulationContext context = result.getSimulationContext();
-        if (context == null) {
-            return velocities;
-        }
 
         // Entity#getRootVehicle is launched, unless that root is itself riding
         // something. That exactly matches the client ticker's isPassenger test.
@@ -71,13 +64,9 @@ public final class GeyserVelocity {
     }
 
     /** The client caps fall distance before testing whether this ticker can launch the actor. */
-    public static ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaInsideBlockEffects.State applyToState(
-            CultPlayer player,
-            PredictionResult result,
-            Vec3 end,
-            ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaInsideBlockEffects.State state) {
-        if (NATIVE_MODEL_VERSION.isOlderThan(ClientVersion.V_26_2)
-                || player.getClientVersion().isOlderThan(ClientVersion.V_26_2)) return state;
+    public static JavaInsideBlockEffects.State applyToState(
+            CultPlayer player, PredictionResult result, Vec3 end, JavaInsideBlockEffects.State state) {
+        if (player.getClientVersion().isOlderThan(ClientVersion.V_26_2)) return state;
         SimulationContext context = result.getSimulationContext();
         PacketEntity actor =
                 context.getVehicle() == null ? context.getEntities().getSelf() : context.getVehicle();
@@ -88,8 +77,7 @@ public final class GeyserVelocity {
             double distance = capFallDistance(state.fallDistance(), state.velocity().y);
             Vec3 velocity =
                     launch && state.velocity().y < cap ? state.velocity().add(0, LAUNCH_FORCE, 0) : state.velocity();
-            state = new ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaInsideBlockEffects.State(
-                    distance, velocity, state.stuckSpeed());
+            state = new JavaInsideBlockEffects.State(distance, velocity, state.stuckSpeed());
         }
         return state;
     }
@@ -208,7 +196,7 @@ public final class GeyserVelocity {
         }
         return player.compensatedWorld
                 .geometry()
-                .collision(state, new BlockPos(x, y, z), ac.cult.blocksim.engine.EntityCollisionContext.position(y - 1))
+                .collision(state, new BlockPos(x, y, z), EntityCollisionContext.position(y - 1))
                 .isEmpty();
     }
 }

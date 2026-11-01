@@ -1,6 +1,9 @@
 package ac.cult.cultac.utils.latency;
 
 import ac.cult.blocksim.data.nbt.NbtValue;
+import ac.cult.cultac.utils.inventory.ItemUtil;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /** Lecterns need the effective page count, not book text or author/title data. */
@@ -15,7 +18,7 @@ public final class ClientBookFields {
 
     /** Normalize aliases before the packet is queued; discarded names and values are transient. */
     public static NbtValue.Compound contentComponents(NbtValue.Compound components) {
-        var result = new java.util.HashMap<String, NbtValue>();
+        var result = new HashMap<String, NbtValue>();
         for (var entry : components.values().entrySet()) {
             String name = entry.getKey();
             if (!isContentComponent(name)) continue;
@@ -33,13 +36,13 @@ public final class ClientBookFields {
         int pageCount = 0;
         boolean hasBook = false;
         if (book != null) {
-            var defaults = ac.cult.cultac.utils.inventory.ItemUtil.modelItems()
+            var defaults = ItemUtil.modelItems()
                     .defaults(((NbtValue.Text) book.values().get("id")).value());
             var input = (NbtValue.Compound) tag.values().get("Book");
             var patch = input.values().get("components") instanceof NbtValue.Compound components
                     ? components.values()
                     : Map.<String, NbtValue>of();
-            for (String key : java.util.List.of("minecraft:written_book_content", "minecraft:writable_book_content")) {
+            for (String key : List.of("minecraft:written_book_content", "minecraft:writable_book_content")) {
                 NbtValue content = defaults.encodedNbt(key);
                 for (var entry : patch.entrySet()) {
                     String name = entry.getKey();

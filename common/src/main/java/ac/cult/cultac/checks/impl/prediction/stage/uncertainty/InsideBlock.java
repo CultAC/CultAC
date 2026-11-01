@@ -10,6 +10,11 @@ import ac.cult.cultac.utils.math.VectorUtils;
 
 public class InsideBlock implements UncertaintyHandler {
     @Override
+    public boolean skipsContext(CultPlayer player, SimulationContext context, PredictionResult lastResult) {
+        return !context.getWorldData().isMightBeInBlock();
+    }
+
+    @Override
     public PredVector handleUncertainty(
             CultPlayer player,
             ValidMovements valid,

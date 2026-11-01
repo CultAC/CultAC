@@ -38,7 +38,7 @@ public final class ItemUseInventory {
 
     /**
      * A use the definite state accepts may still be refused in a client reality that an
-     * unproven completion left: a shared cooldown, a consumed or converted stack, or full food.
+     * unproven completion left: a shared cooldown, an emptied or converted stack, or full food.
      * Any hotbar stack can be the main-hand selection while a hotbar change is unconfirmed.
      */
     public static boolean possiblyRefused(CultPlayer player, Hand hand) {
@@ -54,7 +54,7 @@ public final class ItemUseInventory {
                         : List.of(player.getInventory().getHandItem(Hand.MAIN_HAND));
         for (SimItemStack stack : stacks) {
             if (stack.isEmpty()) continue;
-            if (state.possiblyChanged(stack) || cooldowns.possiblyHasItem(stack)) return true;
+            if (state.possiblyEmpty(stack) || cooldowns.possiblyHasItem(stack)) return true;
             var food = ItemComponents.food(stack.components());
             if (state.possiblyFull() && food != null && !food.canAlwaysEat() && !player.isInvulnerable) return true;
             if (projectileWeapon(stack) && possiblyChangedAmmo(state, hotbar, off, stack.is("minecraft:crossbow")))
@@ -80,7 +80,7 @@ public final class ItemUseInventory {
     private static boolean possiblyChangedAmmo(
             ClientItemUseState state, SimItemStack stack, Set<String> arrows, boolean crossbow) {
         return !stack.isEmpty()
-                && state.possiblyChanged(stack)
+                && state.possiblyEmpty(stack)
                 && (arrows.contains(stack.itemKey()) || crossbow && stack.is("minecraft:firework_rocket"));
     }
 

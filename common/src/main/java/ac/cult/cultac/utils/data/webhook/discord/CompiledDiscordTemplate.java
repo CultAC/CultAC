@@ -41,7 +41,7 @@ public record CompiledDiscordTemplate(Segment[] segments) {
         NONE
     }
 
-    // Identical to the existing pattern
+    // Matches MessageUtil's UNIFIED_PLACEHOLDER_PATTERN.
     private static final Pattern PLACEHOLDER = Pattern.compile("%([a-zA-Z0-9_]+)%");
 
     private sealed interface Segment permits Literal, Placeholder {}
@@ -76,6 +76,14 @@ public record CompiledDiscordTemplate(Segment[] segments) {
             parts.add(new Literal(template.substring(lastEnd)));
         }
         return new CompiledDiscordTemplate(parts.toArray(Segment[]::new));
+    }
+
+    /** Whether the template places {@code placeholder}, written with its percent signs. */
+    public boolean uses(@NotNull String placeholder) {
+        for (Segment segment : segments) {
+            if (segment instanceof Placeholder p && p.key.equals(placeholder)) return true;
+        }
+        return false;
     }
 
     // ──────────────────── RENDER (once per alert) ────────────────────
@@ -193,6 +201,20 @@ public record CompiledDiscordTemplate(Segment[] segments) {
     public static String escapeCodeSpan(String s, char replacement) {
         if (s == null || s.isEmpty() || replacement == '`') return s;
         return s.replace('`', replacement);
+    }
+
+    /**
+     * Wraps a value in a fenced code block. Backticks take the replacement character, and when replacement is
+     * disabled ({@code '`'}) runs of backticks are split with zero-width spaces, so a value can never close the fence.
+     */
+    public static String codeBlock(String s, char replacement) {
+        String body = s == null ? "" : s;
+        if (replacement != '`') {
+            body = body.replace('`', replacement);
+        } else {
+            while (body.contains("``")) body = body.replace("``", "`​`");
+        }
+        return "```\n" + body + "\n```";
     }
 
     // ──────────────────── STATE MACHINE ────────────────────

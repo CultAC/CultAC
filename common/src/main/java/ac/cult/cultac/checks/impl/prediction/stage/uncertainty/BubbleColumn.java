@@ -3,6 +3,7 @@ package ac.cult.cultac.checks.impl.prediction.stage.uncertainty;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.BubbleColumnData;
@@ -10,8 +11,19 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 
 public class BubbleColumn implements UncertaintyHandler {
+    @Override
+    public boolean skipsContext(CultPlayer player, SimulationContext context, PredictionResult lastResult) {
+        return lastResult == null
+                || !lastResult
+                        .getSimulationContext()
+                        .getWorldData()
+                        .getBubbleColumn()
+                        .hasBubbleColumn();
+    }
+
     @Override
     public PredVector handleUncertainty(
             CultPlayer player,
@@ -23,8 +35,7 @@ public class BubbleColumn implements UncertaintyHandler {
             Vec3 end) {
         if (context.getVehicle() != null
                 && !player.isBedrockMovement()
-                && ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine.contextUsesExactEffects(
-                        context)) return start;
+                && JavaMovementEngine.contextUsesExactEffects(context)) return start;
         if (beforeElytra(context)) return start;
         return apply(context, lastResult, start, end.y);
     }
@@ -32,8 +43,7 @@ public class BubbleColumn implements UncertaintyHandler {
     static boolean beforeElytra(SimulationContext context) {
         return context.getVehicle() == null
                 && context.usesFallFlyingMovement()
-                && !context.getWorldData().mustBeInLiquid()
-                && context.getVersion().isNewerThanOrEquals(ac.cult.cultac.network.protocol.ClientVersion.V_26_1);
+                && !context.getWorldData().mustBeInLiquid();
     }
 
     static PredVector apply(SimulationContext context, PredictionResult lastResult, PredVector start, double targetY) {
@@ -51,8 +61,7 @@ public class BubbleColumn implements UncertaintyHandler {
         // Vehicles are weird... true to the original code though
         if (context.getVehicle() instanceof PacketEntityHorse
                 || context.getVehicle() instanceof PacketEntityStrider
-                || (context.getVehicle() != null
-                        && ac.cult.cultac.utils.nmsutil.EntityTypeUtil.isBoat(context.getVehicle().type))) {
+                || (context.getVehicle() != null && EntityTypeUtil.isBoat(context.getVehicle().type))) {
             increaseAirUp *= 2;
             increaseUp *= 2;
             decreaseAirDown *= 2;

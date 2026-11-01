@@ -23,8 +23,8 @@ public @interface CheckData {
     /**
      * Canonical cross-version identity. Dot-separated, lower snake-case
      * (e.g. {@code "badpackets.duplicate_slot"}). Empty string means
-     * legacy/unpopulated — the runtime will fall back to
-     * {@code StableKeyMapping} during rollout and log a warning.
+     * unpopulated: the runtime falls back to {@code StableKeyMapping}
+     * and logs a warning.
      */
     String stableKey();
 

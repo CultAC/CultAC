@@ -538,7 +538,7 @@ public final class GeyserBedrockBridgeRuntime {
         else player.user.getCultConnection().platform().runInModel(task);
     }
 
-    private static CultPlayer playerForSession(GeyserSession session) {
+    static CultPlayer playerForSession(GeyserSession session) {
         var tap = PACKET_TAPS.get(session);
         return tap == null ? null : tap.currentPlayer();
     }
@@ -692,6 +692,7 @@ public final class GeyserBedrockBridgeRuntime {
             io.netty.util.ReferenceCountUtil.retain(packet);
             connection.ensureInEventLoop(() -> inModel(currentPlayer(), () -> {
                 try {
+                    GeyserInventoryActions.rejectCreativeRequests(connection, currentPlayer(), packet);
                     if (detached.get()) {
                         // Cloudburst may have accepted this packet on I/O just before the swap.
                         // Process it on the new tap in this same tick-loop slot, especially latency
@@ -769,6 +770,7 @@ public final class GeyserBedrockBridgeRuntime {
                     player.packetStateData.acceptedClientTick++;
                     player.packetStateData.lastClientTickEndTransaction = player.lastTransactionReceived.get();
                     player.packetStateData.carriedItemChangedThisClientTick = false;
+                    player.packetStateData.carriedItemClaimedThisClientTick = false;
                     player.serverOpenedInventoryThisTick = false;
                 }
             });

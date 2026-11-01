@@ -16,7 +16,7 @@ public class AimProcessor extends Check implements RotationListener {
     public double divisorX;
     public double divisorY;
     public double modeX, modeY;
-    public double deltaDotsX, deltaDotsY;
+    public double deltaDotsX;
     private final RunningMode xRotMode = new RunningMode(TOTAL_SAMPLES_THRESHOLD);
     private final RunningMode yRotMode = new RunningMode(TOTAL_SAMPLES_THRESHOLD);
     private float lastXRot;
@@ -69,6 +69,5 @@ public class AimProcessor extends Check implements RotationListener {
         }
 
         this.deltaDotsX = deltaXRot / modeX;
-        this.deltaDotsY = deltaYRot / modeY;
     }
 }

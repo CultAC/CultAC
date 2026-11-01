@@ -13,7 +13,7 @@ import org.jetbrains.annotations.NotNull;
 public class CultHelp implements BuildableCommand {
     @Override
     public void register(CommandManager<Sender> commandManager, CloudPlatformCommandArguments arguments) {
-        var root = commandManager.commandBuilder("cult", "cultac", "grim", "grimac");
+        var root = BuildableCommand.root(commandManager);
         // A bare /cult also shows help; without a root handler Velocity reports an unknown command.
         commandManager.command(root.permission("cult.help").handler(this::handleHelp));
         commandManager.command(root.literal("help", Description.of("Display help information"))

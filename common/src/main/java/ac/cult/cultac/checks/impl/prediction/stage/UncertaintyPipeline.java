@@ -13,6 +13,7 @@ public class UncertaintyPipeline {
             new ElytraTransform(),
             new BoatTransform(),
             new PistonShulkerPush(),
+            new FluidPush(true),
             new CollisionModifier(),
             new StepTransform(), // Relies on collisions
             new Honey(), // This fucks up elytras.
@@ -25,7 +26,6 @@ public class UncertaintyPipeline {
             new BubbleColumn(),
             new SwimSpaceShift(),
             new AquaticUpdateSwim(),
-            new Fireworks(),
             new FluidPush(),
             new InsideBlock(),
             new EntityPush(),

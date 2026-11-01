@@ -18,7 +18,6 @@ public class InvalidPlaceA extends BlockPlaceCheck {
     @Override
     public void onBlockPlace(final BlockPlace place) {
         Vec3 cursor = place.getCursor();
-        if (cursor == null) return;
         if (!Double.isFinite(cursor.x) || !Double.isFinite(cursor.y) || !Double.isFinite(cursor.z)) {
             if (flag() && shouldModifyPackets() && shouldCancel()) {
                 place.resync();

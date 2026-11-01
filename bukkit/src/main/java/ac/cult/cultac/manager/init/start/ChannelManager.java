@@ -1,5 +1,7 @@
 package ac.cult.cultac.manager.init.start;
 
+import ac.cult.cultac.platform.bukkit.CultACBukkitLoaderPlugin;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import com.google.common.collect.ImmutableSet;
 import java.util.Set;
 import org.bukkit.entity.Player;
@@ -20,17 +22,12 @@ public class ChannelManager implements StartableInitable, PluginMessageListener 
     }
 
     private void registerChannel(String channelName) {
-        final Messenger messenger = ac.cult.cultac.platform.bukkit.CultACBukkitLoaderPlugin.LOADER
-                .getServer()
-                .getMessenger();
-        messenger.registerOutgoingPluginChannel(
-                ac.cult.cultac.platform.bukkit.CultACBukkitLoaderPlugin.LOADER, channelName);
-        messenger.registerIncomingPluginChannel(
-                ac.cult.cultac.platform.bukkit.CultACBukkitLoaderPlugin.LOADER, channelName, this);
-        ac.cult.cultac.runtime.RuntimeEnvironment.track(
+        final Messenger messenger = CultACBukkitLoaderPlugin.LOADER.getServer().getMessenger();
+        messenger.registerOutgoingPluginChannel(CultACBukkitLoaderPlugin.LOADER, channelName);
+        messenger.registerIncomingPluginChannel(CultACBukkitLoaderPlugin.LOADER, channelName, this);
+        RuntimeEnvironment.track(
                 this,
-                () -> messenger.unregisterIncomingPluginChannel(
-                        ac.cult.cultac.platform.bukkit.CultACBukkitLoaderPlugin.LOADER, channelName, this));
+                () -> messenger.unregisterIncomingPluginChannel(CultACBukkitLoaderPlugin.LOADER, channelName, this));
     }
 
     @Override

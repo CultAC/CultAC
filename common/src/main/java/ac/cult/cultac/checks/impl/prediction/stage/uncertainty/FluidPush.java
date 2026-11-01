@@ -13,6 +13,26 @@ public class FluidPush implements UncertaintyHandler {
     private static final double WATER_CURRENT_RADIUS = 0.014D;
     private static final double WATER_ENTRY_RADIUS = 0.028D;
 
+    private final boolean beforeCollision;
+
+    public FluidPush() {
+        this(false);
+    }
+
+    /**
+     * {@code beforeCollision} selects the instance that pushes a Java vehicle, which runs before
+     * {@link CollisionModifier}: Entity#updateFluidHeightAndDoFluidPushing adds the current to the velocity that
+     * Entity#collide then clips.
+     */
+    public FluidPush(boolean beforeCollision) {
+        this.beforeCollision = beforeCollision;
+    }
+
+    @Override
+    public boolean skipsContext(CultPlayer player, SimulationContext context, PredictionResult lastResult) {
+        return !pushes(context) || flowingCurrentRadius(context, lastResult) <= 0.0D;
+    }
+
     @Override
     public PredVector handleUncertainty(
             CultPlayer player,
@@ -22,19 +42,19 @@ public class FluidPush implements UncertaintyHandler {
             PredictionResult lastContext,
             PredVector start,
             Vec3 end) {
+        if (!pushes(context)) return start;
         double waterRadius = flowingCurrentRadius(context, lastContext);
-        double horizontalRadius = waterRadius;
         double verticalRadius = FluidPush.verticalRadius(waterRadius, start, end);
-        if (horizontalRadius <= 0.0D && verticalRadius <= 0.0D) {
+        if (waterRadius <= 0.0D) {
             return start;
         }
 
-        PredVector adjusted = start;
-        if (horizontalRadius > 0.0D) {
-            adjusted = UncertaintyHelper.handleCircular(adjusted, end, horizontalRadius);
-        }
-
+        PredVector adjusted = UncertaintyHelper.handleCircular(start, end, waterRadius);
         return verticalRadius > 0.0D ? UncertaintyHelper.handleVertical(adjusted, end, verticalRadius) : adjusted;
+    }
+
+    private boolean pushes(SimulationContext context) {
+        return CollisionModifier.isJavaVehicleMove(context) == beforeCollision;
     }
 
     private double flowingCurrentRadius(SimulationContext context, PredictionResult lastContext) {

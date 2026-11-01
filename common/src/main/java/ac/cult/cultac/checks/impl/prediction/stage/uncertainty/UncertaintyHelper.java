@@ -33,6 +33,19 @@ public class UncertaintyHelper {
         return offset(start, dx / distance * scale, 0.0D * scale, dz / distance * scale, "circular");
     }
 
+    /**
+     * The horizontal input allowance: moves the start up to {@code radius} towards the end at any distance, as
+     * Entity#getInputVector normalizes the key impulse and never the scaled move.
+     */
+    public static PredVector handleCircularInput(PredVector start, Vec3 end, double radius) {
+        double dx = end.x - start.x;
+        double dz = end.z - start.z;
+        double distance = Math.sqrt(dx * dx + dz * dz);
+        if (distance == 0) return start;
+        double scale = Math.min(radius, distance);
+        return offset(start, dx / distance * scale, 0.0D, dz / distance * scale, "circular");
+    }
+
     private static PredVector offset(PredVector start, double x, double y, double z, String reason) {
         return start.withXYZOrSelf(start.x + x, start.y + y, start.z + z, reason);
     }

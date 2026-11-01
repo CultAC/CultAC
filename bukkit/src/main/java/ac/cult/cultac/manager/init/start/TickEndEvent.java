@@ -7,7 +7,9 @@ import ac.cult.cultac.platform.api.Platform;
 import ac.cult.cultac.platform.bukkit.BukkitRuntimeRegistrations;
 import ac.cult.cultac.platform.bukkit.CultACBukkitLoaderPlugin;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.lists.HookedListWrapper;
+import ac.cult.reload.host.EndOfTickHook;
 import com.destroystokyo.paper.event.server.ServerTickEndEvent;
 import java.lang.reflect.Field;
 import java.util.Collections;
@@ -78,17 +80,16 @@ public class TickEndEvent implements StartableInitable {
             Field connectionsList = Reflection.getField(connection.getClass(), List.class, 1);
             List<Object> endOfTickObject = (List<Object>) connectionsList.get(connection);
 
-            var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
+            var host = RuntimeEnvironment.host();
             if (host != null) {
-                var hook = (ac.cult.reload.host.EndOfTickHook) host.shared("paper-tick-end", () -> {
+                var hook = (EndOfTickHook) host.shared("paper-tick-end", () -> {
                     try {
-                        return new ac.cult.reload.host.EndOfTickHook(connection, connectionsList);
+                        return new EndOfTickHook(connection, connectionsList);
                     } catch (ReflectiveOperationException failure) {
                         throw new IllegalStateException(failure);
                     }
                 });
-                var subscription =
-                        hook.subscribe(ac.cult.cultac.runtime.RuntimeEnvironment.guard(TickEndEvent::fireEndOfTick));
+                var subscription = hook.subscribe(RuntimeEnvironment.guard(TickEndEvent::fireEndOfTick));
                 host.resources().track(subscription, () -> {
                     try {
                         subscription.close();

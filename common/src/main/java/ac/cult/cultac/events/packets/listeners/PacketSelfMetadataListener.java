@@ -12,6 +12,7 @@ import ac.cult.cultac.utils.data.SprintingState;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityUtil;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.RiptideUtil;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import java.util.ArrayList;
 import java.util.List;
@@ -76,7 +77,7 @@ public class PacketSelfMetadataListener {
                     WatchableIndexUtil.getIndex(entityMetadata, WatchableIndexUtil.ENTITY_SHARED_FLAGS);
             if (watchable != null) {
                 // The newest flags the server sent; resyncPose resends them as server truth.
-                player.serverSentSelfSharedFlags = watchable;
+                player.serverSentSelfSharedFlags = watchable.detach();
                 Object zeroBitField = watchable.value();
                 if (zeroBitField instanceof Byte fieldByte) {
                     final byte field = fieldByte;
@@ -85,19 +86,19 @@ public class PacketSelfMetadataListener {
                     boolean isSprinting = (field & 0x8) == 0x8;
 
                     final Runnable applySharedFlags = () -> {
-                        player.isSwimming = isSwimming;
+                        player.swimState.onServerFlag(isSwimming);
+                        player.packetStateData.swimmingPossible = isSwimming;
                         player.sprintState.onServerFlag(isSprinting);
-                        if (!isSprinting) {
-                            // The local client can retain its Camel sprint input for
-                            // the movement tick in which the replicated flag stops.
-                            player.vehicleData.camelSprintingState = SprintingState.STOPPING;
-                        }
+                        // Minecraft#runTick applies the flag before the next tick's
+                        // camel travel reads the controller's sprint.
+                        player.vehicleData.camelSprintingState =
+                                isSprinting ? SprintingState.STARTED : SprintingState.STOPPED;
                         // Protect this due to players being able to get the server to spam this packet a lot
                         if (player.isGliding != isGliding) {
                             // no-op
                         }
                         player.isGliding = isGliding;
-                        player.refreshPlayerPose();
+                        // The local pose changes only in Player#updatePlayerPose, after the tick's aiStep.
                     };
                     bundledSharedFlags = applySharedFlags;
                 }
@@ -156,9 +157,11 @@ public class PacketSelfMetadataListener {
                     if (proof != null) {
                         if (!event.isInsideBundle()) event.bundle();
                         player.latencyUtils.addRealTimeTask(proof.transaction(), () -> {
+                            // LivingEntity#onSyncedDataUpdated leaves the pose to Player#updatePlayerPose after aiStep.
                             player.isRiptidePose = isRiptiding;
-                            player.refreshPlayerPose();
+                            boolean clientUsing = player.clientItemUse.definitelyUsing();
                             ac.cult.cultac.utils.data.ItemUseInventory.metadata(player, (byte) handValue);
+                            RiptideUtil.serverUseFlags(player, (byte) handValue, clientUsing);
                         });
                     }
                 } else {

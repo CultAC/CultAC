@@ -8,8 +8,7 @@ import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 @CheckData(
         name = "MultiActionsK",
         stableKey = "cult.multiactions.inventory_place",
-        description = "Placed a block while in an inventory",
-        experimental = true)
+        description = "Placed a block while in an inventory")
 public class MultiActionsK extends BlockPlaceCheck {
 
     public MultiActionsK(CultPlayer player) {

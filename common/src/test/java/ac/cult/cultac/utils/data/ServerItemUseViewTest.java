@@ -68,7 +68,7 @@ class ServerItemUseViewTest {
         // LocalPlayer stays slowed until it processes entity event 9 and its proof.
         h.ticks(2, SLOWED, true);
         assertTrue(h.finished.isEmpty());
-        h.view.acknowledge(2);
+        h.view.acknowledge(2, h.now);
         assertEquals(32, h.last().expected(), 1e-9);
         assertEquals(34, h.last().ticks());
         assertEquals(0, h.last().unslowed());
@@ -82,7 +82,7 @@ class ServerItemUseViewTest {
         h.start(1);
         h.now += 32 * TICK;
         h.view.serverComplete(2, h.now, TICK);
-        h.view.acknowledge(2);
+        h.view.acknowledge(2, h.now);
         assertEquals(32, h.last().expected(), 1e-9);
         assertEquals(0, h.last().ticks());
         assertEquals(32, h.last().debt(), 1e-9);
@@ -95,7 +95,7 @@ class ServerItemUseViewTest {
         h.start(1);
         h.now += 40 * TICK;
         h.view.serverComplete(2, h.now, TICK);
-        h.view.acknowledge(2);
+        h.view.acknowledge(2, h.now);
         assertEquals(38, h.last().expected(), 1e-9);
         assertThrows(IllegalArgumentException.class, () -> h.view.charge(-0.1));
     }
@@ -109,7 +109,7 @@ class ServerItemUseViewTest {
             h.view.tickEnd(SLOWED, 0, h.now);
         }
         h.view.serverComplete(2, h.now, TICK);
-        h.view.acknowledge(2);
+        h.view.acknowledge(2, h.now);
         assertEquals(16, h.last().debt(), 1e-9);
     }
 
@@ -120,7 +120,7 @@ class ServerItemUseViewTest {
         h.start(1);
         h.ticks(32, UNSLOWED, true);
         h.view.serverComplete(2, h.now, TICK);
-        h.view.acknowledge(2);
+        h.view.acknowledge(2, h.now);
         assertEquals(32, h.last().unslowed());
         assertEquals(32, h.last().debt(), 1e-9);
     }
@@ -164,12 +164,12 @@ class ServerItemUseViewTest {
         h.ticks(2, SLOWED, true);
         // Far before duration - 1 server ticks: this event belongs to an earlier use.
         h.view.serverComplete(9, h.now, TICK);
-        h.view.acknowledge(9);
+        h.view.acknowledge(9, h.now);
         assertTrue(h.finished.isEmpty());
         assertNotNull(h.view.activeItem(false));
         h.ticks(30, SLOWED, true);
         h.view.serverComplete(10, h.now, TICK);
-        h.view.acknowledge(10);
+        h.view.acknowledge(10, h.now);
         assertEquals(1, h.finished.size());
         assertEquals(32, h.last().ticks());
     }
@@ -207,7 +207,7 @@ class ServerItemUseViewTest {
         h.view.serverFlags(true, false, 3, h.now + 1);
         h.ticks(4, SLOWED, true);
         h.view.serverFlags(false, false, 4, h.now);
-        h.view.acknowledge(4);
+        h.view.acknowledge(4, h.now);
         assertEquals(2, h.finished.size());
         assertEquals(4, h.last().ticks());
     }
@@ -306,7 +306,7 @@ class ServerItemUseViewTest {
         h.view.serverKeepsItem("server sent slot");
         ticks(h, 24, false, UNSLOWED);
         h.view.serverComplete(2, h.now, TICK);
-        h.view.acknowledge(2);
+        h.view.acknowledge(2, h.now);
         assertEquals(32, h.last().ticks());
         assertEquals(26, h.last().unslowed());
         assertEquals(26, h.last().debt(), 1e-9);
@@ -325,7 +325,7 @@ class ServerItemUseViewTest {
         h.view.serverKeepsItem("server sent slot");
         ticks(h, 40, false, UNSLOWED);
         h.view.serverFlags(false, false, 7, h.now);
-        h.view.acknowledge(7);
+        h.view.acknowledge(7, h.now);
         assertEquals(45, h.last().ticks());
         assertEquals(41, h.last().unslowed());
     }
@@ -337,7 +337,7 @@ class ServerItemUseViewTest {
         ticks(h, 2, true, SLOWED);
         ticks(h, 30, false, UNSLOWED);
         h.view.serverComplete(2, h.now, TICK);
-        h.view.acknowledge(2);
+        h.view.acknowledge(2, h.now);
         assertEquals(30, h.last().unslowed());
     }
 
@@ -348,7 +348,7 @@ class ServerItemUseViewTest {
         h.start(1);
         ticks(h, 32, false, UNSLOWED);
         h.view.serverFlags(false, false, 3, h.now);
-        h.view.acknowledge(3);
+        h.view.acknowledge(3, h.now);
         assertEquals(32, h.last().unslowed());
         assertEquals(32, h.last().debt(), 1e-9);
     }
@@ -361,7 +361,7 @@ class ServerItemUseViewTest {
         ticks(h, 1, false, UNSLOWED);
         ticks(h, 5, true, UNSLOWED);
         h.view.serverFlags(false, false, 4, h.now);
-        h.view.acknowledge(4);
+        h.view.acknowledge(4, h.now);
         assertEquals(9, h.last().ticks());
         assertEquals(6, h.last().unslowed());
     }
@@ -388,7 +388,7 @@ class ServerItemUseViewTest {
         h.view.period(2 * TICK);
         h.now += 64 * TICK;
         h.view.serverComplete(2, h.now, 2 * TICK);
-        h.view.acknowledge(2);
+        h.view.acknowledge(2, h.now);
         assertEquals(32, h.last().expected(), 1e-9);
     }
 
@@ -411,7 +411,167 @@ class ServerItemUseViewTest {
         h.view.serverAck(2);
         h.ticks(28, SLOWED, true);
         h.view.serverComplete(3, h.now, TICK);
-        h.view.acknowledge(3);
+        h.view.acknowledge(3, h.now);
         assertEquals(32, h.last().ticks());
+    }
+
+    /** A crossbow use released, then the next use sent before the client processed its clear (proof 5). */
+    private static Harness afterReleaseWithStaleClear() {
+        var h = new Harness();
+        h.profile = CROSSBOW;
+        h.start(1);
+        h.ticks(10, SLOWED, true);
+        h.view.release(h.now);
+        h.view.use(false, 2, h.now, List.of());
+        h.view.serverFlags(false, false, 5, h.now);
+        return h;
+    }
+
+    /**
+     * The next use arrives three ticks after the release's clear (proof 5) was sent, and its
+     * confirming flag (proof 6) is sent with it; the client acknowledges the clear one tick later.
+     */
+    private static Harness pausedThreeTicksAfterTheClear(ServerItemUseView.Profile profile) {
+        var h = new Harness();
+        h.profile = profile;
+        h.start(1);
+        h.ticks(10, SLOWED, true);
+        h.view.release(h.now);
+        h.view.serverFlags(false, false, 5, h.now);
+        h.ticks(3, SLOWED, true);
+        h.view.use(false, 2, h.now, List.of());
+        h.view.serverFlags(true, false, 6, h.now);
+        h.ticks(1, SLOWED, true);
+        h.view.acknowledge(5, h.now);
+        return h;
+    }
+
+    @Test
+    void theConfirmingFlagRestartsAUsePausedByAStaleClear() {
+        var h = pausedThreeTicksAfterTheClear(CROSSBOW);
+        h.ticks(3, UNSLOWED, true);
+        h.view.acknowledge(6, h.now);
+        h.ticks(10, SLOWED, true);
+        h.view.release(h.now);
+        assertEquals(2, h.finished.size());
+        assertEquals(11, h.last().ticks());
+        assertEquals(0, h.last().unslowed());
+        assertEquals(0, h.last().debt(), 1e-9);
+    }
+
+    @Test
+    void aPauseHeldPastTheSendGapIsCharged() {
+        var h = pausedThreeTicksAfterTheClear(CROSSBOW);
+        // No confirming flag is acknowledged while the client moves unslowed.
+        h.ticks(20, UNSLOWED, true);
+        h.view.selectSlot(1, 0, h.now);
+        // Only the three-tick send gap between the clear and the flag is excluded.
+        assertEquals(18, h.last().expected(), 1e-9);
+        assertEquals(1, h.last().ticks());
+        assertEquals(17, h.last().debt(), 1e-9);
+    }
+
+    @Test
+    void aCompletionDuringThePauseChargesTimePastTheSendGap() {
+        var h = pausedThreeTicksAfterTheClear(FOOD);
+        h.ticks(40, UNSLOWED, true);
+        h.view.serverComplete(7, h.now, TICK);
+        h.view.acknowledge(7, h.now);
+        assertEquals(38, h.last().expected(), 1e-9);
+        assertEquals(1, h.last().ticks());
+    }
+
+    @Test
+    void aStaleClearBeforeTheConfirmingFlagPausesTheCandidate() {
+        var h = afterReleaseWithStaleClear();
+        h.ticks(1, SLOWED, true);
+        h.view.acknowledge(5, h.now);
+        h.ticks(2, UNSLOWED, true);
+        h.view.serverFlags(true, false, 6, h.now);
+        h.view.acknowledge(6, h.now);
+        h.ticks(10, SLOWED, true);
+        h.view.release(h.now);
+        assertEquals(11, h.last().ticks());
+        assertEquals(0, h.last().unslowed());
+        assertEquals(0, h.last().debt(), 1e-9);
+    }
+
+    @Test
+    void aReleaseDuringThePauseRefutesIt() {
+        var h = pausedThreeTicksAfterTheClear(CROSSBOW);
+        h.ticks(3, UNSLOWED, true);
+        // A vanilla client only releases while using, and its restart precedes any release.
+        h.view.release(h.now);
+        assertEquals(4, h.last().ticks());
+        assertEquals(3, h.last().unslowed());
+        assertEquals(3, h.last().debt(), 1e-9);
+    }
+
+    @Test
+    void aClearAcknowledgedBeforeTheNextUseStopsNothing() {
+        var h = new Harness();
+        h.profile = CROSSBOW;
+        h.start(1);
+        h.ticks(10, SLOWED, true);
+        h.view.release(h.now);
+        h.view.serverFlags(false, false, 5, h.now);
+        h.view.acknowledge(5, h.now);
+        h.view.use(false, 2, h.now, List.of());
+        h.view.serverFlags(true, false, 6, h.now + 1);
+        h.ticks(3, UNSLOWED, true);
+        h.view.release(h.now);
+        assertEquals(3, h.last().unslowed());
+        assertEquals(3, h.last().debt(), 1e-9);
+    }
+
+    @Test
+    void staleFlagClearsAcknowledgedAfterTheNextUseDoNotChargeTheClientsPause() {
+        // Bow shots at ~200 ms: each release's flag clear reaches the client after
+        // it sent the next use, stopping it until its use key restarts it four ticks later. Frames
+        // per shot: use, stale clear acknowledged, restart use, confirming flag acknowledged, release.
+        int[][] shots = {
+            {2979, -1, -1, 2984, 2994},
+            {2998, 2999, 3002, 3003, 3022},
+            {3026, 3027, 3030, 3031, 3041},
+            {3044, 3046, 3048, 3049, 3059},
+            {3062, 3064, 3066, 3067, 3078},
+            {3081, 3083, 3085, 3086, 3096},
+            {3099, 3101, 3103, 3104, 3113},
+            {3117, 3118, 3121, 3122, 3130},
+            {3134, 3135, 3138, 3139, 3147},
+        };
+        var balance = new ItemUseBurstBalance();
+        var flagged = new ArrayList<Integer>();
+        int[] frame = {0};
+        var view = new ServerItemUseView(
+                (offhand, captured) -> new ServerItemUseView.Profile(0.2F, 72000, "minecraft:bow"),
+                outcome -> {
+                    if (balance.add(outcome.debt())) flagged.add(frame[0]);
+                },
+                outcome -> false,
+                message -> {});
+        view.threshold(1.0E-3);
+        view.period(TICK);
+        view.charge(0.95);
+        int sequence = 204;
+        for (frame[0] = shots[0][0]; frame[0] <= shots[shots.length - 1][4]; frame[0]++) {
+            int f = frame[0];
+            long now = f * TICK;
+            boolean paused = false;
+            for (int i = 0; i < shots.length; i++) {
+                int[] shot = shots[i];
+                // Proofs: 2i + 1 confirms shot i's use, 2i + 2 clears it.
+                if (f == shot[1]) view.acknowledge(2 * i, now);
+                if (f == shot[3]) view.acknowledge(2 * i + 1, now);
+                if (f == shot[0] || f == shot[2]) view.use(false, sequence++, now, List.of());
+                if (f == shot[4]) view.release(now);
+                if (f == shot[0] + 1) view.serverFlags(true, false, 2 * i + 1, now);
+                if (f == shot[4] + 1) view.serverFlags(false, false, 2 * i + 2, now);
+                paused |= f >= shot[1] && f < shot[2];
+            }
+            view.tickEnd(paused ? UNSLOWED : SLOWED, 0, now + TICK / 2);
+        }
+        assertEquals(List.of(), flagged);
+        assertTrue(balance.balance() <= 0, "balance " + balance.balance());
     }
 }

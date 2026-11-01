@@ -2,23 +2,33 @@ package ac.cult.cultac.checks.impl.prediction.checks;
 
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
 import ac.cult.cultac.checks.Check;
+import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
+import ac.cult.cultac.checks.impl.prediction.ItemUseTickResult;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InputKeys;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoSneakSlow;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.OmniSprint;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.Speed;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.Strafe;
+import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
+import ac.cult.cultac.utils.data.KnownInput;
 import ac.cult.cultac.utils.data.StuckEdgeData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.OptifineFastMath;
 import ac.cult.cultac.utils.math.VanillaMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
+import ac.cult.cultac.utils.nmsutil.FlightToggle;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 
@@ -41,7 +51,7 @@ public class HorizontalAnalyzer implements EngineCheck {
         float playerSpeed = result.getSimulationContext().getMaxSpeed(player);
         // ClientSprintState decides whether the sprint speed is available for this tick's travel branches
         double sprintMultiplier =
-                playerSpeed > 0 ? result.getSimulationContext().getMaxSprintInputSpeed(player) / playerSpeed : 1.3D;
+                playerSpeed > 0 ? result.getSimulationContext().getMaxSprintInputSpeed(player, result.getInitialStartingVel()) / playerSpeed : 1.3D;
 
         Vec3 target = result.getTarget();
 
@@ -51,10 +61,13 @@ public class HorizontalAnalyzer implements EngineCheck {
         double horizDiffZ = target.z - closestForSpeed.z;
 
         Vec3 minimumInputRequired = getBestTheoreticalPlayerInput(
-                horizDiffX, horizDiffZ, result.getSimulationContext().getXRot()); // player inputs
+                horizDiffX,
+                horizDiffZ,
+                result.getSimulationContext().getXRot(),
+                result.getSimulationContext().getVersion()); // player inputs
 
-        // Can a player have a speed of 0?
-        double inputScaledToSpeed = minimumInputRequired.length() / playerSpeed;
+        // Entity#getInputVector scales the input by the speed, so it moves nothing at speed 0
+        double inputScaledToSpeed = playerSpeed > 0 ? minimumInputRequired.length() / playerSpeed : 0;
 
         // To account for collisions, we need to figure out which way the player was moving to hit the collision
         // If a player was moving in positive X by 2.0 blocks/tick, and hit a block at 1.0 blocks away, they are fine.
@@ -82,6 +95,15 @@ public class HorizontalAnalyzer implements EngineCheck {
                     speedFlagAmount);
         }
 
+        double keysOffset = ReportedKeyInput.offset(player, result, lastResult);
+        if (keysOffset > HORIZONTAL_INPUT_UNCERTAINTY) {
+            KnownInput keys = player.packetStateData.knownInput;
+            result.addFlag(
+                    player.checkManager.getListener(InputKeys.class),
+                    () -> NumFormatter.formatNumberStandard(keysOffset) + " " + keys,
+                    keysOffset);
+        }
+
         // TODO: If we want to, require sent a sneaking packet in the last tick to allow tick skip exempt
         boolean isSlowed = result.getSimulationContext().isLastSneaking()
                 && !result.getInitialStartingVel().isTickSkip();
@@ -94,11 +116,32 @@ public class HorizontalAnalyzer implements EngineCheck {
             isSlowed = false;
         }
         if (player.inVehicle()) isSlowed = false;
-
+        // LocalPlayer#aiStep crouches only a player not flying before its toggle; a flyer still moves slowly crawling.
+        Pose pose = result.getSimulationContext().getPose();
+        if (FlightToggle.flyingBeforeAiStep(player) && pose != Pose.SWIMMING && pose != Pose.FALL_FLYING) {
+            isSlowed = false;
+        }
+        // LocalPlayer#aiStep crouches only where the crouching pose fits blocks and entities such as boats
+        // (Player#canPlayerFitWithinBlocksAndEntitiesWhen); a player that does not crouch is slowed only crawling.
         if (isSlowed
-                && !player.isFlying
-                && !result.getSimulationContext().getWorldData().maybeInLiquid()
-                && player.usesModernJavaItemUse()) {
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_14)
+                && pose != Pose.SWIMMING
+                && !player.canPlayerFitWithinBlocksAndEntitiesWhen(Pose.CROUCHING, from.x, from.y, from.z)) {
+            isSlowed = false;
+        }
+        // LocalPlayer#aiStep crouches a player in water only when Entity#updateSwimming, which needs the sprint flag,
+        // left it not swimming and the crouching pose fits; Entity#isVisuallyCrawling never slows it in water.
+        if (isSlowed
+                && result.getSimulationContext().getWorldData().getInWater() != DesyncStatus.FALSE
+                && (player.sprintState.flagBeforeAiStep()
+                        || !player.canPlayerFitWithinBlocksAndEntitiesWhen(Pose.CROUCHING, from.x, from.y, from.z))) {
+            isSlowed = false;
+        }
+        // FluidPush grants the on-foot current as a radius around the prediction, which does not keep the residual
+        // inside the sneaking input square.
+        if (result.getSimulationContext().getWorldData().getInFlowingLiquid() != DesyncStatus.FALSE) isSlowed = false;
+
+        if (isSlowed && !player.isFlying && player.usesModernJavaItemUse()) {
             result.setSneakingInputMultiplier(
                     (float) player.compensatedEntities.getSelf().sneakingSpeed.value());
         }
@@ -110,15 +153,18 @@ public class HorizontalAnalyzer implements EngineCheck {
                     player.compensatedEntities.getSelf().sneakingSpeed.value());
             double requiredAxis = Math.min(
                     Math.max(absInputX, absInputZ),
-                    minimumFlushInputAxis(
+                    minimumClippedInputAxis(
                             horizDiffX,
                             horizDiffZ,
                             result.getSimulationContext().getXRot(),
                             result.getCollideAxisData(),
-                            target));
+                            target,
+                            preCollisionMovement(result),
+                            touchedFaces(player, result, Collisions.Axis.X),
+                            touchedFaces(player, result, Collisions.Axis.Z)));
             speedFlagAmount = requiredAxis - maxDirLength;
 
-            if (!result.getSimulationContext().getWorldData().maybeInLiquid() && speedFlagAmount > 0.001) {
+            if (speedFlagAmount > 0.001) {
                 result.addFlag(
                         player.checkManager.getListener(NoSneakSlow.class),
                         () -> NumFormatter.formatNumberStandard(minimumInputRequired.x) + " "
@@ -148,13 +194,19 @@ public class HorizontalAnalyzer implements EngineCheck {
         AngleResult angleResult = getAngleRange(
                 result.getValidMovements().getCollisionIgnoredMaxStartingVelExtents(), target, playerAngle);
 
-        double minAngle = CultMath.clamp(0, angleResult.getMinAngle(), angleResult.getMaxAngle());
-
-        // We exempted on ground because you can flag for one tick when off the ground
-        // We don't actually increase flag severity due to a netcode bug.
-        if (wasOnGround && Math.abs(minAngle) > 50 && inputScaledToSpeed > 1.01 && inputScaledToSpeed < 1.301) {
-            // TODO: Why does 0.01 offset cause antikb to flag
-            result.addFlag(player.checkManager.getListener(OmniSprint.class), () -> minAngle + "", 1e-6);
+        if (sprintHasForwardImpulse(result.getSimulationContext())) {
+            double sprintOffset = distanceToForwardImpulse(
+                    result.getValidMovements().getCollisionIgnoredMaxStartingVelExtents(),
+                    closestForSpeed,
+                    target,
+                    result.getSimulationContext().getXRot(),
+                    result.getSimulationContext().getVersion());
+            if (sprintOffset > HORIZONTAL_INPUT_UNCERTAINTY) {
+                result.addFlag(
+                        player.checkManager.getListener(OmniSprint.class),
+                        () -> NumFormatter.formatNumberStandard(sprintOffset),
+                        sprintOffset);
+            }
         }
 
         final Check angleCheck = player.checkManager.getAngleCheck();
@@ -183,16 +235,100 @@ public class HorizontalAnalyzer implements EngineCheck {
                         distanceToValid / 500); // Not that bad to flag
             }
         }
+    }
 
-        // We once had a check for making sure non-whole inputs were not allowed, but it was removed due to sneaking
-        // Maybe it can come back, eventually.
-        // Probably not, what would it even be checking?
+    static boolean sprintHasForwardImpulse(SimulationContext context) {
+        if (context.getIsSprinting() != DesyncStatus.TRUE) return false;
+        if (!context.getWorldData().isSwimming()) return true;
+        return context.getLastOnGround() == DesyncStatus.FALSE && !context.isSneaking() && !context.isLastSneaking();
+    }
+
+    static double distanceToForwardImpulse(
+            SimpleCollisionBox starts, Vec3 closest, Vec3 target, float yaw, ClientVersion version) {
+        if (target.x >= starts.minX && target.x <= starts.maxX && target.z >= starts.minZ && target.z <= starts.maxZ) {
+            return 0.0D;
+        }
+        float radians = yaw * 0.017453292f;
+        double vanilla = distanceToForwardImpulse(
+                starts, closest, target, VanillaMath.sin(version, radians), VanillaMath.cos(version, radians));
+        if (vanilla == 0.0D) return 0.0D;
+        return Math.min(
+                vanilla,
+                distanceToForwardImpulse(
+                        starts, closest, target, OptifineFastMath.sin(radians), OptifineFastMath.cos(radians)));
+    }
+
+    private static double distanceToForwardImpulse(
+            SimpleCollisionBox starts, Vec3 closest, Vec3 target, float sin, float cos) {
+        double scale = (double) sin * sin + (double) cos * cos;
+        if (scale == 0) return Float.MAX_VALUE;
+        double closestX = target.x - closest.x;
+        double closestZ = target.z - closest.z;
+        double fromClosest = distanceToForwardCone(
+                (closestX * cos + closestZ * sin) / scale, (closestZ * cos - closestX * sin) / scale);
+        if (fromClosest == 0.0D) return 0.0D;
+        double lowX = target.x - starts.maxX;
+        double highX = target.x - starts.minX;
+        double lowZ = target.z - starts.maxZ;
+        double highZ = target.z - starts.minZ;
+        double s0 = (lowX * cos + lowZ * sin) / scale;
+        double f0 = (lowZ * cos - lowX * sin) / scale;
+        double s1 = (highX * cos + lowZ * sin) / scale;
+        double f1 = (lowZ * cos - highX * sin) / scale;
+        double s2 = (highX * cos + highZ * sin) / scale;
+        double f2 = (highZ * cos - highX * sin) / scale;
+        double s3 = (lowX * cos + highZ * sin) / scale;
+        double f3 = (highZ * cos - lowX * sin) / scale;
+        return Math.min(
+                fromClosest,
+                Math.min(
+                        Math.min(segmentToForwardCone(s0, f0, s1, f1), segmentToForwardCone(s1, f1, s2, f2)),
+                        Math.min(segmentToForwardCone(s2, f2, s3, f3), segmentToForwardCone(s3, f3, s0, f0))));
+    }
+
+    private static double segmentToForwardCone(double as, double af, double bs, double bf) {
+        double toA = distanceToForwardCone(as, af);
+        if (toA == 0.0D) return 0.0D;
+        double toB = distanceToForwardCone(bs, bf);
+        if (toB == 0.0D) return 0.0D;
+        double ds = bs - as;
+        double df = bf - af;
+        if (crossesBoundary(as, af, ds, df, 1.0D) || crossesBoundary(as, af, ds, df, -1.0D)) return 0.0D;
+        double lengthSqr = ds * ds + df * df;
+        double along = lengthSqr == 0.0D ? 0.0D : CultMath.clamp(-(as * ds + af * df) / lengthSqr, 0.0D, 1.0D);
+        double toApex = Math.hypot(as + along * ds, af + along * df);
+        return Math.min(Math.min(toA, toB), toApex);
+    }
+
+    private static boolean crossesBoundary(double as, double af, double ds, double df, double side) {
+        double denominator = ds - df * side;
+        if (denominator == 0.0D) return false;
+        double along = -(as - af * side) / denominator;
+        double ray = (af * ds - as * df) / denominator;
+        return along >= 0.0D && along <= 1.0D && ray >= 0.0D;
+    }
+
+    private static double distanceToForwardCone(double strafe, double forward) {
+        if (forward >= Math.abs(strafe)) return 0.0D;
+        double best = Math.sqrt(strafe * strafe + forward * forward);
+        for (int side = -1; side <= 1; side += 2) {
+            double along = (side * strafe + forward) / Math.sqrt(2.0D);
+            if (along <= 0.0D) continue;
+            double offX = strafe - along * side / Math.sqrt(2.0D);
+            double offZ = forward - along / Math.sqrt(2.0D);
+            best = Math.min(best, Math.sqrt(offX * offX + offZ * offZ));
+        }
+        return best;
     }
 
     /** The flag amount for the horizontal input {@code (absX, 0, absZ)}. */
     static double getHorizontalInputFlagAmount(
             double absX, double absZ, double playerSpeed, double sprintMultiplier, boolean mustBeInLiquid) {
         double magnitude = Math.sqrt(absX * absX + absZ * absZ);
+        // Entity#getInputVector scales the input by the speed, so it moves nothing at speed 0
+        if (playerSpeed == 0) {
+            return magnitude > ItemUseTickResult.NUMERIC_EPSILON ? magnitude : 0.0D;
+        }
         if (magnitude > playerSpeed * (sprintMultiplier + HORIZONTAL_INPUT_UNCERTAINTY)) {
             return magnitude;
         }
@@ -273,14 +409,136 @@ public class HorizontalAnalyzer implements EngineCheck {
         return degrees;
     }
 
-    // Entity#collide clips any further movement into a wall the movement ends flush against, so the residual on
-    // that axis only bounds the input's movement from one side. Rotating the residual alone can then overstate an
-    // input axis; return the smallest largest input axis over that one-sided range, or MAX_VALUE without a wall.
-    static double minimumFlushInputAxis(
-            double residualX, double residualZ, float yaw, CollideAxisData collide, Vec3 target) {
-        int sideX = flushSide(collide.getX(), target.x);
-        int sideZ = flushSide(collide.getZ(), target.z);
-        if (sideX == 0 && sideZ == 0) return Double.MAX_VALUE;
+    // Entity#collide clips the velocity plus the input at a wall. On an axis whose pre-collision movement reaches
+    // past the probed wall, the input is the residual from that movement, not from the clip; on an axis the move ends
+    // flush against a wall, any further input towards it is clipped too, so the input there is a one-sided range. A
+    // move Entity#collide leaves whole is the pre-collision movement plus the input, whatever the selected movement
+    // clipped. Return the smallest largest input axis over those inputs, or MAX_VALUE when no axis reaches a wall
+    // and the selected movement clipped nothing.
+    static double minimumClippedInputAxis(
+            double residualX,
+            double residualZ,
+            float yaw,
+            CollideAxisData collide,
+            Vec3 target,
+            Vec3 preCollisionMovement) {
+        return minimumClippedInputAxis(residualX, residualZ, yaw, collide, target, preCollisionMovement, 0, 0);
+    }
+
+    /** {@code touchedX} and {@code touchedZ} are {@link #touchedFaces} on axes the probe gives no side. */
+    static double minimumClippedInputAxis(
+            double residualX,
+            double residualZ,
+            float yaw,
+            CollideAxisData collide,
+            Vec3 target,
+            Vec3 preCollisionMovement,
+            int touchedX,
+            int touchedZ) {
+        return minimumClippedInput(
+                residualX, residualZ, yaw, collide, target, preCollisionMovement, touchedX, touchedZ, MAX_INPUT_AXIS);
+    }
+
+    /** {@link #minimumClippedInputAxis} for any input cost, from the result's accepted movement and collisions. */
+    static double minimumClippedInput(PredictionResult result, InputCost cost) {
+        if (result.getCollideAxisData() == null) return Double.MAX_VALUE;
+        Vec3 target = result.getTarget();
+        Vec3 closest = result.getAcceptedClosestToTarget();
+        return minimumClippedInput(
+                target.x - closest.x,
+                target.z - closest.z,
+                result.getSimulationContext().getXRot(),
+                result.getCollideAxisData(),
+                target,
+                preCollisionMovement(result),
+                touchedFaces(result.getPlayer(), result, Collisions.Axis.X),
+                touchedFaces(result.getPlayer(), result, Collisions.Axis.Z),
+                cost);
+    }
+
+    /**
+     * The faces on {@code axis}, bit {@link #POSITIVE_FACE} and bit {@link #NEGATIVE_FACE}, that the box of the
+     * accepted move ends against and that the move on that axis goes toward, when the probe likely collides on that
+     * axis without a side. Entity#collide clips any further move into such a face to nothing, and clips a move toward
+     * a face to no less than -1.0E-7 (VoxelShape#collideX, VoxelShape.java:265-266).
+     */
+    static int touchedFaces(CultPlayer player, PredictionResult result, Collisions.Axis axis) {
+        CollideAxisData collide = result.getCollideAxisData();
+        CollideAxisData.CollideResult axisCollide =
+                collide == null ? null : axis == Collisions.Axis.X ? collide.getX() : collide.getZ();
+        MovementTrace trace = result.getValidMovements() == null
+                ? null
+                : result.getValidMovements().getClosestTrace();
+        if (player == null
+                || result.getSimulationContext() == null
+                || trace == null
+                || axisCollide == null
+                || !axisCollide.isLikelyCollide()
+                || axisCollide.getSide() != 0) {
+            return 0;
+        }
+        SimpleCollisionBox box =
+                result.getSimulationContext().getFromActualPose().copy().offset(trace.position());
+        double moved = axis == Collisions.Axis.X ? trace.position().x : trace.position().z;
+        double probe = SimpleCollisionBox.COLLISION_EPSILON;
+        List<SimpleCollisionBox> colliders = player.entityCollisionBoxes();
+        SimpleCollisionBox query = axis == Collisions.Axis.X
+                ? box.copy().expand(2 * probe, 0.0D, 0.0D)
+                : box.copy().expand(0.0D, 0.0D, 2 * probe);
+        Collisions.getCollisionBoxes(player, query, colliders, false, box.minY);
+        int faces = 0;
+        if (moved >= -probe
+                && Collisions.collideAxis(probe, box, colliders, axis, SimpleCollisionBox.AxisEpsilon.JAVA) != probe) {
+            faces |= POSITIVE_FACE;
+        }
+        if (moved <= probe
+                && Collisions.collideAxis(-probe, box, colliders, axis, SimpleCollisionBox.AxisEpsilon.JAVA)
+                        != -probe) {
+            faces |= NEGATIVE_FACE;
+        }
+        return faces;
+    }
+
+    /** A convex cost of an input-space vector. */
+    interface InputCost {
+        double at(double x, double z);
+
+        /** The smallest cost of {@code (x + t * dx, z + t * dz)} over {@code t >= 0}. */
+        double minimumAlong(double x, double z, double dx, double dz);
+    }
+
+    private static final InputCost MAX_INPUT_AXIS = new InputCost() {
+        @Override
+        public double at(double x, double z) {
+            return Math.max(Math.abs(x), Math.abs(z));
+        }
+
+        @Override
+        public double minimumAlong(double x, double z, double dx, double dz) {
+            return minimumMaxAxisAlong(x, z, dx, dz);
+        }
+    };
+
+    private static double minimumClippedInput(
+            double residualX,
+            double residualZ,
+            float yaw,
+            CollideAxisData collide,
+            Vec3 target,
+            Vec3 preCollisionMovement,
+            int touchedX,
+            int touchedZ,
+            InputCost cost) {
+        int facesX = faces(flushSide(collide.getX(), target.x)) | touchedX;
+        int facesZ = faces(flushSide(collide.getZ(), target.z)) | touchedZ;
+        boolean pastX = preCollisionMovement != null && reachesPast(collide.getX(), preCollisionMovement.x);
+        boolean pastZ = preCollisionMovement != null && reachesPast(collide.getZ(), preCollisionMovement.z);
+        double wholeX = preCollisionMovement == null ? residualX : target.x - preCollisionMovement.x;
+        double wholeZ = preCollisionMovement == null ? residualZ : target.z - preCollisionMovement.z;
+        boolean clipped = wholeX != residualX || wholeZ != residualZ;
+        if (facesX == 0 && facesZ == 0 && !pastX && !pastZ && !clipped) return Double.MAX_VALUE;
+        if (pastX) residualX = target.x - preCollisionMovement.x;
+        if (pastZ) residualZ = target.z - preCollisionMovement.z;
 
         double best = Double.MAX_VALUE;
         float radians = yaw * 0.017453292f;
@@ -290,13 +548,57 @@ public class HorizontalAnalyzer implements EngineCheck {
         };
         for (float[] table : tables) {
             float sin = table[0], cos = table[1];
-            double x = residualX * cos + residualZ * sin;
-            double z = residualZ * cos - residualX * sin;
+            double scale = (double) sin * sin + (double) cos * cos;
+            if (scale == 0) continue;
+            double x = (residualX * cos + residualZ * sin) / scale;
+            double z = (residualZ * cos - residualX * sin) / scale;
+            best = Math.min(best, cost.at(x, z));
+            if (clipped) {
+                best = Math.min(
+                        best, cost.at((wholeX * cos + wholeZ * sin) / scale, (wholeZ * cos - wholeX * sin) / scale));
+            }
             // A world X/Z unit rotates to these input-space directions
-            if (sideX != 0) best = Math.min(best, minimumMaxAxisAlong(x, z, sideX * cos, -sideX * sin));
-            if (sideZ != 0) best = Math.min(best, minimumMaxAxisAlong(x, z, sideZ * sin, sideZ * cos));
+            for (int side = -1; side <= 1; side += 2) {
+                int face = faces(side);
+                if ((facesX & face) != 0) best = Math.min(best, cost.minimumAlong(x, z, side * cos, -side * sin));
+                if ((facesZ & face) != 0) best = Math.min(best, cost.minimumAlong(x, z, side * sin, side * cos));
+            }
         }
         return best;
+    }
+
+    private static final int POSITIVE_FACE = 1;
+    private static final int NEGATIVE_FACE = 2;
+
+    private static int faces(int side) {
+        return side > 0 ? POSITIVE_FACE : side < 0 ? NEGATIVE_FACE : 0;
+    }
+
+    /** Whether {@code movement} reaches past the probed wall, where Entity#collide would clip it. */
+    private static boolean reachesPast(CollideAxisData.CollideResult collide, double movement) {
+        return collide != null
+                && collide.isLikelyCollide()
+                && collide.getSide() * (movement - collide.getResult()) > 0.0D;
+    }
+
+    /**
+     * The movement the collision clipped, without the stuck speed like the target and the probe, or null when a piston
+     * or shulker shove moved the player separately.
+     */
+    private static Vec3 preCollisionMovement(PredictionResult result) {
+        MovementTrace trace = result.getValidMovements() == null
+                ? null
+                : result.getValidMovements().getClosestTrace();
+        if (trace == null
+                || trace.preCollisionMovement() == null
+                || trace.collisionBaseOffset().lengthSqr() > 1.0E-14) {
+            return null;
+        }
+        Vec3 stuck = trace.position().collisionStuckSpeedMultiplier(result.getSimulationContext());
+        if (stuck == null || stuck.x == 1.0D && stuck.y == 1.0D && stuck.z == 1.0D) {
+            return trace.preCollisionMovement();
+        }
+        return trace.preCollisionMovement().multiply(1 / stuck.x, 1 / stuck.y, 1 / stuck.z);
     }
 
     private static int flushSide(CollideAxisData.CollideResult collide, double movement) {
@@ -317,31 +619,55 @@ public class HorizontalAnalyzer implements EngineCheck {
         return best;
     }
 
-    public static Vec3 getBestTheoreticalPlayerInput(Vec3 wantedMovement, float f2) {
-        return getBestTheoreticalPlayerInput(wantedMovement.x, wantedMovement.z, f2);
+    public static Vec3 getBestTheoreticalPlayerInput(Vec3 wantedMovement, float f2, ClientVersion version) {
+        return getBestTheoreticalPlayerInput(wantedMovement.x, wantedMovement.z, f2, version);
     }
 
-    public static Vec3 getBestTheoreticalPlayerInput(double wantedX, double wantedZ, float f2) {
-        float vanillaSin = VanillaMath.sin(f2 * 0.017453292f);
-        float vanillaCos = VanillaMath.cos(f2 * 0.017453292f);
-        double correctX = wantedX * vanillaCos + wantedZ * vanillaSin;
-        double correctZ = wantedZ * vanillaCos - wantedX * vanillaSin;
-        double absX = Math.abs(correctX);
-        double absZ = Math.abs(correctZ);
-        double correctMathDiff = Math.min(Math.min(Math.abs(absX - absZ), absX), absZ);
+    public static Vec3 getBestTheoreticalPlayerInput(double wantedX, double wantedZ, float f2, ClientVersion version) {
+        float radians = f2 * 0.017453292f;
+        Vec3 correctMath = invertInputRotation(
+                wantedX, wantedZ, VanillaMath.sin(version, radians), VanillaMath.cos(version, radians));
+        Vec3 shitMath = invertInputRotation(wantedX, wantedZ, OptifineFastMath.sin(radians), OptifineFastMath.cos(radians));
 
-        float f3 = OptifineFastMath.sin(f2 * 0.017453292f);
-        float f4 = OptifineFastMath.cos(f2 * 0.017453292f);
-        double shitX = wantedX * f4 + wantedZ * f3;
-        double shitZ = wantedZ * f4 - wantedX * f3;
-        absX = Math.abs(shitX);
-        absZ = Math.abs(shitZ);
-        double shitMathDiff = Math.min(Math.min(Math.abs(absX - absZ), absX), absZ);
-
-        if (correctMathDiff < shitMathDiff) {
-            return new Vec3(correctX, 0, correctZ);
-        } else {
-            return new Vec3(shitX, 0, shitZ);
+        if (correctMath == null || shitMath == null) {
+            if (correctMath != null) return correctMath;
+            if (shitMath != null) return shitMath;
+            return unreachableInput(wantedX, wantedZ);
         }
+
+        // Only a table saturated by a huge yaw shrinks its rotation, so the other table needs less input
+        double correctLength = correctMath.lengthSqr();
+        double shitLength = shitMath.lengthSqr();
+        if (Math.abs(correctLength - shitLength) > 1.0E-3 * Math.max(correctLength, shitLength)) {
+            return correctLength < shitLength ? correctMath : shitMath;
+        }
+
+        if (distanceToValidInput(correctMath) < distanceToValidInput(shitMath)) {
+            return correctMath;
+        } else {
+            return shitMath;
+        }
+    }
+
+    // Entity#getInputVector rotates input by [[cos, -sin], [sin, cos]], a rotation scaled by sin^2 + cos^2.
+    // The trig tables only keep that scale at 1 for sane yaws; huge yaws saturate the table index and shrink it
+    // towards 0, so dividing it back out is required for the leftover movement to map to the input that caused it.
+    private static Vec3 invertInputRotation(double movementX, double movementZ, float sin, float cos) {
+        double scale = (double) sin * sin + (double) cos * cos;
+        if (scale == 0) return null; // No input moves the player at this yaw
+        return new Vec3((movementX * cos + movementZ * sin) / scale, 0, (movementZ * cos - movementX * sin) / scale);
+    }
+
+    private static Vec3 unreachableInput(double movementX, double movementZ) {
+        double length = Math.sqrt(movementX * movementX + movementZ * movementZ);
+        if (length == 0) return Vec3.ZERO;
+        // Finite so the flag severity stays usable by setbacks
+        return new Vec3(movementX / length * Float.MAX_VALUE, 0, movementZ / length * Float.MAX_VALUE);
+    }
+
+    private static double distanceToValidInput(Vec3 input) {
+        double absX = Math.abs(input.x);
+        double absZ = Math.abs(input.z);
+        return Math.min(Math.min(Math.abs(absX - absZ), absX), absZ);
     }
 }

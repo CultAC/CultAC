@@ -14,7 +14,7 @@ public record ClientboundPlayerInfoUpdate(Set<Action> actions, List<Entry> entri
     public ClientboundPlayerInfoUpdate {
         var copy = java.util.EnumSet.noneOf(Action.class);
         copy.addAll(actions);
-        actions = java.util.Collections.unmodifiableSet(copy);
+        actions = Collections.unmodifiableSet(copy);
         entries = List.copyOf(entries);
     }
 

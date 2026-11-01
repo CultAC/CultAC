@@ -4,7 +4,6 @@ import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.BlockBreakListener;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 
 @CheckData(
@@ -18,18 +17,10 @@ public class MultiActionsB extends Check implements BlockBreakListener {
     }
 
     public void onBlockBreak(BlockBreak blockBreak) {
-        if (isActivelyUsingItem()) {
+        if (MultiActionsA.isActivelyUsingItem(player)) {
             if (flag() && shouldModifyPackets()) {
                 blockBreak.cancel();
             }
         }
-    }
-
-    // Limit the active item to the in-use hand's current slot.
-    private boolean isActivelyUsingItem() {
-        return player.isClientUsingItem()
-                && (player.usesModernJavaItemUse()
-                        || player.packetStateData.lastSlotSelected == player.packetStateData.getSlowedByUsingItemSlot()
-                        || player.getClientItemUseHand() == Hand.OFF_HAND);
     }
 }

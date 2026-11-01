@@ -5,6 +5,7 @@ import ac.cult.cultac.player.CultPlayer;
 /** Client-visible state used by AbstractNautilus#travelRidden. */
 public final class PacketEntityNautilus extends PacketEntityTrackXRot {
     public boolean hasSaddle;
+    public boolean isTame;
     public boolean dashing;
     public int dashCooldown;
     public double movementSpeedAttribute = 1.0D;

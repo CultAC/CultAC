@@ -40,9 +40,9 @@ spectators:
 
 max-transaction-time: 60
 
-# Se CultAC stesso fallisce (non riesce ad agganciarsi a un giocatore, la versione del client non è supportata
-# o nessun ping riceve risposta entro max-transaction-time), il giocatore continua senza ispezione invece di
-# essere disconnesso. I kick per flood di pacchetti ed exploit di crash restano attivi.
+# Se CultAC stesso fallisce (non riesce ad agganciarsi a un giocatore o la versione del client non è
+# supportata), il giocatore continua senza ispezione invece di essere disconnesso. I kick per flood di
+# pacchetti, exploit di crash e ping senza risposta oltre max-transaction-time restano attivi.
 launch-safety:
   fail-open: true
 
@@ -247,6 +247,53 @@ cloud:
   # Names this proxy among the writers sharing one api-key, required while server-id uses {proxy}. On a server it
   # is the server's own name, and required.
   proxy-id: ""
+  # When true, sends CPU and allocation stack samples of this server to the intake service: short profiles it asks
+  # for, recorded off the main thread. Off by default; CULTAC_CLOUD_PERF (true/1/yes, false/0/no) wins when set.
+  perf: false
+  # When true, the upload sockets also report the UUID, name and portal role (viewer, moderator or admin) of
+  # players holding cult.portal.viewer, .moderator or .admin, and the stored role of synced players who are offline
+  # when the intake service asks, so the cloud portal lists them in this server's organization while it has team
+  # sync on. Off by default; CULTAC_CLOUD_TEAM_SYNC (true/1/yes, false/0/no) wins when set.
+  team-sync: false
+  # Panel bans: staff ban a player from the cloud panel, and one server that has the command for it runs it as
+  # console, in observe-only mode too. Placeholders: %player% %uuid% %reason% %cheat% %cheat_id% %duration%
+  # (30m, 12h, 7d; empty when permanent) %seconds% %staff% %ban_id% %link% %staff_uuid% (the banning staff
+  # member's Minecraft UUID when the panel knows it) %evidence% (a link to the evidence the ban rests on, such as a
+  # replay); both are empty when unknown.
+  # %reason% and %staff% are free text: put %reason% last, after %duration%, so it is never read as a duration.
+  staff-ban:
+    # Runs when staff ban a player from the cloud panel. Empty: this server never runs panel bans.
+    command: ""
+    # For timed bans. Empty: this server never runs timed panel bans.
+    temp-command: ""
+
+# Fa funzionare i comandi dello staff, il completamento con Tab e gli avvisi su tutti i tuoi proxy e server.
+# Guida all'installazione: docs/network.md nel codice sorgente di CultAC. /cult reload applica le modifiche.
+# Ogni impostazione qui si può anche dare con una variabile d'ambiente CULTAC_NETWORK_*, che ha la precedenza.
+network:
+  # Come i tuoi server comunicano tra loro:
+  #   none         Spento. Comandi e avvisi raggiungono solo i giocatori di questo server.
+  #   redis        Tramite un server Redis (vanno bene anche Valkey, KeyDB e Dragonfly). Compila la sezione redis.
+  #   nats         Tramite un server NATS. Compila la sezione nats.
+  #   redisbungee  Proxy Velocity con RedisBungee. Usa la sua connessione Redis, nient'altro da compilare.
+  type: none
+  redis:
+    address: localhost:6379
+    username: ""
+    password: ""
+    ssl: false
+  nats:
+    # Per indicare più server, separali con virgole.
+    address: localhost:4222
+    username: ""
+    password: ""
+    token: ""
+    # Solo se il tuo server NATS usa gli account: il percorso del tuo file .creds.
+    credentials-file: ""
+    ssl: false
+  # Il nome di questo server nella rete. Ogni server deve averne uno suo.
+  # Lascia vuoto per usare l'id proxy di RedisBungee, altrimenti cloud.proxy-id, altrimenti IP e porta di questo server.
+  instance-id: ""
 
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with
 # /cult update builds [branch]. Each setting's CULTAC_UPDATE_* environment variable wins when set and not blank.
@@ -268,4 +315,4 @@ update:
   webhook: ""
 
 config-flavor: V2
-config-version: 14
+config-version: 17

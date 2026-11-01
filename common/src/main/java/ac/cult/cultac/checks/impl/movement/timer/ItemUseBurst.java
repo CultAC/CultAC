@@ -162,7 +162,7 @@ public final class ItemUseBurst extends Check implements PostPredictionListener,
     }
 
     public void acknowledge(int transaction) {
-        view.acknowledge(transaction);
+        view.acknowledge(transaction, now.getAsLong());
     }
 
     public boolean tracking() {

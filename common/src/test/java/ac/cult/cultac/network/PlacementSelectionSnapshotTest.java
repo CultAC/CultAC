@@ -123,7 +123,7 @@ class PlacementSelectionSnapshotTest {
 
     @ParameterizedTest
     @MethodSource("clients")
-    void placeVisibilityUsesAClosedShulkerWithoutChangingItsLid(ProtocolVersion version) throws Exception {
+    void placeVisibilityUsesTheOpenShulkerLidWithoutChangingIt(ProtocolVersion version) throws Exception {
         try (var setup = new Setup(version)) {
             var player = setup.player;
             var world = player.compensatedWorld;
@@ -141,8 +141,9 @@ class PlacementSelectionSnapshotTest {
                             new ac.cult.blocksim.data.nbt.NbtValue.Compound(java.util.Map.of())));
             world.beginSelectionSnapshot();
 
-            assertFalse(setup.use(Direction.UP, new Vec3(.5, 1, .5)).isCancelled());
-            assertEquals(0, check.violations, "The eye is above the closed top, below the open lid");
+            assertFalse(setup.use(Direction.NORTH, new Vec3(.5, 1.2, 0)).isCancelled());
+            assertTrue(setup.use(Direction.UP, new Vec3(.5, 1.5, .5)).isCancelled());
+            assertEquals(1, check.violations, "The eye is above the closed top, below the open lid");
             assertEquals(
                     1.0F,
                     world.getClientBlockEntityData(TARGET)

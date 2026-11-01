@@ -15,7 +15,7 @@ public final class BooleanEnvironment {
     public record Values(boolean waterEvaporates, boolean creakingActive) { }
     private record Layer(String clock, BooleanTrack water, BooleanTrack creaking) { }
     private final Map<Integer, Integer> biomeBases;
-    private final List<Layer> layers;
+    private final Layer[] layers;
     private final ClientClocks clocks;
     private final Values[] values = new Values[4];
 
@@ -40,7 +40,7 @@ public final class BooleanEnvironment {
             layers.add(new Layer(HolderSets.identifier(clock.getAsString()), waterTrack == null ? null : BooleanTrack.read(waterTrack, period),
                     creakingTrack == null ? null : BooleanTrack.read(creakingTrack, period)));
         }
-        this.layers = List.copyOf(layers);
+        this.layers = layers.toArray(Layer[]::new);
         tick();
     }
     private static JsonElement entry(JsonObject object, String key) {

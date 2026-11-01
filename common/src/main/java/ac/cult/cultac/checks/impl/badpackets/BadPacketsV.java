@@ -8,7 +8,6 @@ import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
-import ac.cult.cultac.utils.data.LastInstance;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 
@@ -32,29 +31,24 @@ public class BadPacketsV extends Check implements CheckListener {
         noReminderTicks = 0;
     }
 
-    private final LastInstance lastTeleportTicks;
-
     public BadPacketsV(CultPlayer player) {
         super(player);
-        lastTeleportTicks = new LastInstance(player);
     }
 
     @CultPacketHandler
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
-        // isTickPacket: movement packets count unless they answered a teleport
-        if (player.packetStateData.lastPacketWasTeleport) {
-            lastTeleportTicks.reset();
-            return;
-        }
+        // isTickPacket: movement packets count unless they answered a teleport. Neither the pre-26.3 PosRot
+        // echo nor the 26.3 acceptance writes LocalPlayer#xLast, so the next tick is judged against the old cache.
+        if (player.packetStateData.lastPacketWasTeleport) return;
 
         if (packet.hasPosition()) {
             int positionAtLeastEveryNTicks = 19;
 
-            if (noReminderTicks < positionAtLeastEveryNTicks && !lastTeleportTicks.hasOccurredSince(1)) {
-                final double x = packet.xOr(player.x);
-                final double y = packet.yOr(player.y);
-                final double z = packet.zOr(player.z);
+            if (noReminderTicks < positionAtLeastEveryNTicks) {
+                final double x = packet.x();
+                final double y = packet.y();
+                final double z = packet.z();
                 final double deltaSq =
                         CultMath.square(sentX - x) + CultMath.square(sentY - y) + CultMath.square(sentZ - z);
                 if (deltaSq <= player.getMovementThreshold() * player.getMovementThreshold()) {
@@ -63,9 +57,9 @@ public class BadPacketsV extends Check implements CheckListener {
                 }
             }
 
-            sentX = packet.xOr(player.x);
-            sentY = packet.yOr(player.y);
-            sentZ = packet.zOr(player.z);
+            sentX = packet.x();
+            sentY = packet.y();
+            sentZ = packet.z();
             noReminderTicks = 0;
         } else {
             noReminderTicks++;

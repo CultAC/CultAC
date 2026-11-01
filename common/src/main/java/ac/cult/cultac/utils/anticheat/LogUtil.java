@@ -5,7 +5,6 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.logging.Logger;
 import lombok.experimental.UtilityClass;
-import net.kyori.adventure.text.Component;
 
 @UtilityClass
 public class LogUtil {
@@ -64,17 +63,6 @@ public class LogUtil {
 
     public Logger getLogger() {
         return CultAPI.INSTANCE.getGrimPlugin().getLogger();
-    }
-
-    public void console(final String info) {
-        CultAPI.INSTANCE
-                .getPlatformServer()
-                .getConsoleSender()
-                .sendMessage(MessageUtil.translateAlternateColorCodes('&', info));
-    }
-
-    public void console(final Component info) {
-        CultAPI.INSTANCE.getPlatformServer().getConsoleSender().sendMessage(info);
     }
 
     private static String getStackTrace(Throwable throwable) {

@@ -1,18 +1,25 @@
 package ac.cult.cultac.network.packet;
 
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.nbt.NbtValue;
+import ac.cult.blocksim.engine.ClientClocks;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPacket;
 import ac.cult.cultac.protocol.value.BlockPos;
 import java.nio.ByteBuffer;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.function.IntUnaryOperator;
+import java.util.function.LongSupplier;
 
 /** Consumed world data; block states use the bundled model's numeric IDs. */
 public final class WorldPackets {
     private WorldPackets() {}
 
     public record BlockUpdate(BlockPos position, int state) implements ClientboundPacket {
-        private static final int STATE_COUNT =
-                ac.cult.blocksim.data.DataTables.defaults().registry().stateCount();
+        private static final int STATE_COUNT = DataTables.defaults().registry().stateCount();
 
         public BlockUpdate {
             position = position.immutable();
@@ -37,10 +44,7 @@ public final class WorldPackets {
 
         /** ClientboundSectionBlocksUpdatePacket retains local coordinates and states until application. */
         public static SectionBlocksUpdate readSection(
-                long section,
-                int count,
-                java.util.function.LongSupplier input,
-                java.util.function.IntUnaryOperator states) {
+                long section, int count, LongSupplier input, IntUnaryOperator states) {
             return new SectionBlocksUpdate(PackedSectionUpdates.read(section, count, input, states));
         }
 
@@ -67,7 +71,7 @@ public final class WorldPackets {
         }
 
         public void runUpdates(BlockUpdateConsumer consumer) {
-            java.util.Objects.requireNonNull(consumer);
+            Objects.requireNonNull(consumer);
             if (updates instanceof PackedSectionUpdates packed) packed.runUpdates(consumer);
             else
                 for (var update : updates)
@@ -84,16 +88,15 @@ public final class WorldPackets {
         void accept(int x, int y, int z, int state);
     }
 
-    public record TimeUpdate(long gameTime, java.util.Map<String, ac.cult.blocksim.engine.ClientClocks.State> clocks)
-            implements ClientboundPacket {
+    public record TimeUpdate(long gameTime, Map<String, ClientClocks.State> clocks) implements ClientboundPacket {
         public TimeUpdate {
-            clocks = java.util.Map.copyOf(clocks);
+            clocks = Map.copyOf(clocks);
         }
     }
 
-    public record EnabledFeatures(java.util.Set<String> features) implements ClientboundPacket {
+    public record EnabledFeatures(Set<String> features) implements ClientboundPacket {
         public EnabledFeatures {
-            features = java.util.Set.copyOf(features);
+            features = Set.copyOf(features);
         }
     }
 
@@ -101,11 +104,11 @@ public final class WorldPackets {
     public record Difficulty(boolean peaceful) implements ClientboundPacket {}
 
     /** Only recipe input membership affects client block interactions. */
-    public record RecipeInputs(java.util.Map<String, java.util.Set<String>> itemSets) implements ClientboundPacket {
+    public record RecipeInputs(Map<String, Set<String>> itemSets) implements ClientboundPacket {
         public RecipeInputs {
-            var copy = new java.util.HashMap<String, java.util.Set<String>>();
-            itemSets.forEach((key, items) -> copy.put(key, java.util.Set.copyOf(items)));
-            itemSets = java.util.Map.copyOf(copy);
+            var copy = new HashMap<String, Set<String>>();
+            itemSets.forEach((key, items) -> copy.put(key, Set.copyOf(items)));
+            itemSets = Map.copyOf(copy);
         }
     }
 
@@ -138,7 +141,7 @@ public final class WorldPackets {
             implements ClientboundPacket {
         public BlockEntityUpdate {
             position = position.immutable();
-            java.util.Objects.requireNonNull(type);
+            Objects.requireNonNull(type);
         }
     }
 

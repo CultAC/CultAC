@@ -6,11 +6,24 @@ import static org.mockito.Mockito.*;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.manager.player.ActionManager;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.data.PacketStateData;
 import ac.cult.cultac.utils.inventory.ItemUtil;
 import ac.cult.cultac.utils.latency.CompensatedInventory;
+import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
+import org.cloudburstmc.protocol.bedrock.data.inventory.ContainerSlotType;
+import org.cloudburstmc.protocol.bedrock.data.inventory.FullContainerName;
+import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.ItemStackRequest;
+import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.ItemStackRequestSlotData;
+import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.action.CraftCreativeAction;
+import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.action.CraftResultsDeprecatedAction;
+import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.action.ItemStackRequestAction;
+import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.action.PlaceAction;
+import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.action.TakeAction;
 import org.cloudburstmc.protocol.bedrock.packet.ContainerClosePacket;
+import org.cloudburstmc.protocol.bedrock.packet.ItemStackRequestPacket;
 import org.cloudburstmc.protocol.bedrock.packet.MobEquipmentPacket;
+import org.cloudburstmc.protocol.bedrock.packet.PlayerAuthInputPacket;
 import org.geysermc.geyser.inventory.GeyserItemStack;
 import org.geysermc.geyser.inventory.PlayerInventory;
 import org.geysermc.geyser.session.GeyserSession;
@@ -91,6 +104,74 @@ public class GeyserInventoryActionsTest {
         assertEquals(4, player.packetStateData.lastSlotSelected);
         assertEquals(4, player.getInventory().inventory.selected);
         verify(player.actionManager).selectHotbarSlot();
+    }
+
+    private static ItemStackRequestSlotData slot(ContainerSlotType container, int slot) {
+        return new ItemStackRequestSlotData(container, slot, 0, new FullContainerName(container, null));
+    }
+
+    // CraftCreative(elytra), CraftResultsDeprecated, Place(CREATED_OUTPUT -> chest armor slot)
+    private static ItemStackRequest creativeElytraRequest(int id) {
+        return new ItemStackRequest(id, new ItemStackRequestAction[]{
+                new CraftCreativeAction(1, 1),
+                new CraftResultsDeprecatedAction(new org.cloudburstmc.protocol.bedrock.data.inventory.ItemData[0], 1),
+                new PlaceAction(1, slot(ContainerSlotType.CREATED_OUTPUT, 50), slot(ContainerSlotType.ARMOR, 1))}, new String[0]);
+    }
+
+    private static ItemStackRequestPacket requests(ItemStackRequest... requests) {
+        var packet = new ItemStackRequestPacket();
+        packet.getRequests().addAll(java.util.List.of(requests));
+        return packet;
+    }
+
+    @Test
+    public void survivalCreativeRequestsReachGeyserWithoutActions() throws Exception {
+        var player = player();
+        player.gamemode = GameMode.SURVIVAL;
+        var session = session();
+        var take = new ItemStackRequest(8, new ItemStackRequestAction[]{
+                new TakeAction(1, slot(ContainerSlotType.HOTBAR, 0), slot(ContainerSlotType.CURSOR, 0))}, new String[0]);
+        var packet = requests(creativeElytraRequest(7), take);
+        GeyserInventoryActions.translate(session, player, packet, () -> {
+            assertEquals(7, packet.getRequests().get(0).getRequestId());
+            assertEquals(0, packet.getRequests().get(0).getActions().length);
+            assertSame(take, packet.getRequests().get(1));
+        });
+    }
+
+    @Test
+    public void authInputCreativeRequestIsStrippedButStillPerformed() throws Exception {
+        var player = player();
+        player.gamemode = GameMode.ADVENTURE;
+        var packet = new PlayerAuthInputPacket();
+        packet.getInputData().add(PlayerAuthInputData.PERFORM_ITEM_STACK_REQUEST);
+        packet.setItemStackRequest(creativeElytraRequest(3));
+        GeyserInventoryActions.translate(session(), player, packet, () -> {
+            assertEquals(3, packet.getItemStackRequest().getRequestId());
+            assertEquals(0, packet.getItemStackRequest().getActions().length);
+            assertTrue(packet.getInputData().contains(PlayerAuthInputData.PERFORM_ITEM_STACK_REQUEST));
+        });
+    }
+
+    @Test
+    public void creativeRequestsNeedBothModelsInCreative() throws Exception {
+        var player = player();
+        var session = session();
+        var request = creativeElytraRequest(5);
+
+        player.gamemode = GameMode.CREATIVE;
+        var stale = requests(request);
+        GeyserInventoryActions.translate(session, player, stale, () -> {});
+        assertEquals(0, stale.getRequests().get(0).getActions().length);
+
+        when(session.getGameMode()).thenReturn(org.geysermc.mcprotocollib.protocol.data.game.entity.player.GameMode.CREATIVE);
+        var creative = requests(request);
+        GeyserInventoryActions.translate(session, player, creative, () -> {});
+        assertSame(request, creative.getRequests().get(0));
+
+        var unbound = requests(request);
+        GeyserInventoryActions.rejectCreativeRequests(session, null, unbound);
+        assertEquals(0, unbound.getRequests().get(0).getActions().length);
     }
 
     @Test

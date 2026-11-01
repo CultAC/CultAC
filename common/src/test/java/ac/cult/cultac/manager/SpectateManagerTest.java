@@ -15,6 +15,7 @@ import ac.cult.cultac.bridge.protocol.ServerCapability;
 import ac.cult.cultac.manager.SpectateManager.Outcome;
 import ac.cult.cultac.manager.SpectateManager.ServerState;
 import ac.cult.cultac.manager.SpectateManager.SpectateResult;
+import ac.cult.cultac.manager.SpectateManager.Target;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.world.PlatformWorld;
 import ac.cult.cultac.protocol.value.GameMode;
@@ -31,11 +32,13 @@ import net.kyori.adventure.text.Component;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
 class SpectateManagerTest {
     private static final UUID STAFF = UUID.fromString("2b5f1e7a-6a39-4d63-9a3f-0f1e2d3c4b5a");
     private static final UUID TARGET = UUID.fromString("00000000-0000-0000-0000-00000000000b");
+    private static final UUID REMOTE = UUID.fromString("00000000-0000-0000-0000-00000000000c");
 
     private final PlatformPlayer staff = mock(PlatformPlayer.class);
     private final PlatformPlayer target = mock(PlatformPlayer.class);
@@ -119,6 +122,84 @@ class SpectateManagerTest {
         router.teleport.complete(true);
 
         assertEquals(new SpectateResult(Outcome.SPECTATING, true), result.join());
+    }
+
+    @Test
+    void remoteTargetOnTheSameServerTeleportsByUuidThroughTheSpectator() {
+        router.servers.put(STAFF, "lobby");
+
+        CompletableFuture<SpectateResult> result = spectateRemote("lobby");
+        verify(staff).setGameMode(GameMode.SPECTATOR);
+        assertEquals(List.of(REMOTE), router.teleports);
+        assertTrue(router.connects.isEmpty());
+        router.teleport.complete(true);
+
+        assertEquals(new SpectateResult(Outcome.SPECTATING, true), result.join());
+        assertEquals(1, returnLinks);
+        assertTrue(manager.isSpectating(STAFF));
+    }
+
+    @Test
+    void remoteTargetOnAnotherServerConnectsThenChecksTheSpectatorsServer() {
+        router.servers.put(STAFF, "lobby");
+        capable(staff, false);
+
+        CompletableFuture<SpectateResult> result = spectateRemote("survival");
+        assertEquals(List.of("survival"), router.connects);
+        verify(staff, never()).setGameMode(any());
+
+        capable(staff, true);
+        router.connect.complete(true);
+        verify(staff).setGameMode(GameMode.SPECTATOR);
+        assertEquals(List.of(REMOTE), router.teleports);
+        router.teleport.complete(true);
+
+        assertEquals(new SpectateResult(Outcome.SPECTATING, true), result.join());
+        assertEquals(1, returnLinks);
+        assertTrue(manager.isSpectating(STAFF));
+        assertFalse(manager.isConnecting(STAFF));
+    }
+
+    @Test
+    void remoteTargetOnAServerThatCannotTeleportFailsWithTheReturnLink() {
+        router.servers.put(STAFF, "lobby");
+
+        CompletableFuture<SpectateResult> result = spectateRemote("survival");
+        capable(staff, false);
+        router.connect.complete(true);
+
+        assertEquals(new SpectateResult(Outcome.TELEPORT_FAILED, true), result.join());
+        verify(staff, never()).setGameMode(any());
+        assertTrue(router.teleports.isEmpty());
+        assertEquals(1, returnLinks);
+        assertTrue(manager.isSpectating(STAFF));
+        assertFalse(manager.isConnecting(STAFF));
+    }
+
+    @Test
+    void remoteTargetWithoutAServerIsUnreachable() {
+        router.servers.put(STAFF, "lobby");
+
+        assertEquals(
+                new SpectateResult(Outcome.UNREACHABLE, false),
+                spectateRemote(null).join());
+        assertTrue(router.connects.isEmpty());
+        assertTrue(router.teleports.isEmpty());
+        verify(staff, never()).setGameMode(any());
+        assertFalse(manager.isSpectating(STAFF));
+        assertEquals(0, returnLinks);
+    }
+
+    @Test
+    void remoteTargetOnASingleServerPlatformIsUnreachable() {
+        manager.setRouter(null);
+
+        assertEquals(
+                new SpectateResult(Outcome.UNREACHABLE, false),
+                spectateRemote("survival").join());
+        verify(staff, never()).teleportAsync(any());
+        verify(staff, never()).setGameMode(any());
+        assertFalse(manager.isSpectating(STAFF));
     }
 
     @Test
@@ -341,7 +422,7 @@ class SpectateManagerTest {
         when(staff.teleportAsync(there)).thenReturn(CompletableFuture.completedFuture(false));
         Runnable onStarted = mock(Runnable.class);
 
-        CompletableFuture<SpectateResult> result = manager.spectate(staff, target, onStarted);
+        CompletableFuture<SpectateResult> result = manager.spectate(staff, manager.target(target), onStarted);
 
         assertEquals(new SpectateResult(Outcome.SPECTATING, true), result.join());
         InOrder order = inOrder(onStarted, staff);
@@ -660,6 +741,26 @@ class SpectateManagerTest {
     }
 
     @Test
+    void returnKeepsTheReportedWorldOnceItsLocationLetsGo() {
+        router.servers.put(STAFF, "lobby");
+        router.servers.put(TARGET, "lobby");
+        Location reported = new Location(world, 1, 2, 3, 90, 10);
+        router.reply().complete(new ServerState(GameMode.CREATIVE, reported));
+        router.teleport.complete(true);
+        spectate(target).join();
+        // Location holds its world weakly; clearing it stands in for the collector.
+        reported.setWorld(null);
+        when(staff.teleportAsync(any())).thenReturn(CompletableFuture.completedFuture(true));
+
+        manager.disable(staff, true);
+
+        ArgumentCaptor<Location> sent = ArgumentCaptor.forClass(Location.class);
+        verify(staff).teleportAsync(sent.capture());
+        assertEquals(new Location(world, 1, 2, 3, 90, 10), sent.getValue());
+        verify(staff).setGameMode(GameMode.CREATIVE);
+    }
+
+    @Test
     void sameServerOnAProxyRefusesWhenItsServerCannotReportTheState() {
         router.servers.put(STAFF, "lobby");
         router.servers.put(TARGET, "lobby");
@@ -877,7 +978,12 @@ class SpectateManagerTest {
     }
 
     private CompletableFuture<SpectateResult> spectate(PlatformPlayer to) {
-        return manager.spectate(staff, to, () -> returnLinks++);
+        return manager.spectate(staff, manager.target(to), () -> returnLinks++);
+    }
+
+    /** Spectates a player the network roster places on another proxy, on {@code server}. */
+    private CompletableFuture<SpectateResult> spectateRemote(@Nullable String server) {
+        return manager.spectate(staff, new Target(REMOTE, "Remote", null, server), () -> returnLinks++);
     }
 
     private static void capable(PlatformPlayer player, boolean capable) {
@@ -905,8 +1011,8 @@ class SpectateManagerTest {
         }
 
         @Override
-        public CompletableFuture<Boolean> teleportToPlayer(PlatformPlayer spectator, PlatformPlayer target) {
-            teleports.add(target.getUniqueId());
+        public CompletableFuture<Boolean> teleportToPlayer(PlatformPlayer spectator, Target target) {
+            teleports.add(target.id());
             return teleport;
         }
 

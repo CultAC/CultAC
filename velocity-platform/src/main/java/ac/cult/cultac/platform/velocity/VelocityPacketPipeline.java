@@ -5,6 +5,7 @@ import ac.cult.cultac.protocol.netty.CultDecoder;
 import ac.cult.cultac.protocol.netty.CultEncoder;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelPipeline;
+import io.netty.util.concurrent.EventExecutorGroup;
 
 /** Cult reads native Velocity frames after inbound Via and before outbound Via conversion. */
 final class VelocityPacketPipeline {
@@ -18,15 +19,8 @@ final class VelocityPacketPipeline {
                 new CultEncoder(connection));
     }
 
-    static void install(ChannelPipeline pipeline, ChannelHandler decoder, ChannelHandler encoder) {
-        install(pipeline, null, decoder, encoder);
-    }
-
     private static void install(
-            ChannelPipeline pipeline,
-            io.netty.util.concurrent.EventExecutorGroup owner,
-            ChannelHandler decoder,
-            ChannelHandler encoder) {
+            ChannelPipeline pipeline, EventExecutorGroup owner, ChannelHandler decoder, ChannelHandler encoder) {
         verifyHost(pipeline);
         pipeline.addBefore(owner, "minecraft-decoder", CultDecoder.NAME, decoder);
         pipeline.addBefore(owner, "minecraft-encoder", CultEncoder.NAME, encoder);

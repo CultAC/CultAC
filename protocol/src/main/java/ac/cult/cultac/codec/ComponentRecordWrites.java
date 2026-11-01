@@ -13,13 +13,6 @@ import ac.cult.shaded.vialib.util.Key;
 final class ComponentRecordWrites {
     private ComponentRecordWrites() {}
 
-    static boolean supports(String name) {
-        return switch (name) {
-            case "enchantments", "stored_enchantments", "food", "tool", "use_cooldown", "writable_book_content" -> true;
-            default -> false;
-        };
-    }
-
     static Object value(String name, Tag tag, WireValueDecoder.Registries registries) {
         var value = compound(tag);
         return switch (name) {

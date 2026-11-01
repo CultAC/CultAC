@@ -7,6 +7,7 @@ import ac.cult.cultac.bridge.protocol.BridgeMessage.TeleportToPlayer;
 import ac.cult.cultac.bridge.protocol.ServerCapability;
 import ac.cult.cultac.manager.SpectateManager;
 import ac.cult.cultac.manager.SpectateManager.ServerState;
+import ac.cult.cultac.manager.SpectateManager.Target;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.velocity.bridge.BackendWorld;
 import ac.cult.cultac.platform.velocity.bridge.BridgeMessageListener;
@@ -94,12 +95,12 @@ final class BridgeSpectateRouter implements SpectateManager.Router, BridgeMessag
     }
 
     @Override
-    public CompletableFuture<Boolean> teleportToPlayer(PlatformPlayer spectator, PlatformPlayer target) {
+    public CompletableFuture<Boolean> teleportToPlayer(PlatformPlayer spectator, Target target) {
         BridgeSession session = sessions.current(spectator.getUniqueId());
         if (session == null || !session.isReady() || !session.has(ServerCapability.TELEPORT)) {
             return CompletableFuture.completedFuture(false);
         }
-        UUID targetId = target.getUniqueId();
+        UUID targetId = target.id();
         return session.request(requestId -> new TeleportToPlayer(requestId, targetId), TELEPORT_TIMEOUT_MILLIS);
     }
 

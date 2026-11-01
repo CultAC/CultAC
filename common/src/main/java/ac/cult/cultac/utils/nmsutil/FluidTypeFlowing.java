@@ -2,6 +2,7 @@ package ac.cult.cultac.utils.nmsutil;
 
 import ac.cult.blocksim.data.BlockFamilies;
 import ac.cult.blocksim.data.BlockTags;
+import ac.cult.blocksim.engine.FluidQueries;
 import ac.cult.blocksim.engine.SimFluidState;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
@@ -21,35 +22,40 @@ public class FluidTypeFlowing {
 
     public static Vec3 flow(CultPlayer player, BlockPos pos, SimFluidState state) {
         // The dispatcher model is pinned to 26.3, including for older clients.
-        var result = ac.cult.blocksim.engine.FluidQueries.flow(
+        var result = FluidQueries.flow(
                 new FlowView(player), new ac.cult.blocksim.engine.BlockPos(pos.getX(), pos.getY(), pos.getZ()), state);
         return new Vec3(result.x(), result.y(), result.z());
     }
 
-    private record FlowView(CultPlayer player) implements ac.cult.blocksim.engine.FluidQueries.View {
-        private BlockPos position(ac.cult.blocksim.engine.BlockPos pos) {
-            return new BlockPos(pos.x(), pos.y(), pos.z());
+    /** {@link #flow} at {@code x, y, z} into {@code out} as x, y, z through a {@link #view}, allocating nothing. */
+    public static void flow(FluidQueries.View view, int x, int y, int z, SimFluidState state, double[] out) {
+        FluidQueries.flow(view, x, y, z, state, out);
+    }
+
+    /** The world queries {@link #flow} reads for {@code player}, reusable across calls. */
+    public static FluidQueries.View view(CultPlayer player) {
+        return new FlowView(player);
+    }
+
+    private record FlowView(CultPlayer player) implements FluidQueries.View {
+        @Override
+        public SimFluidState fluidAt(int x, int y, int z) {
+            return ClientFluidQueries.modelFluid(player.compensatedWorld.getBlockStateIdAt(x, y, z));
         }
 
         @Override
-        public ac.cult.blocksim.engine.SimFluidState fluidAt(ac.cult.blocksim.engine.BlockPos pos) {
-            return ClientFluidQueries.modelFluid(player.compensatedWorld.getBlockStateIdAt(pos.x(), pos.y(), pos.z()));
+        public boolean blocksFlow(int x, int y, int z) {
+            return BlockTags.BLOCKS_FLUID_FLOW.test(player.compensatedWorld.getBlockStateIdAt(x, y, z));
         }
 
         @Override
-        public boolean blocksFlow(ac.cult.blocksim.engine.BlockPos pos) {
-            return BlockTags.BLOCKS_FLUID_FLOW.test(
-                    player.compensatedWorld.getBlockStateIdAt(pos.x(), pos.y(), pos.z()));
+        public boolean isIce(int x, int y, int z) {
+            return BlockFamilies.ICE.test(player.compensatedWorld.getBlockStateIdAt(x, y, z));
         }
 
         @Override
-        public boolean isIce(ac.cult.blocksim.engine.BlockPos pos) {
-            return BlockFamilies.ICE.test(player.compensatedWorld.getBlockStateIdAt(pos.x(), pos.y(), pos.z()));
-        }
-
-        @Override
-        public boolean isFaceSturdy(ac.cult.blocksim.engine.BlockPos pos, ac.cult.blocksim.engine.Direction face) {
-            var position = position(pos);
+        public boolean isFaceSturdy(int x, int y, int z, ac.cult.blocksim.engine.Direction face) {
+            var position = new BlockPos(x, y, z);
             return player.compensatedWorld
                     .geometry()
                     .isFaceSturdy(

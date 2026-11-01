@@ -1,6 +1,7 @@
 package ac.cult.cultac.companion;
 
 import ac.cult.cultac.companion.api.ApiModule;
+import ac.cult.cultac.companion.apollo.ApolloModule;
 import ac.cult.cultac.companion.bridge.BridgeModule;
 import ac.cult.cultac.companion.bridge.CompanionBridge;
 import ac.cult.cultac.companion.command.CommandModule;
@@ -33,11 +34,13 @@ public final class CompanionPlugin extends JavaPlugin {
         bridge = BridgeModule.enable(this);
         ApiModule.enable(this, bridge);
         CommandModule.enable(this, bridge);
+        ApolloModule.enable(this, bridge);
     }
 
     @Override
     public void onDisable() {
         if (bridge == null) return;
+        ApolloModule.disable();
         CommandModule.disable();
         ApiModule.disable();
         BridgeModule.disable();

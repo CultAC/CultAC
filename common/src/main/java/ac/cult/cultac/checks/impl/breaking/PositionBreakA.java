@@ -3,6 +3,7 @@ package ac.cult.cultac.checks.impl.breaking;
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.EyePositions;
 import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
 import ac.cult.cultac.checks.type.BlockBreakListener;
 import ac.cult.cultac.network.CultPacketHandler;
@@ -12,6 +13,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.api.storage.verbose.VerboseTags;
 
@@ -22,10 +24,12 @@ import ac.grim.grimac.api.storage.verbose.VerboseTags;
 public class PositionBreakA extends Check implements BlockBreakListener {
     private static final Verbose V = Verbose.of("action={digging}, face={face}");
 
+    private final ClientVisibilityProcessor visibility;
     private boolean didLastMovementIncludePosition;
 
-    public PositionBreakA(CultPlayer player) {
+    public PositionBreakA(CultPlayer player, ClientVisibilityProcessor visibility) {
         super(player);
+        this.visibility = visibility;
     }
 
     @CultPacketHandler
@@ -36,32 +40,25 @@ public class PositionBreakA extends Check implements BlockBreakListener {
 
     public void onBlockBreak(BlockBreak blockBreak) {
         if (player.inVehicle()
-                || blockBreak.action == PlayerAction.ABORT_DESTROY_BLOCK // PE DiggingAction.CANCELLED_DIGGING
+                || blockBreak.action == PlayerAction.ABORT_DESTROY_BLOCK
                 || BlockIds.is(blockBreak.block, BlockIds.REDSTONE_WIRE)) return;
 
         SimpleCollisionBox combined = blockBreak.getCombinedBox();
 
-        double minEyeHeight = Double.MAX_VALUE;
-        double maxEyeHeight = Double.MIN_VALUE;
-        for (double height : player.getPossibleEyeHeights()) {
-            minEyeHeight = Math.min(minEyeHeight, height);
-            maxEyeHeight = Math.max(maxEyeHeight, height);
-        }
-
-        SimpleCollisionBox eyePositions = new SimpleCollisionBox(
-                player.x, player.y + minEyeHeight, player.z, player.x, player.y + maxEyeHeight, player.z);
+        SimpleCollisionBox eyePositions = EyePositions.box(player, player.getPossibleEyeHeights());
         if (!didLastMovementIncludePosition) {
             eyePositions.expand(player.getMovementThreshold());
         }
 
-        // If the player is inside a block, then they can ray trace through the block and hit the other side of the
-        // block
-        if (eyePositions.isIntersected(combined)) {
+        // VoxelShape#clip returns an inside hit, on any face, when eye + 0.001 * (rayEnd - eye) lies in the
+        // outline. The pick ray is a unit view vector times the pick range, so that point is within
+        // 0.001 * range of the eye.
+        double insideSample = Math.nextUp(0.001 * visibility.maxPickRange());
+        if (eyePositions.copy().expand(insideSample).isIntersected(combined)) {
             return;
         }
 
-        // So now we have the player's possible eye positions
-        // So then look at the face that the player has clicked
+        // Compare the player's possible eye positions against the clicked face
         boolean flag = switch (blockBreak.face) {
             case NORTH -> eyePositions.minZ > combined.minZ; // Z- face
             case SOUTH -> eyePositions.maxZ < combined.maxZ; // Z+ face

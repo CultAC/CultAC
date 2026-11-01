@@ -48,7 +48,7 @@ import org.junit.jupiter.api.Test;
  */
 class DiagnosticsStreamTest {
     private static final byte[] BUNDLE = {9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 1, 2, 3, 4, 5, 6};
-    private static final String DIAG_ON = "\"protocol\":3,\"diag\":{\"enabled\":true,\"uploadBytesPerSecond\":262144}";
+    private static final String DIAG_ON = "\"protocol\":5,\"diag\":{\"enabled\":true,\"uploadBytesPerSecond\":262144}";
 
     private final CloudConnections connections = new CloudConnections();
 
@@ -190,7 +190,7 @@ class DiagnosticsStreamTest {
 
     /** The player logs in on backend "a", whose socket connects with diagnostics on and answers the JOIN. */
     private void start(CaptureFixture fixture, Receiver receiver) throws Exception {
-        connections.configure(new CloudSettings(receiver.url(), "test-key", "{server}", "", List.of(3)));
+        connections.configure(new CloudSettings(receiver.url(), "test-key", "{server}", "", List.of(5), false, false));
         CloudCapture.uplinks(new CloudService.ConnectionUplinks(connections));
         CloudCapture.segmentBinder((player, bind, playing) -> bind.accept("a"));
         fixture.player.gamemode = GameMode.SURVIVAL;

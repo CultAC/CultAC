@@ -113,7 +113,7 @@ final class ItemUseTestSupport {
         return player.lastTransactionSent.get();
     }
 
-    /** Sends a Respawn and returns its post ping, unacknowledged. */
+    /** Sends a Respawn and returns the first transaction written for it, unacknowledged. */
     static int respawn(CultPlayer player, String dimension, GameMode mode) {
         int type = ModelRegistryNamesState.defaults().id("minecraft:dimension_type", dimension);
         var respawn = new ClientboundRespawn(new PlayerSpawnInfo(type, dimension, mode), (byte) 0);
@@ -123,10 +123,13 @@ final class ItemUseTestSupport {
     }
 
     static void useOffhand(CultPlayer player, int sequence) {
+        use(player, Hand.OFF_HAND, sequence);
+    }
+
+    static void use(CultPlayer player, Hand hand, int sequence) {
         player.packetStateData.clientSidePosition = new Vec3(player.x, player.y, player.z);
         player.compensatedWorld.advanceClientPredictionSequence();
-        PlaceHandler.handleQueuedUseItem(
-                player, new ServerboundUseItem(Hand.OFF_HAND, sequence, player.xRot, player.yRot));
+        PlaceHandler.handleQueuedUseItem(player, new ServerboundUseItem(hand, sequence, player.xRot, player.yRot));
     }
 
     /** One unslowed walking tick through the item-use analyzer and NoSlow; returns whether NoSlow flagged it. */
@@ -138,7 +141,7 @@ final class ItemUseTestSupport {
         var context = mock(SimulationContext.class);
         when(context.getItemUse()).thenReturn(snapshot);
         when(context.getVersion()).thenReturn(ClientVersion.V_26_3);
-        when(context.getMaxSprintInputSpeed(any())).thenReturn(SPRINT_INPUT_SPEED);
+        when(context.getMaxSprintInputSpeed(any(), any())).thenReturn(SPRINT_INPUT_SPEED);
         var realities = new ArrayList<PredictionResult>();
         var result = new PredictionResult(
                 player, new PredVector(Vec3.ZERO), context, new Vec3(0, 0, WALK), null, realities, realities);

@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.prediction.stage.uncertainty;
 
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.PistonPushes;
@@ -11,25 +12,25 @@ public final class ExternalMovementUncertainty {
     private ExternalMovementUncertainty() {}
 
     public static Snapshot capture(PredictionResult result, PredictionResult lastResult) {
-        Snapshot movement = capture(result.getSimulationContext(), lastResult);
-
-        return new Snapshot(
-                movement.lastPistonTargetEnvelope(),
-                movement.lastShulkerTargetEnvelope(),
-                movement.currentPistonTargetEnvelope(),
-                movement.currentShulkerTargetEnvelope(),
-                movement.combinedTargetEnvelope(),
-                movement.combinedClientPositionOnlyEnvelope());
+        return capture(result.getPlayer(), result.getSimulationContext(), lastResult);
     }
 
-    /** False exactly when every push box {@link #capture(SimulationContext, PredictionResult)} reads is empty. */
-    public static boolean mayShove(SimulationContext context, PredictionResult lastResult) {
+    /**
+     * False exactly when every push box {@link #capture(CultPlayer, SimulationContext, PredictionResult)} reads is
+     * empty.
+     */
+    public static boolean mayShove(CultPlayer player, SimulationContext context, PredictionResult lastResult) {
         PistonPushes lastPush = lastPushes(lastResult);
         PistonPushes currentPush = context.getWorldData().getPistonPushes();
-        return present(lastPush, true)
+        return !reportsPistonPassOnce(player) && present(lastPush, true)
                 || present(lastPush, false)
                 || present(currentPush, true)
-                || present(currentPush, false);
+                || present(currentPush, false)
+                || currentPush != null && !currentPush.getShulkerBoxPush().isEmpty();
+    }
+
+    private static boolean reportsPistonPassOnce(CultPlayer player) {
+        return !player.isBedrockMovement();
     }
 
     private static boolean present(PistonPushes pushes, boolean piston) {
@@ -46,11 +47,13 @@ public final class ExternalMovementUncertainty {
                 : lastResult.getSimulationContext().getWorldData().getPistonPushes();
     }
 
-    public static Snapshot capture(SimulationContext context, PredictionResult lastResult) {
+    public static Snapshot capture(CultPlayer player, SimulationContext context, PredictionResult lastResult) {
         PistonPushes lastPush = lastPushes(lastResult);
         PistonPushes currentPush = context.getWorldData().getPistonPushes();
 
-        SimpleCollisionBox lastPiston = scalePistonPushForStuckSpeedTarget(push(lastPush, true), context);
+        SimpleCollisionBox lastPiston = reportsPistonPassOnce(player)
+                ? emptyBox()
+                : scalePistonPushForStuckSpeedTarget(push(lastPush, true), context);
         SimpleCollisionBox lastShulker = push(lastPush, false);
         // Minecraft#tick runs ClientLevel#tickEntities, then ClientLevel#tickBlockEntities,
         // and only after that sends ServerboundClientTickEndPacket. Cult's
@@ -59,7 +62,10 @@ public final class ExternalMovementUncertainty {
         // the current envelope here is the exact shove visible to the packet
         // presently under prediction, not a future block-entity phase.
         SimpleCollisionBox currentPiston = scalePistonPushForStuckSpeedTarget(push(currentPush, true), context);
+        // A packet carries the shulker box block shoves its own WorldData holds and no other packet's.
         SimpleCollisionBox currentShulker = push(currentPush, false);
+        if (currentPush != null && !currentPush.getShulkerBoxPush().isEmpty())
+            currentShulker.union(currentPush.getShulkerBoxPush());
 
         SimpleCollisionBox combined = null;
         combined = union(combined, lastPiston);
@@ -165,10 +171,6 @@ public final class ExternalMovementUncertainty {
             SimpleCollisionBox currentShulkerTargetEnvelope,
             SimpleCollisionBox combinedTargetEnvelope,
             SimpleCollisionBox combinedClientPositionOnlyEnvelope) {
-        public boolean hasAnyUncertainty() {
-            return hasExternalMove();
-        }
-
         public boolean hasExternalMove() {
             return !combinedTargetEnvelope.isEmpty();
         }

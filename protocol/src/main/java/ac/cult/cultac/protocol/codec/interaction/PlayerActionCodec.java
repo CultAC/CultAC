@@ -7,16 +7,16 @@
 package ac.cult.cultac.protocol.codec.interaction;
 
 import ac.cult.cultac.protocol.MalformedPacketException;
-import ac.cult.cultac.protocol.PacketCodec;
 import ac.cult.cultac.protocol.ProtocolContext;
 import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.protocol.WritablePacketCodec;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
 
-public final class PlayerActionCodec implements PacketCodec<ServerboundPlayerAction> {
+public final class PlayerActionCodec implements WritablePacketCodec<ServerboundPlayerAction> {
     private static final PlayerAction[] ACTIONS = PlayerAction.values();
     private static final Direction[] DIRECTIONS = Direction.values();
 
@@ -32,5 +32,13 @@ public final class PlayerActionCodec implements PacketCodec<ServerboundPlayerAct
         // Vanilla applies abs(id % 6) to an unsigned byte, including noncanonical faces.
         Direction direction = DIRECTIONS[input.readUnsignedByte() % DIRECTIONS.length];
         return new ServerboundPlayerAction(action, position, direction, Wire.readVarInt(input));
+    }
+
+    @Override
+    public void write(ByteBuf output, ProtocolContext context, ServerboundPlayerAction packet) {
+        Wire.writeVarInt(output, packet.action().wireId(context.version()));
+        Wire.writeBlockPos(output, packet.position());
+        output.writeByte(packet.direction().ordinal());
+        Wire.writeVarInt(output, packet.sequence());
     }
 }

@@ -37,8 +37,9 @@ public final class ItemUseDesync extends CultProcessor implements PostPrediction
         pending = alreadyDesynced || evidence.desynced(threshold);
         // Decide before SetbackTeleportUtil can promote this movement to its rollback
         // anchor. The accounting closes at tick-end and survives movement setbacks.
+        // The rejected movement is a client tick, so the correction advances it from the anchor.
         if (pending && !alreadyDesynced && history.wouldExceed(true) && !player.noSetbackPermission)
-            player.getSetbackTeleportUtil().executeNonSimulatingSetback();
+            player.getSetbackTeleportUtil().executeViolationSetback();
     }
 
     @Override

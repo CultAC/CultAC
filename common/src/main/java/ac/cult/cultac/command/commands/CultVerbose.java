@@ -15,8 +15,7 @@ import org.jetbrains.annotations.NotNull;
 public class CultVerbose implements BuildableCommand {
     @Override
     public void register(CommandManager<Sender> commandManager, CloudPlatformCommandArguments arguments) {
-        commandManager.command(commandManager
-                .commandBuilder("cult", "cultac", "grim", "grimac")
+        commandManager.command(BuildableCommand.root(commandManager)
                 .literal("verbose")
                 .permission("cult.verbose")
                 .handler(this::handleVerbose));

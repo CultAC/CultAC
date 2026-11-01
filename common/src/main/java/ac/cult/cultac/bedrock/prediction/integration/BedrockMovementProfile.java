@@ -84,16 +84,6 @@ public final class BedrockMovementProfile implements MovementProfile {
     }
 
     @Override
-    public boolean shouldRunPhaseCheck(CultPlayer player) {
-        return true;
-    }
-
-    @Override
-    public boolean usesPacketVelocityModifiers(CultPlayer player) {
-        return true;
-    }
-
-    @Override
     public boolean shouldUseBundledPacketProof(CultPlayer player) {
         return false;
     }

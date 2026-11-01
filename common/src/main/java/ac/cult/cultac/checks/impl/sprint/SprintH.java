@@ -4,6 +4,7 @@ import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.impl.multiactions.MultiActionsC;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
+import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -17,7 +18,7 @@ import ac.grim.grimac.api.storage.verbose.Verbose;
         stableKey = "cult.sprint.inventory",
         description = "Sprinting while in an inventory",
         experimental = true)
-public class SprintH extends Check implements ac.cult.cultac.checks.type.PostPredictionListener, ClientTickEndListener {
+public class SprintH extends Check implements PostPredictionListener, ClientTickEndListener {
     public SprintH(CultPlayer player) {
         super(player);
     }

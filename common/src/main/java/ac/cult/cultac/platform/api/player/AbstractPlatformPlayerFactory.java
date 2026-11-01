@@ -13,50 +13,33 @@ public abstract class AbstractPlatformPlayerFactory<T> implements PlatformPlayer
 
     @Override
     public final @Nullable PlatformPlayer getFromUUID(@NotNull UUID uuid) {
-        // Check cache first
-        PlatformPlayer cachedPlayer = cache.getPlayer(uuid);
-        if (cachedPlayer != null) {
-            return cachedPlayer;
-        }
-
-        // If not in cache, get the native player
         T nativePlayer = getNativePlayer(uuid);
-        if (nativePlayer == null) {
-            return null;
-        }
-
-        // Create new PlatformPlayer and cache it
-        PlatformPlayer platformPlayer = createPlatformPlayer(nativePlayer);
-        return cache.addOrGetPlayer(uuid, platformPlayer);
+        return nativePlayer == null ? null : lookup(nativePlayer);
     }
 
     @Override
-    public @Nullable PlatformPlayer getFromName(@NotNull String name) {
+    public final @Nullable PlatformPlayer getFromName(@NotNull String name) {
         T nativePlayer = getNativePlayer(name);
-        if (nativePlayer == null) {
-            return null;
-        }
-
-        // Create new PlatformPlayer and cache it
-        PlatformPlayer platformPlayer = createPlatformPlayer(nativePlayer);
-        return cache.addOrGetPlayer(platformPlayer.getUniqueId(), platformPlayer);
+        return nativePlayer == null ? null : lookup(nativePlayer);
     }
 
     @SuppressWarnings("unchecked")
     @Override
     public final PlatformPlayer getFromNativePlayerType(@NotNull Object playerObject) {
-        T nativePlayer = (T) Objects.requireNonNull(playerObject, "playerObject");
-        UUID uuid = getPlayerUUID(nativePlayer);
+        return lookup((T) Objects.requireNonNull(playerObject, "playerObject"));
+    }
 
-        // Check cache first
-        PlatformPlayer cachedPlayer = cache.getPlayer(uuid);
-        if (cachedPlayer != null && cachedPlayer.getNative() == nativePlayer) {
-            return cachedPlayer;
-        }
+    @Override
+    public final PlatformPlayer attach(@NotNull PlatformPlayer player) {
+        return cache.addOrGetPlayer(player.getUniqueId(), player);
+    }
 
-        // Create new PlatformPlayer and cache it
-        PlatformPlayer platformPlayer = createPlatformPlayer(nativePlayer);
-        return cache.addOrGetPlayer(uuid, platformPlayer);
+    /** The attached wrapper when it wraps this native, otherwise a wrapper the cache never holds. */
+    private PlatformPlayer lookup(T nativePlayer) {
+        PlatformPlayer cachedPlayer = cache.getPlayer(getPlayerUUID(nativePlayer));
+        return cachedPlayer != null && cachedPlayer.getNative() == nativePlayer
+                ? cachedPlayer
+                : createPlatformPlayer(nativePlayer);
     }
 
     @Override
@@ -70,20 +53,17 @@ public abstract class AbstractPlatformPlayerFactory<T> implements PlatformPlayer
     }
 
     @Override
-    public Collection<PlatformPlayer> getOnlinePlayers() {
+    public final Collection<PlatformPlayer> getOnlinePlayers() {
         Collection<T> nativePlayers = getNativeOnlinePlayers();
 
-        // Pre-allocate the list with the expected size to avoid resizing
         List<PlatformPlayer> platformPlayers = new ArrayList<>(nativePlayers.size());
 
         for (T nativePlayer : nativePlayers) {
-            platformPlayers.add(getFromNativePlayerType(nativePlayer));
+            platformPlayers.add(lookup(nativePlayer));
         }
 
         return platformPlayers;
     }
-
-    public void replaceNativePlayer(@NotNull UUID uuid, @NotNull T player) {}
 
     /**
      * Retrieves the native player object for the given UUID.
@@ -112,15 +92,9 @@ public abstract class AbstractPlatformPlayerFactory<T> implements PlatformPlayer
     protected abstract UUID getPlayerUUID(@NotNull T nativePlayer);
 
     /**
-     * Gets the native online player objects (e.g., Player for Bukkit, ServerPlayerEntity for Fabric).
+     * Gets the native online player objects (e.g., Player for Bukkit).
      *
      * @return a collection of native player objects
      */
     protected abstract Collection<T> getNativeOnlinePlayers();
-
-    @Override
-    public abstract OfflinePlatformPlayer getOfflineFromUUID(@NotNull UUID uuid);
-
-    @Override
-    public abstract OfflinePlatformPlayer getOfflineFromName(@NotNull String name);
 }

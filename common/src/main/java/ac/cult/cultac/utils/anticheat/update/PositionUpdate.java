@@ -4,11 +4,9 @@ import ac.cult.cultac.checks.impl.prediction.AuthoredMovementFrame;
 import ac.cult.cultac.utils.data.TeleportAcceptData;
 import ac.cult.cultac.utils.math.Vec3;
 import lombok.Getter;
-import lombok.Setter;
 import org.jetbrains.annotations.Nullable;
 
 @Getter
-@Setter
 public final class PositionUpdate {
     private final Vec3 from, to;
     private final float xRot, yRot;

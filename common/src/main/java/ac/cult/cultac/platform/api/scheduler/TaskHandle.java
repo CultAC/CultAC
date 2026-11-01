@@ -20,8 +20,6 @@ package ac.cult.cultac.platform.api.scheduler;
 
 public interface TaskHandle {
 
-    boolean isSync();
-
     boolean isCancelled();
 
     void cancel();

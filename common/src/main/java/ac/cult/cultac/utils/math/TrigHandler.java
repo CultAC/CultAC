@@ -24,4 +24,13 @@ public class TrigHandler {
     public float cos(float f) {
         return isVanillaMath ? VanillaMath.cos(f) : OptifineFastMath.cos(f);
     }
+
+    // Mth.sin as this client's version indexes it (1.21.11 moved to double/long indexing).
+    public float clientSin(float f) {
+        return isVanillaMath ? VanillaMath.sin(player.getClientVersion(), f) : OptifineFastMath.sin(f);
+    }
+
+    public float clientCos(float f) {
+        return isVanillaMath ? VanillaMath.cos(player.getClientVersion(), f) : OptifineFastMath.cos(f);
+    }
 }

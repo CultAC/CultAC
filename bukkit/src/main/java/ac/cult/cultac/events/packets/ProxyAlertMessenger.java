@@ -1,6 +1,8 @@
 package ac.cult.cultac.events.packets;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.platform.bukkit.CultACBukkitLoaderPlugin;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import com.google.common.collect.Iterables;
@@ -23,30 +25,24 @@ public class ProxyAlertMessenger implements PluginMessageListener {
 
         if (usingProxy) {
             LogUtil.info("Registering an outgoing plugin channel...");
-            ac.cult.cultac.platform.bukkit.CultACBukkitLoaderPlugin.LOADER
+            CultACBukkitLoaderPlugin.LOADER
                     .getServer()
                     .getMessenger()
-                    .registerOutgoingPluginChannel(
-                            ac.cult.cultac.platform.bukkit.CultACBukkitLoaderPlugin.LOADER, "BungeeCord");
-            ac.cult.cultac.platform.bukkit.CultACBukkitLoaderPlugin.LOADER
+                    .registerOutgoingPluginChannel(CultACBukkitLoaderPlugin.LOADER, "BungeeCord");
+            CultACBukkitLoaderPlugin.LOADER
                     .getServer()
                     .getMessenger()
-                    .registerIncomingPluginChannel(
-                            ac.cult.cultac.platform.bukkit.CultACBukkitLoaderPlugin.LOADER, "BungeeCord", this);
-            ac.cult.cultac.runtime.RuntimeEnvironment.track(
+                    .registerIncomingPluginChannel(CultACBukkitLoaderPlugin.LOADER, "BungeeCord", this);
+            RuntimeEnvironment.track(
                     this,
-                    () -> org.bukkit.Bukkit.getMessenger()
-                            .unregisterIncomingPluginChannel(
-                                    ac.cult.cultac.platform.bukkit.CultACBukkitLoaderPlugin.LOADER,
-                                    "BungeeCord",
-                                    this));
+                    () -> Bukkit.getMessenger()
+                            .unregisterIncomingPluginChannel(CultACBukkitLoaderPlugin.LOADER, "BungeeCord", this));
         }
     }
 
     @Override
     public void onPluginMessageReceived(@NotNull String channel, @NotNull Player player, @NotNull byte[] data) {
-        if (ac.cult.cultac.runtime.RuntimeEnvironment.host() != null
-                && !ac.cult.cultac.runtime.RuntimeEnvironment.host().current()) return;
+        if (RuntimeEnvironment.host() != null && !RuntimeEnvironment.host().current()) return;
         if (!ProxyAlertMessenger.canReceiveAlerts()) return;
         if (!channel.equals("BungeeCord") && !channel.equals("bungeecord:main")) return;
 
@@ -66,7 +62,7 @@ public class ProxyAlertMessenger implements PluginMessageListener {
             return;
         }
 
-        CultAPI.INSTANCE.getAlertManager().sendAlert(MessageUtil.miniMessage(alert), null);
+        CultAPI.INSTANCE.getAlertManager().relayAlert(MessageUtil.miniMessage(alert));
     }
 
     public static void sendPluginMessage(String message) {
@@ -97,8 +93,7 @@ public class ProxyAlertMessenger implements PluginMessageListener {
 
         Player carrier = Iterables.getFirst(Bukkit.getOnlinePlayers(), null);
         if (carrier != null) {
-            carrier.sendPluginMessage(
-                    ac.cult.cultac.platform.bukkit.CultACBukkitLoaderPlugin.LOADER, "BungeeCord", out.toByteArray());
+            carrier.sendPluginMessage(CultACBukkitLoaderPlugin.LOADER, "BungeeCord", out.toByteArray());
         }
     }
 
@@ -109,9 +104,13 @@ public class ProxyAlertMessenger implements PluginMessageListener {
     }
 
     public static boolean canReceiveAlerts() {
+        return receivesAlerts() && CultAPI.INSTANCE.getAlertManager().hasAlertListeners();
+    }
+
+    /** Whether alerts other servers forward through the proxy are shown here. */
+    public static boolean receivesAlerts() {
         return usingProxy
-                && CultAPI.INSTANCE.getConfigManager().getConfig().getBooleanElse("alerts.proxy.receive", false)
-                && CultAPI.INSTANCE.getAlertManager().hasAlertListeners();
+                && CultAPI.INSTANCE.getConfigManager().getConfig().getBooleanElse("alerts.proxy.receive", false);
     }
 
     // TODO (Cross-Platform) check if new getBooleanFromFile impl is correct

@@ -13,6 +13,7 @@ repositories {
     maven("https://maven.grim.ac/public/releases")
     maven("https://maven.grim.ac/public/snapshots")
     maven("https://repo.grim.ac/snapshots")
+    maven("https://repo.lunarclient.dev")
     mavenCentral()
 }
 
@@ -37,6 +38,8 @@ dependencies {
     implementation(libs.cult.api)
     implementation(libs.cult.internal) { isTransitive = false }
     implementation(libs.cult.bukkit.internal) { isTransitive = false }
+    // Present only on backends running Apollo-Bukkit; the apollo package loads only then.
+    compileOnly(libs.apollo.api) { isTransitive = false }
 
     testImplementation(testlibs.junitJupiter)
     testRuntimeOnly(testlibs.junitPlatformLauncher)
@@ -66,9 +69,9 @@ tasks.shadowJar {
 
 tasks.assemble { dependsOn(tasks.shadowJar) }
 
-// The oldest server the companion runs on: production backends are Paper 1.21.11. -PpaperLinkageServer names a
-// directory holding a Mojang-mapped server, e.g. a Paper 1.21.11 paperclip run with -Dpaperclip.patchonly=true
-// (its versions/ and libraries/); without it the check is skipped.
+// The companion runs on Paper 1.21.2 through the dev bundle version. -PpaperLinkageServer names a directory holding a
+// Mojang-mapped server, e.g. a Paper 1.21.3 paperclip run with -Dpaperclip.patchonly=true (its versions/ and
+// libraries/); without it the check is skipped.
 val paperLinkageServer = providers.gradleProperty("paperLinkageServer")
 val checkPaperLinkage = tasks.register<PaperLinkageCheck>("checkPaperLinkage") {
     group = "verification"

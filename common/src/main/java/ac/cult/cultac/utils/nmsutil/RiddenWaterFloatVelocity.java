@@ -11,9 +11,7 @@ public final class RiddenWaterFloatVelocity {
 
     public static Set<Vec3> apply(PredictionResult result, Set<Vec3> velocities) {
         SimulationContext context = result.getSimulationContext();
-        if (context == null
-                || context.getVehicle() == null
-                || !context.getWorldData().isCouldFloatWhileRidden()) {
+        if (context.getVehicle() == null || !context.getWorldData().isCouldFloatWhileRidden()) {
             return velocities;
         }
 

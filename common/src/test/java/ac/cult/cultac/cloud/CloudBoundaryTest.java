@@ -26,12 +26,22 @@ class CloudBoundaryTest {
     /** Files outside the cloud packages that use more of it than {@link CloudModule}, and why. */
     private static final Map<String, String> ALLOWED = Map.ofEntries(
             Map.entry("ac/cult/cultac/command/commands/CloudArguments.java", "cloud command: the findings log"),
+            Map.entry("ac/cult/cultac/command/commands/CloudHistory.java", "cloud command: the history service"),
             Map.entry("ac/cult/cultac/command/commands/CultFindings.java", "cloud command: the findings log"),
+            Map.entry("ac/cult/cultac/command/commands/CultHistory.java", "cloud command: the history service"),
             Map.entry("ac/cult/cultac/command/commands/CultTop.java", "cloud command: the findings log"),
             Map.entry("ac/cult/cultac/command/commands/FindingLines.java", "cloud command: the findings log"),
             Map.entry("ac/cult/cultac/command/commands/CultLabel.java", "cloud command: the label service"),
+            Map.entry("ac/cult/cultac/command/commands/LabelConfirm.java", "cloud command: the label menu"),
+            Map.entry("ac/cult/cultac/command/commands/LabelLines.java", "cloud command: the label menu"),
+            Map.entry("ac/cult/cultac/command/commands/LabelMenu.java", "cloud command: the label menu"),
+            Map.entry("ac/cult/cultac/command/commands/LabelWizard.java", "cloud command: the label menu"),
             Map.entry("ac/cult/cultac/command/commands/MojangProfiles.java", "cloud command: the label service"),
             Map.entry("ac/cult/cultac/command/commands/TargetLookup.java", "cloud command: the label service"),
+            Map.entry("ac/cult/cultac/manager/portal/PortalSync.java", "team sync: its messages and team sockets"),
+            Map.entry(
+                    "ac/cult/cultac/manager/portal/PortalSyncService.java",
+                    "team sync: the upload's settings and team sockets"),
             Map.entry(
                     "ac/cult/cultac/platform/bukkit/CultACBukkitLoaderPlugin.java",
                     "hands the server's cloud glue to CloudModule"),

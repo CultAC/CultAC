@@ -19,7 +19,6 @@ public class PacketPluginMessage {
     private void checkChannel(User user, String channelName) {
         if (!"vv:proxy_details".equals(channelName)) return;
         final boolean usingProxy = isUsingProxy();
-        // warn if they are using a proxy
         if (usingProxy) {
             LogUtil.warn(
                     user.getName() + " seems to have connected through a proxy running ViaVersion. "

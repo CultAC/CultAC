@@ -3,6 +3,7 @@ package ac.cult.cultac.command.commands;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.bridge.GeyserBedrockBridgeRuntime;
 import ac.cult.cultac.command.BuildableCommand;
+import ac.cult.cultac.command.NetworkPlayerArguments;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
@@ -15,11 +16,11 @@ import org.incendo.cloud.parser.standard.StringParser;
 public final class CultGeyserPacketLog implements BuildableCommand {
     @Override
     public void register(CommandManager<Sender> manager, CloudPlatformCommandArguments arguments) {
-        manager.command(manager.commandBuilder("cult", "cultac", "grim", "grimac")
+        manager.command(BuildableCommand.root(manager)
                 .literal("debug")
                 .literal("geyserpacketlog")
                 .permission("cult.debug")
-                .optional("username", StringParser.quotedStringParser())
+                .optional("username", NetworkPlayerArguments.playerName(StringParser.quotedStringParser()))
                 .flag(manager.flagBuilder("onjoin"))
                 .handler(this::handle));
     }

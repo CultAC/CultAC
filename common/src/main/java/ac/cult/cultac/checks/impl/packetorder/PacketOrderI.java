@@ -118,7 +118,7 @@ public class PacketOrderI extends Check implements PostPredictionListener {
             // This is because the client doesn't notify the server when changing slots with the number keys,
             // and that the client doesn't sync the hotbar slot when starting to dig.
             // The client does sync on placing and using though, so this is safe.
-            double damage = BlockBreakSpeed.getBlockDamage(player, startedDiggingPos, startedDiggingState);
+            double damage = BlockBreakSpeed.getBlockDamage(player, startedDiggingState);
             if (damage < 1 && (damage > 0 || player.gamemode != GameMode.CREATIVE)) {
                 digging = true;
             }
@@ -172,7 +172,11 @@ public class PacketOrderI extends Check implements PostPredictionListener {
                 }
             }
 
-            case ABORT_DESTROY_BLOCK -> cancelledDigging = shouldCheckPlacingWhileDigging();
+            case ABORT_DESTROY_BLOCK -> {
+                if (!player.packetOrderProcessor.isTeleportAbort()) {
+                    cancelledDigging = shouldCheckPlacingWhileDigging();
+                }
+            }
 
             case STOP_DESTROY_BLOCK -> digging = shouldCheckPlacingWhileDigging();
             default -> {}

@@ -31,7 +31,7 @@ import org.junit.jupiter.api.Test;
  * Drawn packets of every text-bearing kind on every protocol, from {@code player-text/<protocol>.bin.gz}, and what
  * {@link PlayerText} keeps of each: the same array, nothing, or the bytes given. The packets fill every field a
  * protocol has with what servers and clients write there, text where players write it, stacks inside stacks, inline
- * registry entries, and profiles with skins and without.
+ * registry entries, and profiles with skins and without. Each protocol's records are one stream.
  *
  * <p>The goldens pin the stripped output of the recorded packets; regenerate them only when the stripping rules
  * change, with {@code ./gradlew :common:test --tests '*PlayerTextGoldenTest' -Dcultac.updatePlayerTextGoldens=true},
@@ -55,6 +55,7 @@ class PlayerTextGoldenTest {
     void everyDrawnPacketKeepsWhatItKeptWhenItWasRecorded() throws IOException {
         for (int protocol = 768; protocol <= 777; protocol++) {
             PlayerText text = PlayerText.of(protocol);
+            PlayerText.TeamNames teams = new PlayerText.TeamNames(new byte[32]);
             int cases = 0;
             int changed = 0;
             ByteArrayOutputStream updated = new ByteArrayOutputStream();
@@ -65,7 +66,7 @@ class PlayerTextGoldenTest {
                     byte[] packet = in.readNBytes(varInt(in));
                     int outcome = in.readUnsignedByte();
                     String what = protocol + " case " + cases + (clientbound ? " clientbound " : " serverbound ") + id;
-                    byte[] kept = strip(text, clientbound, id, packet);
+                    byte[] kept = strip(text, teams, clientbound, id, packet);
                     if (UPDATE) {
                         if (outcome == CHANGED) in.skipNBytes(varInt(in));
                         record(updated, clientbound, id, packet, kept);
@@ -81,8 +82,12 @@ class PlayerTextGoldenTest {
                             }
                         }
                     }
-                    assertNull(strip(text, clientbound, id, Arrays.copyOf(packet, packet.length - 1)), what + " cut");
-                    assertNull(strip(text, clientbound, id, Arrays.copyOf(packet, packet.length + 1)), what + " long");
+                    assertNull(
+                            strip(text, teams, clientbound, id, Arrays.copyOf(packet, packet.length - 1)),
+                            what + " cut");
+                    assertNull(
+                            strip(text, teams, clientbound, id, Arrays.copyOf(packet, packet.length + 1)),
+                            what + " long");
                     cases++;
                 }
             }
@@ -97,8 +102,9 @@ class PlayerTextGoldenTest {
         }
     }
 
-    private static byte[] strip(PlayerText text, boolean clientbound, int id, byte[] packet) {
-        return clientbound ? text.clientbound(id, packet, true) : text.serverbound(id, packet, true);
+    private static byte[] strip(
+            PlayerText text, PlayerText.TeamNames teams, boolean clientbound, int id, byte[] packet) {
+        return clientbound ? text.clientbound(id, packet, true, teams) : text.serverbound(id, packet, true);
     }
 
     private static void record(ByteArrayOutputStream out, boolean clientbound, int id, byte[] packet, byte[] kept) {

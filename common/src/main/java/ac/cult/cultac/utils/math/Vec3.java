@@ -1,8 +1,6 @@
 package ac.cult.cultac.utils.math;
 
 import ac.cult.cultac.protocol.value.Direction;
-import org.joml.Vector3f;
-import org.joml.Vector3fc;
 
 /**
  * Immutable movement vector. Basic arithmetic is adapted from PacketEvents' GPLv3
@@ -17,10 +15,6 @@ public class Vec3 {
         this.x = x;
         this.y = y;
         this.z = z;
-    }
-
-    public Vec3(Vector3fc vector) {
-        this(vector.x(), vector.y(), vector.z());
     }
 
     public Vec3 add(Vec3 other) {
@@ -63,10 +57,6 @@ public class Vec3 {
         return x * x + z * z;
     }
 
-    public double horizontalDistance() {
-        return Math.sqrt(horizontalDistanceSqr());
-    }
-
     public Vec3 normalize() {
         double length = length();
         return length < 1.0E-5F ? ZERO : new Vec3(x / length, y / length, z / length);
@@ -87,10 +77,6 @@ public class Vec3 {
 
     public double dot(Vec3 other) {
         return x * other.x + y * other.y + z * other.z;
-    }
-
-    public Vec3 cross(Vec3 other) {
-        return new Vec3(y * other.z - z * other.y, z * other.x - x * other.z, x * other.y - y * other.x);
     }
 
     public Vec3 lerp(Vec3 other, double amount) {
@@ -117,33 +103,6 @@ public class Vec3 {
                 axis == Direction.Axis.Z ? value : z);
     }
 
-    public double get(Direction.Axis axis) {
-        return switch (axis) {
-            case X -> x;
-            case Y -> y;
-            case Z -> z;
-        };
-    }
-
-    public Vec3 relative(Direction direction, double distance) {
-        return new Vec3(
-                x + distance * direction.getModX(),
-                y + distance * direction.getModY(),
-                z + distance * direction.getModZ());
-    }
-
-    public final double x() {
-        return x;
-    }
-
-    public final double y() {
-        return y;
-    }
-
-    public final double z() {
-        return z;
-    }
-
     @Override
     public boolean equals(Object other) {
         return other instanceof Vec3 vector
@@ -155,10 +114,6 @@ public class Vec3 {
     @Override
     public int hashCode() {
         return 31 * (31 * Double.hashCode(x) + Double.hashCode(y)) + Double.hashCode(z);
-    }
-
-    public Vector3f toVector3f() {
-        return new Vector3f((float) x, (float) y, (float) z);
     }
 
     @Override

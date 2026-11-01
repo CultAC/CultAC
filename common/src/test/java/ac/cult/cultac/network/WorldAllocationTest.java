@@ -7,6 +7,8 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -95,6 +97,33 @@ class WorldAllocationTest {
             assertSame(entry, pending.values().iterator().next());
             assertEquals(0, cursor.getInt(entry));
             assertEquals(stone, world.getBlockStateIdAt(4, 64, 4));
+        }
+    }
+
+    @Test
+    void unstablePendingReinternsStayPendingWithoutCollectingCandidates() throws Exception {
+        try (var services = new RecordConsumerServices();
+                var fixture = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            var world = fixture.player.compensatedWorld;
+            world.ensureValidationChunkLoaded(0, 0);
+            int gold = ac.cult.blocksim.data.DataTables.defaults()
+                    .registry()
+                    .block("minecraft:gold_block")
+                    .defaultState();
+            for (int section = 0; section < 4; section++) world.updateBlock(new BlockPos(1, section * 16 + 2, 0), gold);
+            var pending = (Map<?, ?>) field(world, "pendingReinternSections");
+            assertEquals(4, pending.size());
+            var candidates = (List<?>) field(world, "reinternCandidates");
+            var states = new ArrayList<>(pending.values());
+
+            for (int tick = 0; tick < 3; tick++) {
+                invoke(world, "processPendingReinterns");
+                assertEquals(states, new ArrayList<>(pending.values()));
+                assertTrue(candidates.isEmpty());
+            }
+            for (int section = 0; section < 4; section++) {
+                assertEquals(gold, world.getBlockStateIdAt(1, section * 16 + 2, 0));
+            }
         }
     }
 

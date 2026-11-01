@@ -42,9 +42,9 @@ spectators:
 # プレイヤーがタイムアウトでKickされるまでの時間を設定します。 | デフォルト= 60(秒)
 max-transaction-time: 60
 
-# CultAC自体が失敗した場合（プレイヤーに接続できない、クライアントバージョンが非対応、max-transaction-time内に
-# pingの応答がない）、切断せずに検査なしでプレイを続けさせます。パケットフラッドとクラッシュエクスプロイトによる
-# Kickは引き続き有効です。
+# CultAC自体が失敗した場合（プレイヤーに接続できない、クライアントバージョンが非対応）、切断せずに検査なしで
+# プレイを続けさせます。パケットフラッド、クラッシュエクスプロイト、max-transaction-time内にpingの応答がない
+# 場合のKickは引き続き有効です。
 launch-safety:
   fail-open: true
 
@@ -277,6 +277,53 @@ cloud:
   # Names this proxy among the writers sharing one api-key, required while server-id uses {proxy}. On a server it
   # is the server's own name, and required.
   proxy-id: ""
+  # When true, sends CPU and allocation stack samples of this server to the intake service: short profiles it asks
+  # for, recorded off the main thread. Off by default; CULTAC_CLOUD_PERF (true/1/yes, false/0/no) wins when set.
+  perf: false
+  # When true, the upload sockets also report the UUID, name and portal role (viewer, moderator or admin) of
+  # players holding cult.portal.viewer, .moderator or .admin, and the stored role of synced players who are offline
+  # when the intake service asks, so the cloud portal lists them in this server's organization while it has team
+  # sync on. Off by default; CULTAC_CLOUD_TEAM_SYNC (true/1/yes, false/0/no) wins when set.
+  team-sync: false
+  # Panel bans: staff ban a player from the cloud panel, and one server that has the command for it runs it as
+  # console, in observe-only mode too. Placeholders: %player% %uuid% %reason% %cheat% %cheat_id% %duration%
+  # (30m, 12h, 7d; empty when permanent) %seconds% %staff% %ban_id% %link% %staff_uuid% (the banning staff
+  # member's Minecraft UUID when the panel knows it) %evidence% (a link to the evidence the ban rests on, such as a
+  # replay); both are empty when unknown.
+  # %reason% and %staff% are free text: put %reason% last, after %duration%, so it is never read as a duration.
+  staff-ban:
+    # Runs when staff ban a player from the cloud panel. Empty: this server never runs panel bans.
+    command: ""
+    # For timed bans. Empty: this server never runs timed panel bans.
+    temp-command: ""
+
+# スタッフ用コマンド、Tab 補完、アラートを、すべてのプロキシとサーバーをまたいで使えるようにします。
+# 設定ガイド：CultAC のソース内の docs/network.md。変更は /cult reload で反映されます。
+# ここの設定はすべて CULTAC_NETWORK_* 環境変数でも指定でき、そちらが優先されます。
+network:
+  # サーバー同士のつなぎ方：
+  #   none         オフ。コマンドとアラートはこのサーバーのプレイヤーにだけ届きます。
+  #   redis        Redis サーバー経由（Valkey、KeyDB、Dragonfly も使えます）。redis の項目を埋めてください。
+  #   nats         NATS サーバー経由。nats の項目を埋めてください。
+  #   redisbungee  RedisBungee を入れた Velocity プロキシ。その Redis 接続を使うので、ほかに埋める項目はありません。
+  type: none
+  redis:
+    address: localhost:6379
+    username: ""
+    password: ""
+    ssl: false
+  nats:
+    # 複数のサーバーを指定するときは、カンマで区切ります。
+    address: localhost:4222
+    username: ""
+    password: ""
+    token: ""
+    # NATS サーバーがアカウントを使う場合のみ：.creds ファイルのパス。
+    credentials-file: ""
+    ssl: false
+  # ネットワーク上でのこのサーバーの名前。サーバーごとに別の名前が必要です。
+  # 空にすると RedisBungee のプロキシ ID、なければ cloud.proxy-id、それもなければこのサーバーの IP とポートを使います。
+  instance-id: ""
 
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with
 # /cult update builds [branch]. Each setting's CULTAC_UPDATE_* environment variable wins when set and not blank.
@@ -298,4 +345,4 @@ update:
   webhook: ""
 
 config-flavor: V2
-config-version: 14
+config-version: 17

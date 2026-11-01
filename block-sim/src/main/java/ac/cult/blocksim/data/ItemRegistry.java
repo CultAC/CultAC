@@ -24,7 +24,7 @@ public final class ItemRegistry {
             if (items.put(item.key(), item) != null) throw new IllegalArgumentException("Duplicate item " + item.key());
             var report = com.google.gson.JsonParser.parseString(item.defaultComponentsJson()).getAsJsonObject();
             String nbt = item.bindings().get("components.defaultNbt");
-            var encoding = nbt == null ? java.util.Map.<String, ac.cult.blocksim.data.nbt.NbtValue>of()
+            var encoding = nbt == null ? Map.<String, ac.cult.blocksim.data.nbt.NbtValue>of()
                 : ((ac.cult.blocksim.data.nbt.NbtValue.Compound)ac.cult.blocksim.data.nbt.CanonicalSnbt.parse(nbt)).values();
             defaults.put(item.key(), new Components(report.getAsJsonObject("components").asMap(), encoding));
             containerItems[item.id()] = item.block().isEmpty()

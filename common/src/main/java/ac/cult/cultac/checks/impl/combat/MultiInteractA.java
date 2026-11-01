@@ -5,13 +5,14 @@ import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSpectatorAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundTeleportToEntity;
+import ac.cult.cultac.protocol.value.InteractAction;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 
 @CheckData(
@@ -25,6 +26,7 @@ public class MultiInteractA extends Check implements CheckListener {
 
     private int lastEntity;
     private boolean lastSneaking;
+    private boolean sneakingKnown;
     private boolean hasInteracted = false;
 
     public MultiInteractA(final CultPlayer player) {
@@ -34,14 +36,9 @@ public class MultiInteractA extends Check implements CheckListener {
     @CultPacketHandler
     public void onInteractEntity(
             PacketReceiveEvent<ServerboundInteract> event, CultPlayer player, ServerboundInteract packet) {
-        onInteract(
-                event,
-                packet.entityId(),
-                (packet.action() == ac.cult.cultac.protocol.value.InteractAction.ATTACK
-                                && ProtocolVersion.V26_3.protocol()
-                                        >= ac.cult.cultac.protocol.ProtocolVersion.V26_1.protocol())
-                        ? lastSneaking
-                        : packet.sneaking());
+        boolean carriesSneaking = packet.action() != InteractAction.ATTACK
+                || player.getClientVersion().isOlderThan(ClientVersion.V_26_1);
+        onInteract(event, packet.entityId(), carriesSneaking ? packet.sneaking() : lastSneaking, carriesSneaking);
     }
 
     @CultPacketHandler
@@ -51,7 +48,7 @@ public class MultiInteractA extends Check implements CheckListener {
             ServerboundSpectatorAction packet) {
         // PacketEvents exposed an absent 26.2 spectator target as entity id 0.
         // Preserve that decoded-field contract instead of silently dropping the interaction.
-        onInteract(event, packet.target().orElse(0), lastSneaking);
+        onInteract(event, packet.target().orElse(0), lastSneaking, false);
     }
 
     @CultPacketHandler
@@ -60,7 +57,7 @@ public class MultiInteractA extends Check implements CheckListener {
             CultPlayer player,
             ServerboundTeleportToEntity packet) {
         if (player.user.getUUID().equals(packet.target())) {
-            onInteract(event, player.entityID, lastSneaking);
+            onInteract(event, player.entityID, lastSneaking, false);
         }
     }
 
@@ -81,12 +78,20 @@ public class MultiInteractA extends Check implements CheckListener {
         }
     }
 
-    private void onInteract(PacketReceiveEvent event, int entity, boolean sneaking) {
+    /**
+     * Minecraft#handleKeybinds sends every interaction of a tick with the same LocalPlayer#isShiftKeyDown. Its value is
+     * compared between the tick's ServerboundInteractPacket packets, which below 26.1 include the attack.
+     */
+    private void onInteract(PacketReceiveEvent event, int entity, boolean sneaking, boolean carriesSneaking) {
         if (!player.cameraEntity.isSelf()) {
             hasInteracted = false;
         }
+        if (!hasInteracted) {
+            sneakingKnown = false;
+        }
 
-        if (hasInteracted && (entity != lastEntity || sneaking != lastSneaking)) {
+        boolean sneakingChanged = carriesSneaking && sneakingKnown && sneaking != lastSneaking;
+        if (hasInteracted && (entity != lastEntity || sneakingChanged)) {
             if (flag(V.write(verbose())
                             .sint(lastEntity)
                             .sint(entity)
@@ -99,7 +104,10 @@ public class MultiInteractA extends Check implements CheckListener {
         }
 
         lastEntity = entity;
-        lastSneaking = sneaking;
+        if (carriesSneaking) {
+            lastSneaking = sneaking;
+            sneakingKnown = true;
+        }
         hasInteracted = true;
     }
 }

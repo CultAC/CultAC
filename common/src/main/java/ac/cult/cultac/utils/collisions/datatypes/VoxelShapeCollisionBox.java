@@ -1,6 +1,7 @@
 package ac.cult.cultac.utils.collisions.datatypes;
 
 import ac.cult.blocksim.data.Box;
+import ac.cult.blocksim.engine.shapes.Shapes;
 import ac.cult.blocksim.engine.shapes.VoxelShape;
 import ac.cult.cultac.utils.nmsutil.ClientShapeBoxes;
 import java.util.List;
@@ -8,7 +9,7 @@ import java.util.List;
 /** A Java voxel collider retained through the existing axis/step runner. */
 public final class VoxelShapeCollisionBox extends SimpleCollisionBox {
     private VoxelShape shape;
-    private final boolean fullBlock;
+    private boolean fullBlock;
     private double offsetX, offsetY, offsetZ;
     private boolean translated;
 
@@ -17,9 +18,27 @@ public final class VoxelShapeCollisionBox extends SimpleCollisionBox {
     }
 
     public VoxelShapeCollisionBox(VoxelShape shape, boolean fullBlock) {
+        init(shape, fullBlock);
+    }
+
+    /** Leaves this box as {@code new VoxelShapeCollisionBox(shape, fullBlock)} leaves a new one. */
+    VoxelShapeCollisionBox reset(VoxelShape shape, boolean fullBlock) {
+        offsetX = offsetY = offsetZ = 0;
+        translated = false;
+        init(shape, fullBlock);
+        return this;
+    }
+
+    private void init(VoxelShape shape, boolean fullBlock) {
         this.shape = shape;
         this.fullBlock = fullBlock;
         if (shape.isEmpty()) throw new IllegalArgumentException("Empty voxel collider");
+        if (shape == Shapes.block()) {
+            minX = minY = minZ = 0.0;
+            maxX = maxY = maxZ = 1.0;
+            isFullBlock = true;
+            return;
+        }
         var boxes = ClientShapeBoxes.cached(shape);
         int count;
         if (boxes != null) {
@@ -133,6 +152,28 @@ public final class VoxelShapeCollisionBox extends SimpleCollisionBox {
                         && query.minZ < maxZ
                         && query.maxZ > minZ
                 : shape.intersectsAabb(queryShape, offsetX, offsetY, offsetZ, translated);
+    }
+
+    /** {@link #intersectsQuery(SimpleCollisionBox, VoxelShape)} with {@code Shapes.create} of the query's bounds. */
+    public boolean intersectsQuery(SimpleCollisionBox query) {
+        return fullBlock
+                ? query.minX < maxX
+                        && query.maxX > minX
+                        && query.minY < maxY
+                        && query.maxY > minY
+                        && query.minZ < maxZ
+                        && query.maxZ > minZ
+                : shape.intersectsAabb(
+                        query.minX,
+                        query.minY,
+                        query.minZ,
+                        query.maxX,
+                        query.maxY,
+                        query.maxZ,
+                        offsetX,
+                        offsetY,
+                        offsetZ,
+                        translated);
     }
 
     @Override

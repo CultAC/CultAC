@@ -25,7 +25,14 @@ public class PacketPlayerAttack {
     @CultPacketHandler
     public void onInteract(
             PacketReceiveEvent<ServerboundInteract> event, CultPlayer player, ServerboundInteract packet) {
-        handleInteractPacket(player, packet);
+        if (packet.action() == InteractAction.ATTACK) {
+            PacketEntity entity = player.compensatedEntities.getEntity(packet.entityId());
+            if (!player.isBedrockMovement()) {
+                onLocalAttack(player, entity);
+            } else if (entity != null) {
+                player.maxPlayerAttackSlow += 1;
+            }
+        }
     }
 
     @CultPacketHandler("serverbound.client_tick_end")
@@ -153,18 +160,5 @@ public class PacketPlayerAttack {
             return AttackReset.POSSIBLE;
         }
         return AttackReset.NONE;
-    }
-
-    private void handleInteractPacket(CultPlayer player, ServerboundInteract interact) {
-        if (interact != null) {
-            if (interact.action() == InteractAction.ATTACK) {
-                PacketEntity entity = player.compensatedEntities.getEntity(interact.entityId());
-                if (!player.isBedrockMovement()) {
-                    onLocalAttack(player, entity);
-                } else if (entity != null) {
-                    player.maxPlayerAttackSlow += 1;
-                }
-            }
-        }
     }
 }

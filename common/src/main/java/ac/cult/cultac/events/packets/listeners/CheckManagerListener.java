@@ -33,6 +33,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundChatCommandSigned;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundClientCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundClientInformation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCommandSuggestion;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomClickAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomPayload;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundEditBook;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
@@ -69,6 +70,7 @@ import ac.cult.cultac.utils.blockplace.ClientBlockActions;
 import ac.cult.cultac.utils.blockplace.GhostBlock;
 import ac.cult.cultac.utils.data.BedrockTranslatedMovementGate;
 import ac.cult.cultac.utils.data.HeadRotation;
+import ac.cult.cultac.utils.data.PacketStateData;
 import ac.cult.cultac.utils.data.TeleportAcceptData;
 import ac.cult.cultac.utils.data.VehicleTeleportData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
@@ -77,6 +79,7 @@ import ac.cult.cultac.utils.inventory.InventoryClick;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.VectorUtils;
 import ac.cult.cultac.utils.nmsutil.BlockBreakSpeed;
+import ac.cult.cultac.utils.nmsutil.FlightToggle;
 import ac.cult.cultac.utils.nmsutil.TraverseBlocks;
 import java.util.List;
 import org.jetbrains.annotations.Nullable;
@@ -119,8 +122,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             ServerboundPackets.SET_STRUCTURE_BLOCK,
             ServerboundPackets.CONTAINER_BUTTON_CLICK,
             ServerboundPackets.PICK_ITEM,
-            ServerboundPackets.CONFIGURATION_ACKNOWLEDGED,
-            ServerboundPackets.CUSTOM_CLICK_ACTION);
+            ServerboundPackets.CONFIGURATION_ACKNOWLEDGED);
     private static final List<PacketType<Opaque>> OPAQUE_CLIENTTICKEND = List.of(ServerboundPackets.CLIENT_TICK_END);
     private static final List<PacketType<Opaque>> OPAQUE_PLAYERLOADED = List.of(ServerboundPackets.PLAYER_LOADED);
     private static final List<PacketType<Opaque>> OPAQUE_RECEIVE_TYPES = java.util.stream.Stream.of(
@@ -176,6 +178,14 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
     }
 
     @CultPacketHandler
+    public void onCustomClickAction(
+            PacketReceiveEvent<ServerboundCustomClickAction> event,
+            CultPlayer player,
+            ServerboundCustomClickAction packet) {
+        processGenericReceive(event, player);
+    }
+
+    @CultPacketHandler
     public void onAcceptTeleportation(
             PacketReceiveEvent<ServerboundAcceptTeleportation> event,
             CultPlayer player,
@@ -189,8 +199,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         }
         // The teleport ID acknowledgement interrupts a Rot -> MoveVehicle pair.
         player.packetStateData.clearPendingVehicleMoveAfterPassengerRotation();
-        player.checkManager.dispatchDecodedReceiveObservers(event);
-        player.checkManager.dispatchNonAsyncReceive(event);
+        player.checkManager.dispatchReceiveHandlers(event);
     }
 
     @CultPacketHandler
@@ -227,10 +236,13 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
     @CultPacketHandler
     public void onContainerClick(PacketReceiveEvent<InventoryClick> event, CultPlayer player, InventoryClick packet) {
         processGenericReceive(event, player);
-        // Observe-only forwards a cancelled click to the server.
-        if (event.isCancelled() && !CultAPI.INSTANCE.getConfigManager().isObserveOnly())
-            player.getInventory().resyncCancelledClick(packet);
-        else player.getInventory().onClickForwarded(packet);
+        if (reachesServer(event)) player.getInventory().onClickForwarded(packet);
+        else player.getInventory().resyncCancelledClick(packet);
+    }
+
+    // In observe-only the codec forwards a cancelled packet unchanged, so the server applies it.
+    private static boolean reachesServer(PacketReceiveEvent<?> event) {
+        return !event.isCancelled() || CultAPI.INSTANCE.getConfigManager().isObserveOnly();
     }
 
     @CultPacketHandler
@@ -371,10 +383,18 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         // glide starts used to terminate at the pre-Via boundary, so they must
         // not enter the ordinary check route. Keep every other ordinary-phase
         // cancellation on the existing same-phase semantics.
+        if (!player.isBedrockMovement() && sentByLocalPlayerTick(packet.action())) {
+            player.packetStateData.localPlayerTickCommandThisClientTick = true;
+        }
         if (event.isCancelled() && packet.action() == PlayerCommandAction.START_FLYING_WITH_ELYTRA) {
             return;
         }
         processGenericReceive(event, player);
+    }
+
+    // InBedChatScreen sends STOP_SLEEPING and Minecraft#handleKeybinds OPEN_INVENTORY; LocalPlayer#tick sends the rest.
+    private static boolean sentByLocalPlayerTick(PlayerCommandAction action) {
+        return action != PlayerCommandAction.STOP_SLEEPING && action != PlayerCommandAction.OPEN_INVENTORY;
     }
 
     @CultPacketHandler
@@ -415,10 +435,25 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
     }
 
     private static void onLocalPlayerSprintTick(CultPlayer player) {
-        // LocalPlayer#tick only reaches sendIsSprintingIfNeeded mounted when the root vehicle is
-        // locally authoritative, and then after the vehicle movement; hold the model while mounted.
-        if (!localPlayerTicked(player) || player.compensatedEntities.getSelf().inVehicle()) return;
+        if (!localPlayerTicked(player)) return;
+        // Noncontrolling passengers skip sendIsSprintingIfNeeded, but still run aiStep: a vehicle that
+        // cannot sprint clears the local flag and, if it was set, the modifier. Keep the announcement separate.
+        PacketEntity vehicle = player.compensatedEntities.getSelf().getRiding();
+        if (vehicle != null) {
+            player.onMountedClientTick(vehicle);
+            player.sprintState.onClientTick(player.isClientSprinting());
+            return;
+        }
+        if (player.compensatedEntities.getSelf().inVehicle()) return;
+        player.onFootClientTick();
         player.sprintState.onClientTick(player.isSprinting);
+    }
+
+    // A respawned LocalPlayer's KeyboardInput#tick reads the held shift its kept lastSentInput holds.
+    private static void applyRespawnShift(CultPlayer player) {
+        if (!player.packetStateData.respawnShiftPending) return;
+        player.packetStateData.respawnShiftPending = false;
+        player.isSneaking = true;
     }
 
     // LocalPlayer#tick runs only once ClientPacketListener#hasClientLoaded, which 1.21.4 introduced.
@@ -505,6 +540,9 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                             .data()
                             .version()
                             .atLeast(ac.cult.cultac.protocol.ProtocolVersion.V26_3);
+            if (legacyJavaWire && packet.hasRotation()) {
+                player.getSetbackTeleportUtil().posRotReceived();
+            }
             teleportData = player.isBedrockMovement()
                             || legacyJavaWire
                             || player.getSetbackTeleportUtil().hasIdlessJavaPositionTeleport()
@@ -548,7 +586,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         player.packetStateData.lastPacketMatchedTeleportPosition = teleportData.isMatchedTeleportPosition();
         if (teleportData.isMatchedTeleportPosition()
                 && teleportData.getTeleportData() != null
-                && player.compensatedEntities.vehicles.hasPendingServerDismount()) {
+                && player.compensatedEntities.vehicles.hasClientVisiblePendingDismount()) {
             player.compensatedEntities.vehicles.applyClientVisibleDismount();
         }
 
@@ -557,7 +595,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                 && (player.compensatedEntities.getSelf().inVehicle()
                         || player.compensatedEntities.vehicles
                                 .canCurrentPlayerControlServerVehicleForClientTickMovement()
-                        || player.compensatedEntities.vehicles.hasPlayerPassengerState()
+                        || player.compensatedEntities.vehicles.hasClientPlayerPassengerState()
                         || hasBufferedServerVehiclePassengerRotation(player));
         if (!passengerRotationTickPacket && player.packetStateData.isAwaitingVehicleMoveAfterPassengerRotation()) {
             // LocalPlayer#tick sends the mounted Rot and vehicle move consecutively.
@@ -576,7 +614,17 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             player.packetStateData.receivedMovementThisClientTick = true;
             // Only LocalPlayer#tick sends movement, and it requires ClientPacketListener#hasClientLoaded.
             player.packetStateData.playerLoadedIntoLevel = true;
+            applyRespawnShift(player);
             if (packet.hasPosition()) player.packetStateData.lastSentTickPosition = position;
+            if (packet.hasRotation()) {
+                player.packetStateData.lastSentTickYaw = packet.yaw();
+                player.packetStateData.lastSentTickPitch = packet.pitch();
+                if (!passengerRotationTickPacket) {
+                    player.packetStateData.lastSendPositionYaw = packet.yaw();
+                    player.packetStateData.lastSendPositionPitch = packet.pitch();
+                }
+            }
+            player.sprintState.onClientMove();
             // LocalPlayer#sendPosition sends this tick's START/STOP_SPRINTING before its movement.
             onLocalPlayerSprintTick(player);
         }
@@ -597,15 +645,16 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         }
 
         if (!shouldIgnoreTranslatedBedrockMovement(player, passengerRotationTickPacket)) {
+            boolean lastSentLook = !packet.hasRotation() && keepsLastSentRotation(player);
             handleFlying(
                     player,
                     movementPosition.x,
                     movementPosition.y,
                     movementPosition.z,
-                    packet.yawOr(player.yRot),
-                    packet.pitchOr(player.xRot),
+                    lastSentLook ? player.packetStateData.lastSendPositionYaw : packet.yawOr(player.xRot),
+                    lastSentLook ? player.packetStateData.lastSendPositionPitch : packet.pitchOr(player.yRot),
                     packet.hasPosition(),
-                    packet.hasRotation(),
+                    packet.hasRotation() || lastSentLook,
                     packet.onGround(),
                     teleportData);
         }
@@ -621,8 +670,18 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         }
 
         dispatchReceiveHandlers(event, player);
-        player.checkManager.getListener(SetbackBlocker.class).onJavaMovePlayerAfterChecks(event);
+        player.checkManager.getSetbackBlocker().onJavaMovePlayerAfterChecks(event);
         clearTransientPacketState(player);
+    }
+
+    // LocalPlayer#sendPosition sends no rotation while the player's equals the last one it sent; a teleport
+    // acceptance or a cancelled move can leave the simulated rotation elsewhere. An equal one is no rotation update.
+    private static boolean keepsLastSentRotation(CultPlayer player) {
+        PacketStateData state = player.packetStateData;
+        return !player.isBedrockMovement()
+                && !state.lastPacketWasTeleport
+                && !Float.isNaN(state.lastSendPositionYaw)
+                && (state.lastSendPositionYaw != player.xRot || state.lastSendPositionPitch != player.yRot);
     }
 
     private boolean hasBufferedServerVehiclePassengerRotation(CultPlayer player) {
@@ -685,7 +744,8 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                     && player.compensatedEntities.vehicles.isServerPlayerPassengerOf(serverVehicle);
             boolean blocked = authorizedVehicleMove
                     ? player.getSetbackTeleportUtil().shouldBlockVehicleMovement(true)
-                            || controlledVehicle.isDead
+                            // A vehicle with health still moves under its rider; the dead flag can outlive it.
+                            || !controlledVehicle.actionAlive
                             || player.isInBed
                     : shouldBlockVehicleMovementForSetback(player, teleportData);
             if (!teleportData.isTeleport() && (!hasCurrentServerPassengerAuthority || blocked)) {
@@ -714,7 +774,8 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                 packetRoot == null ? player.compensatedEntities.vehicles.getVelocityMovementVehicle() : packetRoot;
         if (pairedRiddenTick
                 && riddenRoot instanceof PacketEntityRideable rideable
-                && !rideable.isDead
+                // Pig#tickRidden and Strider#tickRidden tick the boost inside travelRidden, gated on isAlive().
+                && rideable.actionAlive
                 && rideable.hasSaddle
                 && player.compensatedEntities.vehicles.passengerIndex(rideable) == 0) {
             // Count even if a real tick happens to match a pending teleport's
@@ -746,7 +807,11 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                                 && player.compensatedEntities.vehicles.isVehicleSwitchBufferActiveFor(packetRoot));
         TeleportAcceptData teleportData = player.getSetbackTeleportUtil()
                 .checkVehicleTeleportQueue(
-                        packetRoot == null ? null : packetRoot.getEntityId(), newPos.x, newPos.y, newPos.z);
+                        packetRoot == null ? null : packetRoot.getEntityId(),
+                        newPos.x,
+                        newPos.y,
+                        newPos.z,
+                        pairedRiddenTick);
         boolean checkableClientTick =
                 fromClientTick && packetRoot != null && canAuthoritativelyMove && !teleportData.isTeleport();
 
@@ -769,6 +834,9 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                 player.checkManager.getCheck(BadPacketsVehicle.class).handleInvalidVehiclePacket(fromClientTick);
             }
             if (fromClientTick) {
+                if (packetRoot != null && player.packetStateData.clientTickVehicleMovePacketsThisClientTick == 0) {
+                    packetRoot.interpolateBeforeLocalTravel(player);
+                }
                 player.packetStateData.clientTickVehicleMovePacketsThisClientTick++;
                 player.packetStateData.receivedMovementThisClientTick = true;
             }
@@ -784,6 +852,8 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         // sends only the vehicle packet from the packet handler, so it must
         // snap state without advancing AbstractBoat#tick state.
         player.packetStateData.markVehicleMove(fromClientTick, checkableClientTick);
+        boolean firstClientTickVehicleMove =
+                fromClientTick && player.packetStateData.clientTickVehicleMovePacketsThisClientTick == 0;
         if (fromClientTick) {
             player.packetStateData.clientTickVehicleMovePacketsThisClientTick++;
         }
@@ -803,12 +873,15 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         player.packetStateData.vehicleMovementStartOnGround =
                 packetRoot == null ? vehiclePacket.onGround() : packetRoot.onGround;
         player.packetStateData.vehicleMovementOnGroundPresent = clientReportsOnGround;
+        if (checkableClientTick && firstClientTickVehicleMove) {
+            packetRoot.interpolateBeforeLocalTravel(player);
+        }
         Vec3 oldPosition = currentVehiclePhysicalPosition(player, packetRoot, new Vec3(player.x, player.y, player.z));
         if (shouldTickControlledBoatForClientVehiclePacket(packetRoot, checkableClientTick)) {
             player.boatData.tick(player);
         }
         Vec3 physicalMovementStart = oldPosition;
-        float physicalYaw = vehiclePacket.yaw();
+        float physicalYaw = player.compensatedEntities.vehicles.saddleHandOverTravelYaw(packetRoot, vehiclePacket.yaw());
         float physicalPitch = vehiclePacket.pitch();
         Vec3 physicalNewPos = newPos;
         player.packetStateData.lastPacketProvenVehiclePhysicalMovement =
@@ -870,7 +943,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             if (teleportData.isTeleport()) {
                 applyAcceptedVehicleTeleportState(player, packetRoot, physicalNewPos, vehiclePacket, teleportData);
             } else if (checkableClientTick) {
-                player.compensatedEntities.vehicles.applyVehiclePacketPosition(
+                player.compensatedEntities.vehicles.applyControlledVehicleMove(
                         packetRoot,
                         physicalNewPos,
                         clientReportsOnGround ? vehiclePacket.onGround() : packetRoot.onGround,
@@ -1013,10 +1086,14 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         }
 
         dispatchReceiveHandlers(event, player);
-        if (!event.isCancelled()
-                && (action == PlayerAction.START_DESTROY_BLOCK || action == PlayerAction.STOP_DESTROY_BLOCK)) {
-            player.blockActionReconciler.forwarded(packet.sequence());
+        if (action == PlayerAction.START_DESTROY_BLOCK || action == PlayerAction.STOP_DESTROY_BLOCK) {
+            // BlockStatePredictionHandler keeps the predicted break until a block-changed ack reaches its sequence
+            var reconciler = player.blockActionReconciler;
+            if (!reachesServer(event)) reconciler.abortServerDestroy(event, packet);
+            if (reachesServer(event)) reconciler.forwarded(packet.sequence());
+            else reconciler.rejectDig(packet);
         }
+        if (reachesServer(event)) player.blockActionReconciler.digReachedServer(event.getPacket());
         clearTransientPacketState(player);
     }
 
@@ -1065,9 +1142,10 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         }
         // The player tried placing blocks in air/water or failed other checks
         // Or the player tried playing blocks while pending a teleport
-        if (blockPlace.isCancelled()
-                || event.isCancelled()
-                || player.getSetbackTeleportUtil().isPendingSetback()) {
+        if (!CultAPI.INSTANCE.getConfigManager().isObserveOnly()
+                && (blockPlace.isCancelled()
+                        || event.isCancelled()
+                        || player.getSetbackTeleportUtil().isPendingSetback())) {
             // Invalid block place due to placing on a ghost block
             blockPlace.resync();
 
@@ -1089,7 +1167,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         }
 
         dispatchReceiveHandlers(event, player);
-        if (!event.isCancelled()) player.blockActionReconciler.forwarded(packet.sequence());
+        if (reachesServer(event)) player.blockActionReconciler.forwarded(packet.sequence());
         clearTransientPacketState(player);
     }
 
@@ -1104,30 +1182,41 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         player.lastBlockPlaceUseItem = System.currentTimeMillis();
 
         dispatchReceiveHandlers(event, player);
-        if (!event.isCancelled()) player.blockActionReconciler.forwarded(packet.sequence());
+        if (reachesServer(event)) player.blockActionReconciler.forwarded(packet.sequence());
         clearTransientPacketState(player);
     }
 
     public void processClientTickEndReceive(PacketReceiveEvent event, CultPlayer player) {
         if (event.getPhase() != ConnectionPhase.PLAY) return;
+        player.clientTickEndTimeout.onTickEnd(System.nanoTime());
         // The Geyser bridge ends each Bedrock client tick after translating its frame. Geyser's
         // tick end here only closes that frame's Java projection.
         if (player.user.getBedrockBridgeConnection() == null) {
             // LocalPlayer#aiStep finished before ServerboundClientTickEndPacket.
+            if (localPlayerTicked(player)) applyRespawnShift(player);
             onLocalPlayerSprintTick(player);
             onLocalPlayerAttackTick(player);
             dispatchPrePredictionReceive(event, player);
             dispatchReceiveHandlers(event, player);
+            // FlightToggle reads this tick's ClientSprintState#flagBeforeAiStep, which onClientTickEnd releases.
+            if (localPlayerTicked(player)) FlightToggle.onClientTick(player);
+            player.sprintState.onClientTickEnd();
 
             player.packetStateData.acceptedClientTick++;
             player.packetStateData.lastClientTickEndTransaction = player.lastTransactionReceived.get();
             if (localPlayerTicked(player)) player.packetStateData.localPlayerTickedSinceSpawn = true;
             player.serverOpenedInventoryThisTick = false;
             player.packetStateData.carriedItemChangedThisClientTick = false;
+            player.packetStateData.carriedItemClaimedThisClientTick = false;
+            player.packetStateData.heldSlotEcho = -1;
+            player.packetStateData.heldSlotSetWithScreenOpen = false;
         }
         player.packetStateData.receivedMovementThisClientTick = false;
+        player.packetStateData.flyingStartBeforeTravel = false;
+        player.packetStateData.flightStopThisClientTick = false;
         player.packetStateData.bedrockTranslatedMovement.clear();
         player.packetStateData.clientMovementInputUpdatedThisClientTick = false;
+        player.packetStateData.localPlayerTickCommandThisClientTick = false;
         player.packetStateData.vehicleMovePacketsThisClientTick = 0;
         player.packetStateData.clientTickVehicleMovePacketsThisClientTick = 0;
         player.packetStateData.localAuthoritativeVehicleMovePacketsThisClientTick = 0;
@@ -1167,45 +1256,41 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         player.packetStateData.clearDesiredOnGround();
     }
 
-    /** Applies a transaction-matched teleport response without producing a movement tick. */
+    /**
+     * Applies a transaction-matched teleport response without producing a movement tick. Before 26.3 the response is
+     * ClientPacketListener#handleMovePlayer's PosRot; from 26.3 it is ServerboundAcceptTeleportationPacket, which
+     * carries the same position and look and no PosRot follows. Both reach checks as the same teleport position and
+     * rotation update, so no check depends on which packet carried it.
+     */
     public static void applyTeleportResponse(CultPlayer player, TeleportAcceptData accepted, float yaw, float pitch) {
-        Vec3 previous = new Vec3(player.x, player.y, player.z);
-        applyTeleportAcknowledgementLook(player, yaw, pitch, accepted);
-        if (accepted.isMatchedTeleportPosition()) {
-            if (player.compensatedEntities.vehicles.hasPendingServerDismount()) {
-                player.compensatedEntities.vehicles.applyClientVisibleDismount();
-            }
-            player.checkManager.getSimulationProcessor().applyAcceptedJavaTeleport(accepted);
-        }
-        player.getSetbackTeleportUtil()
-                .onPredictionComplete(new PredictionComplete(new PositionUpdate(
-                        previous,
-                        new Vec3(player.x, player.y, player.z),
-                        yaw,
-                        pitch,
-                        player.onGround,
-                        accepted,
-                        null)));
-    }
-
-    /** 26.3's coordinate-bearing acknowledgement carries the old teleport PosRot's look state. */
-    public static void applyTeleportAcknowledgementLook(CultPlayer player, float yaw, float pitch) {
-        applyTeleportAcknowledgementLook(player, yaw, pitch, null);
-    }
-
-    private static void applyTeleportAcknowledgementLook(
-            CultPlayer player, float yaw, float pitch, TeleportAcceptData accepted) {
-        boolean previous = player.packetStateData.lastPacketWasTeleport;
-        player.packetStateData.lastPacketWasTeleport = true;
-        player.packetStateData.teleportedThisClientTick = true;
+        var state = player.packetStateData;
+        boolean previousTeleport = state.lastPacketWasTeleport;
+        boolean previousMatched = state.lastPacketMatchedTeleportPosition;
+        state.lastPacketWasTeleport = true;
+        state.lastPacketMatchedTeleportPosition = accepted.isMatchedTeleportPosition();
+        state.teleportedThisClientTick = true;
         try {
+            if (accepted.isMatchedTeleportPosition()) {
+                if (player.compensatedEntities.vehicles.hasClientVisiblePendingDismount()) {
+                    player.compensatedEntities.vehicles.applyClientVisibleDismount();
+                }
+                Vec3 target = accepted.getTeleportData().getLocation();
+                handleFlying(player, target.x, target.y, target.z, yaw, pitch, true, true, false, accepted);
+                return;
+            }
+            // ClientPacketListener#handleMovePlayer leaves a passenger in place and only takes the look.
             if (player.xRot != yaw || player.yRot != pitch) {
                 player.lastTickXRot = player.xRot;
                 player.lastTickYRot = player.yRot;
             }
             applyRotation(player, yaw, pitch, accepted);
+            Vec3 position = new Vec3(player.x, player.y, player.z);
+            player.getSetbackTeleportUtil()
+                    .onPredictionComplete(new PredictionComplete(
+                            new PositionUpdate(position, position, yaw, pitch, player.onGround, accepted, null)));
         } finally {
-            player.packetStateData.lastPacketWasTeleport = previous;
+            state.lastPacketWasTeleport = previousTeleport;
+            state.lastPacketMatchedTeleportPosition = previousMatched;
         }
     }
 
@@ -1218,6 +1303,12 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                 && (!sent.isSentWhileVehicle() || sent.isRotationOnly())
                 && yaw == sent.getFinalYaw()
                 && pitch == sent.getFinalPitch()) {
+            if (sent.getPlayerRotation() != null) {
+                // The turn from the last report to the rotation handleRotatePlayer started from is the player's.
+                return new HeadRotation(
+                        sent.getFinalYaw() - (sent.getSourceYaw() - previousYaw),
+                        sent.getFinalPitch() - (sent.getSourcePitch() - previousPitch));
+            }
             return new HeadRotation(sent.getFinalYaw(), sent.getFinalPitch());
         }
         return new HeadRotation(previousYaw, previousPitch);
@@ -1239,7 +1330,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         player.checkManager.onRotationUpdate(update);
     }
 
-    private void handleFlying(
+    private static void handleFlying(
             CultPlayer player,
             double x,
             double y,
@@ -1250,7 +1341,8 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             boolean hasLook,
             boolean onGround,
             TeleportAcceptData teleportData) {
-        player.serverOpenedInventoryThisTick = false;
+        // A teleport response is handled in the same packet phase as a screen the server opened; tick end clears it.
+        if (!teleportData.isTeleport()) player.serverOpenedInventoryThisTick = false;
         if (hasLook && (player.xRot != yaw || player.yRot != pitch)) {
             player.lastTickXRot = player.xRot;
             player.lastTickYRot = player.yRot;
@@ -1329,7 +1421,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         public void handle(PacketReceiveEvent event, CultPlayer player, Object packet) {
             if (event.getPhase() == ConnectionPhase.PLAY) {
                 player.checkManager.dispatchEarlyReceive(event);
-                if (event.isCancelled()) player.blockActionReconciler.rejectEarly(packet);
+                if (!reachesServer(event)) player.blockActionReconciler.rejectEarly(packet);
             }
         }
     }

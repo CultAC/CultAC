@@ -1,5 +1,6 @@
 # \u00BB se traduit par » (double >>). Les interprétations diffèrent entre les normes ANSI et UTF-8... vous pouvez même voir ? en raison de cela
 prefix: "&bCult &8\u00BB"
+command-aliases: [cult, cultac, grim, grimac]
 
 alerts-enabled: "%prefix% &fAlertes activées"
 alerts-disabled: "%prefix% &fAlertes désactivées"
@@ -14,7 +15,7 @@ reloaded: "%prefix% &fConfig has been reloaded."
 reload-failed: "%prefix% &cFailed to reload config."
 player-not-found: "%prefix% &cPlayer est ignoré ou hors ligne !"
 sender-not-found: "%prefix% &cVous ne pouvez pas utiliser cette commande si vous êtes exempté !"
-spectate-return: "<click:run_command:/cult stopspectating><hover:show_text:\"/cult stopspectating\">\n%prefix% &fClickez ici pour retourner à votre position d'origine\n</hover></click>"
+spectate-return: "<click:run_command:/%command% stopspectating><hover:show_text:\"/%command% stopspectating\">\n%prefix% &fClickez ici pour retourner à votre position d'origine\n</hover></click>"
 cannot-spectate-return: "%prefix% &cVous pouvez faire cela uniquement en étant en spectateur"
 cannot-run-on-self: "%prefix% &cVous ne pouvez pas utiliser cette commande sur vous-même !"
 upload-log: "%prefix% &fLe fichier de débogage a été téléversé vers : %url%"
@@ -46,7 +47,7 @@ experimental-symbol: "*"
 
 profile:
     - "&7======================"
-    - "%prefix% &bProfil de &f%player%"
+    - "&bProfil de &f%player%"
     - "&bPing: &f%ping%"
     - "&bVersion du client : &f%version%"
     - "&bNature du client : &f%brand%"
@@ -56,24 +57,27 @@ profile:
     - "&7======================"
 help:
     - "&7======================"
-    - "/cult alerts &f- &7Activer/Désactiver les alertes"
-    - "/cult brands &f- &7Toggle brands"
-    - "/cult profile <player> &f- &7Voir le profil du joueur"
-    - "/cult help &f- &7Afficher l'aide"
-    - "/cult debug <player> &f- &7Afficher les informations de débogage du joueur"
-    - "/cult perf &f- &7Afficher les informations de performance"
-    - "/cult reload &f- &7Recharger la configuration"
-    - "/cult spectate <player> &f- &7Regarder un joueur"
-    - "/cult verbose &f- &7Affiche chaqu'une de vos violations, sans tampons"
-    - "/cult log [0-255] &f- &7Téléverse un journal de débogage pour les indicateurs de prédiction"
-    - "/cult history <player> &f- &7Liste des sessions (les plus récentes en premier)"
-    - "/cult history <player> page <N> &f- &7Aller à la page N de la liste des sessions"
-    - "/cult history <player> session <N|latest> [-d] [-v] &f- &7Détail d'une session (violations les plus récentes en premier)"
-    - "/cult history <player> session <N|latest> page <N> [-d] [-v] &f- &7Détail d'une session, page N des violations"
-    - "/cult cloud &f- &7État de l'envoi vers le cloud : sockets, trames retenues et compteurs"
-    - "/cult findings <player> [count] &f- &7Derniers résultats du cloud pour un joueur"
-    - "/cult top [check] [minutes] &f- &7Joueurs aux résultats du cloud les plus sûrs"
-    - "/cult label <player> <cheat|clean> <high|extreme> <24h|3d|7d|30d> [note] &f- &7Étiqueter un joueur dans le registre d'étiquettes du cloud (aussi list, revoke)"
+    - "/%command% alerts &f- &7Activer/Désactiver les alertes"
+    - "/%command% alerts scope [server|global] &f- &7Show or set whose alerts you see"
+    - "/%command% brands &f- &7Toggle brands"
+    - "/%command% findplayer [brand=...] &f- &7List client brands online, or who uses one"
+    - "/%command% profile <player> &f- &7Voir le profil du joueur"
+    - "/%command% help &f- &7Afficher l'aide"
+    - "/%command% debug <player> &f- &7Afficher les informations de débogage du joueur"
+    - "/%command% perf &f- &7Afficher les informations de performance"
+    - "/%command% reload &f- &7Recharger la configuration"
+    - "/%command% observe [on|off] &f- &7Afficher ou basculer le mode observe-only"
+    - "/%command% spectate <player> &f- &7Regarder un joueur"
+    - "/%command% verbose &f- &7Affiche chaqu'une de vos violations, sans tampons"
+    - "/%command% log [0-255] &f- &7Téléverse un journal de débogage pour les indicateurs de prédiction"
+    - "/%command% history <player> &f- &7Liste des sessions (les plus récentes en premier)"
+    - "/%command% history <player> page <N> &f- &7Aller à la page N de la liste des sessions"
+    - "/%command% history <player> session <N|latest> [-d] [-v] &f- &7Détail d'une session (violations les plus récentes en premier)"
+    - "/%command% history <player> session <N|latest> page <N> [-d] [-v] &f- &7Détail d'une session, page N des violations"
+    - "/%command% cloud &f- &7État de l'envoi vers le cloud : sockets, trames retenues et compteurs"
+    - "/%command% findings <player> [count] &f- &7Derniers résultats du cloud pour un joueur"
+    - "/%command% top [check] [minutes] &f- &7Joueurs aux résultats du cloud les plus sûrs"
+    - "/%command% label <player> <cheat|clean> <high|extreme> <24h|3d|7d|30d> [note] &f- &7Étiqueter un joueur dans le registre d'étiquettes du cloud (aussi list, revoke)"
     - "&7======================"
 
 # === /cult history ===
@@ -133,6 +137,43 @@ cult-history-detail-entry-hover-verbose: "<newline>&7%verbose%"
 # Format interne pour chaque check dans %checks_list% — placeholders valides : %check_name% %count%
 cult-history-check-count: "&f%check_name%&7 x&c%count%"
 
+# A command names a player on another instance, or a staff member asks for network-wide alerts, while
+# network.uri in config.yml is empty.
+network-disabled-command: "%prefix% &cNetwork-wide commands are not enabled on this server. Ask a server administrator to configure a messaging backend (Redis or NATS) in the CultAC configuration."
+network-disabled-alerts: "%prefix% &cNetwork-wide alerts are not enabled on this server. Ask a server administrator to configure a messaging backend (Redis or NATS) in the CultAC configuration."
+# /cult alerts scope [server|global]: %scope% is server or global, %source% one of the alerts-scope-* texts below.
+alerts-scope: "%prefix% &fAlert scope: &b%scope% &7(%source%)"
+alerts-scope-set: "%prefix% &fAlert scope set to &b%scope%"
+alerts-scope-chosen: "chosen"
+alerts-scope-default: "default"
+alerts-scope-local: "network-wide alerts are not enabled on this server"
+# A command routed to another instance or engine generation. %instance% is the instance id, %player% the player,
+# %location% the instance with its backend server, %reason% why it failed, %lines% and %kb% the output caps.
+network-command-same-server: "&c%player% is on %location%; this command only works on the same server."
+network-spectate-unreachable: "&c%player% is on %location%; spectating across servers needs CultAC on the proxy."
+network-command-stopped: "&cThe command could not be forwarded to %instance%: network routing stopped."
+network-command-not-forwarded: "&cThe command could not be forwarded to %instance%."
+network-command-target-left: "&c%player% is no longer on %instance%."
+network-command-failed: "&c%instance% could not run the command: %reason%"
+network-command-line-too-large: "&7One line of output was too large to relay."
+network-command-output-lost: "&cSome output from %instance% was lost."
+network-command-unfinished: "&7%instance% did not report that the command finished; its output may be incomplete."
+network-command-no-answer: "&c%instance% did not answer."
+network-command-output-cut: "&cThe rest of the output from %instance% was cut: it is over %lines% lines or %kb% KB."
+# /cult findplayer [brand=<text>]: the client brands online, or the players whose brand contains the text.
+# Brands, %query%, %player% and %server% show as plain text. %count% is a number of players; findplayer-unknown
+# names the players whose brand is not known yet.
+findplayer-summary: "%prefix% &bClient brands in use &8· &f%count% &7online &8· &7click a brand to see who uses it"
+findplayer-brand: "&8» &f%brand% &7(%count%)"
+findplayer-brand-hover: "&7Show who uses %brand%"
+findplayer-unknown: "unknown"
+findplayer-results: "%prefix% &bPlayers whose brand contains &f%query% &8· &f%count% &7online"
+findplayer-player: "&8» &f%player% &7on &f%server% &8· &7%brand%"
+findplayer-player-hover: "&7Show %player%'s profile"
+findplayer-more: "&7...and %count% more. Type more of the brand name to narrow it down."
+findplayer-none: "%prefix% &7Nobody online uses a brand containing &f%query%&7."
+findplayer-usage: "%prefix% &cTo search, type &f/%command% findplayer brand=lunar &cwith any part of a brand name, or leave it out to see every brand."
+
 # Marqueurs de schéma — voir le commentaire d'en-tête dans config.yml.
 config-flavor: V2
-config-version: 2
+config-version: 3

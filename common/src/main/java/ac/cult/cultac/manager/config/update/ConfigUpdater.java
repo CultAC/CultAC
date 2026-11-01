@@ -290,8 +290,14 @@ public final class ConfigUpdater {
             return new Result(false, oldVersion, spec.latestVersion, warning);
         }
 
+        Map<String, Object> defaultData;
+        try (InputStream defaultStream = openResource(resolvedResource)) {
+            defaultData = new Yaml().load(new String(defaultStream.readAllBytes(), StandardCharsets.UTF_8));
+        }
         WriteLog ownLog = WriteLog.active();
         YamlMap inputView = new YamlMapImpl(oldData, WriteLog.noop());
+        YamlMap defaultsView =
+                new YamlMapImpl(defaultData == null ? new LinkedHashMap<>() : defaultData, WriteLog.noop());
         YamlMap outputView = new YamlMapImpl(newData, ownLog);
 
         // Auto-lift trivially-matching user values into outputView. The diff
@@ -303,8 +309,8 @@ public final class ConfigUpdater {
         for (int v = oldVersion + 1; v <= spec.latestVersion; v++) {
             Migration m = spec.migrations.get(v);
             if (m == null) continue;
-            MigrationContext ctx =
-                    new ContextImpl(inputView, outputView, filesByName, siblingReadViews, pendingCrossFile, logger);
+            MigrationContext ctx = new ContextImpl(
+                    inputView, outputView, defaultsView, filesByName, siblingReadViews, pendingCrossFile);
             try {
                 m.apply(ctx);
             } catch (RuntimeException e) {
@@ -451,10 +457,10 @@ public final class ConfigUpdater {
     private record ContextImpl(
             @NotNull YamlMap input,
             @NotNull YamlMap output,
+            @NotNull YamlMap defaults,
             Map<String, File> filesByName,
             Map<String, Map<String, Object>> siblingReadViews,
-            Map<String, List<WriteLog.Entry>> pendingCrossFile,
-            Logger logger)
+            Map<String, List<WriteLog.Entry>> pendingCrossFile)
             implements MigrationContext {
         @Override
         public @NotNull YamlMap otherFile(@NotNull String fileName) {
@@ -468,7 +474,7 @@ public final class ConfigUpdater {
             // at the end of updateAll(). For single-file update() calls the
             // log still accumulates but never gets flushed (sibling not in
             // the batch); writes get dropped with a warning at flush time.
-            WriteLog log = WriteLog.sibling(fileName, pendingCrossFile, logger);
+            WriteLog log = WriteLog.sibling(fileName, pendingCrossFile);
             return new YamlMapImpl(view, log);
         }
     }

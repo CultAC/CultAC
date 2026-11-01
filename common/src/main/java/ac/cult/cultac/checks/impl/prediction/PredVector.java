@@ -3,6 +3,7 @@ package ac.cult.cultac.checks.impl.prediction;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.ClientSprintState;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.utils.math.Vec3;
@@ -40,6 +41,10 @@ public class PredVector extends Vec3 {
     @Setter
     int attackSlows = 0;
 
+    // The minecraft:sprinting modifier this candidate travels with while a possible attack reset leaves it open
+    @Getter
+    ClientSprintState.Outcome sprintOutcome = ClientSprintState.Outcome.ANY;
+
     List<TransactionVel> packetModifiers = null;
 
     public PredVector(Vec3 vec, PredVector lastVector, String reason) {
@@ -55,12 +60,20 @@ public class PredVector extends Vec3 {
         this.isBoundedStep = lastVector.isBoundedStep;
         this.isTickSkip = lastVector.isTickSkip;
         this.attackSlows = lastVector.attackSlows;
+        this.sprintOutcome = lastVector.sprintOutcome;
         this.reason = reason;
         this.packetModifiers = lastVector.packetModifiers;
     }
 
     public PredVector(Vec3 input) {
         super(input.x, input.y, input.z);
+    }
+
+    /** This candidate travelling with {@code outcome}'s sprint modifier. */
+    public PredVector withSprintOutcome(ClientSprintState.Outcome outcome) {
+        PredVector candidate = new PredVector(this, this, "sprint modifier");
+        candidate.sprintOutcome = outcome;
+        return candidate;
     }
 
     public static PredVector fromStartingVector(Vec3 input) {
@@ -128,13 +141,17 @@ public class PredVector extends Vec3 {
         return false;
     }
 
-    public boolean hasVectorInLineage(Vec3 vector, double maxDelta) {
-        PredVector current = this;
-        while (current != null) {
-            if (maxAbsDelta(current, vector) <= maxDelta) {
-                return true;
-            }
-            current = current.lastVector;
+    /**
+     * Whether a step with {@code reason} after {@code from} in this lineage changed X ({@code xAxis}) or Z from the
+     * step before it. Every step back to the root counts when {@code from} is not in the lineage.
+     */
+    public boolean reasonMovedAxisSince(String reason, PredVector from, boolean xAxis) {
+        for (PredVector current = this;
+                current != from && current != null && current.lastVector != null;
+                current = current.lastVector) {
+            if (!reason.equals(current.reason)) continue;
+            PredVector previous = current.lastVector;
+            if (xAxis ? current.x != previous.x : current.z != previous.z) return true;
         }
         return false;
     }
@@ -192,24 +209,21 @@ public class PredVector extends Vec3 {
         return lastVector == null ? context.getLastStuckSpeed() : lastVector.collisionStuckSpeedMultiplier(context);
     }
 
-    public Vec3 resolvedMovementDelta() {
-        return lastVector == null ? null : lastVector.resolvedMovementDelta();
-    }
-
-    private static double maxAbsDelta(Vec3 first, Vec3 second) {
-        if (first == null || second == null) {
-            return Double.POSITIVE_INFINITY;
-        }
-        return Math.max(
-                Math.max(Math.abs(first.x - second.x), Math.abs(first.y - second.y)), Math.abs(first.z - second.z));
-    }
-
     public int packetModifiersLength() {
         return packetModifiers == null ? 0 : packetModifiers.size();
     }
 
     public List<TransactionVel> getPacketModifiers() {
         return packetModifiers == null ? List.of() : Collections.unmodifiableList(packetModifiers);
+    }
+
+    /** Same tick-skip state and the same packet velocities, the keys the start-velocity sort orders by first. */
+    public boolean hasSameStartAs(PredVector other) {
+        if (isTickSkip != other.isTickSkip || packetModifiersLength() != other.packetModifiersLength()) return false;
+        for (int i = 0, size = packetModifiersLength(); i < size; i++) {
+            if (!other.packetModifiers.contains(packetModifiers.get(i))) return false;
+        }
+        return true;
     }
 
     public int tickSkippingComparator() {

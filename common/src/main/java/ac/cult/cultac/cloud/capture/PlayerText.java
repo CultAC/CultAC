@@ -23,8 +23,13 @@ import io.netty.buffer.Unpooled;
 import java.io.IOException;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.security.SecureRandom;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashSet;
+import java.util.HexFormat;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -33,6 +38,8 @@ import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Function;
 import java.util.function.ToIntFunction;
 import java.util.regex.Pattern;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 /**
  * Takes what players write out of a packet before it leaves the server:
@@ -45,7 +52,8 @@ import java.util.regex.Pattern;
  *       and author sent empty, NBT (a shoulder parrot) as an empty compound, and a profile cut to its skin;
  *   <li>from resource pack pushes, the prompt sent empty and the URL as an empty string;
  *   <li>from tab list entries, a display name sent empty, a chat session sent absent, and properties cut to one
- *       unsigned skin; from team presentation, text components sent empty;
+ *       unsigned skin; from teams, text components sent empty, the name as one of the stream's own and of the entries
+ *       only player names and UUIDs;
  *   <li>from {@code open_screen}, the window's title, and from {@code player_combat_kill}, the death message, each
  *       sent as an empty text;
  *   <li>from {@code show_dialog}, a dialog sent inline, sent as an empty compound; one named by its registry id stays;
@@ -320,6 +328,14 @@ public final class PlayerText {
 
     private static final Pattern SKIN_URL =
             Pattern.compile("https?://textures\\.minecraft\\.net/texture/[0-9a-f]{1,64}");
+    /**
+     * A team entry kept: a player's name, one with the crossplay prefix {@code .}, or an entity's UUID, or a name the
+     * stream's tab list carries; scoreboard holders and other strings go.
+     */
+    private static final Pattern MEMBER = Pattern.compile("[A-Za-z0-9_]{1,16}|\\.[A-Za-z0-9_]{1,15}"
+            + "|\\p{XDigit}{8}-\\p{XDigit}{4}-\\p{XDigit}{4}-\\p{XDigit}{4}-\\p{XDigit}{12}");
+
+    private static final byte[] NOTHING = {};
     private static final Map<Integer, PlayerText> LOADED = new ConcurrentHashMap<>();
     private static final Map<String, String> SKINS = new ConcurrentHashMap<>();
     /** Protocols with packet ids whose codec did not load; once one is here, connects say {@code textStripped} false. */
@@ -341,6 +357,8 @@ public final class PlayerText {
     private final byte[] clientboundKinds;
     /** By packet id: each serverbound packet's identifier, null for one not known here; null when no id is known. */
     private final String[] serverbound;
+    /** By packet id: {@link #STRIP}, {@link #TEXT_FREE}, or withheld; null when no id is known. */
+    private final byte[] serverboundKinds;
 
     private final ProtocolContext openScreen;
     private final ProtocolContext combatKill;
@@ -377,6 +395,12 @@ public final class PlayerText {
         serverboundNames.addAll(TEXT_FREE_SERVERBOUND);
         serverboundNames.addAll(PRIVATE_SERVERBOUND);
         this.serverbound = serverboundIds == null ? null : byId(serverboundNames, serverboundIds);
+        this.serverboundKinds = serverbound == null ? null : new byte[serverbound.length];
+        for (int id = 0; serverbound != null && id < serverbound.length; id++) {
+            String name = serverbound[id];
+            if (name == null || PRIVATE_SERVERBOUND.contains(name)) serverboundKinds[id] = WITHHELD;
+            else serverboundKinds[id] = TEXT_FREE_SERVERBOUND.contains(name) ? TEXT_FREE : STRIP;
+        }
         ProtocolVersion supported = null;
         ProtocolContext openScreen = null;
         ProtocolContext combatKill = null;
@@ -493,7 +517,7 @@ public final class PlayerText {
      * null when it must not be sent. With {@code textStripped} false, a packet that can carry text goes out as it came
      * when this protocol has no codec.
      */
-    byte[] clientbound(int id, byte[] packet, boolean textStripped) {
+    byte[] clientbound(int id, byte[] packet, boolean textStripped, TeamNames teams) {
         byte kind =
                 clientboundKinds != null && id >= 0 && id < clientboundKinds.length ? clientboundKinds[id] : WITHHELD;
         if (kind == TEXT_FREE) return packet;
@@ -502,23 +526,23 @@ public final class PlayerText {
             return null;
         }
         if (values == null && !textStripped) return unstripped(packet);
-        return counted(packet, strip(true, clientbound[id], packet));
+        return counted(packet, strip(true, clientbound[id], packet, teams));
     }
 
-    /** As {@link #clientbound(int, byte[], boolean)}, for a serverbound packet. */
+    /** As {@link #clientbound(int, byte[], boolean, TeamNames)}, for a serverbound packet. */
     byte[] serverbound(int id, byte[] packet, boolean textStripped) {
         if (serverbound == null) {
             withheld.increment();
             return null;
         }
-        String identifier = id < 0 || id >= serverbound.length ? null : serverbound[id];
-        if (identifier == null || PRIVATE_SERVERBOUND.contains(identifier)) {
+        byte kind = id >= 0 && id < serverboundKinds.length ? serverboundKinds[id] : WITHHELD;
+        if (kind == WITHHELD) {
             withheld.increment();
             return null;
         }
-        if (TEXT_FREE_SERVERBOUND.contains(identifier)) return packet;
+        if (kind == TEXT_FREE) return packet;
         if (values == null && !textStripped) return unstripped(packet);
-        return counted(packet, strip(false, identifier, packet));
+        return counted(packet, strip(false, serverbound[id], packet, null));
     }
 
     /** Whether a packet goes out unstripped on a socket that said {@code textStripped} false: this protocol has no codec. */
@@ -543,6 +567,26 @@ public final class PlayerText {
         return kept;
     }
 
+    private static byte[] protocolString(String value) {
+        ByteBuf out = Unpooled.buffer();
+        try {
+            Wire.writeString(out, value, Wire.MAX_STRING_LENGTH);
+            return ByteBufUtil.getBytes(out);
+        } finally {
+            out.release();
+        }
+    }
+
+    private static byte[] varInt(int value) {
+        ByteBuf out = Unpooled.buffer(5);
+        try {
+            Wire.writeVarInt(out, value);
+            return ByteBufUtil.getBytes(out);
+        } finally {
+            out.release();
+        }
+    }
+
     /** One status line. */
     public static String summary() {
         return String.format(
@@ -556,11 +600,11 @@ public final class PlayerText {
 
     /**
      * {@code packet} without what players write, the same array when it has none, or null when it does not read to its
-     * last byte: such a packet cannot be told clean.
+     * last byte: such a packet cannot be told clean. Teams are renamed by {@code teams}.
      */
-    byte[] strip(boolean clientbound, String identifier, byte[] packet) {
+    byte[] strip(boolean clientbound, String identifier, byte[] packet, TeamNames teams) {
         if (values == null) return null;
-        Walk walk = new Walk(Unpooled.wrappedBuffer(packet));
+        Walk walk = new Walk(Unpooled.wrappedBuffer(packet), teams);
         try {
             Wire.readVarInt(walk.in);
             boolean framed = clientbound ? walk.clientbound(identifier) : walk.serverbound(identifier);
@@ -568,17 +612,23 @@ public final class PlayerText {
         } catch (RuntimeException | StackOverflowError unreadable) {
             return null;
         }
+        if (walk.listed != null) teams.listed(walk.listed);
         return walk.edits == null ? packet : walk.edits.apply(walk.in, 0, packet.length);
     }
 
     /** One packet's fields, as its protocol frames them, and what is cut from them. */
     private final class Walk implements PlayerTextCodec.Cuts {
         final ByteBuf in;
+        final TeamNames teams;
         Edits edits;
+        /** The profile names this packet adds to the tab list; null when it adds none. */
+        List<String> listed;
+
         private int spent;
 
-        Walk(ByteBuf in) {
+        Walk(ByteBuf in, TeamNames teams) {
             this.in = in;
+            this.teams = teams;
         }
 
         @Override
@@ -742,7 +792,9 @@ public final class PlayerText {
             for (int i = 0; i < entries; i++) {
                 in.skipBytes(16); // Player.
                 if ((actions & 0x01) != 0) {
-                    string(); // Name.
+                    String name = Wire.readString(in, Wire.MAX_STRING_LENGTH);
+                    if (listed == null) listed = new ArrayList<>();
+                    listed.add(name);
                     properties();
                 }
                 if ((actions & 0x02) != 0) {
@@ -798,10 +850,16 @@ public final class PlayerText {
             }
         }
 
-        /** A team: its name, mode, options and players kept, its display name, prefix and suffix sent empty. */
+        /**
+         * A team: its name sent as the stream's name for it, its mode and options kept, its display name, prefix and
+         * suffix sent empty, and of its entries only player names and UUIDs kept.
+         */
         private void team() {
-            string(); // Team.
+            int start = in.readerIndex();
+            String team = Wire.readString(in, Wire.MAX_STRING_LENGTH);
+            cut(start, in.readerIndex(), protocolString(teams.of(team)));
             int mode = in.readByte();
+            if (mode < 0 || mode > 4) throw new IllegalArgumentException("Unknown team mode " + mode);
             if (mode == 0 || mode == 2) {
                 if (version.atLeast(ProtocolVersion.V26_2)) {
                     text(); // Display name.
@@ -827,8 +885,18 @@ public final class PlayerText {
                 }
             }
             if (mode == 0 || mode == 3 || mode == 4) {
-                int players = count();
-                for (int i = 0; i < players; i++) string();
+                int countStart = in.readerIndex();
+                int entries = count();
+                int countEnd = in.readerIndex();
+                int kept = entries;
+                for (int i = 0; i < entries; i++) {
+                    int entry = in.readerIndex();
+                    String name = Wire.readString(in, Wire.MAX_STRING_LENGTH);
+                    if (MEMBER.matcher(name).matches() || teams.listed(name)) continue;
+                    cut(entry, in.readerIndex(), NOTHING);
+                    kept--;
+                }
+                if (kept != entries) cut(countStart, countEnd, varInt(kept));
             }
         }
 
@@ -885,6 +953,65 @@ public final class PlayerText {
         /** A length of bytes skipped whole. */
         private int length() {
             return Wire.readLength(in, in.readableBytes());
+        }
+    }
+
+    /**
+     * One stream's names for teams: each team's name hashed under a key of the stream's own, so the same team keeps
+     * one name in the stream and no name can be read back or matched across streams. It also holds the profile names
+     * the stream's tab list has carried, which a team keeps as members.
+     */
+    static final class TeamNames {
+        private static final SecureRandom KEYS = new SecureRandom();
+        /** The most tab list names held; later ones are not. */
+        static final int MAX_LISTED = 4096;
+        /** The longest profile name a client reads. */
+        private static final int MAX_NAME = 16;
+
+        private final byte[] key;
+        private final Set<String> listed = new HashSet<>();
+        private Mac mac;
+
+        TeamNames() {
+            this(null);
+        }
+
+        /** Names under {@code key}; a null one is drawn at random on first use. */
+        TeamNames(byte[] key) {
+            this.key = key;
+        }
+
+        void listed(List<String> names) {
+            for (String name : names) {
+                if (listed.size() >= MAX_LISTED) return;
+                if (name.length() <= MAX_NAME) listed.add(name);
+            }
+        }
+
+        boolean listed(String name) {
+            return listed.contains(name);
+        }
+
+        /** {@code team}'s name in this stream: sixteen hex digits. */
+        String of(String team) {
+            if (mac == null) mac = mac(key);
+            byte[] hash = mac.doFinal(team.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash, 0, 8);
+        }
+
+        private static Mac mac(byte[] key) {
+            byte[] secret = key;
+            if (secret == null) {
+                secret = new byte[32];
+                KEYS.nextBytes(secret);
+            }
+            try {
+                Mac mac = Mac.getInstance("HmacSHA256");
+                mac.init(new SecretKeySpec(secret, "HmacSHA256"));
+                return mac;
+            } catch (GeneralSecurityException missing) {
+                throw new IllegalStateException(missing);
+            }
         }
     }
 

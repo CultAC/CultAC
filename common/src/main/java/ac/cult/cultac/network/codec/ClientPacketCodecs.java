@@ -12,9 +12,12 @@
  */
 package ac.cult.cultac.network.codec;
 
+import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.network.packet.EntityMetadata;
+import ac.cult.cultac.network.packet.FrameLease;
 import ac.cult.cultac.network.packet.InventoryPackets;
 import ac.cult.cultac.network.packet.RegistryData;
+import ac.cult.cultac.network.packet.RegistryTags;
 import ac.cult.cultac.network.packet.WorldPackets;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketCatalog;
@@ -22,16 +25,20 @@ import ac.cult.cultac.protocol.PacketCodec;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.ProtocolCodecs;
 import ac.cult.cultac.protocol.ProtocolContext;
+import ac.cult.cultac.protocol.ProtocolResolutionException;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.WireValueDecoder;
 import ac.cult.cultac.protocol.WritablePacketCodec;
 import ac.cult.cultac.protocol.data.RegistryNames;
 import ac.cult.cultac.protocol.packet.Packets;
+import ac.cult.cultac.protocol.wire.RegistryValueCodec;
 import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.inventory.InventoryClick;
+import ac.cult.cultac.utils.inventory.ItemUtil;
 import ac.cult.cultac.utils.latency.ClientWorldRegistries;
 import io.netty.buffer.ByteBuf;
 import java.util.List;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
@@ -83,21 +90,21 @@ public final class ClientPacketCodecs {
                     @Override
                     public RegistryData read(ByteBuf input, ProtocolContext context) {
                         requireModelWire(context);
-                        var packet = ac.cult.cultac.protocol.wire.RegistryValueCodec.read(input);
+                        var packet = RegistryValueCodec.read(input);
                         return new RegistryData(packet.registry(), packet.entries());
                     }
                 });
         clientbound
                 .in(ConnectionPhase.CONFIGURATION, ConnectionPhase.PLAY)
                 .since(MODEL_VERSION)
-                .add("update_tags", ac.cult.cultac.network.packet.RegistryTags.class, new PacketCodec<>() {
+                .add("update_tags", RegistryTags.class, new PacketCodec<>() {
                     @Override
                     public boolean requiresModelValues() {
                         return true;
                     }
 
                     @Override
-                    public ac.cult.cultac.network.packet.RegistryTags read(ByteBuf input, ProtocolContext context) {
+                    public RegistryTags read(ByteBuf input, ProtocolContext context) {
                         requireModelWire(context);
                         return RegistryTagValues.read(input);
                     }
@@ -211,25 +218,10 @@ public final class ClientPacketCodecs {
             @Override
             public void write(ByteBuf output, ProtocolContext context, T packet) {
                 requireModelWire(context);
-                var snapshot = snapshots.apply(context);
-                var names = new WireValueDecoder.Registries() {
-                    @Override
-                    public String name(String registry, int id) {
-                        return snapshot.name(registry, id);
-                    }
-
-                    @Override
-                    public int id(String registry, String name) {
-                        return snapshot.id(registry, name);
-                    }
-                };
+                var names = registries(snapshots.apply(context));
                 writer.write(
                         output,
-                        new ModelItemValues(
-                                ProtocolCodecs.decoder(),
-                                MODEL_VERSION,
-                                names,
-                                ac.cult.cultac.utils.inventory.ItemUtil.modelItems()),
+                        new ModelItemValues(ProtocolCodecs.decoder(), MODEL_VERSION, names, ItemUtil.modelItems()),
                         packet);
             }
         };
@@ -238,29 +230,38 @@ public final class ClientPacketCodecs {
     @SuppressWarnings("unchecked")
     private static <R> PacketCodec<R> inventoryReader(
             Function<ProtocolContext, RegistryNames> snapshots, String name, boolean entirePayload) {
-        return namedReader(
-                snapshots,
-                (input, snapshot) -> {
-                    var names = new WireValueDecoder.Registries() {
-                        @Override
-                        public String name(String registry, int id) {
-                            return snapshot.name(registry, id);
-                        }
+        return new PacketCodec<>() {
+            @Override
+            public boolean requiresModelValues() {
+                return true;
+            }
 
-                        @Override
-                        public int id(String registry, String name) {
-                            return snapshot.id(registry, name);
-                        }
-                    };
-                    return (R)
-                            new ModelInventoryValues(ProtocolCodecs.decoder(), MODEL_VERSION, names).read(input, name);
-                },
-                entirePayload);
+            @Override
+            public boolean readsEntirePayload() {
+                return entirePayload;
+            }
+
+            @Override
+            public R read(ByteBuf input, ProtocolContext context) {
+                requireModelWire(context);
+                var snapshot = snapshots.apply(context);
+                var values = new ModelInventoryValues(
+                        ProtocolCodecs.decoder(), MODEL_VERSION, registries(snapshot), stacks(context), () -> snapshot);
+                return (R) values.read(input, name);
+            }
+        };
+    }
+
+    /** The connection's sent stacks, held for one immutable snapshot of model names at a time. */
+    private static ItemStackCache stacks(ProtocolContext context) {
+        if (!(context.state() instanceof CultConnection connection) || connection.platform() == null) return null;
+        var values = connection.platform().modelValues();
+        return values == null ? null : values.stacks();
     }
 
     private static <R> PacketCodec<R> namedReader(
-            Function<ProtocolContext, ac.cult.cultac.protocol.data.RegistryNames> names,
-            java.util.function.BiFunction<ByteBuf, ac.cult.cultac.protocol.data.RegistryNames, R> reader,
+            Function<ProtocolContext, RegistryNames> names,
+            BiFunction<ByteBuf, RegistryNames, R> reader,
             boolean entirePayload) {
         return new PacketCodec<>() {
             @Override
@@ -281,9 +282,23 @@ public final class ClientPacketCodecs {
         };
     }
 
+    private static WireValueDecoder.Registries registries(RegistryNames snapshot) {
+        return new WireValueDecoder.Registries() {
+            @Override
+            public String name(String registry, int id) {
+                return snapshot.name(registry, id);
+            }
+
+            @Override
+            public int id(String registry, String name) {
+                return snapshot.id(registry, name);
+            }
+        };
+    }
+
     private static void requireModelWire(ProtocolContext context) {
         if (context.version() != MODEL_VERSION)
-            throw new ac.cult.cultac.protocol.ProtocolResolutionException(
+            throw new ProtocolResolutionException(
                     "Model value codec needs " + MODEL_VERSION + " wire bytes, received " + context.version());
     }
 
@@ -299,30 +314,20 @@ public final class ClientPacketCodecs {
             @Override
             public EntityMetadata read(ByteBuf input, ProtocolContext context) {
                 requireModelWire(context);
-                var snapshot = snapshots.apply(context);
-                var names = new WireValueDecoder.Registries() {
-                    @Override
-                    public String name(String registry, int id) {
-                        return snapshot.name(registry, id);
-                    }
-
-                    @Override
-                    public int id(String registry, String name) {
-                        return snapshot.id(registry, name);
-                    }
-                };
+                var names = registries(snapshots.apply(context));
                 var values = new ModelEntityMetadataValues(ProtocolCodecs.decoder(), MODEL_VERSION, names, name -> {
                     var registries = worldRegistries.apply(context);
                     return registries == null ? null : registries.painting(name);
                 });
-                return values.read(input);
+                return values.read(
+                        input, context.state() instanceof FrameLease.Source lender ? lender.lease(input) : null);
             }
 
             @Override
             public void write(ByteBuf output, ProtocolContext context, EntityMetadata packet) {
                 requireModelWire(context);
                 Wire.writeVarInt(output, packet.id());
-                for (var entry : packet.packedItems()) output.writeBytes(entry.bytes());
+                for (var entry : packet.packedItems()) entry.writeTo(output);
                 output.writeByte(255);
             }
         };

@@ -10,6 +10,7 @@ import ac.cult.cultac.protocol.packet.clientbound.*;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.*;
+import java.lang.reflect.Array;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
@@ -118,6 +119,89 @@ class ProjectedPacketsTest {
                     input.release();
                 }
             }
+        }
+    }
+
+    /** A reader of the value may reuse whatever the predicate looked up for the type it accepted. */
+    @Test
+    void aValueCarriesTheOneTypeTheConsumedPredicateAccepted() {
+        var adapted = new AtomicInteger();
+        var adapter = new PacketValueAdapter() {
+            public Object read(ByteBuf input, ProtocolContext context) {
+                input.skipBytes(input.readableBytes());
+                Object value = defaultRecord(context.type().recordClass());
+                adapted.incrementAndGet();
+                return value;
+            }
+
+            public void write(ByteBuf output, ProtocolContext context, Object value) {
+                throw new AssertionError();
+            }
+        };
+        int values = 0;
+        int translatedValues = 0;
+        for (var version : ProtocolVersion.values()) {
+            var wire = ProtocolRuntime.create(ProtocolData.load(version));
+            try (var packets = new ProjectedPackets(wire, MODEL, () -> adapter)) {
+                for (var phase : ConnectionPhase.values()) {
+                    for (var direction : PacketDirection.values()) {
+                        int ids = wire.data().packets(phase, direction).size();
+                        for (int id = -1; id <= ids; id++) {
+                            for (boolean accept : new boolean[] {true, false}) {
+                                List<PacketType<?>> tested = new ArrayList<>();
+                                var input = Unpooled.buffer();
+                                Wire.writeVarInt(input, id);
+                                input.writeZero(64);
+                                Object value = null;
+                                int adaptedBefore = adapted.get();
+                                try {
+                                    value = packets.readOne(phase, direction, input, CodecState.EMPTY, type -> {
+                                        tested.add(type);
+                                        return accept;
+                                    });
+                                } catch (RuntimeException ignored) {
+                                    // Zero payloads are malformed for many families; the predicate is what matters.
+                                } finally {
+                                    input.release();
+                                }
+                                String where = version + "/" + phase + "/" + direction + "/" + id;
+                                assertTrue(tested.size() <= 1, where);
+                                if (id >= 0 && id < ids) {
+                                    var expected = packets.type(phase, direction, id);
+                                    assertEquals(expected == null ? List.of() : List.of(expected), tested, where);
+                                }
+                                if (value != null) {
+                                    assertTrue(accept, where);
+                                    assertTrue(tested.getFirst().recordClass().isInstance(value), where);
+                                    values++;
+                                    if (adapted.get() > adaptedBefore) translatedValues++;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assertTrue(values > 0);
+        assertTrue(translatedValues > 0);
+    }
+
+    /** A record of {@code type} built from zero, false and null components. */
+    private static Object defaultRecord(Class<?> type) {
+        if (!type.isRecord()) throw new UnsupportedOperationException(type.getName());
+        var components = type.getRecordComponents();
+        var types = new Class<?>[components.length];
+        var arguments = new Object[components.length];
+        for (int i = 0; i < components.length; i++) {
+            types[i] = components[i].getType();
+            arguments[i] = types[i].isPrimitive() ? Array.get(Array.newInstance(types[i], 1), 0) : null;
+        }
+        try {
+            var constructor = type.getDeclaredConstructor(types);
+            constructor.setAccessible(true);
+            return constructor.newInstance(arguments);
+        } catch (ReflectiveOperationException e) {
+            throw new UnsupportedOperationException(type.getName(), e);
         }
     }
 

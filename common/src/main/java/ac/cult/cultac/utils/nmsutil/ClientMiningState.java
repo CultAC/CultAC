@@ -4,7 +4,9 @@ import ac.cult.blocksim.engine.BlockSimClientVersion;
 import ac.cult.blocksim.interaction.MiningSpeed;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.MovementEffect;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
+import ac.cult.cultac.utils.math.Vec3;
 
 /** Player#getDestroySpeed's player inputs as this client last received them. */
 public final class ClientMiningState {
@@ -41,9 +43,13 @@ public final class ClientMiningState {
     }
 
     private static boolean eyeInWater(CultPlayer player) {
-        double eye = player.y + player.getEyeHeight() - 0.1111111119389534D;
-        double surface =
-                (float) Math.floor(eye) + player.compensatedWorld.getWaterFluidLevelAt(player.x, eye, player.z);
-        return eye < surface;
+        SimpleCollisionBox body = GetBoundingBox.getBoundingBoxFromPosAndSize(
+                player.x,
+                player.y,
+                player.z,
+                player.pose.width * player.dimensionScale,
+                player.pose.height * player.dimensionScale);
+        return ClientFluidQueries.eyesInWater(
+                player, body, new Vec3(player.x, player.y, player.z), player.y + player.getEyeHeight());
     }
 }

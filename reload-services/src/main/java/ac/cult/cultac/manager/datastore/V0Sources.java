@@ -10,9 +10,8 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Builds a legacy migration source from either a plugin data folder (SQLite
  * file fallback) or the old {@code history.database.*} block in
- * {@code config.yml}. Shared by {@code DataStoreLifecycle.maybeMigrateLegacy}
- * at startup and by the {@code /cult history migrate} command at runtime so
- * both paths route sources identically.
+ * {@code config.yml}, for the {@code /cult history migrate} command
+ * ({@code CultHistoryMigrate}).
  */
 public final class V0Sources {
 

@@ -29,10 +29,6 @@ public abstract class SenderFactory<T> {
 
     protected abstract boolean isPlayer(T sender);
 
-    protected boolean shouldSplitNewlines(T sender) {
-        return isConsole(sender);
-    }
-
     public @NotNull Sender wrap(@NotNull T sender) {
         Objects.requireNonNull(sender, "sender");
         return new AbstractSender<>(this, sender);

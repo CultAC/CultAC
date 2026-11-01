@@ -17,6 +17,7 @@ public final class CultACBootstrapPlugin extends JavaPlugin implements TabExecut
     private GenerationManager runtimes;
     private BukkitLegacyEvents legacyEvents;
     private CultPlaceholderExpansion placeholders;
+    private final Set<String> registeredRoots = new HashSet<>();
 
     @Override
     public void onLoad() {
@@ -75,11 +76,43 @@ public final class CultACBootstrapPlugin extends JavaPlugin implements TabExecut
                 placeholders.register();
             }
             Bukkit.getGlobalRegionScheduler().runAtFixedRate(this, ignored -> runtimes.tick(), 1, 1);
-            Objects.requireNonNull(getCommand("cult")).setExecutor(this);
-            getCommand("cult").setTabCompleter(this);
+            runtimes.onActivated(() -> Bukkit.getGlobalRegionScheduler().execute(this, () -> {
+                if (registerCommandRoots()) Bukkit.getOnlinePlayers().forEach(org.bukkit.entity.Player::updateCommands);
+            }));
+            registerCommandRoots();
         } catch (Exception failure) {
             throw new IllegalStateException("CultAC startup failed", failure);
         }
+    }
+
+    private boolean registerCommandRoots() {
+        List<String> fresh = runtimes.commandRoots().stream()
+                .filter(root -> !registeredRoots.contains(root))
+                .toList();
+        if (fresh.isEmpty()) return false;
+        var command =
+                new Command(
+                        fresh.getFirst(),
+                        "CultAC administration",
+                        "/" + fresh.getFirst(),
+                        new ArrayList<>(fresh.subList(1, fresh.size()))) {
+                    @Override
+                    public boolean execute(CommandSender sender, String label, String[] args) {
+                        return onCommand(sender, this, label, args);
+                    }
+
+                    @Override
+                    public List<String> tabComplete(CommandSender sender, String alias, String[] args) {
+                        return onTabComplete(sender, this, alias, args);
+                    }
+                };
+        Bukkit.getCommandMap().register(getName().toLowerCase(Locale.ROOT), command);
+        registeredRoots.addAll(fresh);
+        return true;
+    }
+
+    private String primaryRoot() {
+        return runtimes.commandRoots().getFirst();
     }
 
     @Override
@@ -111,7 +144,7 @@ public final class CultACBootstrapPlugin extends JavaPlugin implements TabExecut
                 return true;
             }
             if (args.length != 2) {
-                sender.sendMessage("Usage: /cult update <filename.jar>");
+                sender.sendMessage("Usage: /" + primaryRoot() + " update <filename.jar>");
                 return true;
             }
             runtimes.update(args[1])
@@ -126,7 +159,8 @@ public final class CultACBootstrapPlugin extends JavaPlugin implements TabExecut
         } else {
             var targetName = CommandRouting.target(args);
             Object target = targetName == null ? sender : Bukkit.getPlayerExact(targetName);
-            runtimes.execute(sender, "cult " + String.join(" ", args), target, CommandRouting.aggregate(args));
+            runtimes.execute(
+                    sender, primaryRoot() + " " + String.join(" ", args), target, CommandRouting.aggregate(args));
         }
         return true;
     }
@@ -157,7 +191,7 @@ public final class CultACBootstrapPlugin extends JavaPlugin implements TabExecut
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String label, String[] args) {
-        return runtimes.suggest(sender, "cult " + String.join(" ", args))
+        return runtimes.suggest(sender, primaryRoot() + " " + String.join(" ", args))
                 .toCompletableFuture()
                 .getNow(List.of());
     }

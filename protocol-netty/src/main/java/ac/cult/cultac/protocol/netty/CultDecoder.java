@@ -3,6 +3,7 @@ package ac.cult.cultac.protocol.netty;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.network.CultNetworkManager;
+import ac.cult.cultac.network.PacketDispatcher;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.protocol.DroppedPacketException;
 import ac.cult.cultac.protocol.PacketDirection;
@@ -23,15 +24,19 @@ import java.util.function.Predicate;
 public final class CultDecoder extends ChannelInboundHandlerAdapter {
     public static final String NAME = "cult-decoder";
     private static final String HOST_FLOW_NAME = NAME + "-host-flow";
-    private static final long FAILURE_LOG_INTERVAL_NANOS = java.util.concurrent.TimeUnit.SECONDS.toNanos(15);
     private final CultConnection connection;
-    private long lastFailureLog;
-    private int suppressedFailures;
     private final Predicate<PacketType<?>> routed;
+    /** The route {@link #routed} found during a readOne, read back on the owner loop before anything is dispatched. */
+    private PacketDispatcher.Route probed;
+    /** The type {@link #routed} was offered during a readOne, read back like {@link #probed}. */
+    private PacketType<?> probedType;
 
     public CultDecoder(CultConnection connection) {
         this.connection = connection;
-        routed = type -> connection.dispatcher().get(type) != null;
+        routed = type -> {
+            probedType = type;
+            return (probed = connection.dispatcher().get(type)) != null;
+        };
     }
 
     public static void install(CultConnection connection) {
@@ -66,7 +71,8 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object message) {
-        if (!(message instanceof ByteBuf frame)) {
+        // An empty frame is a packet a handler ahead of cultac cancelled (PacketEvents leaves one); vanilla skips it.
+        if (!(message instanceof ByteBuf frame) || !frame.isReadable()) {
             ctx.fireChannelRead(message);
             return;
         }
@@ -121,9 +127,10 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
             ServerboundPacket forwardedPacket = null;
             var value = connection.packets().readOne(phase, PacketDirection.SERVERBOUND, frame, connection, routed);
             if (value != null) {
-                var route = connection.dispatcher().get(value.type());
+                var route = probed;
+                var valueType = probedType;
                 var type = (PacketType<ServerboundPacket>) route.type();
-                var original = (ServerboundPacket) value.packet();
+                var original = (ServerboundPacket) value;
                 originalType = type;
                 originalPacket = original;
                 var pausing = connection.player();
@@ -152,7 +159,7 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
                 // Observe-only forwards what the client sent; a pong answering CultAC's own ping and a client
                 // payload on the companion's bridge channel keep their cancel.
                 if (observeOnly
-                        && !(value.type() == ServerboundPackets.PONG && event.isAcceptedTransactionResponse())
+                        && !(valueType == ServerboundPackets.PONG && event.isAcceptedTransactionResponse())
                         && !(original instanceof ServerboundCustomPayload payload
                                 && ClientboundPackets.BRIDGE_CHANNEL.equals(payload.channel()))) {
                     packet = original;
@@ -172,7 +179,7 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
                 }
                 if (player != null) {
                     var setbacks = player.getSetbackTeleportUtil();
-                    if (value.type() == ServerboundPackets.CLIENT_TICK_END) setbacks.resetForwardedPositionThisTick();
+                    if (valueType == ServerboundPackets.CLIENT_TICK_END) setbacks.resetForwardedPositionThisTick();
                     else if (packet instanceof ServerboundMovePlayer move
                             && move.hasPosition()
                             && !event.isTeleportPositionResponse()) setbacks.markForwardedPositionThisTick();
@@ -194,7 +201,7 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
             frame = null;
             return output;
         } catch (Throwable failure) {
-            reportDecodeFailure("inbound packet decoding", failure);
+            CultNetworkManager.reportFailure("inbound packet decoding", failure);
             if (frame != originalFrame) frame.release();
             frame = null;
             if (failure instanceof DroppedPacketException) return null;
@@ -204,19 +211,6 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
             if (frame != null && frame != originalFrame) frame.release();
             if (releaseOriginal) originalFrame.release();
         }
-    }
-
-    /** Hostile input can fail every frame; log the first failure and then at most one per second. */
-    private void reportDecodeFailure(String operation, Throwable failure) {
-        long now = System.nanoTime();
-        if (lastFailureLog != 0 && now - lastFailureLog < FAILURE_LOG_INTERVAL_NANOS) {
-            suppressedFailures++;
-            return;
-        }
-        String suffix = suppressedFailures == 0 ? "" : " (" + suppressedFailures + " similar failures suppressed)";
-        suppressedFailures = 0;
-        lastFailureLog = now;
-        CultNetworkManager.reportFailure(operation + suffix, failure);
     }
 
     private void forwarded(Forward output) {

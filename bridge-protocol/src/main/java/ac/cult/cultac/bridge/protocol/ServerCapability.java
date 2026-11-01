@@ -18,7 +18,9 @@ public enum ServerCapability {
     CLEAR_ACTIVE_ITEM(10),
     CLOUD_FACTS(11),
     /** Answers MARKER frames, in order with the player's game packets. */
-    MARKER(12);
+    MARKER(12),
+    /** Answers MODS_REQUEST with the player's Lunar Client mods from Apollo. */
+    APOLLO_MODS(13);
 
     private final int bit;
 

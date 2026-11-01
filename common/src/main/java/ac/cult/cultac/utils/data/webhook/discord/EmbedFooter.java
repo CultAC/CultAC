@@ -29,13 +29,6 @@ public class EmbedFooter implements JsonSerializable {
         icon(icon);
     }
 
-    public EmbedFooter(@NotNull JsonElement jsonElement) {
-        JsonObject json = jsonElement.getAsJsonObject();
-        text(json.get("text").getAsString());
-        JsonElement icon_url = json.get("icon_url");
-        if (icon_url != null) icon(icon_url.getAsString());
-    }
-
     @Contract(value = "_ -> this", mutates = "this")
     public @NotNull EmbedFooter text(@NotNull String text) {
         Objects.requireNonNull(text, "Embed footer text cannot be null!");

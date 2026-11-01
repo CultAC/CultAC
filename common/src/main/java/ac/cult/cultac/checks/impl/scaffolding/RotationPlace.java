@@ -2,16 +2,15 @@ package ac.cult.cultac.checks.impl.scaffolding;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.CheckData;
+import ac.cult.cultac.checks.EyePositions;
 import ac.cult.cultac.checks.type.BlockPlaceCheck;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
-import ac.cult.cultac.utils.data.Pair;
 import ac.cult.cultac.utils.math.Vec3;
-import ac.cult.cultac.utils.math.Vector3dm;
 import ac.cult.cultac.utils.nmsutil.Ray;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
+import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -28,9 +27,11 @@ public class RotationPlace extends BlockPlaceCheck {
     private double flagBuffer =
             0; // If the player flags once, force them to play legit, or we will cancel the tick before.
     private boolean ignorePost = false;
+    private final ClientVisibilityProcessor visibility;
 
-    public RotationPlace(CultPlayer player) {
+    public RotationPlace(CultPlayer player, ClientVisibilityProcessor visibility) {
         super(player);
+        this.visibility = visibility;
     }
 
     @Override
@@ -80,15 +81,7 @@ public class RotationPlace extends BlockPlaceCheck {
         final List<Double> possibleEyeHeights = player.getPossibleEyeHeights();
 
         // Start checking if player is in the block
-        double minEyeHeight = Double.MAX_VALUE;
-        double maxEyeHeight = Double.MIN_VALUE;
-        for (double height : possibleEyeHeights) {
-            minEyeHeight = Math.min(minEyeHeight, height);
-            maxEyeHeight = Math.max(maxEyeHeight, height);
-        }
-
-        SimpleCollisionBox eyePositions = new SimpleCollisionBox(
-                player.x, player.y + minEyeHeight, player.z, player.x, player.y + maxEyeHeight, player.z);
+        SimpleCollisionBox eyePositions = EyePositions.box(player, possibleEyeHeights);
         eyePositions.expand(player.getMovementThreshold());
 
         // If the player is inside a block, then they can ray trace through the block and hit the other side of the
@@ -101,17 +94,14 @@ public class RotationPlace extends BlockPlaceCheck {
         // 1.9+ players could be a tick behind because we don't get skipped ticks
         possibleLookDirs.add(new Vector3f(player.lastTickXRot, player.lastTickYRot, 0));
 
-        final double distance = player.compensatedEntities.getSelf().getBlockInteractionRange();
+        List<SimpleCollisionBox> outline = visibility.outlineBoxes(place.getPlacedAgainstBlockLocation());
         for (double d : possibleEyeHeights) {
             for (Vector3f lookDir : possibleLookDirs) {
                 // x, y, z are correct for the block placement even after post tick because of code elsewhere
                 Vec3 starting = new Vec3(player.x, player.y + d, player.z);
                 // xRot and yRot are a tick behind
                 Ray trace = new Ray(player, starting.x, starting.y, starting.z, lookDir.x, lookDir.y);
-                Pair<Vector3dm, Direction> intercept =
-                        ReachUtils.calculateIntercept(box, trace.getOrigin(), trace.getPointAtDistance(distance));
-
-                if (intercept.getFirst() != null) return true;
+                if (ReachUtils.pickHits(player, place.getPlacedAgainstBlockLocation(), outline, trace)) return true;
             }
         }
 

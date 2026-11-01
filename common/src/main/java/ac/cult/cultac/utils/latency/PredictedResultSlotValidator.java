@@ -3,6 +3,7 @@ package ac.cult.cultac.utils.latency;
 import ac.cult.cultac.utils.inventory.InventoryItem;
 import ac.cult.cultac.utils.inventory.inventory.MenuType;
 import ac.cult.cultac.utils.latency.MerchantOfferSelection.Offer;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,9 +47,6 @@ final class PredictedResultSlotValidator {
         }
         InventoryItem result = !isEmpty(afterResult) ? afterResult : beforeResult;
         if (isEmpty(result) && clickedSlot == resultSlot) {
-            if (menuType != MenuType.MERCHANT) {
-                return null;
-            }
             result = findClaimedResult(
                     menuType, beforeSlots, beforeCarried, afterSlots, afterCarried, merchantOffers, selectedOffer);
         }
@@ -120,7 +118,7 @@ final class PredictedResultSlotValidator {
             InventoryItem afterCarried,
             List<Offer> merchantOffers,
             int selectedOffer) {
-        List<InventoryItem> candidates = new java.util.ArrayList<>(afterSlots.size() + 1);
+        List<InventoryItem> candidates = new ArrayList<>(afterSlots.size() + 1);
         candidates.add(afterCarried);
         candidates.addAll(afterSlots);
         for (InventoryItem candidate : candidates) {
@@ -208,10 +206,6 @@ final class PredictedResultSlotValidator {
         return true;
     }
 
-    static boolean costMatches(InventoryItem cost, InventoryItem stack) {
-        return MerchantOfferSelection.costMatches(cost, stack);
-    }
-
     private static boolean saneGrindstoneResult(List<InventoryItem> slots, InventoryItem result) {
         int available = 0;
         for (int slot = 0; slot < 2; slot++) {
@@ -243,7 +237,7 @@ final class PredictedResultSlotValidator {
     }
 
     private static boolean inputsConsumed(MenuType menuType, List<InventoryItem> before, List<InventoryItem> after) {
-        int inputSlots = dialogInputSlots(menuType);
+        int inputSlots = resultSlot(menuType);
         long beforeAmount = 0;
         long afterAmount = 0;
         for (int slot = 0; slot < inputSlots && slot < before.size() && slot < after.size(); slot++) {
@@ -255,7 +249,7 @@ final class PredictedResultSlotValidator {
 
     private static long consumedInputAmount(
             MenuType menuType, List<InventoryItem> before, List<InventoryItem> after, int material) {
-        int inputSlots = dialogInputSlots(menuType);
+        int inputSlots = resultSlot(menuType);
         long beforeAmount = 0;
         long afterAmount = 0;
         for (int slot = 0; slot < inputSlots && slot < before.size() && slot < after.size(); slot++) {
@@ -263,15 +257,6 @@ final class PredictedResultSlotValidator {
             afterAmount += amountOf(after.get(slot), material);
         }
         return Math.max(0, beforeAmount - afterAmount);
-    }
-
-    private static int dialogInputSlots(MenuType menuType) {
-        return switch (menuType) {
-            case STONECUTTER -> 1;
-            case ANVIL, GRINDSTONE, MERCHANT, CARTOGRAPHY_TABLE -> 2;
-            case LOOM -> 3;
-            default -> 0;
-        };
     }
 
     private static long materialCount(List<InventoryItem> slots, InventoryItem carried, int material) {

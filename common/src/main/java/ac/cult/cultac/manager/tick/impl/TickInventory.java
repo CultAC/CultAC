@@ -10,10 +10,9 @@ public class TickInventory implements Tickable {
     public void tick() {
         for (CultPlayer player : CultAPI.INSTANCE.getPlayerDataManager().getEntries()) {
 
-            if (player.getInventory().inventory.getInventoryStorage()
-                    instanceof CorrectingPlayerInventoryStorage correcting) {
-                player.runSafely(correcting::tickServerView);
-            }
+            CorrectingPlayerInventoryStorage correcting = (CorrectingPlayerInventoryStorage)
+                    player.getInventory().inventory.getInventoryStorage();
+            player.runSafely(correcting::tickServerView);
         }
     }
 }

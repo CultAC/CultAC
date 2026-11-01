@@ -158,6 +158,7 @@ class ProtocolSubversionTest {
                 assertEquals(90, spawn.yaw());
                 assertEquals(45, spawn.pitch());
                 assertEquals(12, spawn.data());
+                assertEquals(new Vec3d(1, -1, 0), spawn.velocity());
 
                 bytes.clear().writeDouble(1).writeDouble(2).writeDouble(3);
                 if (compact) bytes.writeFloat(4).writeInt(5);

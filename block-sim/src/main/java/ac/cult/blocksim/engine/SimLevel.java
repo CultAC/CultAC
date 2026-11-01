@@ -37,7 +37,6 @@ public final class SimLevel {
     private final Map<BlockPos, StatePossibilities> pendingRandomStates = new HashMap<>();
     private final IntSupplier knownRandomPlantAges;
     private final BlockSimClientVersion clientVersion;
-    private boolean predicting = true;
 
     public SimLevel(SimWorldView world, BlockRegistry registry, IntFunction<BlockBehavior> behaviors) {
         this(world, registry, behaviors, CLIENT_CHAIN_LIMIT);
@@ -83,7 +82,7 @@ public final class SimLevel {
     public boolean hasEntityIn(ac.cult.blocksim.data.Box box) { return world.hasEntityIn(box); }
     public boolean isUnobstructed(VoxelShape shape) { return shape.isEmpty() || world.isUnobstructed(shape); }
     public boolean hasBorderCollision(ac.cult.blocksim.data.Box box, Vec3 source) { return world.hasBorderCollision(box, source); }
-    public java.util.List<ac.cult.blocksim.entity.PaintingSize> placeablePaintings() { return world.placeablePaintings(); }
+    public List<ac.cult.blocksim.entity.PaintingSize> placeablePaintings() { return world.placeablePaintings(); }
     public ac.cult.blocksim.entity.PaintingSize paintingSize(com.google.gson.JsonElement holder) { return world.paintingSize(holder); }
     public boolean hasHangingEntityOverlap(ac.cult.blocksim.data.Box box, Direction direction, String type, boolean allowSameType) {
         return world.hasHangingEntityOverlap(box, direction, type, allowSameType);
@@ -98,7 +97,7 @@ public final class SimLevel {
             && !world.hasBorderCollision(box, source);
     }
     public boolean isLoaded(BlockPos pos) { return world.isLoaded(pos); }
-    public ac.cult.blocksim.engine.shapes.VoxelShape movingPistonCollisionAt(BlockPos pos) { return world.movingPistonCollisionAt(pos); }
+    public VoxelShape movingPistonCollisionAt(BlockPos pos) { return world.movingPistonCollisionAt(pos); }
     public BlockEntityData blockEntityAt(BlockPos pos) {
         if (!inValidBounds(pos)) return null;
         requireReadable(pos);
@@ -160,13 +159,6 @@ public final class SimLevel {
         if (knownRandomPlantAges == null) pendingRandomStates.put(pos, new StatePossibilities(result, java.util.UUID.randomUUID()));
         return result;
     }
-    /** A placement candidate can have a declared random age before it is written. */
-    public StatePossibilities preparedStatePossibilities(BlockPos pos, int state) {
-        StatePossibilities pending = pendingRandomStates.get(pos);
-        return pending != null && registry.sameBlock(pending.state(), state) && registry.hasProperty(state, "age")
-            && registry.value(pending.state(), "age").equals(registry.value(state, "age"))
-            ? pending.carryTo(registry, state) : StatePossibilities.exact(state);
-    }
     public List<BlockWrite> writes() { return List.copyOf(writes); }
     public Map<BlockPos, Integer> retainedStates() {
         var result = new LinkedHashMap<BlockPos, Integer>();
@@ -174,7 +166,6 @@ public final class SimLevel {
         return java.util.Collections.unmodifiableMap(result);
     }
     public Map<BlockPos, StatePossibilities> retainedPossibilities() { return java.util.Collections.unmodifiableMap(new LinkedHashMap<>(retainedStates)); }
-    public void predicting(boolean value) { predicting = value; }
 
     public boolean setBlock(BlockPos pos, int state, int flags) { return setBlock(pos, state, flags, 512); }
 
@@ -190,7 +181,7 @@ public final class SimLevel {
         // ClientLevel captures before super.setBlock and retains only AFTER its cascades.
         StatePossibilities oldState = statePossibilitiesAt(pos);
         boolean success = setBlockInLevel(pos, state, flags, limit, false);
-        if (success && predicting) retainedStates.putIfAbsent(pos, oldState);
+        if (success) retainedStates.putIfAbsent(pos, oldState);
         return success;
     }
 
@@ -199,11 +190,11 @@ public final class SimLevel {
         requireReadable(pos);
         // ClientChunkCache returns EmptyLevelChunk for absent chunks; its setBlockState returns null.
         if (!world.isLoaded(pos)) return false;
-        registry.facts(state); // Reject an input from another wire palette.
+        StateFacts facts = registry.facts(state); // Reject an input from another wire palette.
         int oldState = stateAt(pos);
         // A non-air old cell proves its section is not empty, so no section scan
         // is needed for ordinary breaks or bucket pickups.
-        if (registry.facts(state).has(StateFacts.AIR) && registry.facts(oldState).has(StateFacts.AIR) && sectionEmpty(pos)) return false;
+        if (facts.has(StateFacts.AIR) && registry.facts(oldState).has(StateFacts.AIR) && sectionEmpty(pos)) return false;
         StatePossibilities oldPossibilities = statePossibilitiesAt(pos);
         if (oldState == state && (!knownPlantAge || oldPossibilities.exact())) return false;
         WriteCondition condition = null;
@@ -247,7 +238,7 @@ public final class SimLevel {
         if (knownPlantAge && !old.exact() && !retainedStates.containsKey(pos)) {
             throw new IllegalStateException("A conditional age override requires the preceding prediction write");
         }
-        if (setBlockInLevel(pos, state, 2, 512, knownPlantAge) && predicting) retainedStates.putIfAbsent(pos, old);
+        if (setBlockInLevel(pos, state, 2, 512, knownPlantAge)) retainedStates.putIfAbsent(pos, old);
     }
 
     private void updateNeighborShapes(int state, BlockPos pos, int flags, int limit) {

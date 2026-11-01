@@ -1,19 +1,40 @@
 package ac.cult.cultac.manager;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.manager.alerts.AlertKind;
+import ac.cult.cultac.manager.alerts.AlertNetwork;
+import ac.cult.cultac.manager.alerts.AlertPairs;
+import ac.cult.cultac.manager.alerts.AlertScope;
+import ac.cult.cultac.manager.alerts.AlertScopes;
+import ac.cult.cultac.manager.alerts.AlertSubject;
+import ac.cult.cultac.manager.datastore.DataStoreLifecycle;
 import ac.cult.cultac.manager.init.start.StartableInitable;
+import ac.cult.cultac.network.routing.NetworkModule;
+import ac.cult.cultac.network.routing.NetworkService;
+import ac.cult.cultac.network.routing.SharedClaims;
 import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.runtime.NativePlayerSet;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
+import ac.cult.reload.api.HostContext;
+import ac.cult.reload.host.AlertSubscriptions;
 import ac.grim.grimac.api.GrimUser;
 import ac.grim.grimac.api.alerts.AlertManager;
 import ac.grim.grimac.api.config.ConfigManager;
 import ac.grim.grimac.api.config.ConfigReloadable;
+import ac.grim.grimac.api.storage.DataStore;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 import net.kyori.adventure.text.Component;
 import org.bukkit.entity.Player;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
@@ -28,27 +49,42 @@ import org.jetbrains.annotations.Nullable;
 public final class AlertManagerImpl implements AlertManager, ConfigReloadable, StartableInitable {
     private static @MonotonicNonNull PlatformServer platformServer;
 
-    private enum AlertType {
-        NORMAL("%prefix% &fAlerts enabled", "%prefix% &fAlerts disabled"),
-        VERBOSE("%prefix% &fVerbose enabled", "%prefix% &fVerbose disabled"),
-        BRAND("%prefix% &fBrands enabled", "%prefix% &fBrands disabled");
+    private final AlertScopes scopes;
+    private final AlertPairs pairs;
+    private final AlertNetwork network;
+    private final BooleanSupplier proxy;
+    private final BooleanSupplier relay;
+    private final AtomicBoolean networkHooked = new AtomicBoolean();
 
+    /**
+     * Who a message reached, null standing for the console; {@code pair} is set on a verbose line that also went to the
+     * other instances.
+     */
+    public record Recipients(
+            Set<@Nullable PlatformPlayer> players, @Nullable String pair) {}
+
+    private enum AlertType {
+        NORMAL(AlertKind.ALERT, "%prefix% &fAlerts enabled", "%prefix% &fAlerts disabled"),
+        VERBOSE(AlertKind.VERBOSE, "%prefix% &fVerbose enabled", "%prefix% &fVerbose disabled"),
+        BRAND(AlertKind.BRAND, "%prefix% &fBrands enabled", "%prefix% &fBrands disabled");
+
+        public final @NotNull AlertKind kind;
         public @NotNull String enableMessage;
         public @NotNull String disableMessage;
         public final @NotNull Set<@NotNull PlatformPlayer> players;
-        private final java.util.concurrent.atomic.AtomicBoolean console;
+        private final AtomicBoolean console;
 
-        AlertType(@NotNull String enableMessage, @NotNull String disableMessage) {
+        AlertType(@NotNull AlertKind kind, @NotNull String enableMessage, @NotNull String disableMessage) {
+            this.kind = kind;
             this.enableMessage = enableMessage;
             this.disableMessage = disableMessage;
-            var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
+            var host = RuntimeEnvironment.host();
             if (host == null) {
                 players = new CopyOnWriteArraySet<>();
-                console = new java.util.concurrent.atomic.AtomicBoolean();
+                console = new AtomicBoolean();
             } else {
-                var subscriptions = (ac.cult.reload.host.AlertSubscriptions)
-                        host.shared("alerts", ac.cult.reload.host.AlertSubscriptions::new);
-                players = new ac.cult.cultac.runtime.NativePlayerSet(subscriptions.players(name()));
+                var subscriptions = (AlertSubscriptions) host.shared("alerts", AlertSubscriptions::new);
+                players = new NativePlayerSet(subscriptions.players(name()));
                 console = subscriptions.console(name());
             }
         }
@@ -63,23 +99,41 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
             return enabled ? enableMessage : disableMessage;
         }
 
+        static AlertType of(AlertKind kind) {
+            return switch (kind) {
+                case ALERT -> NORMAL;
+                case VERBOSE -> VERBOSE;
+                case BRAND -> BRAND;
+            };
+        }
+
         /**
          * @param component the message to send to listeners
          * @param excluding the listeners to exclude, null means console
+         * @param covered the listeners whose scope covers the message
+         * @param toConsole whether the console may get it
          * @return listeners this message was sent to, null means console
          */
-        public Set<@Nullable PlatformPlayer> send(
-                Component component, @Nullable Set<@Nullable PlatformPlayer> excluding) {
-            HashSet<PlatformPlayer> listeners = new HashSet<>(players);
+        Set<@Nullable PlatformPlayer> send(
+                Component component,
+                @Nullable Set<@Nullable PlatformPlayer> excluding,
+                Predicate<PlatformPlayer> covered,
+                boolean toConsole) {
+            Set<@Nullable PlatformPlayer> listeners = new HashSet<>(players);
             if (excluding != null) {
-                listeners.removeAll(excluding);
+                Set<Object> excludedNatives = Collections.newSetFromMap(new IdentityHashMap<>());
+                for (PlatformPlayer excluded : excluding) {
+                    if (excluded != null) excludedNatives.add(excluded.getNative());
+                }
+                listeners.removeIf(listener -> excludedNatives.contains(listener.getNative()));
             }
+            listeners.removeIf(listener -> !covered.test(listener));
 
             for (PlatformPlayer platformPlayer : listeners) {
                 platformPlayer.sendMessage(component);
             }
 
-            if (console.get() && (excluding == null || !excluding.contains(null))) {
+            if (toConsole && console.get() && (excluding == null || !excluding.contains(null))) {
                 platformServer.getConsoleSender().sendMessage(component);
                 listeners.add(null);
             }
@@ -88,15 +142,68 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         }
     }
 
+    public AlertManagerImpl() {
+        this(
+                new AlertScopes(RuntimeEnvironment.host(), AlertManagerImpl::dataStore),
+                NetworkModule::service,
+                NetworkModule::proxy,
+                RuntimeEnvironment.host(),
+                () -> platformServer != null && platformServer.receivesForwardedAlerts());
+    }
+
+    /**
+     * @param proxy whether this instance is a proxy, whose players are on backend servers
+     * @param host the host every engine generation on this instance shares, if any
+     * @param relay whether this server shows alerts other servers forward through the proxy's plugin messaging
+     */
+    AlertManagerImpl(
+            AlertScopes scopes,
+            Supplier<@Nullable NetworkService> service,
+            BooleanSupplier proxy,
+            @Nullable HostContext host,
+            BooleanSupplier relay) {
+        this.scopes = scopes;
+        this.proxy = proxy;
+        this.relay = relay;
+        this.pairs = new AlertPairs(host, System::currentTimeMillis);
+        this.network = new AlertNetwork(
+                service,
+                new NetworkStaff(),
+                new SharedClaims(host, AlertNetwork.CLAIMS, System::currentTimeMillis),
+                System::currentTimeMillis);
+    }
+
+    private final class NetworkStaff implements AlertNetwork.Staff {
+        @Override
+        public void received(AlertKind kind, Component component, @Nullable String server, @Nullable String pair) {
+            deliverReceived(kind, component, server, pair);
+        }
+
+        @Override
+        public boolean wantVerbose() {
+            return !AlertType.VERBOSE.players.isEmpty();
+        }
+    }
+
+    private static @Nullable DataStore dataStore() {
+        DataStoreLifecycle lifecycle = CultAPI.INSTANCE.getDataStoreLifecycle();
+        return lifecycle == null ? null : lifecycle.dataStore();
+    }
+
     @Override
     public void start() {
         platformServer = CultAPI.INSTANCE.getPlatformServer();
         reload(CultAPI.INSTANCE.getConfigManager().getConfig());
+        if (networkHooked.compareAndSet(false, true)) NetworkModule.onStart(network::attach);
+    }
+
+    AlertNetwork network() {
+        return network;
     }
 
     @Override
     public void reload(ConfigManager config) {
-        var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
+        var host = RuntimeEnvironment.host();
         if (host == null || host.current()) {
             setConsoleAlertsEnabled(config.getBooleanElse("alerts.print-to-console", true), true);
             setConsoleVerboseEnabled(config.getBooleanElse("verbose.print-to-console", false), true);
@@ -214,19 +321,35 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         if (platformPlayer == null) return;
 
         AlertType.NORMAL.players.remove(platformPlayer);
-        AlertType.VERBOSE.players.remove(platformPlayer);
+        boolean verbose = AlertType.VERBOSE.players.remove(platformPlayer);
         AlertType.BRAND.players.remove(platformPlayer);
+        scopes.forget(platformPlayer);
+        if (verbose) network.demandChanged();
     }
 
-    /** Returns the online Bukkit players currently receiving alerts. */
-    public Set<Player> getEnabledAlerts() {
-        Set<Player> enabled = new HashSet<>();
-        for (PlatformPlayer platformPlayer : AlertType.NORMAL.players) {
-            if (platformPlayer.getNative() instanceof Player bukkitPlayer) {
-                enabled.add(bukkitPlayer);
-            }
-        }
-        return enabled;
+    /** Starts loading {@code player}'s persisted alert scope; the default applies until it lands. */
+    public void loadScope(@NotNull PlatformPlayer player) {
+        scopes.load(player);
+    }
+
+    /** {@code player}'s alert scope as it applies now: {@code server} for everyone unless {@link #networkAlerts}. */
+    public @NotNull AlertScope scope(@NotNull PlatformPlayer player) {
+        return networkAlerts() ? scopes.scope(player) : AlertScope.SERVER;
+    }
+
+    /** The scope {@code player} chose; null when the default applies. */
+    public @Nullable AlertScope chosenScope(@NotNull PlatformPlayer player) {
+        return scopes.chosen(player);
+    }
+
+    /** Sets and persists {@code player}'s alert scope. */
+    public void chooseScope(@NotNull PlatformPlayer player, @NotNull AlertScope scope) {
+        scopes.choose(player, scope);
+    }
+
+    /** Whether other instances' alerts reach this one: over a network transport, or the proxy's plugin messaging. */
+    public boolean networkAlerts() {
+        return network.running() || relay.getAsBoolean();
     }
 
     public boolean toggleConsoleAlerts() {
@@ -235,11 +358,6 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
 
     public boolean toggleConsoleAlerts(boolean silent) {
         return setConsoleAlertsEnabled(!hasConsoleAlertsEnabled(), silent);
-    }
-
-    @Contract("_ -> param1")
-    public boolean setConsoleAlertsEnabled(boolean enabled) {
-        return setConsoleAlertsEnabled(enabled, false);
     }
 
     @Contract("_, _ -> param1")
@@ -262,11 +380,6 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         return setConsoleVerboseEnabled(!hasConsoleVerboseEnabled(), silent);
     }
 
-    @Contract("_ -> param1")
-    public boolean setConsoleVerboseEnabled(boolean enabled) {
-        return setConsoleVerboseEnabled(enabled, false);
-    }
-
     @Contract("_, _ -> param1")
     public boolean setConsoleVerboseEnabled(boolean enabled, boolean silent) {
         if (enabled) setConsoleAlertsEnabled(true, silent);
@@ -284,11 +397,6 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
 
     public boolean toggleConsoleBrands(boolean silent) {
         return setConsoleBrandsEnabled(!hasConsoleBrandsEnabled(), silent);
-    }
-
-    @Contract("_ -> param1")
-    public boolean setConsoleBrandsEnabled(boolean enabled) {
-        return setConsoleStateAndNotify(AlertType.BRAND, enabled, false);
     }
 
     @Contract("_, _ -> param1")
@@ -317,7 +425,6 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         return enabled;
     }
 
-    // All internal code, will replace later
     private void setPlayerStateAndNotify(
             @NotNull PlatformPlayer platformPlayer, boolean enabled, boolean silent, @NotNull AlertType type) {
         Objects.requireNonNull(platformPlayer, "platformPlayer cannot be null");
@@ -326,19 +433,11 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         if (changed && !silent) {
             sendToggleMessage(platformPlayer, enabled, type);
         }
-    }
-
-    public boolean toggleBrands(@NotNull PlatformPlayer player) {
-        return toggleBrands(player, false);
+        if (changed && type == AlertType.VERBOSE) network.demandChanged();
     }
 
     public boolean toggleBrands(@NotNull PlatformPlayer player, boolean silent) {
         return setBrandsEnabled(player, !hasBrandsEnabled(player), silent);
-    }
-
-    @Contract("_, _ -> param2")
-    public boolean setBrandsEnabled(@NotNull PlatformPlayer player, boolean enabled) {
-        return setBrandsEnabled(player, enabled, false);
     }
 
     @Contract("_, _, _ -> param2")
@@ -358,11 +457,6 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
 
     public boolean toggleVerbose(@NotNull PlatformPlayer player, boolean silent) {
         return setVerboseEnabled(player, !hasVerboseEnabled(player), silent);
-    }
-
-    @Contract("_, _ -> param2")
-    public boolean setVerboseEnabled(@NotNull PlatformPlayer player, boolean enabled) {
-        return setVerboseEnabled(player, enabled, false);
     }
 
     @Contract("_, _, _ -> param2")
@@ -385,11 +479,6 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         return setAlertsEnabled(player, !hasAlertsEnabled(player), silent);
     }
 
-    @Contract("_, _ -> param2")
-    public boolean setAlertsEnabled(@NotNull PlatformPlayer player, boolean enabled) {
-        return setAlertsEnabled(player, enabled, false);
-    }
-
     @Contract("_, _, _ -> param2")
     public boolean setAlertsEnabled(@NotNull PlatformPlayer player, boolean enabled, boolean silent) {
         setPlayerStateAndNotify(player, enabled, silent, AlertType.NORMAL);
@@ -403,35 +492,129 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
     }
 
     /**
+     * A brand message about no player: every subscriber here, whatever their scope, and global-scope staff elsewhere.
+     *
      * @param component the message to send to listeners
      * @param excluding the listeners to exclude, null means console
      * @return listeners this message was sent to, null means console
      */
-    public Set<PlatformPlayer> sendBrand(Component component, @Nullable Set<@Nullable PlatformPlayer> excluding) {
-        return AlertType.BRAND.send(component, excluding);
+    public Recipients sendBrand(Component component, @Nullable Recipients excluding) {
+        return sendBrand(AlertSubject.NONE, component, excluding);
     }
 
     /**
+     * Sends a brand message about {@code subject} to the staff whose scope covers the subject's server and to every
+     * other instance.
+     *
      * @param component the message to send to listeners
      * @param excluding the listeners to exclude, null means console
      * @return listeners this message was sent to, null means console
      */
-    public Set<PlatformPlayer> sendVerbose(Component component, @Nullable Set<@Nullable PlatformPlayer> excluding) {
-        return AlertType.VERBOSE.send(component, excluding);
+    public Recipients sendBrand(@NotNull CultPlayer subject, Component component, @Nullable Recipients excluding) {
+        return sendBrand(AlertSubject.of(subject), component, excluding);
+    }
+
+    Recipients sendBrand(AlertSubject subject, Component component, @Nullable Recipients excluding) {
+        return raise(AlertType.BRAND, subject, component, excluding);
     }
 
     /**
+     * A verbose line about no player: every subscriber here, whatever their scope, and global-scope staff elsewhere.
+     *
      * @param component the message to send to listeners
      * @param excluding the listeners to exclude, null means console
      * @return listeners this message was sent to, null means console
      */
-    public Set<PlatformPlayer> sendAlert(Component component, @Nullable Set<@Nullable PlatformPlayer> excluding) {
-        return AlertType.NORMAL.send(component, excluding);
+    public Recipients sendVerbose(Component component, @Nullable Recipients excluding) {
+        return sendVerbose(AlertSubject.NONE, component, excluding);
     }
 
-    @Contract(pure = true)
+    /**
+     * Sends a verbose line about {@code subject} to the staff whose scope covers the subject's server, and to the other
+     * instances while one wants verbose. Passed to {@link #sendAlert(CultPlayer, Component, Recipients)} as
+     * {@code excluding}, the returned recipients keep the alert from everyone who got this verbose copy, here or
+     * elsewhere.
+     *
+     * @param component the message to send to listeners
+     * @param excluding the listeners to exclude, null means console
+     * @return listeners this message was sent to, null means console
+     */
+    public Recipients sendVerbose(@NotNull CultPlayer subject, Component component, @Nullable Recipients excluding) {
+        return sendVerbose(AlertSubject.of(subject), component, excluding);
+    }
+
+    Recipients sendVerbose(AlertSubject subject, Component component, @Nullable Recipients excluding) {
+        return raise(AlertType.VERBOSE, subject, component, excluding);
+    }
+
+    /**
+     * An alert about no player: every subscriber here, whatever their scope, and global-scope staff elsewhere.
+     *
+     * @param component the message to send to listeners
+     * @param excluding the listeners to exclude, null means console
+     * @return listeners this message was sent to, null means console
+     */
+    public Recipients sendAlert(Component component, @Nullable Recipients excluding) {
+        return sendAlert(AlertSubject.NONE, component, excluding);
+    }
+
+    /**
+     * Sends an alert about {@code subject} to the staff whose scope covers the subject's server and to every other
+     * instance.
+     *
+     * @param component the message to send to listeners
+     * @param excluding the listeners to exclude, null means console
+     * @return listeners this message was sent to, null means console
+     */
+    public Recipients sendAlert(@NotNull CultPlayer subject, Component component, @Nullable Recipients excluding) {
+        return sendAlert(AlertSubject.of(subject), component, excluding);
+    }
+
+    Recipients sendAlert(AlertSubject subject, Component component, @Nullable Recipients excluding) {
+        return raise(AlertType.NORMAL, subject, component, excluding);
+    }
+
+    /**
+     * Shows an alert another server forwarded through the proxy's plugin messaging as one received about an unknown
+     * server: global-scope staff only, never the console, and not broadcast again.
+     */
+    public void relayAlert(Component component) {
+        deliverReceived(AlertKind.ALERT, component, null, null);
+    }
+
+    private Recipients raise(
+            AlertType type, AlertSubject subject, Component component, @Nullable Recipients excluding) {
+        Predicate<PlatformPlayer> covered =
+                subject.none() ? staff -> true : staff -> covers(staff, subject.server(), true);
+        Set<@Nullable PlatformPlayer> reached =
+                type.send(component, excluding == null ? null : excluding.players(), covered, true);
+        String pair = switch (type) {
+            case VERBOSE -> AlertNetwork.newPair();
+            case NORMAL -> excluding == null ? null : excluding.pair();
+            case BRAND -> null;
+        };
+        AlertSubject wire = proxy.getAsBoolean() || subject.none() ? subject : subject.on(network.instanceId());
+        boolean published = network.publish(type.kind, wire, component, pair);
+        return new Recipients(reached, published && type == AlertType.VERBOSE ? pair : null);
+    }
+
+    /**
+     * Shows staff here an alert another instance raised; the console never gets one. Of a verbose line and the alert
+     * sharing its {@code pair}, each staff member gets the first that reaches them.
+     */
+    void deliverReceived(AlertKind kind, Component component, @Nullable String server, @Nullable String pair) {
+        Predicate<PlatformPlayer> covered = staff -> covers(staff, server, false);
+        if (pair != null) covered = covered.and(staff -> pairs.take(pair, staff.getNative()));
+        AlertType.of(kind).send(component, null, covered, false);
+    }
+
+    private boolean covers(PlatformPlayer staff, @Nullable String server, boolean local) {
+        return scope(staff).covers(staff.serverName(), server, local, proxy.getAsBoolean());
+    }
+
+    /** Whether verbose lines are wanted here or, while a transport runs, by another instance's staff. */
     public boolean hasVerboseListeners() {
-        return AlertType.VERBOSE.hasListeners();
+        return AlertType.VERBOSE.hasListeners() || network.verboseWanted();
     }
 
     @Contract(pure = true)

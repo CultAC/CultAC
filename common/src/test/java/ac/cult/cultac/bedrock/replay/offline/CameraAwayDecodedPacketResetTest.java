@@ -11,17 +11,18 @@ import ac.cult.cultac.checks.impl.elytra.ElytraC;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.player.User;
+import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
-import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.latency.CompensatedCameraEntity;
+import ac.cult.cultac.utils.math.Vec3;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.reflect.Field;
-import java.util.ArrayDeque;
+import java.util.List;
 import java.util.UUID;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 public final class CameraAwayDecodedPacketResetTest {
     @Test
@@ -135,13 +136,16 @@ public final class CameraAwayDecodedPacketResetTest {
         }
     }
 
-    @SuppressWarnings("unchecked")
-    private static void setExternalCamera(CultPlayer player) throws ReflectiveOperationException {
-        Field entitiesField = CompensatedCameraEntity.class.getDeclaredField("entities");
-        entitiesField.setAccessible(true);
-        ArrayDeque<PacketEntity> entities = (ArrayDeque<PacketEntity>) entitiesField.get(player.cameraEntity);
-        entities.clear();
-        entities.add(new PacketEntity(EntityTypeIds.ZOMBIE, 99));
+    private static void setExternalCamera(CultPlayer player) {
+        // An unbound player sends no transactions.
+        player.user.bind(Mockito.mock(PlatformPlayer.class));
+        player.compensatedEntities.addEntity(99, EntityTypeIds.ZOMBIE, new Vec3(0, 64, 0), 0, 0, 0);
+        player.cameraEntity.onSetCamera(99);
+        player.sendTransaction();
+        int answered = player.lastTransactionSent.get();
+        player.lastTransactionReceived.set(answered);
+        player.latencyUtils.handleNettySyncTransaction(answered);
+        assertEquals(List.of(player.compensatedEntities.getEntity(99)), player.cameraEntity.getPossibilities());
         assertFalse(player.cameraEntity.isSelf());
     }
 

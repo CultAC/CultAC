@@ -24,6 +24,6 @@ public final class BreakVisibility extends VisibilityCheck {
         if (packet.action() != PlayerAction.START_DESTROY_BLOCK && packet.action() != PlayerAction.STOP_DESTROY_BLOCK)
             return;
         if (visibility.blockFaceHidden(packet.position(), packet.direction()))
-            reject(event, "action=" + packet.action() + " face=" + packet.direction());
+            reject(event, "action=" + packet.action() + ", " + block(packet.position(), packet.direction()));
     }
 }

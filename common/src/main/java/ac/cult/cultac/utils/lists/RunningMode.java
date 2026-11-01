@@ -4,7 +4,6 @@ import ac.cult.cultac.utils.data.Pair;
 import it.unimi.dsi.fastutil.doubles.Double2IntMap;
 import it.unimi.dsi.fastutil.doubles.Double2IntMaps;
 import it.unimi.dsi.fastutil.doubles.Double2IntOpenHashMap;
-import lombok.Getter;
 import org.jetbrains.annotations.NotNull;
 
 // This class is copyright DefineOutside licensed under MIT
@@ -19,7 +18,6 @@ public class RunningMode {
     private double modeValue;
     private int modeCount;
 
-    @Getter
     private final int maxSize;
 
     public RunningMode(int maxSize) {

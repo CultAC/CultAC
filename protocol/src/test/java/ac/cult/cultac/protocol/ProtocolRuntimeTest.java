@@ -70,7 +70,11 @@ class ProtocolRuntimeTest {
                 absent.add("serverbound.debug_subscription_request");
             }
             if (!version.atLeast(ProtocolVersion.V1_21_6))
-                absent.addAll(Set.of("serverbound.change_game_mode", "serverbound.custom_click_action"));
+                absent.addAll(Set.of(
+                        "serverbound.change_game_mode",
+                        "serverbound.custom_click_action",
+                        "clientbound.show_dialog",
+                        "clientbound.clear_dialog"));
             if (!version.atLeast(ProtocolVersion.V1_21_5))
                 absent.addAll(Set.of("serverbound.set_test_block", "serverbound.test_instance_block_action"));
             if (!version.atLeast(ProtocolVersion.V1_21_4)) {

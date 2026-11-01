@@ -30,7 +30,11 @@ public class ElytraB extends Check implements PostPredictionListener {
             PacketReceiveEvent<ServerboundPlayerCommand> event, CultPlayer player, ServerboundPlayerCommand packet) {
         if (packet.action() != PlayerCommandAction.START_FLYING_WITH_ELYTRA) return;
 
-        if (player.packetStateData.knownInput.jump()) {
+        // LocalPlayer#aiStep sends it only when the keys of the tick before, not the last PLAYER_INPUT, lacked jump.
+        boolean jumpHeld = player.isBedrockMovement()
+                ? player.packetStateData.knownInput.jump()
+                : player.packetStateData.lastTickJump;
+        if (jumpHeld) {
             if (flag(V.write(verbose()).bool(true))) {
                 setback = true;
                 if (shouldModifyPackets()) {

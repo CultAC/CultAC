@@ -31,15 +31,6 @@ public class EmbedAuthor implements JsonSerializable {
         icon(icon);
     }
 
-    public EmbedAuthor(@NotNull JsonElement jsonElement) {
-        JsonObject json = jsonElement.getAsJsonObject();
-        name(json.get("name").getAsString());
-
-        JsonElement element;
-        if ((element = json.get("url")) != null) url(element.getAsString());
-        if ((element = json.get("icon_url")) != null) icon(element.getAsString());
-    }
-
     @Contract(value = "_ -> this", mutates = "this")
     public @NotNull EmbedAuthor name(@NotNull String name) {
         Objects.requireNonNull(name, "Embed author name cannot be null!");

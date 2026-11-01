@@ -6,16 +6,22 @@ import static org.junit.jupiter.api.Assertions.*;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsH;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
+import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
+import ac.cult.cultac.network.codec.ModelRegistryNamesState;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundPing;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.inventory.ItemUtil;
@@ -71,17 +77,6 @@ class BadPacketsHSequenceTest {
     }
 
     @Test
-    void aDimensionRespawnAcceptsTheNewLevelBeforeItsPostPing() {
-        useThrough(5);
-        int post = respawn("minecraft:the_nether");
-        assertFalse(use(Hand.MAIN_HAND, 6), "sent before the client handled the Respawn");
-        assertFalse(use(Hand.MAIN_HAND, 1), "the new ClientLevel, before the post ping");
-        acknowledge(player, post);
-        assertFalse(use(Hand.MAIN_HAND, 2));
-        assertTrue(use(Hand.MAIN_HAND, 7));
-    }
-
-    @Test
     void aPlacementIsCountedOnce() {
         int stone = holdStoneFacingABlock();
         useThrough(4);
@@ -106,55 +101,24 @@ class BadPacketsHSequenceTest {
     }
 
     @Test
-    void dimensionChangeBeforePredictionKeepsNewIds() {
-        int post = respawn("minecraft:the_nether");
-        assertFalse(use(Hand.MAIN_HAND, 1), "the old and the new level both expect 1");
-        assertFalse(use(Hand.MAIN_HAND, 2));
-        acknowledge(player, post);
-        assertFalse(use(Hand.MAIN_HAND, 3));
-        assertEquals(0, check().violations);
-        assertTrue(use(Hand.MAIN_HAND, 5), "a skipped id after the proof still cancels");
-    }
+    void aDimensionRespawnRestartsIdsAtItsBundledProof() {
+        useThrough(5);
+        int nether = ModelRegistryNamesState.defaults().id("minecraft:dimension_type", "minecraft:the_nether");
+        var respawn = new ClientboundRespawn(
+                new PlayerSpawnInfo(nether, "minecraft:the_nether", GameMode.SURVIVAL), (byte) 0);
+        var event = sendEvent(player, ClientboundPackets.RESPAWN, respawn);
+        int proof = player.lastTransactionSent.get() + 1;
+        new PacketPlayerRespawn().onRespawn(event, player, respawn);
+        assertTrue(event.isBundleRequested());
+        assertInstanceOf(ClientboundPing.class, event.writesAfter().getLast().packet());
 
-    @Test
-    void anOldLevelIdBeforeTheProofLeavesTheNewLevelUnused() {
-        int post = respawn("minecraft:the_nether");
+        assertFalse(use(Hand.MAIN_HAND, 6), "handled in the old level");
+        assertTrue(use(Hand.MAIN_HAND, 1), "the new level does not exist before the pong");
+        acknowledge(player, proof);
         assertFalse(use(Hand.MAIN_HAND, 1));
-        acknowledge(player, post);
-        assertFalse(use(Hand.MAIN_HAND, 1), "the first id of the new level");
         assertFalse(use(Hand.MAIN_HAND, 2));
-        assertEquals(0, check().violations);
-    }
-
-    @Test
-    void anOldAndANewLevelIdOneBeforeTheProof() {
-        int post = respawn("minecraft:the_nether");
-        assertFalse(use(Hand.MAIN_HAND, 1), "old level");
-        assertFalse(use(Hand.MAIN_HAND, 1), "new level");
-        acknowledge(player, post);
-        assertFalse(use(Hand.MAIN_HAND, 2));
-        assertEquals(0, check().violations);
-    }
-
-    @Test
-    void twoPendingLevelsKeepEveryHistory() {
-        int nether = respawn("minecraft:the_nether");
-        int end = respawn("minecraft:the_end");
-        useThrough(2);
-        acknowledge(player, nether);
-        assertFalse(use(Hand.MAIN_HAND, 1), "the end's first id");
-        acknowledge(player, end);
-        assertFalse(use(Hand.MAIN_HAND, 2));
-        assertEquals(0, check().violations);
-        assertTrue(use(Hand.MAIN_HAND, 4));
-    }
-
-    @Test
-    void ambiguousLevelsFlagWithoutCancelling() {
-        respawn("minecraft:the_nether");
-        assertFalse(use(Hand.MAIN_HAND, 1));
-        assertFalse(use(Hand.MAIN_HAND, 5));
         assertEquals(1, check().violations);
+        assertTrue(use(Hand.MAIN_HAND, 4), "a skipped id still cancels");
     }
 
     /** Holds two stone facing the west side of a stone block at (2, 64, 0); returns its state. */
@@ -179,10 +143,6 @@ class BadPacketsHSequenceTest {
                 .getInventoryStorage()
                 .setItem(Inventory.HOTBAR_OFFSET, ItemUtil.modelItems().stack(item, 1));
         player.getInventory().selectHotbarSlot(0);
-    }
-
-    private int respawn(String dimension) {
-        return ItemUseTestSupport.respawn(player, dimension, GameMode.SURVIVAL);
     }
 
     private BadPacketsH check() {

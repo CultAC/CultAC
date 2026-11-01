@@ -1,5 +1,6 @@
 package ac.cult.blocksim.data;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.function.ToIntBiFunction;
 
@@ -18,12 +19,15 @@ public final class ComponentWireEncoding {
                                  Map<String, Map<String, ComponentWireEncoding>> items) {
         this.protocol = protocol;
         this.bytes = bytes.clone();
-        var copy = new java.util.HashMap<String, Map<Integer, String>>();
-        references.forEach((key, value) -> copy.put(key, Map.copyOf(value)));
-        this.references = Map.copyOf(copy);
-        var children = new java.util.HashMap<String, Map<String, ComponentWireEncoding>>();
-        items.forEach((key, value) -> children.put(key, Map.copyOf(value)));
-        this.items = Map.copyOf(children);
+        this.references = immutable(references);
+        this.items = immutable(items);
+    }
+
+    private static <K, V> Map<String, Map<K, V>> immutable(Map<String, Map<K, V>> source) {
+        if (source.isEmpty()) return Map.of();
+        var copy = new HashMap<String, Map<K, V>>();
+        source.forEach((key, value) -> copy.put(key, Map.copyOf(value)));
+        return Map.copyOf(copy);
     }
 
     public byte[] bytes() { return bytes.clone(); }

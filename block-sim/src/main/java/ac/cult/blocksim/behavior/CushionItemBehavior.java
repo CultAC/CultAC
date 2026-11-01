@@ -45,7 +45,7 @@ public final class CushionItemBehavior implements ItemBehavior {
                 for (int x = (int) Math.floor(anchor.minX()); x <= (int) Math.floor(anchor.maxX()); x++) {
                     var pos = new BlockPos(x, y, z);
                     int state = level.stateAt(pos);
-                    var shape = level.behavior(state).outlineShape(level, state, pos, (ac.cult.blocksim.engine.SimPlayer) null);
+                    var shape = level.behavior(state).outlineShape(level, state, pos, (SimPlayer) null);
                     if (!shape.isEmpty() && bounds(shape.boxes()).move(x, y, z).intersects(anchor)) {
                         supported = true;
                         break support;

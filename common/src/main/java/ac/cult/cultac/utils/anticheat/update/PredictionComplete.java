@@ -3,10 +3,8 @@ package ac.cult.cultac.utils.anticheat.update;
 import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import lombok.Getter;
-import lombok.Setter;
 
 @Getter
-@Setter
 public class PredictionComplete {
     private PredictionResult predictionResult;
     private PositionUpdate positionUpdate;

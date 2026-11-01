@@ -16,6 +16,7 @@ import com.github.luben.zstd.ZstdInputStream;
 import com.google.protobuf.ByteString;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -122,6 +123,23 @@ class DiagnosticsTest {
         assertNotNull(watch(bytes, PLAYER, 60, detached));
         assertNotNull(watch(bytes, OTHER, 60, detached));
         assertNull(watch(bytes, new UUID(5, 6), 60, detached));
+    }
+
+    @Test
+    void aWatchTheDiagThreadCannotTakeIsRefused() throws Exception {
+        AtomicInteger detached = new AtomicInteger();
+        Diagnostics diagnostics = diagnostics(Limits.of(true, 0, 0, Limits.MAX_SERVER_RING_BYTES, 1, 0, 0, 0, 0));
+        Field field = Diagnostics.class.getDeclaredField("commandCount");
+        field.setAccessible(true);
+        AtomicInteger commands = (AtomicInteger) field.get(diagnostics);
+        commands.set(Diagnostics.MAX_COMMANDS);
+
+        assertNull(watch(diagnostics, PLAYER, 60, detached));
+        diagnostics.cut(PLAYER, cut(0, 1, 0, 1), "header");
+        assertEquals("busy", parts().get(0).getReason());
+
+        commands.set(0);
+        assertNotNull(watch(diagnostics, OTHER, 60, detached), "the refused watch holds no room");
     }
 
     @Test
@@ -371,6 +389,30 @@ class DiagnosticsTest {
     }
 
     @Test
+    void aLongFirstTickAfterHeaderAndHistoryOpensTheNextPart() {
+        DiagRing ring = new DiagRing(100, 1 << 30);
+        ring.add(0, 0, "t".repeat(DiagRing.MAX_TRACE_CHARS - 16), null);
+        for (int seq = 1; seq <= 3; seq++) ring.add(seq, 0, "t".repeat(100), null);
+        List<byte[]> records = DiagCuts.parts(
+                PLAYER,
+                cut(0, 3, 1, 1),
+                "h".repeat(DiagCuts.MAX_HEADER_BYTES),
+                "h".repeat(Limits.MIN_PART_BYTES / 2),
+                ring.range(0, 3),
+                DiagCuts.Coverage.FULL,
+                Limits.MIN_PART_BYTES,
+                64 * 1024);
+        assertEquals(2, records.size());
+        DiagPart first = part(records.get(0));
+        assertEquals(Limits.MIN_PART_BYTES / 2, first.getHistory().length());
+        assertEquals(0, first.getTicksCount());
+        for (byte[] record : records) assertTrue(part(record).getSerializedSize() <= Limits.MIN_PART_BYTES);
+        DiagPart last = part(records.get(1));
+        assertEquals(4, last.getTicksCount());
+        assertEquals(DiagCoverage.DIAG_COVERAGE_FULL, last.getCoverage());
+    }
+
+    @Test
     void dropsAreRememberedByRange() {
         AtomicInteger detached = new AtomicInteger();
         Diagnostics diagnostics = diagnostics(ON);
@@ -388,6 +430,18 @@ class DiagnosticsTest {
         for (int seq = 1000; seq < 1000 + DiagWatch.DROPS; seq++) starved.capture(seq, 0, "t", null, null, 0);
         assertTrue(starved.droppedWithin(90, 110), "older than the drops remembered");
         assertFalse(starved.droppedWithin(2000, 2100));
+    }
+
+    @Test
+    void aTickJoinsItsTracesUpToItsCap() {
+        DiagRing ring = new DiagRing(100, 1 << 30);
+        String trace = "t".repeat(200);
+        for (int i = 0; i < 2000; i++) ring.add(1, i, trace, null);
+        String joined = ring.range(1, 1).get(0).trace;
+        assertTrue(joined.length() <= DiagRing.MAX_TRACE_CHARS, joined.length() + " chars");
+        assertTrue(joined.startsWith(trace + " | " + trace + " | "));
+        assertEquals(DiagRing.TICK_OVERHEAD + joined.length(), ring.bytes());
+        assertEquals(1999, ring.range(1, 1).get(0).offset);
     }
 
     @Test

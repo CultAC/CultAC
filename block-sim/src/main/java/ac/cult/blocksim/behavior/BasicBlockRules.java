@@ -108,7 +108,7 @@ public final class BasicBlockRules extends BlockBehavior {
         String tag = support.startsWith("@") ? level.registry().block(state).bindings().get(support.substring(1)) : "minecraft:" + support;
         return data.tags().get("block:" + tag).contains(level.registry().block(below).key());
     }
-    @Override public ac.cult.blocksim.engine.shapes.VoxelShape outlineShape(SimLevel level, int state, BlockPos pos, ac.cult.blocksim.engine.EntityCollisionContext context) {
+    @Override public ac.cult.blocksim.engine.shapes.VoxelShape outlineShape(SimLevel level, int state, BlockPos pos, EntityCollisionContext context) {
         if (useRule != ClientUse.CONSUME) return super.outlineShape(level, state, pos, context);
         return context.isHoldingItem("minecraft:light")
             ? ac.cult.blocksim.engine.shapes.Shapes.block() : ac.cult.blocksim.engine.shapes.Shapes.empty();

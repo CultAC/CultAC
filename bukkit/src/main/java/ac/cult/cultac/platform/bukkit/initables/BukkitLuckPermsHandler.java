@@ -3,6 +3,7 @@ package ac.cult.cultac.platform.bukkit.initables;
 import ac.cult.cultac.manager.init.start.StartableInitable;
 import ac.cult.cultac.platform.bukkit.CultACBukkitLoaderPlugin;
 import ac.cult.cultac.platform.luckperms.AbstractLuckPermsHandler;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -31,7 +32,7 @@ public class BukkitLuckPermsHandler extends AbstractLuckPermsHandler implements 
     protected <T extends LuckPermsEvent> EventSubscription<T> subscribe(
             LuckPerms luckPerms, Class<T> eventClass, Consumer<? super T> handler) {
         var subscription = luckPerms.getEventBus().subscribe(CultACBukkitLoaderPlugin.LOADER, eventClass, handler);
-        return ac.cult.cultac.runtime.RuntimeEnvironment.track(subscription, subscription::close);
+        return RuntimeEnvironment.track(subscription, subscription::close);
     }
 
     @Override

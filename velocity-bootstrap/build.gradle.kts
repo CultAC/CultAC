@@ -48,10 +48,21 @@ tasks.shadowJar {
     dependsOn(engine)
     from(engine.flatMap { it.archiveFile }) { into("cult-runtime"); rename { "default.jar" } }
     archiveFileName.set("CultAC-velocity.jar")
+    // Velocity ships these (3.4.0+) and its plugin classloader is parent-first, so bundled
+    // copies would never be loaded. It does not ship joml or sqlite-jdbc, and 3.x ships only
+    // part of fastutil; those stay, fastutil pruned below to the classes something reaches.
+    dependencies {
+        exclude(dependency("com.google.guava:guava:.*"))
+        exclude(dependency("com.google.guava:failureaccess:.*"))
+        exclude(dependency("com.google.code.gson:gson:.*"))
+        exclude(dependency("org.yaml:snakeyaml:.*"))
+        exclude(dependency("org.slf4j:slf4j-api:.*"))
+    }
 
     mergeServiceFiles()
     exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
     exclude("META-INF/services/javax.annotation.processing.Processor")
+    doLast { pruneUnreferencedClasses(archiveFile.get().asFile, listOf("it/unimi/dsi/fastutil/")) }
 
 }
 tasks.assemble { dependsOn(tasks.shadowJar) }

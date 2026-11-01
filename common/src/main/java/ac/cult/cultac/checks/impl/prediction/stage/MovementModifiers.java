@@ -3,19 +3,23 @@ package ac.cult.cultac.checks.impl.prediction.stage;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.SimulationContext.SpinRebound;
+import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ElytraTransform;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.EntityPush;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.Direction;
-import ac.cult.cultac.utils.data.TransactionOrder;
 import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.math.Vector3dm;
+import ac.cult.cultac.utils.nmsutil.ReachUtils;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 
 public class MovementModifiers {
     public static final String FLUID_HOP_REASON = "swim hop";
+    public static final String SLIME_BLOCK_LAUNCH = "Slime Block";
+    public static final String RIPTIDE_ATTACK = "riptide attack";
     public static final double FLUID_HOP_Y = (double) 0.3F;
 
     // Keep fluid-hop values centralized so Bedrock prediction and Java-shaped
@@ -95,28 +99,25 @@ public class MovementModifiers {
         boolean canStartWithFluidHop =
                 fluidHopMode == FluidHopMode.INCLUDE && canStartWithFluidHop(state, lastResult, canTickSkip);
         boolean canStartWithRiddenFluidHopFloat = canStartWithRiddenFluidHopFloat(lastResult);
+        Set<Vec3> unrebounded = state.getSpinRebound() == SpinRebound.ONLY ? Set.of() : initial;
         if (canStartWithFluidHop) {
-            for (Vec3 vector : initial) {
+            for (Vec3 vector : unrebounded) {
                 addFluidHopCandidates(start, PredVector.fromStartingVector(vector), canStartWithRiddenFluidHopFloat);
             }
         }
 
-        if (player.riptideSpinAttackTicks > 0
-                && (state.getWorldData().getNumColliding() > 0
-                        || (lastResult != null
-                                && lastResult
-                                                .getSimulationContext()
-                                                .getWorldData()
-                                                .getNumColliding()
-                                        > 0))
-                && state.getVehicle() == null) {
+        if (lastResult != null
+                && lastResult.getSimulationContext().getWorldData().isSpinAttackTarget()
+                && state.getVehicle() == null
+                && state.getSpinRebound() != SpinRebound.NONE) {
             for (Vec3 vector : initial) {
-                PredVector riptideAttack = PredVector.fromStartingVector(vector).multiply(-0.2, "riptide attack");
+                PredVector riptideAttack = PredVector.fromStartingVector(vector).multiply(-0.2, RIPTIDE_ATTACK);
                 start.add(riptideAttack);
 
                 // MCP-Reborn Player#causeExtraKnockback damps attacker X/Z by 0.6
                 // before LivingEntity#checkAutoSpinAttack applies the -0.2 rebound.
-                if (state.getIsSprinting().determineOptimistically()) {
+                if (lastResult.getSimulationContext().getWorldData().isSpinAttackPlayer()
+                        && lastResult.getSimulationContext().getIsSprinting().determineOptimistically()) {
                     start.add(riptideAttack.withXYZ(
                             riptideAttack.x * 0.6, riptideAttack.y, riptideAttack.z * 0.6, "riptide sprint attack"));
                 }
@@ -124,7 +125,7 @@ public class MovementModifiers {
         }
 
         // There may only be one first bread at a time.
-        List<TransactionOrder> packetEventsInOrder = List.of();
+        List<TransactionVel> packetEventsInOrder = List.of();
         TransactionVel knockbackFirst = player.checkManager.getKnockbackHandler().firstBread;
         TransactionVel explosionFirst = player.checkManager.getExplosionHandler().firstBread;
         TransactionVel knockbackSecond = player.checkManager.getKnockbackHandler().secondBread;
@@ -145,19 +146,17 @@ public class MovementModifiers {
                     packetEventsInOrder.removeIf(event -> event == possibleMotion);
                 }
             }
-            packetEventsInOrder.sort(Comparator.comparingInt(TransactionOrder::getTransaction)
-                    // Within one Java transaction, confirmed Bedrock motion precedes its pending successor.
-                    .thenComparingInt(event ->
-                            player.isBedrockMovement() && event == player.checkManager.getKnockbackHandler().firstBread
-                                    ? 1
-                                    : 0));
+            // ClientPacketListener applies replacement motion and additive explosions in wire order, even
+            // when a single bundle ping proves all of them.
+            packetEventsInOrder.sort(TransactionVel::compareClientOrder);
         }
 
-        for (Vec3 vector : initial) {
+        for (Vec3 vector : unrebounded) {
             start.add(PredVector.fromStartingVector(vector));
         }
 
         EntityPush.addVehiclePushCandidates(player, start, state, lastResult);
+        addFireworkBoosts(player, start, state);
 
         // To prevent trying to add a million vectors, we limit the overridden vels
         for (TransactionVel order : player.checkManager.getKnockbackHandler().overriddenVels) {
@@ -174,7 +173,7 @@ public class MovementModifiers {
 
             if (canStartWithFluidHop) {
                 addFluidHopCandidates(start, pointThree, canStartWithRiddenFluidHopFloat);
-                for (Vec3 vector : initial) {
+                for (Vec3 vector : unrebounded) {
                     PredVector skippedVector = PredVector.fromStartingVector(vector);
                     skippedVector.setTickSkip(true);
                     addFluidHopCandidates(start, skippedVector, canStartWithRiddenFluidHopFloat);
@@ -185,9 +184,8 @@ public class MovementModifiers {
         // TODO: This is too brute forcey, we don't need duplicates in certain situations.
         // TODO: This should just be refactored for 1.20.4+ clients with tick end and bundle packet!
         for (int eventIndex = 0, eventCount = packetEventsInOrder.size(); eventIndex < eventCount; eventIndex++) {
-            TransactionOrder event = packetEventsInOrder.get(eventIndex);
+            TransactionVel vel = packetEventsInOrder.get(eventIndex);
             for (PredVector vector : new ArrayList<>(start)) {
-                TransactionVel vel = (TransactionVel) event;
                 Vec3 eventVel = vel.getVel();
 
                 if (vel.isVelocity()) { // Velocity
@@ -210,13 +208,39 @@ public class MovementModifiers {
         return start;
     }
 
+    /**
+     * FireworkRocketEntity#tick boosts the stored velocity after the last tick's LivingEntity#aiStep, with that
+     * tick's look, so this tick's packets, attack and travel start from the boost. The travel may be a glide, or a
+     * fluid or air travel once the server's fall flying flag arrives.
+     */
+    private static void addFireworkBoosts(CultPlayer player, List<PredVector> start, SimulationContext state) {
+        int boosts = player.compensatedFireworks.getMaxFireworksAppliedPossible();
+        if (boosts == 0 || state.getVehicle() != null) return;
+        int certain = player.compensatedFireworks.getCertainFireworksApplied();
+        List<PredVector> stored = new ArrayList<>(start);
+        // Every rocket the client has applied and not yet removed boosted the stored velocity.
+        if (certain > 0) start.clear();
+        // The look reads either trig table, as the glide does.
+        for (int fastMath = 0; fastMath < 2; fastMath++) {
+            Vector3dm look = ReachUtils.getLook(player, state.getLastXRot(), state.getLastYRot());
+            for (PredVector carried : stored) {
+                Vec3 boosted = carried;
+                for (int i = 1; i <= boosts; i++) {
+                    boosted = ElytraTransform.boostFirework(boosted, look);
+                    if (i >= certain) start.add(new ElytraTransform.Boosted(carried, boosted, i));
+                }
+            }
+            player.trigHandler.toggleShitMath();
+        }
+    }
+
     private static void addSlimePistonLaunches(List<PredVector> start, SimulationContext state) {
         for (PredVector vector : new ArrayList<>(start)) {
             for (Direction direction : state.getWorldData().getPistonPushes().getSlimeBlockLaunches()) {
                 double x = direction.getModX() == 0 ? vector.getX() : direction.getModX();
                 double y = direction.getModY() == 0 ? vector.getY() : direction.getModY();
                 double z = direction.getModZ() == 0 ? vector.getZ() : direction.getModZ();
-                start.add(vector.withXYZ(x, y, z, "Slime Block"));
+                start.add(vector.withXYZ(x, y, z, SLIME_BLOCK_LAUNCH));
             }
         }
     }

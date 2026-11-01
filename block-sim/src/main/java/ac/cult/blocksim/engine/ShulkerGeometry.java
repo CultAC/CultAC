@@ -8,7 +8,8 @@ public final class ShulkerGeometry {
     public static Box progressBounds(float size, Direction direction, float progress, Vec3 position) {
         return progressDeltaBounds(size, direction, -1.0F, progress, position);
     }
-    private static Box progressDeltaBounds(float size, Direction direction, float from, float to, Vec3 position) {
+    /** Shulker#getProgressDeltaAabb. */
+    public static Box progressDeltaBounds(float size, Direction direction, float from, float to, Vec3 position) {
         double maximum = Math.max(from, to), minimum = Math.min(from, to);
         double[] low = {-size * 0.5, 0.0, -size * 0.5}, high = {size * 0.5, size, size * 0.5};
         int[] steps = {direction.x(), direction.y(), direction.z()};

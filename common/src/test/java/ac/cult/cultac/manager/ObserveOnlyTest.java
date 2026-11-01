@@ -16,6 +16,7 @@ import ac.cult.cultac.checks.impl.combat.ReachCheck;
 import ac.cult.cultac.checks.impl.crash.CrashH;
 import ac.cult.cultac.checks.impl.misc.GhostBlockMitigation;
 import ac.cult.cultac.events.packets.PacketPluginMessage;
+import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketSelfMetadataListener;
 import ac.cult.cultac.events.packets.patch.ResyncWorldUtil;
 import ac.cult.cultac.manager.config.BaseConfigManager;
@@ -43,7 +44,10 @@ import ac.cult.cultac.utils.data.PacketStateData;
 import ac.cult.cultac.utils.data.SetbackPosWithVector;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
+import ac.cult.cultac.utils.inventory.InventoryClick;
+import ac.cult.cultac.utils.inventory.inventory.WindowClickType;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
+import ac.cult.cultac.utils.latency.CompensatedEntities.EntityMap;
 import ac.cult.cultac.utils.latency.CompensatedInventory;
 import ac.cult.cultac.utils.latency.CompensatedVehicleState;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
@@ -55,7 +59,6 @@ import ac.grim.grimac.api.config.ConfigManager;
 import ac.grim.grimac.api.event.events.CommandExecuteEvent;
 import ac.grim.grimac.api.plugin.GrimPlugin;
 import io.netty.channel.embedded.EmbeddedChannel;
-import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -244,19 +247,20 @@ class ObserveOnlyTest {
     }
 
     @Test
-    void anUnansweredPlayerIsLetGo() throws ReflectiveOperationException {
+    void anUnansweredPlayerIsLetGoOnlyWhenObserving() throws ReflectiveOperationException {
         for (boolean observeOnly : new boolean[] {true, false}) {
             for (boolean failOpen : new boolean[] {true, false}) {
                 CultPlayer player = mock(CultPlayer.class);
                 User user = user(new EmbeddedChannel());
                 set(player, "user", user);
                 doCallRealMethod().when(player).timedOut();
+                doCallRealMethod().when(player).withheld(any());
                 try (var ignored = installConfig(observeOnly, failOpen)) {
                     player.timedOut();
                 }
-                boolean letGo = observeOnly || failOpen;
-                verify(player, times(letGo ? 0 : 1)).disconnect(any());
-                assertEquals(letGo, CultAPI.INSTANCE.getPlayerDataManager().clearExemptions(user));
+                // fail-open does not apply: withholding pongs is the client's choice, not a failure of ours
+                verify(player, times(observeOnly ? 0 : 1)).disconnect(any());
+                assertEquals(observeOnly, CultAPI.INSTANCE.getPlayerDataManager().clearExemptions(user));
             }
         }
     }
@@ -307,6 +311,30 @@ class ObserveOnlyTest {
     }
 
     @Test
+    void aCancelledClickIsForwardedWithoutAResync() throws ReflectiveOperationException {
+        @SuppressWarnings("unchecked")
+        PacketType<InventoryClick> type = (PacketType<InventoryClick>) OfflineCultTestBootstrap.catalog().stream()
+                .filter(packet -> packet.recordClass() == InventoryClick.class)
+                .findFirst()
+                .orElseThrow();
+        for (boolean observeOnly : new boolean[] {true, false}) {
+            CultPlayer player = mock(CultPlayer.class);
+            player.checkManager = mock(CheckManager.class, RETURNS_MOCKS);
+            player.packetStateData = new PacketStateData();
+            CompensatedInventory inventory = mock(CompensatedInventory.class);
+            when(player.getInventory()).thenReturn(inventory);
+            InventoryClick click = new InventoryClick(0, 0, 36, 0, WindowClickType.PICKUP, Map.of(), null);
+            var event = new PacketReceiveEvent<>(user(new EmbeddedChannel()), ConnectionPhase.PLAY, type, click);
+            event.setCancelled(true);
+            try (var ignored = installConfig(observeOnly)) {
+                new CheckManagerListener().onContainerClick(event, player, click);
+            }
+            verify(inventory, times(observeOnly ? 0 : 1)).resyncCancelledClick(click);
+            verify(inventory, times(observeOnly ? 1 : 0)).onClickForwarded(click);
+        }
+    }
+
+    @Test
     void attacksPastTheQueueAreLeftToTheServer() throws ReflectiveOperationException {
         Field queue = ReachCheck.class.getDeclaredField("playerAttackQueue");
         queue.setAccessible(true);
@@ -322,7 +350,9 @@ class ObserveOnlyTest {
             CompensatedEntities entities = mock(CompensatedEntities.class);
             PacketEntity target = mock(PacketEntity.class);
             set(target, "type", EntityTypeIds.PLAYER);
-            set(entities, "entityMap", new Int2ObjectOpenHashMap<>(Map.of(99, target)));
+            EntityMap entityMap = new EntityMap();
+            entityMap.put(99, target);
+            set(entities, "entityMap", entityMap);
             when(entities.getSelf()).thenReturn(mock(PacketEntitySelf.class));
             player.compensatedEntities = entities;
             player.compensatedWorld = mock(CompensatedWorld.class);

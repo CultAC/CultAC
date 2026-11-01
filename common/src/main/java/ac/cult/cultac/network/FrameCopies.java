@@ -24,20 +24,39 @@ public final class FrameCopies {
 
     /** The frame's readable bytes; its indices are unchanged. */
     public static byte[] bytes(ByteBuf frame) {
-        if (!viewable(frame)) return ByteBufUtil.getBytes(frame);
-        byte[] bytes = new byte[frame.readableBytes()];
+        if (frame.hasArray()) return ByteBufUtil.getBytes(frame);
+        int length = frame.readableBytes();
+        boolean scalar = scalar(frame, length);
+        if (!scalar && frame.nioBufferCount() != 1) return ByteBufUtil.getBytes(frame);
+        byte[] bytes = new byte[length];
+        copyDirect(frame, bytes, scalar);
+        return bytes;
+    }
+
+    /** Copies the frame's readable bytes into an array of exactly their length; its indices are unchanged. */
+    public static void copyInto(ByteBuf frame, byte[] bytes) {
+        if (bytes.length != frame.readableBytes()) throw new IllegalArgumentException("Frame length changed");
+        if (frame.hasArray()) {
+            frame.getBytes(frame.readerIndex(), bytes);
+            return;
+        }
+        boolean scalar = scalar(frame, bytes.length);
+        if (scalar || frame.nioBufferCount() == 1) copyDirect(frame, bytes, scalar);
+        else frame.getBytes(frame.readerIndex(), bytes);
+    }
+
+    private static boolean scalar(ByteBuf frame, int length) {
+        return length <= SCALAR_COPY_BYTES && frame.order() == ByteOrder.BIG_ENDIAN;
+    }
+
+    private static void copyDirect(ByteBuf frame, byte[] bytes, boolean scalar) {
         int from = frame.readerIndex();
-        if (bytes.length > SCALAR_COPY_BYTES || frame.order() != ByteOrder.BIG_ENDIAN) {
+        if (!scalar) {
             frame.internalNioBuffer(from, bytes.length).get(bytes);
-            return bytes;
+            return;
         }
         int at = 0;
         for (; at + Long.BYTES <= bytes.length; at += Long.BYTES) LONGS.set(bytes, at, frame.getLong(from + at));
         for (; at < bytes.length; at++) bytes[at] = frame.getByte(from + at);
-        return bytes;
-    }
-
-    private static boolean viewable(ByteBuf frame) {
-        return !frame.hasArray() && frame.nioBufferCount() == 1;
     }
 }

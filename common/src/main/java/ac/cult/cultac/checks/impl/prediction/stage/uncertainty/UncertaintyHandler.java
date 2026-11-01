@@ -7,6 +7,14 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.math.Vec3;
 
 public interface UncertaintyHandler {
+    /**
+     * True only if, in this context after this last result, {@link #handleMovementTrace} returns the trace it is given
+     * itself, with no side effect, whatever the trace and end. Must not read state that a handler writes.
+     */
+    default boolean skipsContext(CultPlayer player, SimulationContext context, PredictionResult lastResult) {
+        return false;
+    }
+
     default MovementTrace handleMovementTrace(
             CultPlayer player,
             ValidMovements valid,

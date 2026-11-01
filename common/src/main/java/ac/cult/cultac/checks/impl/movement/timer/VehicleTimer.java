@@ -11,7 +11,6 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPaddleBoat;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
 
-// @CheckData(name = "Timer - Vehicle", configName = "TimerVehicle", setback = 10)
 public class VehicleTimer extends AbstractTimerCheck {
     boolean isDummy = false;
     private boolean countedVehicleMovementThisClientTick = false;
@@ -21,6 +20,7 @@ public class VehicleTimer extends AbstractTimerCheck {
                 cultPlayer,
                 CheckInfo.builder()
                         .name("TimerVehicle")
+                        .description("Game ran faster than normal while riding")
                         .configName("TimerVehicle")
                         .setback(5)
                         .build());

@@ -80,6 +80,8 @@ class JavaMovementAttributeTest {
             f.player.compensatedWorld.updateBlock(new BlockPos(2, FLOOR_Y, 0), BlockIds.STONE.defaultState());
             for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
             attribute(f, "minecraft:scale", 1.0, 1.0);
+            // The box takes a new scale at a tick end, long past here.
+            f.player.refreshPlayerPose();
             // At scale 2 the box is 1.2 wide: from x = 1.6 it reaches the block at x = 2, a 0.6 box would not.
             f.place(new Vec3(1.6, FLOOR_Y + 1.05, 0.5), new Vec3(0, -0.0784000015258789, 0));
 

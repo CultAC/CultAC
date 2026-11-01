@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.cultac.cloud.intake.v3.Capture;
 import ac.cult.cultac.cloud.intake.v3.Condition;
+import ac.cult.cultac.cloud.intake.v3.DiagPart;
 import ac.cult.cultac.cloud.intake.v3.Edition;
 import ac.cult.cultac.cloud.intake.v3.Event;
 import ac.cult.cultac.cloud.intake.v3.Frame;
@@ -20,27 +21,33 @@ import ac.cult.cultac.cloud.intake.v3.IntakeMessage;
 import ac.cult.cultac.cloud.intake.v3.Join;
 import ac.cult.cultac.cloud.intake.v3.Meta;
 import ac.cult.cultac.cloud.intake.v3.Outcome;
+import ac.cult.cultac.cloud.intake.v3.PerfPart;
+import ac.cult.cultac.cloud.intake.v3.PortalRole;
 import ac.cult.cultac.cloud.intake.v3.Record;
 import ac.cult.cultac.cloud.intake.v3.Refused;
 import ac.cult.cultac.cloud.intake.v3.Replies;
 import ac.cult.cultac.cloud.intake.v3.Reply;
+import ac.cult.cultac.cloud.intake.v3.TeamRole;
+import ac.cult.cultac.cloud.intake.v3.TeamState;
+import ac.cult.cultac.cloud.intake.v3.TeamSweep;
 import ac.cult.cultac.cloud.intake.v3.Unstreamed;
 import ac.cult.cultac.cloud.intake.v3.Verdict;
 import ac.cult.cultac.cloud.intake.v3.World;
+import com.github.luben.zstd.ZstdDecompressCtx;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.CodedOutputStream;
 import com.google.protobuf.InvalidProtocolBufferException;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
-import java.util.zip.DataFormatException;
-import java.util.zip.Inflater;
 import org.junit.jupiter.api.Test;
 
 class IntakeWireTest {
@@ -323,32 +330,35 @@ class IntakeWireTest {
     }
 
     @Test
-    void messagesAreAFlagsByteThenTheEntries() throws DataFormatException, InvalidProtocolBufferException {
+    void messagesAreAFlagsByteThenTheEntries() throws InvalidProtocolBufferException {
         byte[] join = IntakeWire.join(PLAYER, 773, "vanilla", -64, 384, null, null, 0);
         byte[] leave = IntakeWire.leave(PLAYER);
         byte[] records = new byte[join.length + leave.length];
         System.arraycopy(join, 0, records, 0, join.length);
         System.arraycopy(leave, 0, records, join.length, leave.length);
-        IntakeWire.MessageWriter writer = new IntakeWire.MessageWriter();
 
-        for (int round = 0; round < 2; round++) {
-            byte[] deflated = bytes(writer.write(List.of(join, leave)));
-            assertEquals(IntakeWire.COMPRESSED, deflated[0]);
-            byte[] inflated = inflate(Arrays.copyOfRange(deflated, 1, deflated.length));
-            assertArrayEquals(records, inflated);
-            Intake intake = Intake.parseFrom(inflated);
-            assertEquals(IntakeMessage.KindCase.JOIN, intake.getMessages(0).getKindCase());
-            assertEquals(IntakeMessage.KindCase.LEAVE, intake.getMessages(1).getKindCase());
+        try (IntakeWire.StreamWriter writer = new IntakeWire.StreamWriter();
+                ZstdDecompressCtx reader = new ZstdDecompressCtx()) {
+            for (int round = 0; round < 2; round++) {
+                byte[] compressed = bytes(writer.write(List.of(join, leave), records.length, true));
+                assertEquals(IntakeWire.COMPRESSED, compressed[0]);
+                byte[] decompressed = decompress(reader, compressed);
+                assertArrayEquals(records, decompressed);
+                Intake intake = Intake.parseFrom(decompressed);
+                assertEquals(IntakeMessage.KindCase.JOIN, intake.getMessages(0).getKindCase());
+                assertEquals(IntakeMessage.KindCase.LEAVE, intake.getMessages(1).getKindCase());
+            }
         }
     }
 
     @Test
-    void largeMessagesDeflateWhole() throws DataFormatException {
+    void largeMessagesCompressWhole() {
         byte[] big = new byte[3 * 1024 * 1024];
         new Random(1).nextBytes(big);
-        IntakeWire.MessageWriter writer = new IntakeWire.MessageWriter();
-        byte[] deflated = bytes(writer.write(List.of(big)));
-        assertArrayEquals(big, inflate(Arrays.copyOfRange(deflated, 1, deflated.length)));
+        try (IntakeWire.StreamWriter writer = new IntakeWire.StreamWriter();
+                ZstdDecompressCtx reader = new ZstdDecompressCtx()) {
+            assertArrayEquals(big, decompress(reader, bytes(writer.write(List.of(big), big.length, true))));
+        }
     }
 
     private static byte[] bytes(ByteBuffer buffer) {
@@ -357,18 +367,90 @@ class IntakeWireTest {
         return bytes;
     }
 
-    private static byte[] inflate(byte[] deflated) throws DataFormatException {
-        Inflater inflater = new Inflater(true);
-        inflater.setInput(deflated);
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        byte[] chunk = new byte[8192];
-        while (!inflater.finished()) {
-            int n = inflater.inflate(chunk);
-            if (n == 0 && inflater.needsInput()) break;
-            out.write(chunk, 0, n);
+    /** One message of a socket's zstd frame, from its bytes and the messages before it on {@code reader}. */
+    private static byte[] decompress(ZstdDecompressCtx reader, byte[] message) {
+        ByteBuffer in = ByteBuffer.allocateDirect(message.length - 1);
+        in.put(message, 1, message.length - 1).flip();
+        ByteBuffer out = ByteBuffer.allocateDirect(64 * 1024);
+        ByteArrayOutputStream records = new ByteArrayOutputStream();
+        while (true) {
+            out.clear();
+            reader.decompressDirectByteBufferStream(out, in);
+            out.flip();
+            byte[] chunk = new byte[out.remaining()];
+            out.get(chunk);
+            records.writeBytes(chunk);
+            if (!in.hasRemaining() && chunk.length < out.capacity()) return records.toByteArray();
         }
-        inflater.end();
-        return out.toByteArray();
+    }
+
+    private static final UUID TEAM_PLAYER = UUID.fromString("7445efd5-b580-47d0-b669-bf621fe82396");
+    private static final String TEAM_PLAYER_HEX = "74 45 ef d5 b5 80 47 d0 b6 69 bf 62 1f e8 23 96";
+
+    @Test
+    void teamRolesMatchTheGoldenBytes() throws InvalidProtocolBufferException {
+        byte[] golden = hex("0a 24 3a 22 0a 20 0a 10 " + TEAM_PLAYER_HEX + " 12 0a 44 69 73 72 65 67 61 72 64 31 18 03");
+
+        byte[] written = IntakeWire.team(
+                List.of(IntakeWire.teamRole(TEAM_PLAYER, "Disregard1", PortalRole.PORTAL_ROLE_MODERATOR, false)));
+
+        assertArrayEquals(golden, written);
+        TeamRole read = Intake.parseFrom(golden).getMessages(0).getTeam().getPlayers(0);
+        assertEquals(TEAM_PLAYER, IntakeWire.uuid(read.getPlayer()));
+        assertEquals("Disregard1", read.getName());
+        assertEquals(PortalRole.PORTAL_ROLE_MODERATOR, read.getRole());
+        assertFalse(read.getOffline());
+    }
+
+    @Test
+    void teamRepliesMatchTheGoldenBytes() {
+        byte[] enabled = hex("0a 04 4a 02 08 01");
+        byte[] disabled = hex("0a 02 4a 00");
+        byte[] sweep = hex("0a 14 52 12 0a 10 " + TEAM_PLAYER_HEX);
+
+        assertEquals(List.of(new IntakeWire.TeamStateReply(true)), IntakeWire.replies(enabled));
+        assertEquals(List.of(new IntakeWire.TeamStateReply(false)), IntakeWire.replies(disabled));
+        assertEquals(List.of(new IntakeWire.TeamSweepReply(List.of(TEAM_PLAYER))), IntakeWire.replies(sweep));
+        assertArrayEquals(
+                enabled,
+                Replies.newBuilder()
+                        .addReplies(Reply.newBuilder().setTeamState(TeamState.newBuilder().setEnabled(true)))
+                        .build()
+                        .toByteArray());
+        assertArrayEquals(
+                disabled,
+                Replies.newBuilder()
+                        .addReplies(Reply.newBuilder().setTeamState(TeamState.getDefaultInstance()))
+                        .build()
+                        .toByteArray());
+        assertArrayEquals(
+                sweep,
+                Replies.newBuilder()
+                        .addReplies(Reply.newBuilder()
+                                .setTeamSweep(TeamSweep.newBuilder()
+                                        .addPlayers(ByteString.copyFrom(IntakeWire.uuid(TEAM_PLAYER)))))
+                        .build()
+                        .toByteArray());
+    }
+
+    @Test
+    void teamSweepLeavesOutAPlayerOfTheWrongLength() {
+        byte[] sweep = Replies.newBuilder()
+                .addReplies(Reply.newBuilder()
+                        .setTeamSweep(TeamSweep.newBuilder()
+                                .addPlayers(ByteString.copyFrom(new byte[3]))
+                                .addPlayers(ByteString.copyFrom(IntakeWire.uuid(TEAM_PLAYER)))))
+                .build()
+                .toByteArray();
+
+        assertEquals(List.of(new IntakeWire.TeamSweepReply(List.of(TEAM_PLAYER))), IntakeWire.replies(sweep));
+    }
+
+    private static byte[] hex(String spaced) {
+        String[] parts = spaced.split(" ");
+        byte[] out = new byte[parts.length];
+        for (int i = 0; i < parts.length; i++) out[i] = (byte) Integer.parseInt(parts[i], 16);
+        return out;
     }
 
     @Test
@@ -392,8 +474,8 @@ class IntakeWireTest {
                 .build();
         ByteArrayOutputStream message = new ByteArrayOutputStream();
         message.writeBytes(replies.toByteArray());
-        // A reply of a kind this client does not know: Reply field 9, a string.
-        message.writeBytes(new byte[] {0x0A, 0x03, 0x4A, 0x01, 0x78});
+        // A reply of a kind this client does not know: Reply field 11, a string.
+        message.writeBytes(new byte[] {0x0A, 0x03, 0x5A, 0x01, 0x78});
 
         List<IntakeWire.Reply> read = IntakeWire.replies(message.toByteArray());
 
@@ -409,7 +491,7 @@ class IntakeWireTest {
 
     @Test
     void anOversizedFindingIsCutBeforeItIsKept() {
-        String huge = "x".repeat(8 * 1024 * 1024);
+        String huge = "x".repeat(4096);
         byte[] replies = Replies.newBuilder()
                 .addReplies(Reply.newBuilder()
                         .setEvent(Event.newBuilder()
@@ -428,6 +510,36 @@ class IntakeWireTest {
     }
 
     @Test
+    void theKeyIsMaskedInWhatTheServiceSaysBeforeItIsCut() {
+        String key = "issued-token-0123456789";
+        String straddling = "x".repeat(IntakeWire.MAX_DETAIL_BYTES - 8) + key;
+        byte[] replies = Replies.newBuilder()
+                .addReplies(Reply.newBuilder()
+                        .setRefused(
+                                Refused.newBuilder().setPlayer(PLAYER_BYTES).setReason("Authorization: Bearer " + key)))
+                .addReplies(Reply.newBuilder()
+                        .setRefused(Refused.newBuilder().setPlayer(PLAYER_BYTES).setReason(straddling)))
+                .addReplies(Reply.newBuilder()
+                        .setEvent(Event.newBuilder()
+                                .setPlayer(PLAYER_BYTES)
+                                .setCheckId(key)
+                                .setCategory("x".repeat(120) + key)
+                                .setDetail(straddling)))
+                .build()
+                .toByteArray();
+
+        List<IntakeWire.Reply> read = IntakeWire.replies(replies, key);
+
+        assertEquals("Authorization: Bearer <api-key>", ((IntakeWire.Refused) read.get(0)).reason());
+        IntakeWire.Event event = (IntakeWire.Event) read.get(2);
+        assertEquals("<api-key>", event.checkId());
+        for (String text : List.of(
+                ((IntakeWire.Refused) read.get(1)).reason(), event.checkId(), event.category(), event.detail())) {
+            assertFalse(text.contains(key.substring(0, 6)), text);
+        }
+    }
+
+    @Test
     void aReplyForAPlayerThatIsNotSixteenBytesIsUnreadable() {
         byte[] replies = Replies.newBuilder()
                 .addReplies(
@@ -435,6 +547,180 @@ class IntakeWireTest {
                 .build()
                 .toByteArray();
         assertThrows(IllegalArgumentException.class, () -> IntakeWire.replies(replies));
+    }
+
+    @Test
+    void sixteenMebibytesOfEmptyRepliesAreUnreadable() {
+        byte[] message = new byte[16 * 1024 * 1024];
+        for (int i = 0; i < message.length; i += 2) message[i] = 0x0A;
+        assertThrows(IllegalArgumentException.class, () -> IntakeWire.replies(message));
+    }
+
+    @Test
+    void repliesAreCappedInCount() {
+        assertTrue(IntakeWire.replies(emptyReplies(IntakeWire.MAX_REPLIES)).isEmpty());
+        assertThrows(
+                IllegalArgumentException.class, () -> IntakeWire.replies(emptyReplies(IntakeWire.MAX_REPLIES + 1)));
+    }
+
+    @Test
+    void unknownFieldsAreCappedInCount() {
+        byte[] message = new byte[2 * (IntakeWire.MAX_REPLY_FIELDS + 1)];
+        for (int i = 0; i < message.length; i += 2) message[i] = 0x10;
+        assertThrows(IllegalArgumentException.class, () -> IntakeWire.replies(message));
+        assertThrows(IllegalArgumentException.class, () -> IntakeWire.replies(new byte[] {0x13, 0x14}));
+    }
+
+    @Test
+    void aCaptureListIsCappedInIds() throws IOException {
+        List<Integer> most = new ArrayList<>();
+        for (int i = 0; i < IntakeWire.MAX_CAPTURE_IDS; i++) most.add(i % 1000);
+        IntakeWire.Capture read = (IntakeWire.Capture)
+                IntakeWire.replies(capture(most, List.of())).get(0);
+        assertEquals(IntakeWire.MAX_CAPTURE_IDS, read.serverbound().length);
+
+        List<Integer> over = new ArrayList<>(most);
+        over.add(1);
+        assertThrows(IllegalArgumentException.class, () -> IntakeWire.replies(capture(over, List.of())));
+        assertThrows(IllegalArgumentException.class, () -> IntakeWire.replies(capture(List.of(), over)));
+        List<Integer> million = new ArrayList<>(Collections.nCopies(1_000_000, 1));
+        assertThrows(IllegalArgumentException.class, () -> IntakeWire.replies(capture(List.of(), million)));
+
+        ByteArrayOutputStream unpacked = new ByteArrayOutputStream();
+        unpacked.writeBytes(Capture.newBuilder().setPlayer(PLAYER_BYTES).build().toByteArray());
+        for (int i = 0; i <= IntakeWire.MAX_CAPTURE_IDS; i++) unpacked.writeBytes(new byte[] {0x18, 0x01});
+        byte[] message = field(1, field(1, unpacked.toByteArray()));
+        assertEquals(
+                IntakeWire.MAX_CAPTURE_IDS + 1,
+                Replies.parseFrom(message).getReplies(0).getCapture().getClientboundCount());
+        assertThrows(IllegalArgumentException.class, () -> IntakeWire.replies(message));
+    }
+
+    @Test
+    void repeatedCaptureFieldsShareTheIdCap() throws IOException {
+        List<Integer> most = Collections.nCopies(IntakeWire.MAX_CAPTURE_IDS, 1);
+        byte[] packed = field(
+                1,
+                Capture.newBuilder()
+                        .setPlayer(PLAYER_BYTES)
+                        .addAllServerbound(most)
+                        .build()
+                        .toByteArray());
+        byte[] packedMore =
+                field(1, Capture.newBuilder().addServerbound(2).build().toByteArray());
+        byte[] unpackedMore = field(1, new byte[] {0x10, 0x02});
+        for (byte[] more : List.of(packedMore, unpackedMore)) {
+            byte[] message = field(1, concat(packed, more));
+            assertEquals(
+                    IntakeWire.MAX_CAPTURE_IDS + 1,
+                    Replies.parseFrom(message).getReplies(0).getCapture().getServerboundCount());
+            assertThrows(IllegalArgumentException.class, () -> IntakeWire.replies(message));
+        }
+
+        byte[] half = field(
+                1,
+                Capture.newBuilder()
+                        .setPlayer(PLAYER_BYTES)
+                        .addAllServerbound(Collections.nCopies(IntakeWire.MAX_CAPTURE_IDS / 2, 1))
+                        .build()
+                        .toByteArray());
+        IntakeWire.Capture read = (IntakeWire.Capture)
+                IntakeWire.replies(field(1, concat(half, half))).get(0);
+        assertEquals(IntakeWire.MAX_CAPTURE_IDS, read.serverbound().length);
+    }
+
+    @Test
+    void aFrameBuilderShrinksBackAfterALargeFrame() {
+        IntakeWire.FrameBuilder builder = new IntakeWire.FrameBuilder();
+        byte[] payload = {1, 2};
+        for (int i = 0; i < 100_000; i++) builder.add(IntakeWire.SERVERBOUND, 1, payload, 2, 0, 0, 0);
+        builder.build(PLAYER, 1);
+        builder.clear();
+        assertEquals(IntakeWire.FrameBuilder.RESTING_RECORDS, builder.capacity());
+
+        for (int i = 0; i < 100_000; i++) builder.add(IntakeWire.SERVERBOUND, 1, payload, 2, 0, 0, 0);
+        builder.clear();
+        assertEquals(IntakeWire.FrameBuilder.RESTING_RECORDS, builder.capacity());
+
+        for (int i = 0; i < 500; i++) builder.add(IntakeWire.SERVERBOUND, 1, payload, 2, 0, 0, 0);
+        builder.clear();
+        int grown = builder.capacity();
+        assertTrue(grown >= 500, grown + " slots");
+        for (int i = 0; i < 500; i++) builder.add(IntakeWire.SERVERBOUND, 1, payload, 2, 0, 0, 0);
+        builder.clear();
+        assertEquals(grown, builder.capacity(), "a frame of a few hundred records keeps its slots");
+
+        for (int i = 0; i < 5_000; i++) builder.add(IntakeWire.SERVERBOUND, 1, payload, 2, 0, 0, 0);
+        builder.clear();
+        assertEquals(IntakeWire.FrameBuilder.RESTING_RECORDS, builder.capacity());
+        add(builder, IntakeWire.SERVERBOUND, 1, payload);
+        assertTrue(builder.bytes() > 0);
+    }
+
+    private static byte[] concat(byte[] first, byte[] second) {
+        byte[] both = Arrays.copyOf(first, first.length + second.length);
+        System.arraycopy(second, 0, both, first.length, second.length);
+        return both;
+    }
+
+    private static byte[] field(int number, byte[] body) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        CodedOutputStream stream = CodedOutputStream.newInstance(out);
+        stream.writeByteArray(number, body);
+        stream.flush();
+        return out.toByteArray();
+    }
+
+    @Test
+    void aReplyOverItsSizeIsUnreadable() {
+        byte[] replies = Replies.newBuilder()
+                .addReplies(Reply.newBuilder()
+                        .setEvent(Event.newBuilder()
+                                .setPlayer(PLAYER_BYTES)
+                                .setDetail("x".repeat(IntakeWire.MAX_REPLY_ENTRY_BYTES))))
+                .build()
+                .toByteArray();
+        assertThrows(IllegalArgumentException.class, () -> IntakeWire.replies(replies));
+    }
+
+    @Test
+    void serviceTextIsReadAsOneLine() {
+        byte[] replies = Replies.newBuilder()
+                .addReplies(Reply.newBuilder()
+                        .setEvent(Event.newBuilder()
+                                .setPlayer(PLAYER_BYTES)
+                                .setCheckId("reach\n[Server] approved")
+                                .setCategory("AIM\r x")
+                                .setDetail("a\u2029b\u0007c\u202ed \u00a7c<b>literal</b>")))
+                .addReplies(Reply.newBuilder()
+                        .setRefused(Refused.newBuilder().setPlayer(PLAYER_BYTES).setReason("full\r\nINFO: ok")))
+                .build()
+                .toByteArray();
+
+        List<IntakeWire.Reply> read = IntakeWire.replies(replies);
+
+        IntakeWire.Event event = (IntakeWire.Event) read.get(0);
+        assertEquals("reach?[Server] approved", event.checkId());
+        assertEquals("AIM??x", event.category());
+        assertEquals("a?b?c?d ?c<b>literal</b>", event.detail());
+        assertEquals("full??INFO: ok", ((IntakeWire.Refused) read.get(1)).reason());
+    }
+
+    private static byte[] emptyReplies(int count) {
+        byte[] message = new byte[2 * count];
+        for (int i = 0; i < message.length; i += 2) message[i] = 0x0A;
+        return message;
+    }
+
+    private static byte[] capture(List<Integer> serverbound, List<Integer> clientbound) {
+        return Replies.newBuilder()
+                .addReplies(Reply.newBuilder()
+                        .setCapture(Capture.newBuilder()
+                                .setPlayer(PLAYER_BYTES)
+                                .addAllServerbound(serverbound)
+                                .addAllClientbound(clientbound)))
+                .build()
+                .toByteArray();
     }
 
     @Test
@@ -681,12 +967,37 @@ class IntakeWireTest {
     }
 
     @Test
-    void captureBytesCountsARecordsWholeField() {
+    void aFrameBuilderCountsARecordsWholeField() {
         IntakeWire.FrameBuilder builder = new IntakeWire.FrameBuilder();
         add(builder, IntakeWire.SERVERBOUND, 300, new byte[200]);
         int body = CodedOutputStream.computeTagSize(IntakeWire.SERVERBOUND) + 2 + 200 + 1 + 2;
         assertEquals(1 + 2 + body, builder.bytes());
-        assertEquals(builder.bytes(), IntakeWire.captureBytes(IntakeWire.SERVERBOUND, 300, 200, 0, 0, 0, false));
+    }
+
+    @Test
+    void joinLeaveAndTeamRecordsEndTheirMessage() {
+        List<TeamRole> roles = new ArrayList<>();
+        for (int i = 0; i < 100; i++)
+            roles.add(IntakeWire.teamRole(PLAYER, "staff" + i, PortalRole.PORTAL_ROLE_ADMIN, false));
+        assertTrue(IntakeWire.endsMessage(IntakeWire.join(PLAYER, 773, "vanilla", -64, 384, null, "name", 0)));
+        assertTrue(IntakeWire.endsMessage(IntakeWire.unstreamed(PLAYER, 819, "geyser", -64, 384, null, null)));
+        assertTrue(IntakeWire.endsMessage(IntakeWire.leave(PLAYER)));
+        assertTrue(IntakeWire.endsMessage(IntakeWire.team(roles)));
+        assertTrue(IntakeWire.endsMessage(IntakeWire.team(List.of())));
+
+        IntakeWire.FrameBuilder builder = new IntakeWire.FrameBuilder();
+        add(builder, IntakeWire.SERVERBOUND, 300, new byte[2000]);
+        assertFalse(IntakeWire.endsMessage(builder.build(PLAYER, 1)));
+        assertFalse(IntakeWire.endsMessage(Intake.newBuilder()
+                .addMessages(IntakeMessage.newBuilder().setDiag(DiagPart.getDefaultInstance()))
+                .build()
+                .toByteArray()));
+        assertFalse(IntakeWire.endsMessage(Intake.newBuilder()
+                .addMessages(IntakeMessage.newBuilder().setPerf(PerfPart.getDefaultInstance()))
+                .build()
+                .toByteArray()));
+        assertFalse(IntakeWire.endsMessage(new byte[0]));
+        assertFalse(IntakeWire.endsMessage(new byte[] {0x0A, (byte) 0x80}));
     }
 
     @Test
@@ -698,8 +1009,8 @@ class IntakeWireTest {
         builder.serverTick(123_456_789L);
         Frame frame = message(builder.build(PLAYER, 3)).getFrame();
         assertEquals(123_456_789L, frame.getServerTick());
-        assertEquals(1, frame.getRecords(1).getServerTickDelta());
+        assertEquals(1, frame.getRecords(1).getTickDelta());
         assertEquals(1, frame.getRecords(1).getPingKindValue());
-        assertEquals(-1, frame.getRecords(2).getServerTickDelta());
+        assertEquals(-1, frame.getRecords(2).getTickDelta());
     }
 }

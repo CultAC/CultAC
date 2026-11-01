@@ -9,24 +9,22 @@ import ac.cult.shaded.vialib.api.data.MappingData;
 import ac.cult.shaded.vialib.api.minecraft.codec.CodecContext;
 import ac.cult.shaded.vialib.api.minecraft.data.StructuredDataKey;
 import ac.cult.shaded.vialib.util.Key;
+import java.util.HashMap;
 
 /** Borrowed read-only registry snapshot, scoped to one decode. */
 final class ValueContext implements CodecContext, CodecContext.RegistryAccess {
     private final WireValueDecoder.Registries names;
-    private final ac.cult.cultac.protocol.ProtocolVersion version;
+    private final ProtocolVersion version;
     private final ModelIdMappings mappings;
     private final java.util.Map<String, java.util.Map<Integer, String>> references = new java.util.HashMap<>();
 
-    ValueContext(
-            WireValueDecoder.Registries names,
-            ac.cult.cultac.protocol.ProtocolVersion version,
-            ModelIdMappings mappings) {
+    ValueContext(WireValueDecoder.Registries names, ProtocolVersion version, ModelIdMappings mappings) {
         this.names = names;
         this.version = version;
         this.mappings = mappings;
     }
 
-    ac.cult.cultac.protocol.ProtocolVersion version() {
+    ProtocolVersion version() {
         return version;
     }
 
@@ -116,10 +114,15 @@ final class ValueContext implements CodecContext, CodecContext.RegistryAccess {
         return new ValueContext(names, version, mappings);
     }
 
+    /** The live references; a {@link WireValueDecoder.ComponentEncoding} built from them copies them. */
     java.util.Map<String, java.util.Map<Integer, String>> references() {
-        var copy = new java.util.HashMap<String, java.util.Map<Integer, String>>();
-        references.forEach((key, value) -> copy.put(key, java.util.Map.copyOf(value)));
-        return java.util.Map.copyOf(copy);
+        return references;
+    }
+
+    /** Adds the references {@code fork} recorded, as if its reads had used this context. */
+    void include(ValueContext fork) {
+        fork.references.forEach((registry, entries) ->
+                references.computeIfAbsent(registry, key -> new HashMap<>()).putAll(entries));
     }
 
     String modelName(String registry, String name) {

@@ -40,9 +40,9 @@ spectators:
 # Oyuncuların zaman aşımından dolayı sunucudan atılmadan önce ne kadar süreleri olmalı? Varsayılan = 60 saniye
 max-transaction-time: 60
 
-# CultAC'ın kendisi başarısız olduğunda (bir oyuncuya bağlanamaz, istemci sürümü desteklenmez veya
-# max-transaction-time içinde hiçbir ping yanıtlanmazsa), oyuncu bağlantısı kesilmek yerine denetlenmeden
-# oynamaya devam eder. Paket seli ve çökertme açıkları için atmalar yine uygulanır.
+# CultAC'ın kendisi başarısız olduğunda (bir oyuncuya bağlanamaz veya istemci sürümü desteklenmezse), oyuncu
+# bağlantısı kesilmek yerine denetlenmeden oynamaya devam eder. Paket seli, çökertme açıkları ve
+# max-transaction-time içinde yanıtlanmayan pingler için atmalar yine uygulanır.
 launch-safety:
   fail-open: true
 
@@ -269,6 +269,53 @@ cloud:
   # Names this proxy among the writers sharing one api-key, required while server-id uses {proxy}. On a server it
   # is the server's own name, and required.
   proxy-id: ""
+  # When true, sends CPU and allocation stack samples of this server to the intake service: short profiles it asks
+  # for, recorded off the main thread. Off by default; CULTAC_CLOUD_PERF (true/1/yes, false/0/no) wins when set.
+  perf: false
+  # When true, the upload sockets also report the UUID, name and portal role (viewer, moderator or admin) of
+  # players holding cult.portal.viewer, .moderator or .admin, and the stored role of synced players who are offline
+  # when the intake service asks, so the cloud portal lists them in this server's organization while it has team
+  # sync on. Off by default; CULTAC_CLOUD_TEAM_SYNC (true/1/yes, false/0/no) wins when set.
+  team-sync: false
+  # Panel bans: staff ban a player from the cloud panel, and one server that has the command for it runs it as
+  # console, in observe-only mode too. Placeholders: %player% %uuid% %reason% %cheat% %cheat_id% %duration%
+  # (30m, 12h, 7d; empty when permanent) %seconds% %staff% %ban_id% %link% %staff_uuid% (the banning staff
+  # member's Minecraft UUID when the panel knows it) %evidence% (a link to the evidence the ban rests on, such as a
+  # replay); both are empty when unknown.
+  # %reason% and %staff% are free text: put %reason% last, after %duration%, so it is never read as a duration.
+  staff-ban:
+    # Runs when staff ban a player from the cloud panel. Empty: this server never runs panel bans.
+    command: ""
+    # For timed bans. Empty: this server never runs timed panel bans.
+    temp-command: ""
+
+# Yetkili komutlarının, Tab tamamlamanın ve uyarıların tüm proxy'lerinizde ve sunucularınızda çalışmasını sağlar.
+# Kurulum rehberi: CultAC kaynak kodundaki docs/network.md. /cult reload değişiklikleri uygular.
+# Buradaki her ayar bir CULTAC_NETWORK_* ortam değişkeniyle de verilebilir; ortam değişkeni önceliklidir.
+network:
+  # Sunucularınızın birbiriyle nasıl konuştuğu:
+  #   none         Kapalı. Komutlar ve uyarılar yalnızca bu sunucudaki oyunculara ulaşır.
+  #   redis        Bir Redis sunucusu üzerinden (Valkey, KeyDB ve Dragonfly da olur). redis bölümünü doldurun.
+  #   nats         Bir NATS sunucusu üzerinden. nats bölümünü doldurun.
+  #   redisbungee  RedisBungee çalıştıran Velocity proxy'leri. Onun Redis bağlantısını kullanır, başka doldurulacak bir şey yok.
+  type: none
+  redis:
+    address: localhost:6379
+    username: ""
+    password: ""
+    ssl: false
+  nats:
+    # Birden fazla sunucu yazmak için aralarına virgül koyun.
+    address: localhost:4222
+    username: ""
+    password: ""
+    token: ""
+    # Yalnızca NATS sunucunuz hesap kullanıyorsa: .creds dosyanızın yolu.
+    credentials-file: ""
+    ssl: false
+  # Bu sunucunun ağdaki adı. Her sunucunun kendine ait bir adı olmalı.
+  # Boş bırakırsanız RedisBungee proxy id'si, o yoksa cloud.proxy-id, o da yoksa bu sunucunun IP'si ve portu kullanılır.
+  instance-id: ""
 
 # Velocity only: numbered builds installed with /cult update <build>, /cult update latest [branch] and listed with
 # /cult update builds [branch]. Each setting's CULTAC_UPDATE_* environment variable wins when set and not blank.
@@ -290,4 +337,4 @@ update:
   webhook: ""
 
 config-flavor: V2
-config-version: 14
+config-version: 17

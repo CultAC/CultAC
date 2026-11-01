@@ -472,6 +472,7 @@ final class PlayerTextValues implements PlayerTextCodec {
     /** An inline registry entry's description sent empty: its whole value written back through Via's type. */
     @SuppressWarnings("unchecked")
     private static void inline(ByteBuf input, Cuts cuts, StructuredDataKey<?> key) {
+        ItemStructureGuard.trimOverrides(input, key);
         int start = input.readerIndex();
         Object value = key.type().read(input);
         Object blanked = blank(value);

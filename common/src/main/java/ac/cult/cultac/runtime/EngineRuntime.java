@@ -1,11 +1,18 @@
 package ac.cult.cultac.runtime;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.bedrock.bridge.GeyserBedrockBridgeRuntime;
 import ac.cult.cultac.cloud.CloudModule;
 import ac.cult.cultac.command.CloudCommandService;
+import ac.cult.cultac.manager.config.BaseConfigManager;
+import ac.cult.cultac.manager.config.ConfigManagerFileImpl;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.reload.api.RuntimeInstance;
+import ac.grim.grimac.api.config.ConfigManager;
 import io.netty.channel.Channel;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 
@@ -18,7 +25,7 @@ public abstract class EngineRuntime implements RuntimeInstance {
     public CompletionStage<Void> disconnect(Object connection) {
         return connection instanceof Channel channel
                 ? disconnectChannel(channel)
-                : ac.cult.cultac.bedrock.bridge.GeyserBedrockBridgeRuntime.disconnectSession(connection);
+                : GeyserBedrockBridgeRuntime.disconnectSession(connection);
     }
 
     @Override
@@ -49,27 +56,25 @@ public abstract class EngineRuntime implements RuntimeInstance {
     }
 
     @Override
-    public java.util.Map<String, byte[]> configurationFiles() throws Exception {
+    public Map<String, byte[]> configurationFiles() throws Exception {
         var config = CultAPI.INSTANCE.getExternalAPI().getConfigManager();
-        return config instanceof ac.cult.cultac.manager.config.ConfigManagerFileImpl files
-                ? files.publication()
-                : java.util.Map.of();
+        return config instanceof ConfigManagerFileImpl files ? files.publication() : Map.of();
     }
 
     @Override
     public Object prepareReload(Object configuration) {
-        ac.grim.grimac.api.config.ConfigManager parsed;
-        if (configuration != null) parsed = (ac.grim.grimac.api.config.ConfigManager) configuration;
+        ConfigManager parsed;
+        if (configuration != null) parsed = (ConfigManager) configuration;
         else {
             var host = RuntimeEnvironment.host();
-            parsed = new ac.cult.cultac.manager.config.ConfigManagerFileImpl(host.directory()
+            parsed = new ConfigManagerFileImpl(host.directory()
                     .resolve("runtime/generations")
                     .resolve(host.generationId())
-                    .resolve("reload-" + java.util.UUID.randomUUID())
+                    .resolve("reload-" + UUID.randomUUID())
                     .toFile());
             parsed.reload();
         }
-        new ac.cult.cultac.manager.config.BaseConfigManager().load(parsed);
+        new BaseConfigManager().load(parsed);
         return parsed;
     }
 
@@ -80,13 +85,13 @@ public abstract class EngineRuntime implements RuntimeInstance {
 
     @Override
     public boolean applyReload(Object configuration) {
-        return CultAPI.INSTANCE.getExternalAPI().applyPrepared((ac.grim.grimac.api.config.ConfigManager) configuration);
+        return CultAPI.INSTANCE.getExternalAPI().applyPrepared((ConfigManager) configuration);
     }
 
     @Override
-    public java.util.List<String> placeholders() {
+    public List<String> placeholders() {
         var api = CultAPI.INSTANCE.getExternalAPI();
-        var result = new java.util.ArrayList<String>();
+        var result = new ArrayList<String>();
         api.getStaticReplacements()
                 .keySet()
                 .forEach(key -> result.add(key.equals("%cult_version%") ? key : "%cult_" + key.replace("%", "") + "%"));
@@ -120,11 +125,18 @@ public abstract class EngineRuntime implements RuntimeInstance {
 
     @Override
     public CompletionStage<Void> execute(Object nativeSender, String input) {
-        return ((CloudCommandService) CultAPI.INSTANCE.getCommandService()).execute(sender(nativeSender), input);
+        return ((CloudCommandService) CultAPI.INSTANCE.getCommandService())
+                .execute(sender(nativeSender), CloudCommandService.onRegisteredRoot(input));
     }
 
     @Override
-    public CompletionStage<java.util.List<String>> suggest(Object nativeSender, String input) {
-        return ((CloudCommandService) CultAPI.INSTANCE.getCommandService()).suggest(sender(nativeSender), input);
+    public CompletionStage<List<String>> suggest(Object nativeSender, String input) {
+        return ((CloudCommandService) CultAPI.INSTANCE.getCommandService())
+                .suggest(sender(nativeSender), CloudCommandService.onRegisteredRoot(input));
+    }
+
+    @Override
+    public List<String> commandRoots() {
+        return CloudCommandService.roots();
     }
 }

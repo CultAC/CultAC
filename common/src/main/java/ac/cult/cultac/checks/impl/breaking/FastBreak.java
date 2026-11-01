@@ -7,6 +7,7 @@ import ac.cult.cultac.checks.type.BlockBreakListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSwing;
 import ac.cult.cultac.protocol.value.BlockPos;
@@ -29,59 +30,54 @@ public class FastBreak extends Check implements BlockBreakListener {
         super(player);
     }
 
+    // MultiPlayerGameMode#continueDestroyBlock waits this many ticks after each STOP before it progresses again
+    private static final int DESTROY_DELAY_TICKS = 5;
+    private static final double MILLISECONDS_PER_TICK = 50;
+
     // The block the player is currently breaking
     BlockPos targetBlockPosition = null;
     // The maximum amount of damage the player deals to the block
     //
     double maximumBlockDamage = 0;
-    // The last time a finish digging packet was sent, to enforce 0.3-second delay after non-instabreak
-    long lastFinishBreak = 0;
-    // The time the player started to break the block, to know how long the player waited until they finished breaking
-    // the block
-    long startBreak = 0;
+    // Client ticks, counted by client_tick_end
+    int clientTicks = 0;
+    // The client tick the next STOP is timed from
+    int startTick = 0;
+    // Swings received after the START within its own client tick
+    int startTickSwings = 0;
+    // The destroyDelay ticks the client still has to wait out from startTick
+    int startDestroyDelay = 0;
+    int lastStopTick = 0;
+    boolean receivedStop = false;
 
     // The buffer to this check
     double blockBreakBalance = 0;
-    double blockDelayBalance = 0;
 
     public void onBlockBreak(BlockBreak blockBreak) {
-        if (blockBreak.action == PlayerAction.START_DESTROY_BLOCK) { // PE DiggingAction.START_DIGGING
-
-            startBreak = System.currentTimeMillis() - (targetBlockPosition == null ? 50 : 0); // ???
+        if (blockBreak.action == PlayerAction.START_DESTROY_BLOCK) {
             targetBlockPosition = blockBreak.position;
 
             // FIXME: getBlockDamage might not return the correct value if the player switched slots before this
             maximumBlockDamage = getClientBlockDamage(blockBreak.block);
 
-            double breakDelay = System.currentTimeMillis() - lastFinishBreak;
-
-            if (breakDelay >= 275) { // Reduce buffer if "close enough"
-                blockDelayBalance *= 0.9;
-            } else { // Otherwise, increase buffer
-                blockDelayBalance += 300 - breakDelay;
-            }
-
-            if (blockDelayBalance > 1000) { // If more than a second of advantage
-                int type = DataTables.defaults().registry().blockIndex(blockBreak.block);
-                if (flag(V.write(verbose())
-                                .bool(true)
-                                .ulong((long) breakDelay)
-                                .f64(0)
-                                .f64(0)
-                                .sint(type))
-                        && shouldModifyPackets()) {
-                    blockBreak.cancel();
-                }
-            }
-
-            clampBalance();
+            startTick = clientTicks;
+            startTickSwings = 0;
+            // The STOP's destroyDelay runs down by at most one per client tick
+            startDestroyDelay = receivedStop
+                    ? CultMath.clamp(DESTROY_DELAY_TICKS + 1 - (clientTicks - lastStopTick), 0, DESTROY_DELAY_TICKS)
+                    : 0;
         }
 
-        if (blockBreak.action == PlayerAction.STOP_DESTROY_BLOCK
-                && targetBlockPosition != null) { // PE DiggingAction.FINISHED_DIGGING
-            double predictedTime = Math.ceil(1 / maximumBlockDamage) * 50;
-            double realTime = System.currentTimeMillis() - startBreak;
-            double diff = predictedTime - realTime;
+        if (blockBreak.action == PlayerAction.STOP_DESTROY_BLOCK && targetBlockPosition != null) {
+            // MultiPlayerGameMode#continueDestroyBlock sends STOP only at its target, after adding the state's progress
+            if (blockBreak.position.equals(targetBlockPosition)) {
+                maximumBlockDamage = Math.max(maximumBlockDamage, getClientBlockDamage(blockBreak.block));
+            }
+            // Minecraft#startAttack swings once after START; continueAttack swings again in that tick only when
+            // continueDestroyBlock ran, the one way progress or a destroyDelay tick happens in the START tick
+            double startTickCredit = startTickSwings >= 2 ? 1 : 0;
+            double predictedTicks = Math.ceil(1 / maximumBlockDamage) + startDestroyDelay - startTickCredit;
+            double diff = (predictedTicks - (clientTicks - startTick)) * MILLISECONDS_PER_TICK;
 
             clampBalance();
 
@@ -104,9 +100,22 @@ public class FastBreak extends Check implements BlockBreakListener {
                 }
             }
 
-            // also set start time because the breaking netcode is fucked on 1.14.4+
-            lastFinishBreak = startBreak = System.currentTimeMillis();
+            lastStopTick = startTick = clientTicks;
+            startTickSwings = 0;
+            startDestroyDelay = DESTROY_DELAY_TICKS;
+            receivedStop = true;
         }
+    }
+
+    @CultPacketHandler("serverbound.client_tick_end")
+    public void onClientTickEnd(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
+        clientTicks++;
+    }
+
+    /** ClientPacketListener#handleLogin's new MultiPlayerGameMode starts its destroyDelay at 0. */
+    public void resetDestroyDelay() {
+        receivedStop = false;
+        lastStopTick = 0;
     }
 
     // Find the most optimal block damage using the animation packet, which is sent at least once a tick when breaking
@@ -122,6 +131,7 @@ public class FastBreak extends Check implements BlockBreakListener {
 
     @CultPacketHandler
     public void onSwing(PacketReceiveEvent<ServerboundSwing> event, CultPlayer player, ServerboundSwing packet) {
+        if (clientTicks == startTick) startTickSwings++;
         updateMaximumBlockDamage();
     }
 
@@ -141,6 +151,5 @@ public class FastBreak extends Check implements BlockBreakListener {
         double balance = Math.max(1000, (player.getTransactionPing()));
         blockBreakBalance =
                 CultMath.clamp(blockBreakBalance, -balance, balance); // Clamp not Math.max in case other logic changes
-        blockDelayBalance = CultMath.clamp(blockDelayBalance, -balance, balance);
     }
 }

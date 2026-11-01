@@ -45,6 +45,7 @@ public final class ClientAttackStrength {
     public void onClaimedMainHand(SimItemStack mainHand) {
         if (!isSameItem(lastMainHand, mainHand)) {
             minTicker = 0;
+            possibleMainHandChange = true;
         }
     }
 

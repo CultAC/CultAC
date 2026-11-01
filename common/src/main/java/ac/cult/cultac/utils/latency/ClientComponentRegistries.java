@@ -1,35 +1,57 @@
 package ac.cult.cultac.utils.latency;
 
+import ac.cult.blocksim.BlockSimulator;
+import ac.cult.blocksim.behavior.ConsumableBehavior;
+import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.HolderSets;
+import ac.cult.blocksim.data.InteractionRegistries;
+import ac.cult.blocksim.data.ItemRegistry;
+import ac.cult.blocksim.environment.ClientWorldDefaults;
+import ac.cult.cultac.network.packet.RegistryData;
 import ac.cult.cultac.network.packet.RegistryTags;
+import ac.cult.cultac.protocol.ProtocolCodecs;
 import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.protocol.WireValueDecoder;
 import ac.cult.cultac.protocol.WireValueDecoder.RegistryEntry;
+import ac.cult.cultac.protocol.data.ModelBlockStates;
+import ac.cult.cultac.utils.blockplace.BlockSimulatorWorldView;
+import ac.cult.cultac.utils.inventory.ItemUtil;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * Received block, item, fluid and entity type memberships at the compensated boundary.
  * Movement and block actions use immutable named tag snapshots.
  */
 public final class ClientComponentRegistries {
-    private final Map<String, ac.cult.cultac.network.packet.RegistryTags.Payload> tags = new HashMap<>();
+    private final Map<String, RegistryTags.Payload> tags = new HashMap<>();
     private Tags geometryTags;
 
     private record ActionPath(ProtocolVersion source, ProtocolVersion client, ProtocolVersion model) {}
 
     private final Map<ActionPath, Tags> actionTags = new HashMap<>();
-    private final Map<ActionPath, ac.cult.blocksim.data.HolderSets.Overlay> simulatorTags = new HashMap<>();
-    private Map<String, ac.cult.cultac.network.packet.RegistryTags.Payload> configurationTags;
-    private Map<String, List<ac.cult.cultac.protocol.WireValueDecoder.RegistryEntry>> configurationRegistries;
-    private Map<String, List<ac.cult.cultac.protocol.WireValueDecoder.RegistryEntry>> receivedRegistries = Map.of();
+    /** The last {@link #clientTags} answer, which per-cell fluid queries repeat; cleared with {@link #actionTags}. */
+    private Tags lastClientTags;
+
+    private ProtocolVersion lastClientTagsSource;
+    private ProtocolVersion lastClientTagsClient;
+    private final Map<ActionPath, HolderSets.Overlay> simulatorTags = new HashMap<>();
+    private Map<String, RegistryTags.Payload> configurationTags;
+    private Map<String, List<WireValueDecoder.RegistryEntry>> configurationRegistries;
+    private Map<String, List<WireValueDecoder.RegistryEntry>> receivedRegistries = Map.of();
     private ProtocolVersion receivedRegistryVersion;
     private ClientWorldRegistries worldRegistries;
-    private ac.cult.blocksim.data.DataTables simulationDefaults;
+    private DataTables simulationDefaults;
     private SimulationRegistries simulationRegistries;
     private SimulationActions simulationActions;
 
-    public ClientWorldRegistries worldRegistries(java.util.function.Supplier<ClientWorldRegistries.Data> initial) {
+    public ClientWorldRegistries worldRegistries(Supplier<ClientWorldRegistries.Data> initial) {
         if (worldRegistries == null) {
             worldRegistries = new ClientWorldRegistries(initial.get());
             if (receivedRegistryVersion != null)
@@ -39,24 +61,20 @@ public final class ClientComponentRegistries {
         return worldRegistries;
     }
 
-    public record SimulationRegistries(
-            ac.cult.blocksim.data.ItemRegistry items, ac.cult.blocksim.data.InteractionRegistries interactions) {}
+    public record SimulationRegistries(ItemRegistry items, InteractionRegistries interactions) {}
 
     public record SimulationActions(
             ProtocolVersion source,
             ProtocolVersion client,
-            java.util.Set<String> features,
+            Set<String> features,
             SimulationRegistries registries,
-            ac.cult.blocksim.data.HolderSets.Overlay tags,
-            ac.cult.cultac.protocol.data.ModelBlockStates states,
-            ac.cult.blocksim.BlockSimulator simulator) {}
+            HolderSets.Overlay tags,
+            ModelBlockStates states,
+            BlockSimulator simulator) {}
 
     /** One immutable binding per received registry/tag/feature generation, reused across actions. */
     public SimulationActions blockSimulatorActions(
-            ProtocolVersion source,
-            ProtocolVersion client,
-            java.util.Set<String> features,
-            ac.cult.blocksim.data.DataTables defaults) {
+            ProtocolVersion source, ProtocolVersion client, Set<String> features, DataTables defaults) {
         var registries = blockSimulatorRegistries(defaults);
         var tags = blockSimulatorTags(source, client, defaults);
         var previous = simulationActions;
@@ -68,35 +86,32 @@ public final class ClientComponentRegistries {
                 && previous.features().equals(features)) return previous;
         var states = previous != null && previous.source() == source && previous.client() == client
                 ? previous.states()
-                : ac.cult.cultac.protocol.data.ModelBlockStates.project(source, client, ProtocolVersion.V26_3);
-        var simulator = ac.cult.blocksim.BlockSimulator.create(
+                : ModelBlockStates.project(source, client, ProtocolVersion.V26_3);
+        var simulator = BlockSimulator.create(
                 defaults.withEnabledFeatures(features),
                 registries.items(),
                 registries.interactions(),
-                ac.cult.cultac.utils.blockplace.BlockSimulatorWorldView::placementUnobstructed,
+                BlockSimulatorWorldView::placementUnobstructed,
                 // Living-effect listeners have no field in the existing block-action result contract.
-                new ac.cult.blocksim.behavior.ConsumableBehavior(contextUse -> {}),
+                new ConsumableBehavior(contextUse -> {}),
                 tags);
-        simulationActions = new SimulationActions(
-                source, client, java.util.Set.copyOf(features), registries, tags, states, simulator);
+        simulationActions =
+                new SimulationActions(source, client, Set.copyOf(features), registries, tags, states, simulator);
         return simulationActions;
     }
 
     /** Bundled item defaults and this connection's received interaction definitions. */
-    public SimulationRegistries blockSimulatorRegistries(ac.cult.blocksim.data.DataTables defaults) {
+    public SimulationRegistries blockSimulatorRegistries(DataTables defaults) {
         if (simulationRegistries == null || simulationDefaults != defaults) {
             simulationRegistries = new SimulationRegistries(
-                    defaults == ac.cult.blocksim.data.DataTables.defaults()
-                            ? ac.cult.cultac.utils.inventory.ItemUtil.modelItems()
-                            : new ac.cult.blocksim.data.ItemRegistry(defaults),
-                    receivedInteractions(ac.cult.blocksim.data.InteractionRegistries.defaults()));
+                    defaults == DataTables.defaults() ? ItemUtil.modelItems() : new ItemRegistry(defaults),
+                    receivedInteractions(InteractionRegistries.defaults()));
             simulationDefaults = defaults;
         }
         return simulationRegistries;
     }
 
-    private ac.cult.blocksim.data.InteractionRegistries receivedInteractions(
-            ac.cult.blocksim.data.InteractionRegistries bindings) {
+    private InteractionRegistries receivedInteractions(InteractionRegistries bindings) {
         // The existing older-model registry producer retains model defaults for these
         // families. Received older NBT stays opaque until its schema is projected.
         if (receivedRegistryVersion != ProtocolVersion.V26_3) return bindings;
@@ -105,7 +120,7 @@ public final class ClientComponentRegistries {
                 List.of("enchantment", "instrument", "jukebox_song", "block_transformer", "block_state_provider")) {
             var entries = receivedRegistries.get("minecraft:" + registry);
             if (entries == null) continue;
-            var values = new java.util.LinkedHashMap<String, byte[]>();
+            var values = new LinkedHashMap<String, byte[]>();
             for (var entry : entries) values.put(entry.name(), entry.data());
             result = result.withEncodedRegistry(registry, values);
         }
@@ -113,32 +128,32 @@ public final class ClientComponentRegistries {
     }
 
     /** Immutable received memberships; null means this registry has not received a replacement. */
-    public ac.cult.cultac.network.packet.RegistryTags.Payload tagPayload(String registry) {
+    public RegistryTags.Payload tagPayload(String registry) {
         return tags.get(registry);
     }
 
     /** Configuration collects replacements before applying them to the inherited bindings. */
     public void beginConfiguration() {
-        configurationTags = new java.util.LinkedHashMap<>();
+        configurationTags = new LinkedHashMap<>();
         configurationRegistries = null;
     }
 
-    public void appendConfigurationTags(ac.cult.cultac.network.packet.RegistryTags packet) {
+    public void appendConfigurationTags(RegistryTags packet) {
         if (configurationTags == null) beginConfiguration();
         configurationTags.putAll(packet.tags());
     }
 
     /** RegistryDataCollector.ContentsCollector appends split packets in wire-ID order, including empty registries. */
-    public void appendConfigurationRegistryData(ac.cult.cultac.network.packet.RegistryData packet) {
+    public void appendConfigurationRegistryData(RegistryData packet) {
         if (configurationTags == null) beginConfiguration();
-        if (configurationRegistries == null) configurationRegistries = new java.util.LinkedHashMap<>();
-        var entries = new java.util.ArrayList<>(configurationRegistries.getOrDefault(packet.registry(), List.of()));
+        if (configurationRegistries == null) configurationRegistries = new LinkedHashMap<>();
+        var entries = new ArrayList<>(configurationRegistries.getOrDefault(packet.registry(), List.of()));
         entries.addAll(packet.entries());
         configurationRegistries.put(packet.registry(), List.copyOf(entries));
     }
 
     /** Published at finish_configuration; tags-only reconfiguration retains the previous contents. */
-    public Map<String, List<ac.cult.cultac.protocol.WireValueDecoder.RegistryEntry>> receivedRegistries() {
+    public Map<String, List<WireValueDecoder.RegistryEntry>> receivedRegistries() {
         return receivedRegistries;
     }
 
@@ -243,6 +258,7 @@ public final class ClientComponentRegistries {
         tags.clear();
         geometryTags = null;
         actionTags.clear();
+        lastClientTags = null;
         simulatorTags.clear();
         configurationTags = null;
         configurationRegistries = null;
@@ -254,11 +270,15 @@ public final class ClientComponentRegistries {
         if (worldRegistries != null) worldRegistries.fallback(dimensions);
     }
 
-    private static boolean clientPayloadIsEmpty(
-            String registry,
-            ac.cult.cultac.network.packet.RegistryTags.Payload payload,
-            ProtocolVersion source,
-            ProtocolVersion client) {
+    static boolean clientPayloadIsEmpty(
+            String registry, RegistryTags.Payload payload, ProtocolVersion source, ProtocolVersion client) {
+        // Untranslated tags project to a copy with one entry per payload entry.
+        if (source == client && payload != null) return payload.isEmpty();
+        return projectedPayloadIsEmpty(registry, payload, source, client);
+    }
+
+    static boolean projectedPayloadIsEmpty(
+            String registry, RegistryTags.Payload payload, ProtocolVersion source, ProtocolVersion client) {
         Map<String, List<String>> named;
         if (registry.equals("minecraft:block")) named = exportTags("minecraft:block", payload);
         else if (registry.equals("minecraft:item")) named = exportTags("minecraft:item", payload);
@@ -267,27 +287,26 @@ public final class ClientComponentRegistries {
         else return payload.isEmpty();
         // Via can add a tag even to a whole-empty native payload. The original
         // client's collector observes that projected map, not native emptiness.
-        return ac.cult.cultac.protocol.ProtocolCodecs.projectTags(registry, named, source, client, client)
+        return ProtocolCodecs.projectTags(registry, named, source, client, client)
                 .isEmpty();
     }
 
-    public void appendTags(ac.cult.cultac.network.packet.RegistryTags packet) {
+    public void appendTags(RegistryTags packet) {
         appendTags(packet, true);
     }
 
-    private void appendTags(ac.cult.cultac.network.packet.RegistryTags packet, boolean updateWorld) {
+    private void appendTags(RegistryTags packet, boolean updateWorld) {
         if (updateWorld && worldRegistries != null) packet.tags().forEach(worldRegistries::applyTags);
         if (packet.tags().entrySet().stream()
                 .allMatch(entry -> samePayload(entry.getValue(), tags.get(entry.getKey())))) return;
         tags.putAll(packet.tags());
         geometryTags = null;
         actionTags.clear();
+        lastClientTags = null;
         simulatorTags.clear();
     }
 
-    private static boolean samePayload(
-            ac.cult.cultac.network.packet.RegistryTags.Payload current,
-            ac.cult.cultac.network.packet.RegistryTags.Payload previous) {
+    private static boolean samePayload(RegistryTags.Payload current, RegistryTags.Payload previous) {
         if (previous == null) return false;
         // Reordering the same native map changes the winner of a valid Via tag
         // rename collision, so order participates in this received generation.
@@ -312,18 +331,15 @@ public final class ClientComponentRegistries {
                 new ActionPath(source, client, model), key -> project(geometryTags(), source, client, model));
     }
 
-    public ac.cult.blocksim.data.HolderSets.Overlay blockSimulatorTags(
-            ProtocolVersion source, ProtocolVersion client, ac.cult.blocksim.data.DataTables defaults) {
+    public HolderSets.Overlay blockSimulatorTags(ProtocolVersion source, ProtocolVersion client, DataTables defaults) {
         var path = new ActionPath(source, client, ProtocolVersion.V26_3);
         return simulatorTags.computeIfAbsent(path, ignored -> {
             var projected = actionTags(source, client, ProtocolVersion.V26_3);
-            var received = new HashMap<String, java.util.Set<String>>();
-            projected.blocks().forEach((key, members) -> received.put("block:" + key, java.util.Set.copyOf(members)));
-            projected.items().forEach((key, members) -> received.put("item:" + key, java.util.Set.copyOf(members)));
-            projected.fluids().forEach((key, members) -> received.put("fluid:" + key, java.util.Set.copyOf(members)));
-            projected
-                    .entities()
-                    .forEach((key, members) -> received.put("entity_type:" + key, java.util.Set.copyOf(members)));
+            var received = new HashMap<String, Set<String>>();
+            projected.blocks().forEach((key, members) -> received.put("block:" + key, Set.copyOf(members)));
+            projected.items().forEach((key, members) -> received.put("item:" + key, Set.copyOf(members)));
+            projected.fluids().forEach((key, members) -> received.put("fluid:" + key, Set.copyOf(members)));
+            projected.entities().forEach((key, members) -> received.put("entity_type:" + key, Set.copyOf(members)));
             var biomes =
                     worldRegistries(() -> ClientWorldRegistries.modelDefaults()).snapshot();
             var biomePayload = tags.get("minecraft:worldgen/biome");
@@ -334,39 +350,40 @@ public final class ClientComponentRegistries {
                                     .map(ClientWorldRegistries.Definition::key)
                                     .toList(),
                             biomePayload);
-            biomeTags.forEach((key, members) -> received.put("worldgen/biome:" + key, java.util.Set.copyOf(members)));
+            biomeTags.forEach((key, members) -> received.put("worldgen/biome:" + key, Set.copyOf(members)));
             // A payload replaces this registry's complete tag set. Missing names have no
             // membership after MappedRegistry.PendingTags.apply refreshes its holders.
             for (String registry : List.of("block", "item", "fluid", "entity_type", "worldgen/biome"))
                 if (tags.containsKey("minecraft:" + registry))
                     defaults.tags().keySet().stream()
                             .filter(key -> key.startsWith(registry + ":"))
-                            .forEach(key -> received.putIfAbsent(key, java.util.Set.of()));
-            return ac.cult.blocksim.data.HolderSets.Overlay.differingFrom(defaults, received);
+                            .forEach(key -> received.putIfAbsent(key, Set.of()));
+            return HolderSets.Overlay.differingFrom(defaults, received);
         });
     }
 
     /** Movement membership stays in the original client's domain, without a return trip to the host. */
     public Tags clientTags(ProtocolVersion source, ProtocolVersion client) {
-        return actionTags(source, client, client);
+        if (lastClientTags == null || lastClientTagsSource != source || lastClientTagsClient != client) {
+            lastClientTags = actionTags(source, client, client);
+            lastClientTagsSource = source;
+            lastClientTagsClient = client;
+        }
+        return lastClientTags;
     }
 
-    private static Map<String, List<String>> exportTags(
-            String registry, ac.cult.cultac.network.packet.RegistryTags.Payload payload) {
-        if (payload != null)
-            return exportTags(
-                    ac.cult.blocksim.environment.ClientWorldDefaults.defaults().initialNames(registry), payload);
+    private static Map<String, List<String>> exportTags(String registry, RegistryTags.Payload payload) {
+        if (payload != null) return exportTags(ClientWorldDefaults.defaults().initialNames(registry), payload);
         String prefix = registry.substring("minecraft:".length()) + ":";
-        var result = new java.util.LinkedHashMap<String, List<String>>();
-        ac.cult.blocksim.data.DataTables.defaults().tags().forEach((key, members) -> {
+        var result = new LinkedHashMap<String, List<String>>();
+        DataTables.defaults().tags().forEach((key, members) -> {
             if (key.startsWith(prefix)) result.put(key.substring(prefix.length()), List.copyOf(members));
         });
-        return java.util.Collections.unmodifiableMap(result);
+        return Collections.unmodifiableMap(result);
     }
 
-    private static Map<String, List<String>> exportTags(
-            List<String> names, ac.cult.cultac.network.packet.RegistryTags.Payload payload) {
-        var result = new java.util.LinkedHashMap<String, List<String>>();
+    private static Map<String, List<String>> exportTags(List<String> names, RegistryTags.Payload payload) {
+        var result = new LinkedHashMap<String, List<String>>();
         payload.entries()
                 .forEach((name, ids) -> result.put(
                         name,
@@ -374,19 +391,15 @@ public final class ClientComponentRegistries {
                                 .filter(id -> id >= 0 && id < names.size())
                                 .map(names::get)
                                 .toList()));
-        return java.util.Collections.unmodifiableMap(result);
+        return Collections.unmodifiableMap(result);
     }
 
     private static Tags project(Tags tags, ProtocolVersion source, ProtocolVersion client, ProtocolVersion model) {
         return new Tags(
-                ac.cult.cultac.protocol.ProtocolCodecs.projectTags(
-                        "minecraft:block", tags.blocks(), source, client, model),
-                ac.cult.cultac.protocol.ProtocolCodecs.projectTags(
-                        "minecraft:item", tags.items(), source, client, model),
-                ac.cult.cultac.protocol.ProtocolCodecs.projectTags(
-                        "minecraft:fluid", tags.fluids(), source, client, model),
-                ac.cult.cultac.protocol.ProtocolCodecs.projectTags(
-                        "minecraft:entity_type", tags.entities(), source, client, model));
+                ProtocolCodecs.projectTags("minecraft:block", tags.blocks(), source, client, model),
+                ProtocolCodecs.projectTags("minecraft:item", tags.items(), source, client, model),
+                ProtocolCodecs.projectTags("minecraft:fluid", tags.fluids(), source, client, model),
+                ProtocolCodecs.projectTags("minecraft:entity_type", tags.entities(), source, client, model));
     }
 
     public record Tags(
@@ -402,9 +415,9 @@ public final class ClientComponentRegistries {
         }
 
         private static Map<String, List<String>> copy(Map<String, List<String>> source) {
-            var copy = new java.util.LinkedHashMap<String, List<String>>();
+            var copy = new LinkedHashMap<String, List<String>>();
             source.forEach((key, members) -> copy.put(key, List.copyOf(members)));
-            return java.util.Collections.unmodifiableMap(copy);
+            return Collections.unmodifiableMap(copy);
         }
     }
 }

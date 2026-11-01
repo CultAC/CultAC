@@ -29,8 +29,7 @@ public class InvalidBreak extends Check implements BlockBreakListener {
     public void onBlockBreak(BlockBreak blockBreak) {
         if (blockBreak.faceId == 255
                 && blockBreak.action == PlayerAction.ABORT_DESTROY_BLOCK
-                && player.getClientVersion()
-                        .isOlderThanOrEquals(ClientVersion.V_1_7_10)) { // PE DiggingAction.CANCELLED_DIGGING
+                && player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_7_10)) {
             return;
         }
 

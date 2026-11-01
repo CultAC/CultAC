@@ -17,10 +17,6 @@ public class ResyncWorldUtil {
     // Vanilla rejects bundles above 4096 sub-packets; leave room for the proof transaction.
     private static final int MAX_UPDATES_PER_BUNDLE = 1024;
 
-    public static void resyncPosition(CultPlayer player, BlockPos pos) {
-        resyncPositions(player, pos.getX(), pos.getY(), pos.getZ(), pos.getX(), pos.getY(), pos.getZ());
-    }
-
     public static void resyncPositions(CultPlayer player, SimpleCollisionBox box) {
         resyncPositions(
                 player,

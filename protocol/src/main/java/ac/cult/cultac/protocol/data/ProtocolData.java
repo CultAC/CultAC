@@ -27,7 +27,7 @@ public final class ProtocolData {
             "minecraft:mob_effect",
             "minecraft:menu");
     private final ProtocolVersion version;
-    private final Map<ConnectionPhase, Map<PacketDirection, IdTable>> packets;
+    private final IdTable[][] packets;
     private final Map<String, IdTable> registries;
 
     private ProtocolData(
@@ -35,7 +35,9 @@ public final class ProtocolData {
             Map<ConnectionPhase, Map<PacketDirection, IdTable>> packets,
             Map<String, IdTable> registries) {
         this.version = version;
-        this.packets = Map.copyOf(packets);
+        this.packets = new IdTable[ConnectionPhase.values().length][PacketDirection.values().length];
+        packets.forEach((phase, flows) ->
+                flows.forEach((direction, table) -> this.packets[phase.ordinal()][direction.ordinal()] = table));
         this.registries = Map.copyOf(registries);
     }
 
@@ -129,7 +131,7 @@ public final class ProtocolData {
     }
 
     public IdTable packets(ConnectionPhase phase, PacketDirection direction) {
-        return packets.get(phase).get(direction);
+        return packets[phase.ordinal()][direction.ordinal()];
     }
 
     public IdTable registry(String name) {

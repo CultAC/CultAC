@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.util.List;
+import java.util.Objects;
 
 /** Dimension codec compatibility for received geometry and gameplay attributes. */
 public final class ModelDimensions {
@@ -12,7 +13,7 @@ public final class ModelDimensions {
 
     public static String project(String typeKey, String json, ProtocolVersion source, ProtocolVersion target) {
         if (json == null || source == target) return json;
-        java.util.Objects.requireNonNull(typeKey, "Dimension type registry key");
+        Objects.requireNonNull(typeKey, "Dimension type registry key");
         String key = typeKey.startsWith("minecraft:") ? typeKey.substring(10) : typeKey;
         var dimension = JsonParser.parseString(json).getAsJsonObject();
         if (source.protocol() < 774 && target.protocol() >= 774) {

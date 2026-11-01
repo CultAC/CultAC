@@ -21,8 +21,4 @@ public class PropertiesUtil {
         }
         return properties;
     }
-
-    public static String getPropertyOrElse(Properties properties, String key, String defaultValue) {
-        return properties.getProperty(key, defaultValue);
-    }
 }

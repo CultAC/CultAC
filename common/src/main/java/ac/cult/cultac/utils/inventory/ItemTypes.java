@@ -3,13 +3,14 @@ package ac.cult.cultac.utils.inventory;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.ItemDefinition;
 import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.protocol.data.IdTable;
 import ac.cult.cultac.protocol.data.ModelRegistryData;
+import java.util.List;
 
 /** Pre-resolved item handles in the fixed model ID space. */
 public final class ItemTypes {
-    private static final java.util.List<ItemDefinition> ITEMS =
-            DataTables.defaults().items();
-    private static final ac.cult.cultac.protocol.data.IdTable NAMES =
+    private static final List<ItemDefinition> ITEMS = DataTables.defaults().items();
+    private static final IdTable NAMES =
             ModelRegistryData.load(ProtocolVersion.V26_3).registry("minecraft:item");
 
     private ItemTypes() {}
@@ -37,12 +38,10 @@ public final class ItemTypes {
     public static final ItemDefinition SALMON_BUCKET = item("minecraft:salmon_bucket");
     public static final ItemDefinition SHIELD = item("minecraft:shield");
     public static final ItemDefinition SPYGLASS = item("minecraft:spyglass");
-    public static final ItemDefinition STONE = item("minecraft:stone");
     public static final ItemDefinition TADPOLE_BUCKET = item("minecraft:tadpole_bucket");
     public static final ItemDefinition TRIDENT = item("minecraft:trident");
     public static final ItemDefinition TROPICAL_FISH_BUCKET = item("minecraft:tropical_fish_bucket");
     public static final ItemDefinition WARPED_FUNGUS_ON_A_STICK = item("minecraft:warped_fungus_on_a_stick");
     public static final ItemDefinition WATER_BUCKET = item("minecraft:water_bucket");
     public static final ItemDefinition WRITABLE_BOOK = item("minecraft:writable_book");
-    public static final ItemDefinition WRITTEN_BOOK = item("minecraft:written_book");
 }

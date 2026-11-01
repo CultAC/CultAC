@@ -1,14 +1,17 @@
 package ac.cult.cultac.manager.config;
 
+import ac.cult.cultac.bridge.protocol.CommandRoots;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.grim.grimac.api.config.ConfigManager;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import lombok.Getter;
+import org.jetbrains.annotations.Nullable;
 
 /*
  * This is to hold whatever config manager was set via the reload method in the API
@@ -16,13 +19,13 @@ import lombok.Getter;
  */
 public class BaseConfigManager {
 
+    public static final String OBSERVE_ONLY_ENV = "CULTAC_OBSERVE_ONLY";
+    public static final String OBSERVE_ONLY_KEY = "observe-only";
+
     private final List<Pattern> ignoredClientPatterns = new ArrayList<>();
 
     @Getter
     private ConfigManager config = null;
-
-    @Getter
-    private boolean printAlertsToConsole = false;
 
     @Getter
     private boolean observeOnly = false;
@@ -58,9 +61,6 @@ public class BaseConfigManager {
 
     @Getter
     private int updatePermissionTicks = -1;
-
-    @Getter
-    private boolean verboseAutoEnable = false;
 
     @Getter
     private int maxPingKnockback = 1000;
@@ -142,7 +142,6 @@ public class BaseConfigManager {
                             : "Switched to enforcing; check violations start from zero");
         }
 
-        printAlertsToConsole = config.getBooleanElse("alerts.print-to-console", true);
         prefix = config.getStringElse("prefix", "&bCult &8»");
 
         webhookNotEnabled = config.getStringElse("webhook-not-enabled", "Discord webhooks are not enabled!");
@@ -156,7 +155,6 @@ public class BaseConfigManager {
                 "<red>An error occurred whilst processing packets. Please contact the administrators.");
         disablePongCancelling = config.getBooleanElse("disable-pong-cancelling", false);
         launchFailOpen = config.getBooleanElse("launch-safety.fail-open", true);
-        verboseAutoEnable = config.getBooleanElse("cult.diagnostics.auto-enable-verbose", false);
         maxPingKnockback = config.getIntElse("cult.prediction.max-knockback-ping-ms", 1000);
 
         // owner-authored config semantics: strip e.g. the " (Velocity)" suffix from brands
@@ -191,23 +189,25 @@ public class BaseConfigManager {
 
     /** {@code CULTAC_OBSERVE_ONLY} when it reads true/1/yes or false/0/no, else {@code observe-only}. */
     static boolean resolveObserveOnly(ConfigManager config, Function<String, String> env) {
-        String value = env.apply("CULTAC_OBSERVE_ONLY");
-        if (value != null) {
-            switch (value.strip().toLowerCase(Locale.ROOT)) {
-                case "true", "1", "yes" -> {
-                    return true;
-                }
-                case "false", "0", "no" -> {
-                    return false;
-                }
-                default -> {}
-            }
-        }
-        return config.getBooleanElse("observe-only", false);
+        Boolean pinned = observeOnlyPin(env);
+        return pinned != null ? pinned : config.getBooleanElse(OBSERVE_ONLY_KEY, false);
     }
 
-    // ran on start, can be used to handle things that can't be done while loading
-    public void start() {}
+    /** The mode {@code CULTAC_OBSERVE_ONLY} pins, or null when the config key decides. */
+    public static @Nullable Boolean observeOnlyPin(Function<String, String> env) {
+        String value = env.apply(OBSERVE_ONLY_ENV);
+        if (value == null) return null;
+        return switch (value.strip().toLowerCase(Locale.ROOT)) {
+            case "true", "1", "yes" -> true;
+            case "false", "0", "no" -> false;
+            default -> null;
+        };
+    }
+
+    public static List<String> resolveCommandRoots(@Nullable ConfigManager config, Consumer<String> warn) {
+        List<String> configured = config == null ? null : config.getStringListElse(CommandRoots.KEY, null);
+        return CommandRoots.resolve(configured, warn);
+    }
 
     public boolean isIgnoredClient(String brand) {
         for (Pattern pattern : ignoredClientPatterns) {

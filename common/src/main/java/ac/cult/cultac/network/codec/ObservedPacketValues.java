@@ -8,7 +8,6 @@ import ac.cult.cultac.protocol.codec.world.BlockEventCodec;
 import ac.cult.cultac.protocol.data.*;
 import ac.cult.cultac.protocol.packet.clientbound.*;
 import ac.cult.cultac.protocol.wire.Wire;
-import ac.cult.cultac.utils.latency.ClientWorldRegistries;
 import io.netty.buffer.*;
 import java.util.*;
 import java.util.function.Function;
@@ -23,6 +22,7 @@ public final class ObservedPacketValues implements PacketValueAdapter {
     private final ModelInventoryValues inventory;
     private final ObservedWorldValues world;
     private final ModelEntityMetadataValues metadata;
+    private final ItemStackCache stacks;
     private final Map<String, RegistryTags.Payload> configurationTags = new LinkedHashMap<>();
 
     public ObservedPacketValues(
@@ -31,12 +31,27 @@ public final class ObservedPacketValues implements PacketValueAdapter {
             Supplier<RegistryNames> modelNames,
             Function<String, PaintingSize> paintings,
             Supplier<int[]> dimension) {
+        this(decoder, version, modelNames, paintings, dimension, null);
+    }
+
+    /**
+     * Sent stacks reuse {@code stacks}, which the connection's model codecs also bind; a connection decodes either
+     * its observed wire or the model wire, never both.
+     */
+    ObservedPacketValues(
+            WireValueDecoder decoder,
+            ProtocolVersion version,
+            Supplier<RegistryNames> modelNames,
+            Function<String, PaintingSize> paintings,
+            Supplier<int[]> dimension,
+            ItemStackCache stacks) {
         this.decoder = decoder;
         this.version = version;
+        this.stacks = stacks;
         names = new WireRegistryState(version, modelNames);
         toModel = ModelIdMappings.project(version, ProtocolVersion.V26_3);
         toWire = ModelIdMappings.project(ProtocolVersion.V26_3, version);
-        inventory = new ModelInventoryValues(decoder, version, names);
+        inventory = new ModelInventoryValues(decoder, version, names, stacks, names::generation);
         world = new ObservedWorldValues(this, dimension);
         metadata = new ModelEntityMetadataValues(decoder, version, names, paintings);
     }
@@ -76,10 +91,6 @@ public final class ObservedPacketValues implements PacketValueAdapter {
         configurationTags.clear();
     }
 
-    WireValueDecoder decoder() {
-        return decoder;
-    }
-
     WireRegistryState names() {
         return names;
     }
@@ -107,7 +118,8 @@ public final class ObservedPacketValues implements PacketValueAdapter {
                         : RegistryTagValues.readProjected(input, version, names);
             case "minecraft:set_time" -> ClientMetadataValues.time(input, version, names::name);
             case "minecraft:update_recipes" -> ClientMetadataValues.recipes(input, names::name);
-            case "minecraft:set_entity_data" -> metadata.read(input);
+            case "minecraft:set_entity_data" ->
+                metadata.read(input, context.state() instanceof FrameLease.Source lender ? lender.lease(input) : null);
             case "minecraft:add_entity" -> {
                 var packet = new AddEntityCodec().read(input, context);
                 var sourceTypes = ModelRegistryData.load(version).registry("minecraft:entity_type");
@@ -118,7 +130,14 @@ public final class ObservedPacketValues implements PacketValueAdapter {
                         ? toModel.blockState(packet.data())
                         : packet.data();
                 yield new ClientboundAddEntity(
-                        packet.entityId(), type, packet.position(), packet.yaw(), packet.pitch(), data, packet.uuid());
+                        packet.entityId(),
+                        type,
+                        packet.position(),
+                        packet.yaw(),
+                        packet.pitch(),
+                        data,
+                        packet.uuid(),
+                        packet.velocity());
             }
             case "minecraft:block_event" -> {
                 var packet = new BlockEventCodec().read(input, context);
@@ -144,7 +163,7 @@ public final class ObservedPacketValues implements PacketValueAdapter {
             RegistryTagValues.read(input);
             return new RegistryTags(Map.of());
         }
-        return read(input, context);
+        return stacks == null ? read(input, context) : stacks.observe(() -> read(input, context));
     }
 
     @Override
@@ -158,7 +177,7 @@ public final class ObservedPacketValues implements PacketValueAdapter {
             inventory.writeCursor(output, cursor);
         } else if (packet instanceof EntityMetadata metadata) {
             Wire.writeVarInt(output, metadata.id());
-            metadata.packedItems().forEach(entry -> output.writeBytes(entry.bytes()));
+            for (var entry : metadata.packedItems()) entry.writeTo(output);
             output.writeByte(255);
         } else throw new UnsupportedOnVersionException("No older wire writer for " + context.type());
     }
@@ -166,12 +185,6 @@ public final class ObservedPacketValues implements PacketValueAdapter {
     private RegistryData registry(ByteBuf input) {
         var packet = decoder.registry(input);
         names.append(packet);
-        for (var entry : packet.entries()) {
-            if (!packet.registry().equals("minecraft:dimension_type")
-                    && !(entry.data() != null && ClientWorldRegistries.OLDER_RETAINED.contains(packet.registry()))
-                    && names.modelId(packet.registry(), entry.name()) < 0)
-                names.unavailable(packet.registry(), entry.name());
-        }
         return new RegistryData(packet.registry(), packet.entries());
     }
 }

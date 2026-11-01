@@ -13,6 +13,8 @@ import java.util.List;
 final class DiagRing {
     /** What a tick costs besides its strings and arrays. */
     static final int TICK_OVERHEAD = 64;
+    /** A tick's joined traces at most; a trace that would pass it is left out. */
+    static final int MAX_TRACE_CHARS = 2048;
 
     static final class Tick {
         final long seq;
@@ -48,14 +50,15 @@ final class DiagRing {
     }
 
     /**
-     * Appends a tick's prediction. A second prediction in the same tick joins the first: traces joined, the newest full
-     * text and the larger offset kept.
+     * Appends a tick's prediction. A second prediction in the same tick joins the first: traces joined up to
+     * {@link #MAX_TRACE_CHARS}, the newest full text and the larger offset kept.
      */
     void add(long seq, double offset, String trace, byte[] full) {
         Tick last = ticks.peekLast();
         if (last != null && last.seq == seq) {
             bytes -= last.bytes();
-            last.trace = last.trace.isEmpty() ? trace : last.trace + " | " + trace;
+            if (last.trace.isEmpty()) last.trace = trace;
+            else if (last.trace.length() + 3 + trace.length() <= MAX_TRACE_CHARS) last.trace += " | " + trace;
             if (full != null) last.full = full;
             if (Double.isNaN(last.offset) || !Double.isNaN(offset) && offset > last.offset) last.offset = offset;
             bytes += last.bytes();

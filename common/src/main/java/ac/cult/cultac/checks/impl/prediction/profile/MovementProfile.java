@@ -37,14 +37,6 @@ public interface MovementProfile {
         return true;
     }
 
-    default boolean shouldRunPhaseCheck(CultPlayer player) {
-        return true;
-    }
-
-    default boolean usesPacketVelocityModifiers(CultPlayer player) {
-        return true;
-    }
-
     default boolean shouldUseBundledPacketProof(CultPlayer player) {
         return true;
     }

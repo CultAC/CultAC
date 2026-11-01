@@ -20,11 +20,28 @@ public final class IdTable {
             String name = this.names.get(id);
             // Vanilla identifiers permit an empty path (for example minecraft:).
             // Version-specific identifier parsing belongs at the wire boundary.
-            if (!name.matches("[a-z0-9_.-]*:[a-z0-9/._-]*") || ids.put(name, id) != null) {
+            if (!validName(name) || ids.put(name, id) != null) {
                 throw new ProtocolResolutionException("Invalid/duplicate name in " + description + ": " + name);
             }
         }
         this.ids = Map.copyOf(ids);
+    }
+
+    /** Whether {@code name} fully matches {@code [a-z0-9_.-]*:[a-z0-9/._-]*}. */
+    static boolean validName(String name) {
+        int colon = name.indexOf(':');
+        if (colon < 0) return false;
+        for (int i = 0; i < colon; i++) {
+            if (!pathChar(name.charAt(i)) || name.charAt(i) == '/') return false;
+        }
+        for (int i = colon + 1; i < name.length(); i++) {
+            if (!pathChar(name.charAt(i))) return false;
+        }
+        return true;
+    }
+
+    private static boolean pathChar(char c) {
+        return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '.' || c == '-' || c == '/';
     }
 
     public int size() {

@@ -38,6 +38,10 @@ message ConnectRequest {
   Agent agent = 3;
   // The diagnostics version the server offers (1); absent when it takes no diagnostics.
   optional uint32 diag = 4;
+  // The perf version the server offers (1); absent when it takes no perf profiles.
+  optional uint32 perf = 5;
+  // The team sync version the server offers (1); absent when it reports no portal roles.
+  optional uint32 team = 6;
 }
 
 message Agent {
@@ -59,6 +63,10 @@ message ConnectResponse {
   uint32 max_message_bytes = 3;
   // Present when the service takes the diagnostics the request offered: its current limits.
   DiagLimits diag = 4;
+  // Present when the service takes the perf profiles the request offered: its current limits.
+  PerfLimits perf = 5;
+  // Present when the service takes the team sync the request offered: the organization's current state.
+  TeamState team = 6;
 }
 
 // A message from the server.
@@ -75,6 +83,10 @@ message IntakeMessage {
     Chunk chunk = 4;
     // Diagnostics: one part of a bundle the service cut (DiagCut).
     DiagPart diag = 5;
+    // Perf: one part of a profile the service started (PerfStart).
+    PerfPart perf = 6;
+    // Team sync: portal roles, only while the socket's last TeamState is enabled.
+    TeamRoles team = 7;
   }
 }
 
@@ -624,7 +636,8 @@ message Slot {
   uint32 amount = 3;
 }
 
-// A message from the service.
+// A message from the service: at most 4 MiB, 4,096 replies of at most 32 KiB each, 1,024 packet ids per list and no
+// groups. CultAC drops a message past any of these.
 message Replies {
   repeated Reply replies = 1;
 }
@@ -638,6 +651,12 @@ message Reply {
     DiagLimits diag_limits = 4;
     DiagWatch diag_watch = 5;
     DiagCut diag_cut = 6;
+    // Perf, only to a socket whose connect offered perf.
+    PerfLimits perf_limits = 7;
+    PerfStart perf_start = 8;
+    // Team sync, only to a socket whose connect offered team.
+    TeamState team_state = 9;
+    TeamSweep team_sweep = 10;
   }
 }
 
@@ -727,4 +746,147 @@ enum DiagCoverage {
   DIAG_COVERAGE_FULL = 1;
   DIAG_COVERAGE_PARTIAL = 2;
   DIAG_COVERAGE_NONE = 3;
+}
+
+// Perf: the server-wide limits, at connect and whenever they change; each replaces the last. The receiver clamps each
+// value to its own compiled maximum.
+message PerfLimits {
+  bool enabled = 1;
+  uint32 max_seconds = 2;
+  uint32 execution_period_ms = 3;
+  uint32 native_period_ms = 4;
+  uint32 allocation_samples_per_second = 5;
+  uint32 part_bytes = 6;
+  uint32 profile_bytes = 7;            // whole zstd blob
+  uint32 upload_bytes_per_second = 8;
+  bool whole_jvm = 9;                  // false: only stacks with an anticheat frame
+  uint32 skip_mspt_micros = 10;
+}
+
+// Perf: record a profile for seconds from now and send it as PerfParts.
+message PerfStart {
+  bytes profile = 1;                   // 16-byte UUID like player ids, echoed in every part
+  uint32 seconds = 2;
+}
+
+// Perf: one slice of a profile, in index order from 0; the part with last set ends the profile.
+message PerfPart {
+  bytes profile = 1;
+  uint32 index = 2;
+  bool last = 3;
+  bytes data = 4;                      // a slice of zstd(PerfProfile)
+  PerfOutcome outcome = 5;             // last part only
+  string reason = 6;
+}
+
+enum PerfOutcome {
+  PERF_OUTCOME_UNSPECIFIED = 0;
+  PERF_OUTCOME_OK = 1;
+  PERF_OUTCOME_SKIPPED_LAG = 2;
+  PERF_OUTCOME_BUSY = 3;
+  PERF_OUTCOME_FAILED = 4;
+  PERF_OUTCOME_DISABLED = 5;
+}
+
+// Perf: the profile the PerfParts' data reassembles to.
+message PerfProfile {
+  string platform = 1;                 // "paper" | "velocity"
+  string server_id = 2;
+  string commit = 3;
+  string version = 4;
+  string config_hash = 5;
+  string mode = 6;
+  uint64 start_millis = 7;
+  uint64 wall_nanos = 8;
+  uint64 process_cpu_nanos = 9;
+  uint32 cores = 10;
+  uint64 recorder_cpu_nanos = 11;      // the recorder thread's own CPU
+  uint64 own_thread_alloc_bytes = 12;  // exact, ThreadMXBean, the anticheat's own threads
+  double player_seconds = 13;
+  uint32 players_min = 14;
+  uint32 players_max = 15;
+  repeated uint32 tick_micros_p50_p95_max = 16;  // paper only; empty on velocity
+  uint32 gc_count = 17;
+  uint64 gc_pause_nanos = 18;
+  uint64 heap_used_after_gc_bytes = 19;
+  string jvm = 20;
+  repeated string jvm_flags = 21;
+  repeated string frames = 22;         // "class.method"; index = frame id
+  repeated string thread_groups = 23;  // index = group id: "tick", "netty", "anticheat", "other"
+  repeated PerfStack stacks = 24;
+  repeated PerfClassAlloc alloc_classes = 25;
+  uint64 cpu_samples_total = 26;       // before pruning
+  uint64 native_samples_total = 27;    // before pruning
+  uint64 alloc_bytes_total = 28;       // before pruning
+  bool whole_jvm = 29;
+  string cpu_sampler = 30;              // "cpu-time" (jdk.CPUTimeSample) | "execution" (jdk.ExecutionSample)
+  uint64 cpu_sample_period_nanos = 31;  // CPU one cpu_samples unit stands for; 0 in older profiles
+  uint64 cpu_samples_lost = 32;         // cpu-time only: samples JFR reports it dropped
+  uint64 process_user_nanos = 33;       // Linux /proc/self/stat; 0 elsewhere
+  uint64 process_sys_nanos = 34;
+  repeated PerfThreadCpu jvm_thread_cpu = 35;  // Linux /proc/self/task: CPU of the JVM's own threads by kind
+  bool alloc_calibrated = 36;           // alloc_bytes scaled per thread group to ThreadMXBean's exact bytes
+  repeated PerfAllocCalibration alloc_calibration = 37;  // per group: sampled (after the first-sample drop) vs exact
+}
+
+message PerfStack {
+  repeated uint32 frames = 1;          // root first, leaf last
+  uint32 thread_group = 2;
+  uint64 cpu_samples = 3;
+  uint64 native_samples = 4;
+  uint64 alloc_bytes = 5;
+}
+
+message PerfClassAlloc {
+  string class_name = 1;
+  uint64 bytes = 2;
+  bool own_stack = 3;                  // on a stack with an anticheat frame
+}
+
+message PerfThreadCpu {
+  string kind = 1;      // "gc" | "jit" | "vm" | "jfr"
+  uint64 nanos = 2;
+  uint32 threads = 3;
+}
+
+message PerfAllocCalibration {
+  uint32 thread_group = 1;   // index into thread_groups
+  uint64 sampled_bytes = 2;  // sampled weights after dropping each thread's first sample, before scaling
+  uint64 exact_bytes = 3;    // ThreadMXBean; 0 when unknown
+}
+
+// Team sync: whether the organization takes portal roles, at connect and whenever it changes; each replaces the last.
+// Turning enabled reports every online player already checked again.
+message TeamState {
+  bool enabled = 1;
+}
+
+// Team sync: the accounts the service manages that the server looks up while they are offline. A server without an
+// offline store ignores it; one with a store answers TeamRoles with offline set for each account not online.
+message TeamSweep {
+  repeated bytes players = 1;
+}
+
+// Team sync: at most 100 players.
+message TeamRoles {
+  repeated TeamRole players = 1;
+}
+
+message TeamRole {
+  bytes player = 1;
+  // Minecraft's shape; absent only on an offline report.
+  optional string name = 2;
+  // PORTAL_ROLE_UNSPECIFIED, or a value the reader does not know, drops the entry.
+  PortalRole role = 3;
+  // Read from the permission plugin's store for a player not online: it only lowers or removes a role.
+  bool offline = 4;
+}
+
+// The highest portal node a player holds.
+enum PortalRole {
+  PORTAL_ROLE_UNSPECIFIED = 0;
+  PORTAL_ROLE_NONE = 1;
+  PORTAL_ROLE_VIEWER = 2;
+  PORTAL_ROLE_MODERATOR = 3;
+  PORTAL_ROLE_ADMIN = 4;
 }

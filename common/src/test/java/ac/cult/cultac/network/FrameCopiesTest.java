@@ -29,6 +29,9 @@ class FrameCopiesTest {
             int writer = frame.writerIndex();
             assertArrayEquals(bytes, ByteBufUtil.getBytes(frame), frame.toString());
             assertArrayEquals(bytes, FrameCopies.bytes(frame), frame.toString());
+            byte[] into = new byte[length];
+            FrameCopies.copyInto(frame, into);
+            assertArrayEquals(bytes, into, frame.toString());
             assertEquals(reader, frame.readerIndex());
             assertEquals(writer, frame.writerIndex());
             frame.release();
@@ -59,6 +62,11 @@ class FrameCopiesTest {
         CompositeByteBuf single = Unpooled.compositeBuffer();
         single.addComponent(true, POOLED.directBuffer(bytes.length).writeBytes(bytes));
         frames.add(single);
+        CompositeByteBuf split = Unpooled.compositeBuffer();
+        int half = bytes.length / 2;
+        split.addComponent(true, POOLED.directBuffer(half).writeBytes(bytes, 0, half));
+        split.addComponent(true, POOLED.directBuffer(bytes.length - half).writeBytes(bytes, half, bytes.length - half));
+        frames.add(split);
         return frames;
     }
 }

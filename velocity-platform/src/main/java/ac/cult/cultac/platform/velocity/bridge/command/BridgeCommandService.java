@@ -1,6 +1,7 @@
 package ac.cult.cultac.platform.velocity.bridge.command;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.command.CloudCommandService;
 import ac.cult.cultac.platform.velocity.bridge.BridgeSessions;
 import ac.cult.cultac.platform.velocity.bridge.VelocityBridge;
 import com.velocitypowered.api.command.CommandManager;
@@ -25,7 +26,12 @@ public final class BridgeCommandService {
         BridgeSessions sessions = VelocityBridge.sessions();
         CommandManager manager = proxy.getCommandManager();
         commands = new BridgeCommandHandler(
-                manager, ownedRoots(manager, plugin), id -> proxy.getPlayer(id).orElse(null), System::nanoTime, logger);
+                manager,
+                CloudCommandService::roots,
+                ownedRoots(manager, plugin),
+                id -> proxy.getPlayer(id).orElse(null),
+                System::nanoTime,
+                logger);
         spectate = new BridgeSpectateRouter(
                 proxy,
                 sessions,

@@ -12,18 +12,12 @@ import org.jetbrains.annotations.NotNull;
 public record SystemArgumentFactory(
         Map<String, String> arguments,
         Map<Class<?>, Function<String, ?>> parsers,
-        Consumer<SystemArgument<?>> creationListener,
         Consumer<ArgumentOptions.Builder<?>> optionModifier) {
 
     public static class Builder {
 
         public static Builder of(final String prefix) {
             return new Builder(prefix);
-        }
-
-        public Builder onRegister(Consumer<SystemArgument<?>> listener) {
-            this.registerListener = listener;
-            return this;
         }
 
         public Builder optionModifier(Consumer<ArgumentOptions.Builder<?>> modifier) {
@@ -38,7 +32,6 @@ public record SystemArgumentFactory(
 
         private final String prefix;
         private boolean envSupport = false;
-        private Consumer<SystemArgument<?>> registerListener = argument -> {};
         private final Map<Class<?>, Function<String, ?>> parseBuilder;
         private Consumer<ArgumentOptions.Builder<?>> optionModifier = null;
 
@@ -72,9 +65,7 @@ public record SystemArgumentFactory(
         private void updateFromEnv(Map<String, String> builder) {
             for (Map.Entry<String, String> entry : System.getenv().entrySet()) {
                 if (entry.getKey().startsWith(prefix.toUpperCase())) {
-                    if (builder.put(entry.getKey().toLowerCase(), entry.getValue()) != null) {
-                        warn("Env variable overwriting system variable: " + entry.getKey());
-                    }
+                    builder.put(entry.getKey().toLowerCase(), entry.getValue());
                 }
             }
         }
@@ -86,13 +77,11 @@ public record SystemArgumentFactory(
             if (envSupport) {
                 try {
                     updateFromEnv(builder);
-                } catch (Exception e) {
-                    exception("Failed to read environment variables", e);
+                } catch (Exception ignored) {
                 }
             }
 
-            return new SystemArgumentFactory(
-                    Map.copyOf(builder), Map.copyOf(parseBuilder), registerListener, optionModifier);
+            return new SystemArgumentFactory(Map.copyOf(builder), Map.copyOf(parseBuilder), optionModifier);
         }
 
         protected @NotNull Map<String, String> getSystemPropertiesMap(String findPrefix) {
@@ -104,8 +93,6 @@ public record SystemArgumentFactory(
                         String key = line.substring(2, index); // remove -D
                         String value = line.substring(index + 1);
                         builder.put(key.toLowerCase(), value);
-                    } else {
-                        warn("Invalid startup argument: " + line);
                     }
                 }
             }
@@ -121,16 +108,12 @@ public record SystemArgumentFactory(
         if ((value != null && !options.getVerifier().test(value)))
             throw new IllegalArgumentException(
                     "Invalid default value for startup argument \"" + options.getKey() + "\"");
-        SystemArgument<T> argument =
-                new SystemArgument<>(options.getKey(), options.getClazz(), value, false, options.getVisibility());
-        creationListener.accept(argument);
-        return argument;
+        return new SystemArgument<>(options.getKey(), options.getClazz(), value, false, options.getVisibility());
     }
 
     public <T> SystemArgument<T> create(ArgumentOptions.Builder<T> builder) {
         if (optionModifier != null) optionModifier.accept(builder);
         final ArgumentOptions<T> options = builder.build();
-        //
         final String value = arguments.get(options.getKey().toLowerCase());
         if (value == null) return createDefaultSupplier(options);
         try {
@@ -139,27 +122,9 @@ public record SystemArgumentFactory(
             if (parser == null) return createDefaultSupplier(options);
             T parsed = options.getModifier().apply(parser.apply(value));
             if (parsed == null || !options.getVerifier().test(parsed)) return createDefaultSupplier(options);
-            SystemArgument<T> newArgument =
-                    new SystemArgument<>(options.getKey(), options.getClazz(), parsed, true, options.getVisibility());
-            creationListener.accept(newArgument);
-            return newArgument;
+            return new SystemArgument<>(options.getKey(), options.getClazz(), parsed, true, options.getVisibility());
         } catch (Exception e) {
-            exception("Failed to parse value for startup argument \"" + options.getKey() + "\"", e);
             return createDefaultSupplier(options);
         }
-    }
-
-    public Map<String, String> getFoundArguments() {
-        return arguments;
-    }
-
-    // TODO: add back logging once LogUtil has been refactored
-
-    private static void exception(String message, Exception e) {
-        // LogUtil.exception(message, e);
-    }
-
-    private static void warn(String message) {
-        // LogUtil.warn(message);
     }
 }

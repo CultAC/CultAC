@@ -1,18 +1,28 @@
 package ac.cult.cultac.command;
 
+import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.bridge.protocol.CommandRoots;
 import ac.cult.cultac.command.commands.*;
 import ac.cult.cultac.command.handler.CultCommandFailureHandler;
+import ac.cult.cultac.manager.config.BaseConfigManager;
 import ac.cult.cultac.platform.api.command.CommandService;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.utils.anticheat.LogUtil;
+import ac.grim.grimac.api.config.ConfigManager;
 import io.leangen.geantyref.TypeToken;
+import java.util.Collection;
+import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.ComponentLike;
 import net.kyori.adventure.text.format.NamedTextColor;
+import org.incendo.cloud.Command;
 import org.incendo.cloud.CommandManager;
 import org.incendo.cloud.exception.ArgumentParseException;
 import org.incendo.cloud.exception.CommandExecutionException;
@@ -21,10 +31,13 @@ import org.incendo.cloud.exception.InvalidSyntaxException;
 import org.incendo.cloud.exception.NoPermissionException;
 import org.incendo.cloud.exception.NoSuchCommandException;
 import org.incendo.cloud.key.CloudKey;
+import org.incendo.cloud.permission.Permission;
+import org.incendo.cloud.permission.PredicatePermission;
 import org.incendo.cloud.processors.requirements.RequirementApplicable;
 import org.incendo.cloud.processors.requirements.RequirementApplicable.RequirementApplicableFactory;
 import org.incendo.cloud.processors.requirements.RequirementPostprocessor;
 import org.incendo.cloud.processors.requirements.Requirements;
+import org.incendo.cloud.suggestion.Suggestion;
 
 public class CloudCommandService implements CommandService {
 
@@ -34,22 +47,60 @@ public class CloudCommandService implements CommandService {
     public static final RequirementApplicableFactory<Sender, SenderRequirement> REQUIREMENT_FACTORY =
             RequirementApplicable.factory(REQUIREMENT_KEY);
 
+    /** Fixed when the commands register; a reload does not register them again. */
+    private static volatile List<String> roots = CommandRoots.DEFAULT;
+
     private boolean commandsRegistered = false;
     private CommandManager<Sender> manager;
 
     private final Supplier<CommandManager<Sender>> commandManagerSupplier;
     private final CloudPlatformCommandArguments commandArguments;
+    private final Supplier<List<String>> rootsSupplier;
 
     public CloudCommandService(
             Supplier<CommandManager<Sender>> commandManagerSupplier, CloudPlatformCommandArguments commandArguments) {
+        this(commandManagerSupplier, commandArguments, CloudCommandService::configuredRoots);
+    }
+
+    public CloudCommandService(
+            Supplier<CommandManager<Sender>> commandManagerSupplier,
+            CloudPlatformCommandArguments commandArguments,
+            Supplier<List<String>> rootsSupplier) {
         this.commandManagerSupplier = commandManagerSupplier;
-        this.commandArguments = commandArguments;
+        this.commandArguments = new NetworkPlayerArguments(commandArguments);
+        this.rootsSupplier = rootsSupplier;
+    }
+
+    public static List<String> roots() {
+        return roots;
+    }
+
+    public static String primaryRoot() {
+        return roots.getFirst();
+    }
+
+    public static String command(String arguments) {
+        return "/" + primaryRoot() + " " + arguments;
+    }
+
+    public static String onRegisteredRoot(String input) {
+        String line = input.stripLeading();
+        int space = line.indexOf(' ');
+        String first = (space < 0 ? line : line.substring(0, space)).toLowerCase(Locale.ROOT);
+        return roots.contains(first) ? input : primaryRoot() + (space < 0 ? "" : line.substring(space));
+    }
+
+    private static List<String> configuredRoots() {
+        BaseConfigManager configManager = CultAPI.INSTANCE.getConfigManager();
+        ConfigManager config = configManager == null ? null : configManager.getConfig();
+        return BaseConfigManager.resolveCommandRoots(config, LogUtil::warn);
     }
 
     public void registerCommands() {
         if (commandsRegistered) return;
         CommandManager<Sender> commandManager = commandManagerSupplier.get();
         manager = commandManager;
+        roots = rootsSupplier.get();
         new CultDebug().register(commandManager, commandArguments);
         new CultDebugVelocity().register(commandManager, commandArguments);
         new CultDebugExplosion().register(commandManager, commandArguments);
@@ -59,10 +110,12 @@ public class CloudCommandService implements CommandService {
         new CultProfile().register(commandManager, commandArguments);
         new CultSendAlert().register(commandManager, commandArguments);
         new CultHelp().register(commandManager, commandArguments);
+        new CultInfo().register(commandManager, commandArguments);
         new CultHistory().register(commandManager, commandArguments);
         new CultHistoryMigrate().register(commandManager, commandArguments);
         new CultHistoryCopy().register(commandManager, commandArguments);
         new CultReload().register(commandManager, commandArguments);
+        new CultObserve().register(commandManager, commandArguments);
         new CultSpectate().register(commandManager, commandArguments);
         new CultStopSpectating().register(commandManager, commandArguments);
         new CultLog().register(commandManager, commandArguments);
@@ -70,6 +123,7 @@ public class CloudCommandService implements CommandService {
         new CultVersion().register(commandManager, commandArguments);
         new CultDump().register(commandManager, commandArguments);
         new CultBrands().register(commandManager, commandArguments);
+        new CultFindPlayer().register(commandManager, commandArguments);
         new CultList().register(commandManager, commandArguments);
         new CultTestWebhook().register(commandManager, commandArguments);
         new CultCloud().register(commandManager, commandArguments);
@@ -84,16 +138,34 @@ public class CloudCommandService implements CommandService {
         commandsRegistered = true;
     }
 
-    public java.util.concurrent.CompletionStage<Void> execute(Sender sender, String input) {
+    public CompletionStage<Void> execute(Sender sender, String input) {
         return manager.commandExecutor().executeCommand(sender, input).thenApply(ignored -> null);
     }
 
-    public java.util.concurrent.CompletionStage<java.util.List<String>> suggest(Sender sender, String input) {
+    /** Every permission node a registered command requires; empty before the commands register. */
+    public Set<String> permissionNodes() {
+        CommandManager<Sender> commandManager = manager;
+        Set<String> nodes = new TreeSet<>();
+        if (commandManager == null) return nodes;
+        for (Command<Sender> command : commandManager.commands()) addNodes(command.commandPermission(), nodes);
+        return nodes;
+    }
+
+    private static void addNodes(Permission permission, Set<String> nodes) {
+        if (permission instanceof PredicatePermission<?>) return;
+        Collection<Permission> inner = permission.permissions();
+        if (inner.size() == 1 && inner.contains(permission)) {
+            if (!permission.isEmpty()) nodes.add(permission.permissionString());
+            return;
+        }
+        for (Permission each : inner) addNodes(each, nodes);
+    }
+
+    public CompletionStage<List<String>> suggest(Sender sender, String input) {
         return manager.suggestionFactory()
                 .suggest(sender, input)
-                .thenApply(result -> result.list().stream()
-                        .map(org.incendo.cloud.suggestion.Suggestion::suggestion)
-                        .toList());
+                .thenApply(result ->
+                        result.list().stream().map(Suggestion::suggestion).toList());
     }
 
     private void registerExceptionHandlers(CommandManager<Sender> commandManager) {
@@ -101,7 +173,7 @@ public class CloudCommandService implements CommandService {
         registerExceptionHandler(
                 commandManager,
                 NoSuchCommandException.class,
-                exception -> Component.text("Invalid command. Use /cult help for available commands."));
+                exception -> Component.text("Invalid command. Use " + command("help") + " for available commands."));
         registerExceptionHandler(
                 commandManager,
                 NoPermissionException.class,
@@ -114,6 +186,10 @@ public class CloudCommandService implements CommandService {
             String detail = exception.getCause().getMessage();
             return Component.text(detail == null ? "Invalid command argument." : "Invalid argument: " + detail);
         });
+        // The controller asks the handler registered last first.
+        commandManager
+                .exceptionController()
+                .registerHandler(ArgumentParseException.class, NetworkPlayerArguments::handle);
         commandManager.exceptionController().registerHandler(CommandExecutionException.class, context -> {
             context.context()
                     .sender()
@@ -126,13 +202,17 @@ public class CloudCommandService implements CommandService {
             Sender sender = context.context().sender();
             if (isHistoryInput(context.context().rawInput().input())) {
                 sender.sendMessage(Component.text("Invalid history syntax.", NamedTextColor.RED));
-                sender.sendMessage(Component.text("Use: /cult history <player> [page <N>]", NamedTextColor.GRAY));
+                sender.sendMessage(
+                        Component.text("Use: " + command("history <player> [page <N>]"), NamedTextColor.GRAY));
                 sender.sendMessage(Component.text(
-                        "Use: /cult history <player> session <N|latest> [page <N>] [-d] [-v]", NamedTextColor.GRAY));
+                        "Use: " + command("history <player> session <N|latest> [page <N>] [-d] [-v]"),
+                        NamedTextColor.GRAY));
                 sender.sendMessage(Component.text(
-                        "Tip: /cult history <player> session shows filter and detail options.", NamedTextColor.GRAY));
+                        "Tip: " + command("history <player> session") + " shows filter and detail options.",
+                        NamedTextColor.GRAY));
                 sender.sendMessage(Component.text(
-                        "Use /cult history player <player> ... for names that collide with history subcommands.",
+                        "Use " + command("history player <player> ...")
+                                + " for names that collide with history subcommands.",
                         NamedTextColor.GRAY));
                 return;
             }
@@ -146,10 +226,7 @@ public class CloudCommandService implements CommandService {
         if (input.startsWith("/")) input = input.substring(1).strip();
         String[] tokens = input.toLowerCase(Locale.ROOT).split("\\s+");
         return tokens.length >= 2
-                && (tokens[0].equals("cult")
-                        || tokens[0].equals("cultac")
-                        || tokens[0].equals("grim")
-                        || tokens[0].equals("grimac"))
+                && roots.contains(tokens[0])
                 && (tokens[1].equals("history") || tokens[1].equals("hist"));
     }
 

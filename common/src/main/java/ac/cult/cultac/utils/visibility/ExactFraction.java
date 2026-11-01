@@ -1,6 +1,8 @@
 package ac.cult.cultac.utils.visibility;
 
+import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.math.MathContext;
 
 /** Exact arithmetic on the binary values supplied by the compensated geometry. */
 final class ExactFraction implements Comparable<ExactFraction> {
@@ -127,8 +129,8 @@ final class ExactFraction implements Comparable<ExactFraction> {
 
     double doubleValue() {
         // BigDecimal avoids infinity/infinity for exact constructions with large denominators.
-        return new java.math.BigDecimal(numerator)
-                .divide(new java.math.BigDecimal(denominator), java.math.MathContext.DECIMAL128)
+        return new BigDecimal(numerator)
+                .divide(new BigDecimal(denominator), MathContext.DECIMAL128)
                 .doubleValue();
     }
 

@@ -18,8 +18,10 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.lists.EvictingQueue;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
+import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
+import java.util.ArrayList;
 import java.util.List;
 
 public class SuperDebug extends CultProcessor implements PostPredictionListener {
@@ -108,14 +110,14 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         PredictionResult lastResult =
                 player.checkManager.getSimulationProcessor().getLastPrediction();
         Vec3 target = result.getTarget();
-        Vec3 closest = getDebugPredictionVector(result);
+        Vec3 closest = MovementProfiles.forPlayer(player).debugPredictionVector(result);
 
         movementHistory.add(new MovementFrame(closest, target, location));
 
         PredictionObserver watch = diag;
         if (watch != null) capture(watch, result, lastResult, closest, target, predictionComplete.isExempt());
 
-        if (result.getIdentifier() == 0) return; // 1 - 256 are valid possible values
+        if (result.getIdentifier() == 0) return;
 
         StringBuilder sb = new StringBuilder();
         sb.append("Cult Version: ").append(CultAPI.INSTANCE.getExternalAPI().getGrimVersion());
@@ -412,12 +414,10 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
 
     private static void appendFlags(StringBuilder sb, List<PredictionResult.Flag> resultFlags) {
         for (PredictionResult.Flag flag : resultFlags) {
-            if (flag != null) {
-                sb.append(flag.getCheck().getCheckName())
-                        .append(" - ")
-                        .append(flag.getVerbose().getString())
-                        .append('\n');
-            }
+            sb.append(flag.getCheck().getCheckName())
+                    .append(" - ")
+                    .append(flag.getVerbose().getString())
+                    .append('\n');
         }
     }
 
@@ -462,7 +462,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
     private List<Vec3> debugRideableInputVectors(SimulationContext context, PacketEntity vehicle) {
         if (!player.packetStateData.isVehicleMovementFromClientTick()
                 || !player.compensatedEntities.vehicles.canCurrentPlayerControlServerVehicleForClientTickMovement()
-                || ac.cult.cultac.utils.nmsutil.EntityTypeUtil.isBoat(vehicle.type)) {
+                || EntityTypeUtil.isBoat(vehicle.type)) {
             return List.of();
         }
 
@@ -471,11 +471,11 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
             riddenInput = new Vec3(0.0D, 0.0D, 1.0D);
         }
 
-        if (riddenInput == null || riddenInput.lengthSqr() < 1.0E-7D) {
+        if (riddenInput == null) {
             return List.of();
         }
 
-        List<Vec3> vectors = new java.util.ArrayList<>(4);
+        List<Vec3> vectors = new ArrayList<>(4);
         boolean anyFluid = false;
 
         for (boolean water : context.getWorldData().getInWater().getStates()) {
@@ -515,7 +515,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
     }
 
     private Vec3 inputVectorForSpeed(SimulationContext context, Vec3 riddenInput, float speed) {
-        Vec3 scaled = (riddenInput.lengthSqr() > 1.0D ? riddenInput.normalize() : riddenInput).scale(speed);
+        Vec3 scaled = riddenInput.scale(speed);
         float yawRadians = context.getXRot() * ((float) Math.PI / 180F);
         float sin = player.trigHandler.sin(yawRadians);
         float cos = player.trigHandler.cos(yawRadians);
@@ -534,7 +534,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
     private void appendExternalMovementDetails(StringBuilder sb, PredictionResult result, PredictionResult lastResult) {
         ExternalMovementUncertainty.Snapshot snapshot = ExternalMovementUncertainty.capture(result, lastResult);
         Vec3 positionOnlyDelta = result.getPositionOnlyDelta();
-        if (!snapshot.hasAnyUncertainty() && positionOnlyDelta.lengthSqr() <= 1.0E-14) {
+        if (!snapshot.hasExternalMove() && positionOnlyDelta.lengthSqr() <= 1.0E-14) {
             return;
         }
 
@@ -587,6 +587,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
 
         sb.append("\nNearby packet entity boxes:\n");
         for (PacketEntity entity : player.compensatedEntities.entityMap.values()) {
+            if (player.compensatedEntities.isUntrackedRider(entity)) continue;
             SimpleCollisionBox box = entity.getPossibleCollisionBoxes();
             if (!box.isCollided(queryBox)) {
                 continue;
@@ -630,10 +631,6 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
                 .append(": ")
                 .append(Collisions.describeStuckSpeedSources(
                         player, context.getFromMaximumExtent(), context.getToMaximumExtent(), context.getTarget()));
-    }
-
-    private Vec3 getDebugPredictionVector(PredictionResult result) {
-        return MovementProfiles.forPlayer(player).debugPredictionVector(result);
     }
 
     private void appendDebug(StringBuilder sb, Vec3 predicted, Vec3 end, Location location) {

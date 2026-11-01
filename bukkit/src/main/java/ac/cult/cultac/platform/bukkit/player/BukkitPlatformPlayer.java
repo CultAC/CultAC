@@ -5,12 +5,12 @@ import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.ServerFacts;
 import ac.cult.cultac.platform.api.entity.CultEntity;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
-import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.platform.bukkit.CultACBukkitLoaderPlugin;
 import ac.cult.cultac.platform.bukkit.entity.BukkitCultEntity;
 import ac.cult.cultac.platform.bukkit.utils.convert.BukkitConversionUtils;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.protocol.value.ItemUseState;
 import ac.cult.cultac.utils.common.arguments.CommonCultArguments;
 import ac.cult.cultac.utils.math.Location;
 import ac.cult.cultac.utils.math.Vec3;
@@ -22,7 +22,6 @@ import lombok.Getter;
 import net.kyori.adventure.text.Component;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Registry;
-import org.bukkit.World;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.entity.Player;
@@ -75,7 +74,7 @@ public class BukkitPlatformPlayer extends BukkitCultEntity implements PlatformPl
 
     @Override
     public void sendMessage(String message) {
-        if (CommonCultArguments.USE_CHAT_FAST_BYPASS.value() && user != null) {
+        if (user != null) {
             user.sendMessage(Component.text(message));
         } else {
             bukkitPlayer.sendMessage(message);
@@ -84,7 +83,7 @@ public class BukkitPlatformPlayer extends BukkitCultEntity implements PlatformPl
 
     @Override
     public void sendMessage(Component message) {
-        if (CommonCultArguments.USE_CHAT_FAST_BYPASS.value() && user != null) {
+        if (user != null) {
             user.sendMessage(message);
         } else {
             bukkitPlayer.sendMessage(message);
@@ -118,7 +117,7 @@ public class BukkitPlatformPlayer extends BukkitCultEntity implements PlatformPl
     }
 
     @Override
-    public ac.cult.cultac.protocol.value.ItemUseState getItemUseState() {
+    public ItemUseState getItemUseState() {
         return BukkitItemUseState.read(bukkitPlayer);
     }
 
@@ -147,10 +146,6 @@ public class BukkitPlatformPlayer extends BukkitCultEntity implements PlatformPl
         bukkitPlayer.setGameMode(org.bukkit.GameMode.valueOf(gameMode.name()));
     }
 
-    public World getBukkitWorld() {
-        return bukkitPlayer.getWorld();
-    }
-
     @Override
     public UUID getUniqueId() {
         return bukkitPlayer.getUniqueId();
@@ -170,11 +165,6 @@ public class BukkitPlatformPlayer extends BukkitCultEntity implements PlatformPl
     @Override
     public void sendPluginMessage(String channelName, byte[] byteArray) {
         this.bukkitPlayer.sendPluginMessage(CultACBukkitLoaderPlugin.LOADER, channelName, byteArray);
-    }
-
-    @Override
-    public Sender getSender() {
-        return CultACBukkitLoaderPlugin.INSTANCE.getBukkitSenderFactory().map(this.bukkitPlayer);
     }
 
     @Override

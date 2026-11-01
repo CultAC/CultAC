@@ -8,7 +8,7 @@ import ac.cult.cultac.player.CultPlayer;
 @CheckData(
         name = "VehicleC",
         stableKey = "cult.vehicle.vehicle_control",
-        description = "Moved a vehicle in a way that did not match predicted vehicle control")
+        description = "Steered a pig or strider without its stick")
 public class VehicleC extends Check implements CheckListener {
     public VehicleC(CultPlayer player) {
         super(player);

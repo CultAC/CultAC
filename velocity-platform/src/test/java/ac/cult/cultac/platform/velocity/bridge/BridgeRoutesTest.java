@@ -36,7 +36,11 @@ class BridgeRoutesTest {
         var dispatcher = new PacketDispatcher(ProtocolRuntime.create(
                 ProtocolData.load(ProtocolVersion.V26_3), ClientPacketCodecs.connectionCatalog(), 32767));
         var service = new BridgeService(
-                mock(ProxyServer.class), new Object(), player -> null, Logger.getLogger("BridgeRoutesTest"));
+                mock(ProxyServer.class),
+                new Object(),
+                player -> null,
+                channel -> null,
+                Logger.getLogger("BridgeRoutesTest"));
         service.registerStripRoutes(dispatcher);
         service.registerSessionRoutes(dispatcher);
 
@@ -54,7 +58,11 @@ class BridgeRoutesTest {
         var dispatcher = new PacketDispatcher(ProtocolRuntime.create(
                 ProtocolData.load(ProtocolVersion.V26_3), ClientPacketCodecs.connectionCatalog(), 32767));
         var service = new BridgeService(
-                mock(ProxyServer.class), new Object(), player -> null, Logger.getLogger("BridgeRoutesTest"));
+                mock(ProxyServer.class),
+                new Object(),
+                player -> null,
+                channel -> null,
+                Logger.getLogger("BridgeRoutesTest"));
         service.registerStripRoutes(dispatcher);
 
         assertFalse(dispatcher
@@ -73,7 +81,11 @@ class BridgeRoutesTest {
         var dispatcher = new PacketDispatcher(ProtocolRuntime.create(
                 ProtocolData.load(ProtocolVersion.V26_3), ClientPacketCodecs.connectionCatalog(), 32767));
         var service = new BridgeService(
-                mock(ProxyServer.class), new Object(), player -> null, Logger.getLogger("BridgeRoutesTest"));
+                mock(ProxyServer.class),
+                new Object(),
+                player -> null,
+                channel -> null,
+                Logger.getLogger("BridgeRoutesTest"));
         service.registerSessionRoutes(dispatcher);
 
         var user = mock(User.class, RETURNS_DEEP_STUBS);
@@ -105,7 +117,11 @@ class BridgeRoutesTest {
         var dispatcher = new PacketDispatcher(ProtocolRuntime.create(
                 ProtocolData.load(ProtocolVersion.V26_3), ClientPacketCodecs.connectionCatalog(), 32767));
         var service = new BridgeService(
-                mock(ProxyServer.class), new Object(), ignored -> null, Logger.getLogger("BridgeRoutesTest"));
+                mock(ProxyServer.class),
+                new Object(),
+                ignored -> null,
+                channel -> null,
+                Logger.getLogger("BridgeRoutesTest"));
         service.registerStripRoutes(dispatcher);
         dispatcher.register(routes -> {
             routes.earlyReceive(

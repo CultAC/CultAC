@@ -33,6 +33,14 @@ import java.util.function.Supplier;
  * next tick, and the client does not resume using a returned item, so a refuted stop leaves the
  * server using an item the client is not slowed by: those ticks are charged.
  *
+ * <p>LocalPlayer#onSyncedDataUpdated stops a started use when it processes a flag clear, so a clear
+ * acknowledged after the next use packet arrived stops the client's new use while the server, already
+ * past that clear, keeps using. Minecraft#handleKeybinds restarts it with another use packet once
+ * rightClickDelay expires, or the confirming flag restarts it (LocalPlayer#onSyncedDataUpdated) at its
+ * proof. Packets reach the client in send order, so the pause excludes at most the server's send gap
+ * between that clear and the confirming flag; time past it is charged. A release during the pause,
+ * which a vanilla client that is not using never sends, refutes it.
+ *
  * <p>Owner-thread only. Times are local nanoseconds at this connection, never client claims.
  */
 public final class ServerItemUseView {
@@ -75,6 +83,10 @@ public final class ServerItemUseView {
         long endedAt = Long.MIN_VALUE;
         int endTick;
         boolean lastTickMayBeLocal;
+        // A stale flag clear stopped the client after this tick; the server keeps the use.
+        long pausedAt = Long.MIN_VALUE;
+        int pausedTick;
+        long pauseClearSentAt;
 
         Candidate(boolean offhand, int sequence, long start, int firstTick, List<SimItemStack> captured, long period) {
             this.offhand = offhand;
@@ -104,6 +116,16 @@ public final class ServerItemUseView {
         long stopTime = Long.MIN_VALUE;
         int stopTicks;
         int stopUnslowed;
+        // The proof of the confirming flag; the client restarts a paused use when it processes it.
+        int startProof = NO_PROOF;
+        long flagSentAt;
+        boolean clientStarted;
+        // A stale flag clear paused the client's use after this time; ticks since then are not counted.
+        long pausedAt = Long.MIN_VALUE;
+        // The send gap from that clear to the confirming flag: the most server time the pause excludes.
+        long pauseCap;
+        int pausedTicks;
+        int pausedUnslowed;
 
         Session(boolean offhand, Profile profile, long start, long period) {
             this.offhand = offhand;
@@ -123,6 +145,30 @@ public final class ServerItemUseView {
 
         boolean stoppedLocally() {
             return stopTime != Long.MIN_VALUE;
+        }
+
+        boolean paused() {
+            return pausedAt != Long.MIN_VALUE;
+        }
+
+        void pause(long at, long clearSentAt) {
+            pausedAt = at;
+            pauseCap = Math.max(0, flagSentAt - clearSentAt);
+            pausedTicks = ticks;
+            pausedUnslowed = unslowed;
+        }
+
+        void resume(long at) {
+            start += Math.min(Math.max(0, at - pausedAt), pauseCap);
+            ticks = pausedTicks;
+            unslowed = pausedUnslowed;
+            pausedAt = Long.MIN_VALUE;
+        }
+
+        void endAtPause(long at) {
+            resume(at);
+            serverEnd = at;
+            lastUnslowed = false;
         }
 
         void endAtLocalStop() {
@@ -145,6 +191,9 @@ public final class ServerItemUseView {
     private int tick;
     private long lastTickEnd = Long.MIN_VALUE;
     private boolean pendingClear;
+    // The newest flag clear the client has not acknowledged yet.
+    private int clearProof = NO_PROOF;
+    private long clearSentAt;
     private int serverSlot = -1;
     private long period = 50_000_000L;
     private double threshold = 1.0E-5;
@@ -199,6 +248,11 @@ public final class ServerItemUseView {
     public void use(boolean offhand, int sequence, long now, List<SimItemStack> captured) {
         // LivingEntity#startUsingItem is a no-op while the server is already using an item.
         if (session != null && session.serverActive()) {
+            if (session.paused() && session.offhand == offhand) {
+                trace(() -> "use seq=" + sequence + " restarts the paused client use");
+                session.resume(now);
+                return;
+            }
             trace(() -> "use seq=" + sequence + " " + hand(offhand) + " ignored: server already using "
                     + item(session.profile));
             return;
@@ -225,6 +279,10 @@ public final class ServerItemUseView {
     /** Self DATA_LIVING_ENTITY_FLAGS, at send. */
     public void serverFlags(boolean active, boolean offhand, int proof, long now) {
         if (!active) {
+            if (proof != NO_PROOF) {
+                clearProof = proof;
+                clearSentAt = now;
+            }
             // The flag clear that follows a stop already accounted for at its cause.
             if (pendingClear) {
                 pendingClear = false;
@@ -232,7 +290,11 @@ public final class ServerItemUseView {
                 return;
             }
             if (session == null || !session.serverActive()) return;
-            if (session.stoppedLocally()) {
+            if (session.paused()) {
+                trace(() -> "flags clear: the server stops the paused use");
+                session.endAtPause(now);
+                finish(session, false);
+            } else if (session.stoppedLocally()) {
                 // The server confirms the client's local stop: neither side used the item after it.
                 trace(() -> "flags clear: server confirms the local stop at " + at(session.stopTime));
                 session.endAtLocalStop();
@@ -263,6 +325,9 @@ public final class ServerItemUseView {
                 profile,
                 candidate == null ? now : candidate.start,
                 candidate == null ? period : Math.max(period, candidate.maxPeriod));
+        session.startProof = proof;
+        session.flagSentAt = now;
+        session.clientStarted = candidate != null;
         var started = session;
         if (candidate == null) {
             trace(() -> "flags use " + hand(offhand) + " without a use packet (plugin start): "
@@ -270,8 +335,13 @@ public final class ServerItemUseView {
             return;
         }
         int end = candidate.endedAt == Long.MIN_VALUE ? tick : candidate.endTick;
-        for (int i = candidate.firstTick + 1; i <= end; i++)
+        for (int i = candidate.firstTick + 1; i <= end; i++) {
+            if (candidate.pausedAt != Long.MIN_VALUE && i == candidate.pausedTick + 1)
+                session.pause(candidate.pausedAt, candidate.pauseClearSentAt);
             count(session, i > tick - HISTORY ? history[Math.floorMod(i, HISTORY)] : null);
+        }
+        if (candidate.pausedAt != Long.MIN_VALUE && !session.paused())
+            session.pause(candidate.pausedAt, candidate.pauseClearSentAt);
         var confirmed = candidate;
         trace(() -> "flags use " + hand(offhand) + " confirms seq=" + confirmed.sequence + " at " + at(now) + ": "
                 + describe(started.profile) + ", replayed ticks=" + started.ticks + " unslowed=" + started.unslowed);
@@ -300,6 +370,7 @@ public final class ServerItemUseView {
                 + (session.stoppedLocally() ? ", refutes the local stop" : ""));
         // updatingUsingItem stops a changed item before it can complete, so a local stop was refuted.
         session.stopTime = Long.MIN_VALUE;
+        if (session.paused()) session.resume(now);
         serverEnd(now, proof);
         pendingClear = true;
     }
@@ -307,7 +378,12 @@ public final class ServerItemUseView {
     /** RELEASE_USE_ITEM: LivingEntity#releaseUsingItem always stops use. */
     public void release(long now) {
         // Minecraft#handleKeybinds only releases while the client is still using.
-        if (session != null) session.stopTime = Long.MIN_VALUE;
+        if (session != null) {
+            session.stopTime = Long.MIN_VALUE;
+            if (session.paused()) trace(() -> "release refutes the pause");
+            session.pausedAt = Long.MIN_VALUE;
+        }
+        for (Candidate candidate : candidates) candidate.pausedAt = Long.MIN_VALUE;
         stopAtArrival("release", false, now, false);
     }
 
@@ -365,11 +441,37 @@ public final class ServerItemUseView {
         session.clientHeld = false;
     }
 
-    /** A transaction the client acknowledged, in client order. */
-    public void acknowledge(int transaction) {
-        if (session == null || session.serverActive() || session.proof != transaction) return;
+    /** A transaction the client acknowledged, in client order, at its arrival. */
+    public void acknowledge(int transaction, long now) {
+        if (transaction == clearProof) {
+            clearProof = NO_PROOF;
+            pauseStartedUses();
+        }
+        if (session == null) return;
+        if (session.serverActive()) {
+            if (session.paused() && session.startProof == transaction) {
+                trace(() -> "proof " + transaction + " acknowledged: the confirming flag restarts the paused use");
+                session.resume(now);
+            }
+            return;
+        }
+        if (session.proof != transaction) return;
         trace(() -> "proof " + transaction + " acknowledged: client processed the stop");
         finish(session, false);
+    }
+
+    /** The client processed a flag clear after sending every pending use: each started use stops. */
+    private void pauseStartedUses() {
+        for (Candidate candidate : candidates) {
+            if (candidate.endedAt != Long.MIN_VALUE || candidate.pausedAt != Long.MIN_VALUE) continue;
+            candidate.pausedAt = Math.max(candidate.start, lastTickEnd);
+            candidate.pausedTick = Math.max(candidate.firstTick, tick);
+            candidate.pauseClearSentAt = clearSentAt;
+            trace(() -> "stale flags clear acknowledged after use seq=" + candidate.sequence + ": client pauses");
+        }
+        if (session == null || !session.serverActive() || !session.clientStarted || session.paused()) return;
+        session.pause(Math.max(session.start, lastTickEnd), clearSentAt);
+        trace(() -> "stale flags clear acknowledged during the use: client pauses after ticks=" + session.ticks);
     }
 
     /** ServerboundClientTickEnd. {@code clockAtLeast} is a proven lower bound on the client's time. */
@@ -380,7 +482,11 @@ public final class ServerItemUseView {
         if (session == null) return;
         count(session, evidence);
         // An unresolved local stop is settled by the server's next packets, not provisionally.
-        if (!session.serverActive() || !session.tracked() || session.stoppedLocally() || clockAtLeast <= session.start)
+        if (!session.serverActive()
+                || !session.tracked()
+                || session.stoppedLocally()
+                || session.paused()
+                || clockAtLeast <= session.start)
             return;
         var outcome = new Outcome(
                 (clockAtLeast - session.start) * charge / session.maxPeriod, session.ticks, session.unslowed, true);
@@ -396,6 +502,7 @@ public final class ServerItemUseView {
         candidates.clear();
         session = null;
         pendingClear = false;
+        clearProof = NO_PROOF;
         serverSlot = -1;
         Arrays.fill(history, null);
         lastTickEnd = Long.MIN_VALUE;
@@ -407,6 +514,7 @@ public final class ServerItemUseView {
             if (!(mainHandOnly && candidate.offhand) && candidate.endedAt == Long.MIN_VALUE) {
                 candidate.endedAt = now;
                 candidate.endTick = tick;
+                candidate.pausedAt = Long.MIN_VALUE;
                 candidate.lastTickMayBeLocal = lastTickMayBeLocal;
                 ended++;
             }
@@ -415,6 +523,12 @@ public final class ServerItemUseView {
         if (ended > 0) trace(() -> cause + " ends " + endedCandidates + " unconfirmed candidate(s)");
         if (session == null || !session.serverActive() || (mainHandOnly && session.offhand)) return;
         pendingClear = true;
+        if (session.paused()) {
+            trace(() -> cause + " ends the paused use at " + at(now));
+            session.endAtPause(now);
+            finish(session, false);
+            return;
+        }
         if (session.stoppedLocally()) {
             trace(() -> cause + " ends the use at its local stop " + at(session.stopTime));
             session.endAtLocalStop();

@@ -2,17 +2,19 @@ package ac.cult.cultac.utils.latency;
 
 import ac.cult.blocksim.data.nbt.NbtValue;
 import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.protocol.data.IdTable;
 import ac.cult.cultac.protocol.data.ModelRegistryData;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.regex.Pattern;
 
 /** Slot, count and stack-limit inputs to comparator prediction. */
 public final class ClientContainerFields {
-    private static final java.util.regex.Pattern REFERENCE =
-            java.util.regex.Pattern.compile("[a-z0-9_.-]+:[a-z0-9_./-]*");
-    private static final ac.cult.cultac.protocol.data.IdTable ITEMS =
+    private static final Pattern REFERENCE = Pattern.compile("[a-z0-9_.-]+:[a-z0-9_./-]*");
+    private static final IdTable ITEMS =
             ModelRegistryData.load(ProtocolVersion.V26_3).registry("minecraft:item");
     private static final NbtValue.Compound EMPTY = new NbtValue.Compound(Map.of());
 
@@ -63,7 +65,7 @@ public final class ClientContainerFields {
                     int slot = index.intValue();
                     if (slot >= 0 && slot < size && !slots.containsKey(slot)) disabled |= 1 << slot;
                 }
-            var indices = new java.util.ArrayList<Long>(Integer.bitCount(disabled));
+            var indices = new ArrayList<Long>(Integer.bitCount(disabled));
             for (int slot = 0; slot < size; slot++) if ((disabled & 1 << slot) != 0) indices.add((long) slot);
             saved.put("disabled_slots", new NbtValue.PrimitiveArray(NbtValue.Kind.INT_ARRAY, indices));
         }

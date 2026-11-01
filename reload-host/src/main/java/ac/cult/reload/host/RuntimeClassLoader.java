@@ -25,12 +25,7 @@ public final class RuntimeClassLoader extends URLClassLoader {
     private static boolean sharedClass(String name) {
         if (name.startsWith("ac.cult.cultac.manager.datastore.")) {
             String simple = name.substring(name.lastIndexOf('.') + 1).split("\\$", 2)[0];
-            return !java.util.Set.of(
-                            "DataStoreLifecycle",
-                            "LiveWriteHooks",
-                            "LiveWriteHooksImpl",
-                            "IdentityLiveWriteHooks",
-                            "ClientVersionResolver")
+            return !Set.of("DataStoreLifecycle", "LiveWriteHooks", "LiveWriteHooksImpl", "ClientVersionResolver")
                     .contains(simple);
         }
         return name.startsWith("java.")

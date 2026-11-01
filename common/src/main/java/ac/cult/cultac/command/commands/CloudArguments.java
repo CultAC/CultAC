@@ -3,6 +3,8 @@ package ac.cult.cultac.command.commands;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.cloud.CloudService;
 import ac.cult.cultac.cloud.findings.FindingsLog;
+import ac.cult.cultac.network.NetworkPlayer;
+import ac.cult.cultac.network.NetworkRouting;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.player.CultPlayer;
 import java.util.Collection;
@@ -25,8 +27,12 @@ import org.jetbrains.annotations.Nullable;
 final class CloudArguments {
     static final String VIEW = "cult.cloud.view";
     static final String LABEL = "cult.cloud.label";
+    /** Offers Clean in the label menu; the service still takes a clean label only from an admin. */
+    static final String LABEL_CLEAN = "cult.cloud.label.clean";
+
     static final String NOT_CONFIGURED = "Cloud is not configured on this server.";
     static final String CRACKED = "Labeling is disabled on offline-mode servers.";
+    static final int MAX_SUGGESTIONS = 100;
 
     record Target(UUID id, String name) {}
 
@@ -87,20 +93,33 @@ final class CloudArguments {
     }
 
     private static @Nullable Target online(String name) {
-        for (CultPlayer player : CultAPI.INSTANCE.getPlayerDataManager().getEntries()) {
+        return online(name, CultAPI.INSTANCE.getPlayerDataManager().getEntries(), NetworkRouting.current());
+    }
+
+    /** The player named {@code name} among {@code local}, else wherever {@code network} locates them. */
+    static @Nullable Target online(String name, Collection<CultPlayer> local, NetworkRouting network) {
+        for (CultPlayer player : local) {
             if (name.equalsIgnoreCase(player.getName())) return new Target(player.getUniqueId(), player.getName());
         }
-        return null;
+        return network.locate(name)
+                .map(player -> new Target(player.uuid(), player.name()))
+                .orElse(null);
     }
 
     static SuggestionProvider<Sender> players() {
-        return startingWith(() -> {
-            Set<String> names = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-            for (CultPlayer player : CultAPI.INSTANCE.getPlayerDataManager().getEntries()) {
-                if (player.getName() != null) names.add(player.getName());
-            }
-            return names;
-        });
+        return startingWith(() -> names(
+                CultAPI.INSTANCE.getPlayerDataManager().getEntries(),
+                NetworkRouting.current().roster()));
+    }
+
+    /** The names of {@code local} and {@code roster}, sorted and without duplicates, ignoring case. */
+    static Set<String> names(Collection<CultPlayer> local, Collection<NetworkPlayer> roster) {
+        Set<String> names = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        for (CultPlayer player : local) {
+            if (player.getName() != null) names.add(player.getName());
+        }
+        for (NetworkPlayer player : roster) names.add(player.name());
+        return names;
     }
 
     static SuggestionProvider<Sender> checks() {
@@ -115,12 +134,17 @@ final class CloudArguments {
     }
 
     private static SuggestionProvider<Sender> startingWith(Supplier<Collection<String>> values) {
-        return SuggestionProvider.blocking((context, input) -> {
-            String partial = input.peekString().toLowerCase(Locale.ROOT);
-            return values.get().stream()
-                    .filter(value -> value.toLowerCase(Locale.ROOT).startsWith(partial))
-                    .map(Suggestion::suggestion)
-                    .toList();
-        });
+        return SuggestionProvider.blocking((context, input) -> matching(values.get(), input.peekString()).stream()
+                .map(Suggestion::suggestion)
+                .toList());
+    }
+
+    /** The values starting with {@code partial}, ignoring case: at most {@link #MAX_SUGGESTIONS} of them. */
+    static List<String> matching(Collection<String> values, String partial) {
+        String lower = partial.toLowerCase(Locale.ROOT);
+        return values.stream()
+                .filter(value -> value.toLowerCase(Locale.ROOT).startsWith(lower))
+                .limit(MAX_SUGGESTIONS)
+                .toList();
     }
 }

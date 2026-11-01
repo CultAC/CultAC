@@ -11,7 +11,7 @@ import org.bukkit.craftbukkit.inventory.CraftItemStack;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.EquipmentSlot;
 
-/** Preserves the existing native UseEffects and legacy-animation interpretation at the Paper boundary. */
+/** Interprets native UseEffects and legacy use animations at the Paper boundary. */
 final class BukkitItemUseState {
     private static final DataComponentType<UseEffects> EFFECTS = component();
 

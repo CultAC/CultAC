@@ -2,13 +2,17 @@ package ac.cult.cultac.network;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.network.logging.PacketLogObserver;
+import ac.cult.cultac.network.packet.FrameLease;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.*;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.utils.anticheat.LogUtil;
+import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
 import io.netty.util.concurrent.EventExecutor;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -18,13 +22,16 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 
 /** Authoritative identity, player attachment and transport state for one channel. */
-public final class CultConnection implements CodecState {
+public final class CultConnection implements CodecState, FrameLease.Source {
     private static final int CONTEXT_SLOTS = 256;
 
     private final Channel channel;
     private final PlatformConnection platform;
     boolean loginNotified;
     private volatile boolean disconnected;
+    /** Preparation reached a final outcome without an inspected user: excluded, refused or failed open. */
+    private volatile boolean excluded;
+
     private final PacketDispatcher dispatcher;
     private final ProjectedPackets packets;
     private final Function<Channel, PacketOwner> ownerResolver;
@@ -42,17 +49,52 @@ public final class CultConnection implements CodecState {
 
     private volatile boolean levelWarned;
 
+    /** A movement was forwarded since the last forwarded tick end, for a client that ends its ticks. Owner only. */
+    private boolean midClientTick;
+
+    private final List<Runnable> afterClientTick = new ArrayList<>();
+
     private volatile User user;
     private volatile CultPlayer player;
+    // Owned by the outbound connection executor. The encoder opens a flush bundle with a
+    // leading ping and closes it at the next actual Netty flush.
+    private boolean flushBundleOpen;
+
+    /** The encoder has written the opening delimiter of a flush bundle and not yet closed it. */
+    public boolean flushBundleOpen() {
+        return flushBundleOpen;
+    }
+
+    public void flushBundleOpen(boolean open) {
+        flushBundleOpen = open;
+    }
+
+    /**
+     * The CultAC ping whose pong proves the client handled every packet written before this queue position, from
+     * inside an outbound write such as an {@link #executeAfterWrites} task; 0 when there is none or no write is being
+     * prepared.
+     */
+    public int provingPing() {
+        var source = flushPingSource;
+        return source != null && isPreparingWrites() ? source.getAsInt() : 0;
+    }
+
+    public void flushPingSource(@org.jetbrains.annotations.Nullable java.util.function.IntSupplier source) {
+        flushPingSource = source;
+    }
+
     private boolean ownerResolved, prepared;
     private Consumer<CultConnection> initializer = ignored -> {};
     private BiConsumer<Object, ChannelPromise> reentrantWriter;
+    private java.util.function.IntSupplier flushPingSource;
     private volatile CompletableFuture<Void> removed;
     private volatile PacketLogObserver packetObserver = PacketLogObserver.NONE;
     private io.netty.util.concurrent.GenericFutureListener<io.netty.util.concurrent.Future<? super Void>> closeListener;
     private volatile ConnectionContinuation continuation;
     /** Codec contexts bound to this connection, by base identity; a slot holds one immutable context or none. */
     private final ProtocolContext[] contexts = new ProtocolContext[CONTEXT_SLOTS];
+
+    private final FrameLease.Lender frameLender = new FrameLease.Lender();
 
     public void packetObserver(PacketLogObserver observer) {
         packetObserver = Objects.requireNonNull(observer);
@@ -135,6 +177,16 @@ public final class CultConnection implements CodecState {
         return CodecState.EMPTY.require(type);
     }
 
+    /** Lends the clientbound frames the encoder owns to the values decoded from them. Model context only. */
+    public FrameLease.Lender frameLender() {
+        return frameLender;
+    }
+
+    @Override
+    public FrameLease lease(ByteBuf frame) {
+        return frameLender.lease(frame);
+    }
+
     @Override
     public ProtocolContext bind(ProtocolContext base) {
         int slot = System.identityHashCode(base) & (CONTEXT_SLOTS - 1);
@@ -155,6 +207,14 @@ public final class CultConnection implements CodecState {
 
     public boolean disconnected() {
         return disconnected;
+    }
+
+    boolean excluded() {
+        return excluded;
+    }
+
+    void exclude() {
+        excluded = true;
     }
 
     synchronized boolean markDisconnected() {
@@ -334,21 +394,69 @@ public final class CultConnection implements CodecState {
     private ChannelFuture writeMessage(Object message) {
         var promise = channel.newPromise();
         if (owner.inEventLoop() && reentrantWriter != null) reentrantWriter.accept(message, promise);
-        else {
-            Runnable send = () -> {
+        else
+            onChannelLoop(() -> {
                 if (removed != null) promise.tryFailure(new java.nio.channels.ClosedChannelException());
                 else channel.writeAndFlush(message, promise);
-            };
-            if (channel.eventLoop().inEventLoop() && (owner == channel.eventLoop() || !owner.inEventLoop())) send.run();
-            else channel.eventLoop().execute(send);
-        }
+            });
         return promise;
+    }
+
+    /** The flush {@link #executeAfterWrites} issues for a task that writes nothing, without writing the task. */
+    public void flushAfterWrites() {
+        if (owner.inEventLoop() && reentrantWriter != null) executeAfterWrites(() -> {});
+        else
+            onChannelLoop(() -> {
+                if (removed == null) channel.flush();
+            });
+    }
+
+    private void onChannelLoop(Runnable send) {
+        if (channel.eventLoop().inEventLoop() && (owner == channel.eventLoop() || !owner.inEventLoop())) send.run();
+        else channel.eventLoop().execute(send);
     }
 
     public void forwarded(PacketType<?> type, Object packet) {
         serverbound = ConnectionLifecycle.nextPhase(PacketDirection.SERVERBOUND, serverbound, type, packet);
         clientbound = ConnectionLifecycle.nextPhase(PacketDirection.CLIENTBOUND, clientbound, type, packet);
         if (clientbound != ConnectionPhase.PLAY) levelLost();
+        // Registry data is decoded whether or not a player is attached, so each configuration restarts its
+        // received registries here for every connection, not only for inspected ones.
+        if (type == ClientboundPackets.START_CONFIGURATION && platform != null) {
+            var values = platform.modelValues();
+            if (values != null) values.beginConfiguration();
+        }
+        if (type == ServerboundPackets.CLIENT_TICK_END || serverbound != ConnectionPhase.PLAY) clientTickEnded();
+        else if (type == ServerboundPackets.MOVE_PLAYER
+                && packets.observed().supports(ServerboundPackets.CLIENT_TICK_END)) midClientTick = true;
+    }
+
+    /**
+     * Whether the server has been forwarded this client's movement and not yet the tick end that follows it: a packet
+     * forwarded now lands inside the client's tick. Never for a client without tick ends. On the channel loop.
+     */
+    public boolean midClientTick() {
+        return midClientTick && owner == channel.eventLoop();
+    }
+
+    /** Runs {@code task} once, right after the next tick end is forwarded or the client leaves play. On the owner. */
+    public void afterClientTick(Runnable task) {
+        afterClientTick.add(Objects.requireNonNull(task));
+    }
+
+    /** Releases tick-bound tasks after a forwarded tick end, leaving play, or the synthetic tick-end timeout. */
+    public void clientTickEnded() {
+        midClientTick = false;
+        if (afterClientTick.isEmpty()) return;
+        var tasks = List.copyOf(afterClientTick);
+        afterClientTick.clear();
+        for (Runnable task : tasks) {
+            try {
+                task.run();
+            } catch (Throwable failure) {
+                CultNetworkManager.reportFailure("client tick end task", failure);
+            }
+        }
     }
 
     private void levelLost() {

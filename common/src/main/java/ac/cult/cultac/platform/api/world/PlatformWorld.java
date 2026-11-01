@@ -14,7 +14,5 @@ public interface PlatformWorld {
     @Nullable
     UUID getUID();
 
-    PlatformChunk getChunkAt(int currChunkX, int currChunkZ);
-
     boolean isLoaded();
 }

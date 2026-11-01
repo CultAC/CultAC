@@ -117,7 +117,7 @@ public final class EngineVerdicts {
             Vec3 residual = result.getTarget()
                     .subtract(result.getAcceptedClosestToTarget())
                     .multiply(1, 0, 1);
-            Vec3 input = HorizontalAnalyzer.getBestTheoreticalPlayerInput(residual, context.getXRot());
+            Vec3 input = HorizontalAnalyzer.getBestTheoreticalPlayerInput(residual, context.getXRot(), context.getVersion());
             forward = speed > 0 ? hundredths(input.z / speed) : 0;
             strafe = speed > 0 ? hundredths(input.x / speed) : 0;
         }
@@ -126,7 +126,7 @@ public final class EngineVerdicts {
         Integer velocityPing = null;
         TransactionVel applied = null;
         for (TransactionVel modifier : chosen.getPacketModifiers()) {
-            if (applied == null || modifier.getTransaction() > applied.getTransaction()) applied = modifier;
+            if (applied == null || modifier.getOutboundSequence() > applied.getOutboundSequence()) applied = modifier;
         }
         if (applied != null && applied.getTransaction() != lastVelocity) {
             lastVelocity = applied.getTransaction();

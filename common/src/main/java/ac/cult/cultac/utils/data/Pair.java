@@ -29,10 +29,6 @@ public final class Pair<A, B> {
         this.second = second;
     }
 
-    public static <T, K> Pair<T, K> of(T a, K b) {
-        return new Pair<>(a, b);
-    }
-
     public A getFirst() {
         return first;
     }
@@ -41,7 +37,6 @@ public final class Pair<A, B> {
         return second;
     }
 
-    // Record-style accessors for call sites written against the original record shape
     public A first() {
         return first;
     }

@@ -34,6 +34,8 @@ public class SprintD extends Check implements PostPredictionListener {
 
     @Override
     public void onPredictionComplete(final PredictionComplete predictionComplete) {
+        if (predictionComplete.isTeleport() || predictionComplete.isExempt()) return;
+
         if (player.compensatedEntities.hasPotionEffect(MovementEffect.BLINDNESS) && !startedSprintingBeforeBlind) {
             if (player.isSprinting) {
                 flagWithSetback();

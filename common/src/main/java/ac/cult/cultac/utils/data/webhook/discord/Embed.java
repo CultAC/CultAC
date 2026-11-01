@@ -1,10 +1,8 @@
 package ac.cult.cultac.utils.data.webhook.discord;
 
-import static ac.cult.cultac.utils.data.json.JsonSerializable.deserializeArray;
 import static ac.cult.cultac.utils.data.json.JsonSerializable.serializeArray;
 
 import ac.cult.cultac.utils.data.json.JsonSerializable;
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import java.time.Instant;
 import java.util.Objects;
@@ -36,25 +34,6 @@ public class Embed implements JsonSerializable {
 
     public Embed(@NotNull String description) {
         description(description);
-    }
-
-    public Embed(@NotNull JsonElement jsonElement) {
-        JsonObject json = jsonElement.getAsJsonObject();
-        description(json.get("description").getAsString());
-
-        JsonElement element;
-        if ((element = json.get("title")) != null) title(element.getAsString());
-        if ((element = json.get("url")) != null) titleURL(element.getAsString());
-        if ((element = json.get("timestamp")) != null) timestamp(Instant.parse(element.getAsString()));
-        if ((element = json.get("color")) != null) color(element.getAsInt());
-        if ((element = json.get("footer")) != null) footer(new EmbedFooter(element));
-        if ((element = json.get("image")) != null)
-            imageURL(element.getAsJsonObject().get("url").getAsString());
-        if ((element = json.get("thumbnail")) != null)
-            imageURL(element.getAsJsonObject().get("url").getAsString());
-        if ((element = json.get("author")) != null) author(new EmbedAuthor(element));
-        if ((element = json.get("fields")) != null)
-            fields(deserializeArray(element.getAsJsonArray(), EmbedField[]::new, EmbedField::new));
     }
 
     @Contract(value = "_ -> this", mutates = "this")
@@ -103,7 +82,7 @@ public class Embed implements JsonSerializable {
         EmbedField[] newFields = new EmbedField[fields().length + fields.length];
 
         System.arraycopy(fields(), 0, newFields, 0, fields().length);
-        System.arraycopy(fields, fields().length, newFields, fields().length, fields.length);
+        System.arraycopy(fields, 0, newFields, fields().length, fields.length);
 
         return fields(newFields);
     }

@@ -13,7 +13,7 @@ public abstract class HookedListWrapper<T> extends ListWrapper<T> {
         super(base);
     }
 
-    // We can use the List#size call to execute some code
+    // Runs on every iterator() call.
     public abstract void onIterator();
 
     @Override

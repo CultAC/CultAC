@@ -106,11 +106,6 @@ public interface Sender {
      * @return The platform's native command sender type:
      * <ul>
      * <li>Bukkit/Spigot/Paper/Folia/Pufferfish/etc... {@code org.bukkit.command.CommandSender}</li>
-     * <li>Fabric:
-     *     <ul>
-     *     <li>Yarn: {@code net.minecraft.server.command.ServerCommandSource}</li>
-     *     <li>Mojmap: {@code net.minecraft.commands.CommandSourceStack}</li>
-     *     </ul>
      * <li>Velocity: {@code com.velocitypowered.api.command.CommandSource}</li>
      * <li>BungeeCord: {@code net.md_5.bungee.api.CommandSender}</li>
      * <li>Sponge: {@code org.spongepowered.api.command.CommandCause}</li>
