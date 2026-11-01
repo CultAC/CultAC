@@ -47,10 +47,13 @@ import org.mockito.Mockito;
 class JavaProtocol773PistonTest {
     private static final BlockRegistry BLOCKS = DataTables.defaults().registry();
 
-    /** Protocol 773 assumes the 1.21.10 unscaled shove; scaled and intermediate reports are rejected. */
+    /**
+     * Until a movement proves the patch, protocol 773 keeps 1.21.9's berry-scaled shove beside 1.21.10's unscaled one;
+     * an intermediate report is rejected.
+     */
     @ParameterizedTest
-    @CsvSource({"0.800000011920929, false", "1.0, true", "0.9, false"})
-    void protocol773AcceptsOnlyThe12110BerryShove(double scale, boolean valid) throws Exception {
+    @CsvSource({"0.800000011920929, true", "1.0, true", "0.9, false"})
+    void protocol773AcceptsEitherReleasesBerryShove(double scale, boolean valid) throws Exception {
         try (var f = new JavaTickFixture()) {
             JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_1_21_9);
             Vec3 start = new Vec3(0.7, FLOOR_Y, 0.5);
@@ -78,10 +81,13 @@ class JavaProtocol773PistonTest {
         }
     }
 
-    /** handleMovePlayer adds a relative coordinate to the physical piston position, before the next travel report. */
+    /**
+     * handleMovePlayer adds a relative coordinate to the physical piston position, before the next travel report. Each
+     * release's piston start can be the one the teleport is relative to.
+     */
     @ParameterizedTest
-    @CsvSource({"0.800000011920929, false", "1.0, true", "0.9, false"})
-    void aRelativeTeleportUsesOnlyThe12110PistonStart(double scale, boolean valid) throws Exception {
+    @CsvSource({"0.800000011920929, true", "1.0, true", "0.9, false"})
+    void aRelativeTeleportUsesEitherReleasesPistonStart(double scale, boolean valid) throws Exception {
         try (var f = new JavaTickFixture()) {
             JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_1_21_9);
             Mockito.when(f.fixture.user.getPlayer().getWorld()).thenReturn(Mockito.mock(PlatformWorld.class));
@@ -179,6 +185,49 @@ class JavaProtocol773PistonTest {
                                 .movementPatch());
                 assertFalse(f.player.onGround);
                 assertEquals(FLOOR_Y + 0.49 - 0.51 * 0.75, f.player.y);
+            }
+        }
+    }
+
+    /**
+     * A real 1.21.9 client stands with its head in a cobweb while a piston below the web shoves it east. 1.21.9's
+     * Entity#move scales each PISTON move by the web's 0.25 and consumes the multiplier: 0.31 and 0.51 become 0.0775
+     * and 0.1275. 1.21.10's unscaled first shove, recorded by a Paper 1.21.10 server, is accepted too; the first
+     * report proves the patch, after which the other release's shove is rejected.
+     */
+    @ParameterizedTest
+    @CsvSource({"0.5775000029802322, V_1_21_9", "0.810000011920929, V_1_21_10", "0.65, "})
+    void aWebScaledPistonShoveProvesThePatch(double firstX, JavaMovementPatch proven) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_1_21_9);
+            Vec3 start = new Vec3(0.5, FLOOR_Y, 0.5);
+            f.place(start, new Vec3(0, -0.0784000015258789, 0));
+            f.input(new ServerboundPlayerInput(false, false, false, false, false, false, false));
+            BlockPos base = new BlockPos(-1, FLOOR_Y, 0);
+            int piston = BLOCKS.with(BLOCKS.block("minecraft:piston").defaultState(), "facing", "east");
+            f.player.compensatedWorld.updateBlock(base, piston);
+            f.player.compensatedWorld.updateBlock(
+                    new BlockPos(0, FLOOR_Y + 1, 0), BLOCKS.block("minecraft:cobweb").defaultState());
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            assertTrue(exact(f.tick(start, true)));
+            f.player.compensatedWorld.pistons.handleBlockEvent(base, BLOCKS.blockIndex(piston), 0, 5, 0);
+            assertTrue(exact(f.tick(start, true)));
+
+            // Entity#move(PISTON) leaves onGround false; the next travel has no Y to collide.
+            var first = f.tick(new Vec3(firstX, FLOOR_Y, 0.5), false);
+            assertEquals(proven != null, exact(first), () -> describe(first));
+            if (proven == null) return;
+            assertEquals(proven, f.player.provenMovementPatch);
+            if (proven == JavaMovementPatch.V_1_21_9) {
+                Vec3 second = new Vec3(0.7050000029802321, FLOOR_Y, 0.5);
+                var pushed = f.tick(second, false);
+                assertTrue(exact(pushed), () -> describe(pushed));
+                var landed = f.tick(second, true);
+                assertTrue(exact(landed), () -> describe(landed));
+            } else {
+                // The 1.21.10 client's second shove is unscaled; 1.21.9's is no longer a candidate.
+                var scaled = f.tick(new Vec3(firstX + 0.51 * 0.25, FLOOR_Y, 0.5), false);
+                assertFalse(exact(scaled), () -> describe(scaled));
             }
         }
     }

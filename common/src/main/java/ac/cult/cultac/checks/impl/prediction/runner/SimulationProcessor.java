@@ -383,80 +383,88 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     stateFluidContact(state, true, waterBeforePass),
                     stateFluidContact(state, false, lavaBeforePass),
                     state.playerEyeFluidContact());
-            JavaBlockEntityPass.Result result;
-            try (var ignored = ClientFluidTagOrder.use(this.player, state.fluidTagOrder())) {
-                result = JavaBlockEntityPass.run(
-                        this.player,
-                        context,
-                        pass,
-                        start,
-                        this.player.pose,
-                        sneaking,
-                        context.getStart(),
-                        state.movementPatch());
-            }
-            if (first == null) {
-                first = result;
-                this.recordMoves(actor, result.recorded());
-            }
-            if (vehicle == null) {
-                // Each Entity#move sets the collision flags the next LocalPlayer#aiStep reads; a state the pass did
-                // not move keeps the travel's.
-                var last = result.lastMove();
-                movedSelf |= last != null;
-                DesyncStatus hard = last == null
-                        ? DesyncStatus.UNKNOWN
-                        : ac.cult.cultac.checks.impl.prediction.ClientHorizontalCollision.afterMove(
-                                this.lastPrediction, last.delta(), last.movement());
-                passHard = passHard == null || passHard == hard ? hard : DesyncStatus.UNKNOWN;
-            }
-            JavaPassState end = result.state();
-            Vec3 velocity = end.velocity();
-            if (state.velocity() instanceof PredVector ranged && ranged.getVelocityRange() != null) {
-                // The pass moves every velocity of a carried range: replayed from the range's corners, they bound
-                // where it leaves the rest.
-                var range = ranged.getVelocityRange();
-                var corners = new ArrayList<Vec3>(2);
-                for (Vec3 corner : List.of(
-                        new Vec3(ranged.x + range.minX, ranged.y + range.minY, ranged.z + range.minZ),
-                        new Vec3(ranged.x + range.maxX, ranged.y + range.maxY, ranged.z + range.maxZ))) {
-                    try (var ignored = ClientFluidTagOrder.use(this.player, state.fluidTagOrder())) {
-                        corners.add(JavaBlockEntityPass.run(
-                                        this.player,
-                                        context,
-                                        pass,
-                                        start.withVelocity(corner),
-                                        this.player.pose,
-                                        sneaking,
-                                        context.getStart(),
-                                        state.movementPatch())
-                                .state()
-                                .velocity());
-                    }
+            boolean forks = JavaMovementPatch.forksPistonRule(
+                    this.player.getClientVersion(), this.player.provenMovementPatch, state.movementPatch());
+            for (int fork = 0; fork < (forks ? 2 : 1); fork++) {
+                // 1.21.9's Entity#move scales a PISTON move by stuckSpeedMultiplier; 1.21.10 does not.
+                JavaMovementPatch patch = fork == 0 ? state.movementPatch() : JavaMovementPatch.V_1_21_9;
+                JavaBlockEntityPass.Result result;
+                try (var ignored = ClientFluidTagOrder.use(this.player, state.fluidTagOrder())) {
+                    result = JavaBlockEntityPass.run(
+                            this.player,
+                            context,
+                            pass,
+                            start,
+                            this.player.pose,
+                            sneaking,
+                            context.getStart(),
+                            patch);
                 }
-                velocity = ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVelocityRange.hull(
-                        velocity instanceof PredVector vector ? vector.withVelocityRange(null) : velocity, corners);
+                if (first == null) {
+                    first = result;
+                    this.recordMoves(actor, result.recorded());
+                }
+                if (vehicle == null) {
+                    // Each Entity#move sets the collision flags the next LocalPlayer#aiStep reads; a state the pass did
+                    // not move keeps the travel's.
+                    var last = result.lastMove();
+                    movedSelf |= last != null;
+                    DesyncStatus hard = last == null
+                            ? DesyncStatus.UNKNOWN
+                            : ac.cult.cultac.checks.impl.prediction.ClientHorizontalCollision.afterMove(
+                                    this.lastPrediction, last.delta(), last.movement());
+                    passHard = passHard == null || passHard == hard ? hard : DesyncStatus.UNKNOWN;
+                }
+                JavaPassState end = result.state();
+                Vec3 velocity = end.velocity();
+                if (state.velocity() instanceof PredVector ranged && ranged.getVelocityRange() != null) {
+                    // The pass moves every velocity of a carried range: replayed from the range's corners, they bound
+                    // where it leaves the rest.
+                    var range = ranged.getVelocityRange();
+                    var corners = new ArrayList<Vec3>(2);
+                    for (Vec3 corner : List.of(
+                            new Vec3(ranged.x + range.minX, ranged.y + range.minY, ranged.z + range.minZ),
+                            new Vec3(ranged.x + range.maxX, ranged.y + range.maxY, ranged.z + range.maxZ))) {
+                        try (var ignored = ClientFluidTagOrder.use(this.player, state.fluidTagOrder())) {
+                            corners.add(JavaBlockEntityPass.run(
+                                            this.player,
+                                            context,
+                                            pass,
+                                            start.withVelocity(corner),
+                                            this.player.pose,
+                                            sneaking,
+                                            context.getStart(),
+                                            patch)
+                                    .state()
+                                    .velocity());
+                        }
+                    }
+                    velocity = ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVelocityRange.hull(
+                            velocity instanceof PredVector vector ? vector.withVelocityRange(null) : velocity, corners);
+                }
+                // The pass falls both ends of a carried fall distance range by the same move, or resets both.
+                double fallHigh = end.fallDistance() == 0 && state.fallDistance() != 0
+                        ? 0
+                        : state.fallDistanceMax() + end.fallDistance() - state.fallDistance();
+                var next = new JavaPredictionCarry.State(
+                                velocity,
+                                end.fallDistance(),
+                                end.stuckSpeed(),
+                                patch,
+                                patch == null && state.pistonStart() == null
+                                        ? null
+                                        : new JavaPredictionCarry.PistonStart(
+                                                end.position(), end.onGround(), end.support(), end.pistonDeltas()),
+                                end.powderContact(),
+                                end.playerEyeFluidContact(),
+                                state.fluidTagOrder(),
+                                state.spinRebound())
+                        .withFallDistance(end.fallDistance(), fallHigh)
+                        .withVanillaMath(state.vanillaMath());
+                // The 1.21.9 alternative stays only where its stuck-scaled moves changed the outcome.
+                if (fork == 1 && after.contains(next.withPatch(state.movementPatch()))) continue;
+                if (!after.contains(next)) after.add(next);
             }
-            // The pass falls both ends of a carried fall distance range by the same move, or resets both.
-            double fallHigh = end.fallDistance() == 0 && state.fallDistance() != 0
-                    ? 0
-                    : state.fallDistanceMax() + end.fallDistance() - state.fallDistance();
-            var next = new JavaPredictionCarry.State(
-                            velocity,
-                            end.fallDistance(),
-                            end.stuckSpeed(),
-                            state.movementPatch(),
-                            state.movementPatch() == null && state.pistonStart() == null
-                                    ? null
-                                    : new JavaPredictionCarry.PistonStart(
-                                            end.position(), end.onGround(), end.support(), end.pistonDeltas()),
-                            end.powderContact(),
-                            end.playerEyeFluidContact(),
-                            state.fluidTagOrder(),
-                            state.spinRebound())
-                    .withFallDistance(end.fallDistance(), fallHigh)
-                    .withVanillaMath(state.vanillaMath());
-            if (!after.contains(next)) after.add(next);
         }
         if (movedSelf) this.hardCollisionAfterPass = passHard;
         if (!first.moved() && after.equals(starts)) return;
