@@ -256,32 +256,132 @@ public final class SneakEdgeBackoff {
         return supported;
     }
 
-    /** Player#maybeBackOffFromEdge once its flying, mover, shift and Player#isAboveGround conditions hold. */
+    /**
+     * Player#maybeBackOffFromEdge once its flying, mover, shift and Player#isAboveGround conditions hold. Each loop
+     * steps by 0.05 while canFallAtLeast holds; a run of later steps whose probes all lie in one box that cannot fall
+     * is passed at once, as canFallAtLeast holds for every box inside one where it holds. The result is the loops'.
+     */
     static Vec3 backOff(CultPlayer player, SimpleCollisionBox box, Vec3 delta, float maxDownStep) {
         SimpleCollisionBox probe = new SimpleCollisionBox();
-        double deltaX = delta.x;
-        double deltaZ = delta.z;
+        double deltaX = backOffAxis(player, box, probe, delta.x, true, maxDownStep);
+        double deltaZ = backOffAxis(player, box, probe, delta.z, false, maxDownStep);
+        if (deltaX == 0.0 || deltaZ == 0.0) return new Vec3(deltaX, delta.y, deltaZ);
         double stepX = Math.signum(deltaX) * STEP;
         double stepZ = Math.signum(deltaZ) * STEP;
-        while (deltaX != 0.0 && canFallAtLeast(player, box, probe, deltaX, 0.0, maxDownStep)) {
-            if (Math.abs(deltaX) <= STEP) {
-                deltaX = 0.0;
-                break;
+        long span = 1;
+        boolean grow = true;
+        while (true) {
+            // The diagonal loop probes both axes until either one is within 0.05 of zero, then zeroes it.
+            long steps = Math.min(span - 1, Math.min(stepsAbove(deltaX), stepsAbove(deltaZ)));
+            double lastX = stepped(deltaX, steps), lastZ = stepped(deltaZ, steps);
+            if (canFallAtLeast(
+                    player,
+                    box,
+                    probe,
+                    Math.min(deltaX, lastX),
+                    Math.max(deltaX, lastX),
+                    Math.min(deltaZ, lastZ),
+                    Math.max(deltaZ, lastZ),
+                    maxDownStep)) {
+                deltaX = Math.abs(lastX) <= STEP ? 0.0 : lastX - stepX;
+                deltaZ = Math.abs(lastZ) <= STEP ? 0.0 : lastZ - stepZ;
+                if (deltaX == 0.0 || deltaZ == 0.0) return new Vec3(deltaX, delta.y, deltaZ);
+                if (lastX == deltaX && lastZ == deltaZ) return new Vec3(deltaX, delta.y, deltaZ);
+                grow |= span == 1;
+                span = nextSpan(span, grow);
+            } else if (steps == 0) {
+                return new Vec3(deltaX, delta.y, deltaZ);
+            } else {
+                grow = false;
+                span = (steps + 1) >> 1;
             }
-            deltaX -= stepX;
         }
-        while (deltaZ != 0.0 && canFallAtLeast(player, box, probe, 0.0, deltaZ, maxDownStep)) {
-            if (Math.abs(deltaZ) <= STEP) {
-                deltaZ = 0.0;
-                break;
+    }
+
+    /** One axis loop of {@link #backOff} from {@code delta}, by runs of its steps as there. */
+    private static double backOffAxis(
+            CultPlayer player,
+            SimpleCollisionBox box,
+            SimpleCollisionBox probe,
+            double delta,
+            boolean x,
+            float maxDownStep) {
+        if (delta == 0.0) return delta;
+        double step = Math.signum(delta) * STEP;
+        long span = 1;
+        boolean grow = true;
+        while (true) {
+            long steps = Math.min(span - 1, stepsAbove(delta));
+            double last = stepped(delta, steps);
+            double low = Math.min(delta, last), high = Math.max(delta, last);
+            if (x
+                    ? canFallAtLeast(player, box, probe, low, high, 0.0, 0.0, maxDownStep)
+                    : canFallAtLeast(player, box, probe, 0.0, 0.0, low, high, maxDownStep)) {
+                if (Math.abs(last) <= STEP) return 0.0;
+                double next = last - step;
+                // Past 2^56 a 0.05 step no longer changes the delta, and the client's loop never ends.
+                if (next == delta) return delta;
+                delta = next;
+                grow |= span == 1;
+                span = nextSpan(span, grow);
+            } else if (steps == 0) {
+                return delta;
+            } else {
+                grow = false;
+                span = (steps + 1) >> 1;
             }
-            deltaZ -= stepZ;
         }
-        while (deltaX != 0.0 && deltaZ != 0.0 && canFallAtLeast(player, box, probe, deltaX, deltaZ, maxDownStep)) {
-            deltaX = Math.abs(deltaX) <= STEP ? 0.0 : deltaX - stepX;
-            deltaZ = Math.abs(deltaZ) <= STEP ? 0.0 : deltaZ - stepZ;
+    }
+
+    /**
+     * The next run after one that could fall: twice as long while growing, else half the run known to hold a probe
+     * that cannot. The caller restarts growth after a single probe that could fall.
+     */
+    private static long nextSpan(long span, boolean grow) {
+        return grow ? Math.min(span << 1, 1L << 62) : span >> 1;
+    }
+
+    /** How many of the loop's 0.05 steps {@code delta} takes before it is within 0.05 of zero. */
+    static long stepsAbove(double delta) {
+        double size = Math.abs(delta);
+        long steps = 0;
+        while (size > STEP) {
+            double next = size - STEP;
+            if (next == size) return Long.MAX_VALUE;
+            long run = size >= 1.0 ? runInBinade(size, next, Long.MAX_VALUE) : 1;
+            steps += run;
+            size = run == 1 ? next : size - run * (size - next);
         }
-        return new Vec3(deltaX, delta.y, deltaZ);
+        return steps;
+    }
+
+    /** {@code delta} after {@code steps} of the loop's {@code delta -= signum(delta) * 0.05}, each still above 0.05. */
+    static double stepped(double delta, long steps) {
+        double size = Math.abs(delta);
+        while (steps > 0) {
+            double next = size - STEP;
+            if (next == size) break;
+            long run = size >= 1.0 ? runInBinade(size, next, steps) : 1;
+            size = run == 1 ? next : size - run * (size - next);
+            steps -= run;
+        }
+        return Math.copySign(size, delta);
+    }
+
+    /**
+     * How many of at most {@code limit} steps from {@code size} (at least 1.0) end above the bottom of its binade, at
+     * least one. There a 0.05 subtraction always removes {@code size - next}: its exact result rounds to a multiple of
+     * the same ulp, never from a tie, as 0.05 is an odd multiple of 2^-56. The products and differences below are exact
+     * multiples of that ulp. A step reaching the bottom itself may round on the finer ulp below, so it runs alone.
+     */
+    private static long runInBinade(double size, double next, long limit) {
+        double low = Math.scalb(1.0, Math.getExponent(size));
+        if (next <= low) return 1;
+        double removed = size - next;
+        long run = Math.max(1, Math.min(limit, (long) ((size - low) / removed)));
+        while (run > 1 && size - run * removed <= low) run--;
+        while (run < limit && size - (run + 1) * removed > low) run++;
+        return run;
     }
 
     /** Player#canFallAtLeast: the pre-1.21.5 slab uses full X/Z and a float 1e-5 Y margin. */
@@ -292,16 +392,29 @@ public final class SneakEdgeBackoff {
             double deltaX,
             double deltaZ,
             double minHeight) {
+        return canFallAtLeast(player, box, probe, deltaX, deltaX, deltaZ, deltaZ, minHeight);
+    }
+
+    /** {@link #canFallAtLeast} for every box between the offsets, the union of their slabs. */
+    private static boolean canFallAtLeast(
+            CultPlayer player,
+            SimpleCollisionBox box,
+            SimpleCollisionBox probe,
+            double lowX,
+            double highX,
+            double lowZ,
+            double highZ,
+            double minHeight) {
         boolean modern = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5);
         double horizontalMargin = modern ? 1.0E-7 : 0.0;
         double verticalMargin = modern ? 1.0E-7 : (double) 1.0E-5F;
         probe.set(
-                box.minX + horizontalMargin + deltaX,
+                box.minX + horizontalMargin + lowX,
                 box.minY - minHeight - verticalMargin,
-                box.minZ + horizontalMargin + deltaZ,
-                box.maxX - horizontalMargin + deltaX,
+                box.minZ + horizontalMargin + lowZ,
+                box.maxX - horizontalMargin + highX,
                 box.minY,
-                box.maxZ - horizontalMargin + deltaZ);
+                box.maxZ - horizontalMargin + highZ);
         // CollisionGetter#noCollision counts the entity shapes EntityGetter#getEntityCollisions gives the player.
         return Collisions.isEmpty(player, probe, box.minY)
                 && !UnknownCollisionProvider.hasEntityCollision(player, Collisions.feet(box), probe);
