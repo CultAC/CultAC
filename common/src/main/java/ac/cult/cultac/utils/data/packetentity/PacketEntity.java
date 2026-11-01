@@ -2046,6 +2046,26 @@ public class PacketEntity {
                 possibleMovementCollisionBoxCandidateCount() - 1, new SimpleCollisionBox());
     }
 
+    /**
+     * {@link #getClientMovementCollisionBox()} before entity-specific geometry, such as a shulker's peek, moves its
+     * centre or feet: where Entity#position() is.
+     */
+    public SimpleCollisionBox getClientPositionBox() {
+        return getClientMovementCollisionBox();
+    }
+
+    /**
+     * The bounds of {@link #getPositionCollisionBoxCandidates()}, the places Entity#position() may hold, which
+     * Entity#positionRider seats this entity's passengers from. {@code scratch} must be distinct from {@code out}.
+     */
+    public SimpleCollisionBox getPossiblePositionBoxes(SimpleCollisionBox out, SimpleCollisionBox scratch) {
+        return getPossibleMovementCollisionBoxes(out, scratch);
+    }
+
+    public SimpleCollisionBox getPossiblePositionBoxes() {
+        return getPossiblePositionBoxes(new SimpleCollisionBox(), new SimpleCollisionBox());
+    }
+
     public long getClientTickOrder() {
         return clientTickOrder;
     }

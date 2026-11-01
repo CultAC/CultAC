@@ -13,6 +13,7 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityCamel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityInteraction;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityPolarBear;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.data.packetentity.PacketEntitySizeable;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityTrackXRot;
@@ -89,7 +90,7 @@ public class BoundingBoxSize {
     }
 
     public static Vec3 getRidingOffsetFromVehicle(PacketEntity entity, PacketEntity passenger, CultPlayer player) {
-        SimpleCollisionBox box = entity.getPossibleMovementCollisionBoxes();
+        SimpleCollisionBox box = entity.getPossiblePositionBoxes();
         return getRidingOffsetFromVehicle(entity, passenger, player, box);
     }
 
@@ -152,6 +153,7 @@ public class BoundingBoxSize {
             var points = type.passengers();
             var point = points.get(Math.clamp(passengerIndex, 0, points.size() - 1));
             double px = point.x(), py = point.y(), pz = point.z();
+            if (entity instanceof PacketEntityShulker shulker) py *= shulker.passengerHeightScale();
             float dimensions = defaultDimensionsScale(entity, player.getClientVersion(), player.isBedrockMovement());
             if (!type.fixed() && dimensions != 1.0F) {
                 px *= dimensions;

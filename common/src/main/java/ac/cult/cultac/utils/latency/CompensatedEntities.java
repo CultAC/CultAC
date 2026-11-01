@@ -531,7 +531,7 @@ public class CompensatedEntities {
             }
             // Its interpolation steps in its own commonTick/aiStep, which needs it in tickingEntities as well.
             if (!ticksInClientTick(rider)) continue;
-            SimpleCollisionBox seat = untrackedRiderSeat(rider, 0, root.getClientMovementCollisionBox());
+            SimpleCollisionBox seat = untrackedRiderSeat(rider, 0, root.getClientPositionBox());
             if (seat != null) rider.finishRiderInterpolation(player, seat);
             if (!rider.hasRiderInterpolation()) iterator.remove();
         }
@@ -654,7 +654,7 @@ public class CompensatedEntities {
         } else if (rootBox != null) {
             out.set(rootBox);
         } else {
-            vehicle.getPossibleMovementCollisionBoxes(out, point);
+            vehicle.getPossiblePositionBoxes(out, point);
         }
         BoundingBoxSize.ridingPosition(
                 vehicle, rider, player, out, vehicle.passengers.indexOf(rider), vehicle.passengers.size(), point);
@@ -1155,7 +1155,7 @@ public class CompensatedEntities {
 
     /** Discrete compensated positions, including the local player's intermediate vehicles; never a union-box center. */
     public List<SimpleCollisionBox> ridingPositionCandidates(PacketEntity entity) {
-        if (entity.getRiding() == null || entity.isBoat()) return entity.getPossibleMovementCollisionBoxCandidates();
+        if (entity.getRiding() == null || entity.isBoat()) return entity.getPositionCollisionBoxCandidates();
         List<SimpleCollisionBox> boxes = new ArrayList<>();
         PacketEntity vehicle = entity.getRiding();
         for (SimpleCollisionBox parent : ridingPositionCandidates(vehicle)) {
@@ -1233,7 +1233,7 @@ public class CompensatedEntities {
 
     private void seatPassenger(PacketEntity riding, PacketEntity passenger) {
         Vec3 passengerPosition = BoundingBoxSize.getRidingOffsetFromVehicle(
-                riding, passenger, player, riding.getPossibleMovementCollisionBoxes(seatVehicleBox, seatVehicleScratch));
+                riding, passenger, player, riding.getPossiblePositionBoxes(seatVehicleBox, seatVehicleScratch));
         passenger.inheritPositionCertainty(riding);
         passenger.setPassengerPosition(
                 player,

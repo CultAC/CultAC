@@ -4,6 +4,7 @@ import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static ac.cult.cultac.network.JavaTickFixture.assertRejected;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
@@ -18,9 +19,11 @@ import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.VanillaMath;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import java.nio.ByteBuffer;
 import java.util.List;
@@ -235,6 +238,46 @@ class JavaShulkerEntityTest {
             PredictionResult idle =
                     f.player.checkManager.getSimulationProcessor().getLastPrediction();
             assertTrue(exact(idle), "after the shove: " + describe(idle));
+        }
+    }
+
+    /**
+     * LivingEntity#getPassengerRidingPosition seats a passenger from Entity#position(), not the shell
+     * Shulker#makeBoundingBox opens, at the attachment of getDimensions: Shulker#getDefaultDimensions scales a floor
+     * shulker's height by 1 + currentPeekAmount while it is open. A player sits Avatar#DEFAULT_VEHICLE_ATTACHMENT
+     * lower.
+     */
+    @ParameterizedTest
+    @EnumSource(
+            value = Direction.class,
+            names = {"DOWN", "UP", "WEST", "NORTH"})
+    void anOpenShulkerSeatsItsPassengerOnItsPosition(Direction face) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            var entities = f.player.compensatedEntities;
+            entities.addEntity(SHULKER, EntityTypeIds.SHULKER, SHULKER_AT, 0, 0, 0);
+            Vec3 aside = new Vec3(5.5, FLOOR_Y, 0.5);
+            f.place(aside, new Vec3(0.0, GROUNDED_Y, 0.0));
+            f.input(NONE);
+            f.pongThrough(attachFace(f, face));
+            f.pongThrough(peek(f, (byte) 100));
+            for (int tick = 0; tick < 21; tick++) f.tick(aside, true);
+            PacketEntity shulker = entities.getEntity(SHULKER);
+            SimpleCollisionBox shell = shulker.getPossibleMovementCollisionBoxes();
+            // The shell has opened a whole block towards the face opposite its attachment.
+            assertEquals(4.0, shell.maxX - shell.minX + shell.maxY - shell.minY + shell.maxZ - shell.minZ, 1e-6);
+
+            double height = face == Direction.DOWN ? 2.0 : 1.0;
+            Vec3 seat = new Vec3(SHULKER_AT.x, FLOOR_Y + height - 0.6, SHULKER_AT.z);
+            Vec3 riding = BoundingBoxSize.getRidingOffsetFromVehicle(shulker, entities.getSelf(), f.player);
+            assertEquals(seat.x, riding.x, 1e-9, face + " x");
+            assertEquals(seat.y, riding.y, 1e-6, face + " y");
+            assertEquals(seat.z, riding.z, 1e-9, face + " z");
+            // The local player's ride-tick seat and reach origins read the same position candidates.
+            for (SimpleCollisionBox box : entities.ridingPositionCandidates(shulker)) {
+                Vec3 candidate = BoundingBoxSize.getRidingOffsetFromVehicle(shulker, entities.getSelf(), f.player, box);
+                assertEquals(seat.x, candidate.x, 1e-9, face + " candidate x");
+                assertEquals(seat.z, candidate.z, 1e-9, face + " candidate z");
+            }
         }
     }
 

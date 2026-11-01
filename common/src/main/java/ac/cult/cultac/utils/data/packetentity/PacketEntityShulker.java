@@ -330,6 +330,29 @@ public class PacketEntityShulker extends PacketEntity {
     }
 
     @Override
+    public SimpleCollisionBox getPossiblePositionBoxes(SimpleCollisionBox out, SimpleCollisionBox scratch) {
+        return super.getPossibleMovementCollisionBoxes(out, scratch);
+    }
+
+    @Override
+    public SimpleCollisionBox getClientPositionBox() {
+        SimpleCollisionBox exact = super.getExactMovementCollisionBox();
+        if (exact != null) return exact;
+        return positionCollisionBoxCandidate(
+                possibleMovementCollisionBoxCandidateCount() - 1, new SimpleCollisionBox());
+    }
+
+    /**
+     * Shulker#getDefaultDimensions scales a floor shulker's height, and so its passenger attachment, by
+     * 1 + currentPeekAmount while it is open; LivingEntity#getPassengerRidingPosition reads those dimensions afresh.
+     */
+    public float passengerHeightScale() {
+        if (!modelled() || facing != Direction.DOWN) return 1.0F;
+        float peek = peekRead();
+        return peek > 0.0F ? 1.0F + peek : 1.0F;
+    }
+
+    @Override
     public SimpleCollisionBox getExactMovementCollisionBox() {
         SimpleCollisionBox position = super.getExactMovementCollisionBox();
         return position == null || !modelled() ? position : shape(position.copy(), peekRead());

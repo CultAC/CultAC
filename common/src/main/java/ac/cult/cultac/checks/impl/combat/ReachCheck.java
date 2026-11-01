@@ -278,7 +278,8 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
 
     private List<Vec3> getMountedPacketDerivedOrigins(PacketEntity self, PacketEntity riding) {
         List<Vec3> candidates = new ArrayList<>();
-        for (SimpleCollisionBox vehicleBox : riding.getPossibleMovementCollisionBoxCandidates()) {
+        // Entity#positionRider seats from the vehicle's position, not a shell a shulker's peek opened.
+        for (SimpleCollisionBox vehicleBox : riding.getPositionCollisionBoxCandidates()) {
             candidates.add(BoundingBoxSize.getRidingOffsetFromVehicle(riding, self, player, vehicleBox));
         }
         if (candidates.isEmpty()) {
