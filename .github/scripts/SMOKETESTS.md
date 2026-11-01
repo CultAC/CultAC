@@ -11,7 +11,9 @@ fixtures or secrets. A PR build pass is not a private smoketest pass.
   image and wrapper compile the PR merge revision inside an isolated container.
   No private repositories, repository secrets, runner home, shared Gradle cache,
   workflow command files, Docker socket, or artifacts are mounted or uploaded.
-  Outbound network is permitted in the PR compiler solely for Gradle dependencies.
+  Dependencies are warmed from trusted base Gradle scripts, then copied into the
+  disposable build home. The untrusted PR builder runs --offline and --network=none.
+  PRs adding new dependencies fail closed until the trusted base resolves them.
 - Private fixtures are available only to the separate trusted-branch job.
   Secret-backed checkouts run before sandbox execution; trusted branch code can
   safely prepare its Gradle dependencies on the host.

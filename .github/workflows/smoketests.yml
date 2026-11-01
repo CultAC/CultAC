@@ -37,6 +37,18 @@ jobs:
           path: cultac
           persist-credentials: false
 
+      - name: Set up JDK 25 for trusted dependency preparation
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Warm public dependencies from trusted base (not PR code)
+        working-directory: ci
+        run: |
+          ./gradlew :bukkit:devShadowJar :bukkit:shadowJar \
+            --no-daemon --console=plain --max-workers=2
+
       - name: Build trusted sandbox image
         run: docker build -t cultac-smoketest ci/.github/scripts/smoketest-container
 

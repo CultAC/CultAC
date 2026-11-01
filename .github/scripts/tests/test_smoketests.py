@@ -32,15 +32,18 @@ class SmoketestTests(unittest.TestCase):
         logs.mkdir(parents=True)
         secret = self.root / 'host-secret'
         secret.write_text('must not be copied')
-        (logs / 'latest.log').write_text('evidence')
+        (logs / 'latest.log').write_text('private logs must not be copied')
+        (sandbox / 'workspace/artifacts').mkdir(parents=True)
+        (sandbox / 'workspace/artifacts/suite.json').write_text('evidence')
         (logs / 'secret.log').symlink_to(secret)
         (logs / 'host-dir').symlink_to(self.root, target_is_directory=True)
         os.mkfifo(logs / 'pipe')
-        (sandbox / 'workspace/artifacts').symlink_to(self.root, target_is_directory=True)
+        (sandbox / 'workspace/artifacts/private.txt').write_text('private')
+        (sandbox / 'workspace/artifacts/symlink.txt').symlink_to(secret)
         destination = self.root / 'evidence'
         collector.collect(sandbox, destination, 'bedrock')
         files = [p.relative_to(destination).as_posix() for p in destination.rglob('*') if p.is_file()]
-        self.assertEqual(files, ['logs/latest.log'])
+        self.assertEqual(files, ['artifacts/suite.json'])
         self.assertEqual((destination / files[0]).read_text(), 'evidence')
 
     def test_artifacts_reject_linked_ancestors(self):
@@ -172,6 +175,7 @@ pathlib.Path('replay-args.json').write_text(json.dumps(sys.argv[1:]))
         pr_steps = jobs['pr-build']['steps']
         self.assertFalse(any('secrets.' in str(s) or 'actions/cache' in str(s) for s in pr_steps))
         self.assertFalse(any('upload-artifact' in str(s) for s in pr_steps))
+        self.assertTrue(any(s.get('working-directory') == 'ci' and 'gradlew' in str(s.get('run', '')) for s in pr_steps))
         for step in pr_steps:
             if step.get('uses', '').startswith('actions/checkout@'):
                 self.assertFalse(step['with']['persist-credentials'])
@@ -193,12 +197,13 @@ pathlib.Path('replay-args.json').write_text(json.dumps(sys.argv[1:]))
         sandbox = self.root / 'sandbox'
         logs = sandbox / 'workspace/server/logs'
         logs.mkdir(parents=True)
-        (logs / 'small.log').write_text('ok')
-        (logs / 'huge.log').write_bytes(b'x' * (collector.MAX_FILE_BYTES + 1))
+        (sandbox / 'workspace/artifacts').mkdir(parents=True)
+        (sandbox / 'workspace/artifacts/suite.json').write_text('ok')
+        (sandbox / 'workspace/artifacts/junit.xml').write_bytes(b'x' * (collector.MAX_FILE_BYTES + 1))
         destination = self.root / 'evidence'
         collector.collect(sandbox, destination, 'bedrock')
-        self.assertEqual((destination / 'logs/small.log').read_text(), 'ok')
-        self.assertFalse((destination / 'logs/huge.log').exists())
+        self.assertEqual((destination / 'artifacts/suite.json').read_text(), 'ok')
+        self.assertFalse((destination / 'artifacts/junit.xml').exists())
 
     def test_pr_wrapper_has_no_private_inputs(self):
         content = (SCRIPTS / 'run-untrusted-pr-build.sh').read_text()
@@ -206,6 +211,8 @@ pathlib.Path('replay-args.json').write_text(json.dumps(sys.argv[1:]))
         self.assertNotIn('mcp-client-smoketest', content)
         self.assertNotIn('replay/.', content)
         self.assertNotIn('--env-file', content)
+        self.assertIn('--network=none', content)
+        self.assertIn('--offline', content)
         self.assertNotIn('ACTIONS_RUNTIME_TOKEN', content)
         self.assertNotIn('docker.sock', content.replace('Docker socket', ''))
 

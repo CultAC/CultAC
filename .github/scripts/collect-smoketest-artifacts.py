@@ -13,7 +13,14 @@ MAX_TOTAL_BYTES = 256 * 1024 * 1024
 def collect(sandbox: Path, destination: Path, suite: str) -> None:
     roots = {
         'java': ['mcp-client-smoketest/.real-validation/runs'],
-        'bedrock': ['artifacts', 'server/logs'],
+        'bedrock': ['artifacts'],
+    }[suite]
+    # Public Actions artifacts must not contain raw captures, private source or
+    # full Minecraft logs. Keep only bounded status/qualification summaries.
+    allowed = {
+        'java': {'section-times.tsv'},
+        'bedrock': {'suite.json', 'junit.xml', 'replay-revision.txt',
+                    'scenarios-revision.txt', 'cult-revision.txt'},
     }[suite]
     workspace = sandbox / 'workspace'
     destination.mkdir(parents=True, exist_ok=True)
@@ -25,6 +32,8 @@ def collect(sandbox: Path, destination: Path, suite: str) -> None:
         for directory, subdirs, filenames in os.walk(source, followlinks=False):
             subdirs[:] = sorted(name for name in subdirs if not (Path(directory) / name).is_symlink())
             for filename in sorted(filenames):
+                if filename not in allowed:
+                    continue
                 path = Path(directory) / filename
                 metadata = path.lstat()
                 if not stat.S_ISREG(metadata.st_mode):
