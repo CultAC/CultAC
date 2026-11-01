@@ -37,8 +37,9 @@ public class TimerCheck extends AbstractTimerCheck {
 
     @CultPacketHandler("serverbound.client_tick_end")
     public void onClientTickEnd(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
-        recordModernClientTickEndPacket();
         recordTimerEvent(event, false, shouldCountClientTickEndForTimer());
+        // A rejected tick end closes no client tick, so the moves after it still count toward the current one.
+        if (!event.isCancelled()) recordModernClientTickEndPacket();
     }
 
     @CultPacketHandler

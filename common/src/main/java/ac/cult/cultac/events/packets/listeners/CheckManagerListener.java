@@ -1324,6 +1324,11 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         // The Geyser bridge ends each Bedrock client tick after translating its frame. Geyser's
         // tick end here only closes that frame's Java projection.
         if (player.user.getBedrockBridgeConnection() == null) {
+            // The timer checks decide first. A tick end they reject never reaches the server and is no client
+            // tick: it neither starts nor closes one, nor runs the tick-end simulation. The next accepted tick
+            // end closes the tick. The watchdog's synthetic tick end is a recovery boundary and always closes.
+            dispatchPrePredictionReceive(event, player);
+            if (event.isCancelled() && !event.isSynthetic()) return;
             // LivingEntity#baseTick runs LocalPlayer#tickDeath first. Its removal skips this tick's aiStep, while
             // the rest of Player#tick, attack ticker included, still runs.
             boolean playerTicked = startLocalPlayerTick(player);
@@ -1331,7 +1336,6 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             if (localPlayerTicked(player)) applyRespawnShift(player);
             onLocalPlayerSprintTick(player);
             if (playerTicked) onLocalPlayerAttackTick(player);
-            dispatchPrePredictionReceive(event, player);
             dispatchReceiveHandlers(event, player);
             // FlightToggle reads this tick's ClientSprintState#flagBeforeAiStep, which onClientTickEnd releases.
             if (localPlayerTicked(player)) FlightToggle.onClientTick(player);
