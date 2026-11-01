@@ -1,0 +1,187 @@
+"""Local orchestration/security checks; no Minecraft downloads or Docker needed."""
+import importlib.util
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import unittest
+
+SCRIPTS = Path(__file__).resolve().parents[1]
+ROOT = SCRIPTS.parents[1]
+spec = importlib.util.spec_from_file_location('collector', SCRIPTS / 'collect-smoketest-artifacts.py')
+collector = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(collector)
+
+
+class SmoketestTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+    def executable(self, path, source):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(source)
+        path.chmod(0o755)
+
+    def test_artifacts_cannot_follow_links_into_host_or_private_fixtures(self):
+        sandbox = self.root / 'sandbox'
+        logs = sandbox / 'workspace/server/logs'
+        logs.mkdir(parents=True)
+        secret = self.root / 'host-secret'
+        secret.write_text('must not be copied')
+        (logs / 'latest.log').write_text('evidence')
+        (logs / 'secret.log').symlink_to(secret)
+        (logs / 'host-dir').symlink_to(self.root, target_is_directory=True)
+        os.mkfifo(logs / 'pipe')
+        (sandbox / 'workspace/artifacts').symlink_to(self.root, target_is_directory=True)
+        destination = self.root / 'evidence'
+        collector.collect(sandbox, destination, 'bedrock')
+        files = [p.relative_to(destination).as_posix() for p in destination.rglob('*') if p.is_file()]
+        self.assertEqual(files, ['logs/latest.log'])
+        self.assertEqual((destination / files[0]).read_text(), 'evidence')
+
+    def test_artifacts_reject_linked_ancestors(self):
+        sandbox = self.root / 'sandbox'
+        (sandbox / 'workspace').mkdir(parents=True)
+        (self.root / 'host/logs').mkdir(parents=True)
+        (self.root / 'host/logs/private.log').write_text('secret')
+        (sandbox / 'workspace/server').symlink_to(self.root / 'host', target_is_directory=True)
+        collector.collect(sandbox, self.root / 'evidence', 'bedrock')
+        self.assertEqual(list((self.root / 'evidence').rglob('*')), [])
+
+    def test_sandbox_uses_copies_and_never_forwards_credentials(self):
+        workspace, home, runner = [self.root / name for name in ('workspace', 'home', 'runner')]
+        runner.mkdir()
+        (workspace / 'ci/.github').mkdir(parents=True)
+        shutil.copytree(SCRIPTS, workspace / 'ci/.github/scripts')
+        (workspace / 'ci/scripts/smoketests').mkdir(parents=True)
+        (workspace / 'ci/scripts/smoketests/bedrock-replay-runtime.json').write_text('{}')
+        for name in ('cultac', 'mcp-client-smoketest'):
+            (workspace / name).mkdir()
+            (workspace / name / 'input').write_text('trusted original')
+        (home / '.gradle/caches').mkdir(parents=True)
+        (home / '.gradle/caches/input').write_text('trusted cache')
+        args_file, output = self.root / 'docker-args.json', self.root / 'outputs'
+        fake_bin = self.root / 'bin'
+        self.executable(fake_bin / 'docker', '''#!/usr/bin/env python3
+import json, pathlib, sys
+args = sys.argv[1:]
+pathlib.Path('docker-args.json').write_text(json.dumps(args))
+for index, arg in enumerate(args):
+    if arg == '--mount':
+        mount = dict(part.split('=', 1) for part in args[index + 1].split(','))
+        source = pathlib.Path(mount['src'])
+        target = source / ('.gradle/caches/input' if source.name == 'home' else 'cultac/input')
+        target.write_text('malicious mutation in disposable copy')
+print('::set-env name=EVIL::malicious output')
+''')
+        env = dict(os.environ, PATH=f'{fake_bin}:{os.environ["PATH"]}', HOME=str(home),
+                   GITHUB_WORKSPACE=str(workspace), RUNNER_TEMP=str(runner), GITHUB_OUTPUT=str(output),
+                   SMOKETEST_REPO_TOKEN='synthetic-secret', ACTIONS_RUNTIME_TOKEN='synthetic-runtime-token')
+        result = subprocess.run(['bash', str(SCRIPTS / 'run-smoketest-container.sh'), 'java'],
+                                env=env, cwd=self.root, capture_output=True, text=True, check=True)
+        args = json.loads(args_file.read_text())
+        mounts = [args[i + 1] for i, value in enumerate(args) if value == '--mount']
+        sandbox = Path(output.read_text().strip().removeprefix('path='))
+        self.assertEqual(len(mounts), 2)
+        self.assertTrue(all(f'src={sandbox}/' in mount for mount in mounts))
+        self.assertEqual((home / '.gradle/caches/input').read_text(), 'trusted cache')
+        self.assertEqual((workspace / 'cultac/input').read_text(), 'trusted original')
+        self.assertNotEqual((sandbox / 'home/.gradle/caches/input').stat().st_ino,
+                            (home / '.gradle/caches/input').stat().st_ino)
+        for forbidden in ('synthetic-secret', 'synthetic-runtime-token', 'docker.sock', '--privileged',
+                          '--env-file', '--network=host', 'GITHUB_TOKEN', 'ACTIONS_RUNTIME_TOKEN'):
+            self.assertNotIn(forbidden, '\n'.join(args))
+        self.assertIn('--read-only', args)
+        self.assertIn('--cap-drop=ALL', args)
+        self.assertIn('--security-opt=no-new-privileges:true', args)
+        lines = result.stdout.splitlines()
+        marker = lines[0].removeprefix('::stop-commands::')
+        self.assertEqual(len(marker), 64)
+        self.assertEqual(lines[-1], f'::{marker}::')
+
+    def test_only_reach_and_dedup_run_and_failure_does_not_skip_reach(self):
+        (self.root / 'cultac').mkdir()
+        (self.root / 'mcp-client-smoketest').mkdir()
+        self.executable(self.root / 'cultac/gradlew', '''#!/usr/bin/env bash
+mkdir -p cultac/build/libs
+touch cultac/build/libs/CultAC-dev.jar
+''')
+        self.executable(self.root / 'mcp-client-smoketest/gradlew', '#!/usr/bin/env bash\nexit 0\n')
+        fake_bin = self.root / 'bin'
+        self.executable(fake_bin / 'xvfb-run', '#!/usr/bin/env bash\nshift 3\nexec "$@"\n')
+        self.executable(fake_bin / 'java', '''#!/usr/bin/env python3
+import pathlib, sys
+name = next(arg for arg in sys.argv if arg.startswith('ac.grim.'))
+with pathlib.Path('sections.txt').open('a') as stream:
+    stream.write(name + '\\n')
+sys.exit(3 if 'Deduplication' in name else 0)
+''')
+        env = dict(os.environ, PATH=f'{fake_bin}:{os.environ["PATH"]}')
+        result = subprocess.run(['bash', str(SCRIPTS / 'run-selected-smoketests.sh'), 'java'],
+                                env=env, cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual((self.root / 'mcp-client-smoketest/sections.txt').read_text().splitlines(), [
+            'ac.grim.movementvalidation.DeduplicationVerificationMain',
+            'ac.grim.movementvalidation.RealServerCombatReachValidationMain',
+        ])
+        rows = (self.root / 'mcp-client-smoketest/.real-validation/runs/github-ci/section-times.tsv').read_text().splitlines()
+        self.assertTrue(rows[1].endswith('\t3'))
+        self.assertTrue(rows[2].endswith('\t0'))
+
+    def test_bedrock_preserves_the_replay_suite_and_trusted_runtime_lock(self):
+        (self.root / 'cultac').mkdir()
+        self.executable(self.root / 'cultac/gradlew', '''#!/usr/bin/env bash
+mkdir -p cultac/bukkit/build/libs
+touch cultac/bukkit/build/libs/CultAC-paper.jar
+''')
+        self.executable(self.root / 'replay/scripts/run-movement-regressions.py', '''#!/usr/bin/env python3
+import json, pathlib, sys
+pathlib.Path('replay-args.json').write_text(json.dumps(sys.argv[1:]))
+''')
+        fake_bin = self.root / 'bin'
+        self.executable(fake_bin / 'git', '#!/usr/bin/env bash\nprintf "%040d\\n" 1\n')
+        env = dict(os.environ, PATH=f'{fake_bin}:{os.environ["PATH"]}')
+        subprocess.run(['bash', str(SCRIPTS / 'run-selected-smoketests.sh'), 'bedrock'],
+                       env=env, cwd=self.root, capture_output=True, text=True, check=True)
+        args = json.loads((self.root / 'replay-args.json').read_text())
+        self.assertEqual(args, [
+            '--scenarios', 'scenarios/scenarios',
+            '--cultac-jar', 'cultac/bukkit/build/libs/CultAC-paper.jar',
+            '--server-dir', 'server', '--artifacts', 'artifacts', '--seed', '42',
+            '--replay-runtime-lock', 'ci/scripts/smoketests/bedrock-replay-runtime.json',
+        ])
+
+    def test_workflow_trust_order_and_branch_filters(self):
+        # PyYAML is optional locally; the adversarial tests above need only stdlib.
+        import yaml
+        workflow = yaml.safe_load((ROOT / '.github/workflows/smoketests.yml').read_text())
+        events = workflow.get('on', workflow.get(True))
+        for event in ('push', 'pull_request_target'):
+            self.assertEqual(events[event]['branches'], ['main', 'experimental', 'dev'])
+        self.assertNotIn('pull_request', events)
+        self.assertEqual(workflow['permissions'], {'contents': 'read'})
+        job = workflow['jobs']['smoketest']
+        self.assertEqual(job['strategy']['matrix']['suite'], ['java', 'bedrock'])
+        steps = job['steps']
+        save = next(i for i, step in enumerate(steps) if step.get('uses', '').startswith('actions/cache/save@'))
+        checkout = next(i for i, step in enumerate(steps) if step.get('with', {}).get('path') == 'cultac')
+        execute = next(i for i, step in enumerate(steps) if step.get('id') == 'sandbox')
+        self.assertLess(save, checkout)
+        self.assertLess(checkout, execute)
+        self.assertIn("github.event_name != 'pull_request_target'", steps[save]['if'])
+        self.assertIn('refs/pull/{0}/merge', steps[checkout]['with']['ref'])
+        self.assertIn("github.event_name == 'pull_request_target'", steps[checkout]['with']['ref'])
+        self.assertTrue(steps[checkout]['with']['allow-unsafe-pr-checkout'])
+        for step in steps:
+            self.assertNotEqual(step.get('uses', ''), 'actions/cache@v4')
+            self.assertNotIn('gradle/actions/setup-gradle', step.get('uses', ''))
+            if step.get('uses', '').startswith('actions/checkout@'):
+                self.assertFalse(step['with']['persist-credentials'])
+
+
+if __name__ == '__main__':
+    unittest.main()
