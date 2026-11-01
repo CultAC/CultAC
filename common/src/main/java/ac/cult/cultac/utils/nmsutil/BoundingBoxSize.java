@@ -347,7 +347,8 @@ public class BoundingBoxSize {
         return getHeight(packetEntity, ClientVersion.V_26_2);
     }
 
-    private static float getHeightMinusBaby(PacketEntity packetEntity, ClientVersion version, boolean bedrock) {
+    private static float getHeightMinusBaby(
+            PacketEntity packetEntity, ClientVersion version, boolean bedrock, int standAnimation) {
         if (packetEntity instanceof PacketEntityInteraction interaction) return interaction.actionHeight;
         if (packetEntity instanceof PacketEntitySizeable sizeable) {
             int size = size(sizeable, bedrock);
@@ -370,8 +371,8 @@ public class BoundingBoxSize {
         float exactHeight = baseDimensions(packetEntity).height();
         if (packetEntity instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityPufferfish fish)
             exactHeight *= fish.puffScale();
-        if (!bedrock && packetEntity instanceof PacketEntityPolarBear bear && bear.standAnimation() > 0)
-            return exactHeight * (1.0F + bear.standAnimation() / 6.0F);
+        if (!bedrock && packetEntity instanceof PacketEntityPolarBear && standAnimation > 0)
+            return exactHeight * (1.0F + standAnimation / 6.0F);
         return Float.isNaN(exactHeight) ? 1.95f : exactHeight;
     }
 
@@ -386,8 +387,19 @@ public class BoundingBoxSize {
         return poseFreeHeight(entity, version, bedrock);
     }
 
+    /** The polar bear's height while PolarBear#getDefaultDimensions sizes it at {@code standAnimation}. */
+    public static float getPolarBearHeight(CultPlayer player, PacketEntityPolarBear bear, int standAnimation) {
+        return poseFreeHeight(bear, player.getClientVersion(), player.isBedrockMovement(), standAnimation);
+    }
+
     private static float poseFreeHeight(PacketEntity entity, ClientVersion version, boolean bedrock) {
-        float height = getHeightMinusBaby(entity, version, bedrock);
+        return poseFreeHeight(
+                entity, version, bedrock, entity instanceof PacketEntityPolarBear bear ? bear.standAnimation() : 0);
+    }
+
+    private static float poseFreeHeight(
+            PacketEntity entity, ClientVersion version, boolean bedrock, int standAnimation) {
+        float height = getHeightMinusBaby(entity, version, bedrock, standAnimation);
         if (entity.isBaby) {
             Float independent = independentBabyHeight(entity, version);
             height = independent == null ? height * getBabyScale(entity, version) : independent;
@@ -398,7 +410,7 @@ public class BoundingBoxSize {
     /** Whether the entity's height is negative, which {@code AABB} spans below its position. */
     public static boolean spansBelowPosition(CultPlayer player, PacketEntity entity) {
         return (entity instanceof PacketEntityInteraction || entity instanceof PacketEntitySizeable)
-                && getHeightMinusBaby(entity, player.getClientVersion(), player.isBedrockMovement()) < 0;
+                && getHeightMinusBaby(entity, player.getClientVersion(), player.isBedrockMovement(), 0) < 0;
     }
 
     /** From 1.20.5 AbstractCubeMob#getDefaultDimensions scales the type's 0.52 by the size. */

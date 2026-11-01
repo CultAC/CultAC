@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ac.cult.blocksim.data.BlockRegistry;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaLivingEntityPushes;
@@ -20,9 +21,11 @@ import ac.cult.cultac.events.packets.PacketChangeGameState;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.packet.WorldPackets;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityEvent;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityPositionSync;
@@ -197,6 +200,39 @@ class JavaEntityPushTest {
         PacketEntity zombie = entity(f, 100, TOUCHING);
         if (order != Long.MAX_VALUE) zombie.setClientTickOrder(order);
         gameMode(f, 0);
+    }
+
+    /**
+     * PolarBear#tick refreshes the dimensions after super.tick(), whose LivingEntity#pushEntities meets the box of the
+     * last refresh. 1.75 below the player's feet, a standing bear's box reaches them once 1.8667 tall: refreshed in its
+     * third tick of standing, it first pushes in the fourth, which moves the player's fifth travel. Through 26.2 the
+     * late push follows the report, after the entity tick that refreshed the box.
+     */
+    @Test
+    void aStandingPolarBearPushesFromTheBoxBeforeItsTicksRefresh() throws Exception {
+        try (var f = new JavaTickFixture(ProtocolVersion.V26_2, ClientVersion.V_26_2)) {
+            Vec3 at = new Vec3(0.5, FLOOR_Y, 0.5);
+            f.place(at, new Vec3(0, -0.0784000015258789, 0));
+            f.input(NONE);
+            PredictionResult rest = f.tick(at, true);
+            assertTrue(exact(rest), "rest: " + describe(rest));
+            f.player.compensatedEntities.addEntity(
+                    100, EntityTypes.defaults().byKey("minecraft:polar_bear").id(), at.add(0.7, -1.75, 0), 0, 0, 0);
+            int proof = f.player.lastTransactionSent.get() + 1;
+            f.player.compensatedEntities.updateEntityMetadata(
+                    100,
+                    List.of(new EntityMetadata.Entry(
+                            WatchableIndexUtil.polarBearStanding(ProtocolVersion.V26_2), true, ByteBuffer.allocate(0))),
+                    proof);
+            f.pongThrough(f.player.sendTrailingTransaction());
+
+            for (int tick = 0; tick < 4; tick++) {
+                PredictionResult result = f.tick(at, true);
+                assertTrue(exact(result), tick + ": " + describe(result));
+            }
+            // Entity#push from 0.7 along X.
+            assertExact(f.tick(at.add(-(0.7 / Math.sqrt(0.7)) * 0.05F, 0, 0), true));
+        }
     }
 
     /** AABB spans a negative height below the position, and LivingEntity#pushEntities pushes from that box. */

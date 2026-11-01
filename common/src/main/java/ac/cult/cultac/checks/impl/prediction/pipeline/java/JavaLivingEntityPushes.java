@@ -7,6 +7,7 @@ import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityPolarBear;
 import ac.cult.cultac.utils.math.Vec3;
 
 /** ClientLevel#getPushableEntities selects only LocalPlayer; the remote entity's tick calls player.push(pusher). */
@@ -63,7 +64,11 @@ public final class JavaLivingEntityPushes {
     /** Avatar pose metadata sizes its actual box; position snapshots themselves retain the type dimensions. */
     public static SimpleCollisionBox physicalBox(CultPlayer player, PacketEntity entity, SimpleCollisionBox position) {
         if (entity.isAvatar()) return avatarBox(entity, position, new SimpleCollisionBox());
-        return entity.toBoundingBox(player, position.copy());
+        return pushBox(player, entity, entity.toBoundingBox(player, position.copy()));
+    }
+
+    private static SimpleCollisionBox pushBox(CultPlayer player, PacketEntity entity, SimpleCollisionBox box) {
+        return entity instanceof PacketEntityPolarBear bear ? bear.toPushBox(player, box) : box;
     }
 
     /**
@@ -82,7 +87,7 @@ public final class JavaLivingEntityPushes {
             entity.possibleMovementCollisionBoxCandidate(i, candidate);
             SimpleCollisionBox box = entity.isAvatar()
                     ? avatarBox(entity, candidate, physical)
-                    : entity.toBoundingBox(player, physical.set(candidate));
+                    : pushBox(player, entity, entity.toBoundingBox(player, physical.set(candidate)));
             if (intersects(box, playerBox)) return true;
         }
         return false;
