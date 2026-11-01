@@ -3427,10 +3427,14 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                         ? anchored.support()
                         : lastPrediction == null
                                 ? new MainSupportingBlockData(null, false)
-                                : lastPrediction
-                                        .getSimulationContext()
-                                        .getWorldData()
-                                        .getMainSupportingBlockPos(),
+                                // A root the last prediction did not move, such as one whose control just passed
+                                // to the player, holds the support its client entity kept.
+                                : riding != null && lastPrediction.getSimulationContext().getVehicle() != riding
+                                        ? riding.clientSupport(player)
+                                        : lastPrediction
+                                                .getSimulationContext()
+                                                .getWorldData()
+                                                .getMainSupportingBlockPos(),
                 player.pose,
                 player.dimensionScale);
         // Player#tick assigns noPhysics and clears onGround before its travel.
