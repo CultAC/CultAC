@@ -54,9 +54,14 @@ public final class ClientRavagerRoars {
         return impulses;
     }
 
-    /** {@link #impulses} for one ravager box. */
+    /**
+     * {@link #impulses} for one ravager box. Ravager#applyRoarKnockbackClient selects with Level#getEntitiesOfClass,
+     * whose AABB#intersects is strict and has no collision epsilon: any positive overlap is reached.
+     */
     public static Vec3 impulse(SimpleCollisionBox source, SimpleCollisionBox target, Vec3 position) {
-        if (!source.copy().expand(4).isIntersected(target)) return Vec3.ZERO;
+        SimpleCollisionBox area = source.copy().expand(4);
+        if (!area.intersects(target.minX, target.minY, target.minZ, target.maxX, target.maxY, target.maxZ))
+            return Vec3.ZERO;
         double dx = position.x - (source.minX + source.maxX) * 0.5;
         double dz = position.z - (source.minZ + source.maxZ) * 0.5;
         double squared = Math.max(dx * dx + dz * dz, 0.001);
