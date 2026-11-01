@@ -137,7 +137,9 @@ public final class JavaMovementEngine implements MovementEngine {
                                     player,
                                     context,
                                     transformer.generateMovementVectors(
-                                            player, JavaEntityVelocityTicks.beforeTravel(player, context, starts))))));
+                                            player,
+                                            JavaEntityVelocityTicks.beforeTravel(
+                                                    player, context, transformer.applyAttackSlow(starts)))))));
         }
         List<PredVector> routed = JavaMathRouter.route(context, candidates);
         List<PredVector> gliding = ElytraTransform.candidates(context, routed);

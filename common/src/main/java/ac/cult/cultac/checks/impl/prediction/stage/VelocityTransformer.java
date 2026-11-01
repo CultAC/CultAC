@@ -51,9 +51,7 @@ public class VelocityTransformer {
             return input;
         }
 
-        // Minecraft#tick runs handleKeybinds, whose MultiPlayerGameMode#attack reaches Player#attack's X/Z damping,
-        // before ClientLevel#tickEntities runs this tick's Entity#baseTick current.
-        input = applyAttackSlow(input);
+        // The attack damping (applyAttackSlow) already ran, before the pushes of the entities ticking first.
         input = applyBaseTickFluidCurrents(player, input);
         input = applyLegacyLivingVehicleDrag(player, input);
         if (!player.isBedrockMovement() && simulationContext.getVehicle() == null && !input.isEmpty()) {
@@ -629,7 +627,12 @@ public class VelocityTransformer {
         vectors.add(candidate);
     }
 
-    private List<PredVector> applyAttackSlow(List<PredVector> input) {
+    /**
+     * Minecraft#tick runs handleKeybinds, whose MultiPlayerGameMode#attack reaches Player#attack's X/Z damping, before
+     * ClientLevel#tickEntities: the entities ticking before the player push the damped velocity, and the player's own
+     * Entity#baseTick current follows.
+     */
+    public List<PredVector> applyAttackSlow(List<PredVector> input) {
         if (simulationContext.getMaxAttackSlow() == 0 || simulationContext.getVehicle() != null)
             return input; // Do nothing
 
