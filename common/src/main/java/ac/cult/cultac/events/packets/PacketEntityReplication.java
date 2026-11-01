@@ -65,6 +65,7 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -528,7 +529,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     // We should simply add a transaction (which will clear this list!)
     //
     // Another valid solution is to simply spam more transactions, but let's not waste bandwidth.
-    private final List<Integer> despawnedEntitiesThisTransaction = new ArrayList<>();
+    private final IntOpenHashSet despawnedEntitiesThisTransaction = new IntOpenHashSet();
 
     public PacketEntityReplication(CultPlayer player) {
         super(player);
@@ -1917,11 +1918,10 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         int level = player.compensatedWorld.level();
         Runnable removeTask = () -> {
             boolean wasPassenger = player.compensatedEntities.getSelf().inVehicle();
-            for (int integer : destroyEntityIds) {
-                if (!player.isBedrockMovement() && level == player.compensatedWorld.level())
-                    player.compensatedEntities.removeEntity(integer);
-                player.compensatedFireworks.removeFirework(integer);
-            }
+            // Neither removal reads the other's state, so each runs over the whole packet in turn.
+            if (!player.isBedrockMovement() && level == player.compensatedWorld.level())
+                player.compensatedEntities.removeEntities(destroyEntityIds);
+            player.compensatedFireworks.removeFireworks(destroyEntityIds);
             if (sentVelocityReset
                     && wasPassenger
                     && !player.compensatedEntities.getSelf().inVehicle()) {

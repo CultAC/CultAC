@@ -7,6 +7,8 @@ import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityFirework;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntList;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import java.util.List;
 import java.util.function.Consumer;
 
 public class CompensatedFireworks extends CultProcessor implements PostPredictionListener {
@@ -39,6 +41,17 @@ public class CompensatedFireworks extends CultProcessor implements PostPredictio
         }
         if (activeFireworks.contains(entityID) && !fireworksToRemoveNextTick.contains(entityID))
             fireworksToRemoveNextTick.add(entityID);
+    }
+
+    /** {@link #removeFirework} for each id; a Java client's rockets keep their order, pruned in one pass. */
+    public void removeFireworks(List<Integer> entityIds) {
+        if (player.isBedrockMovement() || entityIds.size() < 2) {
+            for (int entityID : entityIds) removeFirework(entityID);
+            return;
+        }
+        if (activeFireworks.isEmpty()) return;
+        var removed = new IntOpenHashSet(entityIds);
+        activeFireworks.removeIf(removed::contains);
     }
 
     /** A replacement client level holds none of the old level's rockets. */

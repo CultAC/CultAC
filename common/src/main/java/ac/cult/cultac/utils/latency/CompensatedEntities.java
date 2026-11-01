@@ -64,6 +64,8 @@ public class CompensatedEntities {
     private final ClientEntityTickOrder clientTickMembership;
     // The entityMap values in the order addEntity put them.
     private final ArrayList<PacketEntity> addOrder = new ArrayList<>();
+    // While removeEntities runs, the entities it discarded, which leave addOrder together once it ends.
+    private Set<PacketEntity> discardedInBatch;
     // While addOrderMapped is set and entityMap.mutations equals addOrderMappedAt, every addOrder entry is the
     // entityMap value at its id; every addOrder write unsets addOrderMapped.
     private boolean addOrderMapped;
@@ -766,6 +768,29 @@ public class CompensatedEntities {
                 && player.lastTransactionReceived.get() >= selfPassengersSettleTransaction;
     }
 
+    /**
+     * ClientPacketListener#handleRemoveEntities: {@link #removeEntity} for each id in packet order. The discarded
+     * entities leave addOrder in one pass at the end, which leaves every other entity in the order one removal at a
+     * time would; meanwhile addOrder only lists extra entries, which rootsInAddOrder refuses.
+     */
+    public void removeEntities(List<Integer> entityIds) {
+        if (entityIds.size() < 2 || discardedInBatch != null) {
+            for (int entityID : entityIds) removeEntity(entityID);
+            return;
+        }
+        Set<PacketEntity> discarded = Collections.newSetFromMap(new IdentityHashMap<>());
+        discardedInBatch = discarded;
+        try {
+            for (int entityID : entityIds) removeEntity(entityID);
+        } finally {
+            discardedInBatch = null;
+            if (!discarded.isEmpty()) {
+                addOrder.removeIf(discarded::contains);
+                addOrderMapped = false;
+            }
+        }
+    }
+
     public void removeEntity(int entityID) {
         int drops = sentDrops.get(entityID);
         if (drops > 1) sentDrops.put(entityID, drops - 1);
@@ -793,7 +818,8 @@ public class CompensatedEntities {
     private void discard(PacketEntity entity, PacketEntity previousRoot) {
         int entityID = entity.getEntityId();
         untrack(entity);
-        addOrder.remove(entity);
+        if (discardedInBatch != null) discardedInBatch.add(entity);
+        else addOrder.remove(entity);
         addOrderMapped = false;
 
         Vec3 dismountSeat = dismountSeat(entity);
