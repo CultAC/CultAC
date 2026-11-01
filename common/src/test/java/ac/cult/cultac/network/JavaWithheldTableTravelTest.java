@@ -5,15 +5,19 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundUpdateAttributes;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.AttributeSnapshot;
+import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
@@ -30,6 +34,7 @@ class JavaWithheldTableTravelTest {
     private static final ServerboundPlayerInput CROUCH =
             new ServerboundPlayerInput(false, false, false, false, false, true, false);
     private static final float SNEAKING_SPEED = 0.001F;
+    private static final float SHIELD_SNEAKING_SPEED = 0.005F;
     // Player#getFlyingSpeed off the ground for a player that is not sprinting.
     private static final float AIR_SPEED = 0.02F;
 
@@ -115,6 +120,47 @@ class JavaWithheldTableTravelTest {
             assertTrue(
                     JavaTickFixture.exact(result),
                     (vanilla ? "vanilla" : "fast") + " after the idle ticks: " + JavaTickFixture.describe(result));
+        }
+    }
+
+    /**
+     * A raised shield certainly scales the input by LocalPlayer#itemUseSpeedMultiplier's 0.2: ten travels of 1.96E-5
+     * stay withheld before the eleventh is reported. The unslowed input of the same keys stays NoSlow's candidate, and
+     * its travel lies within 2.0E-4 of the sent position too; it must not keep the hidden travel from being committed,
+     * or the report is predicted from the last sent position.
+     */
+    @Test
+    void aRaisedShieldsHiddenTravelIsCommittedAtItsSlowdown() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.player.getInventory()
+                    .inventory
+                    .getInventoryStorage()
+                    .setItem(Inventory.SLOT_OFFHAND, OfflineCultTestBootstrap.item("minecraft:shield"));
+            attribute(f, "minecraft:gravity", 0.0D);
+            attribute(f, "minecraft:sneaking_speed", SHIELD_SNEAKING_SPEED);
+            Vec3 position = new Vec3(0.5, FLOOR_Y + 1, 0.5);
+            f.place(position, Vec3.ZERO);
+            f.input(CROUCH);
+            assertTrue(JavaTickFixture.exact(f.tick(position, false)));
+            ItemUseTestSupport.useOffhand(f.player, 1);
+            assertTrue(f.player.isClientUsingItem(), "the client raises the shield");
+            assertTrue(JavaTickFixture.exact(f.tick(position, false)));
+            var keys = new ServerboundPlayerInput(true, false, false, false, false, true, false);
+            f.input(keys);
+            Vec3 modified = VelocityTransformer.getExactControllerModifiedInputStatic(
+                    new Vec3(0.0D, 0.0D, 1.0D), 0.2F, SHIELD_SNEAKING_SPEED);
+            Vec3 step = modified.scale(AIR_SPEED);
+            assertEquals(1.96E-5, step.z, 1.0E-9);
+            for (int report = 0; report < 2; report++) {
+                for (int tick = 0; tick < 10; tick++) {
+                    position = position.add(step);
+                    f.tickEnd();
+                }
+                position = position.add(step);
+                PredictionResult result = f.tick(position, false);
+                assertTrue(JavaTickFixture.exact(result), "report " + report + ": " + JavaTickFixture.describe(result));
+                assertEquals(position.z, f.player.z, 0.0);
+            }
         }
     }
 

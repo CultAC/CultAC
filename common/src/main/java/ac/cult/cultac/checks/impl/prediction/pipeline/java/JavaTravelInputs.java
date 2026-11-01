@@ -67,6 +67,21 @@ public final class JavaTravelInputs {
         return isExact(candidate) ? List.of(Vec3.ZERO) : ClientKeyInput.travelInputs(player, context, candidate);
     }
 
+    /**
+     * Whether {@code candidate}'s exact travel input is one the reported keys give at the use's legal multipliers. While
+     * a use certainly slows, the unslowed input of the same keys stays NoSlow's candidate, not a travel the client
+     * could have made. Entity#getInputVector rotates with the candidate's own trig table. A candidate without an
+     * exact input passes.
+     */
+    public static boolean travelsReportedInput(CultPlayer player, SimulationContext context, PredVector candidate) {
+        return !isExact(candidate)
+                || JavaMovementMath.calculate(
+                        player,
+                        candidate,
+                        () -> ClientKeyInput.travelInputs(player, context, candidate)
+                                .contains(candidate.getTravelInput()));
+    }
+
     public static boolean isExact(PredVector candidate) {
         return candidate != null && candidate.hasTravelInput();
     }

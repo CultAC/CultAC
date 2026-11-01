@@ -62,6 +62,8 @@ public final class JavaWithheldTravel {
         for (var reality : realities) {
             if (reality.getFlagSeverity() != 0 || !VelocityCandidates.hasEngineTrace(reality)) continue;
             var state = reality.getSimulationContext();
+            // Only a travel the client could have made places it; a check's candidate leaves no hidden position.
+            if (!JavaTravelInputs.travelsReportedInput(player, state, reality.getInitialStartingVel())) continue;
             var pass = state.getPassAfterTravel();
             if (pass == null) pass = new ClientBlockEntityPass(List.of(), player.compensatedWorld.clientGameTime());
             var math = reality.getInitialStartingVel().firstInLineage(JavaMovementMath.class);
