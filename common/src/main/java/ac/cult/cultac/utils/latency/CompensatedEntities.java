@@ -27,6 +27,7 @@ import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.util.*;
 import java.util.function.Consumer;
@@ -52,6 +53,9 @@ public class CompensatedEntities {
     private static final int HELD_ENTITIES = 256;
     public final EntityMap entityMap = new EntityMap();
     public final Int2ObjectOpenHashMap<TrackerData> serverPositionsMap = new Int2ObjectOpenHashMap<>(40, 0.7f);
+    // Java: for each held entity ID, the sent drops (remove_entities, a login or a level change) the client has not
+    // handled yet. A held entity with one pending is gone once the client handles the packets sent so far.
+    private final Int2IntOpenHashMap sentDrops = new Int2IntOpenHashMap();
     private final Int2ObjectOpenHashMap<List<HeldAttributes>> pendingAttributes = new Int2ObjectOpenHashMap<>(10, 0.7f);
     private final Int2ObjectOpenHashMap<List<EquipmentEntry>> pendingEquipment = new Int2ObjectOpenHashMap<>(10, 0.7f);
     public final CompensatedVehicleState vehicles;
@@ -167,6 +171,26 @@ public class CompensatedEntities {
         if (!player.isBedrockMovement()) clientTickMembership.chunk(x, z, ticking);
     }
 
+    /**
+     * Whether the client holds {@code entityId} once it handles every packet sent so far: a sent spawn not yet
+     * removed, or an entity it holds that no sent removal or level change drops.
+     */
+    public boolean existsAsSent(int entityId) {
+        if (entityId == player.entityID || serverPositionsMap.containsKey(entityId)) return true;
+        return entityMap.containsKey(entityId) && (player.isBedrockMovement() || !sentDrops.containsKey(entityId));
+    }
+
+    /** A remove_entities of {@code entityId} was sent; ClientLevel#removeEntity runs when the client handles it. */
+    public void onSentRemoval(int entityId) {
+        if (!player.isBedrockMovement()) sentDrops.addTo(entityId, 1);
+    }
+
+    /** A login or level change was sent: the client drops every entity it holds when it handles it. */
+    public void onSentLevelDrop() {
+        if (player.isBedrockMovement()) return;
+        for (int entityId : entityMap.keySet()) sentDrops.addTo(entityId, 1);
+    }
+
     /** A replacement ClientLevel cannot retain remote entities or their queued values. */
     public void clearClientLevel() {
         clearEntityMap();
@@ -188,6 +212,7 @@ public class CompensatedEntities {
 
     /** Drops every tracked entity, keeping their riding links. */
     public void clearEntityMap() {
+        sentDrops.clear();
         for (PacketEntity entity : entityMap.values()) untrack(entity);
         entityMap.clear();
         addOrder.clear();
@@ -721,6 +746,9 @@ public class CompensatedEntities {
     }
 
     public void removeEntity(int entityID) {
+        int drops = sentDrops.get(entityID);
+        if (drops > 1) sentDrops.put(entityID, drops - 1);
+        else sentDrops.remove(entityID);
         PacketEntity previousRoot = playerEntity.getRiding();
         PacketEntity removing = entityMap.get(entityID);
         if (removing != null) {
@@ -730,14 +758,23 @@ public class CompensatedEntities {
         pendingAttributes.remove(entityID);
         pendingEquipment.remove(entityID);
         if (entity == null) return;
-        untrack(entity);
-        addOrder.remove(entity);
-        addOrderMapped = false;
-
         boolean removedSelfVehicle = vehicles.serverPlayerVehicle != null && vehicles.serverPlayerVehicle == entityID;
         if (removedSelfVehicle) {
             vehicles.clearServerVehicle();
         }
+        discard(entity, previousRoot);
+    }
+
+    /**
+     * Entity#setRemoved for an entity already taken out of entityMap: its passengers are ejected and it stops riding.
+     * The sent vehicle state is the caller's, as it follows the packets as sent rather than as handled.
+     */
+    private void discard(PacketEntity entity, PacketEntity previousRoot) {
+        int entityID = entity.getEntityId();
+        untrack(entity);
+        addOrder.remove(entity);
+        addOrderMapped = false;
+
         Vec3 dismountSeat = dismountSeat(entity);
         for (PacketEntity passenger : new ArrayList<>(entity.passengers)) {
             passenger.eject();
@@ -1204,6 +1241,14 @@ public class CompensatedEntities {
 
     /** Adds the entity and replays its held attributes; returns the greatest replayed proof, or Integer.MIN_VALUE. */
     public int addEntity(int entityID, int entityType, Vec3 position, float xRot, float yRot, int data) {
+        // ClientLevel#addEntity first discards the entity holding this ID: it stops riding and ejects its riders.
+        PacketEntity previous = player.isBedrockMovement() ? null : entityMap.get(entityID);
+        if (previous != null) {
+            PacketEntity previousRoot = playerEntity.getRiding();
+            for (PacketEntity passenger : previous.passengers) settleIfUntrackedRider(passenger);
+            entityMap.remove(entityID);
+            discard(previous, previousRoot);
+        }
         // Dropped items are all server sided and players can't interact with them (except create them!), save the
         // performance
         if (entityType == EntityTypeIds.ITEM) return Integer.MIN_VALUE;
@@ -1224,6 +1269,7 @@ public class CompensatedEntities {
         if (player.isBedrockMovement()) packetEntity.setClientTickOrder(nextClientEntityTickOrder++);
         PacketEntity replaced = entityMap.put(entityID, packetEntity);
         if (replaced != null) {
+            // Bedrock keeps its own actor replacement.
             untrack(replaced);
             addOrder.remove(replaced);
         }

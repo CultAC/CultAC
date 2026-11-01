@@ -126,6 +126,7 @@ public class PacketPlayerRespawn {
         player.compensatedEntities.vehicles.clearSentRiding();
         if (!player.isBedrockMovement()) {
             player.compensatedEntities.serverPositionsMap.clear();
+            player.compensatedEntities.onSentLevelDrop();
             player.getSetbackTeleportUtil().loginSent();
         }
         clearFairReachLevel(player);
@@ -278,6 +279,7 @@ public class PacketPlayerRespawn {
 
         if (worldChange) {
             player.compensatedEntities.serverPositionsMap.clear();
+            player.compensatedEntities.onSentLevelDrop();
             player.compensatedEntities.vehicles.clearSentRiding();
             clearFairReachLevel(player);
             player.compensatedWorld.serverWorldChangeSent();

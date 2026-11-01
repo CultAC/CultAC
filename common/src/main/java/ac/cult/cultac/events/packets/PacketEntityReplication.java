@@ -717,7 +717,21 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         }
     }
 
+    private boolean existsAsSent(int entityId) {
+        return player.compensatedEntities.existsAsSent(entityId);
+    }
+
     private void handleAddEntity(PacketSendEvent<ClientboundAddEntity> event, ClientboundAddEntity packet) {
+        if (!player.isBedrockMovement() && existsAsSent(packet.entityId()) && packet.entityId() != player.entityID) {
+            // ClientLevel#addEntity first discards the entity holding this ID: it stops riding and ejects its riders.
+            player.compensatedEntities.vehicles.onSentRemoval(packet.entityId());
+            Integer serverVehicle = player.compensatedEntities.vehicles.serverPlayerVehicle;
+            if (serverVehicle != null
+                    && serverVehicle == packet.entityId()
+                    && !player.compensatedEntities.vehicles.hasPendingServerDismount()) {
+                player.compensatedEntities.vehicles.clearServerVehicle();
+            }
+        }
         boolean despawnedThisTransaction = despawnedEntitiesThisTransaction.contains(packet.entityId());
         if (despawnedThisTransaction) {
             player.sendTransaction();
@@ -1533,6 +1547,12 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     }
 
     private void handleSetPassengers(PacketSendEvent<ClientboundSetPassengers> event, ClientboundSetPassengers packet) {
+        // ClientPacketListener#handleSetEntityPassengersPacket ignores a vehicle the client does not hold, and starts
+        // only the listed passengers it holds riding.
+        if (!existsAsSent(packet.vehicleId())) return;
+        List<Integer> heldPassengers =
+                packet.passengers().stream().filter(this::existsAsSent).toList();
+        packet = new ClientboundSetPassengers(packet.vehicleId(), heldPassengers);
         boolean mountsLocalPlayer = packet.passengers().contains(player.entityID);
         int[] passengers =
                 packet.passengers().stream().mapToInt(Integer::intValue).toArray();
@@ -1877,6 +1897,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
         for (int entityID : destroyEntityIds) {
             despawnedEntitiesThisTransaction.add(entityID);
+            player.compensatedEntities.onSentRemoval(entityID);
             player.compensatedEntities.vehicles.onSentRemoval(entityID);
             if (player.compensatedEntities.vehicles.serverPlayerVehicle != null
                     && player.compensatedEntities.vehicles.serverPlayerVehicle == entityID) {
