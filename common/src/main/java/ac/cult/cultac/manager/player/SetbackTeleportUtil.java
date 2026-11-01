@@ -1936,6 +1936,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                         .packets()
                         .observed()
                         .supports(ac.cult.cultac.protocol.packet.ServerboundPackets.ACCEPT_TELEPORTATION)) {
+            retireWithheldTeleportAcknowledgments();
             javaTeleportAcknowledgments.add(data);
         }
 
@@ -1953,6 +1954,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
      * and a pre-proof reply cannot consume the outstanding occurrence.
      */
     public boolean takeAuthoredTeleportAcknowledgment(int teleportId) {
+        retireWithheldTeleportAcknowledgments();
         for (TeleportData sent : javaTeleportAcknowledgments) {
             if (sent.getTeleportId() != teleportId) continue;
             if (player.lastTransactionReceived.get() >= sent.getTransaction()) {
@@ -1961,6 +1963,17 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             return sent.isAuthored();
         }
         return false;
+    }
+
+    /**
+     * ClientPacketListener#handleMovePlayer answers a teleport's ID while handling it, before it handles any ping sent
+     * after the teleport. Once such a ping is answered, an acknowledgment still owed was withheld and can never be
+     * claimed; a later reply with that ID belongs to the next occurrence.
+     */
+    private void retireWithheldTeleportAcknowledgments() {
+        if (javaTeleportAcknowledgments.isEmpty()) return;
+        int received = player.lastTransactionReceived.get();
+        javaTeleportAcknowledgments.removeIf(sent -> received > sent.getTransaction());
     }
 
     /**
