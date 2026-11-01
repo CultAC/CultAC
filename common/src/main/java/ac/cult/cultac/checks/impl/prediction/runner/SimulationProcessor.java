@@ -784,9 +784,13 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         this.player.checkManager.getDebugHandler().onClientTickEnd(this.validPlayerStartingVels);
     }
 
-    /** Through 26.2 the report is inside LocalPlayer#tick; late rockets and boats run before the block entities. */
+    /**
+     * Through 26.2 the report is inside LocalPlayer#tick; late rockets and boats run before the block entities. A
+     * passenger's own motion feeds no travel: Entity#rideTick zeroes it, and the starting velocities are its root's.
+     */
     private void applyEntityVelocityTicksAfterReport() {
         if (JavaBlockEntityPass.reportsAfterPass(this.player.getClientVersion())
+                || this.player.compensatedEntities.getSelf().inVehicle()
                 || !CheckManagerListener.localPlayerTicked(this.player)
                 || this.lastPrediction == null
                 || !(this.profileCarry instanceof JavaPredictionCarry carry)

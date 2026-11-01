@@ -575,6 +575,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 return;
             }
             entity.onMovement(player);
+            player.compensatedEntities.vehicles.tickRemoteLivingVelocity(entity);
             // LivingEntity#aiStep replaces frost after interpolating, for remote entities too.
             entity.tickClientFrost(player);
         };

@@ -159,10 +159,7 @@ public final class CompensatedVehicleState implements Debuggable {
      * first, and a strider runs Strider#floatStrider last.
      */
     private void tickUncontrolledRootVelocity(PacketEntity root) {
-        // Through 26.2 aiStep tests the active path BEFORE stepping it; 26.3 tests AFTER Entity#commonTick.
-        boolean interpolating = player.getClientVersion().isOlderThan(ClientVersion.V_26_3)
-                ? root.interpolatedThisClientTick(player) || hasActiveInterpolationTarget(root)
-                : hasActiveInterpolationTarget(root);
+        boolean interpolating = aiStepInterpolates(root);
         // Strider#tick runs floatStrider after LivingEntity#tick whoever controls it. On a lava surface it grounds
         // the strider; below one it halves the delta movement and adds 0.05Y.
         PacketEntityStrider strider =
@@ -180,6 +177,28 @@ public final class CompensatedVehicleState implements Debuggable {
             root.onGround = true;
             player.checkManager.getSimulationProcessor().applyVehiclePacketGround(root, true);
         }
+    }
+
+    /**
+     * The same LivingEntity#aiStep damping for a remote living entity outside any riding tree, after its interpolation
+     * step this client tick. Its delta movement is what a later mount inherits until the server sends another. Riders
+     * and vehicles keep their own rules: Entity#rideTick zeroes a rider, and travelRidden zeroes a root a player steers.
+     */
+    public void tickRemoteLivingVelocity(PacketEntity entity) {
+        if (player.isBedrockMovement()
+                || !entity.isLivingEntity()
+                || entity.type == EntityTypeIds.PLAYER
+                || entity.getRiding() != null
+                || !entity.passengers.isEmpty()
+                || entity.deltaMovement.equals(Vec3.ZERO)) return;
+        entity.deltaMovement = uncontrolledLivingAiStep(entity.deltaMovement, aiStepInterpolates(entity));
+    }
+
+    /** Through 26.2 aiStep tests the active path BEFORE stepping it; 26.3 tests AFTER Entity#commonTick. */
+    private boolean aiStepInterpolates(PacketEntity entity) {
+        return player.getClientVersion().isOlderThan(ClientVersion.V_26_3)
+                ? entity.interpolatedThisClientTick(player) || hasActiveInterpolationTarget(entity)
+                : hasActiveInterpolationTarget(entity);
     }
 
     private Vec3 uncontrolledTick(PacketEntity root, Vec3 velocity, boolean interpolating, boolean buoyed) {
