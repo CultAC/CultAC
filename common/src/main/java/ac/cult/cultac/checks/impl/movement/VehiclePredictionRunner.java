@@ -12,6 +12,7 @@ import ac.cult.cultac.checks.type.VehicleListener;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.EntityPose;
 import ac.cult.cultac.utils.anticheat.update.VehiclePositionUpdate;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
@@ -25,6 +26,7 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
+import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.util.List;
 import java.util.Set;
 
@@ -223,6 +225,7 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
         }
 
         if (riding instanceof PacketEntityCamel camel && camel.actionAlive) {
+            EntityPose pose = camel.actionPose;
             // Camel#tickRidden stood the camel up before the travel, which the prediction moved standing.
             if (result.getSimulationContext().isRiddenStandUp()) {
                 camel.standUp(player.compensatedWorld.clientGameTime());
@@ -231,6 +234,11 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
             if (camel.isCamelSitting()
                     && result.getSimulationContext().getWorldData().isVehicleInWater()) {
                 camel.standUpInstantly(player.compensatedWorld.clientGameTime());
+            }
+            // Entity#setPose refreshes the dimensions at once.
+            if (camel.actionPose != pose) {
+                camel.refreshDimensions(player);
+                player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, player.x, player.y, player.z);
             }
         }
 

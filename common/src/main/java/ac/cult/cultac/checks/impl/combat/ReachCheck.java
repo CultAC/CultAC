@@ -326,8 +326,8 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
             double width = reachEntity.leastPoseWidth();
             return new Vec3(width, reachEntity.leastPoseHeight(), width);
         }
-        // BoundingBoxSize scales linearly; the camel's sitting, the goat's long jump and the warden's digging and
-        // emerging poses still take the standing size.
+        // BoundingBoxSize scales linearly and sizes a sitting camel by its pose; the goat's long jump and the warden's
+        // digging and emerging poses still take the standing size.
         double least = reachEntity.leastScale() / reachEntity.scale;
         double width = least
                 * Math.max(

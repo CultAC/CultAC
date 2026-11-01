@@ -767,8 +767,8 @@ public class SimulationContext implements Cloneable {
     public float getMaxHeight() {
         if (getVehicle() instanceof PacketEntityCamel camel && getBedrockInput() == null) {
             return riddenStandUp
-                    ? BoundingBoxSize.getHeight(camel, version)
-                    : BoundingBoxSize.getCamelPoseHeight(camel, version);
+                    ? BoundingBoxSize.getCamelStandingHeight(camel, version)
+                    : BoundingBoxSize.getHeight(camel, version);
         }
         if (getVehicle() != null) {
             return BoundingBoxSize.getHeight(getVehicle(), version, getBedrockInput() != null);
@@ -779,7 +779,7 @@ public class SimulationContext implements Cloneable {
     /** {@link #getMaxHeight} before Camel#tickRidden stands the vehicle up, as Entity#baseTick reads it. */
     public float getHeightBeforeTravel() {
         return riddenStandUp && getVehicle() instanceof PacketEntityCamel camel
-                ? BoundingBoxSize.getCamelPoseHeight(camel, version)
+                ? BoundingBoxSize.getHeight(camel, version)
                 : getMaxHeight();
     }
 

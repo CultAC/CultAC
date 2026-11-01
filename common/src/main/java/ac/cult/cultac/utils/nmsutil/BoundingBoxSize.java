@@ -255,8 +255,8 @@ public class BoundingBoxSize {
     private static double getCamelBodyAnchorYOffset(
             PacketEntityCamel camel, ClientVersion version, boolean isFront, float scale, long poseTime) {
         double baseSitOffset = version.isNewerThanOrEquals(ClientVersion.V_26_2)
-                ? getCamelPoseHeight(camel, version) - (camel.isBaby ? 0.09375 : 0.375)
-                : getCamelPoseHeight(camel, version) - 0.375F * scale;
+                ? getHeight(camel, version) - (camel.isBaby ? 0.09375 : 0.375)
+                : getHeight(camel, version) - 0.375F * scale;
         float sittingHeightDifference = scale * 1.43F;
         float verticalDrop = sittingHeightDifference - scale * 0.2F;
         float bottomPoint = sittingHeightDifference - verticalDrop;
@@ -295,11 +295,13 @@ public class BoundingBoxSize {
         return baseSitOffset;
     }
 
-    /** The camel's getDimensions(getPose()).height(): Camel#getDefaultDimensions swaps in sitting dimensions. */
-    public static float getCamelPoseHeight(PacketEntityCamel camel, ClientVersion version) {
-        if (camel.actionPose != EntityPose.SITTING) {
-            return getHeight(camel, version);
-        }
+    /** The height of a camel in Pose.STANDING, which Camel#standUp gives it before the travel that reads it. */
+    public static float getCamelStandingHeight(PacketEntityCamel camel, ClientVersion version) {
+        return poseFreeHeight(camel, version, false);
+    }
+
+    /** Camel#getDefaultDimensions: Pose.SITTING swaps in the sitting dimensions. */
+    private static float sittingCamelHeight(PacketEntityCamel camel, ClientVersion version) {
         float adultSitting = baseDimensions(camel).height() - 1.43F;
         if (!camel.isBaby) {
             return adultSitting * camel.scale;
@@ -378,6 +380,13 @@ public class BoundingBoxSize {
     }
 
     private static float height(PacketEntity entity, ClientVersion version, boolean bedrock) {
+        // Entity#refreshDimensions sizes the box by getDimensions(getPose()).
+        if (!bedrock && entity instanceof PacketEntityCamel camel && camel.actionPose == EntityPose.SITTING)
+            return sittingCamelHeight(camel, version);
+        return poseFreeHeight(entity, version, bedrock);
+    }
+
+    private static float poseFreeHeight(PacketEntity entity, ClientVersion version, boolean bedrock) {
         float height = getHeightMinusBaby(entity, version, bedrock);
         if (entity.isBaby) {
             Float independent = independentBabyHeight(entity, version);

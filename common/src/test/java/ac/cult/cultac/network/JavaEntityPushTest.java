@@ -36,6 +36,7 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import java.nio.ByteBuffer;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -57,6 +58,7 @@ class JavaEntityPushTest {
     private static final Vec3 BELOW_TOUCHING = TOUCHING.add(0, -1.5, 0);
 
     private static final int RIDER = 101;
+    private static final int CAMEL = 102;
     /** Out of reach of the player's contact box until its first interpolation step lands it on {@link #TOUCHING}. */
     private static final Vec3 STEPPING_FROM = TOUCHING.add(0, 0, 0.4);
     /** Three interpolation steps of -0.4 each. */
@@ -142,6 +144,32 @@ class JavaEntityPushTest {
             f.player.compensatedEntities.getEntity(100).setClientTickOrder(-1L);
 
             assertExact(f.tick(START.add(0, FIRST_FALL, PUSH), false));
+        }
+    }
+
+    /**
+     * Camel#getDefaultDimensions sizes a SITTING adult camel 2.375 - 1.43 tall: 1.5 below the player's feet, its top
+     * stays 0.555 under them, while its 2.375-tall standing box would reach 0.875 into the player.
+     */
+    @Test
+    void aSittingCamelDoesNotPushFromItsStandingHeight() throws Exception {
+        try (var f = falling()) {
+            camel(f, EntityPose.SITTING);
+
+            assertExact(f.tick(CONTACT, false));
+        }
+    }
+
+    /** Entity#onSyncedDataUpdated refreshes the dimensions on DATA_POSE, so a camel standing up pushes again. */
+    @Test
+    void aSittingCamelThatStandsUpPushesFromItsStandingBox() throws Exception {
+        try (var f = falling()) {
+            camel(f, EntityPose.SITTING);
+            assertExact(f.tick(CONTACT, false));
+
+            pose(f, CAMEL, EntityPose.STANDING);
+            // Entity#push from 1.0 along Z: the 0.05F step.
+            assertExact(f.tick(CONTACT.add(0, SECOND_FALL, -(double) 0.05F), false));
         }
     }
 
@@ -926,6 +954,18 @@ class JavaEntityPushTest {
     private static PacketEntity entity(JavaTickFixture f, int id, Vec3 position) {
         f.player.compensatedEntities.addEntity(id, EntityTypeIds.ZOMBIE, position, 0, 0, 0);
         return f.player.compensatedEntities.entityMap.get(id);
+    }
+
+    /** An adult camel ticking before the player, 1.0 along Z from it and 1.5 below its feet, in {@code pose}. */
+    private static void camel(JavaTickFixture f, EntityPose pose) {
+        f.player.compensatedEntities.addEntity(CAMEL, EntityTypeIds.CAMEL, START.add(0, -1.5, 1.0), 0, 0, 0);
+        f.player.compensatedEntities.getEntity(CAMEL).setClientTickOrder(-1L);
+        pose(f, CAMEL, pose);
+    }
+
+    private static void pose(JavaTickFixture f, int id, EntityPose pose) {
+        f.player.compensatedEntities.updateEntityMetadata(
+                id, List.of(new EntityMetadata.Entry(WatchableIndexUtil.ENTITY_POSE, pose, ByteBuffer.allocate(0))));
     }
 
     /** Seats a slime, a living rider like a hat mob on a player, on {@code vehicle}; it spawns far from the player. */

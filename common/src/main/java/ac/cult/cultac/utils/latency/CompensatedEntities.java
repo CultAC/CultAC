@@ -1501,7 +1501,11 @@ public class CompensatedEntities {
         if (entity.isLivingEntity()) {
             var pose = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.ENTITY_POSE);
             if (pose != null && pose.value() instanceof EntityPose value) {
+                EntityPose previous = entity.actionPose;
                 entity.onPose(value, provenAt);
+                // Entity#onSyncedDataUpdated refreshes the dimensions on DATA_POSE; avatar boxes are sized by pose.
+                if (value != previous && !entity.isAvatar() && !player.isBedrockMovement())
+                    entity.refreshDimensions(player);
             }
             var health = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.LIVING_HEALTH);
             if (health != null && health.value() instanceof Float value) {
