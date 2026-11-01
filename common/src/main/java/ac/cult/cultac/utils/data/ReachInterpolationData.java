@@ -808,13 +808,10 @@ public class ReachInterpolationData {
      */
     public Vec3 exactPositionAfterClientTickFromPhysical(Vec3 physical) {
         double lerpAmount = 1.0D / (getInterpolationSteps() - interpolationStepsLowBound);
-        double targetX = targetFeetKnown ? targetFeetX : targetCenterX();
-        double targetY = targetFeetKnown ? targetFeetY : targetMinY();
-        double targetZ = targetFeetKnown ? targetFeetZ : targetCenterZ();
         return new Vec3(
-                lerp(physical.x, targetX, lerpAmount),
-                lerp(physical.y, targetY, lerpAmount),
-                lerp(physical.z, targetZ, lerpAmount));
+                lerp(physical.x, targetCenterX(), lerpAmount),
+                lerp(physical.y, targetMinY(), lerpAmount),
+                lerp(physical.z, targetCenterZ(), lerpAmount));
     }
 
     public SimpleCollisionBox getExactMovementLocation() {
@@ -854,21 +851,24 @@ public class ReachInterpolationData {
         return targetLocation.copy();
     }
 
-    /** The feet position of the target location, as computed from {@link #getTargetLocation()}. */
+    /**
+     * InterpolationHandler#position while the target is active: the packet position itself, kept exact while known,
+     * since the centre of {@link #getTargetLocation()} need not rebuild it bit for bit.
+     */
     public Vec3 targetPosition() {
         return new Vec3(targetCenterX(), targetMinY(), targetCenterZ());
     }
 
     public double targetCenterX() {
-        return (targetLocation.maxX - targetLocation.minX) / 2.0D + targetLocation.minX;
+        return targetFeetKnown ? targetFeetX : (targetLocation.maxX - targetLocation.minX) / 2.0D + targetLocation.minX;
     }
 
     public double targetMinY() {
-        return targetLocation.minY;
+        return targetFeetKnown ? targetFeetY : targetLocation.minY;
     }
 
     public double targetCenterZ() {
-        return (targetLocation.maxZ - targetLocation.minZ) / 2.0D + targetLocation.minZ;
+        return targetFeetKnown ? targetFeetZ : (targetLocation.maxZ - targetLocation.minZ) / 2.0D + targetLocation.minZ;
     }
 
     public float getCurrentYaw() {
