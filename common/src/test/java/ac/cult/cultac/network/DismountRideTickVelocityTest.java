@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
@@ -29,6 +30,7 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.TeleportData;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.math.Vec3;
 import java.lang.reflect.Field;
@@ -355,6 +357,50 @@ class DismountRideTickVelocityTest {
             // Flight exempts the move; its offset still measures the carried velocity.
             PredictionResult move = f.tick(position(f).add(0, ascent, 0), false);
             assertTrue(move.getOffset() < 1.0E-5, describe(move));
+        }
+    }
+
+    /**
+     * Entity#baseTick pushes the rider by the water current before LocalPlayer#aiStep's double-tap starts flight on
+     * a saddled horse it controls, so the takeoff tick keeps the current: Player#isPushedByFluid reads the flight
+     * the tick started with. The flight's travelInAir then drags it by 0.91.
+     */
+    @ParameterizedTest
+    @MethodSource("endings")
+    void aTakeoffOnAHorseKeepsTheCurrentItsRideTickStartedIn(ClientVersion version, boolean removeSeat)
+            throws Exception {
+        try (var f = fixture(version);
+                var ignored = observeOnly(true)) {
+            f.place(VEHICLE_AT, new Vec3(0, FALL, 0));
+            PredictionResult standing = f.tick(VEHICLE_AT, true);
+            assertTrue(exact(standing), describe(standing));
+            f.player.compensatedEntities.addEntity(VEHICLE, EntityTypeIds.HORSE, VEHICLE_AT, 0, 0, 0);
+            ((PacketEntityHorse) f.player.compensatedEntities.getEntity(VEHICLE)).hasSaddle = true;
+            f.setPassengers(VEHICLE, List.of(f.player.entityID));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            f.player.canFly = true;
+            f.player.flySpeed = 0.05F;
+            f.rideTick();
+            // A layer through the rider's body whose level rises towards +X, so its block flows along +X alone.
+            int layer = (int) Math.floor(rideTickSeat(f).y) + 1;
+            var registry = DataTables.defaults().registry();
+            for (int x = -8; x <= 8; x++) {
+                int water = registry.with(
+                        BlockIds.WATER.defaultState(), "level", Integer.toString(Math.max(1, Math.min(7, x + 4))));
+                for (int z = -8; z <= 8; z++) f.player.compensatedWorld.updateBlock(new BlockPos(x, layer, z), water);
+            }
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            // The first press arms Player#jumpTriggerTime; the second toggles before travel.
+            f.input(JUMP);
+            f.rideTick();
+            f.input(NONE);
+            f.rideTick();
+            f.input(JUMP);
+            f.abilities(true);
+            f.rideTick();
+            dismount(f, removeSeat);
+            // A player's current is not normalized: one block's unit flow scaled by 0.014.
+            assertEquals(0.014 * 0.91F, f.player.compensatedEntities.getSelf().deltaMovement.x, 1e-9);
         }
     }
 

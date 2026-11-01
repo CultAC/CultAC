@@ -15,6 +15,7 @@ import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
 import ac.cult.cultac.utils.nmsutil.ClientKeyInput;
 import ac.cult.cultac.utils.nmsutil.Collisions;
+import ac.cult.cultac.utils.nmsutil.FlightToggle;
 import ac.cult.cultac.utils.nmsutil.Friction;
 import ac.cult.cultac.utils.nmsutil.JavaPassengerFluids;
 import ac.cult.cultac.utils.nmsutil.RootVehicleInterpolationCollision;
@@ -30,8 +31,10 @@ public final class JavaPassengerTravel {
             SimpleCollisionBox vehicleBox, Vec3 movementInput, boolean jumping) {
         var self = player.compensatedEntities.getSelf();
         Vec3 start = context.getStart();
+        // Entity#baseTick runs before LocalPlayer#aiStep's flight toggle.
         var fluids = JavaPassengerFluids.sample(player, context.getFromActualPose(), start, Vec3.ZERO,
-                vehicleBox, start.y + context.getPose().eyeHeight * context.getScale());
+                vehicleBox, start.y + context.getPose().eyeHeight * context.getScale(),
+                !FlightToggle.flyingBeforeAiStep(player));
         boolean water = fluids.water(), lava = fluids.lava();
         var keys = player.packetStateData.knownInput;
         // CheckManagerListener already reconciled aiStep's local flag. A passive passenger can stop

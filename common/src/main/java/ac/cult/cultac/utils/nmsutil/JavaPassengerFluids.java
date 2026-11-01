@@ -18,12 +18,13 @@ public final class JavaPassengerFluids {
     public static Sample sample(
             CultPlayer player, SimpleCollisionBox body, Vec3 feet, Vec3 velocity, SimpleCollisionBox vehicleBox) {
         return sample(player, body, feet, velocity, vehicleBox,
-                feet.y + player.pose.eyeHeight * player.dimensionScale);
+                feet.y + player.pose.eyeHeight * player.dimensionScale, !player.isFlying);
     }
 
+    /** {@code pushed} is Player#isPushedByFluid for the flight this update runs with. */
     public static Sample sample(
             CultPlayer player, SimpleCollisionBox body, Vec3 feet, Vec3 velocity,
-            SimpleCollisionBox vehicleBox, double eyeY) {
+            SimpleCollisionBox vehicleBox, double eyeY, boolean pushed) {
         PacketEntity vehicle = player.compensatedEntities.getSelf().getRiding();
         SimpleCollisionBox query = body.copy().expand(-.001D);
         boolean waterAllowed = true;
@@ -68,7 +69,7 @@ public final class JavaPassengerFluids {
                 }
             }
         }
-        if (!player.isFlying) {
+        if (pushed) {
             FluidCurrent current = new FluidCurrent();
             if (waterAllowed && current.computePassenger(player, body, query, velocity.x, velocity.z, FluidTags.WATER, .014D))
                 velocity = velocity.add(current.x, current.y, current.z);
