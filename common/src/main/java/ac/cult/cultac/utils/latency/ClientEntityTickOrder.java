@@ -4,8 +4,8 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.IdentityHashMap;
 import java.util.List;
 
@@ -18,6 +18,8 @@ final class ClientEntityTickOrder {
     private final CompensatedEntities owner;
     private final CompensatedWorld world;
     private final IdentityHashMap<PacketEntity, Member> members = new IdentityHashMap<>();
+    // The positioned non-players of each chunk column, linked from the last one to enter it.
+    private final Long2ObjectOpenHashMap<Member> columns = new Long2ObjectOpenHashMap<>();
     private long sectionEntryOrder;
     private PacketEntity localPlayer;
 
@@ -53,7 +55,8 @@ final class ClientEntityTickOrder {
     }
 
     void remove(PacketEntity entity) {
-        members.remove(entity);
+        Member member = members.remove(entity);
+        if (member != null) unlink(member);
     }
 
     void moved(PacketEntity entity) {
@@ -95,11 +98,14 @@ final class ClientEntityTickOrder {
         int y = CultMath.floor(py) >> 4;
         int z = CultMath.floor(pz) >> 4;
         if (!member.positioned || x != member.x || y != member.y || z != member.z) {
+            boolean column = !member.positioned || x != member.x || z != member.z;
+            if (column) unlink(member);
             member.x = x;
             member.y = y;
             member.z = z;
             member.positioned = true;
             member.enteredSection = sectionEntryOrder++;
+            if (column) link(member);
         }
         if (member.entity != localPlayer)
             membership(member, member.entity.type == EntityTypeIds.PLAYER || world.isClientEntityTickingChunk(x, z));
@@ -107,9 +113,7 @@ final class ClientEntityTickOrder {
 
     void chunk(int x, int z, boolean ticking) {
         List<Member> entering = null;
-        for (Member member : members.values()) {
-            if (member.entity.type == EntityTypeIds.PLAYER || !member.positioned || member.x != x || member.z != z)
-                continue;
+        for (Member member = columns.get(column(x, z)); member != null; member = member.next) {
             if (!ticking) membership(member, false);
             else if (!member.ticking) {
                 if (entering == null) entering = new ArrayList<>();
@@ -117,10 +121,41 @@ final class ClientEntityTickOrder {
             }
         }
         if (entering == null) return;
-        // SectionPos.asLong packs Y in its low 20 bits: sections >= 0 precede the negative sections of this chunk.
-        entering.sort(Comparator.comparingInt((Member member) -> member.y & 0xFFFFF)
-                .thenComparingLong(member -> member.enteredSection));
-        for (Member member : entering) membership(member, true);
+        entering.sort(ClientEntityTickOrder::reloadOrder);
+        List<PacketEntity> appended = new ArrayList<>(entering.size());
+        for (Member member : entering) {
+            member.ticking = true;
+            appended.add(member.entity);
+        }
+        owner.appendEntitiesToClientTickOrder(appended);
+    }
+
+    // SectionPos.asLong packs Y in its low 20 bits: sections >= 0 precede the negative sections of this chunk.
+    private static int reloadOrder(Member a, Member b) {
+        int y = Integer.compare(a.y & 0xFFFFF, b.y & 0xFFFFF);
+        return y != 0 ? y : Long.compare(a.enteredSection, b.enteredSection);
+    }
+
+    private void link(Member member) {
+        if (member.entity.type == EntityTypeIds.PLAYER) return;
+        Member head = columns.put(column(member.x, member.z), member);
+        member.next = head;
+        if (head != null) head.previous = member;
+        member.linked = true;
+    }
+
+    private void unlink(Member member) {
+        if (!member.linked) return;
+        if (member.previous != null) member.previous.next = member.next;
+        else if (member.next != null) columns.put(column(member.x, member.z), member.next);
+        else columns.remove(column(member.x, member.z));
+        if (member.next != null) member.next.previous = member.previous;
+        member.previous = member.next = null;
+        member.linked = false;
+    }
+
+    private static long column(int x, int z) {
+        return (long) x << 32 | z & 0xFFFFFFFFL;
     }
 
     private void membership(Member member, boolean ticking) {
@@ -134,7 +169,8 @@ final class ClientEntityTickOrder {
         private final PacketEntity entity;
         private int x, y, z;
         private long enteredSection;
-        private boolean positioned, ticking;
+        private boolean positioned, ticking, linked;
+        private Member previous, next;
 
         private Member(PacketEntity entity) {
             this.entity = entity;

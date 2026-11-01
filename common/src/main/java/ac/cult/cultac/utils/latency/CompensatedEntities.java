@@ -163,6 +163,22 @@ public class CompensatedEntities {
         addOrderMapped = false;
     }
 
+    /** Successive appendEntityToClientTickOrder calls for {@code entities}, in order, in one add-order pass. */
+    void appendEntitiesToClientTickOrder(List<PacketEntity> entities) {
+        if (entities.size() == 1) {
+            appendEntityToClientTickOrder(entities.getFirst());
+            return;
+        }
+        Set<PacketEntity> appended = Collections.newSetFromMap(new IdentityHashMap<>(entities.size()));
+        for (PacketEntity entity : entities) {
+            entity.setClientTickOrder(nextClientEntityTickOrder++);
+            appended.add(entity);
+        }
+        addOrder.removeIf(appended::contains);
+        addOrder.addAll(entities);
+        addOrderMapped = false;
+    }
+
     public void onClientEntityPositionChanged(PacketEntity entity) {
         if (!player.isBedrockMovement()) clientTickMembership.moved(entity);
     }
