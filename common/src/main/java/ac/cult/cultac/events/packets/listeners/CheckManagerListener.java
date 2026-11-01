@@ -943,13 +943,15 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                 packetRoot == null ? vehiclePacket.onGround() : packetRoot.onGround;
         player.packetStateData.vehicleMovementOnGroundPresent = clientReportsOnGround;
         player.packetStateData.vehicleMovementReportedOnGround = clientReportsOnGround && vehiclePacket.onGround();
+        // AbstractBoat#tick takes getStatus() and runs super.tick()'s fluid update before
+        // InterpolationHandler#interpolate moves the boat.
+        if (shouldTickControlledBoatForClientVehiclePacket(packetRoot, checkableClientTick)) {
+            player.boatData.tick(player);
+        }
         if (checkableClientTick && firstClientTickVehicleMove) {
             packetRoot.interpolateBeforeLocalTravel(player);
         }
         Vec3 oldPosition = currentVehiclePhysicalPosition(player, packetRoot, new Vec3(player.x, player.y, player.z));
-        if (shouldTickControlledBoatForClientVehiclePacket(packetRoot, checkableClientTick)) {
-            player.boatData.tick(player);
-        }
         Vec3 physicalMovementStart = oldPosition;
         float physicalYaw = player.compensatedEntities.vehicles.controlledTravelYaw(packetRoot, vehiclePacket.yaw());
         float physicalPitch =

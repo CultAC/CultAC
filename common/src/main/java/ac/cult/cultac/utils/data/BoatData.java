@@ -16,6 +16,7 @@ import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.util.ArrayList;
 import java.util.List;
+import org.jetbrains.annotations.Nullable;
 
 public class BoatData {
     public record BoatStatusSample(BoatEntityStatus status, double waterLevel, float landFriction) {}
@@ -106,6 +107,13 @@ public class BoatData {
     private boolean ticked(CultPlayer player, PacketEntity boat) {
         return boat == controlledBoat && controlledBoatTickedAt == player.packetStateData.acceptedClientTick
                 || player.compensatedEntities.ticksInClientTick(boat);
+    }
+
+    /** The status the controlled {@code boat}'s AbstractBoat#tick took this client tick before it moved, else null. */
+    public @Nullable BoatEntityStatus statusThisTick(CultPlayer player, PacketEntity boat) {
+        return boat == controlledBoat && controlledBoatTickedAt == player.packetStateData.acceptedClientTick
+                ? status
+                : null;
     }
 
     /** AbstractBoat#setInput keeps only the four movement keys. */
