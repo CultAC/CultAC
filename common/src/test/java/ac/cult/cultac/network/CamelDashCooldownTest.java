@@ -64,6 +64,8 @@ class CamelDashCooldownTest {
     private static final double GROUND_FRICTION = 0.6F * 0.91F;
     /** LivingEntity#moveRelative for the ridden input's 0.98F on 0.6-friction ground. */
     private static final double GROUND_INPUT = (double) 0.98F * (SPEED * (0.21600002F / (0.6F * 0.6F * 0.6F)));
+    /** LivingEntity#getFlyingSpeed for a Player controller: the ridden input at a tenth of the speed. */
+    private static final double AIR_INPUT = (double) 0.98F * (SPEED * 0.1F);
     /** The ridden input with Camel#getRiddenSpeed's movement_speed alone. */
     private static final double WALK_INPUT = (double) 0.98F * (0.09F * (0.21600002F / (0.6F * 0.6F * 0.6F)));
 
@@ -131,7 +133,8 @@ class CamelDashCooldownTest {
 
     /**
      * Camel#getRiddenSpeed reads only the dash cooldown: a camel still dashing, spawned mid-dash and not yet landed,
-     * gives a sprinting rider the bonus once the cooldown is zero.
+     * gives a sprinting rider the bonus once the cooldown is zero. The first ridden travel still reads the camel's own
+     * onGround, false, so LivingEntity#getFrictionInfluencedSpeed takes the flying speed of that bonus.
      */
     @Test
     void aDashingCamelWithASpentCooldownGivesTheBonus() throws Exception {
@@ -144,7 +147,7 @@ class CamelDashCooldownTest {
 
             mount(f);
             assertTrue(camel.dashing && camel.dashCooldown == 0, "the camel is not dashing with a spent cooldown");
-            assertExact(ride(f, new Vec3(START.x, START.y, START.z + GROUND_INPUT)));
+            assertExact(ride(f, new Vec3(START.x, START.y, START.z + AIR_INPUT)));
         }
     }
 
