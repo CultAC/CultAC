@@ -30,7 +30,9 @@ public final class JavaPassengerFluids {
         boolean waterAllowed = true;
         if (vehicle != null && vehicle.isBoat()) {
             if (vehicleBox == null) vehicleBox = vehicle.possibleMovementCollisionBoxCandidate(0, new SimpleCollisionBox());
-            BoatEntityStatus status = vehicle.boatStatus;
+            // AbstractBoat#modifyPassengerFluidInteractionBox reads the status taken before the boat's step with the
+            // box after it.
+            BoatEntityStatus status = vehicle.boatStatusThisTick(player);
             if (status == null) status = ac.cult.cultac.utils.data.BoatData.sampleStatus(player, vehicleBox).status();
             boolean under = status == BoatEntityStatus.UNDER_WATER || status == BoatEntityStatus.UNDER_FLOWING_WATER;
             if (!under) {

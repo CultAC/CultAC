@@ -206,6 +206,8 @@ public class PacketEntity {
 
     public HashMap<MovementEffect, Integer> potionsMap = null;
     public BoatEntityStatus boatStatus = null;
+    private BoatEntityStatus statusBeforeStep;
+    private int statusBeforeStepTick = Integer.MIN_VALUE;
     // AbstractBoat#deltaRotation of this boat as the player's control moved to another boat.
     public float boatDeltaRotation;
     // AbstractBoat's inputLeft/Right/Up/Down: only LocalPlayer#rideTick writes them, and nothing clears them on a
@@ -1186,6 +1188,9 @@ public class PacketEntity {
                     && interpolation.isSettled()) return;
             idleProbe = interpolation.beginIdleProbe();
         }
+        // The local passenger's Entity#baseTick reads its boat's status after the boat's tick.
+        if (boat && !player.isBedrockMovement() && this == player.compensatedEntities.getSelf().getRiding())
+            updateBoatStatus(player);
         stepInterpolation(player);
 
         if (player.isBedrockMovement() && isBoat() && bedrockPrediction != null) {
@@ -1463,13 +1468,26 @@ public class PacketEntity {
         }
     }
 
-    public void updateBoatStatus(CultPlayer player) {
-        if (isBoat() && newPacketLocation != null) {
-            // MCP-Reborn AbstractBoat#tick updates status even for client-side
-            // non-controlled boats before deciding whether local physics runs.
-            boatStatus = BoatData.sampleStatus(player, getPossibleMovementCollisionBoxes())
-                    .status();
+    /**
+     * AbstractBoat#tick updates status even for a boat the client does not control, before
+     * InterpolationHandler#interpolate moves it: a status every position candidate agrees on, else null.
+     */
+    private void updateBoatStatus(CultPlayer player) {
+        statusBeforeStepTick = player.packetStateData.acceptedClientTick;
+        statusBeforeStep = null;
+        for (SimpleCollisionBox box : getPossibleMovementCollisionBoxCandidates()) {
+            BoatEntityStatus status = BoatData.sampleStatus(player, box).status();
+            if (statusBeforeStep != null && status != statusBeforeStep) {
+                statusBeforeStep = null;
+                return;
+            }
+            statusBeforeStep = status;
         }
+    }
+
+    /** The status this client tick's AbstractBoat#tick took before its interpolation step, else null. */
+    public @Nullable BoatEntityStatus boatStatusThisTick(CultPlayer player) {
+        return statusBeforeStepTick == player.packetStateData.acceptedClientTick ? statusBeforeStep : null;
     }
 
     public boolean hasPassenger(PacketEntity entity) {
