@@ -9,6 +9,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.EntityPose;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityArmorStand;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityCamel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityInteraction;
@@ -155,12 +156,23 @@ public class BoundingBoxSize {
             double px = point.x(), py = point.y(), pz = point.z();
             if (entity instanceof PacketEntityShulker shulker) py *= shulker.passengerHeightScale();
             float dimensions = defaultDimensionsScale(entity, player.getClientVersion(), player.isBedrockMovement());
-            if (!type.fixed() && dimensions != 1.0F) {
+            boolean fixed = type.fixed();
+            if (!player.isBedrockMovement() && entity instanceof PacketEntityArmorStand stand) {
+                // ArmorStand#getDefaultDimensions: a marker's fixed 0 x 0 MARKER_DIMENSIONS, else a small stand's
+                // BABY_DIMENSIONS, the type's scaled by 0.5, attachments included.
+                if (stand.actionMarker()) {
+                    px = py = pz = 0;
+                    fixed = true;
+                } else if (stand.isSmall()) {
+                    dimensions *= 0.5F;
+                }
+            }
+            if (!fixed && dimensions != 1.0F) {
                 px *= dimensions;
                 py *= dimensions;
                 pz *= dimensions;
             }
-            if (!type.fixed() && entity.scale != 1.0F) {
+            if (!fixed && entity.scale != 1.0F) {
                 px *= entity.scale;
                 py *= entity.scale;
                 pz *= entity.scale;
