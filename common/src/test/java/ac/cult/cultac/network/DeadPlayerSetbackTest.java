@@ -141,6 +141,64 @@ class DeadPlayerSetbackTest {
         }
     }
 
+    /**
+     * ClientLevel#tickEntities skips a root whose chunk stopped ticking, and ClientLevel#tickPassenger with it every
+     * rider: the mounted LocalPlayer runs no LivingEntity#baseTick and so no LocalPlayer#tickDeath, however many
+     * client ticks end. Healed, it is still in the level and ticks again with its root.
+     */
+    @Test
+    void aDeadRiderOfAnUntickedRootStaysInTheLevel() throws Exception {
+        try (var f = groundedPlayer(new Vec3(0, GROUNDED_Y, 0))) {
+            var vehicle = mountArmorStand(f);
+            f.rideTick();
+            // ClientLevel#unload stops ticking the forgotten chunk's entities.
+            f.player.compensatedWorld.removeChunkLater(0, 0);
+            f.pongThrough(f.player.lastTransactionSent.get());
+            assertFalse(f.player.compensatedEntities.ticksInClientTick(vehicle), "the root still ticks");
+            die(f);
+            for (int tick = 0; tick < 25; tick++) f.tickEnd();
+            heal(f);
+            assertFalse(f.player.compensatedEntities.getSelf().isRemovedFromLevel(), "removed without a tickDeath");
+            assertTrue(CheckManagerListener.localPlayerTicked(f.player));
+        }
+    }
+
+    /** A dead rider whose root ticks runs LocalPlayer#tickDeath in each ride tick and is removed by its 20th. */
+    @Test
+    void aDeadRiderOfATickingRootIsRemovedOnItsTwentiethRideTick() throws Exception {
+        try (var f = groundedPlayer(new Vec3(0, GROUNDED_Y, 0))) {
+            var vehicle = mountArmorStand(f);
+            assertTrue(f.player.compensatedEntities.ticksInClientTick(vehicle));
+            die(f);
+            for (int tick = 1; tick < 20; tick++) f.rideTick();
+            assertFalse(f.player.compensatedEntities.getSelf().isRemovedFromLevel(), "removed before tick 20");
+            f.rideTick();
+            assertTrue(f.player.compensatedEntities.getSelf().isRemovedFromLevel(), "kept past tick 20");
+        }
+    }
+
+    private static final int VEHICLE = 100;
+
+    private static ac.cult.cultac.utils.data.packetentity.PacketEntity mountArmorStand(JavaTickFixture f) {
+        f.player.compensatedEntities.addEntity(
+                VEHICLE, ac.cult.blocksim.entity.EntityTypeIds.ARMOR_STAND, STANDING, 0, 0, 0);
+        f.setPassengers(VEHICLE, java.util.List.of(f.player.entityID));
+        f.pongThrough(f.player.lastTransactionSent.get());
+        assertTrue(f.player.compensatedEntities.getSelf().inVehicle());
+        return f.player.compensatedEntities.getEntity(VEHICLE);
+    }
+
+    /** A later SET_HEALTH above 0, which ClientPacketListener#handleSetHealth writes before the next tick. */
+    private static void heal(JavaTickFixture f) {
+        var packet = new ClientboundSetHealth(20.0F, 20, 5.0F);
+        var event = new PacketSendEvent<>(
+                f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.SET_HEALTH, packet, false);
+        new PacketPlayerRespawn().onSetHealth(event, f.player, packet);
+        event.getTasksAfterSend().forEach(Runnable::run);
+        f.pongThrough(f.player.lastTransactionSent.get());
+        assertTrue(f.player.compensatedEntities.getSelf().actionAlive);
+    }
+
     /** LivingEntity#aiStep clears jumping while LivingEntity#isImmobile, which a dead player is. */
     @ParameterizedTest(name = "dead {0}")
     @CsvSource({"false", "true"})

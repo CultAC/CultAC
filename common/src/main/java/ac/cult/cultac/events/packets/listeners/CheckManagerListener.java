@@ -474,10 +474,16 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         PacketStateData state = player.packetStateData;
         if (!state.localPlayerTickStarted) {
             state.localPlayerTickStarted = true;
-            state.localPlayerTickRan = localPlayerTicked(player);
+            state.localPlayerTickRan = localPlayerTicked(player) && rideTickReached(player);
             if (state.localPlayerTickRan) player.compensatedEntities.getSelf().tickDeath();
         }
         return state.localPlayerTickRan;
+    }
+
+    // ClientLevel#tickPassenger reaches a rider only from a root ClientLevel#tickEntities ticks.
+    private static boolean rideTickReached(CultPlayer player) {
+        PacketEntity vehicle = player.compensatedEntities.getSelf().getRiding();
+        return vehicle == null || player.compensatedEntities.ticksInClientTick(vehicle);
     }
 
     // LocalPlayer#tick runs only once ClientPacketListener#hasClientLoaded, which 1.21.4 introduced, and
