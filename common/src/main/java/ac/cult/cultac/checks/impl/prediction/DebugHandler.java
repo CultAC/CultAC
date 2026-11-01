@@ -23,7 +23,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Supplier;
 import net.kyori.adventure.text.Component;
 
@@ -77,9 +76,9 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
                         || !sender.hasPermission("cult.debug"));
     }
 
-    Set<PlatformPlayer> listeners = new CopyOnWriteArraySet<>();
-    // Listeners from /cult debug -v, who also get the S and E velocities. Always a subset of listeners.
-    private final Set<PlatformPlayer> verboseListeners = new CopyOnWriteArraySet<>();
+    // Each listener, and whether it ran /cult debug -v for the S and E velocities too. The command thread toggles one
+    // entry atomically while the packet thread prunes offline listeners, so neither splits the other's update.
+    private final Map<PlatformPlayer, Boolean> listeners = new ConcurrentHashMap<>();
     boolean outputToConsole = false;
     private boolean consoleVerbose = false;
 
@@ -140,10 +139,9 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
         String prefix = player.platformPlayer == null ? "null" : player.platformPlayer.getName() + " ";
 
         // Don't memory leak player references
-        listeners.removeIf(player -> !player.isOnline());
-        verboseListeners.retainAll(listeners);
+        listeners.keySet().removeIf(player -> !player.isOnline());
 
-        for (PlatformPlayer player : listeners) {
+        for (PlatformPlayer player : listeners.keySet()) {
             // Don't add prefix if the player is listening to oneself
             player.sendMessage((player == getPlayer().platformPlayer ? "" : prefix) + p);
             player.sendMessage((player == getPlayer().platformPlayer ? "" : prefix) + a);
@@ -186,7 +184,7 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
             }
         }
 
-        if (getPlayer().bedrockState == null && (!verboseListeners.isEmpty() || outputToConsole && consoleVerbose)) {
+        if (getPlayer().bedrockState == null && (listeners.containsValue(true) || outputToConsole && consoleVerbose)) {
             awaitingEndOfTick = result;
             // The commit clears this set before refilling it with the end-of-tick velocities.
             startOfTickVelocities =
@@ -242,17 +240,18 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
         committedEnd = null;
 
         boolean toConsole = outputToConsole && consoleVerbose;
-        if (verboseListeners.isEmpty() && !toConsole) return;
+        if (!listeners.containsValue(true) && !toConsole) return;
 
         List<String> lines = new ArrayList<>();
         formatVelocities(lines, "S: ", startOfTick);
         formatVelocities(lines, "E: ", endOfTickVelocities);
         PlatformPlayer self = getPlayer().platformPlayer;
         String prefix = self == null ? "null" : self.getName() + " ";
-        for (PlatformPlayer listener : verboseListeners) {
+        listeners.forEach((listener, verbose) -> {
+            if (!verbose) return;
             String listenerPrefix = listener == self ? "" : prefix;
             for (String line : lines) listener.sendMessage(listenerPrefix + line);
-        }
+        });
         if (toConsole) {
             for (String line : lines) LogUtil.info(prefix + line);
         }
@@ -377,19 +376,11 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
      * starts a verbose session, upgrades a plain one, and turns a verbose one off.
      */
     public void toggleListener(PlatformPlayer player, boolean verbose) {
-        if (listeners.contains(player) && (!verbose || verboseListeners.contains(player))) {
-            listeners.remove(player);
-            verboseListeners.remove(player);
-            player.sendMessage("\u00a77" + "Disabled debugging of predictions");
-            return;
-        }
-        if (verbose) {
-            verboseListeners.add(player);
+        Boolean now = listeners.compute(player, (listener, was) -> was != null && (!verbose || was) ? null : verbose);
+        if (now == null) player.sendMessage("\u00a77" + "Disabled debugging of predictions");
+        else if (now)
             player.sendMessage("\u00a7a" + "Debugging predictions with start (S) and end (E) of tick velocities");
-        } else {
-            player.sendMessage("\u00a7a" + "Debugging predictions");
-        }
-        listeners.add(player);
+        else player.sendMessage("\u00a7a" + "Debugging predictions");
     }
 
     public boolean toggleConsoleOutput() {
@@ -421,8 +412,8 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
         if (listeners.isEmpty() && !outputToConsole) return;
 
         String message = "\u00a7b" + "[" + source + "] " + "\u00a7f" + details.getString();
-        listeners.removeIf(listener -> !listener.isOnline());
-        for (PlatformPlayer listener : listeners) {
+        listeners.keySet().removeIf(listener -> !listener.isOnline());
+        for (PlatformPlayer listener : listeners.keySet()) {
             listener.sendMessage(message);
         }
         if (outputToConsole) {
