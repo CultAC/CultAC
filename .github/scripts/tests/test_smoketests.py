@@ -51,7 +51,8 @@ class SmoketestTests(unittest.TestCase):
         (sandbox / 'workspace').mkdir(parents=True)
         (self.root / 'host/logs').mkdir(parents=True)
         (self.root / 'host/logs/private.log').write_text('secret')
-        (sandbox / 'workspace/server').symlink_to(self.root / 'host', target_is_directory=True)
+        (self.root / 'host/suite.json').write_text('secret')
+        (sandbox / 'workspace/artifacts').symlink_to(self.root / 'host', target_is_directory=True)
         collector.collect(sandbox, self.root / 'evidence', 'bedrock')
         self.assertEqual(list((self.root / 'evidence').rglob('*')), [])
 

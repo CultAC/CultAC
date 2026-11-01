@@ -27,8 +27,10 @@ fixtures or secrets. A PR build pass is not a private smoketest pass.
 - Test containers use dropped capabilities, no-new-privileges, resource limits,
   a read-only root and independent workspace/cache copies.
 - Artifacts come only from trusted-branch runs. Collector rejects symlinks and
-  special files and limits file count and byte size. It cannot inspect arbitrary
-  regular-file content for secrets, so untrusted PRs never reach this phase.
+  special files, filters to status/qualification summaries and limits file count
+  and byte size. Full private capture files, replay traces and server logs are not
+  uploaded. Summary files can still contain sensitive failure messages, so
+  trusted-branch code must not place secrets in test diagnostics.
 
 Arbitrary PRs cannot run the confidential fixture suites safely under the
 old same-container architecture. For full PR smoke coverage, use sanitized
