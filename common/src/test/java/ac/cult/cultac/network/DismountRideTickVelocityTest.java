@@ -330,6 +330,35 @@ class DismountRideTickVelocityTest {
     }
 
     /**
+     * Player#onClimbable is false in flight, so neither LivingEntity#handleOnClimbable nor the 0.2 climb runs:
+     * the rider keeps LocalPlayer#aiStep's flying ascent, less gravity and drag. Player#travel flies a passenger
+     * through LivingEntity#travel, and the first free flight moves by that velocity.
+     */
+    @ParameterizedTest
+    @MethodSource("endings")
+    void aFlyingRiderOnALadderDoesNotClimb(ClientVersion version, boolean removeSeat) throws Exception {
+        try (var f = fixture(version);
+                var ignored = observeOnly(true)) {
+            ride(f);
+            f.player.canFly = f.player.isFlying = true;
+            f.player.flySpeed = 0.05F;
+            Vec3 seat = rideTickSeat(f);
+            BlockPos feet = BlockPos.containing(seat.x, seat.y, seat.z);
+            f.player.compensatedWorld.updateBlock(feet, BlockIds.LADDER.defaultState());
+            f.input(JUMP);
+            f.rideTick();
+            dismount(f, removeSeat);
+            f.input(NONE);
+            f.player.compensatedWorld.updateBlock(feet, BlockIds.AIR.defaultState());
+            double ascent = (f.player.flySpeed * 3.0F - 0.08) * 0.98F;
+            assertEquals(ascent, f.player.compensatedEntities.getSelf().deltaMovement.y, 1e-9);
+            // Flight exempts the move; its offset still measures the carried velocity.
+            PredictionResult move = f.tick(position(f).add(0, ascent, 0), false);
+            assertTrue(move.getOffset() < 1.0E-5, describe(move));
+        }
+    }
+
+    /**
      * Entity#baseTick keeps the previous tick's box-wide powder snow contact, and LivingEntity
      * #handleRelativeFrictionAndCalculateMovement climbs 0.2 with it and the jump key while the feet are in air.
      */
@@ -437,7 +466,7 @@ class DismountRideTickVelocityTest {
 
     /** As {@link #ride(JavaTickFixture, ServerboundPlayerInput)}, with the vehicle at {@code at}. */
     private static void ride(JavaTickFixture f, Vec3 at, ServerboundPlayerInput input) {
-        f.place(at, Vec3.ZERO);
+        f.place(at, new Vec3(0, FALL, 0));
         PredictionResult standing = f.tick(at, true);
         assertTrue(exact(standing), describe(standing));
         mount(f, at);

@@ -73,7 +73,7 @@ public final class JavaPassengerTravel {
             friction = Friction.computeModifiedFriction(friction, (float) self.frictionModifier);
         float speed = inputSpeed(player, self, fluidTravel && water, fluidTravel && !water, ground, friction);
         velocity = velocity.add(ClientKeyInput.inputVector(context, movementInput, speed));
-        boolean climbing = !fluidTravel && Collisions.onClimbable(player, start.x, start.y, start.z);
+        boolean climbing = !fluidTravel && onClimbable(player, start);
         if (climbing) {
             double y = Math.max(velocity.y, -.15F);
             int block = player.compensatedWorld.getBlockStateIdAt(BlockPos.containing(start.x, start.y, start.z));
@@ -93,7 +93,7 @@ public final class JavaPassengerTravel {
         Vec3 movement = state.velocity();
         boolean horizontal = Math.abs(moved.delta().x - moved.movement().x) >= 1.0E-5F
                 || Math.abs(moved.delta().z - moved.movement().z) >= 1.0E-5F;
-        boolean endClimbable = Collisions.onClimbable(player, state.position().x, state.position().y, state.position().z);
+        boolean endClimbable = onClimbable(player, state.position());
         if ((fluidTravel && water && horizontal && endClimbable)
                 || (!fluidTravel && (horizontal || jump)
                         && (endClimbable || JavaInsideBlockEffects.canClimbPowderSnow(player, context, state.position()))))
@@ -240,6 +240,11 @@ public final class JavaPassengerTravel {
         for (var collider : RootVehicleInterpolationCollision.entityCollisionBoxes(player, env.actor(), state.position(), box))
             if (box.isIntersected(collider)) return false;
         return true;
+    }
+
+    /** Player#onClimbable: never while Abilities#flying. */
+    private static boolean onClimbable(CultPlayer player, Vec3 position) {
+        return !player.isFlying && Collisions.onClimbable(player, position.x, position.y, position.z);
     }
 
     /** Entity#getBlockJumpFactor: the feet block, then getBlockPosBelowThatAffectsMyMovement 0.500001 below. */
