@@ -19,6 +19,7 @@ import ac.cult.cultac.utils.nmsutil.FlightToggle;
 import ac.cult.cultac.utils.nmsutil.Friction;
 import ac.cult.cultac.utils.nmsutil.JavaPassengerFluids;
 import ac.cult.cultac.utils.nmsutil.RootVehicleInterpolationCollision;
+import java.util.List;
 
 /** The passenger's ordinary travel between Entity#rideTick's zeroing and Entity#positionRider. */
 public final class JavaPassengerTravel {
@@ -151,69 +152,92 @@ public final class JavaPassengerTravel {
                 state.playerEyeFluidContact()), jumpDelay);
     }
 
-    /** Shulker entity moves before this passenger's tick; rideTick subsequently zeroes their velocity. */
-    public static JavaPassState beforeTick(CultPlayer player, SimulationContext context, JavaPassState state) {
+    /**
+     * A passenger state and its Entity#movementThisTick: from 1.21.5 each SHULKER or SHULKER_BOX Entity#move records its
+     * movement until the next LivingEntity#aiStep's Entity#applyEffectsFromBlocks replays and clears them.
+     */
+    public record Pass(JavaPassState state, List<JavaInsideBlockEffects.RecordedMove> recorded) {
+        public Pass {
+            recorded = List.copyOf(recorded);
+        }
+    }
+
+    /**
+     * Shulker entity moves before this passenger's tick; rideTick subsequently zeroes their velocity. The travel's
+     * Entity#applyEffectsFromBlocks replays the movements they record after {@code recorded}.
+     */
+    public static Pass beforeTick(
+            CultPlayer player, SimulationContext context, JavaPassState state,
+            List<JavaInsideBlockEffects.RecordedMove> recorded) {
         var moves = player.compensatedEntities.shulkerPeekMoves(true);
-        if (moves.isEmpty()) return state;
-        return JavaBlockEntityPass.run(player, context,
+        if (moves.isEmpty()) return new Pass(state, recorded(context, recorded));
+        var result = JavaBlockEntityPass.run(player, context,
                 new ac.cult.cultac.utils.latency.ClientBlockEntityPass(moves.stream()
                         .map(m -> (ac.cult.cultac.utils.latency.ClientBlockEntityPass.Mover) m).toList(),
                         player.compensatedWorld.endedTickGameTime()), state,
-                context.getPose(), player.packetStateData.knownInput.shift(), state.position()).state();
+                context.getPose(), player.packetStateData.knownInput.shift(), state.position());
+        return new Pass(result.state(), recorded(context, result.recorded().after(recorded)));
     }
 
-    /** positionRider replaces only position; later entity/block-entity moves retain their complete result. */
-    public static java.util.List<JavaPassState> afterTick(
+    /**
+     * positionRider replaces only position; later entity/block-entity moves retain their complete result. The travel
+     * consumed every recorded movement, so the moves after it start the next ride tick's.
+     */
+    public static List<Pass> afterTick(
             CultPlayer player, SimulationContext context, JavaPassState state, Vec3 seat,
             ac.cult.cultac.utils.enums.Pose pose, Vec3 tickStart) {
         state = new JavaPassState(seat, state.velocity(), state.onGround(), state.support(), state.stuckSpeed(),
                 0, state.pistonDeltas(), state.powderContact(), state.inWater(), state.inLava(), state.playerEyeFluidContact());
         // Remote LivingEntity pushes and Shulker peek moves interleave in ClientLevel's entity-tick order.
         var peeks = player.compensatedEntities.shulkerPeekMoves(false);
-        java.util.List<JavaPassState> states = java.util.List.of(state);
+        List<Pass> states = List.of(new Pass(state, List.of()));
         long after = player.compensatedEntities.clientTickOrder(player.compensatedEntities.getSelf());
         for (var peek : peeks) {
             states = applyLateVelocities(player, context, states, pose, after, peek.tickOrder());
-            states = applyPeek(player, context, states, peek, pose, tickStart);
+            states = applyPass(player, context, states, new ac.cult.cultac.utils.latency.ClientBlockEntityPass(
+                    List.of(peek), player.compensatedWorld.endedTickGameTime()), pose, tickStart);
             after = peek.tickOrder();
         }
         states = applyLateVelocities(player, context, states, pose, after, Long.MAX_VALUE);
         var pass = player.compensatedWorld.lastBlockEntityPass();
         if (pass.isEmpty()) return states;
-        var next = new java.util.ArrayList<JavaPassState>();
+        return applyPass(player, context, states, pass, pose, tickStart);
+    }
+
+    private static List<Pass> applyLateVelocities(
+            CultPlayer player, SimulationContext context, List<Pass> states,
+            ac.cult.cultac.utils.enums.Pose pose, long after, long through) {
+        var result = new java.util.ArrayList<Pass>();
+        for (var pass : states) {
+            var pushed = pass.state();
+            for (var tick : JavaEntityVelocityTicks.passengerTicks(player, context, pushed.position(), pose)) {
+                if (tick.order() <= after || tick.order() > through) continue;
+                pushed = pushed.withVelocity(pushed.velocity().add(tick.impulse()));
+            }
+            var next = new Pass(pushed, pass.recorded());
+            if (!result.contains(next)) result.add(next);
+        }
+        return result;
+    }
+
+    private static List<Pass> applyPass(
+            CultPlayer player, SimulationContext context, List<Pass> states,
+            ac.cult.cultac.utils.latency.ClientBlockEntityPass pass,
+            ac.cult.cultac.utils.enums.Pose pose, Vec3 tickStart) {
+        var next = new java.util.ArrayList<Pass>();
         for (var current : states) {
-            var moved = JavaBlockEntityPass.run(player, context, pass, current, pose,
-                    player.packetStateData.knownInput.shift(), tickStart).state();
+            var result = JavaBlockEntityPass.run(player, context, pass, current.state(), pose,
+                    player.packetStateData.knownInput.shift(), tickStart);
+            var moved = new Pass(result.state(), recorded(context, result.recorded().after(current.recorded())));
             if (!next.contains(moved)) next.add(moved);
         }
         return next;
     }
 
-    private static java.util.List<JavaPassState> applyLateVelocities(
-            CultPlayer player, SimulationContext context, java.util.List<JavaPassState> states,
-            ac.cult.cultac.utils.enums.Pose pose, long after, long through) {
-        var result = new java.util.ArrayList<JavaPassState>();
-        for (var state : states) {
-            var pushed = state;
-            for (var tick : JavaEntityVelocityTicks.passengerTicks(player, context, state.position(), pose)) {
-                if (tick.order() <= after || tick.order() > through) continue;
-                pushed = pushed.withVelocity(pushed.velocity().add(tick.impulse()));
-            }
-            if (!result.contains(pushed)) result.add(pushed);
-        }
-        return result;
-    }
-
-    private static java.util.List<JavaPassState> applyPeek(
-            CultPlayer player, SimulationContext context, java.util.List<JavaPassState> states,
-            ac.cult.cultac.utils.latency.ClientBlockEntityPass.ShulkerPeek peek,
-            ac.cult.cultac.utils.enums.Pose pose, Vec3 tickStart) {
-        var pass = new ac.cult.cultac.utils.latency.ClientBlockEntityPass(
-                java.util.List.of(peek), player.compensatedWorld.endedTickGameTime());
-        var next = new java.util.ArrayList<JavaPassState>();
-        for (var state : states) next.add(JavaBlockEntityPass.run(player, context, pass, state, pose,
-                player.packetStateData.knownInput.shift(), tickStart).state());
-        return next;
+    /** Entity#move records movements only from 1.21.5; older applyEffectsFromBlocks sweeps oldPosition -> position. */
+    private static List<JavaInsideBlockEffects.RecordedMove> recorded(
+            SimulationContext context, List<JavaInsideBlockEffects.RecordedMove> recorded) {
+        return context.getVersion().isOlderThan(ClientVersion.V_1_21_5) ? List.of() : recorded;
     }
 
     private static float inputSpeed(

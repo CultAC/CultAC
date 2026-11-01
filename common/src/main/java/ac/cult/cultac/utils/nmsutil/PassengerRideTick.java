@@ -4,6 +4,7 @@ import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionCarry;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaInsideBlockEffects;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementPatch;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassState;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassengerTravel;
@@ -18,12 +19,14 @@ import java.util.List;
 
 /** Complete local-passenger states after travel, positionRider and the later entity/block-entity ticks. */
 public final class PassengerRideTick {
+    /** {@code recorded} is the passenger's Entity#movementThisTick between client ticks. */
     private record State(
             JavaPassState move,
             int jumpDelay,
             JavaMovementPatch patch,
             ClientFluidTagOrder order,
-            ac.cult.cultac.utils.enums.Pose pose) {}
+            ac.cult.cultac.utils.enums.Pose pose,
+            List<JavaInsideBlockEffects.RecordedMove> recorded) {}
 
     private List<State> states = List.of();
     private int onFootJumpDelay;
@@ -35,7 +38,10 @@ public final class PassengerRideTick {
     private boolean jumping;
     private ac.cult.cultac.utils.data.packetentity.PacketEntitySelf observedSelf;
 
-    public void begin(CultPlayer player, PredictionCarry carry, DesyncStatus onGround) {
+    /** {@code recorded} is what the local player's Entity#movementThisTick holds when it mounts. */
+    public void begin(
+            CultPlayer player, PredictionCarry carry, DesyncStatus onGround,
+            List<JavaInsideBlockEffects.RecordedMove> recorded) {
         if (observedSelf != player.compensatedEntities.getSelf()) {
             onFootJumpDelay = 0;
             movementInput = Vec3.ZERO;
@@ -55,14 +61,14 @@ public final class PassengerRideTick {
                         anchor == null ? support : anchor.support(), state.stuckSpeed(), state.fallDistance(),
                         anchor == null ? ClientPistonDeltas.NONE : anchor.pistonDeltas(), state.powderContact(),
                         false, false, state.playerEyeFluidContact()), onFootJumpDelay,
-                        state.movementPatch(), state.fluidTagOrder(), player.pose));
+                        state.movementPatch(), state.fluidTagOrder(), player.pose, recorded));
             }
         }
         if (initial.isEmpty()) initial.add(new State(new JavaPassState(start, Vec3.ZERO,
                 onGround.determinePessimistically(), support, null, 0, ClientPistonDeltas.NONE),
-                onFootJumpDelay, null, null, player.pose));
+                onFootJumpDelay, null, null, player.pose, recorded));
         states = initial.stream().map(s -> new State(s.move(), s.jumpDelay(), s.patch(), s.order(),
-                ac.cult.cultac.utils.enums.Pose.STANDING)).toList();
+                ac.cult.cultac.utils.enums.Pose.STANDING, s.recorded())).toList();
         useSeats = false;
     }
 
@@ -102,7 +108,7 @@ public final class PassengerRideTick {
         int tick = player.packetStateData.acceptedClientTick;
         if (recordedTick == tick) return;
         recordedTick = tick;
-        if (states.isEmpty()) begin(player, null, DesyncStatus.fromBoolean(player.onGround));
+        if (states.isEmpty()) begin(player, null, DesyncStatus.fromBoolean(player.onGround), List.of());
         var riding = player.compensatedEntities.getSelf().getRiding();
         long phase = player.compensatedEntities.passTickedThroughOrder();
         // ClientLevel#tickNonPassenger ticks the riding root before recursing into this passenger's rideTick.
@@ -126,13 +132,15 @@ public final class PassengerRideTick {
                         for (JavaMovementPatch patch : patches) {
                             var context = context(player, prior.move().position(), prior);
                             context.setMovementPatch(patch);
-                            var before = JavaPassengerTravel.beforeTick(player, context, prior.move());
-                            context = context(player, before.position(), prior);
+                            var before = JavaPassengerTravel.beforeTick(
+                                    player, context, prior.move(), prior.recorded());
+                            context = context(player, before.state().position(), prior);
                             context.setMovementPatch(patch);
+                            context.setMovesBeforeTravel(before.recorded());
                             for (var box : boxes) {
                                 context.setRideTickVehicleBox(box);
-                                var replay = JavaPassengerTravel.tick(
-                                        player, context, before, prior.jumpDelay(), box, movementInput, jumping);
+                                var replay = JavaPassengerTravel.tick(player, context, before.state(),
+                                        prior.jumpDelay(), box, movementInput, jumping);
                                 Vec3 end = replay.state().position();
                                 var pose = player.canPlayerFitWithinBlocksAndEntitiesWhen(
                                                 ac.cult.cultac.utils.enums.Pose.SWIMMING, end.x, end.y, end.z)
@@ -141,8 +149,9 @@ public final class PassengerRideTick {
                                         player.compensatedEntities.getSelf(), player, box);
                                 if (frost == null) frost = replay.state();
                                 for (var moved : JavaPassengerTravel.afterTick(
-                                        player, context, replay.state(), seat, pose, before.position())) {
-                                    var state = new State(moved, replay.jumpDelay(), patch, order, pose);
+                                        player, context, replay.state(), seat, pose, before.state().position())) {
+                                    var state = new State(
+                                            moved.state(), replay.jumpDelay(), patch, order, pose, moved.recorded());
                                     if (!next.contains(state)) next.add(state);
                                 }
                             }
@@ -209,7 +218,7 @@ public final class PassengerRideTick {
         var next = new ArrayList<State>(states.size());
         for (var state : states)
             next.add(new State(state.move().withVelocity(velocity), state.jumpDelay(),
-                    state.patch(), state.order(), state.pose()));
+                    state.patch(), state.order(), state.pose(), state.recorded()));
         states = List.copyOf(next);
     }
 
@@ -217,8 +226,8 @@ public final class PassengerRideTick {
     public void setPosition(Vec3 position) {
         var next = new ArrayList<State>(states.size());
         for (var state : states) {
-            var moved = new State(
-                    state.move().withPosition(position), state.jumpDelay(), state.patch(), state.order(), state.pose());
+            var moved = new State(state.move().withPosition(position), state.jumpDelay(), state.patch(),
+                    state.order(), state.pose(), state.recorded());
             if (!next.contains(moved)) next.add(moved);
         }
         states = List.copyOf(next);
@@ -227,7 +236,12 @@ public final class PassengerRideTick {
     /** A packet callback overwrites passenger motion without changing any ride-tick state. */
     public void setMotionY(double y) {
         states = states.stream().map(state -> new State(state.move().withVelocity(state.move().velocity().with(ac.cult.cultac.protocol.value.Direction.Axis.Y, y)),
-                state.jumpDelay(), state.patch(), state.order(), state.pose())).toList();
+                state.jumpDelay(), state.patch(), state.order(), state.pose(), state.recorded())).toList();
+    }
+
+    /** The movements the last ride tick recorded after its travel, which the next travel replays. */
+    public List<JavaInsideBlockEffects.RecordedMove> recordedMoves() {
+        return states.isEmpty() ? List.of() : states.getFirst().recorded();
     }
 
     public boolean inFluid() {

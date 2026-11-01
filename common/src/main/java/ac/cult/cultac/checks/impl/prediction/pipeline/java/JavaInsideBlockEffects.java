@@ -140,7 +140,19 @@ public final class JavaInsideBlockEffects {
     /** A late block-entity callback uses the pose Player#updatePlayerPose left after travel. */
     public static Scan scan(
             CultPlayer player, SimulationContext context, Vec3 start, Vec3 end, Vec3 originalMovement, Pose pose) {
-        return scan(player, context, start, start, end, originalMovement, pose, List.of());
+        return scan(player, context, start, end, originalMovement, pose, List.of());
+    }
+
+    /** {@link #scan(CultPlayer, SimulationContext, Vec3, Vec3, Vec3, Pose)} after the movements recorded before it. */
+    public static Scan scan(
+            CultPlayer player,
+            SimulationContext context,
+            Vec3 start,
+            Vec3 end,
+            Vec3 originalMovement,
+            Pose pose,
+            List<RecordedMove> recordedBefore) {
+        return scan(player, context, start, start, end, originalMovement, pose, recordedBefore);
     }
 
     private static Scan scan(

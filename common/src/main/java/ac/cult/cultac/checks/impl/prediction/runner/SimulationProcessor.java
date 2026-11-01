@@ -1894,7 +1894,9 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     /** A passenger packet changes the simulated actor, but does not consume the player's on-foot motion. */
     public void beginRide() {
         this.startingVelsBeforeRide = new HashSet<>(this.validPlayerStartingVels);
-        this.passengerRideTick.begin(this.player, this.profileCarry, this.lastOnGround);
+        // The first ride tick's travel replays the movements the local player recorded on foot.
+        this.passengerRideTick.begin(this.player, this.profileCarry, this.lastOnGround,
+                this.recordedMovesActor == this.player.compensatedEntities.getSelf() ? this.recordedMoves : List.of());
         // Entity#startRiding changes the pose immediately, before the first passenger tick.
         this.player.refreshPlayerPose(ac.cult.cultac.utils.enums.Pose.STANDING);
     }
@@ -1967,6 +1969,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         this.rideTicksSinceLastPrediction = true;
         JavaPredictionCarry carry = this.passengerRideTick.carry(this.player, this.validPlayerStartingVels);
         this.profileCarry = carry;
+        // The ride ticks' travels replayed the on-foot recordings; the next travel replays the last ride tick's.
+        this.clearRecordedMoves();
+        this.recordMoves(this.player.compensatedEntities.getSelf(),
+                new JavaBlockEntityPass.Recorded(0, this.passengerRideTick.recordedMoves()));
         this.lastWorldEyeFluidContact = carry.states().stream()
                 .mapToInt(JavaPredictionCarry.State::playerEyeFluidContact)
                 .reduce(0, (a, b) -> a | b);

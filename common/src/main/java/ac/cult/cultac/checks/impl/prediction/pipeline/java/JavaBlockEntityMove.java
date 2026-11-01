@@ -26,6 +26,7 @@ import ac.cult.cultac.utils.nmsutil.JavaCollisionState;
 import ac.cult.cultac.utils.nmsutil.JavaLivingMoveFluids;
 import ac.cult.cultac.utils.nmsutil.RootVehicleInterpolationCollision;
 import ac.cult.cultac.utils.nmsutil.VelocityCandidates;
+import java.util.List;
 
 /**
  * Entity#move for the movers a block entity's tick uses on the local player: MoverType.PISTON from
@@ -376,20 +377,29 @@ final class JavaBlockEntityMove {
      * entity steps on Entity#getOnPosLegacy's block first; then the blocks the movement passes run their callbacks.
      */
     static JavaPassState applyEffectsFromBlocks(Environment env, JavaPassState state, Vec3 from) {
-        return applyEffectsFromBlocks(env, state, from, false, null);
+        return applyEffectsFromBlocks(env, state, from, false, null, List.of());
     }
 
+    /**
+     * LivingEntity#aiStep's Entity#applyEffectsFromBlocks after the local actor's travel: from 1.21.5 it replays
+     * {@link SimulationContext#getMovesBeforeTravel} before the travel's own move.
+     */
     static JavaPassState applyTravelEffects(Environment env, JavaPassState state, Vec3 from, Vec3 delta) {
-        return applyEffectsFromBlocks(env, state, from, false, delta);
+        return applyEffectsFromBlocks(env, state, from, false, delta, env.context().getMovesBeforeTravel());
     }
 
     private static JavaPassState applyEffectsFromBlocks(
             Environment env, JavaPassState state, Vec3 from, boolean stationary) {
-        return applyEffectsFromBlocks(env, state, from, stationary, null);
+        return applyEffectsFromBlocks(env, state, from, stationary, null, List.of());
     }
 
     private static JavaPassState applyEffectsFromBlocks(
-            Environment env, JavaPassState state, Vec3 from, boolean stationary, Vec3 delta) {
+            Environment env,
+            JavaPassState state,
+            Vec3 from,
+            boolean stationary,
+            Vec3 delta,
+            List<JavaInsideBlockEffects.RecordedMove> recordedBefore) {
         CultPlayer player = env.player();
         Vec3 velocity = state.velocity();
         if (state.onGround()
@@ -401,7 +411,8 @@ final class JavaBlockEntityMove {
         Vec3 start =
                 stationary || oldNoArgument && minecart ? state.position() : oldNoArgument ? env.tickStart() : from;
         JavaInsideBlockEffects.Scan scan = env.authoritative()
-                ? JavaInsideBlockEffects.scan(player, env.context(), start, state.position(), delta, env.pose())
+                ? JavaInsideBlockEffects.scan(
+                        player, env.context(), start, state.position(), delta, env.pose(), recordedBefore)
                 : JavaInsideBlockEffects.scan(
                         player, env.remoteActor(), state.position(), env.box(start), env.box(state.position()), delta);
         JavaInsideBlockEffects.State effects = JavaInsideBlockEffects.resolveBlockEntityMove(
