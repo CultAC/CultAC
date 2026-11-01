@@ -1842,7 +1842,9 @@ public class CompensatedEntities {
     public boolean ticksInClientTick(PacketEntity entity) {
         if (entity == playerEntity) return false;
         if (player.isBedrockMovement() || player.getClientVersion().isOlderThan(ClientVersion.V_1_17)) return true;
-        if (entity.tickedThisTick(player)) return true;
+        // An entity that ticked keeps that tick: a move during it into a chunk that stopped ticking, such as a rider's
+        // positionRider, removes it from tickingEntities for the next traversal only.
+        if (entity.tickedThisTick(player) || entity.lazyRiderTickedThisTick()) return true;
         PacketEntity root = rootOf(entity);
         if (root == null) return false;
         boolean frozen =

@@ -20,9 +20,11 @@ import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.events.packets.PacketChangeGameState;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
+import ac.cult.cultac.network.packet.EntityPositionPath;
 import ac.cult.cultac.network.packet.WorldPackets;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
+import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.ProtocolVersion;
@@ -46,6 +48,8 @@ import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import java.nio.ByteBuffer;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /** ClientLevel#tickEntities order: an entity ticking before the player pushes this travel, one after it the next. */
 class JavaEntityPushTest {
@@ -761,6 +765,91 @@ class JavaEntityPushTest {
             seat = pig.getPossibleMovementCollisionBoxes();
             assertEquals(-0.15, (seat.minX + seat.maxX) / 2, 1.0E-6, "a non-ticking passenger keeps its seat");
         }
+    }
+
+    /**
+     * ClientLevel#tickPassenger admits a rider by the tickingEntities membership it holds as its tick starts. Its
+     * Entity#rideTick interpolates, then positionRider seats it in a chunk that no longer ticks, and only that move's
+     * section callback stops its ticking: the step it took stays taken. Once the chunk ticks again,
+     * InterpolationHandler#interpolate adds the reseat since that step to the target, so the pig pushes from its seat.
+     */
+    @Test
+    void aRiderSeatedIntoANonTickingChunkKeepsTheInterpolationStepItTook() throws Exception {
+        try (var f = falling()) {
+            var world = f.player.compensatedWorld;
+            var entities = f.player.compensatedEntities;
+            var west = world.getChunk(-1, 0);
+            world.removeChunkLater(-1, 0, 0);
+            // A second passenger seats the pig 0.4 along the boat, rotated by -yRot: west of it at yaw 90.
+            entities.addEntity(100, EntityTypeIds.OAK_BOAT, new Vec3(0.6, FLOOR_Y, 0.5), 90, 0, 0);
+            PacketEntity boat = entities.entityMap.get(100);
+            entities.addEntity(RIDER, EntityTypeIds.PIG, AWAY, 0, 0, 0);
+            PacketEntity pig = entities.entityMap.get(RIDER);
+            pig.mount(boat);
+            entities.addEntity(102, EntityTypeIds.ARMOR_STAND, AWAY, 0, 0, 0);
+            entities.entityMap.get(102).mount(boat);
+            entities.tickClientEntities(entity -> entity.onMovement(f.player));
+            f.player.packetStateData.acceptedClientTick++;
+            double first = centerX(pig.lazyRiderCommittedBox(new SimpleCollisionBox(), false));
+            assertTrue(first > 0, "the pig starts in the ticking chunk");
+
+            // A rotation-only move interpolates the pig toward where it sits; the boat then moves west.
+            pig.onPositionPath(EntityPositionPath.linear(Vec3.ZERO), false, 10F, 0F, f.player);
+            snap(f, boat, new Vec3(0.25, FLOOR_Y, 0.5));
+            entities.tickClientEntities(entity -> entity.onMovement(f.player));
+            f.player.packetStateData.acceptedClientTick++;
+            double second = centerX(pig.lazyRiderCommittedBox(new SimpleCollisionBox(), false));
+            assertTrue(second < 0, "positionRider seats the pig in the unloaded chunk");
+            assertFalse(entities.ticksInClientTick(pig));
+
+            world.putChunk(-1, 0, west);
+            assertTrue(entities.ticksInClientTick(pig));
+            var pushes = entities.untrackedRiderPushBoxes(
+                    pig, pig.lazyRiderCommittedBox(new SimpleCollisionBox(), false).copy().expand(1),
+                    new SimpleCollisionBox(), new SimpleCollisionBox());
+            assertEquals(1, pushes.size());
+            assertEquals(second, centerX(pushes.getFirst()), 1.0E-9, "not from the place of an untaken first step");
+        }
+    }
+
+    /**
+     * The pig's Entity#rideTick, after the player's tick, pushes from the seat it held in the ticking chunk before
+     * positionRider seats it in the one that stopped: that push reaches the player's next travel. Through 26.2 the
+     * movement report precedes that rideTick, so the push is read after the tick's entity traversal.
+     */
+    @ParameterizedTest
+    @EnumSource(
+            value = ClientVersion.class,
+            names = {"V_26_2", "V_26_3"})
+    void aRiderSeatedIntoANonTickingChunkStillPushesFromTheSeatItTickedOn(ClientVersion version) throws Exception {
+        try (var f = falling()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
+            var entities = f.player.compensatedEntities;
+            f.player.compensatedWorld.removeChunkLater(-1, 0, 0);
+            // A second passenger seats the pig 0.4 along the boat, rotated by -yRot: west of it at yaw 90.
+            entities.addEntity(100, EntityTypeIds.OAK_BOAT, new Vec3(0.45, CONTACT.y - 0.8, 0.5), 90, 0, 0);
+            PacketEntity boat = entities.entityMap.get(100);
+            entities.addEntity(RIDER, EntityTypeIds.PIG, AWAY, 0, 0, 0);
+            PacketEntity pig = entities.entityMap.get(RIDER);
+            pig.mount(boat);
+            entities.addEntity(102, EntityTypeIds.ARMOR_STAND, AWAY, 0, 0, 0);
+            entities.entityMap.get(102).mount(boat);
+            entities.tickClientEntities(entity -> entity.onMovement(f.player));
+            f.player.packetStateData.acceptedClientTick++;
+            SimpleCollisionBox seat = pig.lazyRiderCommittedBox(new SimpleCollisionBox(), false).copy();
+            assertTrue(centerX(seat) > 0, "the pig starts in the ticking chunk");
+            snap(f, boat, new Vec3(0.25, CONTACT.y - 0.8, 0.5));
+
+            assertExact(f.tick(CONTACT, false));
+            assertTrue(centerX(pig.lazyRiderCommittedBox(new SimpleCollisionBox(), false)) < 0);
+            Vec3 push = JavaLivingEntityPushes.impulse(new Vec3(centerX(seat), 0, 0.5), CONTACT);
+            assertTrue(push.x > 0);
+            assertExact(f.tick(START.add(push.x, FIRST_FALL + SECOND_FALL, push.z), false));
+        }
+    }
+
+    private static double centerX(SimpleCollisionBox box) {
+        return (box.minX + box.maxX) / 2;
     }
 
     /**
