@@ -405,6 +405,41 @@ class DismountRideTickVelocityTest {
     }
 
     /**
+     * FishingHook#pullEntity adds to the rider's delta movement in the packet handler, and the next Entity#rideTick
+     * zeroes it before the passenger travels: a pull with a ride tick after it leaves only that tick's fall.
+     */
+    @ParameterizedTest
+    @MethodSource("endings")
+    void aPullBeforeARideTickIsZeroedByIt(ClientVersion version, boolean removeSeat) throws Exception {
+        try (var f = fixture(version);
+                var ignored = observeOnly(true)) {
+            ride(f);
+            pull(f);
+            f.rideTick();
+            dismount(f, removeSeat);
+            PredictionResult move = f.tick(position(f).add(0, FALL, 0), false);
+            assertTrue(exact(move), describe(move));
+        }
+    }
+
+    /** A pull the dismount follows before any ride tick stays in the delta movement the first free move starts from. */
+    @ParameterizedTest
+    @MethodSource("endings")
+    void aPullTheDismountFollowsCarriesIntoTheFirstFreeMove(ClientVersion version, boolean removeSeat)
+            throws Exception {
+        try (var f = fixture(version);
+                var ignored = observeOnly(true)) {
+            ride(f);
+            Vec3 pull = pull(f);
+            dismount(f, removeSeat);
+            Vec3 velocity = new Vec3(0, FALL, 0).add(pull);
+            Vec3 move = new Vec3(velocity.x, velocity.y, velocity.z);
+            PredictionResult result = f.tick(position(f).add(move), false);
+            assertTrue(exact(result), describe(result));
+        }
+    }
+
+    /**
      * Entity#baseTick keeps the previous tick's box-wide powder snow contact, and LivingEntity
      * #handleRelativeFrictionAndCalculateMovement climbs 0.2 with it and the jump key while the feet are in air.
      */
@@ -462,6 +497,24 @@ class DismountRideTickVelocityTest {
             PredictionResult move = f.tick(position(f), false);
             assertTrue(exact(move), describe(move));
         }
+    }
+
+    private static final int HOOK_OWNER = 80, HOOK = 81;
+
+    /** A remote angler 3 blocks along +X whose hook is in the rider; FishingHook#pullEntity's addition. */
+    private static Vec3 pull(JavaTickFixture f) {
+        Vec3 owner = new Vec3(f.player.x + 3, f.player.y, f.player.z);
+        Vec3 bobber = new Vec3(f.player.x, f.player.y + 0.5, f.player.z);
+        f.addRemotePlayer(HOOK_OWNER, owner, ac.cult.cultac.protocol.value.GameMode.SURVIVAL);
+        f.player.compensatedEntities.addEntity(HOOK, EntityTypeIds.FISHING_BOBBER, bobber, 0, 0, HOOK_OWNER);
+        var hook = (ac.cult.cultac.utils.data.packetentity.PacketEntityHook)
+                f.player.compensatedEntities.getEntity(HOOK);
+        hook.setAttached(f.player, f.player.entityID);
+        f.player.compensatedEntities.fishingPulls.receive(
+                f.player, HOOK, f.player.lastTransactionReceived.get(), f.player.nextImpulseSequence());
+        var pending = f.player.compensatedEntities.fishingPulls.pending(f.player.compensatedEntities.getSelf());
+        assertEquals(1, pending.size());
+        return pending.getFirst().impulses().getFirst();
     }
 
     private static void levitation(JavaTickFixture f, boolean gain) {

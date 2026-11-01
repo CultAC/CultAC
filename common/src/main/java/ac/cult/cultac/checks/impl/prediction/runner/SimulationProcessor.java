@@ -1908,6 +1908,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
         this.startingVelsBeforeRide = null;
         this.player.riptideSpinCertain = false;
+        this.player.compensatedEntities.fishingPulls.rideTick(this.player.compensatedEntities.getSelf());
         this.passengerRideTick.record(this.player);
     }
 
