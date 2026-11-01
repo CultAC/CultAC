@@ -960,6 +960,11 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         // The player flagged crasher or timer checks, therefore we must protect predictions against these attacks
         // and not a teleport (it's dangerous to prevent teleports from going through simulation processors)
         if (event.isCancelled() && !player.packetStateData.lastPacketWasTeleport) {
+            if (checkableClientTick
+                    && clientReportsOnGround
+                    && shouldBlockVehicleMovementForSetback(player, teleportData)) {
+                player.compensatedEntities.vehicles.applyWithheldTickGround(packetRoot, vehiclePacket.onGround());
+            }
             return;
         }
 

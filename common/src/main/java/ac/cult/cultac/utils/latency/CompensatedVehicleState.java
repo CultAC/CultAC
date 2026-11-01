@@ -400,6 +400,18 @@ public final class CompensatedVehicleState implements Debuggable {
     }
 
     /**
+     * A client tick of the root that a Cult setback withheld still ran its LivingEntity#travel.
+     * ServerboundMoveVehiclePacket#fromEntity reports the Entity#onGround that travel left, and
+     * ClientPacketListener#handleMoveVehicle's absSnapTo keeps it for the root's first travel after the setback.
+     * AbstractBoat#tick takes its status from the world instead.
+     */
+    public void applyWithheldTickGround(PacketEntity root, boolean onGround) {
+        if (root.isBoat()) return;
+        root.onGround = onGround;
+        player.checkManager.getSimulationProcessor().applyVehiclePacketGround(root, onGround);
+    }
+
+    /**
      * The number of mounts and dismounts of the local player sent so far. A receipt-time clear compares it with the
      * count at its own send to tell whether a later mount or dismount has replaced the state it was sent against.
      */

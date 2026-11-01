@@ -1679,6 +1679,17 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             }
             if (resyncState != null) {
                 applyVehicleProtocolResync(transaction, resyncState);
+            } else if (firstMount
+                    && !player.isBedrockMovement()
+                    && mounted.getRiding() == null
+                    && player.getSetbackTeleportUtil().lastKnownGoodPosition != null) {
+                // The last safe position is still one the player stood at, such as the seat ServerPlayer#startRiding
+                // teleported it to before this mount, but a vehicle setback now moves the root. A player not yet
+                // placed has none to move.
+                Vec3 root = mounted.clientPhysicalPosition != null
+                        ? mounted.clientPhysicalPosition
+                        : mounted.desyncClientPos;
+                if (root != null) player.getSetbackTeleportUtil().updateSafeVehiclePosition(root);
             }
         });
     }
