@@ -102,6 +102,9 @@ checks:
   NoFall:
     summary: "Avoided fall damage they should have taken"
     details: "Their game sent false ground or movement information to cancel fall damage. That's what NoFall cheats do."
+  GhostFriction:
+    summary: "Kept speed from a block that was never placed"
+    details: "The player moved with the slipperiness of a block the server never placed, such as ice, and kept the speed it gave them."
   NoSlow:
     summary: "Moved too fast while using an item"
     details: "Eating, drinking, blocking with a shield, drawing a bow and using other items slow you down. NoSlow cheats remove that, so the player can, for example, run at full speed while eating a golden apple."

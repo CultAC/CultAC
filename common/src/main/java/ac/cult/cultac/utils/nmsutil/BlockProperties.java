@@ -69,6 +69,20 @@ public class BlockProperties {
         return getOnPosState(player, playerPos, mainSupportingBlockData, 0.500001F);
     }
 
+    /** The position {@link #getFriction} reads: Entity#getBlockPosBelowThatAffectsMyMovement. */
+    public static BlockPos getBlockPosBelowThatAffectsMyMovementPos(
+            CultPlayer player, MainSupportingBlockData mainSupportingBlockData, Vec3 playerPos) {
+        int y = CultMath.floor(playerPos.y - (double) 0.500001F);
+        BlockPos mainBlockPos = mainSupportingBlockData.getBlockPos();
+        if (mainBlockPos == null) {
+            return new BlockPos(CultMath.floor(playerPos.x), y, CultMath.floor(playerPos.z));
+        }
+        int blockstate = player.compensatedWorld.getBlockStateIdAt(mainBlockPos);
+        return ClientBlockProperties.isWall(blockstate) || ClientBlockProperties.isFenceGate(blockstate)
+                ? mainBlockPos
+                : new BlockPos(mainBlockPos.getX(), y, mainBlockPos.getZ());
+    }
+
     /** The block state at Entity#getOnPos for {@code searchBelowPlayer}. */
     private static int getOnPosState(
             CultPlayer player,

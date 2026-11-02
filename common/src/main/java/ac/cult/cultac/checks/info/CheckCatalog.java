@@ -105,6 +105,7 @@ import ac.cult.cultac.checks.impl.exploit.ExploitF;
 import ac.cult.cultac.checks.impl.groundspoof.NoFallExecutor;
 import ac.cult.cultac.checks.impl.misc.SkinBlinker;
 import ac.cult.cultac.checks.impl.movement.EntityControl;
+import ac.cult.cultac.checks.impl.movement.GhostFriction;
 import ac.cult.cultac.checks.impl.movement.timer.ItemUseBurst;
 import ac.cult.cultac.checks.impl.movement.timer.NegativeTimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.TickTimer;
@@ -238,6 +239,7 @@ public final class CheckCatalog {
             check(SelfInteract.class, COMBAT),
             check(Angle.INFO, MOVEMENT),
             check(BedrockMovement.INFO, MOVEMENT),
+            check(GhostFriction.INFO, MOVEMENT),
             check(NoFallPseudo.INFO, MOVEMENT),
             check(InputKeys.INFO, MOVEMENT),
             check(InvalidStep.INFO, MOVEMENT),
