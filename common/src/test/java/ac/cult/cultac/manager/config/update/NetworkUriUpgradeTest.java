@@ -280,7 +280,7 @@ class NetworkUriUpgradeTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"de", "en", "es", "fr", "it", "ja", "nl", "pl", "pt", "ro", "ru", "tr", "zh"})
+    @ValueSource(strings = {"de", "en", "es", "fr", "it", "ja", "nl", "pl", "pt", "ro", "ru", "tr", "uk", "zh"})
     void bundledLanguagesShipTheNetworkBlockWithoutASecret(String language) throws Exception {
         try (var source = CultConfigSpecs.class.getResourceAsStream("/config/" + language + ".yml")) {
             assertNotNull(source);

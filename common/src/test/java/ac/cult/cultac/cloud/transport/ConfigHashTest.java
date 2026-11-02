@@ -41,7 +41,7 @@ class ConfigHashTest {
     @Test
     void theBundledDefaultsHash() throws IOException {
         Path empty = Files.createDirectory(folder.resolve("empty"));
-        for (String locale : List.of("de", "en", "es", "fr", "it", "ja", "nl", "pl", "pt", "ro", "ru", "tr", "zh")) {
+        for (String locale : List.of("de", "en", "es", "fr", "it", "ja", "nl", "pl", "pt", "ro", "ru", "tr", "uk", "zh")) {
             assertNotNull(CloudConnection.configHash(empty.toFile(), locale), locale);
         }
     }
