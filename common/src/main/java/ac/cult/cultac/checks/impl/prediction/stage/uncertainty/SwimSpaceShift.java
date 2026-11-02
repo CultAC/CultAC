@@ -3,6 +3,8 @@ package ac.cult.cultac.checks.impl.prediction.stage.uncertainty;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFluidInputs;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaTravelInputs;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
@@ -10,7 +12,7 @@ import ac.cult.cultac.utils.math.Vec3;
 public class SwimSpaceShift implements UncertaintyHandler {
     @Override
     public boolean skipsContext(CultPlayer player, SimulationContext context, PredictionResult lastResult) {
-        return !context.getWorldData().maybeInLiquid() || context.getVehicle() != null;
+        return !context.getWorldData().isInLiquid() || context.getVehicle() != null;
     }
 
     @Override
@@ -22,9 +24,11 @@ public class SwimSpaceShift implements UncertaintyHandler {
             PredictionResult lastResult,
             PredVector start,
             Vec3 end) {
-        if (!result.getSimulationContext().getWorldData().maybeInLiquid()) return start;
+        if (!result.getSimulationContext().getWorldData().isInLiquid()) return start;
         if (context.getVehicle() != null) return start;
-
+        if (JavaTravelInputs.usesReportedKeys(player, context))
+            return JavaFluidInputs.jumpInLiquid(player, context, start);
+        // Clients without reported travel keys retain the existing jump/sneak input selection.
         if (end.y - start.y > 0) {
             double baseY = applyLivingEntityThresholdBeforeWaterJump(start.y);
             return start.withY(CultMath.clamp(end.y, baseY, baseY + 0.04F), "swim space");

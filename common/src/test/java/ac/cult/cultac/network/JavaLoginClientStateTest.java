@@ -62,11 +62,11 @@ class JavaLoginClientStateTest {
     void movementKeysHeldBeforeABackendSwitchAreNotHeldAfterIt() throws Exception {
         try (var f = new JavaTickFixture()) {
             f.input(FORWARD_JUMP_SNEAK);
-            assertEquals(new KnownInput(true, false, false, false, true, true, false), f.player.boatData.vehicleKeys);
+            assertEquals(
+                    new KnownInput(true, false, false, false, true, true, false), f.player.boatData.nextVehicleKeys);
             switchBackend(f, true);
             assertEquals(0, click(f));
             assertEquals(KnownInput.DEFAULT, f.player.packetStateData.knownInput);
-            assertEquals(KnownInput.DEFAULT, f.player.boatData.vehicleKeys);
             assertEquals(KnownInput.DEFAULT, f.player.boatData.nextVehicleKeys);
         }
     }

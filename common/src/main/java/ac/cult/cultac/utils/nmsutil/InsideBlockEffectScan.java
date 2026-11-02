@@ -26,21 +26,22 @@ public final class InsideBlockEffectScan {
 
     public static boolean mayHaveEffects(
             CultPlayer player, SimpleCollisionBox from, SimpleCollisionBox to, boolean stuckOnly) {
-        return mayHaveEffects(from, to, stuckOnly, player.compensatedWorld, null);
+        return mayHaveEffects(from, to, stuckOnly ? STUCK : ALL, player.compensatedWorld, null);
+    }
+
+    /** Whether a bubble column may lie in the sweep from {@code from} to {@code to}. */
+    public static boolean mayHaveBubbles(CultPlayer player, SimpleCollisionBox from, SimpleCollisionBox to) {
+        return mayHaveEffects(from, to, BUBBLE, player.compensatedWorld, null);
     }
 
     static boolean mayHaveEffects(
             SimpleCollisionBox from, SimpleCollisionBox to, boolean stuckOnly, StateLookup lookup) {
-        return mayHaveEffects(from, to, stuckOnly, null, lookup);
+        return mayHaveEffects(from, to, stuckOnly ? STUCK : ALL, null, lookup);
     }
 
     /** Reads states from {@code lookup}, or from {@code world} when it is null. */
     private static boolean mayHaveEffects(
-            SimpleCollisionBox from,
-            SimpleCollisionBox to,
-            boolean stuckOnly,
-            CompensatedWorld world,
-            StateLookup lookup) {
+            SimpleCollisionBox from, SimpleCollisionBox to, int wanted, CompensatedWorld world, StateLookup lookup) {
         if (from.minX > from.maxX
                 || from.minY > from.maxY
                 || from.minZ > from.maxZ
@@ -85,7 +86,6 @@ public final class InsideBlockEffectScan {
                 || z1 >= Integer.MAX_VALUE - 1) return true;
         long dx = (long) x1 - x0 + 1, dy = (long) y1 - y0 + 1, dz = (long) z1 - z0 + 1;
         if (dx > MAX_CELLS || dy > MAX_CELLS || dz > MAX_CELLS || dx * dy * dz > MAX_CELLS) return true;
-        int wanted = stuckOnly ? STUCK : ALL;
         for (int x = x0; x <= x1; x++)
             for (int y = y0; y <= y1; y++)
                 for (int z = z0; z <= z1; z++) {

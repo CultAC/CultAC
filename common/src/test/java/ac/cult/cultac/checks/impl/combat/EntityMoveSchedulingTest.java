@@ -140,7 +140,7 @@ class EntityMoveSchedulingTest {
         fairReach.onAddEntity(
                 null, player, new ClientboundAddEntity(TARGET, "minecraft:player", new Vec3d(0, 64, 0), 0, 0, 0));
         player.packetEntityReplication.addEntity(TARGET, EntityTypeIds.PLAYER, new Vec3(0, 64, 0), 0, 0, 0, -1);
-        // reach-use-bundle-delimiter: false proves each move with the transactions around it.
+        // Without the reach bundle delimiter each move is proven by the transactions around it.
         try {
             Field delimiter = PacketEntityReplication.class.getDeclaredField("useReachBundleDelimiter");
             delimiter.setAccessible(true);

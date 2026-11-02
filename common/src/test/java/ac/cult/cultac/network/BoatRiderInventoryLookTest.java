@@ -165,7 +165,9 @@ class BoatRiderInventoryLookTest {
                     boat = boat.add(drift);
                 }
                 rot(f, yaw, LOOK_PITCH);
-                moveBoat(f, boat, boatYaw);
+                // fromEntity reports the active path's target rotation and position, while
+                // controlBoat/positionRider above used the boat's physical rotation.
+                moveBoat(f, steps > 0 ? target : boat, steps > 0 ? targetYaw : boatYaw);
                 f.tickEnd();
                 if (tick == TELEPORT_TICK) f.pongThrough(nextPing);
             }

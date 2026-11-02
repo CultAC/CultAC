@@ -398,7 +398,7 @@ class JavaFireworkPacketTest {
 
     private static void assertCounts(JavaTickFixture f, int possible, int certain) {
         assertEquals(possible, f.player.compensatedFireworks.getMaxFireworksAppliedPossible(), "possible");
-        assertEquals(certain, f.player.compensatedFireworks.getCertainFireworksApplied(), "certain");
+        assertEquals(certain, f.player.compensatedFireworks.tickingRockets(false), "certain");
     }
 
     private static void assertExact(PredictionResult result) {

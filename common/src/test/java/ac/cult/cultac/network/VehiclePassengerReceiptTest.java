@@ -202,8 +202,8 @@ class VehiclePassengerReceiptTest {
             when(ctx.getXRot()).thenReturn(324.39648F);
             when(ctx.getWorldData()).thenReturn(world);
             when(ctx.getCamelRiderSprinting(p)).thenReturn(DesyncStatus.FALSE);
-            when(world.getInWater()).thenReturn(DesyncStatus.FALSE);
-            when(world.getInLava()).thenReturn(DesyncStatus.FALSE);
+            when(world.isInWater()).thenReturn(false);
+            when(world.isInLava()).thenReturn(false);
             when(world.getLastOnGround()).thenReturn(DesyncStatus.FALSE);
             when(ctx.getMoveRelativeSpeed(p, false, false, false, false)).thenReturn(.019F);
 

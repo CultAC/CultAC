@@ -226,11 +226,23 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
         serverView.packetSent();
         deferClientboundInventoryTask(event, () -> {
             try {
-                task.run();
+                applyServerUpdate(task);
             } finally {
                 serverView.packetApplied();
             }
         });
+    }
+
+    /**
+     * Applies a server packet's change to the inventory as the client handles it, and reports one that changes the
+     * item in either hand: the vehicle state's controlling passenger reads the hands again from then on.
+     */
+    void applyServerUpdate(Runnable update) {
+        ItemDefinition mainHand = getClientSelectedHeldItem().getItem();
+        ItemDefinition offHand = getOffHand().getItem();
+        update.run();
+        if (getClientSelectedHeldItem().getItem() != mainHand || getOffHand().getItem() != offHand)
+            player.compensatedEntities.vehicles.onServerHandChange();
     }
 
     private void setClientCarried(SimItemStack stack) {
@@ -1342,6 +1354,8 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
                 int carried = player.checkManager.getListener(BadPacketsA.class).carriedIndex();
                 player.packetStateData.heldSlotEcho = slot != carried ? slot : -1;
                 player.packetStateData.heldSlotSetWithScreenOpen = player.openWindow.mustBeOpen();
+                // The server's slot replaces any the client had selected without a claim yet, even this one.
+                player.compensatedEntities.vehicles.onServerHandChange();
             });
         }
     }

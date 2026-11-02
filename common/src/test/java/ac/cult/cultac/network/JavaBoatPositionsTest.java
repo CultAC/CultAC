@@ -19,8 +19,8 @@ import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
 /**
- * A player beside boats whose position updates the client has not answered. The client holds each boat at one of
- * its possible positions, and Entity#collide collides with each boat's bounding box there
+ * A player beside boats updated by receipt-proven bundles. The client holds each boat at the exact position of
+ * its current interpolation step, and Entity#collide uses that one bounding box
  * (EntityGetter#getEntityCollisions).
  */
 class JavaBoatPositionsTest {
@@ -37,7 +37,7 @@ class JavaBoatPositionsTest {
     private static final double PLAYER_HEIGHT = 1.8;
 
     @Test
-    void aTickAmongManyBoatsAwaitingPositionsCompletes() {
+    void aTickAmongManyBundledBoatsCompletes() {
         assertTimeoutPreemptively(Duration.ofSeconds(20), () -> {
             try (var f = new JavaTickFixture()) {
                 Vec3[] boats = new Vec3[8];
@@ -49,8 +49,8 @@ class JavaBoatPositionsTest {
                     for (int i = 0; i < boats.length; i++) {
                         PacketEntity boat = f.player.compensatedEntities.getEntity(BOAT + i);
                         double dy = 0.01 * (tick + 1) * (i % 2 == 0 ? 1 : -1);
-                        boat.onFirstTransaction(
-                                false, true, boats[i].x, boats[i].y - dy, boats[i].z + 0.003 * (tick + 1), f.player);
+                        boat.onBundledPositionSyncTransaction(
+                                boats[i].x, boats[i].y - dy, boats[i].z + 0.003 * (tick + 1), f.player);
                     }
                     start(f, NONE, 0.0F);
                     f.tick(START.add(0.0, 0.3, 0.0), true);
@@ -77,23 +77,23 @@ class JavaBoatPositionsTest {
     }
 
     @Test
-    void driftingBelowABoatAwaitingAPositionWithoutInputIsRejected() throws Exception {
+    void driftingBelowABoatWithABundledPositionWithoutInputIsRejected() throws Exception {
         try (var f = new JavaTickFixture()) {
             Vec3 boat = new Vec3(START.x, FLOOR_Y + PLAYER_HEIGHT + 0.05, START.z);
             f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, boat, 0, 0, 0);
             PacketEntity entity = f.player.compensatedEntities.getEntity(BOAT);
-            entity.onFirstTransaction(false, true, boat.x, boat.y - 0.01, boat.z + 0.003, f.player);
+            entity.onBundledPositionSyncTransaction(boat.x, boat.y - 0.01, boat.z + 0.003, f.player);
             start(f, NONE, 0.0F);
             PredictionResult still = f.tick(START, true);
             assertTrue(exact(still), describe(still));
-            entity.onFirstTransaction(false, true, boat.x, boat.y - 0.02, boat.z + 0.006, f.player);
+            entity.onBundledPositionSyncTransaction(boat.x, boat.y - 0.02, boat.z + 0.006, f.player);
             PredictionResult drift = f.tick(START.add(0.0, 0.0, 0.05), true);
-            assertRejected(drift, "InputKeys");
+            assertRejected(drift, "Speed");
         }
     }
 
     @Test
-    void stoppingOnBothAxesAgainstOneBoatAtEitherOfTwoPositionsIsRejected() throws Exception {
+    void oneBundledBoatCannotClipBothAxesUsingDifferentInterpolationSteps() throws Exception {
         try (var f = new JavaTickFixture()) {
             // East of the player's box, then south of it.
             Vec3 east = new Vec3(START.x + 0.3 + BOAT_HALF_WIDTH, FLOOR_Y, START.z);
@@ -102,7 +102,7 @@ class JavaBoatPositionsTest {
             f.player
                     .compensatedEntities
                     .getEntity(BOAT)
-                    .onFirstTransaction(false, true, south.x, south.y, south.z, f.player);
+                    .onBundledPositionSyncTransaction(south.x, south.y, south.z, f.player);
             start(f, NONE, 0.0F);
             f.place(START, new Vec3(0.1, GROUNDED_Y, 0.1));
             assertRejected(f.tick(START, true), "Speed");

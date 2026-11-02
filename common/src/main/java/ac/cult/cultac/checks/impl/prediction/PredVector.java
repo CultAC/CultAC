@@ -32,10 +32,6 @@ public class PredVector extends Vec3 {
     @Getter
     boolean isBoundedStep = false;
 
-    @Getter
-    @Setter
-    boolean isTickSkip = false;
-
     // Player#causeExtraKnockback 0.6 X/Z dampings applied to this starting velocity
     @Getter
     @Setter
@@ -45,7 +41,28 @@ public class PredVector extends Vec3 {
     @Getter
     ClientSprintState.Outcome sprintOutcome = ClientSprintState.Outcome.ANY;
 
+    // The exact LivingEntity#moveRelative input this candidate already holds, or null when the travel adds the
+    // horizontal input allowance instead.
+    @Getter
+    Vec3 travelInput = null;
+
+    // LocalPlayer#applyInput's steering when travel added no acceleration. Kept at this tick's input/yaw so a
+    // later piston/shulker move can read it after the next tick's keys have arrived.
+    @Getter
+    List<Vec3> collisionInputs = null;
+
     List<TransactionVel> packetModifiers = null;
+
+    // A bounded deltaMovement the client may hold, as offsets around this vector, or null when exact.
+    @Getter
+    SimpleCollisionBox velocityRange = null;
+
+    // The end of velocityRange this candidate moves with per axis: -1 low, 0 nearest the report, 1 high.
+    byte rangeEndX, rangeEndY, rangeEndZ;
+
+    // The ranged velocity these ends were chosen from; candidates sharing it are one uncertain velocity.
+    @Getter
+    PredVector rangeOrigin = null;
 
     public PredVector(Vec3 vec, PredVector lastVector, String reason) {
         this(vec.x, vec.y, vec.z, lastVector, reason);
@@ -58,15 +75,38 @@ public class PredVector extends Vec3 {
         this.isKnockback = lastVector.isKnockback;
         this.isEntityMotion = lastVector.isEntityMotion;
         this.isBoundedStep = lastVector.isBoundedStep;
-        this.isTickSkip = lastVector.isTickSkip;
         this.attackSlows = lastVector.attackSlows;
         this.sprintOutcome = lastVector.sprintOutcome;
+        this.travelInput = lastVector.travelInput;
+        this.collisionInputs = lastVector.collisionInputs;
         this.reason = reason;
         this.packetModifiers = lastVector.packetModifiers;
+        this.velocityRange = lastVector.velocityRange;
+        this.rangeEndX = lastVector.rangeEndX;
+        this.rangeEndY = lastVector.rangeEndY;
+        this.rangeEndZ = lastVector.rangeEndZ;
+        this.rangeOrigin = lastVector.rangeOrigin;
     }
 
     public PredVector(Vec3 input) {
         super(input.x, input.y, input.z);
+    }
+
+    /** This deltaMovement after LivingEntity#moveRelative added the exact {@code input}. */
+    public PredVector withTravelInput(Vec3 input) {
+        return withTravelInput(input, null);
+    }
+
+    public PredVector withTravelInput(Vec3 input, List<Vec3> collisionInputs) {
+        PredVector candidate = new PredVector(x + input.x, y + input.y, z + input.z, this, "travel input");
+        candidate.travelInput = input;
+        candidate.collisionInputs = collisionInputs;
+        return candidate;
+    }
+
+    /** Whether this candidate's travel input is exact rather than the horizontal input allowance. */
+    public boolean hasTravelInput() {
+        return travelInput != null;
     }
 
     /** This candidate travelling with {@code outcome}'s sprint modifier. */
@@ -78,9 +118,51 @@ public class PredVector extends Vec3 {
 
     public static PredVector fromStartingVector(Vec3 input) {
         if (input instanceof PredVector predVector) {
-            return new PredVector(predVector, predVector, "starting velocity");
+            PredVector start = new PredVector(predVector, predVector, "starting velocity");
+            // A carried range is split into its ends again this tick.
+            start.rangeEndX = start.rangeEndY = start.rangeEndZ = 0;
+            start.rangeOrigin = null;
+            return start;
         }
         return new PredVector(input);
+    }
+
+    /** This velocity uncertain by {@code offsets} around it; a null or single-point range leaves it exact. */
+    public PredVector withVelocityRange(SimpleCollisionBox offsets) {
+        boolean point = offsets == null
+                || offsets.minX == offsets.maxX && offsets.minY == offsets.maxY && offsets.minZ == offsets.maxZ;
+        if (point && velocityRange == null) return this;
+        PredVector ranged = new PredVector(this, this, "velocity range");
+        ranged.velocityRange = point ? null : offsets;
+        ranged.rangeEndX = ranged.rangeEndY = ranged.rangeEndZ = 0;
+        ranged.rangeOrigin = null;
+        return ranged;
+    }
+
+    /**
+     * This vector after a transform mapped its range to {@code offsets}; the ends it moves with stay, so it still
+     * takes the same end of the mapped range.
+     */
+    public PredVector withMappedRange(SimpleCollisionBox offsets) {
+        if (velocityRange == null) return this;
+        PredVector mapped = new PredVector(this, this, "mapped velocity range");
+        mapped.velocityRange = offsets;
+        return mapped;
+    }
+
+    /** This ranged velocity moving with the given end per axis (see {@link #getRangeEnd}). */
+    public PredVector withRangeEnds(int x, int y, int z) {
+        PredVector candidate = new PredVector(this, this, "velocity range end");
+        candidate.rangeEndX = (byte) x;
+        candidate.rangeEndY = (byte) y;
+        candidate.rangeEndZ = (byte) z;
+        candidate.rangeOrigin = this;
+        return candidate;
+    }
+
+    /** -1 for the low end, 1 for the high end, 0 for the value nearest the report, on axis 0 (X), 1 (Y) or 2 (Z). */
+    public int getRangeEnd(int axis) {
+        return axis == 0 ? rangeEndX : axis == 1 ? rangeEndY : rangeEndZ;
     }
 
     public void addPacketModifier(TransactionVel packetModifier) {
@@ -179,6 +261,21 @@ public class PredVector extends Vec3 {
         return beforeReason == null ? this : beforeReason;
     }
 
+    public Vec3 vectorAtFirstReason(String reason) {
+        Vec3 found = this;
+        for (PredVector current = this; current != null; current = current.lastVector) {
+            if (reason.equals(current.reason)) found = current;
+        }
+        return found;
+    }
+
+    /** The carried point this candidate started from, before packet and travel modifiers. */
+    public Vec3 carriedVelocity() {
+        PredVector root = this;
+        while (root.lastVector != null) root = root.lastVector;
+        return root;
+    }
+
     public SimpleCollisionBox collisionIgnoredExtents(Vec3 target) {
         return null;
     }
@@ -217,17 +314,13 @@ public class PredVector extends Vec3 {
         return packetModifiers == null ? List.of() : Collections.unmodifiableList(packetModifiers);
     }
 
-    /** Same tick-skip state and the same packet velocities, the keys the start-velocity sort orders by first. */
+    /** The same packet velocities, the key the start-velocity sort orders by first. */
     public boolean hasSameStartAs(PredVector other) {
-        if (isTickSkip != other.isTickSkip || packetModifiersLength() != other.packetModifiersLength()) return false;
+        if (packetModifiersLength() != other.packetModifiersLength()) return false;
         for (int i = 0, size = packetModifiersLength(); i < size; i++) {
             if (!other.packetModifiers.contains(packetModifiers.get(i))) return false;
         }
         return true;
-    }
-
-    public int tickSkippingComparator() {
-        return isTickSkip ? 0 : 1;
     }
 
     public void setJump() {
@@ -308,8 +401,53 @@ public class PredVector extends Vec3 {
         return this.withXYZ(vector.x, vector.y, vector.z, reason);
     }
 
+    /** This vector scaled by {@code v}; a velocity range scales with it, so it still bounds the same velocities. */
     public PredVector multiply(double v, String reason) {
-        return new PredVector(x * v, y * v, z * v, this, reason);
+        PredVector scaled = new PredVector(x * v, y * v, z * v, this, reason);
+        if (velocityRange != null) {
+            scaled.velocityRange = SimpleCollisionBox.between(
+                    velocityRange.minX * v,
+                    velocityRange.minY * v,
+                    velocityRange.minZ * v,
+                    velocityRange.maxX * v,
+                    velocityRange.maxY * v,
+                    velocityRange.maxZ * v);
+            if (v < 0) {
+                // A negative scale swaps the low and high ends.
+                scaled.rangeEndX = flipped(rangeEndX);
+                scaled.rangeEndY = flipped(rangeEndY);
+                scaled.rangeEndZ = flipped(rangeEndZ);
+            }
+        }
+        return scaled;
+    }
+
+    private static byte flipped(byte end) {
+        return end == -1 || end == 1 ? (byte) -end : end;
+    }
+
+    /**
+     * This vector after a per-axis clamp into {@code [low, high]} (LivingEntity#handleOnClimbable); a velocity range
+     * maps through the same clamp, so it holds exactly the clamped velocities.
+     */
+    public PredVector clamped(Vec3 low, Vec3 high, String reason) {
+        PredVector clamped = withXYZOrSelf(
+                Math.max(low.x, Math.min(high.x, x)),
+                Math.max(low.y, Math.min(high.y, y)),
+                Math.max(low.z, Math.min(high.z, z)),
+                reason);
+        if (velocityRange == null) return clamped;
+        SimpleCollisionBox range = velocityRange;
+        SimpleCollisionBox mapped = new SimpleCollisionBox(
+                Math.max(low.x, Math.min(high.x, x + range.minX)) - clamped.x,
+                Math.max(low.y, Math.min(high.y, y + range.minY)) - clamped.y,
+                Math.max(low.z, Math.min(high.z, z + range.minZ)) - clamped.z,
+                Math.max(low.x, Math.min(high.x, x + range.maxX)) - clamped.x,
+                Math.max(low.y, Math.min(high.y, y + range.maxY)) - clamped.y,
+                Math.max(low.z, Math.min(high.z, z + range.maxZ)) - clamped.z);
+        if (clamped == this) clamped = new PredVector(this, this, reason);
+        clamped.velocityRange = mapped;
+        return clamped;
     }
 
     public Vec3 multiply(double v) {
@@ -328,8 +466,7 @@ public class PredVector extends Vec3 {
                 + z + ", reason='"
                 + reason + '\'' + ", isJump="
                 + isJump + ", isKnockback="
-                + isKnockback + ", isTickSkip="
-                + isTickSkip + ", packetModifiers="
+                + isKnockback + ", packetModifiers="
                 + packetModifiers + ", lastVector="
                 + lastVector + '}';
     }

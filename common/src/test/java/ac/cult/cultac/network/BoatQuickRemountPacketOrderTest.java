@@ -14,26 +14,34 @@ import ac.cult.cultac.checks.impl.packetorder.PacketOrderH;
 import ac.cult.cultac.checks.impl.prediction.OffsetHandler;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoSneakSlow;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
+import ac.cult.cultac.events.packets.listeners.PacketSelfMetadataListener;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.platform.api.world.PlatformWorld;
 import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerPosition;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundUpdateAttributes;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPaddleBoat;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
+import ac.cult.cultac.protocol.value.AttributeModifier;
+import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.protocol.value.Relative;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -44,7 +52,8 @@ import org.mockito.Mockito;
  * A server can mount and dismount a 1.21.4 client before the client processes either. Until
  * ClientPacketListener#handleSetEntityPassengersPacket mounts it, LocalPlayer#tick sends ordinary walking ticks:
  * sendShiftKeyState first, then sendPosition's sprint command and move. Packets come from the capture, moved next to
- * the fixture's floor.
+ * the fixture's floor, with the server's echo of the player's sprint: ServerEntity#sendDirtyEntityData sends the
+ * player its own shared flags and movement_speed.
  */
 class BoatQuickRemountPacketOrderTest {
     private static final int BOAT = 981;
@@ -53,6 +62,13 @@ class BoatQuickRemountPacketOrderTest {
     private static final Vec3 BOAT_AT = at(231.4961717543816, 62.0, 209.6078162730024);
     private static final Vec3 SEAT = at(231.4961517543816, 61.5875, 209.6078162730024);
     private static final Vec3 DISMOUNT = at(230.2238749424196, 62.0, 210.37787003961307);
+    // The capture's client stood on the floor, holding LivingEntity#travel's grounded deltaMovement, before it walked
+    // off at ground speed. A spawn teleport that zeroed it would leave Entity#move's first move off the ground.
+    private static final Vec3 GROUNDED = new Vec3(0, -0.0784000015258789, 0);
+    private static final AttributeModifier SPRINTING = new AttributeModifier(
+            "minecraft:sprinting", 0.30000001192092896, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL);
+    private static final Set<Relative> KEEPS_DELTA =
+            Set.of(Relative.Y_ROT, Relative.X_ROT, Relative.DELTA_X, Relative.DELTA_Y, Relative.DELTA_Z);
     private static final List<Class<? extends Check>> CHECKS = List.of(
             PacketOrderH.class,
             PacketOrderF.class,
@@ -86,6 +102,10 @@ class BoatQuickRemountPacketOrderTest {
             move(f, at(232.95437545328323, 62.0, 208.38759914078045), 48.806526F, 37.46345F, true);
             f.tickEnd();
 
+            // The client takes the server's sprint flag before this tick and its sprinting modifier after it, so
+            // LocalPlayer#aiStep starts no sprint, sendIsSprintingIfNeeded sends the flag's START_SPRINTING, and
+            // Player#getSpeed reads the movement_speed the client's own STOP_SPRINTING left without the modifier.
+            f.pongThrough(proofs[3]);
             interact(f, Hand.MAIN_HAND, new Vec3d(0.479976087808609, 0.5625, -0.25473612546920776), false);
             f.input(new ServerboundPlayerInput(true, false, false, true, false, false, true));
             command(f, PlayerCommandAction.START_SPRINTING);
@@ -143,14 +163,15 @@ class BoatQuickRemountPacketOrderTest {
 
     /**
      * The capture's sprinting walk up to the boat, then the server's mount and dismount, which the client processes
-     * later. Returns the mount's proof, its move_vehicle's proof and the dismount teleport's proof.
+     * later. Returns the mount's proof, its move_vehicle's proof, the dismount teleport's proof and the proof of the
+     * server's sprint flag.
      */
     private static int[] mountAndDismountUnprocessed(JavaTickFixture f) {
         Mockito.when(f.fixture.user.getPlayer().getWorld()).thenReturn(Mockito.mock(PlatformWorld.class));
         f.player.setExperimentalChecks(true);
-        f.place(SPAWN, Vec3.ZERO);
+        f.place(SPAWN, GROUNDED);
         f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, BOAT_AT, 0, BOAT_YAW, 0);
-        int spawn = playerPosition(f, 197, SPAWN);
+        int spawn = playerPosition(f, 197, SPAWN, KEEPS_DELTA);
         f.pongThrough(spawn - 1);
         f.acceptTeleport(197);
         move(f, SPAWN, 60.45037F, 53.213566F, true);
@@ -160,6 +181,9 @@ class BoatQuickRemountPacketOrderTest {
         command(f, PlayerCommandAction.START_SPRINTING);
         move(f, at(233.60062898336702, 62.0, 208.4485449479657), 61.12538F, 32.850914F, true);
         f.tickEnd();
+        // ServerEntity#sendDirtyEntityData echoes the sprint the server took: the shared flag, then the modifier.
+        int sprintFlag = sharedFlags(f, (byte) 0x08);
+        movementSpeed(f, List.of(SPRINTING));
 
         interact(f, Hand.MAIN_HAND, new Vec3d(0.48, 0.5625, -0.25), false);
         command(f, PlayerCommandAction.PRESS_SHIFT_KEY);
@@ -170,14 +194,45 @@ class BoatQuickRemountPacketOrderTest {
         f.tickEnd();
 
         f.setPassengers(BOAT, List.of());
-        int dismount = playerPosition(f, 199, DISMOUNT);
-        return new int[] {mount, vehicleMove, dismount};
+        int dismount = playerPosition(f, 199, DISMOUNT, Set.of(Relative.Y_ROT, Relative.X_ROT));
+        return new int[] {mount, vehicleMove, dismount, sprintFlag};
+    }
+
+    /** The player's own shared flags, which the client takes once it answers the returned ping. */
+    private static int sharedFlags(JavaTickFixture f, byte flags) {
+        var packet = new EntityMetadata(
+                f.player.entityID,
+                List.of(new EntityMetadata.Entry(
+                        WatchableIndexUtil.ENTITY_SHARED_FLAGS, flags, ByteBuffer.allocate(0))));
+        var event = new PacketSendEvent<>(f.fixture.user, ConnectionPhase.PLAY, metadataType(), packet, false);
+        new PacketSelfMetadataListener().onSetEntityData(event, f.player, packet);
+        event.tasksAfter().forEach(Runnable::run);
+        return f.player.lastTransactionSent.get();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static PacketType<EntityMetadata> metadataType() {
+        return (PacketType<EntityMetadata>) TestProtocolRuntime.catalog().stream()
+                .filter(type -> type.recordClass() == EntityMetadata.class)
+                .findFirst()
+                .orElseThrow();
+    }
+
+    /** The player's own movement_speed, which the client takes once it answers the ping after it. */
+    private static void movementSpeed(JavaTickFixture f, List<AttributeModifier> modifiers) {
+        var attributes = new ClientboundUpdateAttributes(
+                f.player.entityID,
+                List.of(new AttributeSnapshot("minecraft:movement_speed", 0.10000000149011612, modifiers)));
+        var event = new PacketSendEvent<>(
+                f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.UPDATE_ATTRIBUTES, attributes, false);
+        f.player.packetEntityReplication.onUpdateAttributes(event, f.player, attributes);
+        event.tasksAfter().forEach(Runnable::run);
     }
 
     /** A player_position the client accepts once it answers the returned ping. */
-    private static int playerPosition(JavaTickFixture f, int id, Vec3 to) {
-        var teleport = new ClientboundPlayerPosition(
-                id, JavaTickFixture.vec3d(to), new Vec3d(0, 0, 0), 0, 0, Set.of(Relative.Y_ROT, Relative.X_ROT));
+    private static int playerPosition(JavaTickFixture f, int id, Vec3 to, Set<Relative> relatives) {
+        var teleport =
+                new ClientboundPlayerPosition(id, JavaTickFixture.vec3d(to), new Vec3d(0, 0, 0), 0, 0, relatives);
         var event = new PacketSendEvent<>(
                 f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.PLAYER_POSITION, teleport, false);
         new PacketServerTeleport().onPlayerPosition(event, f.player, teleport);

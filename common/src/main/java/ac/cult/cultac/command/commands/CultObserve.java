@@ -18,6 +18,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -109,8 +110,8 @@ public class CultObserve implements BuildableCommand {
 
     static void write(File config, boolean observeOnly) throws IOException {
         ConfigPatcher patcher = new ConfigPatcher(config);
-        NodePosition position = patcher.getNodePosition(OBSERVE_ONLY_KEY);
-        if (position == null) patcher.addMissingValue(OBSERVE_ONLY_KEY, observeOnly);
+        NodePosition position = patcher.getNodePosition(List.of(OBSERVE_ONLY_KEY));
+        if (position == null) patcher.addMissingValue(List.of(OBSERVE_ONLY_KEY), observeOnly);
         else patcher.applyChange(new PendingChange(position, observeOnly));
         patcher.save();
     }

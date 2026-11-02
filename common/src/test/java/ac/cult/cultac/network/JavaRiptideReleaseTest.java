@@ -20,12 +20,9 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.events.packets.listeners.PacketPlayerDigging;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.protocol.ProtocolVersion;
-import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
@@ -46,7 +43,6 @@ import org.junit.jupiter.params.provider.EnumSource;
  */
 class JavaRiptideReleaseTest {
     private static final int VEHICLE = 100;
-    private static final Vec3 RESTED = SHALLOWS.add(SETTLED);
 
     @ParameterizedTest
     @EnumSource(
@@ -86,13 +82,7 @@ class JavaRiptideReleaseTest {
 
     /** LivingEntity#releaseUsingItem reads the used hand, so an offhand use spins at the offhand trident's level. */
     @ParameterizedTest
-    @CsvSource({
-        "V_1_21_11, 2, true",
-        "V_1_21_11, 0, false",
-        "V_26_3, 2, true",
-        "V_26_3, 3, false",
-        "V_26_3, 0, false"
-    })
+    @CsvSource({"V_1_21_11, 2, true", "V_1_21_11, 0, false", "V_26_3, 2, true", "V_26_3, 3, false", "V_26_3, 0, false"})
     void anOffhandReleaseSpinsAtTheOffhandTridentsLevel(ClientVersion version, int level, boolean exact)
             throws Exception {
         try (var f = fixture(version)) {
@@ -238,7 +228,10 @@ class JavaRiptideReleaseTest {
         }
     }
 
-    /** Entity#rideTick zeroes a passenger's delta, so its spin leaves the vehicle's travel in water unchanged. */
+    /**
+     * Entity#rideTick zeroes a passenger's delta, so its spin leaves the vehicle's travel in water unchanged. A ridden
+     * camel deep in water rises by LivingEntity#floatInLiquidWhileRidden from the floor.
+     */
     @Test
     void aPassengersSpinLeavesItsVehicleInWater() throws Exception {
         try (var f = fixture(ClientVersion.V_1_21_11)) {
@@ -250,16 +243,34 @@ class JavaRiptideReleaseTest {
             ((PacketEntityHorse) f.player.compensatedEntities.getEntity(VEHICLE)).hasSaddle = true;
             f.setPassengers(VEHICLE, List.of(f.player.entityID));
             f.pongThrough(f.player.lastTransactionSent.get());
-            for (int tick = 0; tick < 2; tick++) f.rideTick(SHALLOWS, true);
+            var camel = new FloatingCamel();
+            for (int tick = 0; tick < 2; tick++) camel.rideTick(f);
             use(f, Hand.MAIN_HAND);
-            for (int tick = 0; tick < 10; tick++) f.rideTick(SHALLOWS, true);
+            for (int tick = 0; tick < 10; tick++) camel.rideTick(f);
             release(f);
             assertEquals(20, f.player.riptideSpinAttackTicks);
-            PredictionResult result = f.rideTick(SHALLOWS, true);
-            assertTrue(
-                    result.getSimulationContext().getWorldData().getInWater().determinePessimistically(),
-                    describe(result));
+            PredictionResult result = camel.rideTick(f);
+            assertTrue(result.getSimulationContext().getWorldData().isInWater(), describe(result));
+        }
+    }
+
+    /**
+     * A ridden camel without input that rises from the floor of deep still water: LivingEntity#travelInWater moves it
+     * by its delta, then slows that by 0.8 and applies the fluid's gravity, and LivingEntity#floatInLiquidWhileRidden
+     * adds 0.04.
+     */
+    private static final class FloatingCamel {
+        private double y = SHALLOWS.y;
+        private double deltaY;
+
+        /** One ridden tick that the camel's move must match exactly. */
+        PredictionResult rideTick(JavaTickFixture f) {
+            boolean onFloor = deltaY == 0;
+            y += deltaY;
+            deltaY = deltaY * 0.8F - 0.08 / 16.0 + 0.04F;
+            PredictionResult result = f.rideTick(new Vec3(SHALLOWS.x, y, SHALLOWS.z), onFloor);
             assertTrue(exact(result), describe(result));
+            return result;
         }
     }
 
@@ -302,13 +313,15 @@ class JavaRiptideReleaseTest {
     }
 
     private static void use(JavaTickFixture f, Hand hand) {
-        var use = new ServerboundUseItem(hand, 1, 0, 0.0F);
-        new PacketPlayerDigging().onUseItem(f.event(ServerboundPackets.USE_ITEM, use), f.player, use);
+        f.useItem(hand, 0, 0.0F);
     }
 
-    /** Whether the release tick moves exactly by the spin at {@code level}, or resting in the shallows without one. */
+    /**
+     * Whether the release tick moves exactly by the spin at {@code level}, or rests on the floor of the shallows without
+     * one: LivingEntity#travelInWater moves before it applies the fluid's gravity, so the floor keeps the player still.
+     */
     private static void assertRelease(JavaTickFixture f, int level, boolean exact) {
-        PredictionResult result = level == 0 ? f.tick(RESTED, true) : f.tick(lifted(level), false);
+        PredictionResult result = level == 0 ? f.tick(SHALLOWS, true) : f.tick(lifted(level), false);
         assertEquals(exact, exact(result), describe(result));
     }
 }

@@ -11,6 +11,8 @@ import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.checks.impl.visibility.InteractEntityVisibility;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
+import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
+import ac.cult.cultac.network.codec.ModelRegistryNamesState;
 import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -26,15 +28,19 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityMotion;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityPositionSync;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPing;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
+import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.InteractAction;
+import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
 import ac.cult.cultac.protocol.value.PositionPath;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.inventory.ItemUtil;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.math.Vec3;
@@ -489,6 +495,60 @@ class EntityInteractionVisibilityTest {
             assertFalse(visibility.entityInteractionHidden(setup.player.compensatedEntities.getEntity(42), 0));
             setup.entity(43, EntityTypeIds.PLAYER, 1.8011);
             assertTrue(visibility.entityInteractionHidden(setup.player.compensatedEntities.getEntity(43), 0));
+        }
+    }
+
+    /** Minecraft picks before ClientLevel#tickEntities, including after a same-level player replacement. */
+    @ParameterizedTest
+    @MethodSource("clients")
+    void aRetainedClosingShulkerKeepsItsCommittedInteractionBoxAfterRespawn(ProtocolVersion version) throws Exception {
+        try (var setup = new Setup(version)) {
+            var player = setup.player;
+            var entities = player.compensatedEntities;
+            setup.place(.5, 64, -1.48);
+            entities.addEntity(42, EntityTypeIds.SHULKER, new Vec3(.5, 65, 2.5), 0, 0, 0);
+            var shulker = (PacketEntityShulker) entities.getEntity(42);
+            shulker.onShapeData(Direction.SOUTH, (byte) 50);
+            for (int tick = 0; tick < 10; tick++) {
+                shulker.onMovement(player);
+                player.packetStateData.acceptedClientTick++;
+            }
+            shulker.onShapeData(null, (byte) 0);
+            double committedFace = shulker.getExactMovementCollisionBox().minZ;
+            assertEquals(1.5, committedFace, 1.0E-5);
+            assertFalse(setup.route(42, InteractAction.INTERACT_AT).isCancelled());
+
+            var spawnInfo = new PlayerSpawnInfo(
+                    ModelRegistryNamesState.defaults().id("minecraft:dimension_type", "minecraft:overworld"),
+                    "minecraft:overworld",
+                    GameMode.SURVIVAL);
+            var packet = new ClientboundRespawn(spawnInfo, (byte) 0);
+            var event = new PacketSendEvent<>(
+                    setup.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.RESPAWN, packet, false);
+            new PacketPlayerRespawn().onRespawn(event, player, packet);
+            event.tasksAfter().forEach(Runnable::run);
+            for (int id = player.lastTransactionReceived.get() + 1; id <= player.lastTransactionSent.get() + 1; id++) {
+                player.lastTransactionReceived.set(id);
+                player.latencyUtils.handleNettySyncTransaction(id);
+            }
+            assertSame(shulker, entities.getEntity(42));
+            assertTrue(entities.clientTickOrder(shulker) < entities.clientTickOrder(entities.getSelf()));
+            assertFalse(entities.readingMovementPositions());
+
+            // The committed shell is 2.98 blocks away; one closing tick would put it about 3.058 away.
+            var visibility = new ClientVisibility(player);
+            assertFalse(setup.route(42, InteractAction.INTERACT_AT).isCancelled());
+            assertEquals(ClientVisibility.Sight.VISIBLE, visibility.entitySight(shulker, 0));
+            assertEquals(committedFace, shulker.getExactMovementCollisionBox().minZ);
+            assertEquals(0, setup.check.violations);
+
+            shulker.onMovement(player);
+            player.packetStateData.acceptedClientTick++;
+            setup.tickEnd();
+            assertTrue(shulker.getExactMovementCollisionBox().minZ > committedFace + .07);
+            assertEquals(ClientVisibility.Sight.OUT_OF_RANGE, visibility.entitySight(shulker, 0));
+            assertTrue(setup.route(42, InteractAction.INTERACT_AT).isCancelled());
+            assertEquals(1, setup.check.violations);
         }
     }
 

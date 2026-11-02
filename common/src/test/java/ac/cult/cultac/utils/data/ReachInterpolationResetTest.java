@@ -45,7 +45,7 @@ class ReachInterpolationResetTest {
 
     private static void wear(ReachInterpolationData data) {
         data.getPossibleMovementLocationCombined(new SimpleCollisionBox());
-        data.tickMovement(true, true);
+        data.tickMovement(true);
         data.setCurrentAndTargetRotation(35.0F, -12.5F);
         data.offset(feet -> new Vec3(0.125, -0.5, 0.25));
         data.resize(0.9F, 1.4F);

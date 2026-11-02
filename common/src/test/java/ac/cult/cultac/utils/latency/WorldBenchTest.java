@@ -368,12 +368,14 @@ class WorldBenchTest {
                             if (section.has("kind")) continue;
                             var palette = section.getAsJsonArray("palette");
                             int[] states = new int[palette.size()];
-                            for (int i = 0; i < states.length; i++) states[i] = state(palette.get(i).getAsString());
+                            for (int i = 0; i < states.length; i++)
+                                states[i] = state(palette.get(i).getAsString());
                             int[] values = new int[4096];
                             if (!section.has("data")) {
                                 Arrays.fill(values, states[0]);
                             } else {
-                                byte[] data = Base64.getDecoder().decode(section.get("data").getAsString());
+                                byte[] data = Base64.getDecoder()
+                                        .decode(section.get("data").getAsString());
                                 boolean wide = data.length == 8192;
                                 for (int i = 0; i < 4096; i++)
                                     values[i] = states[

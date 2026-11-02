@@ -97,9 +97,7 @@ public class PacketManager implements StartableInitable {
 
         // Proxy details may arrive before a CultPlayer exists.
         registrar.receiveConnection(
-                ServerboundPackets.CUSTOM_PAYLOAD,
-                PacketListenerPriority.NORMAL,
-                new PacketPluginMessage()::handle);
+                ServerboundPackets.CUSTOM_PAYLOAD, PacketListenerPriority.NORMAL, new PacketPluginMessage()::handle);
         registrar.registerSendListener(PacketListenerPriority.LOW, new PacketServerPlayerRotation());
         registrar.registerSendListener(PacketListenerPriority.NORMAL, new PacketServerRegistries());
         registrar.registerSendListener(PacketListenerPriority.LOWEST, new PacketModelRegistryNames());

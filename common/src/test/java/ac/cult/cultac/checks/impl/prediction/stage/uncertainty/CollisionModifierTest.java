@@ -82,8 +82,9 @@ public class CollisionModifierTest {
     }
 
     @Test
-    public void floorPenetrationRecoveryKeepsPositiveClip() {
+    public void tinyFloorPenetrationRecoveryDoesNotCommitPosition() {
         // VoxelShape#collideX keeps d2 <= 1e-7 on a downward move, so feet sunk under 1e-7 into a floor clip upward.
+        // Entity#move still does not setPos: clipped length squared <= 1e-7, with >= 1e-7 removed by collision.
         double fall = -0.0784000015258789D;
         double clip = 5.0E-8D;
         PredVector start = new PredVector(new Vec3(0.0D, fall, 0.0D));
@@ -97,12 +98,13 @@ public class CollisionModifierTest {
         PredVector result =
                 CollisionModifier.transformWithCollisions(context(), collide, start, new Vec3(0.0D, clip, 0.0D), null);
 
-        assertEquals(clip, result.y, 1.0E-12D);
+        assertEquals(0.0D, result.y, 0.0D);
     }
 
     @Test
-    public void ceilingPenetrationRecoveryKeepsNegativeClip() {
+    public void tinyCeilingPenetrationRecoveryDoesNotCommitPosition() {
         // VoxelShape#collideX keeps d2 >= -1e-7 on an upward move, so a head sunk under 1e-7 into a ceiling clips down.
+        // Entity#move's setPos guard likewise prevents this tiny collided displacement from changing position.
         double rise = 0.41999998688697815D;
         double clip = -5.0E-8D;
         PredVector start = new PredVector(new Vec3(0.0D, rise, 0.0D));
@@ -116,7 +118,7 @@ public class CollisionModifierTest {
         PredVector result =
                 CollisionModifier.transformWithCollisions(context(), collide, start, new Vec3(0.0D, clip, 0.0D), null);
 
-        assertEquals(clip, result.y, 1.0E-12D);
+        assertEquals(0.0D, result.y, 0.0D);
     }
 
     @Test
@@ -164,7 +166,6 @@ public class CollisionModifierTest {
                 0,
                 0,
                 0,
-                null,
                 false,
                 null,
                 false,

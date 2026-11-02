@@ -50,6 +50,7 @@ import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityPolarBear;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
@@ -314,13 +315,13 @@ class InteractionVisibilityTest {
             assertTrue(setup.route(ServerboundPackets.INTERACT, click).isCancelled());
             peek(player, 100);
             assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
-            for (int tick = 0; tick < 20; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 20; tick++) tickEntities(player);
             assertFalse(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
             assertFalse(setup.route(ServerboundPackets.INTERACT, click).isCancelled());
             assertEquals(2, mobs.violations);
             assertEquals(1, interact.violations);
             peek(player, 0);
-            for (int tick = 0; tick < 20; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 20; tick++) tickEntities(player);
             assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
             assertEquals(3, mobs.violations);
         }
@@ -352,18 +353,18 @@ class InteractionVisibilityTest {
                     false);
             assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
             data(player, 18, true);
-            for (int tick = 0; tick < 3; tick++) bear.onMovement(player, true);
+            for (int tick = 0; tick < 3; tick++) tickEntities(player);
             assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
             assertTrue(setup.route(ServerboundPackets.INTERACT, click).isCancelled());
-            bear.onMovement(player, true);
+            tickEntities(player);
             assertFalse(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
             assertFalse(setup.route(ServerboundPackets.INTERACT, click).isCancelled());
             assertEquals(2, mobs.violations);
             assertEquals(1, interact.violations);
             data(player, 18, false);
-            for (int tick = 0; tick < 2; tick++) bear.onMovement(player, true);
+            for (int tick = 0; tick < 2; tick++) tickEntities(player);
             assertFalse(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
-            bear.onMovement(player, true);
+            tickEntities(player);
             assertTrue(setup.route(ServerboundPackets.INTERACT, attack(42)).isCancelled());
             assertEquals(3, mobs.violations);
         }
@@ -377,15 +378,20 @@ class InteractionVisibilityTest {
             player.compensatedEntities.addEntity(42, type, new Vec3(2.5, 64, -.7), 0, 0, 0);
             var bear = (PacketEntityPolarBear) player.compensatedEntities.getEntity(42);
             data(player, 18, true);
-            for (int tick = 0; tick < 2; tick++) bear.onMovement(player, true);
+            for (int tick = 0; tick < 2; tick++) tickEntities(player);
             assertEquals(1, bear.standAnimation());
             player.packetStateData.serverTicksFrozen = true;
-            for (int tick = 0; tick < 10; tick++) bear.onMovement(player, true);
+            for (int tick = 0; tick < 10; tick++) tickEntities(player);
             assertEquals(1, bear.standAnimation());
             player.packetStateData.serverTicksFrozen = false;
-            bear.onMovement(player, true);
+            tickEntities(player);
             assertEquals(2, bear.standAnimation());
         }
+    }
+
+    private static void tickEntities(CultPlayer player) {
+        player.packetStateData.acceptedClientTick++;
+        player.compensatedEntities.tickClientEntities(entity -> entity.onMovement(player));
     }
 
     private static void peek(CultPlayer player, int peek) {
@@ -408,6 +414,47 @@ class InteractionVisibilityTest {
 
     private static ServerboundInteract attack(int entityId) {
         return new ServerboundInteract(entityId, InteractAction.ATTACK, Hand.MAIN_HAND, Optional.empty(), false);
+    }
+
+    /**
+     * A plugin's ClientboundSetCameraPacket puts the camera on a shulker attached to the wall west of it and open
+     * towards the east. Minecraft#pick rays from the camera's Entity#getEyePosition, its position plus its eye height,
+     * however far Shulker#makeBoundingBox opens the shell: the target's near corner is 4.30 from it, inside the block
+     * interaction range, although 4.61 from the open shell's centre. A block beyond the range stays rejected.
+     */
+    @Test
+    void aShulkerCameraPicksFromItsPositionNotItsOpenShell() throws Exception {
+        try (var setup = new Setup()) {
+            var player = setup.fixture.player;
+            var placing = setup.check(PlaceVisibility.class);
+            setup.block(0, 64, 2, "air");
+            setup.block(2, 64, 0, "stone");
+            setup.block(0, 64, 4, "stone");
+            setup.block(0, 64, 6, "stone");
+            player.compensatedEntities.addEntity(42, EntityTypeIds.SHULKER, new Vec3(3.5, 64, .5), 0, 0, 0);
+            var shulker = (PacketEntityShulker) player.compensatedEntities.getEntity(42);
+            shulker.onShapeData(Direction.WEST, (byte) 100);
+            for (int tick = 0; tick < 20; tick++) {
+                shulker.onMovement(player);
+                player.packetStateData.acceptedClientTick++;
+            }
+            assertEquals(5.0, shulker.getPossibleMovementCollisionBoxes().maxX);
+            player.cameraEntity.onSetCamera(42);
+            for (int id = player.lastTransactionReceived.get() + 1; id <= player.lastTransactionSent.get() + 1; id++) {
+                player.lastTransactionReceived.set(id);
+                player.latencyUtils.handleNettySyncTransaction(id);
+            }
+            assertFalse(player.cameraEntity.isSelf());
+
+            var near = new ServerboundUseItemOn(
+                    Hand.MAIN_HAND, new BlockPos(0, 64, 4), Direction.NORTH, new Vec3d(.9, .5, 0), false, false, 1);
+            assertFalse(setup.route(ServerboundPackets.USE_ITEM_ON, near).isCancelled());
+            assertEquals(0, placing.violations);
+            var far = new ServerboundUseItemOn(
+                    Hand.MAIN_HAND, new BlockPos(0, 64, 6), Direction.NORTH, new Vec3d(.9, .5, 0), false, false, 2);
+            assertTrue(setup.route(ServerboundPackets.USE_ITEM_ON, far).isCancelled());
+            assertEquals(1, placing.violations);
+        }
     }
 
     private static ServerboundUseItemOn use() {
@@ -989,6 +1036,34 @@ class InteractionVisibilityTest {
             assertEquals(ac.cult.blocksim.engine.Direction.UP, pick.face());
             assertTrue(pick.inside());
             assertFalse(setup.visibility.blockFaceHidden(TARGET, Direction.UP, 0));
+        }
+    }
+
+    @Test
+    void anEyeInsideScaffoldingTakesTheInteractionShapesInsideFace() throws Exception {
+        try (var setup = new Setup()) {
+            for (int y = 64; y <= 66; y++) setup.block(4, y, 4, "scaffolding[distance=0,bottom=false]");
+            var eyeBlock = new BlockPos(4, 65, 4);
+            var player = setup.fixture.player;
+            player.x = 4.5;
+            player.y = 64;
+            player.z = 4.5;
+            // Issue #192: yaw -129.2, pitch 42.5 aims at the south face of this block's north-east pole, but the
+            // full-block interaction shape's inside sample makes the client report the face opposite DOWN.
+            double yaw = Math.toRadians(-129.2), pitch = Math.toRadians(42.5);
+            var look = new Vec3(-Math.sin(yaw) * Math.cos(pitch), -Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+            var eye = new Vec3(player.x, player.y + player.getEyeHeight(), player.z);
+            var pick =
+                    player.compensatedWorld.geometry().clipOutline(eye, eye.add(look.scale(4.5)), player, s -> false);
+            assertNotNull(pick);
+            assertEquals(
+                    List.of(4, 65, 4),
+                    List.of(pick.pos().x(), pick.pos().y(), pick.pos().z()));
+            assertEquals(ac.cult.blocksim.engine.Direction.UP, pick.face());
+            assertFalse(setup.visibility.blockFaceHidden(eyeBlock, Direction.UP, 0));
+            // Below the poles' reach, a downward ray leaves this block first: its own UP face stays impossible.
+            player.y = 63.75;
+            assertTrue(setup.visibility.blockFaceHidden(eyeBlock, Direction.UP, 0));
         }
     }
 

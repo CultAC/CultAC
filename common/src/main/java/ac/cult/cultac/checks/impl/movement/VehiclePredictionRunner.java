@@ -4,11 +4,13 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRootGround;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.BoatTransform;
 import ac.cult.cultac.checks.impl.vehicle.VehicleC;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.checks.type.VehicleListener;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.VehiclePositionUpdate;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -19,6 +21,8 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityCamel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import java.util.List;
@@ -43,7 +47,12 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
         player.vehicleData.camelSprintingState = riderSprinting ? SprintingState.STARTED : SprintingState.STOPPED;
         PacketEntity root = player.compensatedEntities.vehicles.getVelocityMovementVehicle();
         if (root instanceof PacketEntityNautilus nautilus) {
-            nautilus.tickClientState();
+            // End-of-tick interpolation runs every other nautilus's AbstractNautilus#tick but skips the locally
+            // ticked root, so run that root's tail here, before the rider's release.
+            if (player.compensatedEntities.vehicles.isLocallyTickedVelocityRoot(nautilus)) {
+                nautilus.tickDashCooldown();
+            }
+            nautilus.tickPendingJump();
         }
         // ClientLevel#tickEntities runs Camel#tick for every camel, ridden or not.
         List<PacketEntityCamel> camels = player.compensatedEntities.camels();
@@ -60,9 +69,10 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
                 horse.tickStandTail();
             }
             // LocalPlayer#jumpableVehicle releases a camel rider's jump only while Camel#canJump holds after the
-            // camel's tick, and Camel#canJump is false while the camel refuses to move.
+            // camel's tick, and Camel#canJump is false while the camel refuses to move. Camel#onPlayerJump then reads
+            // the ground the camel's move and the cooldown the tickDashCooldown above left.
             if (horse instanceof PacketEntityCamel camel
-                    && camel.refuseToMove(player.compensatedWorld.endedTickGameTime())) {
+                    && (camel.refuseToMove(player.compensatedWorld.endedTickGameTime()) || !camel.takesRidingJump())) {
                 camel.dropRidingJump();
             }
             // MCP-Reborn ClientLevel#tickPassenger runs LocalPlayer#rideTick
@@ -100,11 +110,7 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
         boolean vehicleMovementFromClientTick = player.packetStateData.isVehicleMovementFromClientTick();
         PacketEntity riding = result.getSimulationContext().getVehicle();
         if (riding instanceof PacketEntityCamel camel) {
-            camel.lastPredictedInLiquid = result.getSimulationContext()
-                            .getWorldData()
-                            .getInWater()
-                            .determineOptimistically()
-                    || result.getSimulationContext().getWorldData().getInLava().determineOptimistically();
+            camel.lastPredictedInLiquid = result.getSimulationContext().getWorldData().mayBeInLiquid();
         }
 
         if (vehicleUpdate.getTeleportAcceptData().isTeleport()) {
@@ -113,12 +119,18 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
         }
 
         if (vehicleMovementFromClientTick) {
+            if (riding instanceof PacketEntityStrider strider) {
+                var moved = result.getJavaCommittedMove();
+                if (moved != null) strider.commitFluidHeights(moved.fluidHeights());
+                var pass = JavaMovementEngine.passAfterTravel(result);
+                if (pass != null) strider.commitFluidHeights(pass.result().fluidHeights());
+            }
             evaluateItemControlledVehicle(riding);
         }
 
         boolean isStriderInLava = riding != null
                 && riding.isStrider()
-                && result.getSimulationContext().getWorldData().getInLava().determineOptimistically();
+                && result.getSimulationContext().getWorldData().mayBeInLava();
 
         CollideAxisData.CollideResult downCollide = result.getCollideAxisData().getYNeg();
         boolean canCollideDown = downCollide != null && downCollide.isLikelyCollide();
@@ -155,8 +167,13 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
             // after the root tick, and ServerboundMoveVehiclePacket#fromEntity copies the
             // root entity's post-tick Entity#onGround exactly on protocol versions
             // which carry that field. The next ridden LivingEntity tick uses that
-            // carried onGround state to choose grounded vs flying speed.
-            nextLastOnGround = DesyncStatus.fromBoolean(vehicleUpdate.isOnGround());
+            // carried onGround state to choose grounded vs flying speed. Where the
+            // root's own move set a different ground, the prediction staged it.
+            nextLastOnGround =
+                    DesyncStatus.fromBoolean(player.packetStateData.desiredOnGroundOr(vehicleUpdate.isOnGround()));
+        } else if (vehicleMovementFromClientTick && riding != null && !vehicleUpdate.isHasOnGround()) {
+            Boolean ground = unreportedRootGround(result);
+            if (ground != null) nextLastOnGround = DesyncStatus.fromBoolean(ground);
         }
         player.checkManager.getSimulationProcessor().setLastOnGround(nextLastOnGround);
         if (vehicleMovementFromClientTick
@@ -183,6 +200,10 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
             // LocalPlayer#tick proves that AbstractBoat#tick completed, so carry
             // those exact post-tick fields into the next vehicle prediction.
             BoatTransform.commitAcceptedBoatTickState(player, result);
+        } else if (riding != null && (riding.type == EntityTypeIds.PIG || riding.type == EntityTypeIds.STRIDER)) {
+            // Keep the root's Entity#deltaMovement in sync when later passive ticks or block-entity moves read it.
+            Vec3 velocity = uniqueVelocity(player.checkManager.getSimulationProcessor().getValidPlayerStartingVels());
+            if (velocity != null) riding.deltaMovement = velocity;
         } else if (riding instanceof PacketEntityHappyGhast) {
             Vec3 velocity =
                     uniqueVelocity(player.checkManager.getSimulationProcessor().getValidPlayerStartingVels());
@@ -195,16 +216,17 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
             if (velocity != null) {
                 riding.deltaMovement = velocity;
             }
-            if (nautilus.pendingJumpScale > 0.0D) {
-                nautilus.pendingJumpScale = 0.0D;
-                nautilus.dashCooldown = 40;
-                nautilus.dashing = true;
+            if (nautilus.pendingJumpScale > 0.0F) {
+                nautilus.pendingJumpScale = 0.0F;
+                nautilus.executeRidersJump();
             }
         }
 
         if (riding instanceof PacketEntityCamel camel && camel.actionAlive) {
-            // LocalPlayer#aiStep set zza from the keys this tick's root reads.
-            camel.tickRidden(player.boatData.vehicleForward > 0.0F, player.compensatedWorld.clientGameTime());
+            // Camel#tickRidden stood the camel up before the travel, which the prediction moved standing.
+            if (result.getSimulationContext().isRiddenStandUp()) {
+                camel.standUp(player.compensatedWorld.clientGameTime());
+            }
             // Camel#tick then stands a sitting camel up at once in water; Entity#baseTick set isInWater at the start.
             if (camel.isCamelSitting()
                     && result.getSimulationContext().getWorldData().isVehicleInWater()) {
@@ -230,6 +252,17 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
                 }
             }
         }
+    }
+
+    /**
+     * Through 1.21.3 ServerboundMoveVehiclePacket carries no ground, so the root keeps the one its own move set. From
+     * 1.21.4 handleMoveVehicle applies the packet's ground, so where the packet carries one it is staged to match.
+     */
+    private Boolean unreportedRootGround(PredictionResult result) {
+        if (result.isExempt() || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2)) return null;
+        Boolean ground = JavaRootGround.after(player, result);
+        if (ground != null) player.packetStateData.stageDesiredOnGround(ground);
+        return ground;
     }
 
     void evaluateItemControlledVehicle(PacketEntity riding) {
@@ -270,12 +303,8 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
         // that rideTick, and Minecraft sends ClientTickEnd only after level ticking
         // has finished. Tick-end is therefore the first packet proving the latest
         // raw input has been copied into the controlled root for the next root tick.
-        player.boatData.useNextInputForBoatTick();
-        PacketEntity self = player.compensatedEntities.getSelf();
-        PacketEntity riding = self.getRiding();
-        if (riding != null && riding.isBoat() && !riding.passengers.isEmpty() && riding.passengers.get(0) == self) {
-            riding.boatInput = player.boatData.vehicleKeys;
-        }
+        // A boat's keys are its own PacketEntity#boatInput (BoatData#onClientTickEnd).
+        player.boatData.useNextInputForVehicleTick();
     }
 
     public static boolean usesStagedVehicleInput(PacketEntity root) {

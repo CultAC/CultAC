@@ -30,7 +30,8 @@ import org.mockito.Mockito;
 class BoatQuickRemountVehicleEchoTest {
     private static final int BOAT = 3382;
     private static final float BOAT_YAW = -171.08188F;
-    private static final Vec3 START = new Vec3(1.0, 64.0, 1.5);
+    // Clear of the boat's box inflated by 0.2, -0.01, 0.2: AbstractBoat#tick pushes a player standing inside it.
+    private static final Vec3 START = new Vec3(1.0, 64.0, 2.0);
     private static final Vec3 BOAT_AT = new Vec3(0.19407771795977, 64.0, 0.6286785847839);
     private static final Vec3 SEAT = new Vec3(0.19409771795978, 63.5875, 0.6286785847839);
 

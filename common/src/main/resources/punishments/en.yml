@@ -20,6 +20,7 @@ Punishments:
       - "GroundSpoof"
       - "Timer"
       - "NoFall"
+      - "Phase"
     # Threshold:Interval Command
     #
     # N is the active violation count required to run the command.
@@ -137,4 +138,4 @@ Punishments:
       - "3:3 [webhook]"
       - "3:3 [proxy]"
 
-cult-config-version: 5
+cult-config-version: 6

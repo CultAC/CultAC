@@ -167,6 +167,55 @@ class JavaShulkerBoxSprintTest {
     }
 
     /**
+     * A client sprints south past a box facing east, 0.05 short of a wall at x = 2, as the lid's fourth step reaches
+     * it. The travel collides with nothing; then ShulkerBoxBlockEntity#moveCollidedEntities shoves the player east into
+     * the wall with Entity#move(MoverType.SHULKER_BOX), which sets horizontalCollision and minorHorizontalCollision
+     * again from its own movement alone: across the keys, a hard collision. LocalPlayer#shouldStopRunSprinting reads it
+     * in the next aiStep, so only a client that sends STOP_SPRINTING may move on. From 26.3 the shove follows the
+     * travel in the same report; before, the next report carries it before its own travel.
+     */
+    @ParameterizedTest
+    @CsvSource({"V_26_3, true, 1.0", "V_26_3, false, 0.0", "V_26_2, true, 1.0", "V_26_2, false, 0.0"})
+    void aShoveIntoAWallAfterAFreeTravelStopsTheSprint(ClientVersion version, boolean keepSprint, double violations)
+            throws Exception {
+        try (var f = new JavaTickFixture()) {
+            setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
+            BlockPos box = new BlockPos(0, FLOOR_Y, 0);
+            Vec3 position = new Vec3(2.0 - HALF_WIDTH - 0.05, FLOOR_Y, 0.5);
+            f.place(position, new Vec3(0, -0.0784000015258789, 0));
+            SprintE sprintE = sideWall(f, box);
+            f.player.xRot = 0.0F;
+            open(f, box, REGISTRY.with(REGISTRY.block("minecraft:shulker_box").defaultState(), "facing", "east"));
+
+            // The lid's first three steps end short of the player's west face.
+            f.input(NONE);
+            for (int tick = 0; tick < 3; tick++) {
+                PredictionResult rest = f.tick(position, true);
+                assertTrue(exact(rest), describe(rest));
+            }
+
+            Vec3 ground = ClientMoveInput.of(f, SPRINT, 1.0F, GROUND_SPEED, 0.0F);
+            f.input(SPRINT);
+            command(f, sprintE, PlayerCommandAction.START_SPRINTING);
+            position = position.add(0.0, 0.0, ground.z);
+            // The wall stops the shove where the player's box meets it; Entity#move leaves the player off the ground.
+            double flush = position.x + (2.0 - (position.x + HALF_WIDTH));
+            boolean afterTravel = version.isNewerThanOrEquals(ClientVersion.V_26_3);
+            PredictionResult shoved =
+                    f.tick(afterTravel ? new Vec3(flush, FLOOR_Y, position.z) : position, !afterTravel);
+            assertTrue(exact(shoved), describe(shoved));
+
+            if (!keepSprint) command(f, sprintE, PlayerCommandAction.STOP_SPRINTING);
+            Vec3 air = ClientMoveInput.of(f, SPRINT, 1.0F, keepSprint ? AIR_SPEED : 0.02F, 0.0F);
+            position = new Vec3(flush, FLOOR_Y, position.z + ground.z * GROUND_FRICTION + air.z);
+            // The travel lands; from 26.3 the lid's next step shoves the player again before the report.
+            PredictionResult next = f.tick(position, !afterTravel);
+            assertTrue(exact(next), describe(next));
+            assertEquals(violations, sprintE.violations);
+        }
+    }
+
+    /**
      * A 26.3 client sprinting west head-on into the push area of an east-facing box as it opens: the travel ends
      * inside it and the shove moves the player back east, off the ground, to where only a shorter travel than the
      * keys give ends unshoved.
@@ -235,7 +284,7 @@ class JavaShulkerBoxSprintTest {
         try (var f = new JavaTickFixture()) {
             BlockPos box = new BlockPos(3, FLOOR_Y, 0);
             Vec3 position = new Vec3(0.5, FLOOR_Y, 1.0 - 0.3F);
-            f.place(position, Vec3.ZERO);
+            f.place(position, new Vec3(0, -0.0784000015258789, 0));
             SprintE sprintE = wall(f, box, FLOOR_Y);
             open(f, box);
 

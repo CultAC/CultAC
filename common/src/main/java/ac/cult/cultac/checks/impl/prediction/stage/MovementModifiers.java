@@ -4,64 +4,39 @@ import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext.SpinRebound;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ElytraTransform;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.EntityPush;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaSpinAttack;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.data.TransactionVel;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVelocityRange;
+import ac.cult.cultac.utils.latency.ClientFishingPulls;
+import ac.cult.cultac.utils.latency.ClientRavagerRoars;
 import ac.cult.cultac.utils.math.Vec3;
-import ac.cult.cultac.utils.math.Vector3dm;
-import ac.cult.cultac.utils.nmsutil.ReachUtils;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 
 public class MovementModifiers {
-    public static final String FLUID_HOP_REASON = "swim hop";
-    public static final String SLIME_BLOCK_LAUNCH = "Slime Block";
     public static final String RIPTIDE_ATTACK = "riptide attack";
+    // LivingEntity#jumpOutOfFluid's Y, which the Java carry applies after travel and Bedrock prediction shares.
     public static final double FLUID_HOP_Y = (double) 0.3F;
-
-    // Keep fluid-hop values centralized so Bedrock prediction and Java-shaped
-    // starting-velocity candidates cannot drift through duplicated literals.
-    private static final double RIDDEN_FLUID_HOP_ADDEND = (double) 0.04F;
-    private static final double RIDDEN_FLUID_HOP_Y = FLUID_HOP_Y + RIDDEN_FLUID_HOP_ADDEND;
 
     public List<PredVector> applyModifers(
             CultPlayer player,
             Set<Vec3> initial,
             SimulationContext state,
-            PredictionResult lastResult,
-            boolean canTickSkip) {
-        return applyModifers(player, initial, state, lastResult, canTickSkip, FluidHopMode.INCLUDE);
-    }
-
-    public List<PredVector> applyWithoutFluidHop(
-            CultPlayer player,
-            Set<Vec3> initial,
-            SimulationContext state,
-            PredictionResult lastResult,
-            boolean canTickSkip) {
-        return applyWithoutJavaFluidHop(player, initial, state, lastResult, canTickSkip);
-    }
-
-    public List<PredVector> applyWithoutJavaFluidHop(
-            CultPlayer player,
-            Set<Vec3> initial,
-            SimulationContext state,
-            PredictionResult lastResult,
-            boolean canTickSkip) {
-        return applyModifers(player, initial, state, lastResult, canTickSkip, FluidHopMode.EXCLUDE);
+            PredictionResult lastResult) {
+        return applyStartingModifiers(player, initial, state, lastResult);
     }
 
     public List<PredVector> applyBedrockModifiers(
             CultPlayer player,
             Set<Vec3> initial,
             SimulationContext state,
-            PredictionResult lastResult,
-            boolean canTickSkip) {
-        List<PredVector> vectors =
-                applyModifers(player, initial, state, lastResult, canTickSkip, FluidHopMode.EXCLUDE, false);
+            PredictionResult lastResult) {
+        List<PredVector> vectors = applyStartingModifiers(player, initial, state, lastResult);
         TransactionVel receivedMotion = player.checkManager.getKnockbackHandler().secondBread;
         if (state.isBedrockTeleportTick() && receivedMotion != null) {
             // Travel is suppressed, so displacement cannot select the applied motion.
@@ -71,24 +46,11 @@ public class MovementModifiers {
         return vectors;
     }
 
-    private List<PredVector> applyModifers(
+    private List<PredVector> applyStartingModifiers(
             CultPlayer player,
             Set<Vec3> initial,
             SimulationContext state,
-            PredictionResult lastResult,
-            boolean canTickSkip,
-            FluidHopMode fluidHopMode) {
-        return applyModifers(player, initial, state, lastResult, canTickSkip, fluidHopMode, true);
-    }
-
-    private List<PredVector> applyModifers(
-            CultPlayer player,
-            Set<Vec3> initial,
-            SimulationContext state,
-            PredictionResult lastResult,
-            boolean canTickSkip,
-            FluidHopMode fluidHopMode,
-            boolean includeSlimePistonLaunches) {
+            PredictionResult lastResult) {
         List<PredVector> start = new ArrayList<>(initial.size() + 10);
 
         // This happens on first join, good to keep in case other things do this too.
@@ -96,30 +58,43 @@ public class MovementModifiers {
             start.add(new PredVector(Vec3.ZERO));
         }
 
-        boolean canStartWithFluidHop =
-                fluidHopMode == FluidHopMode.INCLUDE && canStartWithFluidHop(state, lastResult, canTickSkip);
-        boolean canStartWithRiddenFluidHopFloat = canStartWithRiddenFluidHopFloat(lastResult);
-        Set<Vec3> unrebounded = state.getSpinRebound() == SpinRebound.ONLY ? Set.of() : initial;
-        if (canStartWithFluidHop) {
-            for (Vec3 vector : unrebounded) {
-                addFluidHopCandidates(start, PredVector.fromStartingVector(vector), canStartWithRiddenFluidHopFloat);
+        // LivingEntity#jumpOutOfFluid's hop is part of the carry: NextTickVelocityDeriver applies it after travel and
+        // before Entity#applyEffectsFromBlocks, so no starting velocity replaces the carried Y here.
+        boolean committedSpin = !player.isBedrockMovement()
+                && JavaMovementEngine.contextUsesExactEffects(state)
+                && state.getProfileCarry() instanceof JavaPredictionCarry carry && hasCarriedVelocity(carry, initial);
+        Set<Vec3> unrebounded = committedSpin || state.getSpinRebound() == SpinRebound.ONLY ? Set.of() : initial;
+
+        if (committedSpin) {
+            // The carry already ran the spin before later entity/block-entity ticks. Keep only its provenance;
+            // scaling here would incorrectly rebound those later velocity writes too.
+            var carry = (JavaPredictionCarry) state.getProfileCarry();
+            for (var carried : carry.states()) {
+                if (!initial.contains(carried.velocity())
+                        || carried.spinRebound() && state.getSpinRebound() == SpinRebound.NONE
+                        || !carried.spinRebound() && state.getSpinRebound() == SpinRebound.ONLY) continue;
+                PredVector vector = PredVector.fromStartingVector(carried.velocity());
+                start.add(carried.spinRebound() ? vector.with(carried.velocity(), RIPTIDE_ATTACK) : vector);
             }
         }
 
-        if (lastResult != null
+        if (!committedSpin && lastResult != null
                 && lastResult.getSimulationContext().getWorldData().isSpinAttackTarget()
                 && state.getVehicle() == null
                 && state.getSpinRebound() != SpinRebound.NONE) {
             for (Vec3 vector : initial) {
+                // PredVector#multiply scales a carried velocity range with the vector.
                 PredVector riptideAttack = PredVector.fromStartingVector(vector).multiply(-0.2, RIPTIDE_ATTACK);
                 start.add(riptideAttack);
 
                 // MCP-Reborn Player#causeExtraKnockback damps attacker X/Z by 0.6
                 // before LivingEntity#checkAutoSpinAttack applies the -0.2 rebound.
                 if (lastResult.getSimulationContext().getWorldData().isSpinAttackPlayer()
-                        && lastResult.getSimulationContext().getIsSprinting().determineOptimistically()) {
-                    start.add(riptideAttack.withXYZ(
-                            riptideAttack.x * 0.6, riptideAttack.y, riptideAttack.z * 0.6, "riptide sprint attack"));
+                        && JavaSpinAttack.extraKnockbackPossible(player, lastResult.getSimulationContext())) {
+                    start.add(JavaVelocityRange.scaled(
+                            riptideAttack.withXYZ(
+                                    riptideAttack.x * 0.6, riptideAttack.y, riptideAttack.z * 0.6, "riptide sprint attack"),
+                            new Vec3(0.6, 1, 0.6)));
                 }
             }
         }
@@ -130,12 +105,23 @@ public class MovementModifiers {
         TransactionVel explosionFirst = player.checkManager.getExplosionHandler().firstBread;
         TransactionVel knockbackSecond = player.checkManager.getKnockbackHandler().secondBread;
         TransactionVel explosionSecond = player.checkManager.getExplosionHandler().secondBread;
-        if (knockbackFirst != null || explosionFirst != null || knockbackSecond != null || explosionSecond != null) {
+        var roars = player.compensatedEntities.ravagerRoars.pending(
+                state.getVehicle() == null ? player.compensatedEntities.getSelf() : state.getVehicle());
+        var pulls = player.compensatedEntities.fishingPulls.pending(
+                state.getVehicle() == null ? player.compensatedEntities.getSelf() : state.getVehicle());
+        if (knockbackFirst != null
+                || explosionFirst != null
+                || knockbackSecond != null
+                || explosionSecond != null
+                || !roars.isEmpty()
+                || !pulls.isEmpty()) {
             packetEventsInOrder = new ArrayList<>(4);
             if (knockbackFirst != null) packetEventsInOrder.add(knockbackFirst);
             if (explosionFirst != null) packetEventsInOrder.add(explosionFirst);
             if (knockbackSecond != null) packetEventsInOrder.add(knockbackSecond);
             if (explosionSecond != null) packetEventsInOrder.add(explosionSecond);
+            packetEventsInOrder.addAll(roars);
+            packetEventsInOrder.addAll(pulls);
             if (state.isBedrockTeleportTick()) {
                 // The outbound observer can see B + motion while A's reply is in flight.
                 // Exclude that unconfirmed motion from A; firstBread retains it normally.
@@ -148,48 +134,48 @@ public class MovementModifiers {
             }
             // ClientPacketListener applies replacement motion and additive explosions in wire order, even
             // when a single bundle ping proves all of them.
-            packetEventsInOrder.sort(TransactionVel::compareClientOrder);
+            packetEventsInOrder.sort(Comparator.comparingLong(TransactionVel::getOutboundSequence));
         }
 
         for (Vec3 vector : unrebounded) {
             start.add(PredVector.fromStartingVector(vector));
         }
 
-        EntityPush.addVehiclePushCandidates(player, start, state, lastResult);
-        addFireworkBoosts(player, start, state);
-
         // To prevent trying to add a million vectors, we limit the overridden vels
         for (TransactionVel order : player.checkManager.getKnockbackHandler().overriddenVels) {
             PredVector overriddenVel = new PredVector(order.getVel());
-            overriddenVel.setTickSkip(canTickSkip);
             overriddenVel.setEntityMotion(true);
             start.add(overriddenVel);
-        }
-
-        if (canTickSkip) {
-            PredVector pointThree = new PredVector(Vec3.ZERO);
-            pointThree.setTickSkip(true);
-            start.add(pointThree);
-
-            if (canStartWithFluidHop) {
-                addFluidHopCandidates(start, pointThree, canStartWithRiddenFluidHopFloat);
-                for (Vec3 vector : unrebounded) {
-                    PredVector skippedVector = PredVector.fromStartingVector(vector);
-                    skippedVector.setTickSkip(true);
-                    addFluidHopCandidates(start, skippedVector, canStartWithRiddenFluidHopFloat);
-                }
-            }
         }
 
         // TODO: This is too brute forcey, we don't need duplicates in certain situations.
         // TODO: This should just be refactored for 1.20.4+ clients with tick end and bundle packet!
         for (int eventIndex = 0, eventCount = packetEventsInOrder.size(); eventIndex < eventCount; eventIndex++) {
             TransactionVel vel = packetEventsInOrder.get(eventIndex);
+            if (vel instanceof ClientFishingPulls.Impulse pull) {
+                var pulled = new ArrayList<PredVector>();
+                for (PredVector vector : start)
+                    for (Vec3 impulse : pull.impulses()) {
+                        PredVector moved = vector.add(impulse, "Fishing pull");
+                        pulled.add(moved.withVelocityRange(
+                                JavaVelocityRange.add(moved.getVelocityRange(), pull.range())));
+                    }
+                start = pulled;
+                continue;
+            }
+            if (vel instanceof ClientRavagerRoars.Impulse roar) {
+                var pushed = new ArrayList<PredVector>();
+                for (PredVector vector : start)
+                    for (Vec3 impulse : roar.impulses()) pushed.add(vector.add(impulse, "Ravager roar"));
+                start = pushed;
+                continue;
+            }
             for (PredVector vector : new ArrayList<>(start)) {
                 Vec3 eventVel = vel.getVel();
 
                 if (vel.isVelocity()) { // Velocity
-                    vector = vector.withXYZ(eventVel.x, eventVel.y, eventVel.z, "Velocity");
+                    // set_entity_motion replaces deltaMovement, including any range it held.
+                    vector = vector.withXYZ(eventVel.x, eventVel.y, eventVel.z, "Velocity").withVelocityRange(null);
                 } else { // Explosion
                     vector = vector.add(eventVel, "Explosion");
                 }
@@ -199,88 +185,11 @@ public class MovementModifiers {
             }
         }
 
-        // The legacy launch happened in the preceding block-entity pass,
-        // before this tick's queued velocity/explosion packets were processed.
-        if (includeSlimePistonLaunches) {
-            addSlimePistonLaunches(start, state);
-        }
-
         return start;
     }
 
-    /**
-     * FireworkRocketEntity#tick boosts the stored velocity after the last tick's LivingEntity#aiStep, with that
-     * tick's look, so this tick's packets, attack and travel start from the boost. The travel may be a glide, or a
-     * fluid or air travel once the server's fall flying flag arrives.
-     */
-    private static void addFireworkBoosts(CultPlayer player, List<PredVector> start, SimulationContext state) {
-        int boosts = player.compensatedFireworks.getMaxFireworksAppliedPossible();
-        if (boosts == 0 || state.getVehicle() != null) return;
-        int certain = player.compensatedFireworks.getCertainFireworksApplied();
-        List<PredVector> stored = new ArrayList<>(start);
-        // Every rocket the client has applied and not yet removed boosted the stored velocity.
-        if (certain > 0) start.clear();
-        // The look reads either trig table, as the glide does.
-        for (int fastMath = 0; fastMath < 2; fastMath++) {
-            Vector3dm look = ReachUtils.getLook(player, state.getLastXRot(), state.getLastYRot());
-            for (PredVector carried : stored) {
-                Vec3 boosted = carried;
-                for (int i = 1; i <= boosts; i++) {
-                    boosted = ElytraTransform.boostFirework(boosted, look);
-                    if (i >= certain) start.add(new ElytraTransform.Boosted(carried, boosted, i));
-                }
-            }
-            player.trigHandler.toggleShitMath();
-        }
-    }
-
-    private static void addSlimePistonLaunches(List<PredVector> start, SimulationContext state) {
-        for (PredVector vector : new ArrayList<>(start)) {
-            for (Direction direction : state.getWorldData().getPistonPushes().getSlimeBlockLaunches()) {
-                double x = direction.getModX() == 0 ? vector.getX() : direction.getModX();
-                double y = direction.getModY() == 0 ? vector.getY() : direction.getModY();
-                double z = direction.getModZ() == 0 ? vector.getZ() : direction.getModZ();
-                start.add(vector.withXYZ(x, y, z, SLIME_BLOCK_LAUNCH));
-            }
-        }
-    }
-
-    private static void addFluidHopCandidates(
-            List<PredVector> start, PredVector vector, boolean canStartWithRiddenFluidHopFloat) {
-        PredVector fluidHop = vector.withY(FLUID_HOP_Y, FLUID_HOP_REASON);
-        start.add(fluidHop);
-        if (canStartWithRiddenFluidHopFloat) {
-            start.add(fluidHop.withY(RIDDEN_FLUID_HOP_Y, "ridden water float"));
-        }
-    }
-
-    private boolean canStartWithFluidHop(SimulationContext state, PredictionResult lastResult, boolean canTickSkip) {
-        if (state.getWorldData().isCanFluidHop()) {
-            return true;
-        }
-
-        if (!canTickSkip || lastResult == null || lastResult.getSimulationContext() == null) {
-            return false;
-        }
-
-        // MCP-Reborn LivingEntity#travelInWater/#travelInLava call jumpOutOfFluid after
-        // movement, so the resulting 0.3 Y velocity is a carried start candidate for the
-        // following simulated client tick. Tick-skipped packets can span that exact tick.
-        return lastResult.getSimulationContext().getWorldData().isCanFluidHop()
-                && lastResult.getSimulationContext().getWorldData().maybeInLiquid();
-    }
-
-    private boolean canStartWithRiddenFluidHopFloat(PredictionResult lastResult) {
-        if (lastResult == null || lastResult.getSimulationContext() == null) {
-            return false;
-        }
-
-        return lastResult.getSimulationContext().getWorldData() != null
-                && lastResult.getSimulationContext().getWorldData().isCouldFloatWhileRidden();
-    }
-
-    private enum FluidHopMode {
-        INCLUDE,
-        EXCLUDE
+    private static boolean hasCarriedVelocity(JavaPredictionCarry carry, Set<Vec3> initial) {
+        for (var state : carry.states()) if (initial.contains(state.velocity())) return true;
+        return false;
     }
 }

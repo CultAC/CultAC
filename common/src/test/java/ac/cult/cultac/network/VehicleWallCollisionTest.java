@@ -14,6 +14,7 @@ import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.packet.WorldPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
+import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
@@ -335,7 +336,7 @@ class VehicleWallCollisionTest {
             f.place(seat, Vec3.ZERO);
             f.player.compensatedWorld.applyClientTime(new WorldPackets.TimeUpdate(24_000L, Map.of()));
             f.player.compensatedEntities.addEntity(VEHICLE, EntityTypeIds.HAPPY_GHAST, seat, 0, 0, 0);
-            ((PacketEntityHappyGhast) f.player.compensatedEntities.getEntity(VEHICLE)).hasBodyArmor = true;
+            f.harness(VEHICLE);
             f.setPassengers(VEHICLE, List.of(f.player.entityID));
             Vec3 other = new Vec3(seat.x, FLOOR_Y, seat.z + 4.0 + GHAST_GAP);
             f.player.compensatedEntities.addEntity(VEHICLE + 1, EntityTypeIds.HAPPY_GHAST, other, 0, 0, 0);
@@ -429,6 +430,30 @@ class VehicleWallCollisionTest {
     }
 
     /**
+     * LivingEntity#maxUpStep: a vehicle with a player controlling it steps at least 1.0, whatever its STEP_HEIGHT. An
+     * explicit 0.6 still lets the ridden horse step onto a block, and 1.5 clears a block topped by a bottom slab.
+     */
+    @Test
+    void aRiddenHorseStepsAtLeastAFullBlockWhateverItsStepHeight() throws Exception {
+        Vec3 seat = new Vec3(0.5, FLOOR_Y, 2.0 - 0.05 - HORSE_HALF_WIDTH);
+        try (var f = ridden(EntityTypeIds.HORSE, seat)) {
+            fill(f, 64, 64, 2, 4, BlockIds.STONE.defaultState());
+            stepHeight(f, 0.6);
+            f.input(FORWARD);
+            assertExact(f.rideTick(seat, true));
+            assertExact(f.rideTick(new Vec3(seat.x, FLOOR_Y + 1.0, seat.z + HORSE_INPUT), true));
+        }
+        try (var f = ridden(EntityTypeIds.HORSE, seat)) {
+            fill(f, 64, 64, 2, 4, BlockIds.STONE.defaultState());
+            fill(f, 65, 65, 2, 4, slab("bottom"));
+            stepHeight(f, 1.5);
+            f.input(FORWARD);
+            assertExact(f.rideTick(seat, true));
+            assertExact(f.rideTick(new Vec3(seat.x, FLOOR_Y + 1.5, seat.z + HORSE_INPUT), true));
+        }
+    }
+
+    /**
      * A camel walking into a block topped by a bottom slab: the 1.0 candidate height still meets the slab, and the 1.5
      * one clears it.
      */
@@ -514,7 +539,14 @@ class VehicleWallCollisionTest {
         ((PacketEntityHorse) f.player.compensatedEntities.getEntity(VEHICLE)).hasSaddle = true;
         f.setPassengers(VEHICLE, List.of(f.player.entityID));
         f.pongThrough(f.player.lastTransactionSent.get());
-        assertExact(f.rideTick(seat, true));
+        // These geometry cases start after the existing five-tick vehicle-switch window, including rejection cases.
+        for (int tick = 0; tick < 6; tick++) assertExact(f.rideTick(seat, true));
+    }
+
+    /** The server's UpdateAttributes setting the vehicle's step_height base to {@code value}. */
+    private static void stepHeight(JavaTickFixture f, double value) {
+        f.player.compensatedEntities.updateAttributes(
+                VEHICLE, List.of(new AttributeSnapshot("minecraft:step_height", value, List.of())));
     }
 
     /** Water on the floor layer, its level rising by one a block along +x, or along +z, so it flows that way. */
@@ -533,7 +565,24 @@ class VehicleWallCollisionTest {
         f.pongThrough(f.player.lastTransactionSent.get());
         f.input(NO_KEYS);
         // The move follows the client ticks CompensatedVehicleState tracks after a vehicle switch.
-        for (int tick = 0; tick < 5; tick++) assertExact(f.rideTick(seat, true));
+        for (int tick = 0; tick < 5; tick++) {
+            // This setup holds the horse for the collision case below. Since 1.21.11 fluid travel adds
+            // ridden floating to the next velocity, so a stationary setup must explicitly reset it.
+            var context = f.player
+                    .checkManager
+                    .getSimulationProcessor()
+                    .getLastPrediction()
+                    .getSimulationContext();
+            Vec3 current =
+                    ac.cult.cultac.utils.nmsutil.WaterCurrent.calculateWaterCurrent(f.player, context, seat, Vec3.ZERO);
+            // Entity#baseTick applies the current before travel. Holding this setup stationary requires the
+            // opposite starting velocity; zero velocity would legitimately drift before the collision case.
+            f.player
+                    .checkManager
+                    .getSimulationProcessor()
+                    .seedStartingVelocity(current == null ? Vec3.ZERO : new Vec3(-current.x, 0, -current.z));
+            assertExact(f.rideTick(seat, true));
+        }
         f.player.checkManager.getSimulationProcessor().seedStartingVelocity(velocity);
     }
 

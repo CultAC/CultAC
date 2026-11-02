@@ -234,8 +234,8 @@ final class CompressionPipeline implements AutoCloseable {
             throw failed;
         } catch (InterruptedException | TimeoutException given) {
             head.message()
-                    .whenComplete((message, failed) ->
-                            queuedBytes.addAndGet(failed == null ? -message.length : -head.counted().get()));
+                    .whenComplete((message, failed) -> queuedBytes.addAndGet(
+                            failed == null ? -message.length : -head.counted().get()));
             throw given;
         }
     }

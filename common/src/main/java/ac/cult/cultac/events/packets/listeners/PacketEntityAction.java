@@ -13,7 +13,6 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.value.EquipmentSlot;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.SprintingState;
-import ac.cult.cultac.utils.data.packetentity.PacketEntityCamel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.inventory.ClientGlider;
@@ -39,7 +38,7 @@ public class PacketEntityAction {
                 player.vehicleData.camelSprintingState = SprintingState.STOPPED;
                 break;
             case START_FLYING_WITH_ELYTRA:
-                boolean grounded = player.onGround || player.lastOnGround;
+                boolean grounded = player.checkManager.getSimulationProcessor().glideStartOnGround();
                 // Only a TridentItem#releaseUsing spin lifts a player on ground before LocalPlayer#aiStep reads
                 // onGround, so a glide start after a release on the ground follows a spin.
                 boolean released = RiptideUtil.releasedOnTheGround(player);
@@ -54,6 +53,10 @@ public class PacketEntityAction {
                 player.checkManager.getCheck(ElytraA.class).onStartGliding(event);
 
                 if (canGlideUsingEquippedItem(player)) {
+                    if (!player.isBedrockMovement() && player.packetStateData.glidingBeforeClientAction == null)
+                        player.packetStateData.glidingBeforeClientAction = player.isGliding;
+                    if (!released && !player.isGliding && !event.isCancelled())
+                        player.checkManager.getSimulationProcessor().commitAirborneGlideStart();
                     // The pose follows in Player#updatePlayerPose, after this tick's aiStep.
                     player.isGliding = true;
                 } else {
@@ -65,16 +68,15 @@ public class PacketEntityAction {
                                 instanceof PacketEntityNautilus value
                         ? value
                         : null;
-                if (nautilus != null && nautilus.hasSaddle && nautilus.dashCooldown <= 0) {
+                if (nautilus != null) {
+                    // LocalPlayer#aiStep releases after the nautilus's whole tick, whose cooldown tail runs at the
+                    // client tick end, so the tick end judges AbstractNautilus#onPlayerJump after that tail.
                     nautilus.nextPendingJumpScale = packet.data() >= 90 ? 1.0F : 0.4F + 0.4F * packet.data() / 90.0F;
                     break;
                 }
                 PacketEntityHorse horse = player.compensatedEntities.vehicles.getClientVisibleHorseRoot();
-                // Camel#onPlayerJump. The client releases the jump only if Camel#canJump holds after the camel's tick.
-                if (horse instanceof PacketEntityCamel camel
-                        && (!camel.hasSaddle || camel.dashCooldown > 0 || !camel.onGround)) {
-                    break;
-                }
+                // Camel#onPlayerJump also needs no dash cooldown and the ground, as Camel#tick's move and cooldown
+                // tail leave them before this release. The client tick end judges them after both have run.
                 if (horse != null && horse.hasSaddle) {
                     double jumpScale = packet.data() >= 90 ? 1.0F : 0.4F + 0.4F * packet.data() / 90.0F;
                     // MCP-Reborn ClientLevel#tickNonPassenger ticks the root

@@ -1194,7 +1194,8 @@ public final class IntakeWire {
                                 Math.min(Integer.MAX_VALUE, Integer.toUnsignedLong(start.getSeconds()))));
                     }
                 }
-                case TEAM_STATE -> replies.add(new TeamStateReply(reply.getTeamState().getEnabled()));
+                case TEAM_STATE ->
+                    replies.add(new TeamStateReply(reply.getTeamState().getEnabled()));
                 case TEAM_SWEEP -> {
                     List<UUID> players = new ArrayList<>(reply.getTeamSweep().getPlayersCount());
                     for (ByteString player : reply.getTeamSweep().getPlayersList()) {

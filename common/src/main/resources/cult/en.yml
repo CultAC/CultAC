@@ -89,10 +89,6 @@ cult:
     max-freeze-time-ms: 5000
 
   networking:
-    # Use packet bundle boundaries to synchronize entity tracking
-    # for reach checks on clients that support bundles.
-    reach-use-bundle-delimiter: true
-
     # Replace other living entities' reported health with 1 HP.
     # Preserves the viewer's own health, their current mount, and dead entities.
     # Viewers with cult.showhealth receive real health values.

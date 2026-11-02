@@ -5,7 +5,6 @@ import static org.mockito.Mockito.*;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.impl.prediction.ClientHorizontalCollisionTest;
-import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
@@ -82,7 +81,7 @@ class SprintETest {
             PredictionResult result = ClientHorizontalCollisionTest.result(
                     yaw, attemptedMomentum, target, ClientHorizontalCollisionTest.wallAtPositiveZ());
             WorldData world = mock(WorldData.class);
-            doReturn(DesyncStatus.FALSE).when(world).getInWater();
+            doReturn(false).when(world).isInWater();
             doReturn(world).when(result.getSimulationContext()).getWorldData();
             return result;
         }

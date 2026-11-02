@@ -34,18 +34,13 @@ class ReachInterpolationRestartTest {
             CultPlayer player = player(version);
             for (int type : TYPES) {
                 PacketEntity entity = new PacketEntity(type, 1);
-                for (int variant = 0; variant < 4; variant++) {
-                    boolean pointNine = (variant & 1) == 0;
-                    boolean uncertain = (variant & 2) == 0;
-                    ReachInterpolationData worn = ReachInterpolationData.takingStart(
-                            player, FIRST.copy(), 0, 64, 0, 10, 5, 40, -5, true, entity, true);
-                    wear(worn);
-                    assertTrue(worn.restart(
-                            player, SECOND.copy(), 5.5, 63.5, 7.75, 40, -5, 95, 12, pointNine, entity, uncertain));
-                    ReachInterpolationData fresh = ReachInterpolationData.takingStart(
-                            player, SECOND.copy(), 5.5, 63.5, 7.75, 40, -5, 95, 12, pointNine, entity, uncertain);
-                    assertSameState(fresh, worn, version + " " + type + " " + variant);
-                }
+                ReachInterpolationData worn =
+                        ReachInterpolationData.takingStart(player, FIRST.copy(), 0, 64, 0, 10, 5, 40, -5, entity);
+                wear(worn);
+                assertTrue(worn.restart(player, SECOND.copy(), 5.5, 63.5, 7.75, 40, -5, 95, 12, entity));
+                ReachInterpolationData fresh = ReachInterpolationData.takingStart(
+                        player, SECOND.copy(), 5.5, 63.5, 7.75, 40, -5, 95, 12, entity);
+                assertSameState(fresh, worn, version + " " + type);
             }
         }
     }
@@ -55,7 +50,7 @@ class ReachInterpolationRestartTest {
         CultPlayer player = player(ClientVersion.V_1_21_11);
         PacketEntity entity = new PacketEntity(EntityTypeIds.ZOMBIE, 1);
         ReachInterpolationData finished = new ReachInterpolationData(FIRST);
-        assertFalse(finished.restart(player, SECOND.copy(), 5.5, 63.5, 7.75, 0, 0, 0, 0, true, entity, true));
+        assertFalse(finished.restart(player, SECOND.copy(), 5.5, 63.5, 7.75, 0, 0, 0, 0, entity));
         assertSameState(new ReachInterpolationData(FIRST), finished, "finished");
     }
 
@@ -71,13 +66,13 @@ class ReachInterpolationRestartTest {
         if (data.usesSteppedInterpolation()) {
             data.appendPath(EntityPositionPath.linear(new Vec3(1.25, 64.5, -0.75)), 20, 3);
         }
-        data.tickMovement(true, true);
+        data.tickMovement(true);
         data.getPossibleMovementLocationCombined(new SimpleCollisionBox());
         data.setExactMovementLocation(new SimpleCollisionBox(0.2, 64, 0.2, 0.8, 65.95, 0.8));
         data.setExactRotation(15, 2);
         data.offset(feet -> new Vec3(0.125, -0.5, 0.25));
         data.resize(0.9F, 1.4F);
-        data.tickMovement(true, false);
+        data.tickMovement(true);
         if (data.beginIdleProbe()) data.settleIfIdleTickUnchanged();
         data.markPositionInexact();
         data.getPossibleMovementLocationCombined(new SimpleCollisionBox());
@@ -85,8 +80,11 @@ class ReachInterpolationRestartTest {
 
     private static void assertSameState(ReachInterpolationData expected, ReachInterpolationData actual, String at) {
         int compared = 0;
+        boolean unheld = heldStep(expected) < 0 && heldStep(actual) < 0;
         for (Field field : ReachInterpolationData.class.getDeclaredFields()) {
             if (Modifier.isStatic(field.getModifiers())) continue;
+            // Without a held step, the held box is only storage restart keeps for reuse; nothing reads it.
+            if (unheld && field.getName().equals("heldLocation")) continue;
             field.setAccessible(true);
             Object want;
             Object got;
@@ -109,6 +107,16 @@ class ReachInterpolationRestartTest {
             compared++;
         }
         assertFalse(compared == 0);
+    }
+
+    private static int heldStep(ReachInterpolationData data) {
+        try {
+            Field field = ReachInterpolationData.class.getDeclaredField("heldStep");
+            field.setAccessible(true);
+            return field.getInt(data);
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError(e);
+        }
     }
 
     private static String boxBits(SimpleCollisionBox box) {

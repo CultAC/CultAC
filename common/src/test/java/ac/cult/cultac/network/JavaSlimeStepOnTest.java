@@ -18,6 +18,8 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.utils.math.Vec3;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * A 26.1 client sliding over a slime floor. Entity#move bounces the landing velocity, LivingEntity#travelInAir applies
@@ -34,6 +36,24 @@ class JavaSlimeStepOnTest {
     /** The landing's -0.0784 bounced to 0.0784 by SlimeBlock#bounceUp, then (0.0784 - 0.08) * 0.98F. */
     private static final double STEP_ON =
             0.4 + Math.abs((-((0.0 - 0.08) * (double) 0.98F) - 0.08) * (double) 0.98F) * 0.2;
+
+    @ParameterizedTest
+    @EnumSource(value = ClientVersion.class, names = {
+            "V_1_21_2", "V_1_21_4", "V_1_21_5", "V_1_21_9", "V_1_21_11", "V_26_1", "V_26_2", "V_26_3"})
+    void theReportedTickAlreadyCarriesSlimeStepOn(ClientVersion version) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            slide(f, version);
+            double y = version.isNewerThanOrEquals(ClientVersion.V_26_2)
+                    ? -0.08 * (double) 0.98F
+                    : (-((0.0 - 0.08) * (double) 0.98F) - 0.08) * (double) 0.98F;
+            double scale = 0.4 + Math.abs(y) * 0.2;
+            double friction = (double) (0.8F * 0.91F);
+            Vec3 expected = new Vec3(SLID.x * friction * scale, y, SLID.z * friction * scale);
+            var carried = f.player.checkManager.getSimulationProcessor().getValidPlayerStartingVels();
+            assertTrue(carried.stream().anyMatch(v -> v.distanceTo(expected) < 1e-12),
+                    "stepOn belongs to the reported tick: " + carried);
+        }
+    }
 
     @Test
     void theNextTickMovesByTheStepOnScaledVelocity() throws Exception {
@@ -74,7 +94,11 @@ class JavaSlimeStepOnTest {
 
     /** Places the client on the slime with {@link #SLID} and returns where the first tick's slide ends. */
     private static Vec3 slide(JavaTickFixture f) throws Exception {
-        JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_26_1);
+        return slide(f, ClientVersion.V_26_1);
+    }
+
+    private static Vec3 slide(JavaTickFixture f, ClientVersion version) throws Exception {
+        JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
         for (int x = -8; x <= 8; x++) {
             for (int z = -8; z <= 8; z++) {
                 f.player.compensatedWorld.updateBlock(

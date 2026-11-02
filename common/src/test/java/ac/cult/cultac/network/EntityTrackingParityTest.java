@@ -97,8 +97,9 @@ class EntityTrackingParityTest {
                     PacketEntity entity = entities.getEntity(10 + random.nextInt(types.length));
                     SimpleCollisionBox start = box(player, entity, random);
                     Vec3 target = feet(box(player, entity, random));
+                    float yaw = entity.clientPhysicalYaw, pitch = entity.clientPhysicalPitch;
                     var data = new ReachInterpolationData(
-                            player, start, target.x, target.y, target.z, random.nextBoolean(), entity);
+                            player, start, target.x, target.y, target.z, yaw, pitch, yaw, pitch, entity);
                     String where = version + " " + entity.type + " run " + run;
                     checkKeptBounds(data, where);
                     for (int op = 0; op < 40; op++) {
@@ -151,7 +152,7 @@ class EntityTrackingParityTest {
             case 5 -> data.setExactRotation(yaw, pitch);
             case 6 -> data.setCurrentAndTargetRotation(yaw, pitch);
             case 7 -> data.updatePossibleStartingLocation(box(player, entity, random));
-            case 8 -> data.tickMovement(random.nextBoolean(), random.nextBoolean());
+            case 8 -> data.tickMovement(random.nextBoolean());
             case 9 -> {
                 if (!data.usesSteppedInterpolation()) return;
                 data.setPhysicalBeforePathAppend(
@@ -163,7 +164,7 @@ class EntityTrackingParityTest {
                         pitch);
             }
             default ->
-                checkKeptBounds(data.copyAdvancedForClientTick(random.nextBoolean(), random.nextBoolean()), "copy");
+                checkKeptBounds(data.copyAdvancedForClientTick(random.nextBoolean()), "copy");
         }
     }
 

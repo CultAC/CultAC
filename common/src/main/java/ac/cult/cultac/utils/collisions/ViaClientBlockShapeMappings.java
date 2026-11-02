@@ -69,7 +69,24 @@ public final class ViaClientBlockShapeMappings {
 
         CollisionBox latest =
                 NativeBlockCollisionHelper.getCollisionBox(player, replacement.stateId(), x, y, z, entityBottom);
-        Optional<CollisionBox> versioned = VersionedJavaBlockShapes.movement(player, replacement.stateId(), x, y, z);
+        return versionedOrLatest(player, replacement.stateId(), x, y, z, latest);
+    }
+
+    /** {@link #movement} under CollisionContext.empty(); see NativeBlockCollisionHelper#getContextFreeCollisionShape. */
+    static Optional<CollisionBox> contextFreeMovement(CultPlayer player, int state, int x, int y, int z) {
+        Replacement replacement = replacement(player, state);
+        if (replacement == null) {
+            return Optional.empty();
+        }
+
+        CollisionBox latest =
+                NativeBlockCollisionHelper.getContextFreeCollisionBox(player, replacement.stateId(), x, y, z);
+        return versionedOrLatest(player, replacement.stateId(), x, y, z, latest);
+    }
+
+    private static Optional<CollisionBox> versionedOrLatest(
+            CultPlayer player, int replacementState, int x, int y, int z, CollisionBox latest) {
+        Optional<CollisionBox> versioned = VersionedJavaBlockShapes.movement(player, replacementState, x, y, z);
         return versioned
                 .filter(shape -> !ClientBlockShapes.sameShape(latest, shape))
                 .or(() -> Optional.of(latest));

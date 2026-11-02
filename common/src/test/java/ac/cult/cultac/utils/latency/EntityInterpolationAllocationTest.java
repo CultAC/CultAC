@@ -70,7 +70,7 @@ class EntityInterpolationAllocationTest {
         try {
             CompensatedEntities entities = player.compensatedEntities;
             assertSame(entities.getEntity(VEHICLE), entities.selfRidingRoot());
-            Consumer<PacketEntity> onMovement = entity -> entity.onMovement(player, true);
+            Consumer<PacketEntity> onMovement = entity -> entity.onMovement(player);
             boolean stepped = client.version.isNewerThanOrEquals(ClientVersion.V_26_3);
             Runnable entityPass = stepped
                     ? () -> entities.tickClientEntities(onMovement)
@@ -118,8 +118,7 @@ class EntityInterpolationAllocationTest {
                         true,
                         yaw,
                         0.0F,
-                        player,
-                        true);
+                        player);
             } else {
                 entity.onBundledPositionSyncTransaction(base.x + d, base.y, base.z + d, yaw, 0.0F, player);
             }

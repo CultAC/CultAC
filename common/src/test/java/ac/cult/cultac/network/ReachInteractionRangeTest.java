@@ -930,19 +930,8 @@ class ReachInteractionRangeTest {
         try (var setup = new Setup()) {
             assertFalse(setup.attack(2.99));
             assertTrue(setup.attack(3.01));
-            assertEquals(List.of(), setup.attackAfter(2.99, entity -> setup.moveAwayAndBack(entity, 4, true)));
-            assertEquals(
-                    List.of("EntityReach"), setup.attackAfter(3.01, entity -> setup.moveAwayAndBack(entity, 4, true)));
-        }
-    }
-
-    // The client may have received an unbundled movement before any tick between its proofs.
-    @Test
-    void aTargetMovedByAnUnbundledMovementKeepsTheMargin() throws Exception {
-        try (var setup = new Setup()) {
-            assertEquals(List.of(), setup.attackAfter(3.01, entity -> setup.moveAwayAndBack(entity, 2, false)));
-            assertEquals(
-                    List.of("EntityReach"), setup.attackAfter(3.10, entity -> setup.moveAwayAndBack(entity, 2, false)));
+            assertEquals(List.of(), setup.attackAfter(2.99, entity -> setup.moveAwayAndBack(entity, 4)));
+            assertEquals(List.of("EntityReach"), setup.attackAfter(3.01, entity -> setup.moveAwayAndBack(entity, 4)));
         }
     }
 
@@ -950,10 +939,8 @@ class ReachInteractionRangeTest {
     @Test
     void aTargetWhoseQueueFoldedKeepsTheMargin() throws Exception {
         try (var setup = new Setup()) {
-            assertEquals(List.of(), setup.attackAfter(3.01, entity -> setup.moveAwayAndBack(entity, 200, true)));
-            assertEquals(
-                    List.of("EntityReach"),
-                    setup.attackAfter(3.10, entity -> setup.moveAwayAndBack(entity, 200, true)));
+            assertEquals(List.of(), setup.attackAfter(3.01, entity -> setup.moveAwayAndBack(entity, 200)));
+            assertEquals(List.of("EntityReach"), setup.attackAfter(3.10, entity -> setup.moveAwayAndBack(entity, 200)));
         }
     }
 
@@ -967,11 +954,11 @@ class ReachInteractionRangeTest {
     }
 
     private static void snapAwayAndBack(Setup setup, PacketEntity entity) {
-        setup.moveAwayAndBack(entity, 2, false);
+        setup.moveAwayAndBack(entity, 2);
         Vec3 at = entity.newPacketLocation.targetPosition();
         setup.positionSync(entity.getEntityId(), at.add(100, 0, 0));
         setup.positionSync(entity.getEntityId(), at);
-        setup.moveAwayAndBack(entity, 2, true);
+        setup.moveAwayAndBack(entity, 2);
     }
 
     // The client sets a far teleport's position at once, where the model interpolates toward it.
@@ -1193,9 +1180,8 @@ class ReachInteractionRangeTest {
             int id = 101;
             setup.player.compensatedEntities.addEntity(id, EntityTypeIds.ZOMBIE, new Vec3(.5, 64, 1), 0, 0, 0);
             PacketEntity entity = setup.player.compensatedEntities.getEntity(id);
-            entity.onPositionPath(
-                    EntityPositionPath.linear(new Vec3(1.5, 64, 1)), true, null, null, setup.player, false);
-            entity.onMovement(setup.player, true);
+            entity.onPositionPath(EntityPositionPath.linear(new Vec3(1.5, 64, 1)), true, null, null, setup.player);
+            entity.onMovement(setup.player);
             setup.positionSync(id, new Vec3(-63.3, 64, 1));
             assertFalse(entity.newPacketLocation.hasExactPosition());
         }
@@ -1222,7 +1208,7 @@ class ReachInteractionRangeTest {
             PacketEntity boat = setup.player.compensatedEntities.getEntity(101);
             PacketEntity rider = setup.player.compensatedEntities.getEntity(102);
             rider.mount(boat);
-            boat.onFirstTransaction(false, true, .56, 64, 1, setup.player);
+            boat.onBundleFirstTransaction(false, true, .56, 64, 1, setup.player);
             assertFalse(boat.newPacketLocation.hasExactPosition());
             setup.player.compensatedEntities.settleIfUntrackedRider(rider);
             rider.eject();
@@ -1241,7 +1227,7 @@ class ReachInteractionRangeTest {
             passenger.mount(boat);
             setup.player.compensatedEntities.positionPassenger(boat, passenger);
             assertTrue(passenger.newPacketLocation.hasExactPosition());
-            boat.onFirstTransaction(false, true, .56, 64, 1, setup.player);
+            boat.onBundleFirstTransaction(false, true, .56, 64, 1, setup.player);
             setup.player.compensatedEntities.positionPassenger(boat, passenger);
             passenger.eject();
             assertFalse(passenger.newPacketLocation.hasExactPosition());
@@ -1264,11 +1250,11 @@ class ReachInteractionRangeTest {
                     rider = child;
                 }
                 setup.tickEnd();
-                root.onFirstTransaction(false, true, .5, 64, 1.84, setup.player);
+                root.onBundleFirstTransaction(false, true, .5, 64, 1.84, setup.player);
                 entities.settleIfUntrackedRider(rider);
                 rider.eject();
                 Vec3 seat = rider.clientPhysicalPosition;
-                rider.onPositionPath(EntityPositionPath.linear(seat), true, 1F, 0F, setup.player, true);
+                rider.onPositionPath(EntityPositionPath.linear(seat), true, 1F, 0F, setup.player);
                 setup.player.y = seat.y;
                 setup.player.lastY = seat.y;
                 assertEquals(
@@ -1804,7 +1790,7 @@ class ReachInteractionRangeTest {
                         int id = nextEntity - 1;
                         var target = (PacketEntityPlayer) player.compensatedEntities.getEntity(id);
                         target.scale = .2F;
-                        target.onFirstTransaction(true, true, 0, 0, .01, player);
+                        target.onBundleFirstTransaction(true, true, 0, 0, .01, player);
                         for (int tick = 0; tick < 3; tick++) tickEnd();
                         target.onSecondTransaction();
                         pose(id, EntityPose.SLEEPING);
@@ -2177,7 +2163,7 @@ class ReachInteractionRangeTest {
             if (moved.x != 0 || moved.y != 0 || moved.z != 0) {
                 player.compensatedEntities
                         .getEntity(id)
-                        .onFirstTransaction(true, true, moved.x, moved.y, moved.z, player);
+                        .onBundleFirstTransaction(true, true, moved.x, moved.y, moved.z, player);
                 for (int tick = 0; tick < 3; tick++) tickEnd();
             }
             beforeAttack.run();
@@ -2290,13 +2276,12 @@ class ReachInteractionRangeTest {
             return attackEntity(id, EntityTypeIds.ZOMBIE, () -> {});
         }
 
-        // This many movements half a block along +z and back, each proven by its bundle or by its second transaction.
-        void moveAwayAndBack(PacketEntity entity, int moves, boolean bundled) {
+        // This many movements half a block along +z and back, each proven by its bundle.
+        void moveAwayAndBack(PacketEntity entity, int moves) {
             Vec3 at = entity.desyncClientPos;
             for (int move = 1; move <= moves; move++) {
                 Vec3 to = move % 2 == 0 ? at : at.add(0, 0, .5);
-                entity.onPositionPath(EntityPositionPath.linear(to), true, null, null, player, bundled);
-                if (!bundled) entity.onSecondTransaction();
+                entity.onPositionPath(EntityPositionPath.linear(to), true, null, null, player);
             }
         }
 

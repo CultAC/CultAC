@@ -8,17 +8,17 @@ import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 
 public class StepTransform implements UncertaintyHandler {
+    /** Entity#collide's step raises only the move: deltaMovement keeps its Y for the landing response after it. */
     @Override
     public MovementTrace handleMovementTrace(
             CultPlayer player,
             ValidMovements valid,
             PredictionResult result,
             SimulationContext context,
-            PredictionResult lastContext,
+            PredictionResult lastResult,
             MovementTrace trace,
             Vec3 end) {
-        double shoveY = player.isBedrockMovement() ? 0.0D : trace.collisionBaseOffset().y;
-        return trace.withPosition(step(player, valid, result, trace.position(), shoveY, end));
+        return trace.withPosition(handleUncertainty(player, valid, result, context, lastResult, trace.position(), end));
     }
 
     @Override
@@ -29,16 +29,6 @@ public class StepTransform implements UncertaintyHandler {
             SimulationContext context,
             PredictionResult lastContext,
             PredVector start,
-            Vec3 end) {
-        return step(player, valid, result, start, 0.0D, end);
-    }
-
-    private static PredVector step(
-            CultPlayer player,
-            ValidMovements valid,
-            PredictionResult result,
-            PredVector start,
-            double shoveY,
             Vec3 end) {
         // The player isn't allowed to step here
         if (!valid.isCanStep()) return start;
@@ -57,10 +47,14 @@ public class StepTransform implements UncertaintyHandler {
             return start;
         }
 
-        double clampedStep = CultMath.clamp(
-                end.y,
-                shoveY + Math.min(0, start.y - shoveY),
-                shoveY + maxUpStep * result.getSimulationContext().getTargetScalarVert());
-        return start.withY(clampedStep, "step").markBoundedStep();
+        return boundedCandidate(
+                        start, end, maxUpStep, result.getSimulationContext().getTargetScalarVert(), "step")
+                .markBoundedStep();
+    }
+
+    public static PredVector boundedCandidate(
+            PredVector start, Vec3 end, double maxUpStep, double verticalScale, String reason) {
+        double clampedStep = CultMath.clamp(end.y, Math.min(0, start.y), maxUpStep * verticalScale);
+        return start.withY(clampedStep, reason);
     }
 }

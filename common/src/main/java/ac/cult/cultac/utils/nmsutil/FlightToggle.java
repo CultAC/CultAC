@@ -1,8 +1,10 @@
 package ac.cult.cultac.utils.nmsutil;
 
+import ac.cult.blocksim.data.FluidTags;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAutoJump;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.data.PacketStateData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
@@ -35,11 +37,13 @@ public final class FlightToggle {
 
     /**
      * This client tick's flight stop is the toggle ahead of travel: a press that every timer value the client can
-     * have arms, with no auto-jump or vehicle to block it. Player#updateSwimming never lets a flyer swim.
+     * have arms, with no auto-jump or vehicle to block it. Player#updateSwimming never lets a flyer swim. The toggle
+     * runs once per aiStep, so after a flight start this tick the stop is the landing after travel.
      */
     public static boolean stopsBeforeTravel(CultPlayer player) {
         PacketStateData data = player.packetStateData;
-        return pressReachesToggle(player)
+        return !data.flyingStartBeforeTravel
+                && pressReachesToggle(player)
                 && (data.jumpTriggerTimes & UNARMED) == 0
                 && !data.autoJumpPossible
                 && !vehicleCanBlock(player);
@@ -62,7 +66,8 @@ public final class FlightToggle {
         data.jumpTriggerTimes = (times >>> 1) | (times & UNARMED);
         data.lastTickJump = data.knownInput.jump();
         data.autoJumpPossible = autoJumpCanFire(player);
-        data.eyeInWaterBeforeTick = player.checkManager.getSimulationProcessor().isLastWorldEyeInWater();
+        data.eyeFluidContactBeforeTick =
+                player.checkManager.getSimulationProcessor().getLastWorldEyeFluidContact();
     }
 
     /**
@@ -73,7 +78,7 @@ public final class FlightToggle {
         data.jumpTriggerTimes = UNARMED;
         data.lastTickJump = false;
         data.autoJumpPossible = false;
-        data.eyeInWaterBeforeTick = false;
+        data.eyeFluidContactBeforeTick = 0;
         if (!keepEntityData) data.swimmingPossible = false;
     }
 
@@ -105,15 +110,18 @@ public final class FlightToggle {
     private static boolean swimmingPossible(CultPlayer player) {
         PacketStateData data = player.packetStateData;
         if (flyingBeforeAiStep(player) || player.inVehicle() || !player.sprintState.flagBeforeAiStep()) return false;
-        PredictionResult prediction = player.checkManager.getSimulationProcessor().getLastPrediction();
+        PredictionResult prediction =
+                player.checkManager.getSimulationProcessor().getLastPrediction();
         if (prediction == null) return true;
-        if (!prediction.getSimulationContext().getWorldData().getInWater().getStates().contains(true)) return false;
-        if (data.swimmingPossible) return true;
+        if (data.swimmingPossible)
+            return prediction.getSimulationContext().getWorldData().mayBeInWater();
         Vec3 start = prediction.getSimulationContext().getStart();
-        return data.eyeInWaterBeforeTick
-                && player.compensatedWorld.getWaterFluidLevelAt(
-                                (int) Math.floor(start.x), (int) Math.floor(start.y), (int) Math.floor(start.z))
-                        > 0;
+        return ClientFluidQueries.eyeContactInWater(player, data.eyeFluidContactBeforeTick)
+                && ClientFluidQueries.is(
+                        player,
+                        ClientFluidQueries.fluidAt(
+                                player.compensatedWorld, BlockPos.containing(start.x, start.y, start.z)),
+                        FluidTags.WATER);
     }
 
     // LocalPlayer#move runs updateAutoJump after the move, with the client option open.

@@ -90,10 +90,6 @@ cult:
     max-freeze-time-ms: 5000
 
   networking:
-    # Nutzt Paketbündelgrenzen zur Synchronisierung der Entitätsverfolgung
-    # für Reichweitenprüfungen bei Clients mit Bündelunterstützung.
-    reach-use-bundle-delimiter: true
-
     # Ersetzt die gemeldete Gesundheit anderer lebender Entitäten durch 1 HP.
     # Die eigene Gesundheit des Betrachters, sein Reittier und tote Entitäten bleiben unverändert.
     # Betrachter mit cult.showhealth erhalten die tatsächlichen Gesundheitswerte.

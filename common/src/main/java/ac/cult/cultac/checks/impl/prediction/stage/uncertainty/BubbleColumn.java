@@ -12,11 +12,13 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
+import ac.cult.cultac.utils.nmsutil.JavaBubbleColumnVelocity;
 
 public class BubbleColumn implements UncertaintyHandler {
     @Override
     public boolean skipsContext(CultPlayer player, SimulationContext context, PredictionResult lastResult) {
-        return lastResult == null
+        return carriesTickEndVelocity(player, context)
+                || lastResult == null
                 || !lastResult
                         .getSimulationContext()
                         .getWorldData()
@@ -33,20 +35,17 @@ public class BubbleColumn implements UncertaintyHandler {
             PredictionResult lastResult,
             PredVector start,
             Vec3 end) {
-        if (context.getVehicle() != null
-                && !player.isBedrockMovement()
-                && JavaMovementEngine.contextUsesExactEffects(context)) return start;
-        if (beforeElytra(context)) return start;
+        if (carriesTickEndVelocity(player, context)) return start;
         return apply(context, lastResult, start, end.y);
     }
 
-    static boolean beforeElytra(SimulationContext context) {
-        return context.getVehicle() == null
-                && context.usesFallFlyingMovement()
-                && !context.getWorldData().mustBeInLiquid();
+    private static boolean carriesTickEndVelocity(CultPlayer player, SimulationContext context) {
+        return !player.isBedrockMovement() && JavaMovementEngine.contextUsesExactEffects(context)
+                || JavaBubbleColumnVelocity.carries(player, context);
     }
 
-    static PredVector apply(SimulationContext context, PredictionResult lastResult, PredVector start, double targetY) {
+    private static PredVector apply(
+            SimulationContext context, PredictionResult lastResult, PredVector start, double targetY) {
         if (lastResult == null) return start;
 
         WorldData lastWorldData = lastResult.getSimulationContext().getWorldData();

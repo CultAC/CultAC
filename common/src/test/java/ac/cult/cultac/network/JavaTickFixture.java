@@ -5,8 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.impl.movement.timer.AbstractTimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
@@ -15,11 +17,13 @@ import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
+import ac.cult.cultac.events.packets.listeners.PacketPlayerDigging;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerSteer;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.manager.config.BaseConfigManager;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.packet.InventoryPackets;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
@@ -40,10 +44,17 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAbilities;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundSetCarriedItem;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.Direction;
+import ac.cult.cultac.protocol.value.EquipmentSlot;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.value.Hand;
+import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.protocol.value.Relative;
 import ac.cult.cultac.protocol.value.Vec3d;
@@ -68,7 +79,9 @@ final class JavaTickFixture implements AutoCloseable {
     final CultPlayer player;
     final CheckManagerListener listener = new CheckManagerListener();
     private final PacketPlayerSteer steer = new PacketPlayerSteer();
+    private final PacketPlayerDigging digging = new PacketPlayerDigging();
     private int teleportId;
+    private int useSequence;
 
     JavaTickFixture() throws Exception {
         this(ProtocolVersion.V26_3, ClientVersion.V_26_3);
@@ -199,6 +212,17 @@ final class JavaTickFixture implements AutoCloseable {
                 fixture.user, ConnectionPhase.PLAY, ClientboundPackets.SET_PASSENGERS, packet, false);
         player.packetEntityReplication.onSetPassengers(event, player, packet);
         event.tasksAfter().forEach(Runnable::run);
+    }
+
+    /** ClientPacketListener#handleSetEquipment putting {@code item} in {@code slot} of {@code entity}. */
+    void equip(int entity, EquipmentSlot slot, SimItemStack item) {
+        player.compensatedEntities.updateEntityEquipment(
+                entity, List.of(new InventoryPackets.EquipmentEntry(slot, item)));
+    }
+
+    /** A vanilla harness in {@code ghast}'s EquipmentSlot.BODY. */
+    void harness(int ghast) {
+        equip(ghast, EquipmentSlot.BODY, OfflineCultTestBootstrap.item("minecraft:white_harness"));
     }
 
     /**
@@ -354,6 +378,31 @@ final class JavaTickFixture implements AutoCloseable {
         assertFalse(event.isCancelled(), "the teleport acceptance was rejected");
     }
 
+    /** ServerboundUseItem through PacketPlayerDigging, then the check listeners, in the production route order. */
+    void useItem(Hand hand, float yaw, float pitch) {
+        var packet = new ServerboundUseItem(hand, ++useSequence, yaw, pitch);
+        var event = event(ServerboundPackets.USE_ITEM, packet);
+        digging.onUseItem(event, player, packet);
+        listener.onUseItem(event, player, packet);
+    }
+
+    /** ServerboundSetCarriedItem through PacketPlayerDigging, then the check listeners. */
+    void selectHotbarSlot(int slot) {
+        var packet = new ServerboundSetCarriedItem(slot);
+        var event = event(ServerboundPackets.SET_CARRIED_ITEM, packet);
+        digging.onSetCarriedItem(event, player, packet);
+        listener.onSetCarriedItem(event, player, packet);
+    }
+
+    /** MultiPlayerGameMode#releaseUsingItem's RELEASE_USE_ITEM through PacketPlayerDigging, then the check listeners. */
+    void releaseUsingItem() {
+        var packet =
+                new ServerboundPlayerAction(PlayerAction.RELEASE_USE_ITEM, new BlockPos(0, 0, 0), Direction.DOWN, 0);
+        var event = event(ServerboundPackets.PLAYER_ACTION, packet);
+        digging.onPlayerAction(event, player, packet);
+        listener.onPlayerAction(event, player, packet);
+    }
+
     void abilities(boolean flying) {
         var packet = new ServerboundPlayerAbilities(flying);
         var event = event(ServerboundPackets.PLAYER_ABILITIES, packet);
@@ -405,7 +454,8 @@ final class JavaTickFixture implements AutoCloseable {
 
     /** VehicleOffset's own comparison: the reported move against the closest simulated one, input included. */
     static void assertVehicleExact(PredictionResult result, int tick) {
-        double offset = result.getTarget().subtract(result.getAcceptedClosestToTarget()).length();
+        double offset =
+                result.getTarget().subtract(result.getAcceptedClosestToTarget()).length();
         StringBuilder report =
                 new StringBuilder("tick " + tick + " vehicle offset " + offset + " ").append(describe(result));
         for (PredictionResult.Flag flag : result.getFlags()) {

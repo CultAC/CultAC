@@ -200,7 +200,8 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
                     }
                 }
                 // Observe-only forwards what the client sent; a pong answering CultAC's own ping and a client
-                // payload on the companion's bridge channel keep their cancel.
+                // payload on the companion's bridge channel keep their cancel. Authored teleport replies are
+                // consumed as transport housekeeping below.
                 if (observeOnly
                         && !(valueType == ServerboundPackets.PONG && event.isAcceptedTransactionResponse())
                         && !(original instanceof ServerboundCustomPayload payload
@@ -208,7 +209,11 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
                     packet = original;
                     cancelled = false;
                 }
-                if (cancelled) {
+                // A proxy-authored teleport has no backend request to answer. Its exact receipt still ran
+                // compensation and checks above, but forwarding it can occupy a real movement slot or
+                // poison an older backend converter's pending teleport. This is transport housekeeping,
+                // including when observe-only starts while an authored receipt is in flight.
+                if (event.isAuthoredTeleportResponse() || cancelled) {
                     recycle(route, event);
                     return false;
                 }

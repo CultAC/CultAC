@@ -7,24 +7,32 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.blocksim.data.BlockRegistry;
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaLivingEntityPushes;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CarriedPush;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.EntityPush;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
+import ac.cult.cultac.network.packet.WorldPackets;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityEvent;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityPositionSync;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveEntities;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
+import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.EntityPose;
 import ac.cult.cultac.protocol.value.PositionPath;
 import ac.cult.cultac.protocol.value.Vec3d;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
@@ -86,13 +94,31 @@ class JavaEntityPushTest {
     void anEntityTickingAfterThePlayerPushesFromWhereItsInterpolationStepLeftIt() throws Exception {
         try (var f = falling()) {
             PacketEntity entity = entity(f, 100, STEPPING_FROM);
-            entity.onFirstTransaction(true, true, 0, 0, STEPPING_DZ, f.player);
+            entity.onBundleFirstTransaction(true, true, 0, 0, STEPPING_DZ, f.player);
             entity.onSecondTransaction();
 
             PredictionResult first = f.tick(START.add(0, FIRST_FALL, 0), false);
             assertExact(first);
             assertEquals(0, first.getSimulationContext().getWorldData().getNumPushing());
             assertExact(f.tick(START.add(0, FIRST_FALL + SECOND_FALL, PUSH), false));
+        }
+    }
+
+    /**
+     * Vex#tick sets noPhysics around super.tick(), and Entity#push skips a pusher with noPhysics, so the Vex's
+     * LivingEntity#pushEntities never moves the player, on either side of its tick.
+     */
+    @Test
+    void aVexNeverPushesThePlayer() throws Exception {
+        for (boolean beforePlayer : new boolean[] {true, false}) {
+            try (var f = falling()) {
+                // 0.4 along Z from the falling player, and within its box: a zombie there pushes it by -0.0316.
+                f.player.compensatedEntities.addEntity(100, EntityTypeIds.VEX, START.add(0, -0.5, 0.4), 0, 0, 0);
+                if (beforePlayer) f.player.compensatedEntities.getEntity(100).setClientTickOrder(-1L);
+
+                assertExact(f.tick(CONTACT, false));
+                assertExact(f.tick(CONTACT.add(0, SECOND_FALL, 0), false));
+            }
         }
     }
 
@@ -495,6 +521,8 @@ class JavaEntityPushTest {
             PacketEntity vehicle = entity(f, 100, new Vec3(4.5, FLOOR_Y, 4.5));
             vehicle.setClientTickOrder(-1L);
             entity(f, 101, TOUCHING).mount(vehicle);
+            f.player.compensatedEntities.tickClientEntities(entity -> {});
+            f.player.packetStateData.acceptedClientTick++;
 
             PredictionResult contact = f.tick(START.add(0, FIRST_FALL, 0), false);
 
@@ -571,17 +599,170 @@ class JavaEntityPushTest {
         }
     }
 
-    /** A vehicle that may be anywhere along its pending move may seat its rider anywhere along it too. */
+    /**
+     * ClientLevel#tickPassenger runs a non-player passenger's rideTick, whose LivingEntity#aiStep pushes, only while
+     * that passenger is in tickingEntities itself. AbstractBoat#getPassengerAttachmentPoint seats an Animal first
+     * passenger 0.4 along the boat, rotated by -yRot, so at yaw 90 the pig sits in chunk -1 while its boat stays in
+     * chunk 0. Once the client unloads chunk -1, the boat keeps ticking but the pig neither pushes nor is reseated.
+     */
     @Test
-    void aLivingRiderOfAVehicleWithAnUncertainPositionMayPushFromAnySeat() throws Exception {
+    void aRiderWhoseOwnChunkStoppedTickingDoesNotPushWhileItsVehicleTicks() throws Exception {
+        try (var f = falling()) {
+            var entities = f.player.compensatedEntities;
+            entities.addEntity(100, EntityTypeIds.OAK_BOAT, new Vec3(0.25, CONTACT.y - 0.8, 0.5), 90, 0, 0);
+            PacketEntity boat = entities.entityMap.get(100);
+            entities.addEntity(RIDER, EntityTypeIds.PIG, AWAY, 0, 0, 0);
+            PacketEntity pig = entities.entityMap.get(RIDER);
+            pig.mount(boat);
+            entities.addEntity(102, EntityTypeIds.ARMOR_STAND, AWAY, 0, 0, 0);
+            entities.entityMap.get(102).mount(boat);
+            // The established tree: the last tick's positionRider seated the pig, overlapping the falling player.
+            entities.tickClientEntities(entity -> {});
+            f.player.packetStateData.acceptedClientTick++;
+            SimpleCollisionBox seat = pig.getPossibleMovementCollisionBoxes();
+            assertEquals(-0.15, (seat.minX + seat.maxX) / 2, 1.0E-6);
+
+            f.player.compensatedWorld.removeChunkLater(-1, 0, 0);
+            assertTrue(entities.isTicking(boat));
+            assertFalse(entities.ticksInClientTick(pig));
+
+            assertExact(f.tick(CONTACT, false));
+            assertExact(f.tick(START.add(0, FIRST_FALL + SECOND_FALL, 0), false));
+            seat = pig.getPossibleMovementCollisionBoxes();
+            assertEquals(-0.15, (seat.minX + seat.maxX) / 2, 1.0E-6, "a non-ticking passenger keeps its seat");
+        }
+    }
+
+    /**
+     * PistonMovingBlockEntity#moveCollidedEntities shoves the vehicle east, but its rider sits above the piston's reach
+     * and keeps the seat Entity#positionRider gave it: the rider's next Entity#rideTick pushes from there before
+     * positionRider reseats it on the moved vehicle.
+     */
+    @Test
+    void aRiderPushesFromTheSeatAPistonLeftItOnWhileItsVehicleMovesAway() throws Exception {
         try (var f = falling()) {
             PacketEntity vehicle = entity(f, 100, BELOW_TOUCHING);
-            vehicle.onFirstTransaction(true, true, 0, 0, 2.0, f.player);
             seatSlime(f, vehicle);
+            PacketEntity rider = f.player.compensatedEntities.getEntity(RIDER);
+            // A piston west of the vehicle extends stone east through the vehicle's lower half, below the rider.
+            extendStoneEast(f, FLOOR_Y + 8);
 
-            PredictionResult contact = f.tick(START.add(0, FIRST_FALL, 0), false);
-            assertExact(contact);
-            assertEquals(1, contact.getSimulationContext().getWorldData().getNumCollidingTickingAfterPlayer());
+            assertExact(f.tick(CONTACT, false));
+            assertEquals(
+                    BELOW_TOUCHING.x + 0.31, vehicle.clientPhysicalPosition.x, 1.0E-6, "the stone shoves the vehicle");
+            SimpleCollisionBox near = GetBoundingBox.getPlayerBoundingBox(f.player, 0.5, CONTACT.y, 0.5);
+            var seats = f.player.compensatedEntities.untrackedRiderPushBoxes(
+                    rider, near, new SimpleCollisionBox(), new SimpleCollisionBox());
+            assertEquals(1, seats.size());
+            assertEquals(
+                    BELOW_TOUCHING.x,
+                    (seats.getFirst().minX + seats.getFirst().maxX) / 2,
+                    1.0E-9,
+                    "the rider still holds its seat on the vehicle's place before the shove");
+
+            Vec3 second = START.add(0, FIRST_FALL + SECOND_FALL, PUSH);
+            assertExact(f.tick(second, false));
+            // The rider's push from its kept seat lands on the drag-reduced first push.
+            Vec3 push = JavaLivingEntityPushes.impulse(new Vec3(BELOW_TOUCHING.x, 0, BELOW_TOUCHING.z), second);
+            assertEquals(0.0, push.x, 0.0, "the kept seat is straight ahead of the player");
+            assertExact(f.tick(second.add(0, fall(SECOND_FALL), PUSH * 0.91F + push.z), false));
+        }
+    }
+
+    @Test
+    void aPistonStillMovesARiderWhoseNonTickingRootWasTeleportedAway() throws Exception {
+        try (var f = falling()) {
+            PacketEntity root = entity(f, 100, BELOW_TOUCHING);
+            seatSlime(f, root);
+            PacketEntity rider = f.player.compensatedEntities.getEntity(RIDER);
+            snap(f, root, new Vec3(1000.5, FLOOR_Y, 1000.5));
+            assertFalse(f.player.compensatedEntities.isTicking(root));
+            extendStoneEast(f, FLOOR_Y + 9);
+            assertExact(f.tick(CONTACT, false));
+            SimpleCollisionBox box = rider.getPossibleMovementCollisionBoxes();
+            assertEquals(0.51, box.minX, 1.0E-6, "the piston must find the held rider independently of its root");
+        }
+    }
+
+    /**
+     * Entity#limitPistonMovement holds the piston moves an entity takes at one Level#getGameTime to 0.51 per axis, and
+     * Entity#pistonDeltas stays on the rider between block-entity passes. A time packet that sets the game time back
+     * makes the stone's second stroke run at the game time of its first, so the held rider moves only what is left.
+     */
+    @Test
+    void aRepeatedGameTimeLimitsAHeldRidersSecondShove() throws Exception {
+        try (var f = falling()) {
+            PacketEntity root = entity(f, 100, BELOW_TOUCHING);
+            seatSlime(f, root);
+            PacketEntity rider = f.player.compensatedEntities.getEntity(RIDER);
+            snap(f, root, new Vec3(1000.5, FLOOR_Y, 1000.5));
+            double seat = rider.getPossibleMovementCollisionBoxes().minX;
+            extendStoneEast(f, FLOOR_Y + 9);
+            long gameTime = f.player.compensatedWorld.clientGameTime();
+            assertExact(f.tick(CONTACT, false));
+            double first = rider.getPossibleMovementCollisionBoxes().minX - seat;
+            assertEquals(0.51 - seat, first, 1.0E-6, "the first stroke shoves the rider clear of its face");
+
+            f.player.compensatedWorld.applyClientTime(new WorldPackets.TimeUpdate(gameTime, java.util.Map.of()));
+            f.tick(START.add(0, FIRST_FALL + SECOND_FALL, 0), false);
+            // The second stroke's face reaches x 1, which would shove the rider 1.01 - 0.51 = 0.5 more.
+            double shoved = rider.getPossibleMovementCollisionBoxes().minX - seat;
+            assertEquals(
+                    Math.min(0.51, first + 0.5),
+                    shoved,
+                    1.0E-6,
+                    "the rider's piston deltas carry the first stroke's move within that game time");
+        }
+    }
+
+    /**
+     * LivingEntity#handleEntityEvent(3) leaves a dying mob in the level until the server removes it, and its aiStep
+     * still pushes the player. PistonMovingBlockEntity#moveCollidedEntities shoves it like any other non-spectator, so
+     * its next push comes from where the stone left it.
+     */
+    @Test
+    void aDyingMobPushesFromWhereAPistonShovedIt() throws Exception {
+        try (var f = falling()) {
+            PacketEntity zombie = entity(f, 100, TOUCHING);
+            kill(f, 100);
+            // A piston west of the zombie extends stone east through its lower half, beside the player.
+            extendStoneEast(f, FLOOR_Y + 9);
+
+            assertExact(f.tick(CONTACT, false));
+            Vec3 shoved = new Vec3(TOUCHING.x + 0.31, 0, TOUCHING.z);
+            assertEquals(shoved.x, zombie.clientPhysicalPosition.x, 1.0E-6, "the stone shoves the dying zombie");
+
+            Vec3 second = START.add(0, FIRST_FALL + SECOND_FALL, PUSH);
+            assertExact(f.tick(second, false));
+            Vec3 push = JavaLivingEntityPushes.impulse(shoved, second);
+            assertExact(f.tick(second.add(push.x, fall(SECOND_FALL), PUSH * 0.91F + push.z), false));
+        }
+    }
+
+    /** LivingEntity#die does not dismount a dying rider: it pushes from where the piston shoved it, as a living one. */
+    @Test
+    void aDyingRiderPushesFromWhereAPistonShovedIt() throws Exception {
+        try (var f = falling()) {
+            PacketEntity vehicle = entity(f, 100, BELOW_TOUCHING);
+            seatSlime(f, vehicle);
+            PacketEntity rider = f.player.compensatedEntities.getEntity(RIDER);
+            kill(f, RIDER);
+            // The stone extends east through the rider's seat and the top of its vehicle.
+            extendStoneEast(f, FLOOR_Y + 9);
+
+            assertExact(f.tick(CONTACT, false));
+            SimpleCollisionBox near = GetBoundingBox.getPlayerBoundingBox(f.player, 0.5, CONTACT.y, 0.5);
+            var seats = f.player.compensatedEntities.untrackedRiderPushBoxes(
+                    rider, near, new SimpleCollisionBox(), new SimpleCollisionBox());
+            assertEquals(1, seats.size());
+            SimpleCollisionBox seat = seats.getFirst();
+            // The stone's face reaches half a block east this tick; the shove clears it by 0.01.
+            assertEquals(0.51, seat.minX, 1.0E-6, "the stone shoves the dying rider off its seat");
+
+            Vec3 second = START.add(0, FIRST_FALL + SECOND_FALL, PUSH);
+            assertExact(f.tick(second, false));
+            Vec3 push = JavaLivingEntityPushes.impulse(seat, second);
+            assertExact(f.tick(second.add(push.x, fall(SECOND_FALL), PUSH * 0.91F + push.z), false));
         }
     }
 
@@ -596,15 +777,17 @@ class JavaEntityPushTest {
             f.place(STANDING, Vec3.ZERO);
             f.input(NONE);
             PacketEntity entity = entity(f, 100, SNAP_FROM);
-            assertExact(f.tick(STANDING, true));
-            entity.onFirstTransaction(true, true, SNAP_STEPPING_DX, 0, 0, f.player);
+            // Entity#move's zero Y attempt clears ground on the local authoritative instance.
+            assertExact(f.tick(STANDING, false));
+            entity.onBundleFirstTransaction(true, true, SNAP_STEPPING_DX, 0, 0, f.player);
             entity.onSecondTransaction();
             assertExact(f.tick(STANDING, true));
 
             positionSync(f, 100, SNAPPED);
             assertExact(f.tick(STANDING, true));
             assertExact(f.tick(STANDING, true));
-            assertExact(f.tick(STANDING.add(-pushFrom(SNAPPED.x + 2.0 / 3.0 * SNAP_STEPPING_DX - STANDING.x), 0, 0), true));
+            assertExact(
+                    f.tick(STANDING.add(-pushFrom(SNAPPED.x + 2.0 / 3.0 * SNAP_STEPPING_DX - STANDING.x), 0, 0), true));
         }
     }
 
@@ -655,7 +838,7 @@ class JavaEntityPushTest {
     void pushesWhileTheLevelLoadsMoveTheFirstLoadedTick() throws Exception {
         try (var f = loadingBesideOther()) {
             PredictionResult first =
-                    f.tick(LOADING.add(-TICKS_LOADING * pushFrom(LOADING_OTHER.x - LOADING.x), 0, 0), true);
+                    f.tick(LOADING.add(-TICKS_LOADING * pushFrom(LOADING_OTHER.x - LOADING.x), 0, 0), false);
             assertExact(first);
             assertEquals(0, first.getSimulationContext().getWorldData().getNumPushing());
         }
@@ -665,7 +848,7 @@ class JavaEntityPushTest {
     @Test
     void pushesWhileTheLevelLoadsMayNotHappen() throws Exception {
         try (var f = loadingBesideOther()) {
-            assertExact(f.tick(LOADING, true));
+            assertExact(f.tick(LOADING, false));
         }
     }
 
@@ -674,7 +857,7 @@ class JavaEntityPushTest {
     void pushesWhileTheLevelLoadsDoNotMoveThePlayerTowardsThePusher() throws Exception {
         try (var f = loadingBesideOther()) {
             PredictionResult first =
-                    f.tick(LOADING.add(TICKS_LOADING * pushFrom(LOADING_OTHER.x - LOADING.x), 0, 0), true);
+                    f.tick(LOADING.add(TICKS_LOADING * pushFrom(LOADING_OTHER.x - LOADING.x), 0, 0), false);
             assertFalse(exact(first), describe(first));
         }
     }
@@ -684,7 +867,7 @@ class JavaEntityPushTest {
     void aTeleportKeepingHorizontalVelocityWhileTheLevelLoadsKeepsThePushes() throws Exception {
         try (var f = loadingBesideOther()) {
             f.teleport(LOADING, ALL_DELTAS);
-            assertExact(f.tick(LOADING.add(-TICKS_LOADING * pushFrom(LOADING_OTHER.x - LOADING.x), 0, 0), true));
+            assertExact(f.tick(LOADING.add(-TICKS_LOADING * pushFrom(LOADING_OTHER.x - LOADING.x), 0, 0), false));
         }
     }
 
@@ -694,14 +877,15 @@ class JavaEntityPushTest {
         try (var f = loadingBesideOther()) {
             f.teleport(LOADING, new RelativeFlag(0));
             PredictionResult first =
-                    f.tick(LOADING.add(-TICKS_LOADING * pushFrom(LOADING_OTHER.x - LOADING.x), 0, 0), true);
+                    f.tick(LOADING.add(-TICKS_LOADING * pushFrom(LOADING_OTHER.x - LOADING.x), 0, 0), false);
             assertFalse(exact(first), describe(first));
         }
     }
 
     /**
      * A client standing at {@link #LOADING} that waited {@link #TICKS_LOADING} ticks for its level beside a zombie,
-     * which then left; its level has just loaded.
+     * which then left; its level has just loaded. No travel changed its initial zero Y velocity, so the first
+     * loaded Entity#move attempts zero Y and clears onGround even though the floor is directly below it.
      */
     private static JavaTickFixture loadingBesideOther() throws Exception {
         JavaTickFixture f = new JavaTickFixture();
@@ -748,6 +932,32 @@ class JavaEntityPushTest {
     private static void seatSlime(JavaTickFixture f, PacketEntity vehicle) {
         f.player.compensatedEntities.addEntity(RIDER, EntityTypeIds.SLIME, AWAY, 0, 0, 0);
         f.player.compensatedEntities.entityMap.get(RIDER).mount(vehicle);
+        // This scenario starts with an established passenger. set_passengers alone does not seat it:
+        // run the prior tick's positionRider pass without advancing the movement under test.
+        f.player.compensatedEntities.tickClientEntities(entity -> {});
+        f.player.packetStateData.acceptedClientTick++;
+    }
+
+    /** A piston at x -2, z 1 and height {@code y}, facing east, starts pushing the stone beside it east to x 0. */
+    private static void extendStoneEast(JavaTickFixture f, int y) {
+        BlockRegistry blocks = DataTables.defaults().registry();
+        int piston = blocks.with(blocks.block("minecraft:piston").defaultState(), "facing", "east");
+        BlockPos base = new BlockPos(-2, y, 1);
+        f.player.compensatedWorld.updateBlock(base, piston);
+        f.player.compensatedWorld.updateBlock(
+                base.relative(Direction.EAST), blocks.block("minecraft:stone").defaultState());
+        f.player.compensatedWorld.pistons.handleBlockEvent(base, blocks.blockIndex(piston), 0, 5, 0);
+    }
+
+    /** LivingEntity#handleEntityEvent(3): the mob is dying, and stays in the level until the server removes it. */
+    private static void kill(JavaTickFixture f, int id) {
+        var packet = new ClientboundEntityEvent(id, (byte) 3);
+        var event = new PacketSendEvent<>(
+                f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.ENTITY_EVENT, packet, false);
+        f.player.packetEntityReplication.onEntityEvent(event, f.player, packet);
+        event.tasksAfter().forEach(Runnable::run);
+        f.pongThrough(f.player.lastTransactionSent.get());
+        assertTrue(f.player.compensatedEntities.getEntity(id).isDead);
     }
 
     /** A set_passengers putting zombie 100 on the player, its ping answered or not. */

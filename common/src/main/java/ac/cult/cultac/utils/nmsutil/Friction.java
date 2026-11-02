@@ -10,14 +10,17 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 
 public final class Friction {
+    private static final List<Boolean> NOT_SPRINTING = List.of(false);
+
     private Friction() {}
 
-    /** Appends the velocities after travel drag to {@code out}, in order. */
+    /**
+     * Appends the velocities after travel drag to {@code out}, in order. {@code shallowLava} is
+     * LivingEntity#isInShallowFluid(LAVA) as travelInLava reads it after its Entity#move.
+     */
     public static void applyTravelDrag(
             CultPlayer player,
             boolean onGround,
@@ -28,7 +31,36 @@ public final class Friction {
             double gravity,
             boolean inWater,
             boolean inLava,
+            boolean shallowLava,
             List<Vec3> out) {
+        applyTravelDrag(
+                player,
+                onGround,
+                from,
+                playerVelocity,
+                context,
+                falling,
+                gravity,
+                inWater,
+                inLava,
+                shallowLava,
+                out,
+                false);
+    }
+
+    static void applyTravelDrag(
+            CultPlayer player,
+            boolean onGround,
+            Vec3 from,
+            Vec3 playerVelocity,
+            SimulationContext context,
+            boolean falling,
+            double gravity,
+            boolean inWater,
+            boolean inLava,
+            boolean shallowLava,
+            List<Vec3> out,
+            boolean keepBranches) {
         if (context.getVehicle() instanceof PacketEntityHappyGhast) {
             if (inWater) {
                 out.add(playerVelocity.scale(0.8F));
@@ -50,29 +82,43 @@ public final class Friction {
         }
 
         // Player#isAffectedByFluids is false in flight, so LivingEntity#travel takes travelInAir in water and lava.
-        boolean fluidTravel = context.getVehicle() != null || !player.isFlying;
+        boolean fluidTravel = (context.getVehicle() != null || !player.isFlying)
+                && !context.getWorldData().isCanStandOnStartFluid();
 
         // Water friction - has highest priority
         if (inWater && fluidTravel) {
             int start = out.size();
-            List<Double> frictions = getSwimFriction(context);
-            for (int i = 0, size = frictions.size(); i < size; i++) {
-                double friction = frictions.get(i);
+            // LivingEntity#travelInWater reads one isSprinting for both its slowdown and
+            // getFluidFallingAdjustedMovement, so each sprint state keeps its own pair.
+            List<Boolean> sprinting = travellerSprinting(context);
+            for (int i = 0, size = sprinting.size(); i < size; i++) {
+                double friction = getSwimFriction(context, sprinting.get(i));
                 if (!Double.isFinite(friction)) {
                     continue;
                 }
-                Vec3 withFriction = playerVelocity.multiply(friction, 0.8D, friction);
-                addFluidFallingAdjustedMovement(player, context, out, start, true, gravity, falling, withFriction);
+                Vec3 withFriction = playerVelocity.multiply(friction, 0.8F, friction);
+                addFluidFallingAdjustedMovement(
+                        out, start, true, gravity, falling, sprinting.get(i), withFriction, keepBranches);
             }
             return;
         }
 
-        // Lava friction applies a stronger lateral slowdown before fluid falling is applied.
+        // LivingEntity#travelInLava applies exactly one drag: shallow lava's fluid-falling one, or deep lava's 0.5.
         if (inLava && fluidTravel) {
-            Vec3 withSomeFriction = playerVelocity.multiply(0.5, 0.8f, 0.5).add(0, -gravity / 4, 0);
-            addFluidFallingAdjustedMovement(
-                    player, context, out, out.size(), false, gravity, falling, withSomeFriction);
-            out.add(playerVelocity.scale(0.5).add(0, -gravity / 4, 0));
+            int start = out.size();
+            if (shallowLava) {
+                Vec3 withFriction = playerVelocity.multiply(0.5, 0.8F, 0.5);
+                List<Boolean> sprinting = travellerSprinting(context);
+                for (int i = 0, size = sprinting.size(); i < size; i++) {
+                    addFluidFallingAdjustedMovement(
+                            out, start, false, gravity, falling, sprinting.get(i), withFriction, keepBranches);
+                }
+            } else {
+                out.add(playerVelocity.scale(0.5));
+            }
+            // travelInLava subtracts this after getFluidFallingAdjustedMovement.
+            // Its near-zero falling branch makes the two operations noncommutative.
+            for (int i = start; i < out.size(); i++) out.set(i, out.get(i).add(0, -gravity / 4, 0));
             return;
         }
 
@@ -106,34 +152,36 @@ public final class Friction {
     }
 
     /**
-     * Appends the fluid-falling candidates of {@code movement} to {@code results}, skipping any equal to one already at
-     * or after {@code from}, and with {@code finiteOnly} any that is not finite.
+     * LivingEntity#isSprinting of the traveller during travel. A vehicle travels with its own flag, which only cats,
+     * ocelots and players ever set, so a ridden mob never sprints. The player reads this tick's frozen
+     * SimulationContext candidates; mutable CultPlayer sprint state may already reflect a later packet.
+     */
+    private static List<Boolean> travellerSprinting(SimulationContext context) {
+        return context.getVehicle() != null
+                ? NOT_SPRINTING
+                : context.getIsSprinting().getStates();
+    }
+
+    /**
+     * Appends {@code movement} after the fluid-falling adjustment of a traveller whose isSprinting is
+     * {@code sprinting} to {@code results}. It skips a candidate equal to one already at or after {@code from} unless
+     * {@code keepBranches} pairs push-range endpoints, and with {@code finiteOnly} one that is not finite.
      */
     private static void addFluidFallingAdjustedMovement(
-            CultPlayer player,
-            SimulationContext context,
             List<Vec3> results,
             int from,
             boolean finiteOnly,
             double gravity,
             boolean falling,
-            Vec3 movement) {
-        if (gravity == 0.0D) {
-            if (!finiteOnly || isFinite(movement)) addDistinct(results, from, movement);
-            return;
-        }
-
+            boolean sprinting,
+            Vec3 movement,
+            boolean keepBranches) {
         // MCP-Reborn LivingEntity#getFluidFallingAdjustedMovement subtracts
-        // gravity / 16 only when the entity is not sprinting. Use the frozen
-        // SimulationContext sprint candidates for this simulated client tick;
-        // mutable CultPlayer sprint state may already reflect a later packet.
-        List<Boolean> sprintingStates = context.getIsSprinting().getStates();
-        for (int i = 0, size = sprintingStates.size(); i < size; i++) {
-            Vec3 candidate = sprintingStates.get(i) && context.getVehicle() == null
-                    ? movement
-                    : applyFluidGravity(gravity, falling, movement);
-            if (!finiteOnly || isFinite(candidate)) addDistinct(results, from, candidate);
-        }
+        // gravity / 16 only when the entity is not sprinting.
+        Vec3 candidate = gravity == 0.0D || sprinting ? movement : applyFluidGravity(gravity, falling, movement);
+        if (finiteOnly && !isFinite(candidate)) return;
+        if (keepBranches) results.add(candidate);
+        else addDistinct(results, from, candidate);
     }
 
     public static Vec3 applyFluidGravity(double gravity, boolean falling, Vec3 movement) {
@@ -144,32 +192,15 @@ public final class Friction {
         return new Vec3(movement.x, y, movement.z);
     }
 
-    public static List<Double> getSwimFriction(SimulationContext context) {
+    /** LivingEntity#travelInWater's slowdown for a traveller whose isSprinting is {@code sprinting}. */
+    public static double getSwimFriction(SimulationContext context, boolean sprinting) {
+        // LivingEntity#travelInWater: Dolphin's Grace replaces the traveller's slowdown after the efficiency lerp.
+        if (context.getEntities().getPotionLevelForPlayer(MovementEffect.DOLPHINS_GRACE) != null) return 0.96F;
+        // A sprinting traveller slows by 0.9F, any other by getWaterSlowDown: SkeletonHorse's 0.96F or 0.8F.
         boolean skeletonHorse =
                 context.getVehicle() != null && context.getVehicle().type == EntityTypeIds.SKELETON_HORSE;
-        boolean dolphinsGrace = context.getEntities().getPotionLevelForPlayer(MovementEffect.DOLPHINS_GRACE) != null;
-        List<Double> frictions = getSwimFriction(skeletonHorse, dolphinsGrace, context.getWaterMovementEfficiency());
-        List<Boolean> sprinting = context.getIsSprinting().getStates();
-        if (context.getVehicle() != null || frictions.size() != 2 || sprinting.size() != 1) return frictions;
-        // LivingEntity#travelInWater slows a player sprinting at travel by 0.9F and any other by 0.8F.
-        return Collections.singletonList(frictions.get(sprinting.getFirst() ? 0 : 1));
-    }
-
-    public static List<Double> getSwimFriction(
-            boolean skeletonHorse, boolean dolphinsGrace, float waterMovementEfficiency) {
-        // LivingEntity#travelInWater: Dolphin's Grace replaces the traveller's slowdown after the efficiency lerp.
-        if (dolphinsGrace) {
-            return Collections.singletonList(0.96);
-        }
-        // SkeletonHorse#getWaterSlowDown.
-        if (skeletonHorse) {
-            return Collections.singletonList(applyWaterMovementEfficiency(waterMovementEfficiency, 0.96));
-        }
-
-        // The sprinting and the non-sprinting slowdown, in that order.
-        return Arrays.asList(
-                applyWaterMovementEfficiency(waterMovementEfficiency, 0.9),
-                applyWaterMovementEfficiency(waterMovementEfficiency, 0.8));
+        float slowDown = sprinting ? 0.9F : skeletonHorse ? 0.96F : 0.8F;
+        return applyWaterMovementEfficiency(context.getWaterMovementEfficiency(), slowDown);
     }
 
     public static double applyWaterMovementEfficiency(float waterMovementEfficiency, double friction) {

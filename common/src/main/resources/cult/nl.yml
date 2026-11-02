@@ -90,10 +90,6 @@ cult:
     max-freeze-time-ms: 5000
 
   networking:
-    # Gebruik pakketbundelgrenzen om het volgen van entiteiten te synchroniseren
-    # voor bereikcontroles op clients die bundels ondersteunen.
-    reach-use-bundle-delimiter: true
-
     # Vervang de verzonden gezondheid van andere levende entiteiten door 1 HP.
     # Behoud de eigen gezondheid van de kijker, diens huidige rijdier en dode entiteiten.
     # Kijkers met cult.showhealth ontvangen de werkelijke gezondheidswaarden.

@@ -99,7 +99,8 @@ class OmniSprintTest {
                 var run = new Run(f, medium);
                 f.command(PlayerCommandAction.START_SPRINTING);
                 run.assertExact(FORWARD);
-                zombie(f, run.position.add(0.5, 0, 0));
+                run.pusher = run.position.add(0.5, 0, 0);
+                zombie(f, run.pusher);
                 PredictionResult result = run.tick(BACK);
                 String where = medium + " " + version + ": " + describe(result);
                 assertEquals(1, result.getSimulationContext().getWorldData().getNumPushing(), where);
@@ -117,7 +118,8 @@ class OmniSprintTest {
                 var run = new Run(f, medium);
                 f.command(PlayerCommandAction.START_SPRINTING);
                 run.assertExact(FORWARD);
-                zombie(f, run.position.add(0.5, 0, 0));
+                run.pusher = run.position.add(0.5, 0, 0);
+                zombie(f, run.pusher);
                 run.assertExact(FORWARD_LEFT);
                 assertNotSetBack(f, medium + " " + version);
             }
@@ -210,6 +212,7 @@ class OmniSprintTest {
         final Medium medium;
         Vec3 position;
         Vec3 velocity;
+        Vec3 pusher;
         float yaw = YAW;
         float slowdown = 1.0F;
 
@@ -224,6 +227,22 @@ class OmniSprintTest {
         PredictionResult tick(ServerboundPlayerInput keys) {
             f.player.xRot = yaw;
             f.input(keys);
+            // This zombie ticks before LocalPlayer, so LivingEntity#pushEntities adds Entity#push's impulse
+            // before the player's travel. The refactored engine models that write rather than a push radius.
+            double halfWidths = (double) 0.6F;
+            if (pusher != null
+                    && Math.abs(position.x - pusher.x) < halfWidths
+                    && Math.abs(position.z - pusher.z) < halfWidths
+                    && position.y < pusher.y + 1.95F
+                    && position.y + 1.8F > pusher.y) {
+                double x = position.x - pusher.x, z = position.z - pusher.z;
+                double largest = Math.max(Math.abs(x), Math.abs(z));
+                if (largest >= 0.01F) {
+                    double root = Math.sqrt(largest);
+                    double scale = Math.min(1.0 / root, 1.0);
+                    velocity = velocity.add(x / root * scale * 0.05F, 0, z / root * scale * 0.05F);
+                }
+            }
             float speed = f.player.isSprinting ? medium.sprintSpeed : medium.walkSpeed;
             Vec3 input = ClientMoveInput.of(f, keys, slowdown, speed, yaw);
             Vec3 move = new Vec3(velocity.x + input.x, velocity.y, velocity.z + input.z);

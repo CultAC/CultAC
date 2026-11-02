@@ -22,6 +22,22 @@ public class StuckSpeed implements UncertaintyHandler {
                         == null;
     }
 
+    /**
+     * Entity#move scales only the move by Entity#stuckSpeedMultiplier and then clears deltaMovement, which
+     * VelocityCandidates carries as zero, so the scaled move is not velocity.
+     */
+    @Override
+    public MovementTrace handleMovementTrace(
+            CultPlayer player,
+            ValidMovements valid,
+            PredictionResult result,
+            SimulationContext context,
+            PredictionResult lastResult,
+            MovementTrace trace,
+            Vec3 end) {
+        return trace.withPosition(handleUncertainty(player, valid, result, context, lastResult, trace.position(), end));
+    }
+
     @Override
     public PredVector handleUncertainty(
             CultPlayer player,

@@ -50,10 +50,17 @@ public final class ClientBlockGeometry {
 
     private final SimLevel level;
     private final CompensatedWorld world;
+    private final View view;
 
     public ClientBlockGeometry(CompensatedWorld world) {
         this.world = world;
-        level = new SimLevel(new View(world), Rules.DATA.registry(), Rules.BEHAVIORS);
+        view = new View(world);
+        level = new SimLevel(view, Rules.DATA.registry(), Rules.BEHAVIORS);
+    }
+
+    /** The compensated client world as a BlockGetter, which reads air at unloaded coordinates. */
+    public SimWorldView blockView() {
+        return view;
     }
 
     public VoxelShape collision(int state, ac.cult.cultac.protocol.value.BlockPos pos, EntityCollisionContext context) {
@@ -97,20 +104,22 @@ public final class ClientBlockGeometry {
                 world.player, state, level.behavior(state).collisionShape(level, state, position(pos)));
     }
 
+    /** PistonMovingBlockEntity#getCollisionShape; {@code noClip} is PistonMovingBlockEntity#NOCLIP, or null. */
     public VoxelShape movingPiston(
             int movedState,
             ac.cult.cultac.protocol.value.BlockPos pos,
             ac.cult.cultac.protocol.value.Direction facing,
             boolean extending,
             boolean source,
-            float progress) {
+            float progress,
+            ac.cult.cultac.protocol.value.Direction noClip) {
         return MovingPistonShape.collision(
                 movedState,
                 Rules.DIRECTIONS[facing.ordinal()],
                 extending,
                 source,
                 progress,
-                null,
+                noClip == null ? null : Rules.DIRECTIONS[noClip.ordinal()],
                 state -> collision(state, pos));
     }
 
