@@ -36,15 +36,6 @@ public class MovementModifiers {
         return applyModifers(player, initial, state, lastResult, canTickSkip, FluidHopMode.INCLUDE);
     }
 
-    public List<PredVector> applyWithoutFluidHop(
-            CultPlayer player,
-            Set<Vec3> initial,
-            SimulationContext state,
-            PredictionResult lastResult,
-            boolean canTickSkip) {
-        return applyWithoutJavaFluidHop(player, initial, state, lastResult, canTickSkip);
-    }
-
     public List<PredVector> applyWithoutJavaFluidHop(
             CultPlayer player,
             Set<Vec3> initial,

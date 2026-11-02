@@ -1566,10 +1566,6 @@ public class CultPlayer implements GrimUser {
         return usesModernJavaItemUse() ? clientItemUse.hand() : packetStateData.itemInUseHand;
     }
 
-    public boolean canThePlayerBeCloseToZeroMovement(int ticks) {
-        return checkManager.getSimulationProcessor().getLastTickSkip().hasOccurredSince(ticks);
-    }
-
     public ac.cult.cultac.utils.latency.ClientWorldRegistries getWorldRegistries() {
         if (registryState == null) registryState = new ac.cult.cultac.utils.latency.ClientComponentRegistries();
         return registryState.worldRegistries(user.getCultConnection().platform()::initialWorldData);
@@ -1853,26 +1849,14 @@ public class CultPlayer implements GrimUser {
     }
 
     public void onEndOfTickEvent() {
-        runEndOfTickTasks();
+        tick++;
         packetEntityReplication.onEndOfTickEvent();
     }
 
     /** Paper's end of server tick {@code serverTick}. Owner thread only. */
     public void onEndOfTickEvent(int serverTick) {
-        runEndOfTickTasks();
-        packetEntityReplication.onEndOfTickEvent(serverTick);
-    }
-
-    private void runEndOfTickTasks() {
         tick++;
-        for (Runnable task : endOfTickTasks) task.run();
-        endOfTickTasks.clear();
-    }
-
-    private final List<Runnable> endOfTickTasks = new ArrayList<>(4);
-
-    public void addEndOfTickTask(Runnable task) {
-        endOfTickTasks.add(task);
+        packetEntityReplication.onEndOfTickEvent(serverTick);
     }
 
     @Getter

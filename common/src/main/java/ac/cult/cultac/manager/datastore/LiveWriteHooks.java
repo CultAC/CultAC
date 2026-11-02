@@ -6,7 +6,6 @@ import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
 import ac.grim.grimac.api.AbstractCheck;
-import java.util.UUID;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -18,39 +17,7 @@ import org.jetbrains.annotations.Nullable;
  * timestamp, {@link SessionTracker.ClientMeta}) inside the impl. Granular
  * methods stay platform-neutral for tests + tooling.
  */
-public interface LiveWriteHooks {
-
-    /** Player joined. Upsert identity (firstSeen=min / lastSeen=max) and open/extend a session. */
-    void onJoin(@NotNull UUID uuid, @Nullable String name, long now, @NotNull SessionTracker.ClientMeta meta);
-
-    /** Player disconnected. Flush the closing heartbeat on the session row + clear the in-memory tracker entry. */
-    void onQuit(@NotNull UUID uuid, long now, @NotNull SessionTracker.ClientMeta meta);
-
-    /**
-     * Brand packet arrived. Re-issues a session upsert with the now-known
-     * {@code clientBrand} field — the brand-channel plugin message can arrive
-     * after PlayerJoinEvent, so the initial onJoin upsert may have left
-     * client_brand null.
-     */
-    void observeBrand(@NotNull UUID uuid, long now, @NotNull SessionTracker.ClientMeta meta);
-
-    /** Record a single flag with the full check object — pulls stable_key + description from the check. */
-    void recordFlag(
-            @NotNull UUID playerUuid,
-            @NotNull AbstractCheck check,
-            double vl,
-            @Nullable String verbose,
-            long now,
-            @NotNull SessionTracker.ClientMeta meta);
-
-    /** Record a single flag whose verbose payload is already encoded as opaque bytes. */
-    void recordFlagData(
-            @NotNull UUID playerUuid,
-            @NotNull AbstractCheck check,
-            double vl,
-            byte @Nullable [] verboseData,
-            long now,
-            @NotNull SessionTracker.ClientMeta meta);
+public interface LiveWriteHooks extends StorageWriteHooks {
 
     /** Convenience for {@code PlayerLoginHooks.onLogin}. Builds meta from the User + CultPlayer internally. */
     void onJoinFromUserLogin(@NotNull PlatformPlayer player, @NotNull User user, long now);

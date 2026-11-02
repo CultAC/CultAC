@@ -5,13 +5,6 @@ import ac.cult.cultac.utils.math.Vec3;
 
 public class UncertaintyHelper {
 
-    public static PredVector handleDownwards(PredVector start, Vec3 end, double offset) {
-        if (end.y < start.y) {
-            return handleVertical(start, end, offset);
-        }
-        return start;
-    }
-
     public static PredVector handleVertical(PredVector start, Vec3 end, double radius) {
         double yDiff = end.y - start.y;
         if (Math.abs(yDiff) > radius) {

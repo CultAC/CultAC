@@ -1,10 +1,8 @@
 package ac.cult.cultac.utils.nmsutil;
 
 import ac.cult.blocksim.data.FluidTags;
-import ac.cult.blocksim.engine.SimFluidState;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
@@ -47,45 +45,6 @@ public final class WaterCurrent {
     public static Vec3 calculateNonPlayerWaterCurrent(
             CultPlayer player, SimpleCollisionBox entityBox, Vec3 velocityBeforeCurrent) {
         return calculateWaterCurrent(player, entityBox, false, velocityBeforeCurrent);
-    }
-
-    public static Vec3 calculateTouchedNonPlayerWaterCurrent(CultPlayer player, SimpleCollisionBox entityBox) {
-        SimpleCollisionBox fluidBox = entityBox.copy().expand(-0.001D);
-        int minX = (int) Math.floor(fluidBox.minX);
-        int minY = (int) Math.floor(fluidBox.minY);
-        int minZ = (int) Math.floor(fluidBox.minZ);
-        int maxX = (int) Math.ceil(fluidBox.maxX) - 1;
-        int maxY = (int) Math.ceil(fluidBox.maxY) - 1;
-        int maxZ = (int) Math.ceil(fluidBox.maxZ) - 1;
-
-        Vec3 accumulatedCurrent = Vec3.ZERO;
-        BlockPos.MutableBlockPos mutablePos = new BlockPos.MutableBlockPos();
-        for (int x = minX; x <= maxX; x++) {
-            for (int y = minY; y <= maxY; y++) {
-                for (int z = minZ; z <= maxZ; z++) {
-                    mutablePos.set(x, y, z);
-                    SimFluidState fluidState = ClientFluidQueries.fluidAt(player.compensatedWorld, mutablePos);
-                    if (!ClientFluidQueries.is(player, fluidState, FluidTags.WATER)) {
-                        continue;
-                    }
-
-                    double fluidTop = y + ClientFluidQueries.height(player.compensatedWorld, mutablePos, fluidState);
-                    if (fluidTop < fluidBox.minY) {
-                        continue;
-                    }
-
-                    Vec3 flow = FluidTypeFlowing.flow(player, mutablePos, fluidState);
-                    if (flow.lengthSqr() >= 1.0E-5F) {
-                        accumulatedCurrent = accumulatedCurrent.add(flow);
-                    }
-                }
-            }
-        }
-
-        if (accumulatedCurrent.lengthSqr() < 1.0E-5F) {
-            return null;
-        }
-        return accumulatedCurrent.normalize().scale(0.014D);
     }
 
     public static SimpleCollisionBox getWaterCurrentInteractionBox(

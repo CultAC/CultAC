@@ -174,16 +174,6 @@ public final class ModelItemValues {
         return new ComponentPatch(patch.added().withWireEncodings(encodings), patch.removed());
     }
 
-    /** Host item capture uses the same direct component bridge as packet decoding. */
-    public static ComponentPatch readPatch(
-            WireValueDecoder decoder,
-            ProtocolVersion version,
-            ByteBuf input,
-            boolean creative,
-            WireValueDecoder.Registries registries) {
-        return patch(decoder.item(version, input, creative, registries, ModelNbtFactory.INSTANCE));
-    }
-
     private static ComponentPatch patch(WireValueDecoder.DecodedItem<NbtValue> value) {
         var patch = value.components() == null
                 ? ComponentPatch.EMPTY

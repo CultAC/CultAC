@@ -4,8 +4,13 @@ import ac.cult.cultac.checks.impl.prediction.AuthoredMovementFrame;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.Objects;
 import java.util.UUID;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.experimental.Accessors;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 
+@Getter
 public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
     private final UUID playerUuid;
     private final BedrockProtocolVersion protocolVersion;
@@ -15,14 +20,20 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
     private final int interactionModel;
     private final int deviceId;
     private final BedrockCoordinateFrame coordinateFrame;
+
+    @Getter(AccessLevel.NONE)
     private final boolean coordinateProvenance;
+
     private final Vec3 position;
     private final Vec3 packetPosition;
     private final Vec3 delta;
     private final float yaw;
     private final float pitch;
     private final float headYaw;
+
+    @Getter(AccessLevel.NONE)
     private final boolean hasRotation;
+
     private final BedrockMoveVector moveVector;
     private final long rawInputFlags;
     private final long rawInputFlagsHigh;
@@ -42,12 +53,18 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
     private final boolean startGliding;
     private final boolean stopGliding;
     private final boolean usingItem;
+
+    @Getter(AccessLevel.NONE)
     private final boolean blockAction;
+
     private final String authorityMode;
     private final long rewindCorrectionId;
     private final Vec3 reportedEndOfTickVelocity;
+    /** Null for captures that did not preserve vehicle identity; -1 means no predicted vehicle. */
     private final Long predictedVehicleId;
+    /** The bridge resolves the runtime ID; mount authority still comes from compensated passengers. */
     private final Integer predictedVehicleJavaId;
+
     private final VehicleRotation vehicleRotation;
 
     private BedrockAuthInputFrame(Builder builder) {
@@ -140,10 +157,6 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
         this.playerUuid = source.playerUuid;
     }
 
-    public BedrockCoordinateFrame getCoordinateFrame() {
-        return coordinateFrame;
-    }
-
     public boolean hasCoordinateProvenance() {
         return coordinateProvenance;
     }
@@ -165,58 +178,6 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
         return position != null && hasRotation;
     }
 
-    public UUID getPlayerUuid() {
-        return playerUuid;
-    }
-
-    public BedrockProtocolVersion getProtocolVersion() {
-        return protocolVersion;
-    }
-
-    public long getClientTick() {
-        return clientTick;
-    }
-
-    public int getInputMode() {
-        return inputMode;
-    }
-
-    public int getInteractionModel() {
-        return interactionModel;
-    }
-
-    public int getPlayMode() {
-        return playMode;
-    }
-
-    public int getDeviceId() {
-        return deviceId;
-    }
-
-    public Vec3 getPosition() {
-        return position;
-    }
-
-    public Vec3 getPacketPosition() {
-        return packetPosition;
-    }
-
-    public Vec3 getDelta() {
-        return delta;
-    }
-
-    public float getYaw() {
-        return yaw;
-    }
-
-    public float getPitch() {
-        return pitch;
-    }
-
-    public float getHeadYaw() {
-        return headYaw;
-    }
-
     public boolean hasRotation() {
         return hasRotation;
     }
@@ -224,14 +185,6 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
     // Horizontal movement input is evaluated after simulation as required input, not spent before prediction.
     public BedrockMoveVector getMoveVector() {
         return moveVector;
-    }
-
-    public long getRawInputFlags() {
-        return rawInputFlags;
-    }
-
-    public long getRawInputFlagsHigh() {
-        return rawInputFlagsHigh;
     }
 
     public boolean hasRawInputFlag(PlayerAuthInputData input) {
@@ -242,102 +195,12 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
         return ordinal < Long.SIZE * 2 && (rawInputFlagsHigh & (1L << (ordinal - Long.SIZE))) != 0L;
     }
 
-    public boolean isJumping() {
-        return jumping;
-    }
-
-    public boolean isJumpStarted() {
-        return jumpStarted;
-    }
-
-    public boolean isJumpPressedRaw() {
-        return jumpPressedRaw;
-    }
-
-    public boolean isJumpCurrentRaw() {
-        return jumpCurrentRaw;
-    }
-
-    public boolean isWantUp() {
-        return wantUp;
-    }
-
-    public boolean isSneaking() {
-        return sneaking;
-    }
-
-    public boolean isStartSneaking() {
-        return startSneaking;
-    }
-
-    public boolean isStopSneaking() {
-        return stopSneaking;
-    }
-
-    public boolean isSprinting() {
-        return sprinting;
-    }
-
-    public boolean isSwimming() {
-        return swimming;
-    }
-
     public boolean isStartSwimming() {
         return swimming;
     }
 
-    public boolean isStopSwimming() {
-        return stopSwimming;
-    }
-
-    public boolean isStartCrawling() {
-        return startCrawling;
-    }
-
-    public boolean isStopCrawling() {
-        return stopCrawling;
-    }
-
-    public boolean isStartGliding() {
-        return startGliding;
-    }
-
-    public boolean isStopGliding() {
-        return stopGliding;
-    }
-
-    public boolean isUsingItem() {
-        return usingItem;
-    }
-
     public boolean hasBlockAction() {
         return blockAction;
-    }
-
-    public String getAuthorityMode() {
-        return authorityMode;
-    }
-
-    public long getRewindCorrectionId() {
-        return rewindCorrectionId;
-    }
-
-    public Vec3 getReportedEndOfTickVelocity() {
-        return reportedEndOfTickVelocity;
-    }
-
-    /** Null for captures that did not preserve vehicle identity; -1 means no predicted vehicle. */
-    public Long getPredictedVehicleId() {
-        return predictedVehicleId;
-    }
-
-    /** The bridge resolves the runtime ID; mount authority still comes from compensated passengers. */
-    public Integer getPredictedVehicleJavaId() {
-        return predictedVehicleJavaId;
-    }
-
-    public VehicleRotation getVehicleRotation() {
-        return vehicleRotation;
     }
 
     public record VehicleRotation(float yaw, float pitch) {}
@@ -387,48 +250,119 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
                 && rewindCorrectionId == other.rewindCorrectionId;
     }
 
+    @Accessors(fluent = true)
     public static final class Builder {
         private final UUID playerUuid;
         private BedrockProtocolVersion protocolVersion = BedrockProtocolVersion.UNKNOWN;
+
+        @Setter
         private long clientTick = -1L;
+
+        @Setter
         private int inputMode = -1;
+
+        @Setter
         private int playMode = -1;
+
+        @Setter
         private int interactionModel = -1;
+
+        @Setter
         private int deviceId = -1;
+
         private BedrockCoordinateFrame coordinateFrame = BedrockCoordinateFrame.IDENTITY;
+
+        @Setter
         private boolean coordinateProvenance = true;
+
+        @Setter
         private Vec3 position;
+
+        @Setter
         private Vec3 packetPosition;
+
+        @Setter
         private Vec3 delta;
+
         private float yaw;
         private float pitch;
         private float headYaw;
         private boolean hasRotation;
         private BedrockMoveVector moveVector;
+
+        @Setter
         private long rawInputFlags;
+
+        @Setter
         private long rawInputFlagsHigh;
+
+        @Setter
         private boolean jumping;
+
+        @Setter
         private boolean jumpStarted;
+
+        @Setter
         private boolean jumpPressedRaw;
+
+        @Setter
         private boolean jumpCurrentRaw;
+
+        @Setter
         private boolean wantUp;
+
+        @Setter
         private boolean sneaking;
+
+        @Setter
         private boolean startSneaking;
+
+        @Setter
         private boolean stopSneaking;
+
+        @Setter
         private boolean sprinting;
+
+        @Setter
         private boolean swimming;
+
+        @Setter
         private boolean stopSwimming;
+
+        @Setter
         private boolean startCrawling;
+
+        @Setter
         private boolean stopCrawling;
+
+        @Setter
         private boolean startGliding;
+
+        @Setter
         private boolean stopGliding;
+
+        @Setter
         private boolean usingItem;
+
+        @Setter
         private boolean blockAction;
+
+        @Setter
         private String authorityMode;
+
+        @Setter
         private long rewindCorrectionId = -1L;
+
+        @Setter
         private Vec3 reportedEndOfTickVelocity;
+
+        @Setter
         private Long predictedVehicleId;
+
+        @Setter
         private Integer predictedVehicleJavaId;
+
+        @Setter
         private VehicleRotation vehicleRotation;
 
         private Builder(UUID playerUuid) {
@@ -440,53 +374,8 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
             return this;
         }
 
-        public Builder clientTick(long clientTick) {
-            this.clientTick = clientTick;
-            return this;
-        }
-
-        public Builder inputMode(int inputMode) {
-            this.inputMode = inputMode;
-            return this;
-        }
-
-        public Builder interactionModel(int value) {
-            interactionModel = value;
-            return this;
-        }
-
-        public Builder playMode(int playMode) {
-            this.playMode = playMode;
-            return this;
-        }
-
-        public Builder deviceId(int deviceId) {
-            this.deviceId = deviceId;
-            return this;
-        }
-
         public Builder coordinateFrame(BedrockCoordinateFrame frame) {
             this.coordinateFrame = Objects.requireNonNull(frame, "coordinateFrame");
-            return this;
-        }
-
-        public Builder coordinateProvenance(boolean present) {
-            this.coordinateProvenance = present;
-            return this;
-        }
-
-        public Builder position(Vec3 position) {
-            this.position = position;
-            return this;
-        }
-
-        public Builder packetPosition(Vec3 packetPosition) {
-            this.packetPosition = packetPosition;
-            return this;
-        }
-
-        public Builder delta(Vec3 delta) {
-            this.delta = delta;
             return this;
         }
 
@@ -503,133 +392,8 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
             return this;
         }
 
-        public Builder rawInputFlags(long rawInputFlags) {
-            this.rawInputFlags = rawInputFlags;
-            return this;
-        }
-
-        public Builder rawInputFlagsHigh(long rawInputFlagsHigh) {
-            this.rawInputFlagsHigh = rawInputFlagsHigh;
-            return this;
-        }
-
-        public Builder jumping(boolean jumping) {
-            this.jumping = jumping;
-            return this;
-        }
-
-        public Builder jumpStarted(boolean jumpStarted) {
-            this.jumpStarted = jumpStarted;
-            return this;
-        }
-
-        public Builder jumpPressedRaw(boolean jumpPressedRaw) {
-            this.jumpPressedRaw = jumpPressedRaw;
-            return this;
-        }
-
-        public Builder jumpCurrentRaw(boolean jumpCurrentRaw) {
-            this.jumpCurrentRaw = jumpCurrentRaw;
-            return this;
-        }
-
-        public Builder wantUp(boolean wantUp) {
-            this.wantUp = wantUp;
-            return this;
-        }
-
-        public Builder sneaking(boolean sneaking) {
-            this.sneaking = sneaking;
-            return this;
-        }
-
-        public Builder startSneaking(boolean startSneaking) {
-            this.startSneaking = startSneaking;
-            return this;
-        }
-
-        public Builder stopSneaking(boolean stopSneaking) {
-            this.stopSneaking = stopSneaking;
-            return this;
-        }
-
-        public Builder sprinting(boolean sprinting) {
-            this.sprinting = sprinting;
-            return this;
-        }
-
-        public Builder swimming(boolean swimming) {
-            this.swimming = swimming;
-            return this;
-        }
-
         public Builder startSwimming(boolean startSwimming) {
             this.swimming = startSwimming;
-            return this;
-        }
-
-        public Builder stopSwimming(boolean stopSwimming) {
-            this.stopSwimming = stopSwimming;
-            return this;
-        }
-
-        public Builder startCrawling(boolean startCrawling) {
-            this.startCrawling = startCrawling;
-            return this;
-        }
-
-        public Builder stopCrawling(boolean stopCrawling) {
-            this.stopCrawling = stopCrawling;
-            return this;
-        }
-
-        public Builder startGliding(boolean startGliding) {
-            this.startGliding = startGliding;
-            return this;
-        }
-
-        public Builder stopGliding(boolean stopGliding) {
-            this.stopGliding = stopGliding;
-            return this;
-        }
-
-        public Builder usingItem(boolean usingItem) {
-            this.usingItem = usingItem;
-            return this;
-        }
-
-        public Builder blockAction(boolean blockAction) {
-            this.blockAction = blockAction;
-            return this;
-        }
-
-        public Builder authorityMode(String authorityMode) {
-            this.authorityMode = authorityMode;
-            return this;
-        }
-
-        public Builder rewindCorrectionId(long rewindCorrectionId) {
-            this.rewindCorrectionId = rewindCorrectionId;
-            return this;
-        }
-
-        public Builder reportedEndOfTickVelocity(Vec3 reportedEndOfTickVelocity) {
-            this.reportedEndOfTickVelocity = reportedEndOfTickVelocity;
-            return this;
-        }
-
-        public Builder predictedVehicleId(Long value) {
-            this.predictedVehicleId = value;
-            return this;
-        }
-
-        public Builder predictedVehicleJavaId(Integer value) {
-            this.predictedVehicleJavaId = value;
-            return this;
-        }
-
-        public Builder vehicleRotation(VehicleRotation value) {
-            this.vehicleRotation = value;
             return this;
         }
 

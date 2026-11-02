@@ -2477,6 +2477,4 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     }
 
     private record TeleportChange(Vec3 position, Vec3 deltaMovement, float yRot, float xRot) {}
-
-    private record TeleportEntityData(int entityId, TeleportChange change, RelativeFlag flags, boolean onGround) {}
 }
