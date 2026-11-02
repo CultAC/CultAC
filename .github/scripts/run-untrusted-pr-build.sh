@@ -3,6 +3,9 @@
 set -euo pipefail
 sandbox="$(mktemp -d "$RUNNER_TEMP/cultac-pr-build.XXXXXXXX")"
 mkdir -p "$sandbox/workspace" "$sandbox/home/.gradle"
+# The workspace bind mount is nested under the home bind mount. Precreate its
+# destination as the runner so Docker cannot create root-owned directories.
+mkdir -p "$sandbox/home/${GITHUB_WORKSPACE#"$HOME"/}"
 cp -a --reflink=auto "$GITHUB_WORKSPACE/cultac" "$sandbox/workspace/"
 # Copy only dependencies resolved from the trusted base. Never mount shared caches writable.
 for directory in caches wrapper; do
