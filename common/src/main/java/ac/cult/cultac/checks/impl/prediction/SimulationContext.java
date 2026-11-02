@@ -595,19 +595,7 @@ public class SimulationContext {
         }
 
         if (isOnGround) {
-            // MCP-Reborn 26.2 LivingEntity#getFrictionInfluencedSpeed receives the
-            // friction_modifier-adjusted block friction and only boosts movement
-            // speed on slippery blocks (friction > 0.6).
-            if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2)) {
-                float modifiedFriction = Friction.computeModifiedFriction(
-                        friction, (float) player.compensatedEntities.getEntityInControl().frictionModifier);
-                if (modifiedFriction > 0.6f) {
-                    return (float)
-                            (normalSpeed * (0.21600002f / (modifiedFriction * modifiedFriction * modifiedFriction)));
-                }
-                return (float) normalSpeed;
-            }
-            return (float) (normalSpeed * (0.21600002f / (friction * friction * friction)));
+            return (float) (normalSpeed * Friction.getGroundSpeedFactor(player, friction));
         }
 
         // The game uses values known as flyingSpeed for some vehicles in the air

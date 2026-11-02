@@ -38,6 +38,7 @@ import ac.cult.cultac.checks.impl.misc.ClientBrand;
 import ac.cult.cultac.checks.impl.misc.GhostBlockMitigation;
 import ac.cult.cultac.checks.impl.misc.SkinBlinker;
 import ac.cult.cultac.checks.impl.movement.EntityControl;
+import ac.cult.cultac.checks.impl.movement.GhostFriction;
 import ac.cult.cultac.checks.impl.movement.SetbackBlocker;
 import ac.cult.cultac.checks.impl.movement.VehiclePredictionRunner;
 import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
@@ -448,6 +449,7 @@ public class CheckManager {
                 player.knockbackHandler,
                 player.explosionHandler,
                 player.keepSprint,
+                new GhostFriction(player),
                 player.compensatedFireworks,
                 player.lastInstanceManager,
                 new PacketOrderE(player),

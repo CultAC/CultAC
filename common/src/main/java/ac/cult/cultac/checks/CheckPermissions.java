@@ -95,6 +95,7 @@ public final class CheckPermissions {
             "farbreak",
             "farplace",
             "fastbreak",
+            "ghostfriction",
             "groundspoof",
             "happyghastoffset",
             "inputkeys",

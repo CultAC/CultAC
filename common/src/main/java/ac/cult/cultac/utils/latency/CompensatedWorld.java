@@ -104,6 +104,8 @@ public class CompensatedWorld {
     private List<BlockPos> currentlyChangedBlocks = new LinkedList<>();
     private final Map<Integer, List<BlockPos>> serverIsCurrentlyProcessingThesePredictions = new LinkedHashMap<>();
     private int clientPredictionSequence;
+    /** The newest block-changed ack sequence sent to the client: the server answered every prediction up to it. */
+    private int answeredPredictionSequence = -1;
     /** BlockStatePredictionHandler#lastTeleportSequence: the prediction sequence when the client last took a teleport. */
     private int lastTeleportPredictionSequence = -1;
 
@@ -552,6 +554,7 @@ public class CompensatedWorld {
         player.blockActionReconciler.reset();
         endSelectionSnapshot();
         clientPredictionSequence = 0;
+        answeredPredictionSequence = -1;
         lastTeleportPredictionSequence = -1;
         isCurrentlyPredicting = false;
         currentlyChangedBlocks.clear();
@@ -565,6 +568,7 @@ public class CompensatedWorld {
     }
 
     public void handlePredictionConfirmation(int prediction, int transaction) {
+        answeredPredictionSequence = Math.max(answeredPredictionSequence, prediction);
         for (Iterator<Map.Entry<Integer, List<BlockPos>>> it =
                         serverIsCurrentlyProcessingThesePredictions.entrySet().iterator();
                 it.hasNext(); ) {
@@ -578,6 +582,7 @@ public class CompensatedWorld {
     }
 
     public void handlePredictionConfirmation(int prediction, CultPlayer.TrackedTransaction transaction) {
+        answeredPredictionSequence = Math.max(answeredPredictionSequence, prediction);
         for (Iterator<Map.Entry<Integer, List<BlockPos>>> it =
                         serverIsCurrentlyProcessingThesePredictions.entrySet().iterator();
                 it.hasNext(); ) {
@@ -778,6 +783,19 @@ public class CompensatedWorld {
 
     public boolean hasPendingBlockPrediction(BlockPos pos) {
         return originalServerBlocks.containsKey(pos.asLong());
+    }
+
+    public boolean hasPendingBlockPredictions() {
+        return !originalServerBlocks.isEmpty();
+    }
+
+    /**
+     * Whether the client still shows its own prediction at {@code pos} although the ack answering it was sent, so
+     * {@link #getServerSentBlockStateIdAt} holds the server's verdict on it.
+     */
+    public boolean hasAnsweredBlockPrediction(BlockPos pos) {
+        BlockPrediction pending = originalServerBlocks.get(pos.asLong());
+        return pending != null && pending.getSequence() <= answeredPredictionSequence;
     }
 
     /** Retained server state, excluding a locally predicted placement or destruction. */
