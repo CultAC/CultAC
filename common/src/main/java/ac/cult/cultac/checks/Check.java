@@ -178,9 +178,13 @@ public class Check extends CultProcessor implements AbstractCheck {
         return recordFlag(binary, alertText);
     }
 
+    /** Whether a flag of this check reaches its consumers: false while the player is disabled or exempt from it. */
+    public final boolean canRecordFlags() {
+        return !player.isDisabled() && (!experimental || player.isExperimentalChecks()) && !exemptPermission;
+    }
+
     private boolean recordFlag(@NotNull Supplier<String> verbose, @NotNull Supplier<String> alertText) {
-        if (player.isDisabled() || (experimental && !player.isExperimentalChecks()) || exemptPermission)
-            return false; // Avoid calling event if disabled
+        if (!canRecordFlags()) return false; // Avoid calling event if disabled
 
         if (FLAG_CHANNEL.fire(RuntimeEnvironment.outwardUser(player), RuntimeEnvironment.outwardCheck(this), verbose))
             return false;
@@ -194,8 +198,7 @@ public class Check extends CultProcessor implements AbstractCheck {
         Supplier<String> rendered = verbose.rendered();
         byte[] verboseData = verbose.data();
 
-        if (player.isDisabled() || (experimental && !player.isExperimentalChecks()) || exemptPermission)
-            return false; // Avoid calling event if disabled
+        if (!canRecordFlags()) return false; // Avoid calling event if disabled
 
         if (FLAG_CHANNEL.fire(
                 RuntimeEnvironment.outwardUser(player),

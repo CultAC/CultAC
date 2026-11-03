@@ -1071,10 +1071,21 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.player.getSetbackTeleportUtil().resyncWorld();
         }
         boolean bedrockMovementFlag = this.player.isBedrockMovement() && result.hasFlag(BedrockMovement.class);
-        if (this.player.shouldEnforceMovementSetbacks() || createProfileVerboseLog || bedrockMovementFlag) {
+        boolean identifierShown = this.player.shouldEnforceMovementSetbacks()
+                && (this.player.isBedrockMovement() || this.canFlagWithIdentifier(result));
+        if (identifierShown || createProfileVerboseLog || bedrockMovementFlag) {
             result.setIdentifier(nextDebugIdentifier());
             result.setProfileVerboseLog(createProfileVerboseLog);
         }
+    }
+
+    /** Whether a check whose flag shows the debug identifier, the offset handler or a flagged check, can flag. */
+    private boolean canFlagWithIdentifier(PredictionResult result) {
+        if (this.player.checkManager.getOffsetHandler().canRecordFlags()) return true;
+        for (Flag flag : result.getFlags()) {
+            if (flag.getCheck().canRecordFlags()) return true;
+        }
+        return false;
     }
 
     private PredictionCommit prepareBedrockCommit(
