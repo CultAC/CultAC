@@ -20,8 +20,12 @@ fixtures or secrets. A PR build pass is not a private smoketest pass.
 - The trusted branch job downloads and verifies pinned Bedrock runtime jars
   before starting the Docker container. Its generated offline lock references
   local, SHA-256-verified paths; Gradle always uses --offline in the container.
-- The actual reach, dedup, and Bedrock test container uses --network=none,
-  retaining loopback for local Minecraft traffic while blocking external egress.
+- The reach and dedup test container uses --network=none, retaining loopback
+  for local Minecraft traffic while blocking external egress.
+- The Bedrock test container joins an internal Docker network whose only route
+  out is egress-proxy.py, which tunnels HTTPS to minecraft-services.net and
+  mojang.com alone. The pinned Geyser fetches Bedrock auth discovery when it
+  starts and shuts down without it; Paper and Geyser download their game jars.
 - Only trusted-branch jobs explicitly save cache entries under the separate
   trusted-smoketest-v2 namespace. No PR job restores or saves them.
 - Test containers use dropped capabilities, no-new-privileges, resource limits,
@@ -49,4 +53,4 @@ bash -n .github/scripts/prepare-smoketests.sh \
 
 Live Docker/Minecraft execution and offline dependency completeness require a
 real GitHub Actions run. Missing dependencies must be prepared on a trusted
-host; do not turn network access back on in the smoketest container.
+host; do not turn general network access back on in the smoketest container.
