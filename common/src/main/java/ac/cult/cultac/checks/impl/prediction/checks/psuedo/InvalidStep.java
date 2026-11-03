@@ -8,6 +8,7 @@ import ac.cult.cultac.player.CultPlayer;
 public class InvalidStep extends Check implements PostPredictionListener {
     public static final CheckInfo INFO = CheckInfo.builder()
             .name("InvalidStep")
+            .stableKey("grim.legacy.invalidstep")
             .description("Made an impossible step up")
             .build();
 

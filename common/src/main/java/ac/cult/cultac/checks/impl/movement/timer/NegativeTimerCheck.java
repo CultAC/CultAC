@@ -18,6 +18,7 @@ import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 public class NegativeTimerCheck extends AbstractTimerCheck implements PostPredictionListener {
     public static final CheckInfo INFO = CheckInfo.builder()
             .name("NegativeTimer")
+            .stableKey("grim.timer.negative")
             .description("Game ran slower than normal")
             .setback(10)
             .build();

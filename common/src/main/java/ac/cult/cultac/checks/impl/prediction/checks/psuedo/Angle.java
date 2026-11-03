@@ -8,6 +8,7 @@ import ac.cult.cultac.player.CultPlayer;
 public class Angle extends Check implements PostPredictionListener {
     public static final CheckInfo INFO = CheckInfo.builder()
             .name("Angle")
+            .stableKey("grim.legacy.angle")
             .description("Moved in an impossible direction")
             .build();
 

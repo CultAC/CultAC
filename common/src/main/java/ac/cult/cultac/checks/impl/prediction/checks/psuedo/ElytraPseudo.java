@@ -8,6 +8,7 @@ import ac.cult.cultac.player.CultPlayer;
 public class ElytraPseudo extends Check implements PostPredictionListener {
     public static final CheckInfo INFO = CheckInfo.builder()
             .name("Elytra")
+            .stableKey("grim.legacy.elytra")
             .description("Impossible elytra movement")
             .build();
 

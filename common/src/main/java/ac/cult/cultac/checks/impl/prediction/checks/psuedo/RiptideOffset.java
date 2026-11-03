@@ -8,6 +8,7 @@ import ac.cult.cultac.player.CultPlayer;
 public class RiptideOffset extends Check implements PostPredictionListener {
     public static final CheckInfo INFO = CheckInfo.builder()
             .name("RiptideOffset")
+            .stableKey("grim.legacy.riptideoffset")
             .description("Impossible Riptide trident launch")
             .build();
 

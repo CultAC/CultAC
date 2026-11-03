@@ -8,6 +8,7 @@ import ac.cult.cultac.player.CultPlayer;
 public class VehicleOffset extends Check implements PostPredictionListener {
     public static final CheckInfo INFO = CheckInfo.builder()
             .name("VehicleOffset")
+            .stableKey("grim.legacy.vehicleoffset")
             .description("Impossible vehicle movement")
             .build();
 

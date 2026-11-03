@@ -32,6 +32,7 @@ import ac.cult.cultac.utils.lists.EvictingQueue;
 public class PostCheck extends Check implements CheckListener, PostPredictionListener {
     public static final CheckInfo INFO = CheckInfo.builder()
             .name("Post")
+            .stableKey("grim.post.invalid_order")
             .description("Impossible attacks, clicks or item use")
             .build();
     private String post;

@@ -8,6 +8,7 @@ import ac.cult.cultac.player.CultPlayer;
 public class VerticalOffset extends Check implements PostPredictionListener {
     public static final CheckInfo INFO = CheckInfo.builder()
             .name("VerticalOffset")
+            .stableKey("grim.legacy.verticaloffset")
             .description("Impossible up or down movement")
             .build();
 

@@ -8,6 +8,7 @@ import ac.cult.cultac.player.CultPlayer;
 public class NoSneakSlow extends Check implements PostPredictionListener {
     public static final CheckInfo INFO = CheckInfo.builder()
             .name("NoSneakSlow")
+            .stableKey("grim.legacy.nosneakslow")
             .description("Moved too fast while sneaking")
             .build();
 

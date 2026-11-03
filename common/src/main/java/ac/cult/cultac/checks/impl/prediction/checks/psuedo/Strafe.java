@@ -8,6 +8,7 @@ import ac.cult.cultac.player.CultPlayer;
 public class Strafe extends Check implements PostPredictionListener {
     public static final CheckInfo INFO = CheckInfo.builder()
             .name("Strafe")
+            .stableKey("grim.legacy.strafe")
             .description("Impossible mid-air movement")
             .build();
 

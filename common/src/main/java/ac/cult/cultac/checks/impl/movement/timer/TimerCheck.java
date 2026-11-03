@@ -13,6 +13,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
 public class TimerCheck extends AbstractTimerCheck {
     public static final CheckInfo INFO = CheckInfo.builder()
             .name("Timer")
+            .stableKey("grim.timer.timer")
             .description("Game ran faster than normal")
             .configName("TimerA")
             .setback(5)

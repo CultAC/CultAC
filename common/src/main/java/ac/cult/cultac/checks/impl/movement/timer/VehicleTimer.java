@@ -14,6 +14,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
 public class VehicleTimer extends AbstractTimerCheck {
     public static final CheckInfo INFO = CheckInfo.builder()
             .name("TimerVehicle")
+            .stableKey("grim.legacy.timervehicle")
             .description("Game ran faster than normal while riding")
             .configName("TimerVehicle")
             .setback(5)
