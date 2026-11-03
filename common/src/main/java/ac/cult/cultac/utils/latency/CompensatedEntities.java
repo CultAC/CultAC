@@ -928,9 +928,7 @@ public class CompensatedEntities {
         if (EntityTypeUtil.isHorseFamily(entityType)) {
             return new PacketEntityHorse(player, entityID, entityType, position.x, position.y, position.z, xRot);
         }
-        if (entityType == EntityTypeIds.SLIME
-                || entityType == EntityTypeIds.MAGMA_CUBE
-                || entityType == EntityTypeIds.PHANTOM) {
+        if (EntityTypeUtil.isCubeMob(entityType) || entityType == EntityTypeIds.PHANTOM) {
             return new PacketEntitySizeable(player, entityID, entityType, position.x, position.y, position.z);
         }
         if ((entityType == EntityTypeIds.PIG)) {

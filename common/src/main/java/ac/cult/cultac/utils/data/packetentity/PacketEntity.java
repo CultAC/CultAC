@@ -211,7 +211,7 @@ public class PacketEntity {
     }
 
     public boolean isSize() {
-        return type == EntityTypeIds.PHANTOM || type == EntityTypeIds.SLIME || type == EntityTypeIds.MAGMA_CUBE;
+        return type == EntityTypeIds.PHANTOM || EntityTypeUtil.isCubeMob(type);
     }
 
     public boolean isStrider() {
