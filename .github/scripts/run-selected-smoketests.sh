@@ -55,6 +55,13 @@ case "${1:-}" in
     git -C replay rev-parse HEAD > artifacts/replay-revision.txt
     git -C scenarios rev-parse HEAD > artifacts/scenarios-revision.txt
     git -C cultac rev-parse HEAD > artifacts/cult-revision.txt
+    # The server's HTTP clients (Geyser's auth discovery, the game jar downloads) use the egress proxy.
+    if [[ -n "${CULTAC_EGRESS_PROXY:-}" ]]; then
+      for scheme in http https; do
+        JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -D$scheme.proxyHost=${CULTAC_EGRESS_PROXY%:*} -D$scheme.proxyPort=${CULTAC_EGRESS_PROXY##*:}"
+      done
+      export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS# }"
+    fi
     python3 - <<'PYRUN'
 from pathlib import Path
 import subprocess
