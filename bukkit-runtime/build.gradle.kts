@@ -24,7 +24,7 @@ repositories {
         includeModule("com.mojang", "brigadier")
     }
 
-    exclusive("https://repo.extendedclip.com/content/repositories/placeholderapi/") {
+    exclusive("https://repo.extendedclip.com/releases/") {
         includeGroup("me.clip")
     }
 
