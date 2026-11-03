@@ -168,7 +168,17 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$SUITE" = java ]; then task=:bukkit:devShadowJar; else task=:bukkit:shadowJar; fi
-          ./gradlew "$task" --no-daemon --console=plain --max-workers=2
+          # Third-party repositories (PlaceholderAPI's above all) stall at times; wait longer and retry.
+          attempt=1
+          until ./gradlew "$task" --no-daemon --console=plain --max-workers=2 \
+              -Dorg.gradle.internal.http.connectionTimeout=60000 \
+              -Dorg.gradle.internal.http.socketTimeout=120000 \
+              -Dorg.gradle.internal.repository.max.retries=5; do
+            if [ "$attempt" -ge 3 ]; then exit 1; fi
+            echo "::warning::Gradle dependency warm-up attempt $attempt failed; retrying"
+            sleep $((attempt * 30))
+            attempt=$((attempt + 1))
+          done
 
       - name: Prepare trusted Java workspace manifest
         if: matrix.suite == 'java'
