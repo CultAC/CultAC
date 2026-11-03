@@ -210,6 +210,8 @@ jobs:
             - name: Prune old builds
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  # This job has no checkout, so gh cannot infer the repository from a git remote.
+                  GH_REPO: ${{ github.repository }}
                   KEEP_PER_BRANCH: 30
               run: |
                   set -euo pipefail
