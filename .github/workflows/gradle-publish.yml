@@ -31,7 +31,6 @@ on:
         paths:
             - 'bukkit/**'
             - 'common/**'
-            - 'fabric/**'
             - '**.java'
             - '**.kt'
             - '**.kts'
