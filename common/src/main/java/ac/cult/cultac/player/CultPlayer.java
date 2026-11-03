@@ -1567,8 +1567,17 @@ public class CultPlayer implements GrimUser {
     }
 
     public ac.cult.cultac.utils.latency.ClientWorldRegistries getWorldRegistries() {
-        if (registryState == null) registryState = new ac.cult.cultac.utils.latency.ClientComponentRegistries();
-        return registryState.worldRegistries(user.getCultConnection().platform()::initialWorldData);
+        return registryState().worldRegistries(user.getCultConnection().platform()::initialWorldData);
+    }
+
+    /** This connection's received registries, created with the view its client has of them. */
+    public ClientComponentRegistries registryState() {
+        if (registryState == null)
+            registryState = new ClientComponentRegistries(
+                    bedrockState == null || !isBedrockMovement()
+                            ? ac.cult.cultac.utils.latency.ClientWorldView.RECEIVED
+                            : bedrockState.worldView);
+        return registryState;
     }
 
     public CompensatedInventory getInventory() {

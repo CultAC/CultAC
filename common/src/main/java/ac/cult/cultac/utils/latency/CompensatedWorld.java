@@ -85,6 +85,10 @@ public class CompensatedWorld {
     // 1.17 with datapacks, and 1.18, have negative world offset values
     private int minHeight = 0;
     private int maxHeight = 256;
+    /** The part of the stored heights at which the client holds blocks; Geyser's narrower range on Bedrock. */
+    private int clientMinHeight = 0;
+
+    private int clientMaxHeight = 256;
     private String visibleDimension = "minecraft:overworld";
     private ac.cult.blocksim.environment.DimensionData visibleDimensionType;
     private int clientSeaLevel = 63;
@@ -294,9 +298,24 @@ public class CompensatedWorld {
         }
     }
 
-    public record ClientboundDimensionData(String dimension, int minHeight, int maxHeight) {
+    /**
+     * A sent level's wire heights, and the part of them at which its client holds blocks: all of them for a Java
+     * client, the Bedrock dimension's for a Bedrock client.
+     */
+    public record ClientboundDimensionData(
+            String dimension, int minHeight, int maxHeight, int clientMinHeight, int clientMaxHeight) {
+        public ClientboundDimensionData(String dimension, int minHeight, int maxHeight) {
+            this(dimension, minHeight, maxHeight, minHeight, maxHeight);
+        }
+
         public int sectionCount() {
             return (maxHeight - minHeight) >> 4;
+        }
+
+        /** Whether the client holds the blocks of wire section {@code index}. */
+        public boolean clientHoldsSection(int index) {
+            int bottom = minHeight + (index << 4);
+            return bottom >= clientMinHeight && bottom + 16 <= clientMaxHeight;
         }
     }
 
@@ -677,7 +696,14 @@ public class CompensatedWorld {
     }
 
     public void handleServerBlockUpdate(int x, int y, int z, int state, int transaction) {
+        // Geyser forwards it, but a Bedrock BlockSource#setBlock refuses a Y outside its dimension's heights.
+        if (player.isBedrockMovement() && !clientHoldsBlockAt(y)) return;
         updateBlock(x, y, z, state);
+    }
+
+    /** Whether the client's current level can hold a block at {@code y}. */
+    private boolean clientHoldsBlockAt(int y) {
+        return y >= clientMinHeight && y < clientMaxHeight;
     }
 
     private void applyBlockChanges(List<BlockPos> toApplyBlocks, int transaction, int sequence) {
@@ -1172,6 +1198,7 @@ public class CompensatedWorld {
 
     /** Reuse updateBlock's owned immutable position; standalone writes still create their own callback input. */
     private void applyBlockChangeRawDANGER(int x, int y, int z, int combinedState, BlockPos position) {
+        if (!clientHoldsBlockAt(y)) return;
         combinedState = ViaClientBlockShapeMappings.clientBlockStateId(player, stateIdOrAir(combinedState));
         int chunkX = x >> 4;
         int chunkZ = z >> 4;
@@ -1778,12 +1805,16 @@ public class CompensatedWorld {
                 ac.cult.blocksim.engine.BiomeLookup.quartAt(clientBiomeZoomSeed, pos.getX(), pos.getY(), pos.getZ());
         var names = player.user.getCultConnection().require(ac.cult.cultac.protocol.data.RegistryNames.class);
         var chunk = getChunk(quart.x() >> 2, quart.z() >> 2);
+        String received;
         // LevelReader.getNoiseBiome delegates missing chunks to ClientLevel.getUncachedNoiseBiome.
         if (chunk == null)
-            return names.name("minecraft:worldgen/biome", names.id("minecraft:worldgen/biome", "minecraft:plains"));
-        int quartY = Math.clamp(quart.y(), minHeight >> 2, (maxHeight - 1) >> 2);
-        int biomeId = chunk.biomeAt(((quartY << 2) - minHeight) >> 4, quart.x() & 3, quartY & 3, quart.z() & 3);
-        return names.name("minecraft:worldgen/biome", biomeId);
+            received = names.name("minecraft:worldgen/biome", names.id("minecraft:worldgen/biome", "minecraft:plains"));
+        else {
+            int quartY = Math.clamp(quart.y(), minHeight >> 2, (maxHeight - 1) >> 2);
+            int biomeId = chunk.biomeAt(((quartY << 2) - minHeight) >> 4, quart.x() & 3, quartY & 3, quart.z() & 3);
+            received = names.name("minecraft:worldgen/biome", biomeId);
+        }
+        return player.getWorldRegistries().biome(received, visibleDimensionType);
     }
 
     public void applyClientBiomes(String dimension, int x, int z, int[][] biomes) {
@@ -1998,6 +2029,7 @@ public class CompensatedWorld {
     }
 
     private void setCachedChunkState(CachedChunk chunk, BlockPos position, int state) {
+        if (!clientHoldsBlockAt(position.getY())) return;
         int offsetY = position.getY() - minHeight;
         int sectionIndex = offsetY >> 4;
         CachedSection section = chunk.getOrCreateSection(sectionIndex);
@@ -2112,8 +2144,17 @@ public class CompensatedWorld {
 
     public void setLastClientboundDimension(String dimension, ac.cult.blocksim.environment.DimensionData type) {
         int minY = type.minY();
-        lastClientboundDimension = new ClientboundDimensionData(dimension, minY, minY + type.height());
+        var held = clientHeights(type);
+        lastClientboundDimension =
+                new ClientboundDimensionData(dimension, minY, minY + type.height(), held.min(), held.max());
         clientboundUnresolved = false;
+    }
+
+    /** The heights of a level of {@code type} at which the client holds blocks; empty when none. */
+    private ClientWorldView.Heights clientHeights(ac.cult.blocksim.environment.DimensionData type) {
+        var shown = player.getWorldRegistries().heights(type);
+        int min = Math.max(type.minY(), shown.min());
+        return new ClientWorldView.Heights(min, Math.max(min, Math.min(type.minY() + type.height(), shown.max())));
     }
 
     /**
@@ -2121,8 +2162,9 @@ public class CompensatedWorld {
      * geometry, so they stay out of the model until a later login or respawn resolves its type.
      */
     public void setLastClientboundUnresolved(String dimension) {
+        var last = lastClientboundDimension;
         lastClientboundDimension = new ClientboundDimensionData(
-                dimension, lastClientboundDimension.minHeight(), lastClientboundDimension.maxHeight());
+                dimension, last.minHeight(), last.maxHeight(), last.clientMinHeight(), last.clientMaxHeight());
         clientboundUnresolved = true;
     }
 
@@ -2155,6 +2197,9 @@ public class CompensatedWorld {
         levelUnresolved = false;
         minHeight = type.minY();
         maxHeight = minHeight + type.height();
+        var held = clientHeights(type);
+        clientMinHeight = held.min();
+        clientMaxHeight = held.max();
         fastLava = type.hasFastLava();
         hasSkyLight = type.hasSkyLight();
         clientEnvironment.configure(binding.environment().get(), clientClocks);

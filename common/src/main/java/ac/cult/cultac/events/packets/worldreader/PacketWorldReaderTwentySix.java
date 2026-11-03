@@ -46,6 +46,19 @@ public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
                 bytes.release();
             }
         }
+        // JavaLevelChunkWithLightTranslator sends a Bedrock client only the sections within its dimension's heights.
+        var blockEntities = packet.blockEntities();
+        boolean clipped = false;
+        for (int i = 0; i < chunks.length; i++) {
+            if (dimension.clientHoldsSection(i)) continue;
+            chunks[i] = null;
+            clipped = true;
+        }
+        if (clipped)
+            blockEntities = blockEntities.stream()
+                    .filter(entity ->
+                            dimension.clientHoldsSection((entity.position().getY() - dimension.minHeight()) >> 4))
+                    .toList();
         var tickers = packet.tickerCandidates().stream()
                 .filter(position -> hasGeyserTicker(chunks, dimension.minHeight(), position))
                 .toList();
@@ -57,7 +70,7 @@ public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
                 packet.x(),
                 packet.z(),
                 tickers,
-                packet.blockEntities(),
+                blockEntities,
                 biomes,
                 packet.motionBlocking());
     }

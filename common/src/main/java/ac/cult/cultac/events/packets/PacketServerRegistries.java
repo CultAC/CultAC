@@ -24,8 +24,7 @@ public class PacketServerRegistries {
 
     @CultPacketHandler
     public void onTags(PacketSendEvent<RegistryTags> event, CultPlayer player, RegistryTags packet) {
-        if (player.registryState == null) player.registryState = new ClientComponentRegistries();
-        var state = player.registryState;
+        var state = player.registryState();
         if (event.getPhase() == ConnectionPhase.CONFIGURATION) {
             configurationTags(player, packet);
         } else {
@@ -37,9 +36,8 @@ public class PacketServerRegistries {
 
     /** Configuration tags collect until finish_configuration publishes them with the received contents. */
     static void configurationTags(CultPlayer player, RegistryTags packet) {
-        if (player.registryState == null) player.registryState = new ClientComponentRegistries();
-        if (player.isBedrockMovement()) player.registryState.appendTags(packet);
-        else player.registryState.appendConfigurationTags(packet);
+        if (player.isBedrockMovement()) player.registryState().appendTags(packet);
+        else player.registryState().appendConfigurationTags(packet);
     }
 
     @CultPacketHandler("clientbound.start_configuration")
@@ -48,8 +46,7 @@ public class PacketServerRegistries {
             player.registryState = null;
             return;
         }
-        if (player.registryState == null) player.registryState = new ClientComponentRegistries();
-        player.registryState.beginConfiguration();
+        player.registryState().beginConfiguration();
         // Start of configuration removes the server player, ending the use the burst balance tracks.
         player.itemUseBurst.reset();
     }
@@ -76,31 +73,39 @@ public class PacketServerRegistries {
         var observed = connection.getObservedProtocol();
         ConnectionModelValues.Staged names = null;
         ClientComponentRegistries.StagedConfiguration world = null;
+        ClientComponentRegistries.StagedConfiguration bedrockWorld = null;
         try {
             if (values != null) names = values.stage(event.getDecodedProtocol());
             var bound = names == null ? null : names.tags();
-            if (java && player.registryState == null && bound != null)
-                player.registryState = new ClientComponentRegistries();
+            if (java && bound != null) player.registryState();
             if (java && player.registryState != null) {
                 var model = connection.dispatcher().runtime().data().version();
                 var client = ProtocolVersion.of(player.getClientVersion().getProtocolVersion());
                 world = player.registryState.stageConfiguration(model, observed, client, bound);
             }
+            if (!java && player.registryState != null)
+                bedrockWorld = player.registryState.stageBedrockWorld(player.getWorldRegistries(), observed);
         } catch (RuntimeException failure) {
             if (values != null) values.fallback();
-            if (java && player.registryState != null) player.registryState.fallback();
+            if (player.registryState != null) player.registryState.fallback();
             RegistryGenerationAlerts.report(player, failure);
             return;
         }
         if (values != null) values.publish(names);
         if (world != null) player.registryState.publish(world, observed);
-        else if (!java && names != null && names.tags() != null) configurationTags(player, names.tags());
+        else if (!java) {
+            if (bedrockWorld != null) player.registryState.publishBedrockWorld(bedrockWorld);
+            if (names != null && names.tags() != null) configurationTags(player, names.tags());
+        }
     }
 
     @CultPacketHandler
     public void onRegistryData(PacketSendEvent<RegistryData> event, CultPlayer player, RegistryData packet) {
-        if (player.isBedrockMovement()) return;
-        if (player.registryState == null) player.registryState = new ClientComponentRegistries();
+        if (player.isBedrockMovement()) {
+            // Geyser's Java connection receives these; its Bedrock client sees Geyser's conversion of them.
+            player.registryState().appendBedrockWorldContents(packet);
+            return;
+        }
         player.getWorldRegistries();
         player.registryState.appendConfigurationRegistryData(packet);
     }

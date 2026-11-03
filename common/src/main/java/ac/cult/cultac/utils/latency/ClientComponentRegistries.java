@@ -46,14 +46,27 @@ public final class ClientComponentRegistries {
     private Map<String, List<WireValueDecoder.RegistryEntry>> configurationRegistries;
     private Map<String, List<WireValueDecoder.RegistryEntry>> receivedRegistries = Map.of();
     private ProtocolVersion receivedRegistryVersion;
+    /** World contents a Bedrock connection received this configuration; its client applied the tags as they came. */
+    private Map<String, List<WireValueDecoder.RegistryEntry>> bedrockWorldContents;
+
+    private final ClientWorldView worldView;
     private ClientWorldRegistries worldRegistries;
     private DataTables simulationDefaults;
     private SimulationRegistries simulationRegistries;
     private SimulationActions simulationActions;
 
+    public ClientComponentRegistries() {
+        this(ClientWorldView.RECEIVED);
+    }
+
+    /** {@code worldView} is how this connection's client sees its world registries. */
+    public ClientComponentRegistries(ClientWorldView worldView) {
+        this.worldView = worldView;
+    }
+
     public ClientWorldRegistries worldRegistries(Supplier<ClientWorldRegistries.Data> initial) {
         if (worldRegistries == null) {
-            worldRegistries = new ClientWorldRegistries(initial.get());
+            worldRegistries = new ClientWorldRegistries(initial.get(), worldView);
             if (receivedRegistryVersion != null)
                 worldRegistries.finish(receivedRegistries, receivedRegistryVersion, tags, true);
             else tags.forEach(worldRegistries::applyTags);
@@ -152,6 +165,34 @@ public final class ClientComponentRegistries {
         configurationRegistries.put(packet.registry(), List.copyOf(entries));
     }
 
+    /**
+     * Geyser's Java connection receives the same world contents a Java client does, and converts them for its Bedrock
+     * client. Only the world registries are kept: Bedrock actions use the model's other definitions.
+     */
+    public void appendBedrockWorldContents(RegistryData packet) {
+        if (!ClientWorldRegistries.REGISTRIES.contains(packet.registry())) return;
+        if (bedrockWorldContents == null) bedrockWorldContents = new LinkedHashMap<>();
+        var entries = new ArrayList<>(bedrockWorldContents.getOrDefault(packet.registry(), List.of()));
+        entries.addAll(packet.entries());
+        bedrockWorldContents.put(packet.registry(), List.copyOf(entries));
+    }
+
+    /**
+     * The world generation of the contents a Bedrock connection received this configuration, with the tags it has
+     * already applied, staged on {@code world} without changing it; null when no contents were received.
+     */
+    public StagedConfiguration stageBedrockWorld(ClientWorldRegistries world, ProtocolVersion observed) {
+        if (bedrockWorldContents == null) return null;
+        if (world != worldRegistries) throw new IllegalArgumentException("Not this connection's world registries");
+        return new StagedConfiguration(null, Map.of(), null, world.stage(bedrockWorldContents, observed, tags, true));
+    }
+
+    /** Publishes a generation {@link #stageBedrockWorld} staged; nothing here can fail. */
+    public void publishBedrockWorld(StagedConfiguration staged) {
+        bedrockWorldContents = null;
+        worldRegistries.publish(staged.world());
+    }
+
     /** Published at finish_configuration; tags-only reconfiguration retains the previous contents. */
     public Map<String, List<WireValueDecoder.RegistryEntry>> receivedRegistries() {
         return receivedRegistries;
@@ -243,10 +284,10 @@ public final class ClientComponentRegistries {
 
     /** Model defaults after a generation failed to stage: no received contents and no received tags. */
     public void fallback() {
-        var received =
-                configurationRegistries != null && configurationRegistries.containsKey(ClientWorldRegistries.DIMENSIONS)
-                        ? configurationRegistries.get(ClientWorldRegistries.DIMENSIONS)
-                        : receivedRegistries.get(ClientWorldRegistries.DIMENSIONS);
+        var configured = configurationRegistries != null ? configurationRegistries : bedrockWorldContents;
+        var received = configured != null && configured.containsKey(ClientWorldRegistries.DIMENSIONS)
+                ? configured.get(ClientWorldRegistries.DIMENSIONS)
+                : receivedRegistries.get(ClientWorldRegistries.DIMENSIONS);
         // A repeated failure keeps the client's dimension order from the published generation.
         List<String> dimensions = received != null
                 ? received.stream().map(RegistryEntry::name).toList()
@@ -262,6 +303,7 @@ public final class ClientComponentRegistries {
         simulatorTags.clear();
         configurationTags = null;
         configurationRegistries = null;
+        bedrockWorldContents = null;
         receivedRegistries = Map.of();
         receivedRegistryVersion = null;
         simulationDefaults = null;

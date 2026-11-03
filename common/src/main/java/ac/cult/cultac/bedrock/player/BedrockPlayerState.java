@@ -23,6 +23,9 @@ public final class BedrockPlayerState {
     public final BedrockMovementEffects movementEffects = new BedrockMovementEffects();
     public final ac.cult.cultac.bedrock.prediction.integration.BedrockMovementCorrections movementCorrections =
             new ac.cult.cultac.bedrock.prediction.integration.BedrockMovementCorrections();
+    /** The session's view of its world registries through Geyser. */
+    public final ac.cult.cultac.bedrock.bridge.GeyserWorldView worldView =
+            new ac.cult.cultac.bedrock.bridge.GeyserWorldView();
     // Accessed under the CultPlayer transaction lock.
     public ac.cult.cultac.player.CultPlayer.BedrockTransaction lastClientboundTransaction;
     private final UUID playerUuid;

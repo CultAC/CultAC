@@ -78,7 +78,7 @@ public final class ClientFluidQueries {
     }
 
     public static ClientComponentRegistries.Tags clientTags(CultPlayer player) {
-        if (player.registryState == null) player.registryState = new ClientComponentRegistries();
+        player.registryState();
         // RegistryTags is decoded into dispatcher MODEL values on both platforms.
         // The observed wire can be older than that native representation.
         var connection = player.user.getCultConnection();
