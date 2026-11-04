@@ -7,6 +7,7 @@ import ac.cult.blocksim.data.StateFacts;
 import ac.cult.blocksim.engine.BlockEntityData;
 import ac.cult.cultac.checks.impl.movement.GhostBlockMitigator;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.network.packet.WorldPackets.BlockEntityUpdate;
 import ac.cult.cultac.network.packet.WorldPackets.SectionBlocksUpdate;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -84,6 +85,10 @@ public class CompensatedWorld {
     // 1.17 with datapacks, and 1.18, have negative world offset values
     private int minHeight = 0;
     private int maxHeight = 256;
+    /** The part of the stored heights at which the client holds blocks; Geyser's narrower range on Bedrock. */
+    private int clientMinHeight = 0;
+
+    private int clientMaxHeight = 256;
     private String visibleDimension = "minecraft:overworld";
     private ac.cult.blocksim.environment.DimensionData visibleDimensionType;
     private int clientSeaLevel = 63;
@@ -186,17 +191,29 @@ public class CompensatedWorld {
             return biomes[Math.clamp(section, 0, sections.length - 1)][(quartY << 4) | (quartZ << 2) | quartX];
         }
 
+        /** As the constructor, but takes ownership of {@code biomes} and every array in it. */
+        public static CachedChunk received(
+                CachedSection[] sections, int transaction, List<BlockEntityUpdate> blockEntities, int[][] biomes) {
+            var chunk = new CachedChunk(sections, transaction, blockEntities, null);
+            chunk.retainBiomes(biomes, true);
+            return chunk;
+        }
+
         public void replaceBiomes(int[][] biomes) {
+            retainBiomes(biomes, false);
+        }
+
+        private void retainBiomes(int[][] biomes, boolean owned) {
             if (biomes == null) {
                 this.biomes = null;
                 return;
             }
             if (biomes.length != sections.length) throw new IllegalArgumentException("Biome section count mismatch");
-            int[][] retained = new int[biomes.length][];
+            int[][] retained = owned ? biomes : new int[biomes.length][];
             for (int i = 0; i < biomes.length; i++) {
                 int[] values = biomes[i];
                 if (values.length != 64) throw new IllegalArgumentException("Biome section must contain 64 values");
-                retained[i] = isUniform(values) ? uniformBiomes(values[0]) : values.clone();
+                retained[i] = isUniform(values) ? uniformBiomes(values[0]) : owned ? values : values.clone();
             }
             this.biomes = retained;
         }
@@ -281,9 +298,24 @@ public class CompensatedWorld {
         }
     }
 
-    public record ClientboundDimensionData(String dimension, int minHeight, int maxHeight) {
+    /**
+     * A sent level's wire heights, and the part of them at which its client holds blocks: all of them for a Java
+     * client, the Bedrock dimension's for a Bedrock client.
+     */
+    public record ClientboundDimensionData(
+            String dimension, int minHeight, int maxHeight, int clientMinHeight, int clientMaxHeight) {
+        public ClientboundDimensionData(String dimension, int minHeight, int maxHeight) {
+            this(dimension, minHeight, maxHeight, minHeight, maxHeight);
+        }
+
         public int sectionCount() {
             return (maxHeight - minHeight) >> 4;
+        }
+
+        /** Whether the client holds the blocks of wire section {@code index}. */
+        public boolean clientHoldsSection(int index) {
+            int bottom = minHeight + (index << 4);
+            return bottom >= clientMinHeight && bottom + 16 <= clientMaxHeight;
         }
     }
 
@@ -310,6 +342,22 @@ public class CompensatedWorld {
             this.shared = shared;
             this.lastMutatedNanos = System.nanoTime();
             recalcCounts();
+        }
+
+        /**
+         * A received section with the counts its chunk packet carried, which the client's LevelChunkSection.read keeps
+         * without recounting. Wires before 26.1 carry no fluid count: a negative {@code fluidCount} is counted here.
+         */
+        public static CachedSection received(PalettedSection states, int nonEmptyBlockCount, int fluidCount) {
+            return new CachedSection(states, nonEmptyBlockCount, fluidCount);
+        }
+
+        private CachedSection(PalettedSection states, int nonEmptyBlockCount, int fluidCount) {
+            this.states = states;
+            this.lastMutatedNanos = System.nanoTime();
+            if (fluidCount < 0) recalcCounts();
+            else this.fluidCount = fluidCount;
+            this.nonEmptyBlockCount = nonEmptyBlockCount;
         }
 
         public CachedSection translatedStateIds(java.util.function.IntUnaryOperator mapper) {
@@ -354,7 +402,8 @@ public class CompensatedWorld {
 
         public CachedSection mutableCopy() {
             mutableCopyCounter.incrementAndGet();
-            return new CachedSection(states.copy(), false);
+            // An exact copy: its counts are this section's.
+            return new CachedSection(states.copy(), nonEmptyBlockCount, fluidCount);
         }
 
         public static CachedSection createAirSection() {
@@ -381,6 +430,10 @@ public class CompensatedWorld {
 
         public boolean hasFluid() {
             return fluidCount > 0;
+        }
+
+        int fluidCount() {
+            return fluidCount;
         }
 
         public long getLastMutatedNanos() {
@@ -664,7 +717,14 @@ public class CompensatedWorld {
     }
 
     public void handleServerBlockUpdate(int x, int y, int z, int state, int transaction) {
+        // Geyser forwards it, but a Bedrock BlockSource#setBlock refuses a Y outside its dimension's heights.
+        if (player.isBedrockMovement() && !clientHoldsBlockAt(y)) return;
         updateBlock(x, y, z, state);
+    }
+
+    /** Whether the client's current level can hold a block at {@code y}. */
+    private boolean clientHoldsBlockAt(int y) {
+        return y >= clientMinHeight && y < clientMaxHeight;
     }
 
     private void applyBlockChanges(List<BlockPos> toApplyBlocks, int transaction, int sequence) {
@@ -1159,6 +1219,7 @@ public class CompensatedWorld {
 
     /** Reuse updateBlock's owned immutable position; standalone writes still create their own callback input. */
     private void applyBlockChangeRawDANGER(int x, int y, int z, int combinedState, BlockPos position) {
+        if (!clientHoldsBlockAt(y)) return;
         combinedState = ViaClientBlockShapeMappings.clientBlockStateId(player, stateIdOrAir(combinedState));
         int chunkX = x >> 4;
         int chunkZ = z >> 4;
@@ -1633,6 +1694,36 @@ public class CompensatedWorld {
         return 0;
     }
 
+    /**
+     * Whether a section holding part of the inclusive block range has fluid, as 26.1+
+     * EntityFluidInteraction#hasFluidAndLoaded asks before it scans for fluid. False proves every cell in the range
+     * reads without fluid: cells of unloaded columns and outside the height read as air. While the selection snapshot
+     * is read, cells can hold original states their sections no longer do, so nothing is ruled out.
+     */
+    public boolean mayHaveFluid(int x0, int y0, int z0, int x1, int y1, int z1) {
+        if (x0 > x1 || y0 > y1 || z0 > z1) return false;
+        if (readingSelectionSnapshot) return true;
+        long top = (long) y1 - minHeight;
+        if (top < 0) return false;
+        int chunkX0 = x0 >> 4, chunkX1 = x1 >> 4, chunkZ0 = z0 >> 4, chunkZ1 = z1 >> 4;
+        // An entity's box spans a few columns; a larger range keeps its cell scan rather than a column walk.
+        if ((long) chunkX1 - chunkX0 >= 8 || (long) chunkZ1 - chunkZ0 >= 8) return true;
+        int section0 = (int) (Math.max(0L, (long) y0 - minHeight) >> 4);
+        long section1 = top >> 4;
+        for (int chunkZ = chunkZ0; chunkZ <= chunkZ1; chunkZ++) {
+            for (int chunkX = chunkX0; chunkX <= chunkX1; chunkX++) {
+                CachedChunk column = getChunk(chunkX, chunkZ);
+                if (column == null) continue;
+                int last = (int) Math.min(section1, column.sectionCount() - 1);
+                for (int section = section0; section <= last; section++) {
+                    CachedSection cached = column.getSection(section);
+                    if (cached != null && cached.hasFluid()) return true;
+                }
+            }
+        }
+        return false;
+    }
+
     public int getHeight() {
         return maxHeight - minHeight;
     }
@@ -1765,12 +1856,16 @@ public class CompensatedWorld {
                 ac.cult.blocksim.engine.BiomeLookup.quartAt(clientBiomeZoomSeed, pos.getX(), pos.getY(), pos.getZ());
         var names = player.user.getCultConnection().require(ac.cult.cultac.protocol.data.RegistryNames.class);
         var chunk = getChunk(quart.x() >> 2, quart.z() >> 2);
+        String received;
         // LevelReader.getNoiseBiome delegates missing chunks to ClientLevel.getUncachedNoiseBiome.
         if (chunk == null)
-            return names.name("minecraft:worldgen/biome", names.id("minecraft:worldgen/biome", "minecraft:plains"));
-        int quartY = Math.clamp(quart.y(), minHeight >> 2, (maxHeight - 1) >> 2);
-        int biomeId = chunk.biomeAt(((quartY << 2) - minHeight) >> 4, quart.x() & 3, quartY & 3, quart.z() & 3);
-        return names.name("minecraft:worldgen/biome", biomeId);
+            received = names.name("minecraft:worldgen/biome", names.id("minecraft:worldgen/biome", "minecraft:plains"));
+        else {
+            int quartY = Math.clamp(quart.y(), minHeight >> 2, (maxHeight - 1) >> 2);
+            int biomeId = chunk.biomeAt(((quartY << 2) - minHeight) >> 4, quart.x() & 3, quartY & 3, quart.z() & 3);
+            received = names.name("minecraft:worldgen/biome", biomeId);
+        }
+        return player.getWorldRegistries().biome(received, visibleDimensionType);
     }
 
     public void applyClientBiomes(String dimension, int x, int z, int[][] biomes) {
@@ -1985,6 +2080,7 @@ public class CompensatedWorld {
     }
 
     private void setCachedChunkState(CachedChunk chunk, BlockPos position, int state) {
+        if (!clientHoldsBlockAt(position.getY())) return;
         int offsetY = position.getY() - minHeight;
         int sectionIndex = offsetY >> 4;
         CachedSection section = chunk.getOrCreateSection(sectionIndex);
@@ -2099,8 +2195,17 @@ public class CompensatedWorld {
 
     public void setLastClientboundDimension(String dimension, ac.cult.blocksim.environment.DimensionData type) {
         int minY = type.minY();
-        lastClientboundDimension = new ClientboundDimensionData(dimension, minY, minY + type.height());
+        var held = clientHeights(type);
+        lastClientboundDimension =
+                new ClientboundDimensionData(dimension, minY, minY + type.height(), held.min(), held.max());
         clientboundUnresolved = false;
+    }
+
+    /** The heights of a level of {@code type} at which the client holds blocks; empty when none. */
+    private ClientWorldView.Heights clientHeights(ac.cult.blocksim.environment.DimensionData type) {
+        var shown = player.getWorldRegistries().heights(type);
+        int min = Math.max(type.minY(), shown.min());
+        return new ClientWorldView.Heights(min, Math.max(min, Math.min(type.minY() + type.height(), shown.max())));
     }
 
     /**
@@ -2108,8 +2213,9 @@ public class CompensatedWorld {
      * geometry, so they stay out of the model until a later login or respawn resolves its type.
      */
     public void setLastClientboundUnresolved(String dimension) {
+        var last = lastClientboundDimension;
         lastClientboundDimension = new ClientboundDimensionData(
-                dimension, lastClientboundDimension.minHeight(), lastClientboundDimension.maxHeight());
+                dimension, last.minHeight(), last.maxHeight(), last.clientMinHeight(), last.clientMaxHeight());
         clientboundUnresolved = true;
     }
 
@@ -2142,6 +2248,9 @@ public class CompensatedWorld {
         levelUnresolved = false;
         minHeight = type.minY();
         maxHeight = minHeight + type.height();
+        var held = clientHeights(type);
+        clientMinHeight = held.min();
+        clientMaxHeight = held.max();
         fastLava = type.hasFastLava();
         hasSkyLight = type.hasSkyLight();
         clientEnvironment.configure(binding.environment().get(), clientClocks);

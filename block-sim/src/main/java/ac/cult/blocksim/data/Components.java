@@ -20,6 +20,7 @@ public final class Components {
     private final Map<String, ComponentWireEncoding> wireEncodings;
     /** 0 until known, 1 when every key has a typed encoding, 2 when one lacks it. */
     private byte encodedComplete;
+    private ItemComponents.Derived derived;
 
     public Components(Map<String, JsonElement> values) {
         this(values, Map.of());
@@ -264,6 +265,12 @@ public final class Components {
     public JsonElement get(String key) {
         JsonElement value = values.get(key);
         return value == null ? null : value.deepCopy();
+    }
+    /** Typed values read from the stored trees; a racing reader may read them again. */
+    ItemComponents.Derived derived() {
+        var value = derived;
+        if (value == null) derived = value = new ItemComponents.Derived();
+        return value;
     }
     /** The stored tree itself, for read-only views in this package. */
     JsonElement view(String key) { return values.get(key); }

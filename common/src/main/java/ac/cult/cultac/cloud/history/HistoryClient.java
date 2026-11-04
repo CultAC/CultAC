@@ -21,7 +21,9 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
+import java.util.function.LongSupplier;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -69,11 +71,7 @@ public final class HistoryClient {
     public record Sessions(
             long total, List<Session> sessions, @Nullable String next) {}
 
-    /**
-     * A finding. With {@code source} {@code engine}, one of this anticheat's own checks, {@code value} is the violation
-     * level and {@code detail} the verbose; any other source is one of the cloud's detections, whose {@code value} is a
-     * confidence from 0 to 1.
-     */
+    /** A finding: {@code value} is its violation level and {@code detail} its verbose. */
     public record Finding(long at, long tick, String source, String check, double value, String detail) {}
 
     /** One page of a session's findings; {@code next} is null on the last page. */
@@ -93,23 +91,58 @@ public final class HistoryClient {
         }
     }
 
+    /** How long a 403 holds: until it passes, calls with the same url and key fail with it without asking. */
+    static final Duration REFUSAL_MEMORY = Duration.ofMinutes(10);
+    /** The last 403 of the clients {@link #configured()} gives. */
+    private static final AtomicReference<Refusal> CONFIGURED_REFUSAL = new AtomicReference<>();
+
+    private record Refusal(String base, String apiKey, long untilNanos) {}
+
     private final String base;
     private final String apiKey;
     private final HttpClient http;
     private final Executor executor;
+    private final AtomicReference<Refusal> refusal;
+    private final LongSupplier nanos;
 
     HistoryClient(String base, String apiKey, HttpClient http, Executor executor) {
+        this(base, apiKey, http, executor, System::nanoTime);
+    }
+
+    HistoryClient(String base, String apiKey, HttpClient http, Executor executor, LongSupplier nanos) {
+        this(base, apiKey, http, executor, new AtomicReference<>(), nanos);
+    }
+
+    private HistoryClient(
+            String base,
+            String apiKey,
+            HttpClient http,
+            Executor executor,
+            AtomicReference<Refusal> refusal,
+            LongSupplier nanos) {
         this.base = base;
         this.apiKey = apiKey;
         this.http = http;
         this.executor = executor;
+        this.refusal = refusal;
+        this.nanos = nanos;
     }
 
     /** The client for this server's cloud settings; null while the upload is not configured. */
     public static @Nullable HistoryClient configured() {
         CloudSettings settings = CloudService.settings();
         if (settings.url().isEmpty() || settings.apiKey().isEmpty()) return null;
-        return new HistoryClient(settings.url(), settings.apiKey(), CloudHttp.HTTP, CloudHttp.CALLS);
+        return new HistoryClient(
+                settings.url(), settings.apiKey(), CloudHttp.HTTP, CloudHttp.CALLS, CONFIGURED_REFUSAL, System::nanoTime);
+    }
+
+    /** Whether the cloud answered this url and key with 403 within {@link #REFUSAL_MEMORY}. */
+    public boolean refused() {
+        Refusal last = refusal.get();
+        return last != null
+                && last.base().equals(base)
+                && last.apiKey().equals(apiKey)
+                && nanos.getAsLong() - last.untilNanos() < 0;
     }
 
     /** Up to {@code limit} of {@code player}'s sessions from the cursor {@code before} a page gave, or the newest. */
@@ -129,6 +162,7 @@ public final class HistoryClient {
     }
 
     private <T> CompletableFuture<T> get(String path, Function<String, T> read) {
+        if (refused()) return CompletableFuture.failedFuture(new Failure(403, "HTTP 403"));
         HttpRequest request = HttpRequest.newBuilder(URI.create(base + path))
                 .timeout(REQUEST_TIMEOUT)
                 .header("Authorization", "Bearer " + apiKey)
@@ -139,8 +173,15 @@ public final class HistoryClient {
         return CompletableFuture.supplyAsync(() -> http.sendAsync(request, info -> new CappedBody(MAX_BODY)), executor)
                 .thenCompose(Function.identity())
                 .thenApply(response -> {
+                    if (response.statusCode() == 403) {
+                        refusal.set(new Refusal(base, apiKey, nanos.getAsLong() + REFUSAL_MEMORY.toNanos()));
+                    }
                     if (response.statusCode() != 200) {
                         throw new Failure(response.statusCode(), "HTTP " + response.statusCode());
+                    }
+                    Refusal last = refusal.get();
+                    if (last != null && last.base().equals(base) && last.apiKey().equals(apiKey)) {
+                        refusal.compareAndSet(last, null);
                     }
                     return read.apply(response.body());
                 });

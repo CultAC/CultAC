@@ -42,10 +42,11 @@ webhook-test-failed: "Discord webhook test failed!"
 # %vl% - violations
 # %verbose% - extra information from the check such as offsets, not all checks will add information
 # The check name links to /%command% info check.
-alerts-format: "%prefix% &f%player% &bfailed <hover:show_text:\"&b%check_name%%experimental%\n&8Description: &f%description%\n&7Click for more info\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
-alerts-format-proxy: "%prefix% &f[&cproxy&f] &f%player% &bfailed &f%check_name%%experimental% &f(x&c%vl%&f) &7%verbose%"
+alerts-format: "%prefix% &f<click:run_command:'/%command% spectate %player%'><hover:show_text:'&7Click to spectate %player%'>%player%</hover></click> &bfailed <hover:show_text:\"&b%check_name%%experimental%\n&8Description: &f%description%\n&7Click for more info\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
+alerts-format-proxy: "%prefix% &f[&cproxy&f] &f<click:run_command:'/%command% spectate %player%'><hover:show_text:'&7Click to spectate %player%'>%player%</hover></click> &bfailed <hover:show_text:\"&b%check_name%%experimental%\n&8Description: &f%description%\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
 experimental-symbol: "*"
 
+profile-client-classification: "&7%client_classification%"
 profile:
     - "&7======================"
     - "&bProfile for &f%player%"
@@ -67,8 +68,6 @@ profile-stored:
     - "&bClient Brand: &f%brand%"
     - "&bLast seen: &f%timeago% ago"
     - "&7======================"
-# The player is online through another instance (proxy) that did not answer in time. %player% %instance%
-profile-remote-unanswered: "%prefix% &f%player% &7is online on &f%instance%&7, which did not answer; showing their last session."
 profile-unknown-player: "%prefix% &c%player% is not online on this instance and has no stored session."
 # /cult debug channels <player> — %player%, %count%, %channel%
 debug-channels-header: "%prefix% &b%player% has &f%count% &bplugin channels open"
@@ -78,8 +77,9 @@ debug-channels-none: "%prefix% &f%player% &bhas no plugin channels open"
 debug-mods-header: "%prefix% &b%player% has &f%count% &bLunar Client mods"
 debug-mods-type: "&b%type%:"
 debug-mods-entry: "&8- &f%name% &7(%mod%) &8%version%"
-debug-mods-not-lunar: "%prefix% &f%player% &bis not connected to Apollo; not a Lunar Client player"
-debug-mods-unavailable: "%prefix% &cNo Apollo data for &f%player%&c; their server needs Apollo-Bukkit and the CultAC companion"
+debug-mods-not-lunar: "%prefix% &f%player% &bis not connected to Apollo. Apollo reports mods only for Lunar Client."
+debug-mods-unavailable: "%prefix% &bNo Apollo mod report for &f%player%&b. Apollo reports mods only for Lunar Client."
+debug-client-brand: "%prefix% &bClient brand: &f%brand%"
 help:
     - "&7======================"
     - "/%command% alerts &f- &7Toggle alerts"
@@ -205,21 +205,16 @@ cult-history-detail-group-hover: "&bViolations in &f%bucket_start%–%bucket_end
 cult-history-detail-group-hover-entry: "<newline>&8  %offset% &b%check%%description%%verbose%"
 cult-history-hover-description: " — &f%description%"
 cult-history-detail-group-hover-verbose: " — &7%verbose%"
-cult-history-detail-group-hover-confidence: " — &7confidence %confidence%"
 # A single raw violation row (--detailed) — valid placeholders:
-#   %prefix% %offset% %check% %description% %vl% %confidence% %verbose%
-#   A cloud detection's value is %confidence% (0 to 1) and its %vl% is empty; for every other violation it is the reverse.
+#   %prefix% %offset% %check% %description% %vl% %verbose%
 cult-history-detail-entry: "%prefix% &7- &f%check% &8(&b%offset%&8)&7 %verbose%"
 cult-history-detail-entry-hover: "&b%check%%description%<newline>&8@ %offset% — vl %vl%%verbose%"
-cult-history-detail-entry-hover-confidence: "&b%check%%description%<newline>&8@ %offset% — confidence %confidence%%verbose%"
 cult-history-detail-entry-hover-verbose: "<newline>&7%verbose%"
 # Inner format for each check in a group's %checks_list% — valid placeholders: %check_name% %count%
 cult-history-check-count: "&f%check_name%&7 x&c%count%"
 
-# A command names a player on another instance, or a staff member asks for network-wide alerts, while
-# network.uri in config.yml is empty.
-network-disabled-command: "%prefix% &cNetwork-wide commands are not enabled on this server. Ask a server administrator to configure a messaging backend (Redis or NATS) in the CultAC configuration."
-network-disabled-alerts: "%prefix% &cNetwork-wide alerts are not enabled on this server. Ask a server administrator to configure a messaging backend (Redis or NATS) in the CultAC configuration."
+# A staff member asks for network-wide alerts while network.type in config.yml is unset.
+network-disabled-alerts: "%prefix% &cNetwork-wide alerts are not enabled on this server. Ask a server administrator to set network.type in the CultAC configuration."
 # /cult alerts scope [server|global]: %scope% is server or global, %source% one of the alerts-scope-* texts below.
 alerts-scope: "%prefix% &fAlert scope: &b%scope% &7(%source%)"
 alerts-scope-set: "%prefix% &fAlert scope set to &b%scope%"
@@ -234,9 +229,6 @@ network-command-stopped: "&cThe command could not be forwarded to %instance%: ne
 network-command-not-forwarded: "&cThe command could not be forwarded to %instance%."
 network-command-target-left: "&c%player% is no longer on %instance%."
 network-command-failed: "&c%instance% could not run the command: %reason%"
-network-command-line-too-large: "&7One line of output was too large to relay."
-network-command-output-lost: "&cSome output from %instance% was lost."
-network-command-unfinished: "&7%instance% did not report that the command finished; its output may be incomplete."
 network-command-no-answer: "&c%instance% did not answer."
 network-command-output-cut: "&cThe rest of the output from %instance% was cut: it is over %lines% lines or %kb% KB."
 # /cult findplayer [brand=<text>]: the client brands online, or the players whose brand contains the text.
@@ -251,8 +243,14 @@ findplayer-player: "&8» &f%player% &7on &f%server% &8· &7%brand%"
 findplayer-player-hover: "&7Show %player%'s profile"
 findplayer-more: "&7...and %count% more. Type more of the brand name to narrow it down."
 findplayer-none: "%prefix% &7Nobody online uses a brand containing &f%query%&7."
-findplayer-usage: "%prefix% &cTo search, type &f/%command% findplayer brand=lunar &cwith any part of a brand name, or leave it out to see every brand."
+findplayer-usage: "%prefix% &cUse &f/%command% findplayer key=value ...&c to search. Keys: brand, brandtype, channel, channeltype, mod, modtype, sens, vsens, ping, version, platform, server, proxy, name, uuid, fastmath. Numbers take 50, >50, <50 or 40-60. Put values with spaces in quotes. Leave out filters to count brands."
+findplayer-filter-results: "%prefix% &bPlayers matching &f%query% &8· &f%count% &7online"
+findplayer-filter-player: "&8» &f%player% &7on &f%server% &8· &7%values%"
+findplayer-filter-none: "%prefix% &7Nobody online matches &f%query%&7."
+findplayer-filter-more: "&7...and %count% more. Add filters to narrow it down."
+findplayer-unavailable: "%prefix% &e%count% instance(s) did not answer; results are incomplete."
+findplayer-wait: "%prefix% &7Please wait a moment before searching again."
 
 # Schema markers — see header comment in config.yml.
 config-flavor: V2
-config-version: 3
+config-version: 4

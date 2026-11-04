@@ -15,12 +15,17 @@ import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.data.IdTable;
 import ac.cult.cultac.protocol.data.ModelRegistryData;
 import ac.cult.cultac.protocol.data.ProtocolData;
+import ac.cult.cultac.protocol.wire.Wire;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
+import io.netty.buffer.Unpooled;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
+import java.util.Random;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -713,6 +718,20 @@ class PlayerTextTest {
                     joined.apply(TEAMS.of("red")),
                     PlayerText.of(protocol).clientbound(team, joined.apply("red"), true, TEAMS),
                     "join " + protocol);
+        }
+    }
+
+    @Test
+    void aTeamsEncodedNameIsItsNameAsTheProtocolWritesIt() {
+        PlayerText.TeamNames teams = new PlayerText.TeamNames();
+        Random random = new Random(5);
+        for (int i = 0; i < 2000; i++) {
+            char[] team = new char[random.nextInt(40)];
+            for (int c = 0; c < team.length; c++) team[c] = (char) (i % 3 == 0 ? random.nextInt(0x3000) : 'a' + c);
+            String name = new String(team);
+            ByteBuf written = Unpooled.buffer();
+            Wire.writeString(written, teams.of(name), Wire.MAX_STRING_LENGTH);
+            assertArrayEquals(ByteBufUtil.getBytes(written), teams.encoded(name), name);
         }
     }
 

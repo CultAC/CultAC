@@ -214,6 +214,8 @@ Packet listeners run in the network pipeline context. Bukkit state is not a reli
 - synchronize that snapshot into the Netty timeline using transactions
 - read the Cult-owned compensated state from packet/check code
 
+A `PacketSendEvent` or `PacketReceiveEvent` is valid only while its handler runs. Work that must run after the packet is sent goes through `getTasksAfterSend()`; any other later work copies the values it needs. Never keep the event in a field, task, future or lambda.
+
 Allowed packet-thread data sources:
 
 - packet contents

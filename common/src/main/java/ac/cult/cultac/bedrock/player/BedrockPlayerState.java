@@ -23,6 +23,9 @@ public final class BedrockPlayerState {
     public final BedrockMovementEffects movementEffects = new BedrockMovementEffects();
     public final ac.cult.cultac.bedrock.prediction.integration.BedrockMovementCorrections movementCorrections =
             new ac.cult.cultac.bedrock.prediction.integration.BedrockMovementCorrections();
+    /** The session's view of its world registries through Geyser. */
+    public final ac.cult.cultac.bedrock.bridge.GeyserWorldView worldView =
+            new ac.cult.cultac.bedrock.bridge.GeyserWorldView();
     // Accessed under the CultPlayer transaction lock.
     public ac.cult.cultac.player.CultPlayer.BedrockTransaction lastClientboundTransaction;
     private final UUID playerUuid;
@@ -142,17 +145,6 @@ public final class BedrockPlayerState {
         return lastProcessedFrame == null ? 0L : lastProcessedFrame.getClientTick();
     }
 
-    public void clearMovementInputState() {
-        blockBreakActions.clear();
-        clearTransientMovementInputState();
-        actions.applyAcknowledgedItemUse(false);
-        trackedPoseState = BedrockClientPoseState.STANDING;
-        acknowledgedSprinting = false;
-        swimmingRequested = false;
-        confirmedBoundingBoxSize = null;
-        lastAuthInputMatchStatus = "auth input state cleared";
-    }
-
     /** Clears packet-local input while retaining confirmed pose and dimensions. */
     public void clearTransientMovementInputState() {
         lastOfferedFrame = null;
@@ -170,14 +162,12 @@ public final class BedrockPlayerState {
                 || height != null && (!Float.isFinite(height) || height <= 0.0F)) {
             return;
         }
-        if (width != null || height != null) {
-            PlayerDimensionsState previous = confirmedBoundingBoxSize;
-            if (previous == null) {
-                previous = PlayerDimensionsState.DEFAULT;
-            }
-            confirmedBoundingBoxSize = new PlayerDimensionsState(
-                    width == null ? previous.width() : width, height == null ? previous.height() : height);
+        PlayerDimensionsState previous = confirmedBoundingBoxSize;
+        if (previous == null) {
+            previous = PlayerDimensionsState.DEFAULT;
         }
+        confirmedBoundingBoxSize = new PlayerDimensionsState(
+                width == null ? previous.width() : width, height == null ? previous.height() : height);
     }
 
     public void applyAcknowledgedPoseMetadata(Boolean crawling, Boolean swimming) {
@@ -238,26 +228,6 @@ public final class BedrockPlayerState {
 
     public void applyAcknowledgedItemUseMetadata(Boolean usingItem) {
         actions.applyAcknowledgedItemUse(usingItem);
-    }
-
-    public void recordItemReleaseAction() {
-        recordClientAction(BedrockClientAction.ITEM_RELEASE);
-    }
-
-    public void recordStartSpinAttackAction() {
-        recordClientAction(BedrockClientAction.START_SPIN_ATTACK);
-    }
-
-    public void recordStopSpinAttackAction() {
-        recordClientAction(BedrockClientAction.STOP_SPIN_ATTACK);
-    }
-
-    public void recordStartGlidingAction() {
-        recordClientAction(BedrockClientAction.START_GLIDING);
-    }
-
-    public void recordStopGlidingAction() {
-        recordClientAction(BedrockClientAction.STOP_GLIDING);
     }
 
     public Set<String> actionInputFor(BedrockAuthInputFrame frame) {

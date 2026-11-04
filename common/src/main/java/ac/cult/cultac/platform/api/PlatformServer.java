@@ -42,6 +42,14 @@ public interface PlatformServer {
         dispatchCommand(sender, command);
     }
 
+    /**
+     * Whether {@link #dispatchCommand(Sender, String, PlatformPlayer, AbstractCheck, double, String)} hands the verbose
+     * of {@code command} to anything, so it has to be rendered. On the player's packet thread.
+     */
+    default boolean dispatchesVerbose(String command, @Nullable PlatformPlayer subject) {
+        return false;
+    }
+
     Sender getConsoleSender();
 
     void registerOutgoingPluginChannel(String name);

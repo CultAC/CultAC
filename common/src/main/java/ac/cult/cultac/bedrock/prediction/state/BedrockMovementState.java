@@ -574,15 +574,6 @@ public record BedrockMovementState(
                         .withCollisionBox(BedrockActorBox.create(position, playerDimensions(), coordinateFrame())));
     }
 
-    public BedrockMovementState withItemUseSlowdownState(boolean active, long ticks) {
-        return new BedrockMovementState(
-                motion,
-                actor.withItemUseSlowdownActive(active),
-                memory.withItemUseSlowdownTicks(ticks),
-                hasTeleported,
-                attributes);
-    }
-
     public BedrockMovementState withGliding(boolean gliding) {
         return new BedrockMovementState(
                 motion,

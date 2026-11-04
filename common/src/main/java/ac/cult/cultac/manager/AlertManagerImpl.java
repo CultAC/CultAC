@@ -180,8 +180,14 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         }
 
         @Override
-        public boolean wantVerbose() {
-            return !AlertType.VERBOSE.players.isEmpty();
+        public Set<String> verboseServers() {
+            Set<String> servers = new HashSet<>();
+            for (PlatformPlayer staff : AlertType.VERBOSE.players) {
+                if (scope(staff) == AlertScope.GLOBAL) return Set.of(NetworkService.EVERY_SERVER);
+                String server = staff.serverName();
+                if (server != null) servers.add(server);
+            }
+            return servers;
         }
     }
 
@@ -321,10 +327,9 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         if (platformPlayer == null) return;
 
         AlertType.NORMAL.players.remove(platformPlayer);
-        boolean verbose = AlertType.VERBOSE.players.remove(platformPlayer);
+        AlertType.VERBOSE.players.remove(platformPlayer);
         AlertType.BRAND.players.remove(platformPlayer);
         scopes.forget(platformPlayer);
-        if (verbose) network.demandChanged();
     }
 
     /** Starts loading {@code player}'s persisted alert scope; the default applies until it lands. */
@@ -433,7 +438,6 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         if (changed && !silent) {
             sendToggleMessage(platformPlayer, enabled, type);
         }
-        if (changed && type == AlertType.VERBOSE) network.demandChanged();
     }
 
     public boolean toggleBrands(@NotNull PlatformPlayer player, boolean silent) {
@@ -582,6 +586,15 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         deliverReceived(AlertKind.ALERT, component, null, null);
     }
 
+    /**
+     * Forwards an alert line to other servers through the proxy's plugin messaging. Skipped while a network transport
+     * runs here, which carries the same alert.
+     */
+    public void forwardAlert(String message) {
+        if (network.running()) return;
+        platformServer.forwardAlert(message);
+    }
+
     private Recipients raise(
             AlertType type, AlertSubject subject, Component component, @Nullable Recipients excluding) {
         Predicate<PlatformPlayer> covered =
@@ -615,6 +628,20 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
     /** Whether verbose lines are wanted here or, while a transport runs, by another instance's staff. */
     public boolean hasVerboseListeners() {
         return AlertType.VERBOSE.hasListeners() || network.verboseWanted();
+    }
+
+    /**
+     * Whether a verbose line about {@code subject} reaches anyone, as {@link #sendVerbose} delivers it: the console,
+     * staff here whose scope covers the subject's server, or, while a transport runs, another instance's staff.
+     */
+    public boolean hasVerboseListeners(@NotNull CultPlayer subject) {
+        if (AlertType.VERBOSE.console.get() || network.verboseWanted()) return true;
+        if (AlertType.VERBOSE.players.isEmpty()) return false;
+        AlertSubject about = AlertSubject.of(subject);
+        for (PlatformPlayer staff : AlertType.VERBOSE.players) {
+            if (about.none() || covers(staff, about.server(), true)) return true;
+        }
+        return false;
     }
 
     @Contract(pure = true)

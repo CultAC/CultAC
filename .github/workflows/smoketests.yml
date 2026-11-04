@@ -1,0 +1,256 @@
+name: Smoketests
+
+on:
+  push:
+    branches: [main, experimental, dev]
+  # Untrusted PRs never receive private fixtures or repository secrets.
+  pull_request:
+    branches: [main, experimental, dev]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smoketests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pr-build:
+    if: github.event_name == 'pull_request'
+    name: Untrusted PR build (no private fixtures)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out trusted sandbox scripts
+        uses: actions/checkout@v4
+        with:
+          # Bootstrap PR #207 against an audited immutable commit: its original
+          # base predates the sandbox scripts. All later PRs use their base SHA.
+          ref: ${{ github.event.pull_request.number == 207 && 'd5916e458ce917e9d54fabf08f69d9bece6d4136' || github.event.pull_request.base.sha }}
+          path: ci
+          persist-credentials: false
+
+      - name: Check out PR merge revision as data
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: cultac
+          persist-credentials: false
+
+      - name: Set up JDK 25 for trusted dependency preparation
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Warm public dependencies from trusted base (not PR code)
+        working-directory: ci
+        run: |
+          ./gradlew :bukkit:devShadowJar :bukkit:shadowJar \
+            --no-daemon --console=plain --max-workers=2
+
+      - name: Build trusted sandbox image
+        run: docker build -t cultac-smoketest ci/.github/scripts/smoketest-container
+
+      - name: Compile untrusted PR without private fixtures or credentials
+        run: bash ci/.github/scripts/run-untrusted-pr-build.sh
+
+  smoketest:
+    if: >-
+      github.event_name != 'pull_request' &&
+      (github.ref == 'refs/heads/main' ||
+       github.ref == 'refs/heads/experimental' ||
+       github.ref == 'refs/heads/dev')
+    name: ${{ matrix.suite }} smoketests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [java, bedrock]
+    env:
+      SMOKETEST_MAX_WORKERS: '2'
+      GRADLE_OPTS: '-Dorg.gradle.jvmargs=-Xmx1024m -Dorg.gradle.workers.max=2'
+
+    steps:
+      - name: Check out trusted CI scripts
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: ci
+          persist-credentials: false
+
+      - name: Verify private fixture access
+        env:
+          FIXTURE_TOKEN: ${{ secrets.SMOKETEST_REPO_TOKEN || secrets.CULTAC_REPLAY_READ_TOKEN }}
+        run: |
+          test -n "$FIXTURE_TOKEN" || {
+            echo 'SMOKETEST_REPO_TOKEN with read access to the private smoketest repositories is required.' >&2
+            exit 1
+          }
+
+      - name: Check out trusted Java harness
+        if: matrix.suite == 'java'
+        uses: actions/checkout@v4
+        with:
+          repository: CultAC/mcp-client-smoketest
+          ref: master
+          path: mcp-client-smoketest
+          token: ${{ secrets.SMOKETEST_REPO_TOKEN || secrets.CULTAC_REPLAY_READ_TOKEN }}
+          persist-credentials: false
+
+      - name: Check out trusted replay tooling
+        if: matrix.suite == 'bedrock'
+        uses: actions/checkout@v4
+        with:
+          repository: CultAC/BedrockPacketReplay
+          ref: master
+          path: replay
+          token: ${{ secrets.SMOKETEST_REPO_TOKEN || secrets.CULTAC_REPLAY_READ_TOKEN }}
+          persist-credentials: false
+
+      - name: Check out trusted movement captures
+        if: matrix.suite == 'bedrock'
+        uses: actions/checkout@v4
+        with:
+          repository: CultAC/bedrock-smoketest-scenarios
+          ref: main
+          path: scenarios
+          token: ${{ secrets.SMOKETEST_REPO_TOKEN || secrets.CULTAC_REPLAY_READ_TOKEN }}
+          persist-credentials: false
+
+      # The warm-up below runs CultAC's Gradle build before the cache is saved. Keying the cache on that build's
+      # inputs keeps an entry a build change wrote from being restored once the change is reverted.
+      - name: Check out CultAC build inputs for the cache key (not built here)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: cultac-build-inputs
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            *.gradle.kts
+            *.gradle
+            gradle.properties
+            /buildSrc/
+            /gradle/
+            /gradlew
+
+      - name: Identify trusted cache inputs
+        id: inputs
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: |
+          if [ "$SUITE" = java ]; then source=mcp-client-smoketest; else source=replay; fi
+          echo "revision=$(git -C "$source" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          set -o pipefail
+          # Gradle scripts, gradle.properties, buildSrc, the wrapper and gradlew, by committed blob id.
+          inputs=$(git -C cultac-build-inputs ls-tree -r HEAD | awk -F '\t' \
+            '$2 ~ /(^|\/)[^\/]*\.gradle(\.kts)?$|(^|\/)gradle\.properties$|^(buildSrc|gradle)\/|^gradlew$/')
+          test -n "$inputs"
+          echo "build=$(printf '%s\n' "$inputs" | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Restore trusted prerequisites
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          # Separate namespace: never restore caches from the old mixed-trust job.
+          key: trusted-smoketest-v2-${{ matrix.suite }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.inputs.outputs.revision }}-${{ steps.inputs.outputs.build }}
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            mcp-client-smoketest/.real-validation/toolchains/MCP-Reborn
+            mcp-client-smoketest/.real-validation/lwjgl-natives/linux-x64
+            mcp-client-smoketest/.real-validation/paper
+            mcp-client-smoketest/.real-validation/plugins/Geyser-Spigot.jar
+
+      - name: Prepare trusted prerequisites
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: bash ci/.github/scripts/prepare-smoketests.sh "$SUITE"
+
+      - name: Check out protected-branch revision under test
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: cultac
+          persist-credentials: false
+
+      - name: Warm trusted Gradle dependencies before network isolation
+        working-directory: cultac
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: |
+          set -euo pipefail
+          if [ "$SUITE" = java ]; then task=:bukkit:devShadowJar; else task=:bukkit:shadowJar; fi
+          # Third-party repositories (PlaceholderAPI's above all) stall at times; wait longer and retry.
+          attempt=1
+          until ./gradlew "$task" --no-daemon --console=plain --max-workers=2 \
+              -Dorg.gradle.internal.http.connectionTimeout=60000 \
+              -Dorg.gradle.internal.http.socketTimeout=120000 \
+              -Dorg.gradle.internal.repository.max.retries=5; do
+            if [ "$attempt" -ge 3 ]; then exit 1; fi
+            echo "::warning::Gradle dependency warm-up attempt $attempt failed; retrying"
+            sleep $((attempt * 30))
+            attempt=$((attempt + 1))
+          done
+
+      - name: Prepare trusted Java workspace manifest
+        if: matrix.suite == 'java'
+        working-directory: mcp-client-smoketest
+        run: |
+          ./gradlew writeSmoketestWorkspaceManifest --no-daemon --console=plain --max-workers=2 \
+            -Psmoketest.grim.devJar="$GITHUB_WORKSPACE/cultac/build/libs/CultAC-dev.jar" \
+            -Psmoketest.cultac.repoRoot="$GITHUB_WORKSPACE/cultac"
+
+      - name: Download and verify pinned Bedrock runtime before isolation
+        if: matrix.suite == 'bedrock'
+        run: python3 ci/.github/scripts/prefetch-bedrock-runtime.py "$GITHUB_WORKSPACE"
+
+      - name: Save trusted branch prerequisites (never from PRs)
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            mcp-client-smoketest/.real-validation/toolchains/MCP-Reborn
+            mcp-client-smoketest/.real-validation/lwjgl-natives/linux-x64
+            mcp-client-smoketest/.real-validation/paper
+            mcp-client-smoketest/.real-validation/plugins/Geyser-Spigot.jar
+
+      - name: Build trusted sandbox image
+        run: docker build -t cultac-smoketest ci/.github/scripts/smoketest-container
+
+      - name: Run selected smoketests without host credentials or writable caches
+        id: sandbox
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: bash ci/.github/scripts/run-smoketest-container.sh "$SUITE"
+
+      - name: Collect regular artifact files only
+        if: always() && steps.sandbox.outputs.path != ''
+        env:
+          SANDBOX: ${{ steps.sandbox.outputs.path }}
+          SUITE: ${{ matrix.suite }}
+        run: >-
+          python3 ci/.github/scripts/collect-smoketest-artifacts.py
+          "$SANDBOX" "$RUNNER_TEMP/smoketest-artifacts" "$SUITE"
+
+      - name: Upload smoketest evidence
+        if: always() && steps.sandbox.outputs.path != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.suite }}-smoketest-results
+          path: ${{ runner.temp }}/smoketest-artifacts
+          if-no-files-found: warn
+          retention-days: 7

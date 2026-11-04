@@ -11,7 +11,7 @@ repositories {
     maven("https://repo.viaversion.com") { content { includeGroup("com.viaversion") } }
     mavenCentral()
 }
-java.toolchain.languageVersion.set(JavaLanguageVersion.of(21))
+java.toolchain.languageVersion.set(JavaLanguageVersion.of(25))
 tasks.withType<JavaCompile>().configureEach { options.release.set(21) }
 dependencies {
     compileOnly("com.velocitypowered:velocity-api:3.4.0")

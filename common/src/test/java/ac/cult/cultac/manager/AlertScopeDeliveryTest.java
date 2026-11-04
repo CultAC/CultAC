@@ -10,6 +10,8 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockingDetails;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
@@ -157,7 +159,7 @@ class AlertScopeDeliveryTest {
                 .count();
     }
 
-    private boolean peerSeesVerbose() {
+    private Set<String> peerSeesVerbose() {
         TestNetworks.sendDelta(service);
         return peer.peersWantVerbose();
     }
@@ -306,6 +308,28 @@ class AlertScopeDeliveryTest {
     }
 
     @Test
+    void relayedAlertsAreShownWhileATransportRunsHere() {
+        relay = true;
+        PlatformPlayer global = staff(null, AlertScope.GLOBAL);
+        subscribe(AlertKind.ALERT, global);
+
+        alerts.relayAlert(Component.text("from another server"));
+
+        assertEquals(1, messages(global));
+    }
+
+    @Test
+    void alertsAreForwardedThroughTheProxyOnlyWithoutATransport() throws ReflectiveOperationException {
+        PlatformServer server = (PlatformServer) platformServer().get(null);
+
+        alerts.forwardAlert("over the network");
+        manager(networks.withoutTransport("p9")).forwardAlert("through the proxy");
+
+        verify(server, never()).forwardAlert("over the network");
+        verify(server).forwardAlert("through the proxy");
+    }
+
+    @Test
     void withoutATransportEveryoneIsServerScopedAndNothingIsBroadcast() {
         AlertManagerImpl offline = manager(networks.withoutTransport("p9"));
         PlatformPlayer global = staff("lobby", AlertScope.GLOBAL);
@@ -335,7 +359,7 @@ class AlertScopeDeliveryTest {
         assertEquals(
                 Component.text("flag"),
                 GsonComponentSerializer.gson()
-                        .deserialize(alert.get("component").toString()));
+                        .deserialize(alert.get("component").getAsString()));
         assertFalse(alert.has("pair"));
         assertEquals("brand", sent.get(1).get("kind").getAsString());
         assertFalse(alerts.hasVerboseListeners());
@@ -343,11 +367,12 @@ class AlertScopeDeliveryTest {
 
     @Test
     void verboseGoesOutWhileAPeerWantsItAndItsAlertSaysSo() {
-        peer.verbose(() -> true);
-        peer.verboseChanged();
+        peer.verbose(() -> Set.of("pvp"));
         TestNetworks.sendDelta(peer);
         assertTrue(alerts.hasVerboseListeners());
 
+        alerts.sendVerbose(ON_PVP.on("lobby"), Component.text("unwanted"), null);
+        alerts.sendVerbose(AlertSubject.NONE, Component.text("unwanted"), null);
         Recipients verboseRecipients = alerts.sendVerbose(ON_PVP, Component.text("verbose"), null);
         alerts.sendAlert(ON_PVP, Component.text("flag"), verboseRecipients);
         alerts.sendAlert(ON_PVP, Component.text("alone"), null);
@@ -462,19 +487,22 @@ class AlertScopeDeliveryTest {
     }
 
     @Test
-    void theVerboseFlagFollowsSubscribersOfEitherScope() {
+    void theVerboseServersFollowSubscribersAndTheirScope() {
         PlatformPlayer global = staff("lobby", AlertScope.GLOBAL);
         PlatformPlayer server = staff("lobby", AlertScope.SERVER);
-        assertFalse(peerSeesVerbose());
+        PlatformPlayer betweenServers = staff(null, AlertScope.SERVER);
+        assertEquals(Set.of(), peerSeesVerbose());
 
+        alerts.setVerboseEnabled(betweenServers, true, true);
+        assertEquals(Set.of(), peerSeesVerbose());
         alerts.setVerboseEnabled(server, true, true);
-        assertTrue(peerSeesVerbose());
+        assertEquals(Set.of("lobby"), peerSeesVerbose());
         alerts.setVerboseEnabled(global, true, true);
-        alerts.setVerboseEnabled(server, false, true);
-        assertTrue(peerSeesVerbose());
+        assertEquals(Set.of(NetworkService.EVERY_SERVER), peerSeesVerbose());
 
         alerts.handlePlayerQuit(global);
-        assertFalse(peerSeesVerbose());
+        alerts.setVerboseEnabled(server, false, true);
+        assertEquals(Set.of(), peerSeesVerbose());
     }
 
     @Test

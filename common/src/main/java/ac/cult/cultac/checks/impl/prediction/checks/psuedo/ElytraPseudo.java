@@ -6,12 +6,13 @@ import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.player.CultPlayer;
 
 public class ElytraPseudo extends Check implements PostPredictionListener {
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("Elytra")
+            .stableKey("grim.legacy.elytra")
+            .description("Impossible elytra movement")
+            .build();
+
     public ElytraPseudo(CultPlayer cultPlayer) {
-        super(
-                cultPlayer,
-                CheckInfo.builder()
-                        .name("Elytra")
-                        .description("Impossible elytra movement")
-                        .build());
+        super(cultPlayer, INFO);
     }
 }

@@ -43,10 +43,6 @@ public final class BedrockAerialMovement {
         return currentVelocityY * LEVITATION_VERTICAL_DRAG + LEVITATION_ACCELERATION_PER_LEVEL * level;
     }
 
-    public static double levitationDraggedVelocity(double currentVelocityY, int level) {
-        return levitationVelocityBeforeVerticalDrag(currentVelocityY, level) * AIR_VERTICAL_DRAG;
-    }
-
     public static Vec3d glideVelocity(Vec3d currentVelocity, BedrockInputFrame frame) {
         return glideVelocity(currentVelocity, frame, false);
     }

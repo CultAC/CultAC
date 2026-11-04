@@ -46,6 +46,8 @@ public final class CheckPermissions {
             "badpacketsz",
             "bedrockmovement",
             "boatoffset",
+            "brandspoofa",
+            "brandspoofb",
             "breakvisibility",
             "chata",
             "chatb",

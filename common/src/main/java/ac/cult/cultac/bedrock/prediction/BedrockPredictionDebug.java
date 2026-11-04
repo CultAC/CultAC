@@ -13,6 +13,7 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
+import ac.cult.cultac.utils.debug.DebugText;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -128,7 +129,7 @@ public final class BedrockPredictionDebug {
         return builder.toString();
     }
 
-    public static void sendMovementVerbose(CultPlayer player, PredictionResult result, String debugLog) {
+    public static void sendMovementVerbose(CultPlayer player, PredictionResult result, DebugText debugLog) {
         if (!player.isBedrockMovement() || player.bedrockState == null || result == null) {
             return;
         }
@@ -204,7 +205,7 @@ public final class BedrockPredictionDebug {
         return active != null && Boolean.TRUE.equals(active.apply(player.platformPlayer.getName()));
     }
 
-    private static void publishMovementDebug(CultPlayer player, PredictionResult result, String debugLog) {
+    private static void publishMovementDebug(CultPlayer player, PredictionResult result, DebugText debugLog) {
         if (player.platformPlayer == null || result == null || debugLog == null) {
             return;
         }
@@ -226,11 +227,11 @@ public final class BedrockPredictionDebug {
         Map<String, Object> event = new LinkedHashMap<>();
         event.put("username", username);
         event.put("identifier", result.getIdentifier());
-        event.put("debugLog", debugLog);
+        event.put("debugLog", debugLog.toString());
         record.apply(event);
     }
 
-    public static void appendDetails(CultPlayer player, StringBuilder sb, PredictionResult result) {
+    public static void appendDetails(CultPlayer player, DebugText.Builder sb, PredictionResult result) {
         if (!player.isBedrockMovement() || player.bedrockState == null) {
             return;
         }
@@ -280,7 +281,7 @@ public final class BedrockPredictionDebug {
     }
 
     private static void appendPredictionResult(
-            StringBuilder sb, BedrockMovementResult result, BedrockMovementObservation observation) {
+            DebugText.Builder sb, BedrockMovementResult result, BedrockMovementObservation observation) {
         if (result == null) {
             sb.append("Prediction result: none\n");
             return;
@@ -433,7 +434,7 @@ public final class BedrockPredictionDebug {
         }
     }
 
-    private static void appendAuthFrame(StringBuilder sb, BedrockAuthInputFrame frame) {
+    private static void appendAuthFrame(DebugText.Builder sb, BedrockAuthInputFrame frame) {
         sb.append("Auth frame: tick=")
                 .append(frame.getClientTick())
                 .append(" protocol=")

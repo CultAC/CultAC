@@ -21,7 +21,11 @@ class EnvelopeCodecTest {
     private final EnvelopeCodec peer = codec("p7", KEY);
 
     private static EnvelopeCodec codec(String instance, byte[] key) {
-        return new EnvelopeCodec(key, instance, Set.of("roster", "ping")::contains);
+        return new EnvelopeCodec(key, instance, Set.of("roster", "ping")::contains, seen());
+    }
+
+    private static SharedClaims seen() {
+        return new SharedClaims(null, "envelope", () -> NOW);
     }
 
     private static Envelope envelope(String type, String from, String to, long ts) {
@@ -78,7 +82,7 @@ class EnvelopeCodecTest {
         assertEquals(Drop.BAD_SIGNATURE, read(otherKey).drop());
         assertEquals(
                 Drop.BAD_SIGNATURE,
-                read(new EnvelopeCodec(null, "p7", type -> true).encode(envelope("ping", "p7", "p3", NOW)))
+                read(new EnvelopeCodec(null, "p7", type -> true, seen()).encode(envelope("ping", "p7", "p3", NOW)))
                         .drop());
     }
 
@@ -161,7 +165,7 @@ class EnvelopeCodecTest {
 
     @Test
     void theBusNeedsNoSignatureAndKeepsItsOwnBroadcasts() {
-        EnvelopeCodec unsigned = new EnvelopeCodec(null, "p3", Set.of("ping")::contains);
+        EnvelopeCodec unsigned = new EnvelopeCodec(null, "p3", Set.of("ping")::contains, seen());
         String text = unsigned.encode(envelope("ping", "p3", "p3", NOW));
         assertTrue(text.startsWith("."));
         assertEquals(

@@ -12,17 +12,17 @@ import ac.grim.grimac.api.config.ConfigManager;
 
 /** Only source-proven incorrect movement produces a flag. Desync policy owns no violations. */
 public final class NoSlow extends Check implements PostPredictionListener {
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("NoSlow")
+            .stableKey("cult.movement.noslow")
+            .description("Ignored a proven item-use slowdown")
+            .setback(5)
+            .build();
+
     private double threshold;
 
     public NoSlow(CultPlayer player) {
-        super(
-                player,
-                CheckInfo.builder()
-                        .name("NoSlow")
-                        .stableKey("cult.movement.noslow")
-                        .description("Ignored a proven item-use slowdown")
-                        .setback(5)
-                        .build());
+        super(player, INFO);
     }
 
     @Override

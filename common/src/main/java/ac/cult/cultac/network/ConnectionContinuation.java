@@ -8,6 +8,7 @@ import ac.cult.cultac.protocol.value.ClientInformation;
 import ac.cult.cultac.protocol.value.MainHand;
 import ac.cult.cultac.protocol.value.ParticleStatus;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -15,7 +16,8 @@ import java.util.UUID;
  * Client state an engine received on a connection that the client does not resend when another engine adopts it at
  * reconfiguration. Crosses engine class loaders as a map of JDK values.
  */
-public record ConnectionContinuation(UUID connectionId, String brand, ClientInformation information) {
+public record ConnectionContinuation(
+        UUID connectionId, String brand, ClientInformation information, List<String> channels) {
     public static Map<String, Object> capture(CultConnection connection) {
         var state = new HashMap<String, Object>();
         var user = connection.user();
@@ -24,6 +26,7 @@ public record ConnectionContinuation(UUID connectionId, String brand, ClientInfo
         if (player == null) return state;
         var brand = player.checkManager.getCheck(ClientBrand.class);
         if (brand != null && brand.isHasBrand()) state.put("brand", brand.getBrand());
+        state.put("registered-channels", List.copyOf(player.pluginChannelManager.getRegisteredChannels()));
         var chat = player.checkManager.getCheck(ChatD.class);
         var information = chat == null ? null : chat.information();
         if (information != null) {
@@ -48,7 +51,13 @@ public record ConnectionContinuation(UUID connectionId, String brand, ClientInfo
         return new ConnectionContinuation(
                 id == null ? null : UUID.fromString((String) id),
                 (String) state.get("brand"),
-                state.get("client-information") instanceof Map<?, ?> fields ? information(fields) : null);
+                state.get("client-information") instanceof Map<?, ?> fields ? information(fields) : null,
+                state.get("registered-channels") instanceof List<?> channels
+                        ? channels.stream()
+                                .filter(String.class::isInstance)
+                                .map(String.class::cast)
+                                .toList()
+                        : List.of());
     }
 
     private static ClientInformation information(Map<?, ?> fields) {
@@ -66,6 +75,7 @@ public record ConnectionContinuation(UUID connectionId, String brand, ClientInfo
 
     /** Applies the received state to the adopted player before any packet reaches it. */
     void restore(CultPlayer player) {
+        channels.forEach(player.pluginChannelManager::handleChannelRegistered);
         var brandCheck = player.checkManager.getCheck(ClientBrand.class);
         if (brand != null && brandCheck != null) brandCheck.restore(brand);
         var chat = player.checkManager.getCheck(ChatD.class);

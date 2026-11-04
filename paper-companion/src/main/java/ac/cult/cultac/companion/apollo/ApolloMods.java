@@ -48,7 +48,7 @@ final class ApolloMods implements CompanionMessageHandler {
     }
 
     @Override
-    public void onReady(CompanionSession session) {
+    public void onOpened(CompanionSession session) {
         if (active) send(session, ClientMods.PUSHED);
     }
 

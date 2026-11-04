@@ -47,7 +47,7 @@ public class BoundingBoxSize {
         if (packetEntity instanceof PacketEntityInteraction interaction) return interaction.actionWidth;
         if (packetEntity instanceof PacketEntitySizeable sizeable) {
             int size = size(sizeable, bedrock);
-            if ((packetEntity.type == EntityTypeIds.MAGMA_CUBE) || (packetEntity.type == EntityTypeIds.SLIME)) {
+            if (EntityTypeUtil.isCubeMob(packetEntity.type)) {
                 return scalesCubeMobType(version, bedrock)
                         ? baseDimensions(packetEntity).width() * size
                         : 2.04f * (0.255f * (float) size);
@@ -74,7 +74,7 @@ public class BoundingBoxSize {
 
     private static float width(PacketEntity entity, ClientVersion version, boolean bedrock) {
         float width = getWidthMinusBaby(entity, version, bedrock);
-        if (entity.isBaby) {
+        if (entity.isBaby && !EntityTypeUtil.isCubeMob(entity.type)) {
             Float independent = independentBabyWidth(entity, version);
             width = independent == null ? width * getBabyScale(entity, version) : independent;
         }
@@ -308,7 +308,7 @@ public class BoundingBoxSize {
         if (packetEntity instanceof PacketEntityInteraction interaction) return interaction.actionHeight;
         if (packetEntity instanceof PacketEntitySizeable sizeable) {
             int size = size(sizeable, bedrock);
-            if ((packetEntity.type == EntityTypeIds.MAGMA_CUBE) || (packetEntity.type == EntityTypeIds.SLIME)) {
+            if (EntityTypeUtil.isCubeMob(packetEntity.type)) {
                 return scalesCubeMobType(version, bedrock)
                         ? baseDimensions(packetEntity).height() * size
                         : 2.04f * (0.255f * (float) size);
@@ -336,7 +336,7 @@ public class BoundingBoxSize {
 
     private static float height(PacketEntity entity, ClientVersion version, boolean bedrock) {
         float height = getHeightMinusBaby(entity, version, bedrock);
-        if (entity.isBaby) {
+        if (entity.isBaby && !EntityTypeUtil.isCubeMob(entity.type)) {
             Float independent = independentBabyHeight(entity, version);
             height = independent == null ? height * getBabyScale(entity, version) : independent;
         }
@@ -363,8 +363,7 @@ public class BoundingBoxSize {
         if (entity.type == EntityTypeIds.PHANTOM && version.isNewerThanOrEquals(ClientVersion.V_1_20_2)) {
             return 1.0F + 0.15F * sizeable.size;
         }
-        if ((entity.type == EntityTypeIds.MAGMA_CUBE || entity.type == EntityTypeIds.SLIME)
-                && scalesCubeMobType(version, false)) {
+        if (EntityTypeUtil.isCubeMob(entity.type) && scalesCubeMobType(version, false)) {
             return sizeable.size;
         }
         return 1.0F;

@@ -5,7 +5,6 @@ import ac.cult.blocksim.engine.Direction;
 import ac.cult.blocksim.engine.SimLevel;
 import ac.cult.blocksim.engine.SimFluidState;
 import ac.cult.blocksim.data.StateFacts;
-import ac.cult.blocksim.engine.shapes.Shapes;
 import ac.cult.blocksim.engine.shapes.VoxelShape;
 import ac.cult.blocksim.data.BlockDefinition;
 import ac.cult.blocksim.interaction.PlacementContext;

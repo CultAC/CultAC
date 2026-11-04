@@ -31,12 +31,13 @@ public final class ObservedPacketValues implements PacketValueAdapter {
             Supplier<RegistryNames> modelNames,
             Function<String, PaintingSize> paintings,
             Supplier<int[]> dimension) {
-        this(decoder, version, modelNames, paintings, dimension, null);
+        this(decoder, version, modelNames, paintings, dimension, () -> null, null);
     }
 
     /**
      * Sent stacks reuse {@code stacks}, which the connection's model codecs also bind; a connection decodes either
-     * its observed wire or the model wire, never both.
+     * its observed wire or the model wire, never both. Chunk sections share storage with the section pools of the
+     * dimension {@code poolDimension} names, none when it is null.
      */
     ObservedPacketValues(
             WireValueDecoder decoder,
@@ -44,6 +45,7 @@ public final class ObservedPacketValues implements PacketValueAdapter {
             Supplier<RegistryNames> modelNames,
             Function<String, PaintingSize> paintings,
             Supplier<int[]> dimension,
+            Supplier<String> poolDimension,
             ItemStackCache stacks) {
         this.decoder = decoder;
         this.version = version;
@@ -52,7 +54,7 @@ public final class ObservedPacketValues implements PacketValueAdapter {
         toModel = ModelIdMappings.project(version, ProtocolVersion.V26_3);
         toWire = ModelIdMappings.project(ProtocolVersion.V26_3, version);
         inventory = new ModelInventoryValues(decoder, version, names, stacks, names::generation);
-        world = new ObservedWorldValues(this, dimension);
+        world = new ObservedWorldValues(this, dimension, poolDimension);
         metadata = new ModelEntityMetadataValues(decoder, version, names, paintings);
     }
 

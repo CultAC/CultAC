@@ -2,7 +2,6 @@ package ac.cult.cultac.network.codec;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -21,6 +20,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HexFormat;
@@ -60,7 +60,7 @@ class ItemStackReuseEquivalenceTest {
                         cache);
             });
             byte[] bytes = HexFormat.of().parseHex(line.substring(space + 1));
-            boolean wasHeld = values.cache().get(Unpooled.wrappedBuffer(bytes), 0, bytes.length) != null;
+            boolean wasHeld = values.cache().find(Unpooled.wrappedBuffer(bytes), afterCount(bytes)) >= 0;
             var expected = outcome(input -> values.plain().item(input, false), Unpooled.wrappedBuffer(bytes));
             var actual = outcome(values.cached()::sentItem, Unpooled.wrappedBuffer(bytes));
             assertAlike(values.plain(), expected, actual);
@@ -71,12 +71,29 @@ class ItemStackReuseEquivalenceTest {
             stacks++;
             if (wasHeld) reused++;
             assertEquals(bytes.length, expected.readerIndex());
-            boolean holdable = bytes.length <= ItemStackCache.MAX_BYTES
+            boolean holdable = bytes.length - afterCount(bytes) <= ItemStackCache.MAX_BYTES
                     && !expected.stack().isEmpty()
                     && expected.stack().patch().added().bundle() == null;
             if (holdable) {
-                assertNotNull(values.cache().get(Unpooled.wrappedBuffer(bytes), 0, bytes.length), line);
+                int slot = values.cache().find(Unpooled.wrappedBuffer(bytes), afterCount(bytes));
+                assertTrue(slot >= 0, line);
+                assertEquals(bytes.length - afterCount(bytes), values.cache().length(slot), line);
                 held++;
+            }
+            byte[] followed = Arrays.copyOf(bytes, bytes.length + 3);
+            followed[bytes.length] = (byte) 0xff;
+            assertAlike(
+                    values.plain(),
+                    outcome(input -> values.plain().item(input, false), Unpooled.wrappedBuffer(followed)),
+                    outcome(values.cached()::sentItem, Unpooled.wrappedBuffer(followed)));
+            for (byte[] count : COUNTS) {
+                byte[] recounted = new byte[count.length + bytes.length - afterCount(bytes)];
+                System.arraycopy(count, 0, recounted, 0, count.length);
+                System.arraycopy(bytes, afterCount(bytes), recounted, count.length, bytes.length - afterCount(bytes));
+                assertAlike(
+                        values.plain(),
+                        outcome(input -> values.plain().item(input, false), Unpooled.wrappedBuffer(recounted)),
+                        outcome(values.cached()::sentItem, Unpooled.wrappedBuffer(recounted)));
             }
             actual.stack().setCount(99);
             actual.stack().components(Components.EMPTY);
@@ -103,6 +120,23 @@ class ItemStackReuseEquivalenceTest {
                 "ITEM-REUSE stacks %d failures %d held %d reused %d (%.1f%%)%n",
                 stacks, failures, held, reused, 100.0 * reused / stacks);
         assertTrue(reused > 0);
+    }
+
+    /** Counts 1, 64, 300, 0, -1, a non-minimal 1 and one with unused high bits in byte five. */
+    private static final byte[][] COUNTS = {
+        {1},
+        {64},
+        {(byte) 0xac, 0x02},
+        {0},
+        {-1, -1, -1, -1, 0x0f},
+        {(byte) 0x81, 0},
+        {(byte) 0x81, -128, -128, -128, 0x70}
+    };
+
+    private static int afterCount(byte[] bytes) {
+        int index = 0;
+        while (index < bytes.length && (bytes[index++] & 0x80) != 0) {}
+        return index;
     }
 
     private static Outcome outcome(Function<ByteBuf, SimItemStack> decode, ByteBuf input) {

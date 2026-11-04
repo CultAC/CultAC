@@ -16,6 +16,12 @@ categories:
   cloud: "Cloud Review"
 
 checks:
+  BrandSpoofA:
+    summary: "Reported conflicting client information"
+    details: "The client name does not match the client features it reported."
+  BrandSpoofB:
+    summary: "Reported different client brands"
+    details: "The player reported more than one client name during the same connection."
   # Combat
   AimDuplicateLook:
     summary: "Sent aim updates that Minecraft never sends"

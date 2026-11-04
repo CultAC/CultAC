@@ -13,6 +13,7 @@ import ac.cult.cultac.checks.impl.cloud.CloudExploitExperimental;
 import ac.cult.cultac.checks.impl.cloud.CloudFlagCheck;
 import ac.cult.cultac.checks.impl.cloud.CloudFlagCheckTest;
 import ac.cult.cultac.cloud.CloudSettings;
+import ac.cult.cultac.cloud.Generation;
 import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
@@ -75,7 +76,7 @@ class CloudFlagsTest {
     private final Set<UUID> refusing = ConcurrentHashMap.newKeySet();
 
     private final List<Raised> raised = Collections.synchronizedList(new ArrayList<>());
-    private final CloudFlags.Generation generation = new CloudFlags.Generation();
+    private final Generation generation = new Generation();
     private final CloudFlags.Handled handled = new CloudFlags.Handled(CloudFlags.MAX_HANDLED);
 
     private final CloudFlags.Host host = new CloudFlags.Host() {
@@ -317,7 +318,6 @@ class CloudFlagsTest {
 
         flags().pollOnce().get(5, TimeUnit.SECONDS);
         waitFor(() -> results().size() >= 2);
-        waitFor(() -> !handled.owes(FLAG));
 
         assertEquals(1, raised.size());
         assertResult(results().get(1), FLAG, true, "flagged");

@@ -12,6 +12,7 @@ import ac.cult.cultac.utils.anticheat.LogUtil;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
 import io.netty.util.concurrent.EventExecutor;
+import java.nio.channels.ClosedChannelException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -394,12 +395,14 @@ public final class CultConnection implements CodecState, FrameLease.Source {
     private ChannelFuture writeMessage(Object message) {
         var promise = channel.newPromise();
         if (owner.inEventLoop() && reentrantWriter != null) reentrantWriter.accept(message, promise);
-        else
-            onChannelLoop(() -> {
-                if (removed != null) promise.tryFailure(new java.nio.channels.ClosedChannelException());
-                else channel.writeAndFlush(message, promise);
-            });
+        else if (sendsOnChannelLoopNow()) sendMessage(message, promise);
+        else channel.eventLoop().execute(() -> sendMessage(message, promise));
         return promise;
+    }
+
+    private void sendMessage(Object message, ChannelPromise promise) {
+        if (removed != null) promise.tryFailure(new ClosedChannelException());
+        else channel.writeAndFlush(message, promise);
     }
 
     /** The flush {@link #executeAfterWrites} issues for a task that writes nothing, without writing the task. */
@@ -412,8 +415,12 @@ public final class CultConnection implements CodecState, FrameLease.Source {
     }
 
     private void onChannelLoop(Runnable send) {
-        if (channel.eventLoop().inEventLoop() && (owner == channel.eventLoop() || !owner.inEventLoop())) send.run();
+        if (sendsOnChannelLoopNow()) send.run();
         else channel.eventLoop().execute(send);
+    }
+
+    private boolean sendsOnChannelLoopNow() {
+        return channel.eventLoop().inEventLoop() && (owner == channel.eventLoop() || !owner.inEventLoop());
     }
 
     public void forwarded(PacketType<?> type, Object packet) {

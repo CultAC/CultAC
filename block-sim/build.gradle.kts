@@ -4,9 +4,12 @@ group = rootProject.group
 version = rootProject.version
 
 java {
-    toolchain.languageVersion.set(JavaLanguageVersion.of(21))
+    toolchain.languageVersion.set(JavaLanguageVersion.of(25))
     withSourcesJar()
 }
+
+// Compile with JDK 25 but retain Java 21-compatible APIs and class files.
+tasks.withType<JavaCompile>().configureEach { options.release.set(21) }
 
 repositories { mavenCentral() }
 

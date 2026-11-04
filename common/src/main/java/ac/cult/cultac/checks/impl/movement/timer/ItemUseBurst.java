@@ -41,6 +41,13 @@ import net.kyori.adventure.text.format.NamedTextColor;
  * the default limit, while a client frozen during a use accrues real debt.
  */
 public final class ItemUseBurst extends Check implements PostPredictionListener, ClientTickEndListener {
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("ItemUseBurst")
+            .stableKey("cult.movement.item_use_burst")
+            .description("Claimed fewer slowed ticks than the server spent using an item")
+            .setback(0)
+            .build();
+
     private final ItemUseBurstBalance balance = new ItemUseBurstBalance();
     private final ServerItemUseView view;
     private final LongSupplier now;
@@ -53,14 +60,7 @@ public final class ItemUseBurst extends Check implements PostPredictionListener,
     }
 
     ItemUseBurst(CultPlayer player, LongSupplier now) {
-        super(
-                player,
-                CheckInfo.builder()
-                        .name("ItemUseBurst")
-                        .stableKey("cult.movement.item_use_burst")
-                        .description("Claimed fewer slowed ticks than the server spent using an item")
-                        .setback(0)
-                        .build());
+        super(player, INFO);
         this.now = now;
         this.view = new ServerItemUseView(
                 this::resolve,

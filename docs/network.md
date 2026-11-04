@@ -87,8 +87,9 @@ Redis or NATS with the same login. If none of these exist, for example a Redis s
 cross-server features stay off and the log says so: set a password on your Redis or NATS server, or run behind
 Velocity with modern forwarding.
 
-Servers only hear from servers that sign with the same key, so several networks can share one Redis or NATS server.
-When a server starts linking up, it logs one line naming where its key came from and the channel prefix that key
+Servers only hear from servers that sign with the same key, so several networks can share one Redis or NATS server
+when each signs with its own key. Networks whose keys come from the same login or the same forwarding secret sign with
+the same key and merge; give each of them its own `network.secret`. When a server starts linking up, it logs one line naming where its key came from and the channel prefix that key
 gives, such as `cultac.1a2b3c4d.*`. If two servers cannot see each other, compare those lines: the one with a
 different prefix signs with a different key.
 
@@ -110,4 +111,5 @@ to the sender: `profile` and the Java and Geyser packet logs, for example. `find
 across the whole network. `spectate` sends the staff member to the player's server through their own proxy.
 `/cult alerts scope global` receives alerts from every server; `server` only from players on the staff member's own
 server. `/cult findplayer` counts the client brands of everyone online on the network, and
-`/cult findplayer brand=<text>` lists the players whose brand contains that text.
+`/cult findplayer brand=<text>` lists the players whose brand contains that text. While the network runs, a server
+does not also send its alerts through the proxy (`alerts.proxy.send`), as the network already brings them.

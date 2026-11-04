@@ -1,0 +1,249 @@
+# \u00BB — це » (подвійна >>), ANSI та UTF-8 інтерпретують його по-різному... через це ви можете навіть побачити ?
+prefix: "&bCult &8\u00BB"
+command-aliases: [cult, cultac, grim, grimac]
+
+alerts-enabled: "%prefix% &fСповіщення увімкнено"
+alerts-disabled: "%prefix% &fСповіщення вимкнено"
+verbose-enabled: "%prefix% &fРежим verbose увімкнено"
+verbose-disabled: "%prefix% &fРежим verbose вимкнено"
+brands-enabled: "%prefix% &fПоказ брендів увімкнено"
+brands-disabled: "%prefix% &fПоказ брендів вимкнено"
+client-brand-format: "%prefix% &f%player% зайшов з клієнтом %brand%"
+console-specify-target: "%prefix% &cЗ консолі потрібно вказати ціль!"
+reloading: "%prefix% &7Перезавантаження конфігурації..."
+reloaded: "%prefix% &fКонфігурацію перезавантажено."
+reload-failed: "%prefix% &cНе вдалося перезавантажити конфігурацію."
+player-not-found: "%prefix% &cГравець має виняток з перевірок або не в мережі!"
+sender-not-found: "%prefix% &cЩоб використати цю команду, у вас не має бути винятку з перевірок!"
+spectate-return: "<click:run_command:/%command% stopspectating><hover:show_text:\"/%command% stopspectating\">\n%prefix% &fНатисніть тут, щоб повернутися на попереднє місце\n</hover></click>"
+cannot-spectate-return: "%prefix% &cЦе можна зробити лише після спостереження за гравцем"
+cannot-run-on-self: "%prefix% &cВи не можете використати цю команду на собі!"
+upload-log: "%prefix% &fНалагоджувальний лог завантажено: %url%"
+upload-log-start: "%prefix% &fЗавантаження логу... зачекайте"
+upload-log-not-found: "%prefix% &cНе вдалося знайти цей лог"
+upload-log-upload-failure: "%prefix% &cПід час завантаження логу щось пішло не так, подробиці в консолі"
+disconnect:
+    timeout: "<lang:disconnect.timeout>"
+    closed: "<lang:disconnect.closed>"
+    error: "<red>Під час обробки пакетів сталася помилка. Зверніться до адміністрації."
+run-as-player: "%prefix% &cЦю команду можуть використовувати лише гравці!"
+run-as-player-or-console: "%prefix% &cЦю команду можуть використовувати лише гравці або консоль!"
+webhook-not-enabled: "Вебхуки Discord не ввімкнені!"
+webhook-test-message: "тестове повідомлення"
+webhook-test-succeeded: "Тест вебхука Discord пройшов успішно!"
+webhook-test-failed: "Тест вебхука Discord не вдався!"
+
+# Допустимі плейсхолдери:
+# %prefix%
+# %player%
+# %check_name%
+# %description%
+# %experimental%
+# %vl% - кількість порушень
+# %verbose% - додаткова інформація від перевірки, наприклад відхилення; не всі перевірки її додають
+# Назва перевірки веде на /%command% info check.
+alerts-format: "%prefix% &f<click:run_command:'/%command% spectate %player%'><hover:show_text:'/%command% spectate %player%'>%player%</hover></click> &bпровалив <hover:show_text:\"&b%check_name%%experimental%\n&8Опис: &f%description%\n&7Натисніть, щоб дізнатися більше\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
+alerts-format-proxy: "%prefix% &f[&cproxy&f] &f<click:run_command:'/%command% spectate %player%'><hover:show_text:'/%command% spectate %player%'>%player%</hover></click> &bпровалив <hover:show_text:\"&b%check_name%%experimental%\n&8Опис: &f%description%\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
+experimental-symbol: "*"
+
+profile:
+    - "&7======================"
+    - "&bПрофіль гравця &f%player%"
+    - "&bПінг: &f%ping%"
+    - "&bВерсія: &f%version%"
+    - "&bБренд клієнта: &f%brand%"
+    - "&bГоризонтальна чутливість: &f%h_sensitivity%%"
+    - "&bВертикальна чутливість: &f%v_sensitivity%%"
+    - "&bFastMath увімкнено: &f%fast_math%"
+    - "&7======================"
+# /cult profile для гравця, якого немає на цьому екземплярі: остання збережена сесія.
+# %player% %status% %server% %version% %brand% %timeago%
+profile-stored:
+    - "&7======================"
+    - "&bПрофіль гравця &f%player% &7(остання сесія)"
+    - "&bСтатус: &f%status%"
+    - "&bСервер: &f%server%"
+    - "&bВерсія: &f%version%"
+    - "&bБренд клієнта: &f%brand%"
+    - "&bВостаннє в мережі: &f%timeago% тому"
+    - "&7======================"
+profile-unknown-player: "%prefix% &c%player% не в мережі на цьому екземплярі й не має збережених сесій."
+# /cult debug channels <гравець> — %player%, %count%, %channel%
+debug-channels-header: "%prefix% &bВідкриті канали плагінів у &f%player%&b: &f%count%"
+debug-channels-entry: "&8- &f%channel%"
+debug-channels-none: "%prefix% &bУ &f%player% &bнемає відкритих каналів плагінів"
+# /cult debug mods <гравець> — %player%, %count%, %type%, %mod%, %name%, %version%
+debug-mods-header: "%prefix% &bМоди Lunar Client у &f%player%&b: &f%count%"
+debug-mods-type: "&b%type%:"
+debug-mods-entry: "&8- &f%name% &7(%mod%) &8%version%"
+debug-mods-not-lunar: "%prefix% &f%player% &bне підключений до Apollo. Apollo повідомляє про моди лише для Lunar Client."
+debug-mods-unavailable: "%prefix% &bНемає звіту Apollo про моди для &f%player%&b. Apollo повідомляє про моди лише для Lunar Client."
+debug-client-brand: "%prefix% &bБренд клієнта: &f%brand%"
+help:
+    - "&7======================"
+    - "/%command% alerts &f- &7Увімкнути/вимкнути сповіщення"
+    - "/%command% alerts scope [server|global] &f- &7Показати або задати, чиї сповіщення ви бачите"
+    - "/%command% brands &f- &7Увімкнути/вимкнути показ брендів"
+    - "/%command% findplayer [brand=...] &f- &7Список брендів клієнтів онлайн або хто використовує певний"
+    - "/%command% profile <гравець> &f- &7Переглянути інформацію про гравця"
+    - "/%command% help &f- &7Показати цю довідку"
+    - "/%command% info check <перевірка> &f- &7Пояснити перевірку"
+    - "/%command% info checks [група] &f- &7Список усіх перевірок"
+    - "/%command% debug <гравець> &f- &7Вивід передбачень для розробників"
+    - "/%command% perf &f- &7Мс на передбачення для розробників"
+    - "/%command% reload &f- &7Перезавантажує конфігурацію"
+    - "/%command% observe [on|off] &f- &7Показати або перемкнути режим observe-only"
+    - "/%command% spectate <гравець> &f- &7Спостерігати за гравцем"
+    - "/%command% verbose &f- &7Показує вам кожне спрацювання, без буферів"
+    - "/%command% log [0-255] &f- &7Завантажує налагоджувальний лог спрацювань передбачення"
+    - "/%command% history <гравець> &f- &7Список сесій (новіші вгорі)"
+    - "/%command% history <гравець> page <N> &f- &7Перейти на сторінку N списку сесій"
+    - "/%command% history <гравець> session <N|latest> [-d] [-v] &f- &7Деталі сесії (новіші порушення вгорі)"
+    - "/%command% history <гравець> session <N|latest> page <N> [-d] [-v] &f- &7Деталі сесії, сторінка порушень N"
+    - "/%command% cloud &f- &7Стан вивантаження в хмару: сокети, утримувані кадри та лічильники"
+    - "/%command% findings <гравець> [кількість] &f- &7Останні хмарні знахідки щодо гравця"
+    - "/%command% top [перевірка] [хвилини] &f- &7Гравці з найвпевненішими хмарними знахідками"
+    - "/%command% label <гравець> <cheat|clean> <high|extreme> <24h|3d|7d|30d> [примітка] &f- &7Позначити гравця в реєстрі міток хмари (також list, revoke)"
+    - "&7======================"
+
+# === /cult info ===
+# Опис того, що ловить кожна перевірка, вбудований у плагін; ці рядки лише задають його оформлення.
+# Плейсхолдери info-check: %check% %experimental% %category% %summary% %details% %punishments% %buttons%
+info-check:
+    - "&7======================"
+    - "%prefix% &b%check%%experimental%"
+    - "&f%summary%"
+    - "&7%details%"
+    - "&bПокарання: &f%punishments%"
+    - "%buttons%"
+    - "&7======================"
+info-experimental: " &7(експериментальна)"
+# %punishments% перелічує сповіщення та кожну команду з punishments.yml, від найменшої кількості спрацювань, кожну один раз.
+# Команда, що містить "ban" або "kick", показується як info-punishment-ban або -kick; будь-яка інша — як /команда.
+info-punishment: "%action% на %count%-му спрацюванні"
+info-punishment-first: "%action% при першому спрацюванні"
+info-punishment-alert: "сповіщення"
+info-punishment-ban: "бан"
+info-punishment-kick: "кік"
+# Дії з однаковою кількістю спрацювань об'єднуються в один запис через info-punishment-and.
+info-punishment-and: " і "
+info-punishments-none: "Немає"
+info-punishments-off: "Немає, експериментальні перевірки вимкнені"
+info-punishments-logged: "Лише записується в історію"
+info-punishments-webhook: "Лише надсилається в Discord"
+info-button-group: "&8[&bПеревірки %category%&8]"
+info-button-group-hover: "&7Натисніть, щоб побачити перевірки %category%"
+info-button-all: "&8[&bУсі перевірки&8]"
+info-button-all-hover: "&7Натисніть, щоб побачити всі групи перевірок"
+# /cult info checks [група] — %category% %count%
+info-groups-header: "%prefix% &bГрупи перевірок &7- натисніть на групу, щоб побачити її перевірки"
+info-group: "&8» &f%category% &7(%count%)"
+info-group-hover: "&7Натисніть, щоб побачити перевірки %category%"
+info-group-header: "%prefix% &bПеревірки %category% &7(%count%) - натисніть на перевірку, щоб дізнатися більше"
+# Група перелічує свої перевірки залежно від того, до чого тут призводять їхні спрацювання. %checks%
+info-handling-automatic: "&bАвтопокарання: &f%checks%"
+info-handling-alerts: "&bЛише сповіщення: &f%checks%"
+info-handling-recorded: "&bЛише запис в історію: &f%checks%"
+info-handling-none: "&bБез сповіщень і покарань: &f%checks%"
+info-handling-off: "&bВимкнені: &f%checks%"
+# Кожна перевірка в списку. %check% %experimental% %summary%
+info-entry: "&f%check%%experimental%"
+info-entry-hover: "&b%check%%experimental%<newline>&f%summary%<newline>&7Натисніть, щоб дізнатися більше"
+info-entry-separator: "&7, "
+# Показується під групою, в якій є експериментальні перевірки. %symbol% — це experimental-symbol
+info-experimental-note: "&7%symbol% Експериментальна (ще тестується)"
+# %query%; %checks% перелічує перевірки, назви яких його містять
+info-unknown: "%prefix% &cНевідома перевірка: &f%query%"
+info-did-you-mean: "&7Можливо, ви мали на увазі: %checks%"
+info-see-all: "&7Спробуйте &f/%command% info checks&7, щоб побачити повний список."
+
+# === /cult history ===
+# Інтерфейс історії на основі сесій. Усі рядки нижче — налаштовувані шаблони MiniMessage.
+# Стандартні підказки рядків задаються вбудованими тегами <hover:show_text:'...'> і ключами
+# фрагментів підказок нижче; приберіть вбудований hover, щоб використовувати запасний варіант рендерера.
+
+cult-history-load-failure: "%prefix% &cНе вдалося завантажити підсистему історії! Перевірте консоль сервера на наявність помилок."
+cult-history-disabled: "%prefix% &cПідсистему історії вимкнено!"
+cult-history-failed: "%prefix% &cНе вдалося завантажити історію: &7%error%"
+cult-history-unknown-player: "%prefix% &cНевідомий гравець: &f%player%"
+cult-history-no-sessions: "%prefix% &7Немає історії сесій для &f%player%&7."
+cult-history-session-not-found: "%prefix% &cСесію &f%ordinal%&c не знайдено для &f%player%&c."
+
+# Список сесій — допустимі плейсхолдери: %prefix% %player% %page% %max_pages%
+cult-history-header: "%prefix% &bІсторія сесій гравця &f%player% &8[&f%page%&7/&f%max_pages%&8]"
+# Підсумковий рядок однієї сесії — допустимі плейсхолдери:
+#   %prefix% %player% %ordinal% %cult_version% %server_name%
+#   %client_version% %client_brand% %duration% %timeago%
+#   %violations% %unique_checks% %crashed_marker% %session_uuid% %detail_command%
+# %crashed_marker% розгортається в cult-history-crashed-marker для сесій,
+# з'єднання яких обірвалося без коректного закриття (краш сервера,
+# kill -9, RST каналу, що не викликав UserDisconnectEvent). Для активних
+# або коректно закритих сесій — порожній рядок.
+cult-history-session: "<hover:show_text:'&bСесія &7%session_uuid%<newline>&7Натисніть або виконайте &e%detail_command%<newline>&7щоб переглянути деталі сесії.'>%prefix% &8[&b%cult_version%&8] &8[&b%server_name%&8] &8[&b%client_version%&8] &bСесія &f%ordinal%&b, тривалість &f%duration%&b, порушень: &c%violations%&b &8[&c%unique_checks%&8]%crashed_marker% &8(&7%timeago% тому&8)</hover>"
+
+# Вбудований маркер, який підставляється в %crashed_marker% у рядках сесій, де
+# closed_at == last_activity (тобто проставлені перевіркою крашів під час
+# наступного запуску, а не під час відключення). Містить пробіл на початку,
+# щоб маркер природно читався, коли він є, і зникав, коли порожній.
+cult-history-crashed-marker: " &8(&cкраш&8)"
+
+# Деталі сесії — допустимі плейсхолдери:
+#   %prefix% %player% %ordinal% %cult_version% %server_name%
+#   %client_version% %client_brand% %duration% %timeago%
+#   %violations% %unique_checks% %bucket_size%
+cult-history-detail-header: "%prefix% &bДеталі сесії &f%ordinal%&b гравця &f%player%&b:"
+cult-history-detail-meta1: "%prefix% &bCult: &f%cult_version%&b, сервер: &f%server_name%&b, тривалість: &f%duration%&b, дата: &7%timeago% тому"
+cult-history-detail-meta2: "%prefix% &bКлієнт: &f%client_version%&b, бренд: &f%client_brand%"
+cult-history-detail-violations-header: "%prefix% &bПорушення: &8(усього: %violations%, унікальних: %unique_checks%)"
+cult-history-detail-empty: "%prefix% &7- (немає)"
+# Згрупований рядок (за замовчуванням) — допустимі плейсхолдери: %prefix% %offset% %checks_list%
+#   %bucket_start% %bucket_end% %bucket_hover_entries%
+#   %checks_list% складається із записів cult-history-check-count, з'єднаних через ", "
+cult-history-detail-group: "<hover:show_text:'&bПорушення за &f%bucket_start%–%bucket_end%&b:%bucket_hover_entries%'>%prefix% &7- %checks_list% &8(&b%offset%&8)</hover>"
+cult-history-detail-group-hover: "&bПорушення за &f%bucket_start%–%bucket_end%&b:%bucket_hover_entries%"
+cult-history-detail-group-hover-entry: "<newline>&8  %offset% &b%check%%description%%verbose%"
+cult-history-hover-description: " — &f%description%"
+cult-history-detail-group-hover-verbose: " — &7%verbose%"
+# Окремий рядок порушення (--detailed) — допустимі плейсхолдери:
+#   %prefix% %offset% %check% %description% %vl% %verbose%
+cult-history-detail-entry: "%prefix% &7- &f%check% &8(&b%offset%&8)&7 %verbose%"
+cult-history-detail-entry-hover: "&b%check%%description%<newline>&8@ %offset% — vl %vl%%verbose%"
+cult-history-detail-entry-hover-verbose: "<newline>&7%verbose%"
+# Внутрішній формат кожної перевірки в %checks_list% групи — допустимі плейсхолдери: %check_name% %count%
+cult-history-check-count: "&f%check_name%&7 x&c%count%"
+
+# Модератор запитує мережеві сповіщення, а network.type у config.yml не задано.
+network-disabled-alerts: "%prefix% &cМережеві сповіщення на цьому сервері не ввімкнені. Попросіть адміністратора сервера задати network.type у конфігурації CultAC."
+# /cult alerts scope [server|global]: %scope% — server або global, %source% — один із текстів alerts-scope-* нижче.
+alerts-scope: "%prefix% &fОбласть сповіщень: &b%scope% &7(%source%)"
+alerts-scope-set: "%prefix% &fОбласть сповіщень змінено на &b%scope%"
+alerts-scope-chosen: "вибрано вами"
+alerts-scope-default: "за замовчуванням"
+alerts-scope-local: "мережеві сповіщення на цьому сервері не ввімкнені"
+# Команда, переслана іншому екземпляру або поколінню рушія. %instance% — id екземпляра, %player% — гравець,
+# %location% — екземпляр разом із його бекенд-сервером, %reason% — причина збою, %lines% і %kb% — ліміти виводу.
+network-command-same-server: "&c%player% на %location%; ця команда працює лише на тому самому сервері."
+network-spectate-unreachable: "&c%player% на %location%; для спостереження між серверами потрібен CultAC на проксі."
+network-command-stopped: "&cНе вдалося переслати команду на %instance%: мережева маршрутизація зупинена."
+network-command-not-forwarded: "&cНе вдалося переслати команду на %instance%."
+network-command-target-left: "&c%player% більше не на %instance%."
+network-command-failed: "&c%instance% не зміг виконати команду: %reason%"
+network-command-no-answer: "&c%instance% не відповів."
+network-command-output-cut: "&cРешту виводу з %instance% обрізано: ліміт — %lines% рядків або %kb% КБ."
+# /cult findplayer [brand=<текст>]: бренди клієнтів онлайн або гравці, бренд яких містить цей текст.
+# Бренди, %query%, %player% і %server% показуються як звичайний текст. %count% — кількість гравців; findplayer-unknown
+# позначає гравців, бренд яких ще невідомий.
+findplayer-summary: "%prefix% &bБренди клієнтів &8· &f%count% &7онлайн &8· &7натисніть на бренд, щоб побачити, хто ним користується"
+findplayer-brand: "&8» &f%brand% &7(%count%)"
+findplayer-brand-hover: "&7Показати, хто використовує %brand%"
+findplayer-unknown: "невідомо"
+findplayer-results: "%prefix% &bГравці, бренд яких містить &f%query% &8· &f%count% &7онлайн"
+findplayer-player: "&8» &f%player% &7на &f%server% &8· &7%brand%"
+findplayer-player-hover: "&7Показати профіль %player%"
+findplayer-more: "&7...і ще %count%. Введіть більшу частину назви бренду, щоб звузити пошук."
+findplayer-none: "%prefix% &7Ніхто онлайн не використовує бренд, що містить &f%query%&7."
+findplayer-usage: "%prefix% &cДля пошуку введіть &f/%command% findplayer brand=lunar &cз будь-якою частиною назви бренду або без неї, щоб побачити всі бренди."
+
+# Маркери схеми — див. заголовний коментар у config.yml.
+config-flavor: V2
+config-version: 4

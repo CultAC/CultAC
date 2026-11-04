@@ -17,7 +17,7 @@ lombok {
 
 // Java compilation settings
 java {
-    toolchain.languageVersion.set(JavaLanguageVersion.of(21))
+    toolchain.languageVersion.set(JavaLanguageVersion.of(25))
     disableAutoTargetJvm()
     withSourcesJar()
     withJavadocJar()

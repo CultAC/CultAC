@@ -285,10 +285,15 @@ public final class CloudConnection {
     private long refusedLogged;
     private long refusedLogNanos = System.nanoTime();
 
-    /** A queued record; a frame's {@code resolvedExtra} is what its probe markers add once the service resolves them. */
-    record Queued(long generation, byte[] record, long resolvedExtra) {
-        int length() {
-            return record.length;
+    /**
+     * A queued record, the first {@code length} bytes of {@code record}; a frame's {@code resolvedExtra} is what its
+     * probe markers add once the service resolves them. A {@code pooled} array goes back to the shared
+     * {@link FrameBuffers} once written.
+     */
+    record Queued(long generation, byte[] record, int length, long resolvedExtra, boolean pooled) {
+        /** A whole array, kept by its sender. */
+        Queued(long generation, byte[] record, long resolvedExtra) {
+            this(generation, record, record.length, resolvedExtra, false);
         }
 
         /** The bytes the service counts for this entry against a message's limit. */
@@ -298,7 +303,7 @@ public final class CloudConnection {
 
         /** Whether the message that takes this entry ends with it. */
         boolean ends() {
-            return IntakeWire.endsMessage(record);
+            return IntakeWire.endsMessage(record, length);
         }
     }
 
@@ -625,13 +630,32 @@ public final class CloudConnection {
      * resolves it. False when that socket is gone or too much is queued, and the record was dropped.
      */
     public boolean send(long generation, byte[] record, long resolvedExtra) {
+        return send(generation, record, record.length, resolvedExtra, false);
+    }
+
+    /** An array of at least {@code length} bytes to write a record into for {@link #send(long, byte[], int, long)}. */
+    public byte[] frame(int length) {
+        return shared.frames.take(length);
+    }
+
+    /**
+     * As {@link #send(long, byte[], long)}, for the record in the first {@code length} bytes of {@code record}, an array
+     * from {@link #frame} this call takes over: nothing may touch it after, since it is reused once written or refused.
+     */
+    public boolean send(long generation, byte[] record, int length, long resolvedExtra) {
+        if (send(generation, record, length, resolvedExtra, true)) return true;
+        shared.frames.give(record);
+        return false;
+    }
+
+    private boolean send(long generation, byte[] record, int length, long resolvedExtra, boolean pooled) {
         WebSocket open = socket;
         if (closed || generation != this.generation || open == null || open == refusing) return false;
-        if (!queuedBytes.tryAdd(record.length, MAX_QUEUED_BYTES, SharedTransport.MAX_PROCESS_QUEUED_BYTES)) {
+        if (!queuedBytes.tryAdd(length, MAX_QUEUED_BYTES, SharedTransport.MAX_PROCESS_QUEUED_BYTES)) {
             refused.incrementAndGet();
             return false;
         }
-        queue.add(new Queued(generation, record, resolvedExtra));
+        queue.add(new Queued(generation, record, length, resolvedExtra, pooled));
         if (stopped) dropQueued();
         return true;
     }
@@ -1280,7 +1304,7 @@ public final class CloudConnection {
         long current = generation;
         int resolvedLimit = messageLimit();
         int limit = Math.min(resolvedLimit, MAX_WRITE_BYTES);
-        List<byte[]> part = new ArrayList<>();
+        List<Queued> part = new ArrayList<>();
         int bytes = 0;
         try {
             while (true) {
@@ -1291,7 +1315,7 @@ public final class CloudConnection {
                     boolean end =
                             batch.full || retiring || ending || clock.getAsLong() - batch.startedNanos >= batchNanos;
                     if (bytes == 0 && !end) break;
-                    pipeline.submit(part, bytes, end);
+                    pipeline.submitQueued(part, bytes, end, shared.frames);
                     part.clear();
                     bytes = 0;
                     if (!end) break;
@@ -1331,7 +1355,7 @@ public final class CloudConnection {
             int limit,
             long resolvedLimit,
             Batch batch,
-            List<byte[]> part) {
+            List<Queued> part) {
         int bytes = 0;
         Queued queued;
         while (!batch.full && (queued = queue.peek()) != null) {
@@ -1347,7 +1371,7 @@ public final class CloudConnection {
                 break;
             }
             queue.poll();
-            part.add(queued.record());
+            part.add(queued);
             bytes += length;
             batch.bytes += length;
             batch.resolved += queued.resolvedLength();

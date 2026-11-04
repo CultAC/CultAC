@@ -32,10 +32,6 @@ public final class FluidCurrent {
             double velocityZ,
             FluidTags fluidTag,
             double scale) {
-        if (this.viewPlayer != player) {
-            this.view = FluidTypeFlowing.view(player);
-            this.viewPlayer = player;
-        }
         double fluidMinY = entityBox.minY + 0.001D;
         int minX = (int) Math.floor(entityBox.minX + 0.001D);
         int minY = (int) Math.floor(fluidMinY);
@@ -43,6 +39,11 @@ public final class FluidCurrent {
         int maxX = (int) Math.ceil(entityBox.maxX - 0.001D) - 1;
         int maxY = (int) Math.ceil(entityBox.maxY - 0.001D) - 1;
         int maxZ = (int) Math.ceil(entityBox.maxZ - 0.001D) - 1;
+        if (!player.compensatedWorld.mayHaveFluid(minX, minY, minZ, maxX, maxY, maxZ)) return false;
+        if (this.viewPlayer != player) {
+            this.view = FluidTypeFlowing.view(player);
+            this.viewPlayer = player;
+        }
 
         double currentX = 0.0D;
         double currentY = 0.0D;
@@ -126,5 +127,16 @@ public final class FluidCurrent {
         this.y = currentY;
         this.z = currentZ;
         return true;
+    }
+
+    /** False when {@link #compute} would find no fluid in a section around {@code entityBox}. */
+    static boolean mayTouchFluid(CultPlayer player, SimpleCollisionBox entityBox) {
+        return player.compensatedWorld.mayHaveFluid(
+                (int) Math.floor(entityBox.minX + 0.001D),
+                (int) Math.floor(entityBox.minY + 0.001D),
+                (int) Math.floor(entityBox.minZ + 0.001D),
+                (int) Math.ceil(entityBox.maxX - 0.001D) - 1,
+                (int) Math.ceil(entityBox.maxY - 0.001D) - 1,
+                (int) Math.ceil(entityBox.maxZ - 0.001D) - 1);
     }
 }

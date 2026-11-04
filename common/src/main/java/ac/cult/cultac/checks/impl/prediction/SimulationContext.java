@@ -17,6 +17,7 @@ import ac.cult.cultac.utils.data.MainSupportingBlockData;
 import ac.cult.cultac.utils.data.SprintingState;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.data.packetentity.*;
+import ac.cult.cultac.utils.debug.DebugText;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.math.TrigHandler;
@@ -29,11 +30,9 @@ import java.util.List;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Setter;
-import lombok.ToString;
 
 @Getter
-@ToString
-public class SimulationContext {
+public class SimulationContext implements DebugText.Recordable {
     /**
      * Whether this tick starts from LivingEntity#checkAutoSpinAttack's -0.2 rebound: a hit scales deltaMovement and
      * sets autoSpinAttackTicks to 0, while a spin that hit nothing leaves deltaMovement as it was.
@@ -65,20 +64,15 @@ public class SimulationContext {
     Vec3 target;
 
     @Getter(AccessLevel.NONE)
-    @ToString.Exclude
     private Vec3 packetMovement;
 
     @Getter(AccessLevel.NONE)
-    @ToString.Exclude
     private Vec3 packetMovementEnd;
 
-    @ToString.Exclude
     ClientVersion version;
 
-    @ToString.Exclude
     TrigHandler trig;
 
-    @ToString.Exclude
     CompensatedEntities entities;
 
     PacketEntity vehicle;
@@ -169,10 +163,8 @@ public class SimulationContext {
     @Setter
     TeleportData bedrockTeleport;
 
-    @ToString.Exclude
     List<SimpleCollisionBox> entityCollisionBoxesForMovementTick;
 
-    @ToString.Exclude
     List<HardCollidingEntityCollision> hardCollidingEntityCollisionsForMovementTick;
 
     public SimulationContext(
@@ -317,22 +309,37 @@ public class SimulationContext {
     }
 
     public SimpleCollisionBox getToMaxPose() {
-        return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), getMaxHeight());
+        return getToMaxPose(new SimpleCollisionBox());
+    }
+
+    /** {@link #getToMaxPose()} written into {@code out}. */
+    public SimpleCollisionBox getToMaxPose(SimpleCollisionBox out) {
+        return GetBoundingBox.getBoundingBoxFromPosAndSize(out, end.x, end.y, end.z, getMaxWidth(), getMaxHeight());
     }
 
     public SimpleCollisionBox getToMaximumExtent() {
+        return getToMaximumExtent(new SimpleCollisionBox());
+    }
+
+    /** {@link #getToMaximumExtent()} written into {@code out}. */
+    public SimpleCollisionBox getToMaximumExtent(SimpleCollisionBox out) {
         if (getVehicle() != null) {
-            return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), getMaxHeight());
+            return GetBoundingBox.getBoundingBoxFromPosAndSize(out, end.x, end.y, end.z, getMaxWidth(), getMaxHeight());
         }
-        return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), getMaxHeight())
+        return GetBoundingBox.getBoundingBoxFromPosAndSize(out, end.x, end.y, end.z, getMaxWidth(), getMaxHeight())
                 .expand(getMovementThreshold());
     }
 
     public SimpleCollisionBox getToMinimumExtent() {
+        return getToMinimumExtent(new SimpleCollisionBox());
+    }
+
+    /** {@link #getToMinimumExtent()} written into {@code out}. */
+    public SimpleCollisionBox getToMinimumExtent(SimpleCollisionBox out) {
         if (getVehicle() != null) {
-            return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), 0.6f);
+            return GetBoundingBox.getBoundingBoxFromPosAndSize(out, end.x, end.y, end.z, getMaxWidth(), 0.6f);
         }
-        return GetBoundingBox.getBoundingBoxFromPosAndSize(end.x, end.y, end.z, getMaxWidth(), getMinHeight())
+        return GetBoundingBox.getBoundingBoxFromPosAndSize(out, end.x, end.y, end.z, getMaxWidth(), getMinHeight())
                 .expand(-getMovementThreshold());
     }
 
@@ -346,15 +353,27 @@ public class SimulationContext {
     }
 
     public SimpleCollisionBox getFromMaximumExtent() {
-        return GetBoundingBox.getBoundingBoxFromPosAndSize(start.x, start.y, start.z, getMaxWidth(), getMaxHeight());
+        return getFromMaximumExtent(new SimpleCollisionBox());
+    }
+
+    /** {@link #getFromMaximumExtent()} written into {@code out}. */
+    public SimpleCollisionBox getFromMaximumExtent(SimpleCollisionBox out) {
+        return GetBoundingBox.getBoundingBoxFromPosAndSize(
+                out, start.x, start.y, start.z, getMaxWidth(), getMaxHeight());
     }
 
     public SimpleCollisionBox getFromMinimumExtent() {
+        return getFromMinimumExtent(new SimpleCollisionBox());
+    }
+
+    /** {@link #getFromMinimumExtent()} written into {@code out}. */
+    public SimpleCollisionBox getFromMinimumExtent(SimpleCollisionBox out) {
         if (getVehicle() != null) {
             return GetBoundingBox.getBoundingBoxFromPosAndSize(
-                    start.x, start.y, start.z, getMaxWidth(), getMaxHeight());
+                    out, start.x, start.y, start.z, getMaxWidth(), getMaxHeight());
         }
-        return GetBoundingBox.getBoundingBoxFromPosAndSize(start.x, start.y, start.z, getMaxWidth(), getMinHeight());
+        return GetBoundingBox.getBoundingBoxFromPosAndSize(
+                out, start.x, start.y, start.z, getMaxWidth(), getMinHeight());
     }
 
     public SimpleCollisionBox getToCubeCollision() {
@@ -365,19 +384,29 @@ public class SimulationContext {
     }
 
     public SimpleCollisionBox getFromActualPose() {
+        return getFromActualPose(new SimpleCollisionBox());
+    }
+
+    /** {@link #getFromActualPose()} written into {@code out}. */
+    public SimpleCollisionBox getFromActualPose(SimpleCollisionBox out) {
         if (getVehicle() != null) {
-            return getFromMaximumExtent();
+            return getFromMaximumExtent(out);
         }
         return GetBoundingBox.getBoundingBoxFromPosAndSize(
-                start.x, start.y, start.z, pose.width * scale, pose.height * scale);
+                out, start.x, start.y, start.z, pose.width * scale, pose.height * scale);
     }
 
     public SimpleCollisionBox getToActualPose() {
+        return getToActualPose(new SimpleCollisionBox());
+    }
+
+    /** {@link #getToActualPose()} written into {@code out}. */
+    public SimpleCollisionBox getToActualPose(SimpleCollisionBox out) {
         if (getVehicle() != null) {
-            return getToMaxPose();
+            return getToMaxPose(out);
         }
         return GetBoundingBox.getBoundingBoxFromPosAndSize(
-                end.x, end.y, end.z, pose.width * scale, pose.height * scale);
+                out, end.x, end.y, end.z, pose.width * scale, pose.height * scale);
     }
 
     public float getMaxSpeed(CultPlayer player) {
@@ -686,6 +715,93 @@ public class SimulationContext {
 
     public boolean isBedrockTeleportTick() {
         return bedrockTeleport != null;
+    }
+
+    /**
+     * Every field but the engine handles and the per-tick caches, as the Cult Log prints them. A new field belongs here
+     * too; CultLogContentTest checks.
+     */
+    @Override
+    public void appendTo(DebugText.Builder sb) {
+        sb.append("SimulationContext(itemUse=").append(itemUse);
+        sb.append(", serverUseTracked=").append(serverUseTracked);
+        sb.append(", start=").append(start);
+        sb.append(", end=").append(end);
+        sb.append(", target=").append(target);
+        sb.append(", vehicle=").append(vehicle);
+        sb.append(", xRot=").append(xRot);
+        sb.append(", lastXRot=").append(lastXRot);
+        sb.append(", yRot=").append(yRot);
+        sb.append(", lastYRot=").append(lastYRot);
+        sb.append(", onGround=").append(onGround);
+        sb.append(", sneaking=").append(sneaking);
+        sb.append(", lastSneaking=").append(lastSneaking);
+        sb.append(", gliding=").append(gliding);
+        sb.append(", jumpAmplifier=").append(jumpAmplifier);
+        sb.append(", depthStriderLevel=").append(depthStriderLevel);
+        sb.append(", swiftSneakLevel=").append(swiftSneakLevel);
+        sb.append(", isSprinting=").append(isSprinting);
+        sb.append(", sprintModifier=").append(sprintModifier);
+        appendSpeeds(sb.append(", groundMoveRelativeSpeeds="), groundMoveRelativeSpeeds);
+        sb.append(", movementEfficiency=").append(movementEfficiency);
+        sb.append(", waterMovementEfficiency=").append(waterMovementEfficiency);
+        sb.append(", minAttackSlow=").append(minAttackSlow);
+        sb.append(", maxAttackSlow=").append(maxAttackSlow);
+        sb.append(", worldData=").append(worldData);
+        sb.append(", riptideLevel=").append(riptideLevel);
+        sb.append(", riptideReleaseCertain=").append(riptideReleaseCertain);
+        sb.append(", riptideGroundLift=").append(riptideGroundLift);
+        sb.append(", riptideLiftStuck=").append(riptideLiftStuck);
+        sb.append(", spinRebound=").append(spinRebound);
+        sb.append(", lastTickSkip=").append(lastTickSkip);
+        sb.append(", isTestingPointThree=").append(isTestingPointThree);
+        sb.append(", lastStuckSpeed=").append(lastStuckSpeed);
+        sb.append(", horseInputs=").append(horseInputs);
+        sb.append(", boatInputs=").append(boatInputs);
+        sb.append(", lastTickMainSupportingBlockData=").append(lastTickMainSupportingBlockData);
+        sb.append(", pose=").append(pose);
+        sb.append(", scale=").append(scale);
+        sb.append(", rootClientVelocityAtPrediction=").append(rootClientVelocityAtPrediction);
+        sb.append(", normalizedRootClientVelocityAtPrediction=").append(normalizedRootClientVelocityAtPrediction);
+        sb.append(", rootClientVelocityPendingAtPrediction=").append(rootClientVelocityPendingAtPrediction);
+        sb.append(", requiredCurrentMoveStuckSpeed=").append(requiredCurrentMoveStuckSpeed);
+        sb.append(", profileCarry=").append(profileCarry);
+        sb.append(", authoredInput=").append(authoredInput);
+        sb.append(", bedrockInput=").append(bedrockInput);
+        sb.append(", bedrockVersion=").append(bedrockVersion);
+        sb.append(", bedrockInputTick=").append(bedrockInputTick);
+        sb.append(", hasTrustedAuthoredInput=").append(hasTrustedAuthoredInput);
+        sb.append(", bedrockTeleport=").append(bedrockTeleport);
+        sb.append(')');
+    }
+
+    /** {@link java.util.Arrays#deepToString} of the speeds. */
+    private static void appendSpeeds(DebugText.Builder sb, float[][] speeds) {
+        if (speeds == null) {
+            sb.append("null");
+            return;
+        }
+        sb.append('[');
+        for (int i = 0; i < speeds.length; i++) {
+            if (i > 0) sb.append(", ");
+            float[] row = speeds[i];
+            if (row == null) {
+                sb.append("null");
+                continue;
+            }
+            sb.append('[');
+            for (int j = 0; j < row.length; j++) {
+                if (j > 0) sb.append(", ");
+                sb.append(row[j]);
+            }
+            sb.append(']');
+        }
+        sb.append(']');
+    }
+
+    @Override
+    public String toString() {
+        return DebugText.print(this);
     }
 
     public record HardCollidingEntityCollision(SimpleCollisionBox box, boolean boatLike, boolean minecartLike) {}

@@ -124,7 +124,7 @@ class ObserveOnlyCallSiteTest {
             [handleLegacySneak(] BadPacketsG rejects only under shouldModifyPackets()
             checks/impl/badpackets/BadPacketsG.java#onPlayerCommand(PacketReceiveEvent,CultPlayer,ServerboundPlayerCommand) setCancelled
             [canceled] console commands are withheld in observe-only
-            manager/PunishmentManager.java#handleAlert(CultPlayer,Supplier,Check) dispatchCommand
+            manager/PunishmentManager.java#handleAlert(CultPlayer,Supplier,Supplier,Check) dispatchCommand
             [REJECT] AbstractTimerCheck rejects only under shouldModifyPackets()
             checks/impl/movement/timer/TimerCheck.java#onBedrockAuthInput(PacketReceiveEvent) setCancelled
             [] reached only from callers that return first in observe-only

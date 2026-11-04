@@ -11,6 +11,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
@@ -24,11 +25,11 @@ class RosterCacheTest {
     private final RosterCache cache = new RosterCache();
 
     private static JsonObject full(List<OnlinePlayer> players, Long order) {
-        return ordered(RosterCache.body(players, true, List.of(), false, "n"), order);
+        return ordered(RosterCache.body(players, true, List.of(), Set.of(), "n"), order);
     }
 
     private static JsonObject delta(List<OnlinePlayer> players, List<UUID> left, Long order) {
-        return ordered(RosterCache.body(players, false, left, false, "n"), order);
+        return ordered(RosterCache.body(players, false, left, Set.of(), "n"), order);
     }
 
     private static JsonObject ordered(JsonObject body, Long order) {
@@ -205,15 +206,28 @@ class RosterCacheTest {
 
     @Test
     void playersKeepTheirServerAndVerboseFollowsTheLastMessageWhileTheInstanceLives() {
-        cache.apply("p3", RosterCache.body(List.of(ALICE_ONLINE, BOB_ONLINE), true, List.of(), true, "n"), 0);
+        cache.apply(
+                "p3", RosterCache.body(List.of(ALICE_ONLINE, BOB_ONLINE), true, List.of(), Set.of("pvp"), "n"), 0);
         assertEquals(
                 List.of(new NetworkPlayer(ALICE, "Alice", "p3", "lobby"), new NetworkPlayer(BOB, "Bob", "p3", null)),
                 cache.players(0).stream()
                         .sorted((a, b) -> a.name().compareTo(b.name()))
                         .toList());
-        assertTrue(cache.verbose(0));
-        assertFalse(cache.verbose(RosterCache.EXPIRY_MILLIS + 1));
-        cache.apply("p3", RosterCache.body(List.of(), false, List.of(), false, "n"), 1);
-        assertFalse(cache.verbose(1));
+        assertEquals(Set.of("pvp"), cache.verbose(0));
+        assertEquals(Set.of(), cache.verbose(RosterCache.EXPIRY_MILLIS + 1));
+        cache.apply("p3", RosterCache.body(List.of(), false, List.of(), Set.of(), "n"), 1);
+        assertEquals(Set.of(), cache.verbose(1));
+    }
+
+    @Test
+    void aRosterWithOnlyTheVerboseFlagCoversEveryServer() {
+        JsonObject body = RosterCache.body(List.of(), true, List.of(), Set.of("pvp"), "n");
+        body.remove("verbose-servers");
+        cache.apply("p3", body, 0);
+        assertEquals(Set.of(NetworkService.EVERY_SERVER), cache.verbose(0));
+
+        body.addProperty("verbose", false);
+        cache.apply("p3", body, 1);
+        assertEquals(Set.of(), cache.verbose(1));
     }
 }

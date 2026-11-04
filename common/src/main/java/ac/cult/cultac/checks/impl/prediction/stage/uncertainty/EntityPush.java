@@ -102,8 +102,8 @@ public class EntityPush implements UncertaintyHandler {
         }
 
         List<Vec3> pushCandidates = new ArrayList<>();
-        SimpleCollisionBox playerBox = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                state.getStart().x, state.getStart().y, state.getStart().z, 0.6f, 1.8f);
+        double startX = state.getStart().x, startY = state.getStart().y, startZ = state.getStart().z;
+        SimpleCollisionBox playerBox = null;
         long localPlayerTickOrder = player.compensatedEntities.getSelf().getClientTickOrder();
         boolean pushableLastTick = lastResult.getSimulationContext().getVehicle() == null
                 && lastResult.getSimulationContext().getWorldData().isPushable();
@@ -129,6 +129,9 @@ public class EntityPush implements UncertaintyHandler {
                 continue;
             }
 
+            if (playerBox == null) {
+                playerBox = GetBoundingBox.getBoundingBoxFromPosAndSize(startX, startY, startZ, 0.6f, 1.8f);
+            }
             addPossibleBoatPushes(
                     pushCandidates, getBoatPushCollisionCandidatesForNextTick(entity), playerBox, state.getStart());
         }

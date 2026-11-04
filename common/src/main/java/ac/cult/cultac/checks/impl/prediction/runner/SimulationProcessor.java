@@ -1071,10 +1071,24 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.player.getSetbackTeleportUtil().resyncWorld();
         }
         boolean bedrockMovementFlag = this.player.isBedrockMovement() && result.hasFlag(BedrockMovement.class);
-        if (this.player.shouldEnforceMovementSetbacks() || createProfileVerboseLog || bedrockMovementFlag) {
+        boolean identifierShown = this.player.shouldEnforceMovementSetbacks()
+                && (this.player.isBedrockMovement() || this.canFlagWithIdentifier(result));
+        if (createProfileVerboseLog) {
             result.setIdentifier(nextDebugIdentifier());
-            result.setProfileVerboseLog(createProfileVerboseLog);
+            result.setProfileVerboseLog(true);
+        } else if (identifierShown || bedrockMovementFlag) {
+            // SuperDebug builds the log only once an alert, verbose line or punishment command renders the identifier.
+            result.setLogOffered(true);
         }
+    }
+
+    /** Whether a check whose flag shows the debug identifier, the offset handler or a flagged check, can flag. */
+    private boolean canFlagWithIdentifier(PredictionResult result) {
+        if (this.player.checkManager.getOffsetHandler().canRecordFlags()) return true;
+        for (Flag flag : result.getFlags()) {
+            if (flag.getCheck().canRecordFlags()) return true;
+        }
+        return false;
     }
 
     private PredictionCommit prepareBedrockCommit(
@@ -1581,6 +1595,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         this.player.compensatedEntities.vehicles.consumeVehicleSwitchPredictionOffset(result);
         PredictionComplete complete = new PredictionComplete(result, preparedCommit);
         this.player.checkManager.onPredictionFinish(complete);
+        // The state a Cult Log reads moves on from here.
+        if (result != null) result.closeLog();
     }
 
     public boolean isExempt() {

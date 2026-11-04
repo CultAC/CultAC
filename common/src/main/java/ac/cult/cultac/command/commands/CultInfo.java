@@ -1,13 +1,11 @@
 package ac.cult.cultac.command.commands;
 
 import ac.cult.cultac.CultAPI;
-import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.info.CheckCatalog;
 import ac.cult.cultac.checks.info.CheckCategory;
 import ac.cult.cultac.checks.info.CheckPolicy;
 import ac.cult.cultac.checks.info.CheckTexts;
 import ac.cult.cultac.command.BuildableCommand;
-import ac.cult.cultac.command.CloudCommandService;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.grim.grimac.api.config.ConfigManager;
@@ -15,10 +13,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.regex.Pattern;
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.TextReplacementConfig;
-import net.kyori.adventure.text.event.ClickEvent;
 import org.incendo.cloud.CommandManager;
 import org.incendo.cloud.context.CommandContext;
 import org.incendo.cloud.description.Description;
@@ -65,19 +60,6 @@ public class CultInfo implements BuildableCommand {
         ConfigManager config = CultAPI.INSTANCE.getConfigManager().getConfig();
         return new CheckInfoLines.View(
                 config, CheckPolicy.of(config), CheckTexts.get(), config.getBooleanElse("experimental-checks", false));
-    }
-
-    /** Makes the check's name in a rendered alert run {@code /cult info check} when clicked. */
-    public static Component linkCheckName(Component alert, Check check) {
-        String name = check.getCheckName();
-        String displayName = check.getDisplayName();
-        if (name == null || displayName == null || displayName.isBlank() || CheckCatalog.find(name) == null)
-            return alert;
-        ClickEvent click = ClickEvent.runCommand(CloudCommandService.command("info check " + name));
-        return alert.replaceText(TextReplacementConfig.builder()
-                .match(Pattern.compile("(?<![\\p{L}\\p{N}_])" + Pattern.quote(displayName) + "(?![\\p{L}\\p{N}_])"))
-                .replacement(text -> text.clickEvent(click))
-                .build());
     }
 
     static List<String> groupIds() {

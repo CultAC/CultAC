@@ -250,17 +250,6 @@ public final class BedrockActorHistory {
         return List.copyOf(states);
     }
 
-    public long elapsedActorTicks(long tick) {
-        if (frames.isEmpty()) return 0;
-        long anchor = Long.compareUnsigned(tick, oldestTick()) < 0 ? oldestTick() : tick;
-        return frames.stream()
-                .filter(frame -> frame.tick() == anchor)
-                .findFirst()
-                .map(frame -> current().getFirst().state().simulationTick()
-                        - frame.end().getFirst().state().simulationTick())
-                .orElse(0L);
-    }
-
     private List<Event> eventsBefore(long tick) {
         return frames.stream()
                 .filter(frame -> frame.tick() < tick)

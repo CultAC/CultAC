@@ -6,6 +6,7 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ClientSprintState;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.TransactionVel;
+import ac.cult.cultac.utils.debug.DebugText;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -13,7 +14,7 @@ import java.util.List;
 import lombok.Getter;
 import lombok.Setter;
 
-public class PredVector extends Vec3 {
+public class PredVector extends Vec3 implements DebugText.Recordable {
 
     PredVector lastVector = null;
     String reason = null;
@@ -321,16 +322,30 @@ public class PredVector extends Vec3 {
     }
 
     @Override
+    public void appendTo(DebugText.Builder sb) {
+        sb.append("PredVector{x=")
+                .append(x)
+                .append(", y=")
+                .append(y)
+                .append(", z=")
+                .append(z)
+                .append(", reason='")
+                .append(reason)
+                .append("', isJump=")
+                .append(isJump)
+                .append(", isKnockback=")
+                .append(isKnockback)
+                .append(", isTickSkip=")
+                .append(isTickSkip)
+                .append(", packetModifiers=")
+                .appendAll(packetModifiers)
+                .append(", lastVector=")
+                .append(lastVector)
+                .append('}');
+    }
+
+    @Override
     public String toString() {
-        return "PredVector{" + "x="
-                + x + ", y="
-                + y + ", z="
-                + z + ", reason='"
-                + reason + '\'' + ", isJump="
-                + isJump + ", isKnockback="
-                + isKnockback + ", isTickSkip="
-                + isTickSkip + ", packetModifiers="
-                + packetModifiers + ", lastVector="
-                + lastVector + '}';
+        return DebugText.print(this);
     }
 }
