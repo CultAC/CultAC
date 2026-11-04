@@ -3,12 +3,13 @@ package ac.cult.cultac.utils.collisions.datatypes;
 import ac.cult.blocksim.data.Box;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
+import ac.cult.cultac.utils.debug.DebugText;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
 import java.util.Optional;
 
-public class SimpleCollisionBox implements CollisionBox {
+public class SimpleCollisionBox implements CollisionBox, DebugText.Recordable {
     public static final double COLLISION_EPSILON = 1.0E-7;
     public double minX, minY, minZ, maxX, maxY, maxZ;
     boolean isFullBlock = false;
@@ -472,14 +473,26 @@ public class SimpleCollisionBox implements CollisionBox {
     }
 
     @Override
+    public void appendTo(DebugText.Builder sb) {
+        sb.append("SimpleCollisionBox{minX=")
+                .append(minX)
+                .append(", minY=")
+                .append(minY)
+                .append(", minZ=")
+                .append(minZ)
+                .append(", maxX=")
+                .append(maxX)
+                .append(", maxY=")
+                .append(maxY)
+                .append(", maxZ=")
+                .append(maxZ)
+                .append(", isFullBlock=")
+                .append(isFullBlock)
+                .append('}');
+    }
+
+    @Override
     public String toString() {
-        return "SimpleCollisionBox{" + "minX="
-                + minX + ", minY="
-                + minY + ", minZ="
-                + minZ + ", maxX="
-                + maxX + ", maxY="
-                + maxY + ", maxZ="
-                + maxZ + ", isFullBlock="
-                + isFullBlock + '}';
+        return DebugText.print(this);
     }
 }

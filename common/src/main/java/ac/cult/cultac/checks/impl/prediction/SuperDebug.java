@@ -15,6 +15,7 @@ import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.PistonData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.debug.DebugText;
 import ac.cult.cultac.utils.lists.EvictingQueue;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
@@ -28,9 +29,12 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
 
     public static final int FLAG_SIZE = 128;
     private static final Vec3 TELEPORT_MARKER = new Vec3(123456, 123456, 123456);
-    private static final int MAX_CAPTURE_TEXT = 1 << 18;
 
-    private static final String[] flags = new String[FLAG_SIZE + 2]; //  17/2 MB of logs in memory
+    /**
+     * The Cult Logs by identifier, kept as the values they print: most are never read, so none is printed until
+     * {@link #getFlag} reads it.
+     */
+    private static final DebugText[] flags = new DebugText[FLAG_SIZE + 2];
 
     private static final VarHandle DIAG;
 
@@ -47,28 +51,32 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
     /** Set while something watches this player's predictions: each one also goes to it. */
     private volatile PredictionObserver diag;
 
-    /** {@link #capture}'s text, on the packet thread; null while nothing watches. */
-    private StringBuilder captureText;
+    /** The appends and number appends of the last log or capture, to size the next one; on the packet thread. */
+    private int lastParts = 1024;
+
+    private int lastNumbers = 512;
 
     public SuperDebug(CultPlayer player) {
         super(player);
     }
 
+    /** The Cult Log stored under {@code flagId}, printed now; null when there is none. */
     public static String getFlag(int flagId) {
         if (flagId >= flags.length || flagId < 0) return null;
-        return flags[flagId];
+        DebugText log = flags[flagId];
+        return log == null ? null : log.toString();
     }
 
     public static int ensureBedrockCorrectionLog(CultPlayer player, PredictionResult result) {
         if (result.getIdentifier() == 0) {
             result.setIdentifier(SimulationProcessor.nextDebugIdentifier());
-            flags[result.getIdentifier()] = formatBedrockLog(player, result).toString();
+            flags[result.getIdentifier()] = formatBedrockLog(player, result).toText();
         }
         return result.getIdentifier();
     }
 
-    private static StringBuilder formatBedrockLog(CultPlayer player, PredictionResult result) {
-        StringBuilder sb = new StringBuilder(2048);
+    private static DebugText.Builder formatBedrockLog(CultPlayer player, PredictionResult result) {
+        DebugText.Builder sb = new DebugText.Builder(256, 128);
         sb.append("Cult Version: ")
                 .append(CultAPI.INSTANCE.getExternalAPI().getGrimVersion())
                 .append("\nTime: ")
@@ -92,17 +100,16 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
             return;
         }
 
-        String exempt = predictionComplete.isExempt() ? " exempt!" : " ";
-        if (predictionComplete.isTeleport()) exempt += " teleport!";
-        Location location = new Location(
-                player.x,
-                player.y,
-                player.z,
-                player.xRot,
-                player.yRot,
-                player.platformPlayer == null
-                        ? "null"
-                        : player.platformPlayer.getWorld().getName() + exempt);
+        Location location = player.platformPlayer == null
+                ? new Location(player.x, player.y, player.z, player.xRot, player.yRot, null, "")
+                : new Location(
+                        player.x,
+                        player.y,
+                        player.z,
+                        player.xRot,
+                        player.yRot,
+                        player.platformPlayer.getWorld().getName(),
+                        Location.marks(predictionComplete.isExempt(), predictionComplete.isTeleport()));
 
         if (predictionComplete.isTeleport()) {
             movementHistory.add(new MovementFrame(TELEPORT_MARKER, TELEPORT_MARKER, location));
@@ -121,13 +128,11 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         PredictionObserver watch = diag;
         if (watch != null) {
             capture(watch, result, lastResult, closest, target, predictionComplete.isExempt());
-        } else {
-            captureText = null;
         }
 
         if (result.getIdentifier() == 0) return;
 
-        StringBuilder sb = new StringBuilder();
+        DebugText.Builder sb = newText();
         sb.append("Cult Version: ").append(CultAPI.INSTANCE.getExternalAPI().getGrimVersion());
         sb.append("\n");
         sb.append("Time: ");
@@ -147,9 +152,19 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         appendState(sb, result, lastResult);
         appendMovementHistory(sb);
         appendTail(sb, result, lastResult);
-        BlockGrid.around(player).appendTo(sb);
+        sb.append(BlockGrid.around(player));
 
         storeDebugLog(sb, result);
+    }
+
+    /** A builder sized for this player's last log or capture. */
+    private DebugText.Builder newText() {
+        return new DebugText.Builder(lastParts + 64, lastNumbers + 32);
+    }
+
+    private void sized(DebugText.Builder sb) {
+        lastParts = sb.parts();
+        lastNumbers = sb.numbers();
     }
 
     /**
@@ -169,14 +184,11 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
             String state = null;
             BlockGrid grid = null;
             if (result.getSimulationContext() != null) {
-                StringBuilder sb = captureText;
-                if (sb == null) sb = new StringBuilder(8192);
-                captureText = null;
-                sb.setLength(0);
+                DebugText.Builder sb = newText();
                 appendState(sb, result, lastResult);
                 appendTail(sb, result, lastResult);
+                sized(sb);
                 state = sb.toString();
-                if (sb.capacity() <= MAX_CAPTURE_TEXT) captureText = sb;
                 grid = BlockGrid.around(player);
             }
             double offset = result.getValidMovements() != null ? result.getOffset() : Double.NaN;
@@ -199,7 +211,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
     /** The movement history as a watch starts: what came before its first tick. On the packet thread. */
     public String history() {
         StringBuilder sb = new StringBuilder(4096);
-        appendMovementHistory(sb);
+        for (MovementFrame frame : movementHistory) frame.appendTo(sb);
         return sb.toString();
     }
 
@@ -250,7 +262,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
     }
 
     /** Knockback and explosion state, starting velocities, packet, vehicle and boat state, and the candidates. */
-    private void appendState(StringBuilder sb, PredictionResult result, PredictionResult lastResult) {
+    private void appendState(DebugText.Builder sb, PredictionResult result, PredictionResult lastResult) {
         sb.append("\nKnockback first bread: ");
         sb.append(player.checkManager.getKnockbackHandler().firstBread);
         sb.append("\nKnockback second bread: ");
@@ -260,9 +272,9 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         sb.append("\nExplosion second bread: ");
         sb.append(player.checkManager.getExplosionHandler().secondBread);
         sb.append("\nStarting vel: ");
-        sb.append(result.getInitialStartingVel().toString());
+        sb.append(result.getInitialStartingVel());
         sb.append("\nStarting velocity candidates used: ");
-        sb.append(player.checkManager.getSimulationProcessor().getLastStartingVelocitiesUsed());
+        sb.appendAll(player.checkManager.getSimulationProcessor().getLastStartingVelocitiesUsed());
         if (result.getValidMovements() != null) {
             sb.append("\nClosest movement: ");
             sb.append(result.getAcceptedClosestToTarget());
@@ -272,7 +284,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
             sb.append(result.getOffset());
         }
         sb.append("\nDerived next-tick velocity candidates: ");
-        sb.append(player.checkManager.getSimulationProcessor().getLastDerivedNextTickVelocities());
+        sb.appendAll(player.checkManager.getSimulationProcessor().getLastDerivedNextTickVelocities());
         sb.append("\nPacket state: vehicleMovementFromClientTick=")
                 .append(player.packetStateData.isVehicleMovementFromClientTick())
                 .append(" passengerRotationThisClientTick=")
@@ -342,7 +354,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         sb.append("\n\n");
         sb.append("Alternative results (diagnostic candidates; final effective flags are below): \n");
         for (PredictionResult allowedVel : result.getAnyReality()) {
-            sb.append(allowedVel.getInitialStartingVel().toString());
+            sb.append(allowedVel.getInitialStartingVel());
             sb.append("\ncandidate flags:\n");
             for (PredictionResult.Flag flag : allowedVel.getFlags()) {
                 sb.append(flag.getCheck().getCheckName())
@@ -356,15 +368,15 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
     }
 
     /** The flags, both contexts and ticks' collisions, pistons, the bounding box and nearby entity boxes. */
-    private void appendTail(StringBuilder sb, PredictionResult result, PredictionResult lastResult) {
+    private void appendTail(DebugText.Builder sb, PredictionResult result, PredictionResult lastResult) {
         appendFlagDetails(sb, result);
 
         sb.append("================== context ==================\n\n");
-        sb.append(result.getSimulationContext().toString());
+        sb.append(result.getSimulationContext());
 
         if (lastResult != null) {
             sb.append("\n\n============= last context ==============\n\n");
-            sb.append(lastResult.getSimulationContext().toString());
+            sb.append(lastResult.getSimulationContext());
         }
 
         sb.append("\n\n=============== collisions =================\n\n");
@@ -378,7 +390,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         sb.append("\n\npistons: \n");
         for (PistonData piston : player.compensatedWorld.pistons.activePistons()) {
             for (SimpleCollisionBox box : piston.getBoxes()) {
-                sb.append(box.toString());
+                sb.append(box);
                 sb.append(", ");
             }
         }
@@ -402,15 +414,37 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         appendNearbyEntityBoxes(sb, result);
     }
 
-    private record MovementFrame(Vec3 predicted, Vec3 actual, Location location) {}
-
-    private void appendMovementHistory(StringBuilder sb) {
-        for (MovementFrame frame : movementHistory) {
-            appendDebug(sb, frame.predicted(), frame.actual(), frame.location());
+    /** One tick of the movement history. Its vectors and location are immutable, so a log keeps the frame itself. */
+    private record MovementFrame(Vec3 predicted, Vec3 actual, Location location) implements DebugText.Part {
+        @Override
+        public void appendTo(StringBuilder sb) {
+            sb.append("Predicted: ");
+            sb.append(predicted);
+            sb.append("\nEnd: ");
+            sb.append(actual);
+            sb.append("\nLocation: ");
+            sb.append("x: ")
+                    .append(location.x())
+                    .append(" y: ")
+                    .append(location.y())
+                    .append(" z: ")
+                    .append(location.z())
+                    .append(" xRot: ")
+                    .append(location.xRot())
+                    .append(" yRot: ")
+                    .append(location.yRot())
+                    .append(" world: ")
+                    .append(location.world())
+                    .append(location.marks());
+            sb.append("\n\n");
         }
     }
 
-    private static void appendFlagDetails(StringBuilder sb, PredictionResult result) {
+    private void appendMovementHistory(DebugText.Builder sb) {
+        for (MovementFrame frame : movementHistory) sb.append(frame);
+    }
+
+    private static void appendFlagDetails(DebugText.Builder sb, PredictionResult result) {
         sb.append("==================== flags ==================\n\n");
         if (!result.isExempt()) {
             appendFlags(sb, result.getFlags());
@@ -424,7 +458,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         }
     }
 
-    private static void appendFlags(StringBuilder sb, List<PredictionResult.Flag> resultFlags) {
+    private static void appendFlags(DebugText.Builder sb, List<PredictionResult.Flag> resultFlags) {
         for (PredictionResult.Flag flag : resultFlags) {
             sb.append(flag.getCheck().getCheckName())
                     .append(" - ")
@@ -433,13 +467,14 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         }
     }
 
-    private void storeDebugLog(StringBuilder sb, PredictionResult result) {
-        String debugLog = sb.toString();
+    private void storeDebugLog(DebugText.Builder sb, PredictionResult result) {
+        sized(sb);
+        DebugText debugLog = sb.toText();
         flags[result.getIdentifier()] = debugLog;
         BedrockPredictionDebug.sendMovementVerbose(player, result, debugLog);
     }
 
-    private void appendRideableControlDetails(StringBuilder sb, PredictionResult result) {
+    private void appendRideableControlDetails(DebugText.Builder sb, PredictionResult result) {
         SimulationContext context = result.getSimulationContext();
         PacketEntity vehicle = context == null ? null : context.getVehicle();
         if (vehicle == null) {
@@ -467,7 +502,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
 
         List<Vec3> inputVectors = debugRideableInputVectors(context, vehicle);
         if (!inputVectors.isEmpty()) {
-            sb.append("\nRideable input vectors: ").append(inputVectors);
+            sb.append("\nRideable input vectors: ").appendAll(inputVectors);
         }
     }
 
@@ -543,7 +578,8 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         vectors.add(candidate);
     }
 
-    private void appendExternalMovementDetails(StringBuilder sb, PredictionResult result, PredictionResult lastResult) {
+    private void appendExternalMovementDetails(
+            DebugText.Builder sb, PredictionResult result, PredictionResult lastResult) {
         ExternalMovementUncertainty.Snapshot snapshot = ExternalMovementUncertainty.capture(result, lastResult);
         Vec3 positionOnlyDelta = result.getPositionOnlyDelta();
         if (!snapshot.hasExternalMove() && positionOnlyDelta.lengthSqr() <= 1.0E-14) {
@@ -593,7 +629,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
                 .append('\n');
     }
 
-    private void appendNearbyEntityBoxes(StringBuilder sb, PredictionResult result) {
+    private void appendNearbyEntityBoxes(DebugText.Builder sb, PredictionResult result) {
         SimpleCollisionBox queryBox = player.boundingBox.copy().expand(3.0);
         PacketEntity movingEntity = result.getSimulationContext().getVehicle();
 
@@ -633,38 +669,24 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         }
     }
 
-    private void appendStuckSpeedDebug(StringBuilder sb, String label, SimulationContext context) {
+    private void appendStuckSpeedDebug(DebugText.Builder sb, String label, SimulationContext context) {
         if (context == null) {
             return;
         }
 
-        sb.append('\n')
-                .append(label)
-                .append(": ")
-                .append(Collisions.describeStuckSpeedSources(
-                        player, context.getFromMaximumExtent(), context.getToMaximumExtent(), context.getTarget()));
+        sb.append('\n').append(label).append(": ");
+        Collisions.appendStuckSpeedSources(
+                sb, player, context.getFromMaximumExtent(), context.getToMaximumExtent(), context.getTarget());
     }
 
-    private void appendDebug(StringBuilder sb, Vec3 predicted, Vec3 end, Location location) {
-        sb.append("Predicted: ");
-        sb.append(predicted);
-        sb.append("\nEnd: ");
-        sb.append(end);
-        sb.append("\nLocation: ");
-        sb.append("x: ")
-                .append(location.x())
-                .append(" y: ")
-                .append(location.y())
-                .append(" z: ")
-                .append(location.z())
-                .append(" xRot: ")
-                .append(location.xRot())
-                .append(" yRot: ")
-                .append(location.yRot())
-                .append(" world: ")
-                .append(location.world());
-        sb.append("\n\n");
+    /**
+     * Where the player was: {@code world} is null without a platform player, and {@code marks} notes an exempt or
+     * teleport tick after the world's name.
+     */
+    private record Location(double x, double y, double z, float xRot, float yRot, String world, String marks) {
+        static String marks(boolean exempt, boolean teleport) {
+            if (exempt) return teleport ? " exempt! teleport!" : " exempt!";
+            return teleport ? "  teleport!" : " ";
+        }
     }
-
-    private record Location(double x, double y, double z, float xRot, float yRot, String world) {}
 }

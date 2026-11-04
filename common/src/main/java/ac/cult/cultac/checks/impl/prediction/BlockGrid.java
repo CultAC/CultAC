@@ -2,13 +2,14 @@ package ac.cult.cultac.checks.impl.prediction;
 
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.debug.DebugText;
 import ac.cult.cultac.utils.math.CultMath;
 
 /**
  * The blocks around a player's bounding box, two blocks out, as {@link SuperDebug} prints them. The grid holds model
  * block-state ids, so a grid read on the player's packet thread may be printed on any other.
  */
-public final class BlockGrid {
+public final class BlockGrid implements DebugText.Part {
     /** Printed names by default-registry state id; a racing fill stores the same immutable name. */
     private static final String[] NAMES =
             new String[DataTables.defaults().registry().stateCount()];
@@ -54,6 +55,7 @@ public final class BlockGrid {
     }
 
     /** Prints the grid, one layer per y from the top, each block padded to the longest name. */
+    @Override
     public void appendTo(StringBuilder sb) {
         int maxPosLength = maxPosLength();
         int maxLength = maxLength();

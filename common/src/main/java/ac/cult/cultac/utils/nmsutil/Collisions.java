@@ -18,6 +18,7 @@ import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBoxPool;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.VoxelShapeCollisionBox;
+import ac.cult.cultac.utils.debug.DebugText;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedChunk;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedSection;
 import ac.cult.cultac.utils.math.CultMath;
@@ -1595,20 +1596,23 @@ public class Collisions {
                 || segmentClipsBox(minX, minY, minZ, maxX, maxY, maxZ, fromX, fromY, fromZ, toX, toY, toZ);
     }
 
-    public static String describeStuckSpeedSources(
-            CultPlayer player, SimpleCollisionBox fromAabb, SimpleCollisionBox toAabb, Vec3 axisOrderMovement) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("from=")
-                .append(formatBox(fromAabb))
-                .append(" to=")
-                .append(formatBox(toAabb))
-                .append(" direct=")
-                .append(collectDirectStuckSpeedHits(player, toAabb));
+    /** The blocks that could set a stuck speed for a move from {@code fromAabb} to {@code toAabb}, for the Cult Log. */
+    public static void appendStuckSpeedSources(
+            DebugText.Builder sb,
+            CultPlayer player,
+            SimpleCollisionBox fromAabb,
+            SimpleCollisionBox toAabb,
+            Vec3 axisOrderMovement) {
+        sb.append("from=");
+        appendBox(sb, fromAabb);
+        sb.append(" to=");
+        appendBox(sb, toAabb);
+        sb.append(" direct=").append(collectDirectStuckSpeedHits(player, toAabb));
 
         if (axisOrderMovement == null
                 || boxCenter(toAabb).subtract(boxCenter(fromAabb)).lengthSqr() == 0.0D) {
             sb.append(" swept=").append(collectSweptStuckSpeedHits(player, fromAabb, toAabb));
-            return sb.toString();
+            return;
         }
 
         sb.append(" axisSweep=");
@@ -1633,8 +1637,6 @@ public class Collisions {
         if (!wroteAxis) {
             sb.append("[]");
         }
-
-        return sb.toString();
     }
 
     private static double getAxisValue(Vec3 vector, Axis axis) {
@@ -1747,12 +1749,20 @@ public class Collisions {
         }
     }
 
-    private static String formatBox(SimpleCollisionBox box) {
-        return "["
-                + box.minX + "," + box.minY + "," + box.minZ
-                + " -> "
-                + box.maxX + "," + box.maxY + "," + box.maxZ
-                + "]";
+    private static void appendBox(DebugText.Builder sb, SimpleCollisionBox box) {
+        sb.append('[')
+                .append(box.minX)
+                .append(',')
+                .append(box.minY)
+                .append(',')
+                .append(box.minZ)
+                .append(" -> ")
+                .append(box.maxX)
+                .append(',')
+                .append(box.maxY)
+                .append(',')
+                .append(box.maxZ)
+                .append(']');
     }
 
     private static boolean containsHalfOpen(
