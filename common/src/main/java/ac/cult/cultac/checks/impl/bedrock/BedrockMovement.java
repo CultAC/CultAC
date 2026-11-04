@@ -6,6 +6,8 @@ import ac.cult.cultac.checks.CheckInfo;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.player.CultPlayer;
 import java.util.Locale;
+import java.util.function.IntSupplier;
+import java.util.function.Supplier;
 
 @BedrockSupported
 public final class BedrockMovement extends Check implements CheckListener {
@@ -35,9 +37,11 @@ public final class BedrockMovement extends Check implements CheckListener {
         return shouldFlag(offset, positionThreshold, immediateFlagThreshold);
     }
 
-    public void flagMovement(double offset, int debugIdentifier) {
+    /** Flags {@code offset}; only the alert shows {@code debugIdentifier}, read if something renders it. */
+    public void flagMovement(double offset, IntSupplier debugIdentifier) {
         if (canFlagMovement()) {
-            flag(String.format(Locale.ROOT, "%.5f", offset) + " " + "\u00a78" + debugIdentifier);
+            Supplier<String> verbose = () -> String.format(Locale.ROOT, "%.5f", offset);
+            flag(verbose, () -> verbose.get() + " " + "\u00a78" + debugIdentifier.getAsInt());
         }
     }
 

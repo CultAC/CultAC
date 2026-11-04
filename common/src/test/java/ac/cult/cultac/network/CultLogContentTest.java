@@ -34,7 +34,8 @@ class CultLogContentTest {
 
     @Test
     void aLogReadsTheSameAfterThePlayerMovesOn() throws Exception {
-        try (JavaTickFixture f = new JavaTickFixture()) {
+        try (JavaTickFixture f = new JavaTickFixture();
+                AutoCloseable staff = CultLogViewers.watch(f.player)) {
             f.place(START, RESTING);
             PredictionResult flagged = f.tick(TOO_FAR, true);
             assertNotEquals(0, flagged.getIdentifier(), JavaTickFixture.describe(flagged));

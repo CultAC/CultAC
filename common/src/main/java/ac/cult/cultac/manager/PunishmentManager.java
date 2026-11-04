@@ -88,17 +88,19 @@ public class PunishmentManager implements ConfigReloadable {
         return name == null ? null : name.toLowerCase(Locale.ROOT);
     }
 
-    private String replaceAlertPlaceholders(String original, int vl, Check check, String verbose) {
-        return MessageUtil.replacePlaceholders(
-                        player,
-                        original.replace("[alert]", alertString)
-                                .replace("[proxy]", proxyAlertString)
-                                .replace("%check_name%", check.getDisplayName())
-                                .replace("%experimental%", check.isExperimental() ? experimentalSymbol : "")
-                                .replace("%vl%", Integer.toString(vl))
-                                .replace("%description%", check.getDescription())
-                                .replace("%stable_key%", check.getStableKey()))
-                .replace("%verbose%", MessageUtil.miniMessageSafe(verbose));
+    /** {@code original} with its placeholders filled; {@code verbose} is rendered only for a %verbose% in it. */
+    private String replaceAlertPlaceholders(String original, int vl, Check check, Supplier<String> verbose) {
+        String replaced = MessageUtil.replacePlaceholders(
+                player,
+                original.replace("[alert]", alertString)
+                        .replace("[proxy]", proxyAlertString)
+                        .replace("%check_name%", check.getDisplayName())
+                        .replace("%experimental%", check.isExperimental() ? experimentalSymbol : "")
+                        .replace("%vl%", Integer.toString(vl))
+                        .replace("%description%", check.getDescription())
+                        .replace("%stable_key%", check.getStableKey()));
+        if (!replaced.contains("%verbose%")) return replaced;
+        return replaced.replace("%verbose%", MessageUtil.miniMessageSafe(safeGet(verbose)));
     }
 
     public boolean handleAlert(CultPlayer player, String verbose, Check check) {
@@ -107,6 +109,15 @@ public class PunishmentManager implements ConfigReloadable {
     }
 
     public boolean handleAlert(CultPlayer player, Supplier<String> verbose, Check check) {
+        return handleAlert(player, verbose, verbose, check);
+    }
+
+    /**
+     * Runs the commands a flag of {@code check} makes due. Alerts, webhooks, proxy forwards and console commands show
+     * {@code verbose}; a [log] row stores {@code logVerbose}. Each is rendered only for a command that uses it, since
+     * verbose that shows a Cult Log identifier builds the log when it is rendered.
+     */
+    public boolean handleAlert(CultPlayer player, Supplier<String> verbose, Supplier<String> logVerbose, Check check) {
         boolean sentDebug = false;
 
         // Check commands
@@ -120,12 +131,10 @@ public class PunishmentManager implements ConfigReloadable {
                     // alerts. The verbose string is only rendered (safeGet) when there are listeners, so the flag
                     // path stays lazy when nobody is subscribed.
                     if (command.command.equals("[alert]")
-                            && CultAPI.INSTANCE.getAlertManager().hasVerboseListeners()) {
+                            && CultAPI.INSTANCE.getAlertManager().hasVerboseListeners(player)) {
                         sentDebug = true;
                         try {
-                            String verboseForListeners = safeGet(verbose);
-                            String listenerCmd =
-                                    replaceAlertPlaceholders(command.command, vl, check, verboseForListeners);
+                            String listenerCmd = replaceAlertPlaceholders(command.command, vl, check, verbose);
                             verboseListeners = CultAPI.INSTANCE
                                     .getAlertManager()
                                     .sendVerbose(
@@ -141,8 +150,9 @@ public class PunishmentManager implements ConfigReloadable {
                                 ? command.executeCount == 0
                                 : violationCount >= command.nextBoundary;
                         if (shouldRun) {
-                            String renderedVerbose = safeGet(verbose);
-                            String cmd = replaceAlertPlaceholders(command.command, vl, check, renderedVerbose);
+                            Supplier<String> text = command.command.equals("[log]") ? logVerbose : verbose;
+                            Supplier<String> shown = () -> safeGet(text);
+                            String cmd = replaceAlertPlaceholders(command.command, vl, check, shown);
                             // Only console commands can reach a backend's CommandExecuteEvent listeners;
                             // the built-in actions below are decided by this event alone.
                             boolean withheld =
@@ -152,7 +162,7 @@ public class PunishmentManager implements ConfigReloadable {
                                     || COMMAND_CHANNEL.fire(
                                             ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(player),
                                             ac.cult.cultac.runtime.RuntimeEnvironment.outwardCheck(check),
-                                            renderedVerbose,
+                                            shown,
                                             cmd);
                             if (command.interval == 0) {
                                 command.executeCount++;
@@ -166,11 +176,12 @@ public class PunishmentManager implements ConfigReloadable {
                                     case "[webhook]" ->
                                         CultAPI.INSTANCE
                                                 .getDiscordManager()
-                                                .sendAlert(player, renderedVerbose, check.getDisplayName(), vl);
+                                                .sendAlert(player, safeGet(verbose), check.getDisplayName(), vl);
                                     case "[log]" -> {
                                         // Binary flags already stored a row; avoid an extra legacy text row.
                                         if (!check.isLastFlagStoredBinaryVerbose()) {
-                                            String verboseWithoutGl = renderedVerbose.replaceAll(" /gl .*", "");
+                                            String verboseWithoutGl =
+                                                    safeGet(logVerbose).replaceAll(" /gl .*", "");
                                             CultAPI.INSTANCE
                                                     .getDataStoreLifecycle()
                                                     .liveWriteHooks()
@@ -197,6 +208,12 @@ public class PunishmentManager implements ConfigReloadable {
                                     }
                                     default -> {
                                         double violations = check.getViolations();
+                                        // Only where the platform hands it on, such as to a backend plugin.
+                                        String renderedVerbose = CultAPI.INSTANCE
+                                                        .getPlatformServer()
+                                                        .dispatchesVerbose(cmd, player.platformPlayer)
+                                                ? safeGet(verbose)
+                                                : "";
                                         CultAPI.INSTANCE
                                                 .getScheduler()
                                                 .getGlobalRegionScheduler()
@@ -231,6 +248,28 @@ public class PunishmentManager implements ConfigReloadable {
         }
 
         return sentDebug;
+    }
+
+    /**
+     * Whether committing {@code pending} more flags of {@code check} could make {@link #handleAlert} render a flag's
+     * shown verbose: a verbose listener hears every flag an alerting group takes, and a command other than [log]
+     * renders it once the group's violations reach it. Leans to true, since violations may expire before the flags
+     * commit.
+     */
+    public boolean mayRenderVerbose(Check check, int pending) {
+        boolean verboseListeners = CultAPI.INSTANCE.getAlertManager().hasVerboseListeners(player);
+        for (PunishGroup group : groups) {
+            if (!group.checks.contains(check)) continue;
+            int violationCount = group.violations.size() + pending;
+            for (ParsedCommand command : group.commands) {
+                if (command.command.equals("[log]")) continue;
+                if (verboseListeners && command.command.equals("[alert]")) return true;
+                if (violationCount >= command.threshold
+                        && (command.interval == 0 ? command.executeCount == 0 : violationCount >= command.nextBoundary))
+                    return true;
+            }
+        }
+        return false;
     }
 
     private static void logDeliveryFailure(ParsedCommand command, Check check, RuntimeException e) {

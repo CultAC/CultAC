@@ -24,6 +24,7 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 public class SuperDebug extends CultProcessor implements PostPredictionListener {
 
@@ -93,10 +94,12 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
     public void onPredictionComplete(PredictionComplete predictionComplete) {
         PredictionResult result = predictionComplete.getPredictionResult();
         if (player.isBedrockMovement()) {
-            if (predictionComplete.isTeleport() || result == null || result.getIdentifier() == 0) {
-                return;
+            if (predictionComplete.isTeleport() || result == null) return;
+            if (result.getIdentifier() != 0) {
+                storeDebugLog(formatBedrockLog(player, result), result);
+            } else if (result.isLogOffered()) {
+                buildWhenShown(result, () -> formatBedrockLog(player, result));
             }
-            storeDebugLog(formatBedrockLog(player, result), result);
             return;
         }
 
@@ -130,8 +133,29 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
             capture(watch, result, lastResult, closest, target, predictionComplete.isExempt());
         }
 
-        if (result.getIdentifier() == 0) return;
+        if (result.getIdentifier() != 0) {
+            storeDebugLog(javaLog(result, lastResult), result);
+        } else if (result.isLogOffered()) {
+            buildWhenShown(result, () -> javaLog(result, lastResult));
+        }
+    }
 
+    /**
+     * Builds {@code result}'s Cult Log the first time text showing its identifier is rendered, on this thread while
+     * the prediction's listeners run. Until then nothing is built, so a flag nobody sees costs no log.
+     */
+    private void buildWhenShown(PredictionResult result, Supplier<DebugText.Builder> log) {
+        Thread packetThread = Thread.currentThread();
+        result.buildLogWhenShown(() -> {
+            // Another thread may not read the player's state.
+            if (Thread.currentThread() != packetThread) return 0;
+            result.setIdentifier(SimulationProcessor.nextDebugIdentifier());
+            storeDebugLog(log.get(), result);
+            return result.getIdentifier();
+        });
+    }
+
+    private DebugText.Builder javaLog(PredictionResult result, PredictionResult lastResult) {
         DebugText.Builder sb = newText();
         sb.append("Cult Version: ").append(CultAPI.INSTANCE.getExternalAPI().getGrimVersion());
         sb.append("\n");
@@ -153,8 +177,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         appendMovementHistory(sb);
         appendTail(sb, result, lastResult);
         sb.append(BlockGrid.around(player));
-
-        storeDebugLog(sb, result);
+        return sb;
     }
 
     /** A builder sized for this player's last log or capture. */

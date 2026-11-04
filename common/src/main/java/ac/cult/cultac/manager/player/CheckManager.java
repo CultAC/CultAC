@@ -434,8 +434,9 @@ public class CheckManager {
     private static ClassToInstanceMap<PostPredictionListener> buildPostPredictionChecks(CultPlayer player) {
         return listenerMap(List.<PostPredictionListener>of(
                 player.getGhostBlockMitigator(),
-                new FlagCaller(player),
+                // Before every listener that shows the Cult Log identifier: the first one to show it builds the log.
                 new SuperDebug(player),
+                new FlagCaller(player),
                 new NoSlow(player),
                 player.getItemUseDesync(),
                 player.itemUseBurst,

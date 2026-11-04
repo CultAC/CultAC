@@ -1073,9 +1073,12 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         boolean bedrockMovementFlag = this.player.isBedrockMovement() && result.hasFlag(BedrockMovement.class);
         boolean identifierShown = this.player.shouldEnforceMovementSetbacks()
                 && (this.player.isBedrockMovement() || this.canFlagWithIdentifier(result));
-        if (identifierShown || createProfileVerboseLog || bedrockMovementFlag) {
+        if (createProfileVerboseLog) {
             result.setIdentifier(nextDebugIdentifier());
-            result.setProfileVerboseLog(createProfileVerboseLog);
+            result.setProfileVerboseLog(true);
+        } else if (identifierShown || bedrockMovementFlag) {
+            // SuperDebug builds the log only once an alert, verbose line or punishment command renders the identifier.
+            result.setLogOffered(true);
         }
     }
 
@@ -1592,6 +1595,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         this.player.compensatedEntities.vehicles.consumeVehicleSwitchPredictionOffset(result);
         PredictionComplete complete = new PredictionComplete(result, preparedCommit);
         this.player.checkManager.onPredictionFinish(complete);
+        // The state a Cult Log reads moves on from here.
+        if (result != null) result.closeLog();
     }
 
     public boolean isExempt() {

@@ -168,6 +168,16 @@ public class Check extends CultProcessor implements AbstractCheck {
         return recordFlag(alertText, alertText);
     }
 
+    /**
+     * Flags with {@code verbose} for flag consumers and the flag history, and {@code alertText} for alerts, verbose,
+     * webhooks, proxy forwards and punishment commands. Each is rendered only if something reads it.
+     */
+    public boolean flag(@NotNull Supplier<String> verbose, @NotNull Supplier<String> alertText) {
+        return recordFlag(
+                memoize(Objects.requireNonNull(verbose, "verbose")),
+                memoize(Objects.requireNonNull(alertText, "alertText")));
+    }
+
     public final boolean flag(@NotNull Verbose.Writer verbose) {
         BinaryVerbose binary = lazyVerbose(verbose);
         return recordFlag(binary, binary.rendered());
@@ -190,7 +200,7 @@ public class Check extends CultProcessor implements AbstractCheck {
             return false;
 
         FlagArbiter arbiter = player.getFlagArbiter();
-        if (arbiter == null || !defer(arbiter, verbose, null, alertText)) commitFlag(null, alertText);
+        if (arbiter == null || !defer(arbiter, verbose, null, alertText)) commitFlag(null, verbose, alertText);
         return true;
     }
 
@@ -206,12 +216,15 @@ public class Check extends CultProcessor implements AbstractCheck {
                 RuntimeEnvironment.outwardVerbose(rendered))) return false;
 
         FlagArbiter arbiter = player.getFlagArbiter();
-        if (arbiter == null || !defer(arbiter, rendered, verboseData, alertText)) commitFlag(verboseData, alertText);
+        if (arbiter == null || !defer(arbiter, rendered, verboseData, alertText)) {
+            commitFlag(verboseData, rendered, alertText);
+        }
         return true;
     }
 
     /** {@code verboseData} is null for a text verbose, which stores no binary flag row. */
-    private void commitFlag(byte @Nullable [] verboseData, @NotNull Supplier<String> alertText) {
+    private void commitFlag(
+            byte @Nullable [] verboseData, @NotNull Supplier<String> verbose, @NotNull Supplier<String> alertText) {
         lastFlagStoredBinaryVerbose = verboseData != null;
         player.punishmentManager.handleViolation(this);
         lastViolationTime = System.currentTimeMillis();
@@ -224,7 +237,7 @@ public class Check extends CultProcessor implements AbstractCheck {
                     .liveWriteHooks()
                     .recordFlagDataFromCheck(player, this, violations, verboseData);
         }
-        alert(alertText);
+        player.punishmentManager.handleAlert(player, memoize(alertText), memoize(verbose), this);
     }
 
     private boolean defer(
@@ -233,8 +246,12 @@ public class Check extends CultProcessor implements AbstractCheck {
             byte @Nullable [] verboseData,
             @NotNull Supplier<String> alertText) {
         double prospective = violations + deferredFlags + 1;
-        if (!arbiter.defer(this, verbose, prospective, new DeferredFlag(verboseData, alertText))) return false;
+        Supplier<String> alert = memoize(alertText);
+        if (!arbiter.defer(this, verbose, prospective, new DeferredFlag(verboseData, verbose, alert))) return false;
         deferredFlags++;
+        // The verdict commits after this prediction's listeners, too late for a Cult Log identifier the alert shows to
+        // build its log. Render the alert now if committing could render it.
+        if (player.punishmentManager.mayRenderVerbose(this, deferredFlags)) alert.get();
         return true;
     }
 
@@ -363,17 +380,20 @@ public class Check extends CultProcessor implements AbstractCheck {
 
     private final class DeferredFlag implements FlagOutcome {
         private final byte @Nullable [] verboseData;
+        private final @NotNull Supplier<String> verbose;
         private final @NotNull Supplier<String> alertText;
 
-        private DeferredFlag(byte @Nullable [] verboseData, @NotNull Supplier<String> alertText) {
+        private DeferredFlag(
+                byte @Nullable [] verboseData, @NotNull Supplier<String> verbose, @NotNull Supplier<String> alertText) {
             this.verboseData = verboseData;
+            this.verbose = verbose;
             this.alertText = alertText;
         }
 
         @Override
         public void commit() {
             deferredFlags--;
-            commitFlag(verboseData, alertText);
+            commitFlag(verboseData, verbose, alertText);
         }
 
         @Override

@@ -13,6 +13,7 @@ import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.platform.velocity.bridge.BridgeFrames;
+import ac.cult.cultac.platform.velocity.bridge.BridgeSession;
 import ac.cult.cultac.platform.velocity.bridge.api.BridgeApiService;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
@@ -120,11 +121,8 @@ final class VelocityServer implements PlatformServer {
             AbstractCheck check,
             double violations,
             String verbose) {
-        var session = subject instanceof VelocityPlayer player ? player.bridge(ServerCapability.CONSOLE_EXEC) : null;
-        if (session != null
-                && session.has(ServerCapability.FLAG_VERDICT)
-                && ListenerKind.has(session.listeners(), ListenerKind.COMMAND_EXECUTE)
-                && !proxy.getCommandManager().hasCommand(root(command))) {
+        var session = commandExecuteSession(command, subject);
+        if (session != null) {
             int checkIdx = BridgeApiService.checkIndex(session, check);
             String text = BridgeFrames.capVerbose(verbose);
             if (checkIdx >= 0
@@ -146,6 +144,23 @@ final class VelocityServer implements PlatformServer {
             }
         }
         dispatchCommand(sender, command, subject);
+    }
+
+    /** Only a backend plugin listening for CommandExecuteEvent gets a punishment command's verbose. */
+    @Override
+    public boolean dispatchesVerbose(String command, @Nullable PlatformPlayer subject) {
+        return commandExecuteSession(command, subject) != null;
+    }
+
+    /** The bridge to {@code subject}'s backend when a plugin there listens for {@code command}'s CommandExecuteEvent. */
+    private @Nullable BridgeSession commandExecuteSession(String command, @Nullable PlatformPlayer subject) {
+        var session = subject instanceof VelocityPlayer player ? player.bridge(ServerCapability.CONSOLE_EXEC) : null;
+        return session != null
+                        && session.has(ServerCapability.FLAG_VERDICT)
+                        && ListenerKind.has(session.listeners(), ListenerKind.COMMAND_EXECUTE)
+                        && !proxy.getCommandManager().hasCommand(root(command))
+                ? session
+                : null;
     }
 
     private static String root(String command) {

@@ -630,6 +630,20 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         return AlertType.VERBOSE.hasListeners() || network.verboseWanted();
     }
 
+    /**
+     * Whether a verbose line about {@code subject} reaches anyone, as {@link #sendVerbose} delivers it: the console,
+     * staff here whose scope covers the subject's server, or, while a transport runs, another instance's staff.
+     */
+    public boolean hasVerboseListeners(@NotNull CultPlayer subject) {
+        if (AlertType.VERBOSE.console.get() || network.verboseWanted()) return true;
+        if (AlertType.VERBOSE.players.isEmpty()) return false;
+        AlertSubject about = AlertSubject.of(subject);
+        for (PlatformPlayer staff : AlertType.VERBOSE.players) {
+            if (about.none() || covers(staff, about.server(), true)) return true;
+        }
+        return false;
+    }
+
     @Contract(pure = true)
     public boolean hasAlertListeners() {
         return AlertType.NORMAL.hasListeners();
