@@ -32,6 +32,9 @@ public final class PlayerSearchFilters {
         text("version", p -> p.details().getOrDefault("version", List.of()));
         text("platform", p -> p.details().getOrDefault("platform", List.of()));
         text("fastmath", p -> p.details().getOrDefault("fastmath", List.of()));
+        text("brandtype", p -> p.details().getOrDefault("brandtype", List.of()));
+        text("channeltype", p -> p.details().getOrDefault("channeltype", List.of()));
+        text("modtype", p -> p.details().getOrDefault("modtype", List.of()));
         number("sens");
         number("vsens");
         number("ping");

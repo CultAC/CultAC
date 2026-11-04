@@ -67,6 +67,21 @@ class PlayerSearchFiltersTest {
     }
 
     @Test
+    void clientTypesMatchTheirOwnSource() {
+        NetworkPlayer lunar = new NetworkPlayer(
+                UUID.randomUUID(),
+                "Lunar",
+                "p1",
+                "Lobby",
+                "lunarclient:v2",
+                Map.of("brandtype", List.of("lunar"), "channeltype", List.of("fabric"), "modtype", List.of("unset")));
+        assertTrue(matches(lunar, "brandtype=lunar channeltype=fabric"));
+        assertTrue(matches(lunar, "modtype=unset"));
+        assertFalse(matches(lunar, "brandtype=fabric"));
+        assertFalse(matches(java, "channeltype=fabric"));
+    }
+
+    @Test
     void rejectsMalformedAndUnsupportedFilters() {
         for (String query : List.of(
                 "foo",

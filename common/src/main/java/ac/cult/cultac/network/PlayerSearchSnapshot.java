@@ -2,10 +2,12 @@ package ac.cult.cultac.network;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.impl.aim.processor.AimProcessor;
+import ac.cult.cultac.player.ClientClassification;
 import ac.cult.cultac.player.CultPlayer;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -21,6 +23,10 @@ public final class PlayerSearchSnapshot {
         values.put("version", List.of(player.getVersionName()));
         values.put("ping", List.of(Long.toString(player.getTransactionPing())));
         values.put("fastmath", List.of(Boolean.toString(!player.isVanillaMath())));
+        ClientClassification classification = player.getClientClassification();
+        values.put("brandtype", List.of(typeName(classification.brandType())));
+        values.put("channeltype", List.of(typeName(classification.channelType())));
+        values.put("modtype", List.of(typeName(classification.modType())));
         if (!player.isBedrockMovement()) {
             AimProcessor aim = player.checkManager.getCheck(AimProcessor.class);
             if (aim != null) {
@@ -45,5 +51,9 @@ public final class PlayerSearchSnapshot {
         }
         values.put("mod", List.copyOf(mods));
         return Map.copyOf(values);
+    }
+
+    private static String typeName(ClientClassification.Type type) {
+        return type.name().toLowerCase(Locale.ROOT);
     }
 }

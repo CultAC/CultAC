@@ -243,15 +243,14 @@ findplayer-player: "&8» &f%player% &7on &f%server% &8· &7%brand%"
 findplayer-player-hover: "&7Show %player%'s profile"
 findplayer-more: "&7...and %count% more. Type more of the brand name to narrow it down."
 findplayer-none: "%prefix% &7Nobody online uses a brand containing &f%query%&7."
-findplayer-usage: "%prefix% &cUse /%command% findplayer brand=lunar [key=value ...]. Keys: brand, mod, channel, sens, vsens, ping, version, platform, server, proxy, name, uuid, fastmath. Text: case-insensitive substring; filters AND together. Numbers: x (within 0.5), >x, <x, a-b (inclusive). Sensitivity: 0-200 percent, unknown on Bedrock. Text values support double quotes and backslash escapes. No filters: brand counts."
+findplayer-usage: "%prefix% &cUse &f/%command% findplayer key=value ...&c to search. Keys: brand, brandtype, channel, channeltype, mod, modtype, sens, vsens, ping, version, platform, server, proxy, name, uuid, fastmath. Numbers take 50, >50, <50 or 40-60. Put values with spaces in quotes. Leave out filters to count brands."
 findplayer-filter-results: "%prefix% &bPlayers matching &f%query% &8· &f%count% &7online"
 findplayer-filter-player: "&8» &f%player% &7on &f%server% &8· &7%values%"
 findplayer-filter-none: "%prefix% &7Nobody online matches &f%query%&7."
 findplayer-filter-more: "&7...and %count% more. Add filters to narrow it down."
 findplayer-unavailable: "%prefix% &e%count% instance(s) did not answer; results are incomplete."
+findplayer-wait: "%prefix% &7Please wait a moment before searching again."
 
 # Schema markers — see header comment in config.yml.
 config-flavor: V2
 config-version: 4
-
-findplayer-wait: "%prefix% &7Please wait a moment before searching again."
