@@ -177,34 +177,86 @@ and LuckPerms the same way.
 ### Staff bans
 
 Staff can ban a player from the cloud panel. The cloud service holds the ban until one of your organization's
-servers claims it and runs it with that server's own command:
+servers claims it and runs it with that server's own command. Each ban runs once, on the one server that claims it, so
+set the commands where your ban plugin runs (on the proxy, or on every backend when each backend runs it against a
+shared database) and leave them empty everywhere else.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `cloud.staff-ban.command` | `""` | Runs for a permanent ban. |
-| `cloud.staff-ban.temp-command` | `""` | Runs for a timed ban. |
+| `cloud.staff-ban.command` | `""` | Runs every ban when it holds `%duration%`; otherwise permanent bans and bans whose length your server decides. |
+| `cloud.staff-ban.temp-command` | `""` | Optional. Runs timed bans in place of `command`. |
 
-Placeholders: `%player%` (the name, or the UUID when it is unknown, starts with `-` or has characters other than
-letters, digits, `_`, `.`, `*` and `-`), `%uuid%`, `%reason%`, `%cheat%` (the cheat's display name), `%cheat_id%`,
-`%duration%` (`30m`, `12h`, `7d`: the largest of days, hours and minutes that divides it, else seconds as `90s`; empty
-when permanent), `%seconds%` (empty when permanent), `%staff%`, `%ban_id%`, `%link%` (the player's page on the cloud
-panel), `%staff_uuid%` (the banning staff member's Minecraft UUID when the panel knows it, else empty) and
-`%evidence%` (a link to the evidence the ban rests on, such as a replay, else empty). Control characters and line
-breaks are removed from every value and its whitespace collapsed; `%reason%` and `%staff%` keep at most 200
-characters. `%link%` and `%evidence%` keep only letters, digits and `:/?=&.%_-~`, and are empty unless they then start
-with `https://` or `http://`; `%staff_uuid%` is empty unless it is a dashed UUID. For example
-`tempban %player% %duration% %reason%` or `ban %player% %reason% (%staff%)`. `%reason%` and `%staff%` are free text,
-so put `%reason%` last, after `%duration%`: a ban plugin may read a reason such as `1d spam` as a duration. Text other
-than `%reason%` never contains `=`, so it cannot read as a key in a `key=value` command, and a value that would start
-with `-` gets a leading `'` (within the 200 characters) so it is never read as a flag. A ban for something other than a cheat has no cheat: `%cheat%` and `%cheat_id%` are
-empty then.
+The panel's ban policy decides what staff fill in, and so which kind of ban reaches your server and which command
+runs it:
+
+| Ban | Command |
+|---|---|
+| Timed: staff picked a length | `temp-command`; else `command` when it holds `%duration%` or `%seconds%`; else this server never takes it |
+| Permanent | `command`; else `temp-command` when it holds `%duration%`; else this server never takes it |
+| Length set by your server: the policy asks staff for no length | `command`; else `temp-command`, with `%duration%` and `%seconds%` empty |
+
+A command without a length therefore never turns a timed ban into a permanent one. One `command` such as
+`ban %silent% %uuid% %duration% %reason%` covers every ban for a ban plugin that reads a ban without a length as
+permanent.
+
+| Placeholder | Value |
+|---|---|
+| `%player%` | The name, or the UUID when it is unknown, starts with `-` or has characters other than letters, digits, `_`, `.`, `*` and `-`. |
+| `%uuid%` | The player's UUID. |
+| `%reason%` | The reason your server gets: the picked reason's value (else its label), the text staff typed, or empty when the policy asks for no reason. |
+| `%reason_label%` | The reason as staff saw it: the picked reason's label, or the text staff typed. |
+| `%cheat%`, `%cheat_id%` | The cheat's display name and id; empty for a ban for something other than a cheat. |
+| `%duration%` | A timed ban's length: `30m`, `12h`, `7d` (the largest of days, hours and minutes that divides it, else seconds as `90s`). A permanent ban's is the value the ban policy sends for Permanent: empty by default, or a word such as `perm`. Empty when your server decides the length. |
+| `%seconds%` | A timed ban's length in seconds; empty for other bans. |
+| `%silent%` | The ban policy's silent flag, such as `-s`, when staff ticked Silent; else empty. |
+| `%staff%` | The banning staff member's name on the panel. |
+| `%staff_uuid%` | The banning staff member's Minecraft UUID when the panel knows it; else empty. |
+| `%ban_id%` | The panel's id for the ban. |
+| `%link%` | The player's page on the cloud panel. |
+| `%evidence%` | A link to the evidence the ban rests on, such as a replay; else empty. |
+
+How a command is filled:
+
+- Control characters and line breaks are removed from every value and its whitespace collapsed; `%reason%`,
+  `%reason_label%` and `%staff%` keep at most 200 characters. `%link%` and `%evidence%` keep only letters, digits and
+  `:/?=&.%_-~`, and are empty unless they then start with `https://` or `http://`; `%staff_uuid%` is empty unless it is
+  a dashed UUID.
+- A word of the command (the text between two spaces) holding a placeholder that fills empty is left out whole, so
+  `--sender=%staff_uuid%` disappears rather than leaving `--sender=`, and an empty `%silent%` or `%duration%` leaves no
+  gap. The words left are joined with single spaces.
+- `%reason%`, `%reason_label%`, `%staff%` and `%cheat%` may hold spaces, so they are only safe at the end of the
+  command: put `%reason%` last, after `%duration%`. A ban plugin may also read a reason such as `1d spam` as a length.
+- Text other than `%reason%` and `%reason_label%` never contains `=`, so it cannot read as a key in a `key=value`
+  command, and a value that would start with `-` gets a leading `'` (within the 200 characters).
+- A value never adds a flag to the command: a ban whose value holds a word starting with `-` anywhere else is not run,
+  and `%silent%` must be one word starting with `-`. Only the placeholders the command uses are checked.
+- A placeholder CultAC does not know stays as it is, and a leading `/` is dropped.
+
+Examples, to check against your ban plugin's own documentation:
+
+| Ban plugin | `command` | `temp-command` |
+|---|---|---|
+| LiteBans | `ban %silent% %uuid% %duration% %reason%` | empty |
+| LibertyBans | `ban %silent% %uuid% %duration% %reason%` | empty |
+| AdvancedBan | `ban %silent% %player% %reason%` | `tempban %silent% %player% %duration% %reason%` |
+| BanManager | `ban %silent% %player% %reason%` | `tempban %silent% %player% %duration% %reason%` |
+| EssentialsX | `ban %player% %reason%` | `tempban %player% %duration% %reason%` |
+| Vanilla | `minecraft:ban %player% %reason%` | empty: vanilla has no timed ban, so this server never takes timed bans |
+
+BanManager needs a reason, so ask staff for one in the ban policy. The command runs as console, so the ban plugin
+records Console; to keep the moderator's name, add `%staff%` to the reason, as in `ban %player% %reason% (by %staff%)`.
+
+On a Paper server, write the ban plugin's namespaced command: its name in lower case, a colon, then the command, such
+as `litebans:ban`. A bare `ban` runs vanilla `minecraft:ban` on a server where the plugin is missing, for example a
+backend of a network whose ban plugin runs on the proxy, and bans the player on that one server only; the namespaced
+command reports `unknown command` there instead.
 
 While the upload is configured and either command is set, CultAC asks the service for the pending bans its commands
-cover (permanent, timed or both) every 10 seconds, or as often as the service says (5 to 60 seconds). A server where
-the player is online claims the ban at once; the others wait 15 seconds, or the service's grace, so the player's own
-server can take it. The claimed ban runs as console on the main thread (on Velocity from the proxy console, or on the
-player's backend through the CultAC Companion when the proxy has no such command), and the outcome goes back to the
-service:
+can run (timed, permanent, or of a length your server decides) every 10 seconds, or as often as the service says (5 to
+60 seconds). A server where the player is online claims the ban at once; the others wait 15 seconds, or the service's
+grace, so the player's own server can take it. The claimed ban runs as console on the main thread (on Velocity from
+the proxy console, or on the player's backend through the CultAC Companion when the proxy has no such command), and
+the outcome goes back to the service:
 
 | Result | Meaning |
 |---|---|
@@ -213,6 +265,10 @@ service:
 | `sent to backend` | The command went to the player's backend, which did not answer within 2 seconds; it may still run there. |
 | `unknown command` | The server or proxy has no such command. |
 | `not run: the server was busy` | The main thread did not take the command within 30 seconds; it never runs later. |
+| `not run: no command here runs timed bans: …` | Neither command can run this kind of ban (see the table above); the same for permanent bans. |
+| `not run: %reason% has a word starting with -` | That placeholder would have added a flag to the command, which did not run. |
+| `not run: %silent% is not one flag starting with -` | The silent flag is not one word starting with `-`; the command did not run. |
+| `not run: the command is empty once filled` | Every word of the command filled empty; nothing ran. |
 | anything else | The error the command threw. |
 
 When the service cannot be reached to take a result, CultAC retries every 10 seconds until it can, also across
