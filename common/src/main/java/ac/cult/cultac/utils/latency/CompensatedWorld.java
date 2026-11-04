@@ -344,6 +344,22 @@ public class CompensatedWorld {
             recalcCounts();
         }
 
+        /**
+         * A received section with the counts its chunk packet carried, which the client's LevelChunkSection.read keeps
+         * without recounting. Wires before 26.1 carry no fluid count: a negative {@code fluidCount} is counted here.
+         */
+        public static CachedSection received(PalettedSection states, int nonEmptyBlockCount, int fluidCount) {
+            return new CachedSection(states, nonEmptyBlockCount, fluidCount);
+        }
+
+        private CachedSection(PalettedSection states, int nonEmptyBlockCount, int fluidCount) {
+            this.states = states;
+            this.lastMutatedNanos = System.nanoTime();
+            if (fluidCount < 0) recalcCounts();
+            else this.fluidCount = fluidCount;
+            this.nonEmptyBlockCount = nonEmptyBlockCount;
+        }
+
         public CachedSection translatedStateIds(java.util.function.IntUnaryOperator mapper) {
             var translated = states.translated(id -> stateIdOrAir(mapper.applyAsInt(id)));
             return translated == states ? this : new CachedSection(translated);
@@ -386,7 +402,8 @@ public class CompensatedWorld {
 
         public CachedSection mutableCopy() {
             mutableCopyCounter.incrementAndGet();
-            return new CachedSection(states.copy(), false);
+            // An exact copy: its counts are this section's.
+            return new CachedSection(states.copy(), nonEmptyBlockCount, fluidCount);
         }
 
         public static CachedSection createAirSection() {
@@ -413,6 +430,10 @@ public class CompensatedWorld {
 
         public boolean hasFluid() {
             return fluidCount > 0;
+        }
+
+        int fluidCount() {
+            return fluidCount;
         }
 
         public long getLastMutatedNanos() {

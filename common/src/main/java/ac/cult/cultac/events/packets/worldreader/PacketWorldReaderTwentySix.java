@@ -29,17 +29,19 @@ public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
                 throw new IllegalArgumentException("Chunk section count differs from the received dimension");
             for (int i = 0; i < chunks.length; i++) {
                 var section = packet.decodedSections().get(i);
-                chunks[i] = new CachedSection(section.copyBlocks());
+                chunks[i] = CachedSection.received(
+                        section.copyBlocks(), section.nonEmptyBlockCount(), section.knownFluidCount());
                 biomes[i] = biomeValues(section);
             }
         } else {
             var bytes = Unpooled.wrappedBuffer(packet.sections());
             try {
                 for (int i = 0; i < chunks.length; i++) {
-                    bytes.readShort(); // Existing cache recalculates block/fluid counts from the decoded states.
-                    bytes.readShort();
+                    // Pinned 26.3 framing: both counts are the server's, kept as LevelChunkSection.read keeps them.
+                    int nonEmpty = bytes.readShort();
+                    int fluids = bytes.readShort();
                     var pool = SectionPool.existing(dimension.dimension(), packet.x(), i, packet.z());
-                    chunks[i] = new CachedSection(PalettedSection.readBlocks(bytes, pool));
+                    chunks[i] = CachedSection.received(PalettedSection.readBlocks(bytes, pool), nonEmpty, fluids);
                     biomes[i] = PalettedSection.readBiomeValues(bytes, biomeSize);
                 }
             } finally {

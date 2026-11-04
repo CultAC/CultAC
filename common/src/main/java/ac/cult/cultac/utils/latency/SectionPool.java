@@ -58,9 +58,10 @@ public final class SectionPool {
     /**
      * A copy-on-write view of a pooled section whose contents the block container at the reader index holds exactly,
      * read past that container; null, with the reader index unchanged, when none does. A pooled section's storage is
-     * not written until it leaves the pool under this lock, and the view marks it shared before then.
+     * not written until it leaves the pool under this lock, and the view marks it shared before then. The match carries
+     * the pooled section's fluid count, which equal contents share.
      */
-    synchronized PalettedSection sharedBlocks(
+    synchronized PalettedSection.PooledRead sharedBlocks(
             ByteBuf input,
             boolean lengthPrefixed,
             int sourceRegistrySize,
@@ -71,13 +72,14 @@ public final class SectionPool {
         int copiedAt = PalettedSection.NO_WORD_COPY;
         int candidates = Math.min(nonUniformSections.size(), WIRE_CANDIDATES);
         for (int i = 0; i < candidates; i++) {
-            PalettedSection states = nonUniformSections.get(i).states();
+            CachedSection pooled = nonUniformSections.get(i);
+            PalettedSection states = pooled.states();
             copiedAt = states.skipIfEncodes(
                     input, lengthPrefixed, sourceRegistrySize, mapper, targetRegistrySize, copiedAt);
             if (copiedAt == PalettedSection.MATCHED) {
                 wireCandidateCounter.add(i + 1);
                 wireHitCounter.increment();
-                return states.copyOnWriteFromPool();
+                return new PalettedSection.PooledRead(states.copyOnWriteFromPool(), pooled.fluidCount());
             }
         }
         wireCandidateCounter.add(candidates);

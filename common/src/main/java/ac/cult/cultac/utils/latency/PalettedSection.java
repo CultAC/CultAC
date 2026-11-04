@@ -133,20 +133,39 @@ public final class PalettedSection {
             IntUnaryOperator mapper,
             int targetRegistrySize,
             SectionPool pool) {
+        return readBlocksPooled(input, version, registrySize, mapper, targetRegistrySize, pool)
+                .states();
+    }
+
+    /** A block container read; {@code pooledFluidCount} is that of the pooled section it shares storage with, or -1. */
+    public record PooledRead(PalettedSection states, int pooledFluidCount) {}
+
+    /**
+     * As {@link #readBlocks(ByteBuf, ProtocolVersion, int, IntUnaryOperator, int, SectionPool)}, also giving a matched
+     * pooled section's fluid count, which wires before 26.1 do not carry.
+     */
+    public static PooledRead readBlocksPooled(
+            ByteBuf input,
+            ProtocolVersion version,
+            int registrySize,
+            IntUnaryOperator mapper,
+            int targetRegistrySize,
+            SectionPool pool) {
         if (pool != null) {
             var shared = pool.sharedBlocks(
                     input, !version.atLeast(ProtocolVersion.V1_21_5), registrySize, mapper, targetRegistrySize);
             if (shared != null) return shared;
-            return countedFullRead(readBlocks(input, version, registrySize, mapper, targetRegistrySize));
+            return new PooledRead(
+                    countedFullRead(readBlocks(input, version, registrySize, mapper, targetRegistrySize)), -1);
         }
-        return readBlocks(input, version, registrySize, mapper, targetRegistrySize);
+        return new PooledRead(readBlocks(input, version, registrySize, mapper, targetRegistrySize), -1);
     }
 
     /** As {@link #readBlocks(ByteBuf)}, sharing the storage of a section in {@code pool} that the container holds. */
     public static PalettedSection readBlocks(ByteBuf input, SectionPool pool) {
         if (pool != null) {
             var shared = pool.sharedBlocks(input, false, BLOCK_STATES, IntUnaryOperator.identity(), BLOCK_STATES);
-            if (shared != null) return shared;
+            if (shared != null) return shared.states();
             return countedFullRead(readBlocks(input));
         }
         return readBlocks(input);

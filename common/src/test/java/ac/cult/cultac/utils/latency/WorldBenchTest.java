@@ -234,8 +234,16 @@ class WorldBenchTest {
             for (int i = 0; i < SECTIONS_PER_CHUNK; i++) {
                 int index = start + i;
                 int[] states = index < sections.size() ? sections.get(index) : new int[4096];
-                wire.writeShort(0);
-                wire.writeShort(0);
+                // The chunk reader keeps the wire's counts, as the client does, so they must be the real ones.
+                int nonEmpty = 0, fluids = 0;
+                for (int state : states) {
+                    var facts = REGISTRY.facts(state);
+                    if (facts.has(ac.cult.blocksim.data.StateFacts.AIR)) continue;
+                    nonEmpty++;
+                    if (!facts.fluid().equals("minecraft:empty")) fluids++;
+                }
+                wire.writeShort(nonEmpty);
+                wire.writeShort(fluids);
                 encode(wire, states, STATES);
                 int[] biomes = new int[BIOMES];
                 Arrays.fill(biomes, 1);
