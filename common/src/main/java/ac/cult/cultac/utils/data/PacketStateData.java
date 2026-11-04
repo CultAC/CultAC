@@ -103,6 +103,8 @@ public class PacketStateData {
     public Vec3 lastPacketProvenVehiclePhysicalMovement = null;
     // Transaction observed at the last tick-end packet; used to prove tick-boundary state ordering.
     public int lastClientTickEndTransaction = Integer.MIN_VALUE;
+    // Transaction observed at the last tick-end of a Java client tick whose LocalPlayer#tick or Entity#rideTick ran.
+    public int lastDeltaConsumedTickEndTransaction = Integer.MIN_VALUE;
 
     /** LocalPlayer#tick sent its player_input, a player_command, player_abilities or its movement this client tick. */
     public boolean localPlayerTickSentThisClientTick() {

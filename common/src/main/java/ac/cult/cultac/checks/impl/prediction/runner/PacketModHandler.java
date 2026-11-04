@@ -342,11 +342,17 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
         // MCP-Reborn applies velocity/explosion packets immediately to delta movement,
         // then LocalPlayer#tick consumes that delta before Minecraft#tick sends
         // ServerboundClientTickEndPacket. Once Cult has seen that tick-end after the
-        // packet's proof transaction, the previous modifier is already consumed. A push
-        // the client's own tick applies after its travel is consumed by the next tick.
+        // packet's proof transaction, the previous modifier is already consumed. Before the
+        // client has loaded, LocalPlayer#tick returns at once and only Entity#rideTick zeroes
+        // the delta, so an explosion's Entity#push adds to a push before an unridden tick; a
+        // velocity's Entity#lerpMotion replaces the delta at any tick. A push the client's own
+        // tick applies after its travel is consumed by the next tick.
+        int consumedThrough = currentIsVelocity || player.isBedrockMovement()
+                ? player.packetStateData.lastClientTickEndTransaction
+                : player.packetStateData.lastDeltaConsumedTickEndTransaction;
         if (previous.isAppliedAfterTravel()
                 ? player.packetStateData.acceptedClientTick >= previous.getConsumedAtClientTick()
-                : player.packetStateData.lastClientTickEndTransaction >= previous.getTransaction()) {
+                : consumedThrough >= previous.getTransaction()) {
             return false;
         }
 

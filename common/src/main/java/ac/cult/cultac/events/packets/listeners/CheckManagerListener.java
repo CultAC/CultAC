@@ -1205,6 +1205,11 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             player.packetStateData.acceptedClientTick++;
             player.packetStateData.lastClientTickEndTransaction = player.lastTransactionReceived.get();
             if (localPlayerTicked(player)) player.packetStateData.localPlayerTickedSinceSpawn = true;
+            // ClientLevel#tickPassenger runs Entity#rideTick even while LocalPlayer#tick waits for the client to load.
+            if (localPlayerTicked(player)
+                    || player.compensatedEntities.getSelf().inVehicle()) {
+                player.packetStateData.lastDeltaConsumedTickEndTransaction = player.lastTransactionReceived.get();
+            }
             player.serverOpenedInventoryThisTick = false;
             player.packetStateData.carriedItemChangedThisClientTick = false;
             player.packetStateData.carriedItemClaimedThisClientTick = false;
