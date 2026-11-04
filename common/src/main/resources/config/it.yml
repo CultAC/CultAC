@@ -136,7 +136,7 @@ Explosion:
     # Limite per rilevare l'esplosione
     threshold: 0.001
     # Livello di violazione per l'esplosione
-    setbackvl: 3
+    setbackvl: 0
 
 TimerA:
     # Livello di violazione per il timer

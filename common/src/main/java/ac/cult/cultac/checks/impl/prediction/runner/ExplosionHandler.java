@@ -27,7 +27,7 @@ public class ExplosionHandler extends PacketModHandler {
             .stableKey("cult.velocity.anti_explosion")
             .configName("Explosion")
             .description("Did not take the expected explosion knockback")
-            .setback(10)
+            .setback(0)
             .build();
     // The ravagers whose stun the client has handled, until their countdowns end.
     private final transient List<PacketEntityRavager> countingDown = new ArrayList<>();

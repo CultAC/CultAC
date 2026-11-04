@@ -149,7 +149,7 @@ Knockback:
 
 Explosion:
     threshold: 0.001
-    setbackvl: 3
+    setbackvl: 0
 
 TimerA:
     setbackvl: 10

@@ -26,12 +26,14 @@ import java.util.UUID;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.stream.Stream;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
-/** AntiKB sets the player back from its first recorded flag, and a flag that is not recorded never sets back. */
+/**
+ * AntiKB and AntiExplosion set the player back from their first recorded flag, and a flag that is not recorded never
+ * sets back.
+ */
 class VelocitySetbackTest {
     private static final double IGNORED_OFFSET = 0.4;
 
@@ -41,9 +43,10 @@ class VelocitySetbackTest {
                 Arguments.of("Explosion", (Function<CultPlayer, PacketModHandler>) ExplosionHandler::new));
     }
 
-    @Test
-    void firstAntiKbFlagSetsBack() {
-        run(KnockbackHandler::new, (rig, check) -> {
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("handlers")
+    void firstFlagSetsBack(String configName, Function<CultPlayer, PacketModHandler> handler) {
+        run(handler, (rig, check) -> {
             rig.velocityTick(check, IGNORED_OFFSET);
             assertEquals(1, check.violations);
             verify(rig.setbacks, times(1)).executeViolationSetback();
