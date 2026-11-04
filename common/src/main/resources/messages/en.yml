@@ -46,6 +46,7 @@ alerts-format: "%prefix% &f<click:run_command:'/%command% spectate %player%'><ho
 alerts-format-proxy: "%prefix% &f[&cproxy&f] &f<click:run_command:'/%command% spectate %player%'><hover:show_text:'&7Click to spectate %player%'>%player%</hover></click> &bfailed <hover:show_text:\"&b%check_name%%experimental%\n&8Description: &f%description%\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
 experimental-symbol: "*"
 
+profile-client-classification: "&7%client_classification%"
 profile:
     - "&7======================"
     - "&bProfile for &f%player%"

@@ -34,6 +34,8 @@ import ac.cult.cultac.checks.impl.exploit.ExploitB;
 import ac.cult.cultac.checks.impl.exploit.ExploitC;
 import ac.cult.cultac.checks.impl.exploit.ExploitF;
 import ac.cult.cultac.checks.impl.groundspoof.NoFallExecutor;
+import ac.cult.cultac.checks.impl.misc.BrandSpoofA;
+import ac.cult.cultac.checks.impl.misc.BrandSpoofB;
 import ac.cult.cultac.checks.impl.misc.ClientBrand;
 import ac.cult.cultac.checks.impl.misc.GhostBlockMitigation;
 import ac.cult.cultac.checks.impl.misc.SkinBlinker;
@@ -314,6 +316,8 @@ public class CheckManager {
                 new ChatE(player),
                 new ClientBrand(player),
                 new SkinBlinker(player),
+                new BrandSpoofA(player),
+                new BrandSpoofB(player),
                 new NoFallExecutor(player),
                 new PingA(player),
                 new TransactionOrder(player),
@@ -614,6 +618,7 @@ public class CheckManager {
         registerReceive(registrations, packetChecks.get(BadPacketsO.class));
         registerReceive(registrations, packetChecks.get(ClientBrand.class));
         registerReceive(registrations, packetChecks.get(SkinBlinker.class));
+        registerReceive(registrations, packetChecks.get(BrandSpoofA.class));
         registerReceive(registrations, packetChecks.get(NoFallExecutor.class));
         registerReceive(registrations, prePredictionChecks.get(ExploitA.class));
         registerReceive(registrations, prePredictionChecks.get(ExploitB.class));

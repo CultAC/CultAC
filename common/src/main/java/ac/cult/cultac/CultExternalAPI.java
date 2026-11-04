@@ -262,6 +262,26 @@ public class CultExternalAPI implements GrimAbstractAPI, ConfigReloadObserver, S
         variableReplacements.putIfAbsent("%keepalive_ping%", user -> user.getKeepAlivePing() + "");
         variableReplacements.putIfAbsent("%brand%", GrimUser::getBrand);
         variableReplacements.putIfAbsent(
+                "%brandtype%",
+                user -> user instanceof CultPlayer p
+                        ? p.getClientClassification().brandType().name()
+                        : "UNKNOWN");
+        variableReplacements.putIfAbsent(
+                "%channeltype%",
+                user -> user instanceof CultPlayer p
+                        ? p.getClientClassification().channelType().name()
+                        : "UNSET");
+        variableReplacements.putIfAbsent(
+                "%modtype%",
+                user -> user instanceof CultPlayer p
+                        ? p.getClientClassification().modType().name()
+                        : "UNSET");
+        variableReplacements.putIfAbsent(
+                "%client_classification%",
+                user -> user instanceof CultPlayer p
+                        ? p.getClientClassification().display()
+                        : "");
+        variableReplacements.putIfAbsent(
                 "%h_sensitivity%", user -> AlertDetails.sensitivity(user.getHorizontalSensitivity(), false));
         variableReplacements.putIfAbsent(
                 "%v_sensitivity%", user -> AlertDetails.sensitivity(user.getVerticalSensitivity(), false));

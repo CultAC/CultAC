@@ -6,6 +6,7 @@ import ac.cult.cultac.checks.impl.exploit.ExploitC;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.player.ClientClassification;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomPayload;
 import java.nio.charset.StandardCharsets;
@@ -35,6 +36,7 @@ public class PluginChannelManager extends CultProcessor implements CheckListener
     private final Set<String> registeredChannels = new LinkedHashSet<>();
     private final Set<String> payloadChannels = new LinkedHashSet<>();
     private String brand = null;
+    private volatile ClientClassification.Type channelType = ClientClassification.Type.UNSET;
 
     @CultPacketHandler
     public void onCustomPayload(
@@ -95,6 +97,7 @@ public class PluginChannelManager extends CultProcessor implements CheckListener
             return;
         }
         registeredChannels.add(channel);
+        channelType = ClientClassification.channelType(registeredChannels);
     }
 
     public void handleChannelUnregistered(String channel) {
@@ -102,6 +105,7 @@ public class PluginChannelManager extends CultProcessor implements CheckListener
             return;
         }
         registeredChannels.remove(channel);
+        channelType = ClientClassification.channelType(registeredChannels);
     }
 
     /** Records a channel the client sent a payload on; false when ExploitC flagged it instead. */
@@ -130,11 +134,11 @@ public class PluginChannelManager extends CultProcessor implements CheckListener
     }
 
     private static boolean isRegister(String channel) {
-        return "minecraft:register".equals(channel);
+        return "minecraft:register".equals(channel) || "REGISTER".equals(channel);
     }
 
     private static boolean isUnregister(String channel) {
-        return "minecraft:unregister".equals(channel);
+        return "minecraft:unregister".equals(channel) || "UNREGISTER".equals(channel);
     }
 
     /** The NUL-separated channel ids of a register or unregister payload. */

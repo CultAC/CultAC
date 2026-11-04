@@ -80,6 +80,14 @@ public class CultProfile implements BuildableCommand {
         for (String message : CultAPI.INSTANCE.getConfigManager().getConfig().getStringList("profile")) {
             final Component component = MessageUtil.miniMessage(message);
             lines.add(MessageUtil.replacePlaceholders(cultPlayer, component));
+            if (message.contains("%brand%") && !message.contains("%client_classification%")) {
+                lines.add(MessageUtil.replacePlaceholders(
+                        cultPlayer,
+                        MessageUtil.miniMessage(CultAPI.INSTANCE
+                                .getConfigManager()
+                                .getConfig()
+                                .getStringElse("profile-client-classification", "&7%client_classification%"))));
+            }
         }
         return lines;
     }

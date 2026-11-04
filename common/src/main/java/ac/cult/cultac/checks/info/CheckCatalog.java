@@ -103,6 +103,8 @@ import ac.cult.cultac.checks.impl.exploit.ExploitB;
 import ac.cult.cultac.checks.impl.exploit.ExploitC;
 import ac.cult.cultac.checks.impl.exploit.ExploitF;
 import ac.cult.cultac.checks.impl.groundspoof.NoFallExecutor;
+import ac.cult.cultac.checks.impl.misc.BrandSpoofA;
+import ac.cult.cultac.checks.impl.misc.BrandSpoofB;
 import ac.cult.cultac.checks.impl.misc.SkinBlinker;
 import ac.cult.cultac.checks.impl.movement.EntityControl;
 import ac.cult.cultac.checks.impl.movement.GhostFriction;
@@ -376,6 +378,8 @@ public final class CheckCatalog {
             check(PingA.class, PACKETS),
             check(PostCheck.INFO, PACKETS),
             check(SkinBlinker.class, PACKETS),
+            check(BrandSpoofA.class, PACKETS),
+            check(BrandSpoofB.class, PACKETS),
             check(TransactionOrder.class, PACKETS),
             check(CrashA.class, CRASH),
             check(CrashB.class, CRASH),

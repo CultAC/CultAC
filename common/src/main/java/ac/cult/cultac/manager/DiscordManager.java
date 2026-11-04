@@ -190,6 +190,11 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
                 CultAPI.INSTANCE.getExternalAPI().getVariableReplacements();
 
         String content = compiledContent.render(player, statics, dynamics, backtickReplacement);
+        if (compiledContent.uses("%brand%")
+                && !compiledContent.uses("%client_classification%")
+                && !compiledContent.uses("%brandtype%")) {
+            content += "\n" + player.getClientClassification().display();
+        }
         String title = compiledTitle.render(player, statics, dynamics, backtickReplacement);
 
         Embed embed = new Embed(truncate(content, Embed.MAX_DESCRIPTION_LENGTH))

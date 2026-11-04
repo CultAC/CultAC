@@ -8,6 +8,7 @@ import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.aim.processor.AimProcessor;
 import ac.cult.cultac.checks.impl.combat.FairReach;
 import ac.cult.cultac.checks.impl.combat.KeepSprint;
+import ac.cult.cultac.checks.impl.misc.ClientBrand;
 import ac.cult.cultac.checks.impl.movement.GhostBlockMitigator;
 import ac.cult.cultac.checks.impl.movement.timer.ItemUseBurst;
 import ac.cult.cultac.checks.impl.packetorder.PacketOrderProcessor;
@@ -1708,6 +1709,22 @@ public class CultPlayer implements GrimUser {
     @Override
     public @Nullable UUID getWorldUID() {
         return platformPlayer != null ? platformPlayer.getWorld().getUID() : null;
+    }
+
+    public ClientClassification getClientClassification() {
+        if (isBedrockMovement()) {
+            return new ClientClassification(
+                    ClientClassification.Type.BEDROCK,
+                    ClientClassification.Type.UNSET,
+                    ClientClassification.Type.UNSET);
+        }
+        var mods = clientMods;
+        return new ClientClassification(
+                checkManager.getCheck(ClientBrand.class).isHasBrand()
+                        ? ClientClassification.brandType(getBrand())
+                        : ClientClassification.Type.UNKNOWN,
+                pluginChannelManager.getChannelType(),
+                mods != null && mods.lunar() ? ClientClassification.Type.LUNAR : ClientClassification.Type.UNSET);
     }
 
     @Override
