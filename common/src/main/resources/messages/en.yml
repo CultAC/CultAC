@@ -75,6 +75,8 @@ debug-channels-entry: "&8- &f%channel%"
 debug-channels-none: "%prefix% &f%player% &bhas no plugin channels open"
 # /cult debug mods <player> — %player%, %count%, %type%, %mod%, %name%, %version%
 debug-mods-header: "%prefix% &b%player% has &f%count% &bLunar Client mods"
+debug-mods-header-added: "%prefix% &b%player% added &f%count% &bmods to Lunar Client"
+debug-mods-internal-hidden: "&7%count% mods that come with Lunar Client are hidden. Add &f--internal &7to list them."
 debug-mods-type: "&b%type%:"
 debug-mods-entry: "&8- &f%name% &7(%mod%) &8%version%"
 debug-mods-not-lunar: "%prefix% &f%player% &bis not connected to Apollo. Apollo reports mods only for Lunar Client."
