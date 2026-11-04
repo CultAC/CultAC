@@ -173,8 +173,9 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
                 this.threshold = Math.min(this.threshold + offset, ceiling);
                 String offsetDescription =
                         offset == Double.MAX_VALUE ? "ignored" : NumFormatter.formatNumberStandard(offset);
-                flag("offset=" + offsetDescription + " threshold=" + NumFormatter.formatNumberStandard(threshold));
-                if (offset >= immediate || threshold >= maxAdvantage) {
+                boolean flagged = flag(
+                        "offset=" + offsetDescription + " threshold=" + NumFormatter.formatNumberStandard(threshold));
+                if (flagged && (offset >= immediate || threshold >= maxAdvantage)) {
                     setbackIfAboveSetbackVL();
                 }
 
