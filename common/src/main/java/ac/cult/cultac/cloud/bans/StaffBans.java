@@ -13,12 +13,16 @@ import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.grim.grimac.api.config.ConfigManager;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Set;
+import java.util.StringJoiner;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -54,6 +58,36 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
     /** Ban ids this instance claimed and results it still owes, across reloads. */
     private static final Handled HANDLED = new Handled(MAX_HANDLED);
     private static final Kind KIND = new Kind("Staff bans", "bans", "bans", "ban");
+    /** What this build reads beyond the oldest pending bans, as the pending query's {@code caps}. */
+    static final String CAPS = "terms";
+
+    /**
+     * How long a ban lasts: a length staff picked ({@code timed}), {@code permanent}, or whatever this server's own
+     * command decides ({@code server}, when the panel asks staff for no length).
+     */
+    public enum Term {
+        PERMANENT,
+        TIMED,
+        SERVER;
+
+        /** The term's name on the wire. */
+        String wire() {
+            return name().toLowerCase(Locale.ROOT);
+        }
+
+        /** The term {@code wire} names; null when it names none. */
+        static @Nullable Term named(String wire) {
+            for (Term term : values()) {
+                if (term.wire().equals(wire)) return term;
+            }
+            return null;
+        }
+
+        /** The term a service that sends none means: timed with a length, else permanent. */
+        static Term of(@Nullable Long durationSeconds) {
+            return durationSeconds == null ? PERMANENT : TIMED;
+        }
+    }
 
     /** The commands {@code cloud.staff-ban.command} and {@code cloud.staff-ban.temp-command}; empty never runs. */
     public record Commands(String command, String tempCommand) {
@@ -74,21 +108,58 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
             return !command.isEmpty() || !tempCommand.isEmpty();
         }
 
-        /** The command for {@code ban}: {@link #command} when it is permanent, else {@link #tempCommand}. */
-        String of(Ban ban) {
-            return ban.durationSeconds() == null ? command : tempCommand;
+        /**
+         * The command that runs a {@code term} ban; empty when none can. A timed ban runs {@link #tempCommand}, else
+         * {@link #command} when it holds {@code %duration%} or {@code %seconds%}; a permanent one {@link #command},
+         * else {@link #tempCommand} when it holds {@code %duration%}; one whose length the server decides
+         * {@link #command}, else {@link #tempCommand}. A command without a length never runs a timed ban.
+         */
+        String of(Term term) {
+            return switch (term) {
+                case TIMED -> !tempCommand.isEmpty()
+                        ? tempCommand
+                        : command.contains("%duration%") || command.contains("%seconds%") ? command : "";
+                case PERMANENT -> !command.isEmpty()
+                        ? command
+                        : tempCommand.contains("%duration%") ? tempCommand : "";
+                case SERVER -> !command.isEmpty() ? command : tempCommand;
+            };
         }
 
-        /** The bans these commands can run, as the pending query's {@code durations}. */
+        /** The terms these commands can run, as the pending query's comma-separated {@code terms}. */
+        String terms() {
+            StringJoiner terms = new StringJoiner(",");
+            for (Term term : Term.values()) {
+                if (!of(term).isEmpty()) terms.add(term.wire());
+            }
+            return terms.toString();
+        }
+
+        /**
+         * The pending query's {@code durations}, for services that read no {@code terms}: the bans without a length
+         * when only {@link #command} is set, those with one when only {@link #tempCommand} is, else both.
+         */
         String durations() {
             if (command.isEmpty()) return "timed";
             return tempCommand.isEmpty() ? "permanent" : "all";
         }
+
+        /** Why a {@code term} ban cannot run here, as its result says. */
+        static String unrunnable(Term term) {
+            return switch (term) {
+                case TIMED -> "no command here runs timed bans: set temp-command, or put %duration% in command";
+                case PERMANENT -> "no command here runs permanent bans: set command, or put %duration% in temp-command";
+                case SERVER -> "no command is set here";
+            };
+        }
     }
 
     /**
-     * One pending ban; a null {@code durationSeconds} is permanent, a zero {@code createdAtMillis} unknown, a null
-     * {@code cheat} a gameplay ban, and a null {@code staffUuid} or {@code evidence} unknown to the service.
+     * One pending ban; a null {@code durationSeconds} is permanent or of a length the server decides, a zero
+     * {@code createdAtMillis} unknown, a null {@code cheat} a gameplay ban, and a null {@code staffUuid} or
+     * {@code evidence} unknown to the service. {@code duration} is the service's ready {@code %duration%} (for a
+     * permanent ban its token), {@code reasonLabel} the reason as staff saw it, and {@code silentFlag} the flag staff
+     * asked for, else empty; a null {@code duration} or {@code reasonLabel} was not sent.
      */
     public record Ban(
             String id,
@@ -102,7 +173,45 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
             long createdAtMillis,
             String link,
             @Nullable String staffUuid,
-            @Nullable String evidence) {}
+            @Nullable String evidence,
+            Term term,
+            @Nullable String duration,
+            @Nullable String reasonLabel,
+            String silentFlag) {
+
+        /** A ban from a service that sends no term, length token, reason label or silent flag. */
+        public Ban(
+                String id,
+                UUID player,
+                @Nullable String name,
+                String reason,
+                @Nullable String cheat,
+                @Nullable String cheatName,
+                @Nullable Long durationSeconds,
+                String staff,
+                long createdAtMillis,
+                String link,
+                @Nullable String staffUuid,
+                @Nullable String evidence) {
+            this(
+                    id,
+                    player,
+                    name,
+                    reason,
+                    cheat,
+                    cheatName,
+                    durationSeconds,
+                    staff,
+                    createdAtMillis,
+                    link,
+                    staffUuid,
+                    evidence,
+                    Term.of(durationSeconds),
+                    null,
+                    null,
+                    "");
+        }
+    }
 
     /** Where bans run: whether a player is connected here, and the dispatch of a command as console. */
     interface Host {
@@ -179,7 +288,8 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
 
     @Override
     protected String pendingQuery() {
-        return "?durations=" + commands.durations();
+        return "?terms=" + commands.terms() + "&durations=" + commands.durations() + "&server="
+                + URLEncoder.encode(serverId, StandardCharsets.UTF_8) + "&caps=" + CAPS;
     }
 
     @Override
@@ -196,13 +306,25 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
     @Override
     protected Predicate<Ban> due(JsonObject pending) {
         long grace = Math.max(0, number(pending, "graceSeconds", DEFAULT_GRACE_SECONDS));
-        return ban -> !commands.of(ban).isEmpty()
+        return ban -> !commands.of(ban.term()).isEmpty()
                 && (host.online(ban.player()) || clock.getAsLong() >= ban.createdAtMillis() + grace * 1000);
     }
 
     @Override
     protected CompletableFuture<Void> run(Ban ban) {
-        String command = BanCommand.fill(commands.of(ban), ban);
+        String command;
+        try {
+            String template = commands.of(ban.term());
+            if (template.isEmpty()) throw new BanCommand.Refused(Commands.unrunnable(ban.term()));
+            command = BanCommand.fill(template, ban);
+        } catch (BanCommand.Refused refused) {
+            if (!latest()) {
+                release(ban);
+                return CompletableFuture.completedFuture(null);
+            }
+            LogUtil.warn("Staff ban " + ban.id() + " from the cloud panel was not run: " + refused.getMessage());
+            return report(ban, false, LogThrottle.oneLine("not run: " + refused.getMessage(), BanCommand.MAX_TEXT));
+        }
         Dispatch dispatch = new Dispatch();
         after(DISPATCH_TIMEOUT.toSeconds()).execute(() -> dispatch.abandon(BUSY));
         if (!latest()) {
@@ -265,7 +387,11 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
         return why;
     }
 
-    /** A pending ban; null when an id, the player or the duration is not usable. */
+    /**
+     * A pending ban; null when an id, the player or the duration is not usable, or the term is unknown or disagrees
+     * with the duration: only a timed ban has {@code durationSeconds}. A ban without a term is timed when it has
+     * {@code durationSeconds}, else permanent.
+     */
     static @Nullable Ban ban(JsonObject ban) {
         String id = text(ban, "id");
         String player = text(ban, "player");
@@ -283,6 +409,9 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
         } else {
             return null;
         }
+        String named = string(ban, "term");
+        Term term = named == null ? Term.of(duration) : Term.named(named);
+        if (term == null || (term == Term.TIMED) != (duration != null)) return null;
         return new Ban(
                 id,
                 UUID.fromString(player),
@@ -295,7 +424,11 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
                 createdAt(ban.get("createdAt")),
                 orEmpty(text(ban, "link")),
                 string(ban, "staffUuid"),
-                string(ban, "evidence"));
+                string(ban, "evidence"),
+                term,
+                string(ban, "duration"),
+                string(ban, "reasonLabel"),
+                orEmpty(string(ban, "silentFlag")));
     }
 
     /** An ISO instant or epoch millis; 0 when it is neither. */
