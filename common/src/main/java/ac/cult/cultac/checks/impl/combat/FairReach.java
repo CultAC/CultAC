@@ -17,7 +17,6 @@ import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.utils.anticheat.NettyScheduler.PlayerTask;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
@@ -72,10 +71,9 @@ public class FairReach extends Check implements CheckListener {
         if (packet.entityType().equals("minecraft:player")) {
             addEntity(
                     packet.entityId(),
-                    new Vec3(
-                            packet.position().x(),
-                            packet.position().y(),
-                            packet.position().z()));
+                    packet.position().x(),
+                    packet.position().y(),
+                    packet.position().z());
         }
     }
 
@@ -163,8 +161,8 @@ public class FairReach extends Check implements CheckListener {
         }
     }
 
-    private void addEntity(int entityId, Vec3 spawnPosition) {
-        targetPlayers.put(entityId, new FairReachEntity(entityId, spawnPosition));
+    private void addEntity(int entityId, double x, double y, double z) {
+        targetPlayers.put(entityId, new FairReachEntity(entityId, x, y, z));
     }
 
     private void handleInteract(final PacketReceiveEvent event, ServerboundInteract attack) {
@@ -253,8 +251,7 @@ public class FairReach extends Check implements CheckListener {
         FairReachEntity target = targetPlayers.get(entityId);
         if (target == null) return;
         if (holdsShownPosition) {
-            Vec3 shown = target.currentPosition;
-            target.setTarget(shown.x, shown.y, shown.z);
+            target.setTarget(target.currentX, target.currentY, target.currentZ);
         } else if (snaps(target, update, x, y, z)) {
             target.snapTo(x, y, z);
         } else {
@@ -269,8 +266,10 @@ public class FairReach extends Check implements CheckListener {
     private boolean snaps(FairReachEntity target, PositionUpdate update, double x, double y, double z) {
         if (update == PositionUpdate.RELATIVE) return false;
         boolean fromLerpTarget = update == PositionUpdate.TELEPORT && target.lerpTicks > 0;
-        Vec3 from = fromLerpTarget ? target.targetPosition : target.currentPosition;
-        return from.distanceToSqr(x, y, z) > 4096.0;
+        double dx = x - (fromLerpTarget ? target.targetX : target.currentX);
+        double dy = y - (fromLerpTarget ? target.targetY : target.currentY);
+        double dz = z - (fromLerpTarget ? target.targetZ : target.currentZ);
+        return dx * dx + dy * dy + dz * dz > 4096.0;
     }
 
     /** A replacement client level holds none of the old level's players. */
@@ -307,34 +306,50 @@ public class FairReach extends Check implements CheckListener {
 
     class FairReachEntity {
         int entityId;
-        Vec3 currentPosition;
-        Vec3 targetPosition;
+        // The position the client shows.
+        double currentX;
+        double currentY;
+        double currentZ;
+        // The position the client interpolates toward.
+        double targetX;
+        double targetY;
+        double targetZ;
         int lerpTicks = 0;
 
-        private FairReachEntity(int entityId, Vec3 spawnPos) {
+        private FairReachEntity(int entityId, double x, double y, double z) {
             this.entityId = entityId;
-            this.currentPosition = spawnPos;
-            this.targetPosition = spawnPos;
+            this.currentX = x;
+            this.currentY = y;
+            this.currentZ = z;
+            this.targetX = x;
+            this.targetY = y;
+            this.targetZ = z;
         }
 
         private void setTarget(double x, double y, double z) {
-            this.targetPosition = new Vec3(x, y, z);
+            this.targetX = x;
+            this.targetY = y;
+            this.targetZ = z;
             this.lerpTicks = 3;
         }
 
         private void snapTo(double x, double y, double z) {
-            this.currentPosition = new Vec3(x, y, z);
-            this.targetPosition = currentPosition;
+            this.currentX = x;
+            this.currentY = y;
+            this.currentZ = z;
+            this.targetX = x;
+            this.targetY = y;
+            this.targetZ = z;
             this.lerpTicks = 0;
         }
 
         private void tick() {
             if (lerpTicks > 0) {
                 double scale = 1d / lerpTicks;
-                currentPosition = new Vec3(
-                        currentPosition.x + (targetPosition.x - currentPosition.x) * scale,
-                        currentPosition.y + (targetPosition.y - currentPosition.y) * scale,
-                        currentPosition.z + (targetPosition.z - currentPosition.z) * scale);
+                // Each axis reads only its own coordinates, so stepping them in turn is exact.
+                currentX = currentX + (targetX - currentX) * scale;
+                currentY = currentY + (targetY - currentY) * scale;
+                currentZ = currentZ + (targetZ - currentZ) * scale;
                 lerpTicks--;
             }
         }
@@ -343,8 +358,8 @@ public class FairReach extends Check implements CheckListener {
             PacketEntity trackedEntity = player.compensatedEntities.getEntity(entityId);
             float width = trackedEntity == null ? 0.6f : BoundingBoxSize.getReachWidth(player, trackedEntity);
             float height = trackedEntity == null ? 1.8f : BoundingBoxSize.getReachHeight(player, trackedEntity);
-            SimpleCollisionBox thisEntityBox = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                    currentPosition.x, currentPosition.y, currentPosition.z, width, height);
+            SimpleCollisionBox thisEntityBox =
+                    GetBoundingBox.getBoundingBoxFromPosAndSize(currentX, currentY, currentZ, width, height);
 
             return ReachUtils.getMinReachToBox(player, thisEntityBox);
         }
