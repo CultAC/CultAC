@@ -49,7 +49,8 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
             Vec3 targetSize,
             int type,
             boolean enforced,
-            AttackReach reach) {}
+            AttackReach reach,
+            String context) {}
 
     /**
      * An attack measured at the client's last tick end: its index among the tick's attack packets, the target's id,
@@ -60,6 +61,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
             int index, int entityId, int type, SimpleCollisionBox box, List<Vec3> origins, double reach) {}
 
     private static final String MISSED_HITBOX = "Missed hitbox";
+    private static final String DEFAULT_SCALE_TEXT = String.format("%.4f", 1.0F);
     // CultPlayer#getPossibleEyeHeights at scale 1.
     private static final double[] EYE_HEIGHTS = {0.4, 1.27, 1.62};
     private final ClientVisibilityProcessor visibility;
@@ -164,7 +166,8 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
                         getReachSize(entity),
                         entity.type,
                         isEnforced(entity),
-                        reach));
+                        reach,
+                        describeContext(entity)));
             }
 
             final boolean knownInvalid = isKnownInvalid(entity, reach);
@@ -240,23 +243,44 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
                     attack.reach(),
                     false);
             if (MISSED_HITBOX.equals(result)) {
-                player.checkManager
-                        .getCheck(hitboxes())
-                        .flag(
-                                attack.type() == EntityTypeIds.PLAYER
-                                        ? ""
-                                        : "type=" + EntityTypeUtil.getKey(attack.type()));
+                String verbose = attack.type() == EntityTypeIds.PLAYER
+                        ? attack.context()
+                        : "type=" + EntityTypeUtil.getKey(attack.type()) + attack.context();
+                player.checkManager.getCheck(hitboxes()).flag(verbose.strip());
             } else if (result != null) {
                 if (attack.type() != EntityTypeIds.PLAYER) {
                     result += " type=" + EntityTypeUtil.getKey(attack.type()).getPath();
                 }
-                flag(result);
+                flag(result + attack.context());
             }
         }
 
         measuredAttacks.clear();
         if (player.observer != null) measuredAttacks.addAll(playerAttackQueue);
         playerAttackQueue.clear();
+    }
+
+    // Riding and scale change the modeled geometry; named in the verbose only when they apply.
+    private String describeContext(PacketEntity target) {
+        StringBuilder context = new StringBuilder();
+        PacketEntity self = player.compensatedEntities.getSelf();
+        if (self.getRiding() != null) {
+            context.append(" vehicle=").append(EntityTypeUtil.getKey(self.getRiding().type).getPath());
+        }
+        if (target.getRiding() != null) {
+            context.append(" target-vehicle=").append(EntityTypeUtil.getKey(target.getRiding().type).getPath());
+        }
+        appendScale(context, " scale=", self.scale);
+        appendScale(context, " target-scale=", target.scale);
+        return context.toString();
+    }
+
+    // Compared at printed precision so attribute float noise never logs a default "1.0000".
+    private static void appendScale(StringBuilder context, String key, float scale) {
+        String text = String.format("%.4f", scale);
+        if (!text.equals(DEFAULT_SCALE_TEXT)) {
+            context.append(key).append(text);
+        }
     }
 
     /** The positions the client may have attacked from: where it stands, or each seat its vehicle may hold it in. */
