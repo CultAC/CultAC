@@ -50,6 +50,10 @@ public final class TestNetworks {
         this.clock = clock;
     }
 
+    public void advance(long millis) {
+        clock.addAndGet(millis);
+    }
+
     /** The channel {@code instance} receives on under {@link #KEY}; {@value NetworkSettings#ALL} is the broadcast. */
     static String channel(String instance) {
         return NetworkSettings.channel(KEY, instance);

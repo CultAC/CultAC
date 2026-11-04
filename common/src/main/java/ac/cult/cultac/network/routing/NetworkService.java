@@ -141,7 +141,7 @@ public final class NetworkService implements NetworkRouting {
             @Nullable ExecutorService receiver,
             LogThrottle dropWarnings,
             Commands commands) {
-        this.searches = new PlayerSearchNetwork(this);
+        this.searches = new PlayerSearchNetwork(this, clock);
         this.settings = settings;
         this.platform = platform;
         this.host = host;
@@ -705,12 +705,16 @@ public final class NetworkService implements NetworkRouting {
 
     @Override
     public CompletableFuture<SearchResult> search(String query) {
-        return searches.search(query);
+        return searches.search(query, Sender.CONSOLE_UUID.toString());
+    }
+
+    @Override
+    public CompletableFuture<SearchResult> search(String query, UUID sender) {
+        return searches.search(query, sender.toString());
     }
 
     private NetworkPlayer local(OnlinePlayer player) {
-        return new NetworkPlayer(
-                player.uuid(), player.name(), instanceId, player.server(), player.brand(), details(player.uuid()));
+        return new NetworkPlayer(player.uuid(), player.name(), instanceId, player.server(), player.brand());
     }
 
     private static boolean matches(UUID playerUuid, String name, @Nullable UUID uuid, String query) {

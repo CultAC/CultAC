@@ -41,6 +41,10 @@ public interface NetworkRouting {
         return CompletableFuture.completedFuture(new SearchResult(matches, matches.size(), 0));
     }
 
+    default CompletableFuture<SearchResult> search(String query, UUID sender) {
+        return search(query);
+    }
+
     /**
      * Runs {@code line}, a CultAC command starting with one of its registered roots
      * ({@code CloudCommandService.primaryRoot()}) and without a leading slash, as {@code sender} on the instance

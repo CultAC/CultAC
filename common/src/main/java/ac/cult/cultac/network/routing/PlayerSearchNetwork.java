@@ -3,6 +3,7 @@ package ac.cult.cultac.network.routing;
 import ac.cult.cultac.network.NetworkPlayer;
 import ac.cult.cultac.network.NetworkRouting.SearchResult;
 import ac.cult.cultac.network.PlayerSearchFilters;
+import ac.cult.cultac.network.SearchBusyException;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import java.util.ArrayList;
@@ -17,7 +18,9 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
 
 /** Bounded, on-demand searches; the periodic roster carries no profile data. */
 final class PlayerSearchNetwork {
@@ -25,6 +28,39 @@ final class PlayerSearchNetwork {
     static final String REPLY = "player-search-reply";
     static final int LIMIT = 100;
     private final NetworkService service;
+    private final LongSupplier clock;
+    private final Budget outbound = new Budget(8);
+    private final Budget inbound = new Budget(16);
+    private final Budget peers = new Budget(16);
+    private final ScheduledThreadPoolExecutor deadlines = new ScheduledThreadPoolExecutor(1, task -> {
+        Thread thread = new Thread(task, "CultAC player search");
+        thread.setDaemon(true);
+        return thread;
+    });
+
+    private static final class Budget {
+        private final Map<String, Long> senders = new HashMap<>();
+        private final int limit;
+        private long window;
+        private int used;
+
+        Budget(int limit) {
+            this.limit = limit;
+        }
+
+        synchronized boolean admit(String sender, long now) {
+            senders.values().removeIf(until -> until <= now);
+            if (now >= window) {
+                window = now + 1000;
+                used = 0;
+            }
+            if (used >= limit || senders.containsKey(sender)) return false;
+            senders.put(sender, now + 2000);
+            used++;
+            return true;
+        }
+    }
+
     private final Map<String, Pending> pending = new ConcurrentHashMap<>();
 
     private static final class Pending {
@@ -38,7 +74,7 @@ final class PlayerSearchNetwork {
         }
 
         synchronized void accept(String instance, SearchResult reply) {
-            if (!waiting.remove(instance)) return;
+            if (result.isDone() || !waiting.remove(instance)) return;
             total += reply.total();
             players.addAll(reply.players());
             if (waiting.isEmpty()) finish();
@@ -54,41 +90,69 @@ final class PlayerSearchNetwork {
         }
     }
 
-    PlayerSearchNetwork(NetworkService service) {
+    PlayerSearchNetwork(NetworkService service, LongSupplier clock) {
         this.service = service;
+        this.clock = clock;
+        deadlines.setRemoveOnCancelPolicy(true);
         service.on(QUERY, envelope -> {
             if (!service.current()) return;
             JsonObject body = envelope.body();
             String id = body.get("id").getAsString();
             String query = body.get("q").getAsString();
-            service.send(envelope.from(), REPLY, encode(id, local(query)));
+            String sender = UUID.fromString(body.get("sender").getAsString()).toString();
+            JsonObject reply;
+            if (!inbound.admit(sender, clock.getAsLong()) || !peers.admit(envelope.from(), clock.getAsLong())) {
+                reply = new JsonObject();
+                reply.addProperty("id", id);
+                reply.addProperty("busy", true);
+            } else {
+                reply = encode(id, local(query));
+            }
+            service.send(envelope.from(), REPLY, reply);
         });
         service.on(REPLY, envelope -> {
             String id = envelope.body().get("id").getAsString();
             Pending request = pending.get(id);
+            if (request != null && envelope.body().has("busy")) {
+                request.result.completeExceptionally(new SearchBusyException());
+                return;
+            }
             if (request != null) request.accept(envelope.from(), decode(envelope.from(), envelope.body()));
         });
     }
 
-    CompletableFuture<SearchResult> search(String query) {
+    CompletableFuture<SearchResult> search(String query, String sender) {
         PlayerSearchFilters.parse(query);
-        Set<String> instances = new HashSet<>();
-        service.roster().forEach(p -> instances.add(p.instance()));
-        instances.add(service.instanceId());
-        if (pending.size() >= 32)
-            return CompletableFuture.completedFuture(new SearchResult(List.of(), 0, instances.size()));
         String id = UUID.randomUUID().toString();
-        Pending request = new Pending(instances);
-        pending.put(id, request);
-        request.result.whenComplete((value, failure) -> pending.remove(id));
-        JsonObject body = new JsonObject();
-        body.addProperty("id", id);
-        body.addProperty("q", query);
-        request.accept(service.instanceId(), local(query));
-        for (String instance : instances) {
-            if (!instance.equals(service.instanceId())) service.send(instance, QUERY, body);
+        Pending request = new Pending(Set.of());
+        synchronized (this) {
+            if (pending.size() >= 32 || !outbound.admit(sender, clock.getAsLong()))
+                return CompletableFuture.failedFuture(new SearchBusyException());
+            pending.put(id, request);
+            request.result.whenComplete((value, failure) -> pending.remove(id));
         }
-        CompletableFuture.delayedExecutor(3, TimeUnit.SECONDS).execute(request::finish);
+        try {
+            var deadline = deadlines.schedule(request::finish, 3, TimeUnit.SECONDS);
+            request.result.whenComplete((value, failure) -> deadline.cancel(false));
+            Set<String> instances = new HashSet<>();
+            service.roster().forEach(p -> instances.add(p.instance()));
+            instances.add(service.instanceId());
+            synchronized (request) {
+                if (request.result.isDone()) return request.result;
+                request.waiting.addAll(instances);
+            }
+            JsonObject body = new JsonObject();
+            body.addProperty("id", id);
+            body.addProperty("q", query);
+            body.addProperty("sender", sender);
+            request.accept(service.instanceId(), local(query));
+            for (String instance : instances) {
+                if (!request.result.isDone() && !instance.equals(service.instanceId()))
+                    service.send(instance, QUERY, body);
+            }
+        } catch (Throwable failure) {
+            request.result.completeExceptionally(failure);
+        }
         return request.result;
     }
 
@@ -164,5 +228,6 @@ final class PlayerSearchNetwork {
     void close() {
         pending.values().forEach(Pending::finish);
         pending.clear();
+        deadlines.shutdownNow();
     }
 }

@@ -7,6 +7,7 @@ import ac.cult.cultac.network.NetworkPlayer;
 import ac.cult.cultac.network.NetworkRouting;
 import ac.cult.cultac.network.NetworkRouting.SearchResult;
 import ac.cult.cultac.network.PlayerSearchFilters;
+import ac.cult.cultac.network.SearchBusyException;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.sender.Sender;
 import java.util.ArrayList;
@@ -16,6 +17,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
@@ -60,9 +62,20 @@ public class CultFindPlayer implements BuildableCommand {
                         return CompletableFuture.completedFuture(null);
                     }
                     return NetworkRouting.current()
-                            .search(query)
+                            .search(query, sender.getUniqueId() == null ? Sender.CONSOLE_UUID : sender.getUniqueId())
                             .thenAccept(
-                                    result -> matching(sender, result, query).forEach(sender::sendMessage));
+                                    result -> matching(sender, result, query).forEach(sender::sendMessage))
+                            .exceptionally(failure -> {
+                                Throwable cause = failure.getCause() == null ? failure : failure.getCause();
+                                if (!(cause instanceof SearchBusyException)) throw new CompletionException(cause);
+                                sender.sendMessage(CheckInfoLines.render(
+                                        sender,
+                                        template(
+                                                "findplayer-wait",
+                                                "%prefix% &7Please wait a moment before searching again."),
+                                        Map.of()));
+                                return null;
+                            });
                 }));
     }
 
@@ -71,7 +84,7 @@ public class CultFindPlayer implements BuildableCommand {
                 sender,
                 template(
                         "findplayer-usage",
-                        "%prefix% &cUse /%command% findplayer brand=lunar [key=value ...]. Keys: brand, mod, channel, sens, vsens, ping, version, platform, server, proxy, name, uuid, fastmath. Text: case-insensitive substring; combine filters with AND. Numbers: x (within 0.5), >x, <x, a-b (inclusive). Sensitivity: 0-200 percent, unknown on Bedrock. No filters: brand counts."),
+                        "%prefix% &cUse /%command% findplayer brand=lunar [key=value ...]. Keys: brand, mod, channel, sens, vsens, ping, version, platform, server, proxy, name, uuid, fastmath. Text: case-insensitive substring; combine filters with AND. Numbers: x (within 0.5), >x, <x, a-b (inclusive). Sensitivity: 0-200 percent, unknown on Bedrock. Text values support double quotes and backslash escapes. No filters: brand counts."),
                 Map.of()));
     }
 
@@ -95,8 +108,8 @@ public class CultFindPlayer implements BuildableCommand {
             lines.add(CheckInfoLines.render(sender, template("findplayer-brand", "&8» &f%brand% &7(%count%)"), values)
                     .hoverEvent(HoverEvent.showText(CheckInfoLines.render(
                             sender, template("findplayer-brand-hover", "&7Show who uses %brand%"), values)))
-                    .clickEvent(ClickEvent.runCommand(CloudCommandService.command(
-                            "findplayer " + FILTER + (brand.getKey() == null ? UNKNOWN : brand.getKey())))));
+                    .clickEvent(ClickEvent.runCommand(CloudCommandService.command("findplayer " + FILTER
+                            + PlayerSearchFilters.quote(brand.getKey() == null ? UNKNOWN : brand.getKey())))));
         }
         return lines;
     }

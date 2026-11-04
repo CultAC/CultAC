@@ -2,10 +2,13 @@ package ac.cult.cultac.network;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.DoublePredicate;
 import java.util.function.Function;
 import java.util.regex.Pattern;
@@ -72,11 +75,29 @@ public final class PlayerSearchFilters {
 
     public static List<Filter> parse(String input) {
         if (input.length() > 2048) throw new IllegalArgumentException();
-        var matcher = START.matcher(input.strip());
+        String stripped = input.strip();
+        var matcher = START.matcher(stripped);
         List<String> keys = new ArrayList<>();
         List<Integer> starts = new ArrayList<>();
         List<Integer> ends = new ArrayList<>();
+        boolean quoted = false;
+        boolean escaped = false;
+        Set<Integer> boundaries = new HashSet<>();
+        for (int i = 0; i < stripped.length(); i++) {
+            char c = stripped.charAt(i);
+            if (escaped) {
+                escaped = false;
+            } else if (c == '\\') {
+                escaped = true;
+            } else if (c == '"') {
+                quoted = !quoted;
+            } else if (!quoted && (i == 0 || Character.isWhitespace(c))) {
+                boundaries.add(i);
+            }
+        }
+        if (quoted || escaped) throw new IllegalArgumentException();
         while (matcher.find()) {
+            if (!boundaries.contains(matcher.start())) continue;
             if (keys.isEmpty() && matcher.start() != 0) throw new IllegalArgumentException();
             keys.add(matcher.group(1).toLowerCase(Locale.ROOT));
             starts.add(matcher.start());
@@ -88,6 +109,7 @@ public final class PlayerSearchFilters {
         for (int i = 0; i < keys.size(); i++) {
             String query = typed.substring(ends.get(i), i + 1 < keys.size() ? starts.get(i + 1) : typed.length())
                     .strip();
+            query = unquote(query);
             Key key = KEYS.get(keys.get(i));
             if (key == null || query.isEmpty()) throw new IllegalArgumentException();
             filters.add(new Filter(keys.get(i), query, key.values(), key.numeric() ? numeric(query) : null));
@@ -118,28 +140,75 @@ public final class PlayerSearchFilters {
         return value;
     }
 
+    public static String quote(String value) {
+        if (!value.isEmpty() && value.chars().noneMatch(c -> Character.isWhitespace(c) || c == '"' || c == '\\'))
+            return value;
+        return "\""
+                + value.replace("\\", "\\\\")
+                        .replace("\"", "\\\"")
+                        .replace("\n", "\\n")
+                        .replace("\r", "\\r")
+                        .replace("\t", "\\t")
+                + "\"";
+    }
+
+    private static String unquote(String value) {
+        StringBuilder result = new StringBuilder();
+        boolean escaped = false;
+        for (char c : value.toCharArray()) {
+            if (escaped) {
+                result.append(
+                        switch (c) {
+                            case 'n' -> '\n';
+                            case 'r' -> '\r';
+                            case 't' -> '\t';
+                            default -> c;
+                        });
+                escaped = false;
+            } else if (c == '\\') {
+                escaped = true;
+            } else if (c != '"') {
+                result.append(c);
+            }
+        }
+        return result.toString();
+    }
+
     public static List<String> suggestions(Collection<NetworkPlayer> players, String typed) {
-        int space = typed.lastIndexOf(' ');
+        if (typed.length() > 256) return List.of();
+        int space = -1;
+        boolean quoted = false;
+        boolean escaped = false;
+        for (int i = 0; i < typed.length(); i++) {
+            char c = typed.charAt(i);
+            if (escaped) escaped = false;
+            else if (c == '\\') escaped = true;
+            else if (c == '"') quoted = !quoted;
+            else if (!quoted && Character.isWhitespace(c)) space = i;
+        }
         String prefix = space < 0 ? "" : typed.substring(0, space + 1);
-        String current = typed.substring(space + 1);
-        List<String> suggestions = new ArrayList<>();
-        KEYS.forEach((name, key) -> {
-            String start = name + "=";
-            if (start.startsWith(current.toLowerCase(Locale.ROOT))) suggestions.add(prefix + start);
+        String current = typed.substring(space + 1).toLowerCase(Locale.ROOT);
+        Set<String> suggestions = new LinkedHashSet<>();
+        for (var entry : KEYS.entrySet()) {
+            String start = entry.getKey() + "=";
+            if (start.startsWith(current)) suggestions.add(prefix + start);
+            if (!current.startsWith(start)) continue;
+            int inspected = 0;
             for (NetworkPlayer player : players) {
-                for (String value : key.values().apply(player)) {
-                    String suggestion = start + value;
-                    if (suggestion.toLowerCase(Locale.ROOT).startsWith(current.toLowerCase(Locale.ROOT)))
-                        suggestions.add(prefix + suggestion);
+                if (++inspected > 100 || suggestions.size() >= 50) break;
+                int values = 0;
+                for (String value : entry.getValue().values().apply(player)) {
+                    if (++values > 50 || suggestions.size() >= 50) break;
+                    if (value.length() > 128) continue;
+                    String suggestion = start + quote(value);
+                    if (value.toLowerCase(Locale.ROOT).startsWith(unquote(current.substring(start.length())))
+                            && prefix.length() + suggestion.length() <= 256) suggestions.add(prefix + suggestion);
                 }
             }
-        });
-        for (String known : List.of("platform=java", "platform=bedrock", "fastmath=true", "fastmath=false")) {
-            if (known.startsWith(current.toLowerCase(Locale.ROOT))) suggestions.add(prefix + known);
         }
-        return suggestions.stream()
-                .distinct()
-                .sorted(String.CASE_INSENSITIVE_ORDER)
-                .toList();
+        for (String known : List.of("platform=java", "platform=bedrock", "fastmath=true", "fastmath=false")) {
+            if (suggestions.size() < 50 && known.startsWith(current)) suggestions.add(prefix + known);
+        }
+        return suggestions.stream().sorted(String.CASE_INSENSITIVE_ORDER).toList();
     }
 }

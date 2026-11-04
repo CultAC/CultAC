@@ -23,10 +23,13 @@ public final class PlayerSearchSnapshot {
         values.put("fastmath", List.of(Boolean.toString(!player.isVanillaMath())));
         if (!player.isBedrockMovement()) {
             AimProcessor aim = player.checkManager.getCheck(AimProcessor.class);
-            if (aim != null && aim.modeX > 0)
-                values.put("sens", List.of(Double.toString(player.getHorizontalSensitivity() * 200)));
-            if (aim != null && aim.modeY > 0)
-                values.put("vsens", List.of(Double.toString(player.getVerticalSensitivity() * 200)));
+            if (aim != null) {
+                var sensitivity = aim.sensitivitySnapshot();
+                if (Double.isFinite(sensitivity.horizontal()))
+                    values.put("sens", List.of(Double.toString(sensitivity.horizontal() * 200)));
+                if (Double.isFinite(sensitivity.vertical()))
+                    values.put("vsens", List.of(Double.toString(sensitivity.vertical() * 200)));
+            }
         }
         List<String> channels = List.copyOf(player.pluginChannelManager.channels());
         values.put("channel", channels);

@@ -11,6 +11,15 @@ public class AimProcessor extends Check implements RotationListener {
 
     private static final int SIGNIFICANT_SAMPLES_THRESHOLD = 15;
     private static final int TOTAL_SAMPLES_THRESHOLD = 80;
+
+    public record Sensitivity(double horizontal, double vertical) {}
+
+    private volatile Sensitivity sensitivity = new Sensitivity(Double.NaN, Double.NaN);
+
+    public Sensitivity sensitivitySnapshot() {
+        return sensitivity;
+    }
+
     public double sensitivityX;
     public double sensitivityY;
     public double divisorX;
@@ -68,6 +77,7 @@ public class AimProcessor extends Check implements RotationListener {
             }
         }
 
+        sensitivity = new Sensitivity(modeX > 0 ? sensitivityX : Double.NaN, modeY > 0 ? sensitivityY : Double.NaN);
         this.deltaDotsX = deltaXRot / modeX;
     }
 }

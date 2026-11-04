@@ -2,9 +2,11 @@ package ac.cult.cultac.network;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 
 class PlayerSearchFiltersTest {
@@ -85,5 +87,63 @@ class PlayerSearchFiltersTest {
         assertTrue(PlayerSearchFilters.suggestions(List.of(java), "").contains("sens="));
         assertTrue(PlayerSearchFilters.suggestions(List.of(java), "brand=fabric channel=te")
                 .contains("brand=fabric channel=test:mod"));
+    }
+
+    @Test
+    void quotedValuesRoundTrip() {
+        for (String value : List.of(
+                "Client server=test",
+                "Client bogus=test",
+                "mod:channel key=value",
+                "Client \"quoted\" \\ path",
+                " spaced ",
+                "line\nnext\tvalue\r")) {
+            var filter = PlayerSearchFilters.parse("brand=" + PlayerSearchFilters.quote(value) + " ping=>1");
+            assertEquals(value, filter.getFirst().query());
+            assertEquals(2, filter.size());
+            var channel = PlayerSearchFilters.parse("channel=" + PlayerSearchFilters.quote(value));
+            assertEquals(value, channel.getFirst().query());
+        }
+        assertEquals(
+                "Client bogus=test",
+                PlayerSearchFilters.parse("brand=Client bogus\\=test")
+                        .getFirst()
+                        .query());
+        assertThrows(IllegalArgumentException.class, () -> PlayerSearchFilters.parse("brand=\"open"));
+    }
+
+    @Test
+    void completionSelectsOnlyTheRequestedKeyAndBoundsValues() {
+        var details = new HashMap<String, List<String>>();
+        details.put(
+                "channel",
+                IntStream.range(0, 1024).mapToObj(i -> "channel:" + i).toList());
+        details.put("mod", List.of("x".repeat(1000)));
+        NetworkPlayer player = new NetworkPlayer(UUID.randomUUID(), "Alice", "p1", null, "Client bogus=test", details);
+        assertTrue(PlayerSearchFilters.suggestions(List.of(player), "channel=").size() <= 50);
+        assertEquals(List.of("mod="), PlayerSearchFilters.suggestions(List.of(player), "mod="));
+        var suggestions = PlayerSearchFilters.suggestions(List.of(player), "brand=Client");
+        assertEquals(List.of("brand=\"Client bogus=test\""), suggestions);
+        assertEquals(
+                player.brand(),
+                PlayerSearchFilters.parse(suggestions.getFirst()).getFirst().query());
+        assertTrue(PlayerSearchFilters.suggestions(List.of(player), "brand=\"Client bogus=")
+                        .size()
+                == 1);
+    }
+
+    @Test
+    void nonFiniteSensitivitiesAreUnknown() {
+        for (String value : List.of("NaN", "Infinity", "-Infinity")) {
+            NetworkPlayer player = new NetworkPlayer(
+                    UUID.randomUUID(),
+                    "Alice",
+                    "p1",
+                    null,
+                    null,
+                    Map.of("sens", List.of(value), "vsens", List.of(value)));
+            assertFalse(matches(player, "sens=0"));
+            assertFalse(matches(player, "vsens=>0"));
+        }
     }
 }
