@@ -105,6 +105,29 @@ class DiscordManagerQueueTest {
     }
 
     @Test
+    void deletedWebhookStopsReceivingAlertsUntilForgotten() {
+        script.add(() -> respond(404, Map.of()));
+        CompletableFuture<Boolean> first = queue.add(WEBHOOK, alert("Alice"));
+        CompletableFuture<Boolean> queuedBehind = queue.add(WEBHOOK, alert("Bob"));
+
+        runUntil(5_000);
+        CompletableFuture<Boolean> later = queue.add(WEBHOOK, alert("Carol"));
+        runUntil(10_000);
+
+        assertEquals(List.of(0L), sentAt);
+        assertFalse(first.join());
+        assertFalse(queuedBehind.join());
+        assertFalse(later.join());
+
+        queue.forgetRejections();
+        CompletableFuture<Boolean> afterReload = queue.add(WEBHOOK, alert("Dave"));
+        runUntil(15_000);
+
+        assertEquals(2, sentAt.size());
+        assertTrue(afterReload.join());
+    }
+
+    @Test
     void serverErrorIsRetried() {
         script.add(() -> respond(503, Map.of()));
         CompletableFuture<Boolean> result = queue.add(WEBHOOK, alert("Alice"));
@@ -190,7 +213,7 @@ class DiscordManagerQueueTest {
 
     @Test
     void rejectedAlertCompletesFalseLogsItsTextAndDoesNotBlockTheNext() {
-        script.add(() -> respond(404, Map.of()));
+        script.add(() -> respond(400, Map.of()));
         CompletableFuture<Boolean> rejected = queue.add(WEBHOOK, alert("Alice"));
         queue.tick();
         CompletableFuture<Boolean> next = queue.add(WEBHOOK, alert("Bob"));

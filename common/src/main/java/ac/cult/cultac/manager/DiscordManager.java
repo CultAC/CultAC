@@ -29,10 +29,13 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -94,6 +97,7 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
 
     @Override
     public void reload() {
+        queue.forgetRejections();
         try {
             // These fields are not volatile: an HTTP thread may briefly read the previous config after a reload.
             ConfigManager config = CultAPI.INSTANCE.getConfigManager().getConfig();
@@ -275,6 +279,7 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
         private final LongSupplier clock;
         private final Supplier<Logger> logger;
         private final ConcurrentLinkedDeque<Alert> queue = new ConcurrentLinkedDeque<>();
+        private final Set<URI> rejected = ConcurrentHashMap.newKeySet();
         private final AtomicInteger queued = new AtomicInteger();
         private final AtomicInteger backlogWarning = new AtomicInteger(BACKLOG_WARNING);
         private final AtomicInteger overflowed = new AtomicInteger();
@@ -293,7 +298,7 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
 
         synchronized CompletableFuture<Boolean> add(URI uri, WebhookMessage message) {
             CompletableFuture<Boolean> future = new CompletableFuture<>();
-            if (stopped) {
+            if (stopped || rejected.contains(uri)) {
                 future.complete(false);
                 return future;
             }
@@ -408,6 +413,8 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
                         .severe("Discord rejected " + batch.size() + " alerts with status " + status + " and body "
                                 + response.body() + "; alert text:\n" + describe(batch));
                 for (Alert alert : batch) alert.future().complete(false);
+                if (status == 401 || status == 403 || status == 404)
+                    reject(batch.get(0).uri(), status);
             } else {
                 failures = 0;
                 if (failing) {
@@ -423,6 +430,28 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
                         .info("Discord alert backlog is back under " + BACKLOG_WARNING + " alerts; "
                                 + overflowed.getAndSet(0) + " alerts past the cap could not be queued");
             }
+        }
+
+        /** Discord asks clients to stop calling a webhook that answers 401, 403 or 404 until it is configured again. */
+        private void reject(URI uri, int status) {
+            if (!rejected.add(uri)) return;
+            int dropped = 0;
+            for (Iterator<Alert> it = queue.iterator(); it.hasNext(); ) {
+                Alert alert = it.next();
+                if (!alert.uri().equals(uri)) continue;
+                it.remove();
+                queued.decrementAndGet();
+                alert.future().complete(false);
+                dropped++;
+            }
+            logger.get()
+                    .severe("Discord answered status " + status + " for the configured webhook; " + dropped
+                            + " queued alerts were dropped and no more are sent to it until the Discord config is"
+                            + " reloaded");
+        }
+
+        void forgetRejections() {
+            rejected.clear();
         }
 
         private void retry(long now, String message, @Nullable Throwable throwable) {
