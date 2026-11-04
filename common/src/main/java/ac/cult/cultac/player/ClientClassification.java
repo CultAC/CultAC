@@ -48,7 +48,7 @@ public record ClientClassification(Type brandType, Type channelType, Type modTyp
         return result;
     }
 
-    private static Type channelType(String channel) {
+    public static Type channelType(String channel) {
         if (channel.equals("fabric:registry/sync") || channel.equals("fabric:registry/sync/direct")) return Type.FABRIC;
         if (channel.startsWith("neoforge:")) return Type.NEOFORGE;
         if (channel.startsWith("fml:")

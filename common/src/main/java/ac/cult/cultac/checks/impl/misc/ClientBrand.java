@@ -119,7 +119,7 @@ public class ClientBrand extends Check implements CheckListener {
         if (sanitized == null || sanitized.equals(reportedBrand)) return;
         if (reportedBrand != null
                 && !reportedBrand.replace(" (Velocity)", "").equals(sanitized.replace(" (Velocity)", ""))) {
-            player.checkManager.getCheck(BrandSpoofB.class).changedBrand();
+            player.checkManager.getCheck(BrandSpoofB.class).changedBrand(reportedBrand, sanitized);
         }
         reportedBrand = sanitized;
         NetworkModule.brandChanged(player.getUniqueId(), sanitized);

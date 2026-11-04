@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import lombok.AccessLevel;
 import lombok.Getter;
 
 /**
@@ -35,6 +36,10 @@ public class PluginChannelManager extends CultProcessor implements CheckListener
 
     private final Set<String> registeredChannels = new LinkedHashSet<>();
     private final Set<String> payloadChannels = new LinkedHashSet<>();
+
+    @Getter(AccessLevel.NONE)
+    private final int[] channelTypeCounts = new int[ClientClassification.Type.values().length];
+
     private String brand = null;
     private volatile ClientClassification.Type channelType = ClientClassification.Type.UNSET;
 
@@ -96,16 +101,30 @@ public class PluginChannelManager extends CultProcessor implements CheckListener
         if (channel == null || channel.isBlank() || registeredChannels.size() >= MAX_REGISTERED_CHANNELS) {
             return;
         }
-        registeredChannels.add(channel);
-        channelType = ClientClassification.channelType(registeredChannels);
+        if (registeredChannels.add(channel)) updateChannelType(channel, 1);
     }
 
     public void handleChannelUnregistered(String channel) {
         if (channel == null || channel.isBlank()) {
             return;
         }
-        registeredChannels.remove(channel);
-        channelType = ClientClassification.channelType(registeredChannels);
+        if (registeredChannels.remove(channel)) updateChannelType(channel, -1);
+    }
+
+    private void updateChannelType(String channel, int delta) {
+        ClientClassification.Type type = ClientClassification.channelType(channel);
+        if (type == ClientClassification.Type.UNSET) return;
+        channelTypeCounts[type.ordinal()] += delta;
+        ClientClassification.Type result = ClientClassification.Type.UNSET;
+        for (ClientClassification.Type candidate : ClientClassification.Type.values()) {
+            if (channelTypeCounts[candidate.ordinal()] == 0) continue;
+            if (result != ClientClassification.Type.UNSET) {
+                result = ClientClassification.Type.UNKNOWN;
+                break;
+            }
+            result = candidate;
+        }
+        channelType = result;
     }
 
     /** Records a channel the client sent a payload on; false when ExploitC flagged it instead. */
