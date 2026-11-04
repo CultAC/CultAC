@@ -79,6 +79,7 @@ public final class WaterCurrent {
             Vec3 velocityBeforeCurrent,
             FluidTags fluidTag,
             double scale) {
+        if (!FluidCurrent.mayTouchFluid(player, entityBox)) return null;
         FluidCurrent current = new FluidCurrent();
         return current.compute(
                         player,

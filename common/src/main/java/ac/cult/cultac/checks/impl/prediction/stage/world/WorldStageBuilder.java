@@ -380,6 +380,14 @@ public class WorldStageBuilder {
         FluidState state = new FluidState(false, false, false, 0.0D, 0.0D, false, false);
         state.setWaterTimingUncertain(player.compensatedWorld.hasRecentClientWaterChanges(box));
         state.setLavaTimingUncertain(player.compensatedWorld.hasRecentClientLavaChanges(box));
+        // Collisions#hasState visits floor(min) to floor(max) on each axis.
+        if (!player.compensatedWorld.mayHaveFluid(
+                (int) Math.floor(box.minX),
+                (int) Math.floor(box.minY),
+                (int) Math.floor(box.minZ),
+                (int) Math.floor(box.maxX),
+                (int) Math.floor(box.maxY),
+                (int) Math.floor(box.maxZ))) return state;
 
         Collisions.hasState(player, box, (block, x, y, z) -> {
             ClientFluidQueries.Sample fluid = ClientFluidQueries.sample(player, block, x, y, z);

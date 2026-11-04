@@ -1694,6 +1694,36 @@ public class CompensatedWorld {
         return 0;
     }
 
+    /**
+     * Whether a section holding part of the inclusive block range has fluid, as 26.1+
+     * EntityFluidInteraction#hasFluidAndLoaded asks before it scans for fluid. False proves every cell in the range
+     * reads without fluid: cells of unloaded columns and outside the height read as air. While the selection snapshot
+     * is read, cells can hold original states their sections no longer do, so nothing is ruled out.
+     */
+    public boolean mayHaveFluid(int x0, int y0, int z0, int x1, int y1, int z1) {
+        if (x0 > x1 || y0 > y1 || z0 > z1) return false;
+        if (readingSelectionSnapshot) return true;
+        long top = (long) y1 - minHeight;
+        if (top < 0) return false;
+        int chunkX0 = x0 >> 4, chunkX1 = x1 >> 4, chunkZ0 = z0 >> 4, chunkZ1 = z1 >> 4;
+        // An entity's box spans a few columns; a larger range keeps its cell scan rather than a column walk.
+        if ((long) chunkX1 - chunkX0 >= 8 || (long) chunkZ1 - chunkZ0 >= 8) return true;
+        int section0 = (int) (Math.max(0L, (long) y0 - minHeight) >> 4);
+        long section1 = top >> 4;
+        for (int chunkZ = chunkZ0; chunkZ <= chunkZ1; chunkZ++) {
+            for (int chunkX = chunkX0; chunkX <= chunkX1; chunkX++) {
+                CachedChunk column = getChunk(chunkX, chunkZ);
+                if (column == null) continue;
+                int last = (int) Math.min(section1, column.sectionCount() - 1);
+                for (int section = section0; section <= last; section++) {
+                    CachedSection cached = column.getSection(section);
+                    if (cached != null && cached.hasFluid()) return true;
+                }
+            }
+        }
+        return false;
+    }
+
     public int getHeight() {
         return maxHeight - minHeight;
     }

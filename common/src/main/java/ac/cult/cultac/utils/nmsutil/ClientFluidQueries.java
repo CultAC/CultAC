@@ -160,6 +160,13 @@ public final class ClientFluidQueries {
 
     public static double depth(CultPlayer player, SimpleCollisionBox entityBox, FluidTags tag) {
         SimpleCollisionBox box = entityBox.copy().expand(-0.001D);
+        if (!player.compensatedWorld.mayHaveFluid(
+                (int) Math.floor(box.minX),
+                (int) Math.floor(box.minY),
+                (int) Math.floor(box.minZ),
+                (int) Math.ceil(box.maxX) - 1,
+                (int) Math.ceil(box.maxY) - 1,
+                (int) Math.ceil(box.maxZ) - 1)) return 0.0D;
         double depth = 0;
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
         for (int x = (int) Math.floor(box.minX); x < Math.ceil(box.maxX); x++) {
@@ -183,6 +190,8 @@ public final class ClientFluidQueries {
                 || x >= Math.ceil(box.maxX)
                 || z < Math.floor(box.minZ)
                 || z >= Math.ceil(box.maxZ)) return false;
+        if (!player.compensatedWorld.mayHaveFluid(
+                x, (int) Math.floor(box.minY), z, x, (int) Math.ceil(box.maxY) - 1, z)) return false;
         for (int y = (int) Math.floor(box.minY); y < Math.ceil(box.maxY); y++) {
             BlockPos pos = new BlockPos(x, y, z);
             SimFluidState fluid = fluidAt(player.compensatedWorld, pos);
