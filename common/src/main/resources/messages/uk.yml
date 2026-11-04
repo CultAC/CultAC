@@ -76,8 +76,9 @@ debug-channels-none: "%prefix% &bУ &f%player% &bнемає відкритих �
 debug-mods-header: "%prefix% &bМоди Lunar Client у &f%player%&b: &f%count%"
 debug-mods-type: "&b%type%:"
 debug-mods-entry: "&8- &f%name% &7(%mod%) &8%version%"
-debug-mods-not-lunar: "%prefix% &f%player% &bне підключений до Apollo; це не гравець Lunar Client"
-debug-mods-unavailable: "%prefix% &cНемає даних Apollo для &f%player%&c; на його сервері потрібні Apollo-Bukkit і компаньйон CultAC"
+debug-mods-not-lunar: "%prefix% &f%player% &bне підключений до Apollo. Apollo повідомляє про моди лише для Lunar Client."
+debug-mods-unavailable: "%prefix% &bНемає звіту Apollo про моди для &f%player%&b. Apollo повідомляє про моди лише для Lunar Client."
+debug-client-brand: "%prefix% &bБренд клієнта: &f%brand%"
 help:
     - "&7======================"
     - "/%command% alerts &f- &7Увімкнути/вимкнути сповіщення"

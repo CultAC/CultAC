@@ -245,25 +245,28 @@ public class CultDebug implements BuildableCommand {
         if (target == null) return CompletableFuture.completedFuture(null);
         CompletableFuture<Void> listed = new CompletableFuture<>();
         target.runSafely(() -> {
-            var channels = target.pluginChannelManager.channels();
-            if (channels.isEmpty()) {
-                sender.sendMessage(
-                        line(target, "debug-channels-none", "%prefix% &f%player% &bhas no plugin channels open"));
-                listed.complete(null);
-                return;
-            }
-            sender.sendMessage(line(
-                    target,
-                    "debug-channels-header",
-                    "%prefix% &b%player% has &f%count% &bplugin channels open",
-                    "%count%",
-                    Integer.toString(channels.size())));
-            for (String channel : channels) {
-                sender.sendMessage(line(target, "debug-channels-entry", "&8- &f%channel%", "%channel%", channel));
-            }
+            sendChannels(sender, target);
             listed.complete(null);
         });
         return listed;
+    }
+
+    private static void sendChannels(Sender sender, CultPlayer target) {
+        var channels = target.pluginChannelManager.channels();
+        if (channels.isEmpty()) {
+            sender.sendMessage(
+                    line(target, "debug-channels-none", "%prefix% &f%player% &bhas no plugin channels open"));
+            return;
+        }
+        sender.sendMessage(line(
+                target,
+                "debug-channels-header",
+                "%prefix% &b%player% has &f%count% &bplugin channels open",
+                "%count%",
+                Integer.toString(channels.size())));
+        for (String channel : channels) {
+            sender.sendMessage(line(target, "debug-channels-entry", "&8- &f%channel%", "%channel%", channel));
+        }
     }
 
     /** Completes once the mods were listed. */
@@ -277,26 +280,36 @@ public class CultDebug implements BuildableCommand {
                 ? CompletableFuture.<ClientMods>completedFuture(null)
                 : platformPlayer.requestClientMods();
         return request.handle((fresh, failure) -> {
-            if (fresh != null) target.clientMods = fresh;
-            sendMods(sender, target, fresh != null ? fresh : target.clientMods);
-            return null;
-        });
+                    CompletableFuture<Void> listed = new CompletableFuture<>();
+                    target.runSafely(() -> {
+                        try {
+                            if (fresh != null) target.clientMods = fresh;
+                            sendMods(sender, target, fresh != null ? fresh : target.clientMods);
+                            listed.complete(null);
+                        } catch (RuntimeException exception) {
+                            listed.completeExceptionally(exception);
+                        }
+                    });
+                    return listed;
+                })
+                .thenCompose(listed -> listed);
     }
 
     private static void sendMods(Sender sender, CultPlayer target, @Nullable ClientMods mods) {
-        if (mods == null) {
+        if (mods == null || !mods.lunar()) {
+            sender.sendMessage(
+                    mods == null
+                            ? line(
+                                    target,
+                                    "debug-mods-unavailable",
+                                    "%prefix% &bNo Apollo mod report for &f%player%&b. Apollo reports mods only for Lunar Client.")
+                            : line(
+                                    target,
+                                    "debug-mods-not-lunar",
+                                    "%prefix% &f%player% &bis not connected to Apollo. Apollo reports mods only for Lunar Client."));
             sender.sendMessage(line(
-                    target,
-                    "debug-mods-unavailable",
-                    "%prefix% &cNo Apollo data for &f%player%&c; their server needs Apollo-Bukkit and the CultAC"
-                            + " companion"));
-            return;
-        }
-        if (!mods.lunar()) {
-            sender.sendMessage(line(
-                    target,
-                    "debug-mods-not-lunar",
-                    "%prefix% &f%player% &bis not connected to Apollo; not a Lunar Client player"));
+                    target, "debug-client-brand", "%prefix% &bClient brand: &f%brand%", "%brand%", target.getBrand()));
+            sendChannels(sender, target);
             return;
         }
         sender.sendMessage(line(
