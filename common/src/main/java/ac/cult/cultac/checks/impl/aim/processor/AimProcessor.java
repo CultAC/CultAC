@@ -77,7 +77,13 @@ public class AimProcessor extends Check implements RotationListener {
             }
         }
 
-        sensitivity = new Sensitivity(modeX > 0 ? sensitivityX : Double.NaN, modeY > 0 ? sensitivityY : Double.NaN);
+        double horizontal = modeX > 0 ? sensitivityX : Double.NaN;
+        double vertical = modeY > 0 ? sensitivityY : Double.NaN;
+        Sensitivity published = sensitivity;
+        if (Double.compare(published.horizontal(), horizontal) != 0
+                || Double.compare(published.vertical(), vertical) != 0) {
+            sensitivity = new Sensitivity(horizontal, vertical);
+        }
         this.deltaDotsX = deltaXRot / modeX;
     }
 }
