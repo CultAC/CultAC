@@ -71,6 +71,7 @@ public class CultDebug implements BuildableCommand {
                 .literal("mods", Description.of("List a player's Lunar Client mods reported through Apollo"))
                 .permission("cult.debug")
                 .required("target", arguments.singlePlayerSelectorParser())
+                .flag(commandManager.flagBuilder("internal"))
                 .futureHandler(this::handleDebugMods));
 
         commandManager.command(cultCommand
@@ -273,6 +274,7 @@ public class CultDebug implements BuildableCommand {
     private CompletableFuture<Void> handleDebugMods(@NotNull CommandContext<Sender> context) {
         Sender sender = context.sender();
         PlayerSelector selector = context.get("target");
+        boolean internal = context.flags().hasFlag("internal");
         CultPlayer target = parseTarget(sender, selector.getSinglePlayer());
         if (target == null) return CompletableFuture.completedFuture(null);
         PlatformPlayer platformPlayer = target.platformPlayer;
@@ -284,7 +286,7 @@ public class CultDebug implements BuildableCommand {
                     target.runSafely(() -> {
                         try {
                             if (fresh != null) target.clientMods = fresh;
-                            sendMods(sender, target, fresh != null ? fresh : target.clientMods);
+                            sendMods(sender, target, fresh != null ? fresh : target.clientMods, internal);
                             listed.complete(null);
                         } catch (RuntimeException exception) {
                             listed.completeExceptionally(exception);
@@ -295,7 +297,7 @@ public class CultDebug implements BuildableCommand {
                 .thenCompose(listed -> listed);
     }
 
-    private static void sendMods(Sender sender, CultPlayer target, @Nullable ClientMods mods) {
+    private static void sendMods(Sender sender, CultPlayer target, @Nullable ClientMods mods, boolean internal) {
         if (mods == null || !mods.lunar()) {
             sender.sendMessage(
                     mods == null
@@ -312,14 +314,35 @@ public class CultDebug implements BuildableCommand {
             sendChannels(sender, target);
             return;
         }
-        sender.sendMessage(line(
-                target,
-                "debug-mods-header",
-                "%prefix% &b%player% has &f%count% &bLunar Client mods",
-                "%count%",
-                Integer.toString(mods.mods().size())));
-        var byType = new java.util.TreeMap<String, java.util.List<ClientMod>>();
+        var shown = new java.util.ArrayList<ClientMod>();
         for (ClientMod mod : mods.mods()) {
+            if (internal || !isInternal(mod)) shown.add(mod);
+        }
+        sender.sendMessage(
+                internal
+                        ? line(
+                                target,
+                                "debug-mods-header",
+                                "%prefix% &b%player% has &f%count% &bLunar Client mods",
+                                "%count%",
+                                Integer.toString(shown.size()))
+                        : line(
+                                target,
+                                "debug-mods-header-added",
+                                "%prefix% &b%player% added &f%count% &bmods to Lunar Client",
+                                "%count%",
+                                Integer.toString(shown.size())));
+        int hidden = mods.mods().size() - shown.size();
+        if (hidden > 0) {
+            sender.sendMessage(line(
+                    target,
+                    "debug-mods-internal-hidden",
+                    "&7%count% mods that come with Lunar Client are hidden. Add &f--internal &7to list them.",
+                    "%count%",
+                    Integer.toString(hidden)));
+        }
+        var byType = new java.util.TreeMap<String, java.util.List<ClientMod>>();
+        for (ClientMod mod : shown) {
             byType.computeIfAbsent(mod.type(), ignored -> new java.util.ArrayList<>())
                     .add(mod);
         }
@@ -340,6 +363,11 @@ public class CultDebug implements BuildableCommand {
                         mod.version()));
             }
         }
+    }
+
+    /** Apollo reports the mods Lunar Client ships with as FABRIC_INTERNAL or FORGE_INTERNAL. */
+    private static boolean isInternal(ClientMod mod) {
+        return mod.type().toUpperCase(Locale.ROOT).endsWith("_INTERNAL");
     }
 
     private static String modName(ClientMod mod) {

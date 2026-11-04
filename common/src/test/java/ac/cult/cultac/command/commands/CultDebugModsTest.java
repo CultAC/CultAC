@@ -21,6 +21,10 @@ import org.mockito.ArgumentCaptor;
 
 class CultDebugModsTest {
     private List<String> output(ClientMods mods) throws Exception {
+        return output(mods, false);
+    }
+
+    private List<String> output(ClientMods mods, boolean internal) throws Exception {
         OfflineCultTestBootstrap.installConfig();
         var channel = new EmbeddedChannel();
         try (var placeholders = new PlainPlaceholders()) {
@@ -28,9 +32,10 @@ class CultDebugModsTest {
             player.pluginChannelManager.handleChannelRegistered("fabric:test");
             Sender sender = mock(Sender.class);
             var method =
-                    CultDebug.class.getDeclaredMethod("sendMods", Sender.class, CultPlayer.class, ClientMods.class);
+                    CultDebug.class.getDeclaredMethod(
+                            "sendMods", Sender.class, CultPlayer.class, ClientMods.class, boolean.class);
             method.setAccessible(true);
-            method.invoke(null, sender, player, mods);
+            method.invoke(null, sender, player, mods, internal);
             var messages = ArgumentCaptor.forClass(Component.class);
             verify(sender, atLeastOnce()).sendMessage(messages.capture());
             return messages.getAllValues().stream()
@@ -65,5 +70,27 @@ class CultDebugModsTest {
         assertTrue(lines.stream().anyMatch(s -> s.contains("FABRIC_EXTERNAL")));
         assertTrue(lines.stream().anyMatch(s -> s.contains("<red>Example")));
         assertFalse(lines.stream().anyMatch(s -> s.contains("fabric:test")));
+    }
+
+    @Test
+    void modsThatComeWithLunarAreHiddenUnlessAskedFor() throws Exception {
+        var mods = new ClientMods(
+                1,
+                true,
+                List.of(
+                        new ClientMod("sodium", "Sodium", "0.6.0", "FABRIC_INTERNAL"),
+                        new ClientMod("example", "Example", "1.0", "FABRIC_EXTERNAL")));
+
+        var lines = output(mods);
+        assertTrue(lines.stream().anyMatch(s -> s.contains("added 1 mods")));
+        assertTrue(lines.stream().anyMatch(s -> s.contains("1 mods that come with Lunar Client are hidden")));
+        assertTrue(lines.stream().anyMatch(s -> s.contains("Example")));
+        assertFalse(lines.stream().anyMatch(s -> s.contains("Sodium")));
+
+        var all = output(mods, true);
+        assertTrue(all.stream().anyMatch(s -> s.contains("has 2")));
+        assertTrue(all.stream().anyMatch(s -> s.contains("Sodium")));
+        assertTrue(all.stream().anyMatch(s -> s.contains("Example")));
+        assertFalse(all.stream().anyMatch(s -> s.contains("hidden")));
     }
 }
