@@ -11,11 +11,11 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomPayload;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import java.util.concurrent.ConcurrentHashMap;
 import lombok.AccessLevel;
 import lombok.Getter;
 
@@ -34,8 +34,8 @@ public class PluginChannelManager extends CultProcessor implements CheckListener
         super(cultPlayer);
     }
 
-    private final Set<String> registeredChannels = new LinkedHashSet<>();
-    private final Set<String> payloadChannels = new LinkedHashSet<>();
+    private final Set<String> registeredChannels = ConcurrentHashMap.newKeySet();
+    private final Set<String> payloadChannels = ConcurrentHashMap.newKeySet();
 
     @Getter(AccessLevel.NONE)
     private final int[] channelTypeCounts = new int[ClientClassification.Type.values().length];

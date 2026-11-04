@@ -3,6 +3,7 @@ package ac.cult.cultac.network.routing;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.network.NetworkPlayer;
 import ac.cult.cultac.network.NetworkRouting;
+import ac.cult.cultac.network.PlayerSearchSnapshot;
 import ac.cult.cultac.network.routing.NetworkPlatform.OnlinePlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
@@ -65,6 +66,7 @@ public final class NetworkModule {
         NetworkPlatform hooks = platform;
         if (service != null || hooks == null) return;
         NetworkService created = NetworkService.create(settings, hooks, RuntimeEnvironment.host());
+        created.searchDetails(PlayerSearchSnapshot::capture);
         for (Consumer<NetworkService> hook : startHooks) {
             try {
                 hook.accept(created);

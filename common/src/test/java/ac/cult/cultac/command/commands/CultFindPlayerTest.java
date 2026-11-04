@@ -17,6 +17,7 @@ import ac.cult.cultac.network.routing.TestNetworks.Players;
 import ac.cult.cultac.platform.api.sender.Sender;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
@@ -124,6 +125,23 @@ class CultFindPlayerTest {
     }
 
     @Test
+    void combinedFiltersShowTheValuesReturnedByTheOtherProxy() {
+        TestNetworks.install(networks.service("p3").platform(here).start());
+        var peer = networks.service("p7").platform(onP7).start();
+        peer.searchDetails(
+                uuid -> Map.of("mod", List.of("Replay Mod"), "sens", List.of("50"), "platform", List.of("java")));
+        try {
+            List<String> lines = run("cult findplayer mod=Replay sens=50 server=survival");
+            assertEquals(2, lines.size());
+            assertTrue(lines.getFirst().contains("Players matching mod=Replay sens=50 server=survival"));
+            assertTrue(lines.get(1).contains("Carl on survival"));
+            assertTrue(lines.get(1).contains("mod=Replay Mod; sens=50; server=survival"));
+        } finally {
+            networks.stop(peer);
+        }
+    }
+
+    @Test
     void unknownBrandsAreListedUnderUnknown() {
         networked();
         assertEquals(
@@ -183,9 +201,15 @@ class CultFindPlayerTest {
     @Test
     void tabCompletionOffersTheFilterWithEachBrandOnline() {
         networked();
-        assertEquals(
-                List.of("brand=vanilla", "brand=Fabric Loader", "brand=lunarclient:1.8.9", "brand=unknown"),
-                suggest("cult findplayer "));
+        assertTrue(suggest("cult findplayer ")
+                .containsAll(List.of(
+                        "brand=vanilla",
+                        "brand=Fabric Loader",
+                        "brand=lunarclient:1.8.9",
+                        "brand=unknown",
+                        "ping=",
+                        "mod=",
+                        "platform=")));
         assertEquals(List.of("brand=lunarclient:1.8.9"), suggest("cult findplayer brand=LU"));
     }
 

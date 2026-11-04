@@ -32,6 +32,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import org.jetbrains.annotations.Nullable;
@@ -114,6 +115,9 @@ public final class NetworkService implements NetworkRouting {
     private final AtomicBoolean brandsLeftOut = new AtomicBoolean();
     private final AtomicBoolean duplicateId = new AtomicBoolean();
     private final RemoteCommands commands;
+    private final PlayerSearchNetwork searches;
+    private volatile Function<UUID, Map<String, List<String>>> searchDetails = ignored -> Map.of();
+    private final Map<String, Function<UUID, Map<String, List<String>>>> searchProviders;
 
     private @Nullable InProcessBus bus;
     private volatile boolean running;
@@ -137,9 +141,11 @@ public final class NetworkService implements NetworkRouting {
             @Nullable ExecutorService receiver,
             LogThrottle dropWarnings,
             Commands commands) {
+        this.searches = new PlayerSearchNetwork(this);
         this.settings = settings;
         this.platform = platform;
         this.host = host;
+        this.searchProviders = host == null ? new ConcurrentHashMap<>() : sharedSearchProviders(host);
         this.instanceId = instanceId;
         this.transport = transport;
         this.clock = clock;
@@ -303,6 +309,8 @@ public final class NetworkService implements NetworkRouting {
         if (scheduler != null) scheduler.shutdownNow();
         if (receiver != null) receiver.shutdownNow();
         commands.close();
+        searches.close();
+        if (host != null) searchProviders.remove(host.generationId(), searchDetails);
     }
 
     NetworkSettings settings() {
@@ -668,8 +676,41 @@ public final class NetworkService implements NetworkRouting {
         return platform.holder(player) == NetworkPlatform.Holder.OTHER;
     }
 
+    public void searchDetails(Function<UUID, Map<String, List<String>>> provider) {
+        searchDetails = provider;
+        if (host != null) searchProviders.put(host.generationId(), provider);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Function<UUID, Map<String, List<String>>>> sharedSearchProviders(HostContext host) {
+        return (Map<String, Function<UUID, Map<String, List<String>>>>)
+                host.shared("cultac.network.search-providers", ConcurrentHashMap::new);
+    }
+
+    private Map<String, List<String>> details(UUID uuid) {
+        Map<String, List<String>> found = searchDetails.apply(uuid);
+        if (!found.isEmpty()) return found;
+        for (var provider : searchProviders.values()) {
+            found = provider.apply(uuid);
+            if (!found.isEmpty()) return found;
+        }
+        return Map.of();
+    }
+
+    List<NetworkPlayer> searchPlayers() {
+        return platform.onlinePlayers().stream()
+                .map(p -> new NetworkPlayer(p.uuid(), p.name(), instanceId, p.server(), p.brand(), details(p.uuid())))
+                .toList();
+    }
+
+    @Override
+    public CompletableFuture<SearchResult> search(String query) {
+        return searches.search(query);
+    }
+
     private NetworkPlayer local(OnlinePlayer player) {
-        return new NetworkPlayer(player.uuid(), player.name(), instanceId, player.server(), player.brand());
+        return new NetworkPlayer(
+                player.uuid(), player.name(), instanceId, player.server(), player.brand(), details(player.uuid()));
     }
 
     private static boolean matches(UUID playerUuid, String name, @Nullable UUID uuid, String query) {
