@@ -19,7 +19,6 @@ import ac.grim.grimac.api.event.EventBus;
 import ac.grim.grimac.api.event.events.GrimReloadEvent;
 import ac.grim.grimac.api.plugin.GrimPlugin;
 import ac.grim.grimac.api.storage.backend.BackendRegistry;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
@@ -263,13 +262,13 @@ public class CultExternalAPI implements GrimAbstractAPI, ConfigReloadObserver, S
         variableReplacements.putIfAbsent("%keepalive_ping%", user -> user.getKeepAlivePing() + "");
         variableReplacements.putIfAbsent("%brand%", GrimUser::getBrand);
         variableReplacements.putIfAbsent(
-                "%h_sensitivity%", user -> ((int) Math.round(user.getHorizontalSensitivity() * 200)) + "");
+                "%h_sensitivity%", user -> AlertDetails.sensitivity(user.getHorizontalSensitivity(), false));
         variableReplacements.putIfAbsent(
-                "%v_sensitivity%", user -> ((int) Math.round(user.getVerticalSensitivity() * 200)) + "");
+                "%v_sensitivity%", user -> AlertDetails.sensitivity(user.getVerticalSensitivity(), false));
         variableReplacements.putIfAbsent(
-                "%h_sensitivity_raw%", user -> String.format(Locale.ROOT, "%.5f", user.getHorizontalSensitivity()));
+                "%h_sensitivity_raw%", user -> AlertDetails.sensitivity(user.getHorizontalSensitivity(), true));
         variableReplacements.putIfAbsent(
-                "%v_sensitivity_raw%", user -> String.format(Locale.ROOT, "%.5f", user.getVerticalSensitivity()));
+                "%v_sensitivity_raw%", user -> AlertDetails.sensitivity(user.getVerticalSensitivity(), true));
         variableReplacements.putIfAbsent("%fast_math%", user -> !user.isVanillaMath() + "");
         variableReplacements.putIfAbsent(
                 "%tps%",

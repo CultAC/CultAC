@@ -99,9 +99,11 @@ public record CompiledDiscordTemplate(Segment[] segments) {
             @NotNull Map<String, Function<GrimUser, String>> dynamics,
             char backtickReplacement) {
         StringBuilder sb = new StringBuilder(segments.length * 32);
+        boolean skipPercent = false;
         for (Segment seg : segments) {
             if (seg instanceof Literal l) {
-                sb.append(l.text);
+                sb.append(skipPercent && l.text.startsWith("%") ? l.text.substring(1) : l.text);
+                skipPercent = false;
             } else if (seg instanceof Placeholder p) {
                 // Priority: static → dynamic → external (PAPI)
                 String val = statics.get(p.key);
@@ -118,6 +120,7 @@ public record CompiledDiscordTemplate(Segment[] segments) {
                     if (!resolved.equals(p.key)) val = resolved;
                 }
 
+                skipPercent = (p.key.equals("%h_sensitivity%") || p.key.equals("%v_sensitivity%")) && "n/a".equals(val);
                 if (val != null) {
                     sb.append(escape(val, p.mode, backtickReplacement));
                 } else {

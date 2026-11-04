@@ -42,8 +42,8 @@ webhook-test-failed: "Тест вебхука Discord не вдався!"
 # %vl% - кількість порушень
 # %verbose% - додаткова інформація від перевірки, наприклад відхилення; не всі перевірки її додають
 # Назва перевірки веде на /%command% info check.
-alerts-format: "%prefix% &f%player% &bпровалив <hover:show_text:\"&b%check_name%%experimental%\n&8Опис: &f%description%\n&7Натисніть, щоб дізнатися більше\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
-alerts-format-proxy: "%prefix% &f[&cproxy&f] &f%player% &bпровалив <hover:show_text:\"&b%check_name%%experimental%\n&8Опис: &f%description%\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
+alerts-format: "%prefix% &f<click:run_command:'/%command% spectate %player%'><hover:show_text:'/%command% spectate %player%'>%player%</hover></click> &bпровалив <hover:show_text:\"&b%check_name%%experimental%\n&8Опис: &f%description%\n&7Натисніть, щоб дізнатися більше\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
+alerts-format-proxy: "%prefix% &f[&cproxy&f] &f<click:run_command:'/%command% spectate %player%'><hover:show_text:'/%command% spectate %player%'>%player%</hover></click> &bпровалив <hover:show_text:\"&b%check_name%%experimental%\n&8Опис: &f%description%\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
 experimental-symbol: "*"
 
 profile:
@@ -246,4 +246,4 @@ findplayer-usage: "%prefix% &cДля пошуку введіть &f/%command% fi
 
 # Маркери схеми — див. заголовний коментар у config.yml.
 config-flavor: V2
-config-version: 3
+config-version: 4

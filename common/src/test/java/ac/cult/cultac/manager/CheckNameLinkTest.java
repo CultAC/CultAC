@@ -30,6 +30,19 @@ class CheckNameLinkTest {
     }
 
     @Test
+    void playerNamedAfterACheckKeepsTheSpectateClick() {
+        OfflineCultTestBootstrap.installConfig();
+        Component alert = MessageUtil.miniMessage("<click:run_command:'/gladiator spectate Speed'>Speed</click> failed Speed");
+        Component linked = CheckNameLink.link(alert, check("Speed", "Speed"));
+        StringBuilder spectate = new StringBuilder();
+        linkedText(linked, null, ClickEvent.runCommand("/gladiator spectate Speed"), spectate);
+        assertEquals("Speed", spectate.toString());
+        StringBuilder info = new StringBuilder();
+        linkedText(linked, null, ClickEvent.runCommand(CloudCommandService.command("info check Speed")), info);
+        assertEquals("Speed", info.toString());
+    }
+
+    @Test
     void linksEveryAlertForTheSameCheck() {
         OfflineCultTestBootstrap.installConfig();
         Check check = check("Speed", "Ground Speed");

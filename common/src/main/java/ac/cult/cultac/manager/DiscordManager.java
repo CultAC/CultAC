@@ -18,6 +18,7 @@ import ac.cult.cultac.utils.data.webhook.discord.EmbedFooter;
 import ac.cult.cultac.utils.data.webhook.discord.WebhookMessage;
 import ac.grim.grimac.api.GrimUser;
 import ac.grim.grimac.api.config.ConfigManager;
+import com.google.gson.JsonParser;
 import java.awt.*;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -179,6 +180,7 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
         statics.put("%check%", checkName);
         statics.put("%violations%", Integer.toString(violations));
         statics.put("%verbose%", verbose);
+        statics.put("%world%", AlertDetails.worldLocation(player));
 
         Map<String, Function<GrimUser, String>> dynamics =
                 CultAPI.INSTANCE.getExternalAPI().getVariableReplacements();
@@ -260,10 +262,8 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
     static final class WebhookQueue {
         static final int MAX_QUEUED = 50_000;
         private static final int BACKLOG_WARNING = 1_000;
-        private static final int MAX_EMBED_TEXT = 6_000;
         private static final long MIN_BACKOFF_MS = 1_000;
         private static final long MAX_BACKOFF_MS = 60_000;
-        private static final long MAX_RATE_LIMIT_MS = 3_600_000;
 
         interface Transport {
             CompletableFuture<HttpResponse<String>> post(URI uri, String body);
@@ -291,15 +291,20 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
             this.logger = logger;
         }
 
-        CompletableFuture<Boolean> add(URI uri, WebhookMessage message) {
+        synchronized CompletableFuture<Boolean> add(URI uri, WebhookMessage message) {
             CompletableFuture<Boolean> future = new CompletableFuture<>();
+            if (stopped) {
+                future.complete(false);
+                return future;
+            }
             int size = queued.incrementAndGet();
             if (size > MAX_QUEUED) {
                 queued.decrementAndGet();
-                overflowed.incrementAndGet();
-                logger.get()
-                        .warning("Discord alert backlog is full (" + MAX_QUEUED + "), alert not sent: "
-                                + describe(message));
+                if (overflowed.getAndIncrement() == 0) {
+                    logger.get()
+                            .warning("Discord alert backlog is full (" + MAX_QUEUED
+                                    + "); excess alerts cannot be queued");
+                }
                 future.complete(false);
                 return future;
             }
@@ -313,7 +318,7 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
             return future;
         }
 
-        void tick() {
+        synchronized void tick() {
             if (stopped || clock.getAsLong() < nextAttemptAt || (inFlight == null && queue.isEmpty())) return;
             if (!sending.compareAndSet(false, true)) return;
             List<Alert> batch = inFlight;
@@ -355,7 +360,7 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
             });
         }
 
-        void stop() {
+        synchronized void stop() {
             stopped = true;
             List<Alert> unsent = new ArrayList<>();
             List<Alert> batch = inFlight;
@@ -368,8 +373,9 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
             for (Alert alert : unsent) alert.future().complete(false);
         }
 
-        private void complete(
+        private synchronized void complete(
                 List<Alert> batch, @Nullable HttpResponse<String> response, @Nullable Throwable throwable) {
+            if (stopped) return;
             long now = clock.getAsLong();
             if (throwable != null || response == null) {
                 retry(now, "Could not send Discord alerts, retrying with backoff", throwable);
@@ -377,8 +383,8 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
             }
             int status = response.statusCode();
             if (status == 429) {
-                long wait = rateLimitWait(response.headers(), now);
-                nextAttemptAt = now + (wait >= 0 ? wait : backoff());
+                long wait = Math.max(rateLimitWait(response.headers(), now), retryAfterBody(response.body()));
+                nextAttemptAt = delayed(now, wait > 0 ? wait : backoff());
                 return;
             }
             if (status >= 500) {
@@ -388,6 +394,13 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
                                 + ", retrying with backoff",
                         null);
                 return;
+            }
+            if (response.headers()
+                    .firstValue("X-RateLimit-Remaining")
+                    .orElse("")
+                    .equals("0")) {
+                long wait = rateLimitWait(response.headers(), now);
+                nextAttemptAt = delayed(now, wait > 0 ? wait : MIN_BACKOFF_MS);
             }
             inFlight = null;
             if (status >= 400) {
@@ -408,7 +421,7 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
             if (queued.get() < BACKLOG_WARNING && backlogWarning.getAndSet(BACKLOG_WARNING) != BACKLOG_WARNING) {
                 logger.get()
                         .info("Discord alert backlog is back under " + BACKLOG_WARNING + " alerts; "
-                                + overflowed.getAndSet(0) + " alerts past the cap were written to the server log");
+                                + overflowed.getAndSet(0) + " alerts past the cap could not be queued");
             }
         }
 
@@ -425,11 +438,15 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
             return Math.min(MAX_BACKOFF_MS, MIN_BACKOFF_MS << Math.min(attempt, 6));
         }
 
+        private static long delayed(long now, long wait) {
+            return wait >= Long.MAX_VALUE - now ? Long.MAX_VALUE : now + wait;
+        }
+
         private static long rateLimitWait(HttpHeaders headers, long now) {
             long wait = secondsHeader(headers, "Retry-After", 0);
-            if (wait < 0) wait = secondsHeader(headers, "X-RateLimit-Reset-After", 0);
+            wait = Math.max(wait, secondsHeader(headers, "X-RateLimit-Reset-After", 0));
             if (wait < 0) wait = secondsHeader(headers, "X-RateLimit-Reset", now);
-            return wait < 0 ? -1 : Math.min(wait, MAX_RATE_LIMIT_MS);
+            return wait;
         }
 
         private static long secondsHeader(HttpHeaders headers, String name, long origin) {
@@ -451,59 +468,25 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
         }
 
         private List<Alert> takeBatch() {
-            List<Alert> batch = new ArrayList<>();
             Alert head = poll();
-            if (head == null) return batch;
-            batch.add(head);
-            if (!embedOnly(head.message())) return batch;
-            int embeds = head.message().embeds().length;
-            int text = embedText(head.message());
-            for (Alert next; (next = queue.peek()) != null; ) {
-                if (!embedOnly(next.message()) || !next.uri().equals(head.uri())) break;
-                int nextEmbeds = next.message().embeds().length;
-                int nextText = embedText(next.message());
-                if (embeds + nextEmbeds > WebhookMessage.MAX_EMBEDS || text + nextText > MAX_EMBED_TEXT) break;
-                if (!queue.removeFirstOccurrence(next)) break;
-                queued.decrementAndGet();
-                batch.add(next);
-                embeds += nextEmbeds;
-                text += nextText;
-            }
-            return batch;
+            return head == null ? List.of() : List.of(head);
         }
 
         private static String body(List<Alert> batch) {
-            if (batch.size() == 1) return batch.get(0).message().toJson().toString();
-            List<Embed> embeds = new ArrayList<>();
-            for (Alert alert : batch) embeds.addAll(List.of(alert.message().embeds()));
-            return new WebhookMessage()
-                    .embeds(embeds.toArray(Embed[]::new))
-                    .toJson()
-                    .toString();
+            return batch.get(0).message().toJson().toString();
         }
 
-        private static boolean embedOnly(WebhookMessage message) {
-            return message.content() == null
-                    && message.username() == null
-                    && message.avatar() == null
-                    && message.tts() == null
-                    && message.embeds() != null
-                    && message.embeds().length > 0;
-        }
-
-        private static int embedText(WebhookMessage message) {
-            int length = 0;
-            for (Embed embed : message.embeds()) {
-                length += embed.description().length();
-                if (embed.title() != null) length += embed.title().length();
-                if (embed.footer() != null) length += embed.footer().text().length();
-                if (embed.author() != null) length += embed.author().name().length();
-                if (embed.fields() != null) {
-                    for (EmbedField field : embed.fields())
-                        length += field.name().length() + field.value().length();
-                }
+        private static long retryAfterBody(String body) {
+            try {
+                double seconds = JsonParser.parseString(body)
+                        .getAsJsonObject()
+                        .get("retry_after")
+                        .getAsDouble();
+                if (!Double.isFinite(seconds) || seconds < 0) return -1;
+                return (long) Math.ceil(seconds * 1000);
+            } catch (RuntimeException e) {
+                return -1;
             }
-            return length;
         }
 
         private static String describe(List<Alert> alerts) {

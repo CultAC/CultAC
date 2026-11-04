@@ -41,8 +41,8 @@ webhook-test-failed: "Discord webhook test failed!"
 # %experimental%
 # %vl% - violaciones
 # %verbose% - información extra de la comprobación como compensaciones. No todas añadirán informacion.
-alerts-format: "%prefix% &f%player% &bfalló <hover:show_text:\"&b%check_name%%experimental%\n&8Descripción: &f%description%\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
-alerts-format-proxy: "%prefix% &f[&cproxy&f] &f%player% &bfailed <hover:show_text:\"&b%check_name%%experimental%\n&8Descripción: &f%description%\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
+alerts-format: "%prefix% &f<click:run_command:'/%command% spectate %player%'><hover:show_text:'/%command% spectate %player%'>%player%</hover></click> &bfalló <hover:show_text:\"&b%check_name%%experimental%\n&8Descripción: &f%description%\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
+alerts-format-proxy: "%prefix% &f[&cproxy&f] &f<click:run_command:'/%command% spectate %player%'><hover:show_text:'/%command% spectate %player%'>%player%</hover></click> &bfailed <hover:show_text:\"&b%check_name%%experimental%\n&8Descripción: &f%description%\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
 experimental-symbol: "*"
 
 profile:
@@ -171,4 +171,4 @@ findplayer-usage: "%prefix% &cTo search, type &f/%command% findplayer brand=luna
 
 # Marcadores de esquema — ver el comentario de cabecera en config.yml.
 config-flavor: V2
-config-version: 3
+config-version: 4

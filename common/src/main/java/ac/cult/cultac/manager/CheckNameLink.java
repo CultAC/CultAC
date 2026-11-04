@@ -3,6 +3,7 @@ package ac.cult.cultac.manager;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.info.CheckCatalog;
 import ac.cult.cultac.command.CloudCommandService;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -26,8 +27,15 @@ final class CheckNameLink {
         if (name == null || shown == null || shown.isBlank()) return alert;
         Key key = new Key(name, shown, CloudCommandService.command("info check " + name));
         return LINKS.computeIfAbsent(key, CheckNameLink::replacement)
-                .map(alert::replaceText)
+                .map(replacement -> linkText(alert, replacement))
                 .orElse(alert);
+    }
+
+    private static Component linkText(Component component, TextReplacementConfig replacement) {
+        if (component.clickEvent() != null) return component;
+        Component linked = component.children(List.of()).replaceText(replacement);
+        for (Component child : component.children()) linked = linked.append(linkText(child, replacement));
+        return linked;
     }
 
     private static Optional<TextReplacementConfig> replacement(Key key) {

@@ -19,6 +19,7 @@ import java.net.http.HttpResponse;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
@@ -150,6 +151,44 @@ class DiscordManagerQueueTest {
     }
 
     @Test
+    void onlyOneRequestIsInFlight() {
+        CompletableFuture<HttpResponse<String>> pending = new CompletableFuture<>();
+        script.add(() -> pending);
+        CompletableFuture<Boolean> first = queue.add(WEBHOOK, alert("Alice"));
+        CompletableFuture<Boolean> second = queue.add(WEBHOOK, alert("Bob"));
+        runUntil(1_000);
+        assertEquals(1, sentBodies.size());
+        assertFalse(first.isDone());
+        assertFalse(second.isDone());
+        pending.complete(new FakeResponse(204, Map.of()));
+        queue.tick();
+        assertEquals(2, sentBodies.size());
+        assertTrue(first.join());
+        assertTrue(second.join());
+    }
+
+    @Test
+    void exhaustedBucketPausesTheNextMessage() {
+        script.add(() -> respond(204, Map.of("X-RateLimit-Remaining", "0", "X-RateLimit-Reset-After", "2")));
+        queue.add(WEBHOOK, alert("Alice"));
+        queue.add(WEBHOOK, alert("Bob"));
+        runUntil(3_000);
+        assertEquals(List.of(0L, 2_000L), sentAt);
+    }
+
+    @Test
+    void rateLimitUsesJsonRetryAfterAndKeepsTheSameAlert() {
+        script.add(() -> CompletableFuture.completedFuture(new FakeResponse(429, Map.of(), "{\"retry_after\":2.5}")));
+        CompletableFuture<Boolean> first = queue.add(WEBHOOK, alert("Alice"));
+        CompletableFuture<Boolean> second = queue.add(WEBHOOK, alert("Bob"));
+        runUntil(3_000);
+        assertEquals(List.of(0L, 2_500L, 2_550L), sentAt);
+        assertEquals(sentBodies.get(0), sentBodies.get(1));
+        assertTrue(first.join());
+        assertTrue(second.join());
+    }
+
+    @Test
     void rejectedAlertCompletesFalseLogsItsTextAndDoesNotBlockTheNext() {
         script.add(() -> respond(404, Map.of()));
         CompletableFuture<Boolean> rejected = queue.add(WEBHOOK, alert("Alice"));
@@ -165,18 +204,20 @@ class DiscordManagerQueueTest {
     }
 
     @Test
-    void consecutiveEmbedAlertsAreMergedIntoBatchesOfTen() {
+    void consecutiveAlertsEachHaveTheirOwnMessage() {
         List<CompletableFuture<Boolean>> results = new ArrayList<>();
         for (int i = 0; i < 25; i++) results.add(queue.add(WEBHOOK, alert("Player" + i)));
 
-        runUntil(1_000);
+        runUntil(2_000);
 
-        assertEquals(List.of(10, 10, 5), sentBodies.stream().map(this::embeds).toList());
+        assertEquals(
+                Collections.nCopies(25, 1),
+                sentBodies.stream().map(this::embeds).toList());
         results.forEach(result -> assertTrue(result.join()));
     }
 
     @Test
-    void mergingRespectsEmbedTextLimitAndSendsContentAlone() {
+    void messagesKeepTheirOwnEmbedsAndContent() {
         queue.add(WEBHOOK, new WebhookMessage().addEmbeds(new Embed("a".repeat(2_500))));
         queue.add(WEBHOOK, new WebhookMessage().addEmbeds(new Embed("b".repeat(2_500))));
         queue.add(WEBHOOK, new WebhookMessage().addEmbeds(new Embed("c".repeat(2_500))));
@@ -185,7 +226,8 @@ class DiscordManagerQueueTest {
 
         runUntil(1_000);
 
-        assertEquals(List.of(2, 1, 0, 1), sentBodies.stream().map(this::embeds).toList());
+        assertEquals(
+                List.of(1, 1, 1, 0, 1), sentBodies.stream().map(this::embeds).toList());
     }
 
     @Test
@@ -196,13 +238,14 @@ class DiscordManagerQueueTest {
         assertTrue(overflow.isDone());
         assertFalse(overflow.join());
         assertEquals(3, count(Level.WARNING));
-        assertTrue(messages(Level.WARNING).contains("Zed"));
+        queue.add(WEBHOOK, alert("Another"));
+        assertEquals(3, count(Level.WARNING));
 
-        runUntil(DiscordManager.WebhookQueue.MAX_QUEUED * 10L);
+        runUntil(DiscordManager.WebhookQueue.MAX_QUEUED * 50L);
 
         assertEquals(MAX_REQUESTS, sentBodies.size());
         assertEquals(1, count(Level.INFO));
-        assertTrue(messages(Level.INFO).contains("1 alerts"));
+        assertTrue(messages(Level.INFO).contains("2 alerts"));
     }
 
     @Test
@@ -265,7 +308,7 @@ class DiscordManagerQueueTest {
         assertTrue(logged.contains(at.toString()), logged);
     }
 
-    private static final int MAX_REQUESTS = DiscordManager.WebhookQueue.MAX_QUEUED / 10;
+    private static final int MAX_REQUESTS = DiscordManager.WebhookQueue.MAX_QUEUED;
 
     private void runUntil(long elapsed) {
         while (now - START <= elapsed) {
@@ -298,7 +341,12 @@ class DiscordManagerQueueTest {
         return CompletableFuture.completedFuture(new FakeResponse(status, headers));
     }
 
-    private record FakeResponse(int statusCode, Map<String, String> headerValues) implements HttpResponse<String> {
+    private record FakeResponse(int statusCode, Map<String, String> headerValues, String responseBody)
+            implements HttpResponse<String> {
+        FakeResponse(int statusCode, Map<String, String> headerValues) {
+            this(statusCode, headerValues, "{}");
+        }
+
         @Override
         public HttpRequest request() {
             return HttpRequest.newBuilder(WEBHOOK).build();
@@ -319,7 +367,7 @@ class DiscordManagerQueueTest {
 
         @Override
         public String body() {
-            return "{\"message\": \"Unknown Webhook\"}";
+            return responseBody;
         }
 
         @Override

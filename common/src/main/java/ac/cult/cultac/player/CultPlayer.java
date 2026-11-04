@@ -1752,14 +1752,16 @@ public class CultPlayer implements GrimUser {
         return getClientVersion().getReleaseName();
     }
 
+    /** Java mouse sensitivity, or {@link Double#NaN} when the client does not supply Java mouse rotations. */
     @Override
     public double getHorizontalSensitivity() {
-        return checkManager.getCheck(AimProcessor.class).sensitivityX;
+        return isBedrockMovement() ? Double.NaN : checkManager.getCheck(AimProcessor.class).sensitivityX;
     }
 
+    /** Java mouse sensitivity, or {@link Double#NaN} when the client does not supply Java mouse rotations. */
     @Override
     public double getVerticalSensitivity() {
-        return checkManager.getCheck(AimProcessor.class).sensitivityY;
+        return isBedrockMovement() ? Double.NaN : checkManager.getCheck(AimProcessor.class).sensitivityY;
     }
 
     @Override
