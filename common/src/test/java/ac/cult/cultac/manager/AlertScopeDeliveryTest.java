@@ -48,6 +48,10 @@ import org.junit.jupiter.api.Test;
 class AlertScopeDeliveryTest {
     private static final AlertSubject ON_PVP = new AlertSubject(UUID.randomUUID(), "Bob", "pvp");
     private static final AlertSubject BETWEEN_SERVERS = new AlertSubject(UUID.randomUUID(), "Cat", null);
+    private static final Map<AlertKind, String> PERMISSIONS =
+            Map.of(AlertKind.ALERT, "cult.alerts", AlertKind.VERBOSE, "cult.verbose", AlertKind.BRAND, "cult.brand");
+    private static final Map<AlertKind, String> TYPES =
+            Map.of(AlertKind.ALERT, "NORMAL", AlertKind.VERBOSE, "VERBOSE", AlertKind.BRAND, "BRAND");
 
     private final TestNetworks networks = new TestNetworks();
     private final NetworkService service = networks.started("p3");
@@ -121,6 +125,7 @@ class AlertScopeDeliveryTest {
         when(player.getUniqueId()).thenReturn(UUID.randomUUID());
         when(player.getNative()).thenReturn(handle);
         when(player.serverName()).thenReturn(server);
+        when(player.hasPermission(anyString())).thenReturn(true);
         staff.add(player);
         return player;
     }
@@ -215,6 +220,73 @@ class AlertScopeDeliveryTest {
             leave();
         }
         assertEquals(0, messages(console));
+    }
+
+    @Test
+    void staffWhoLoseThePermissionWhileSubscribedAreUnsubscribed() throws ReflectiveOperationException {
+        for (AlertKind kind : AlertKind.values()) {
+            PlatformPlayer kept = staff("pvp", AlertScope.GLOBAL);
+            PlatformPlayer revoked = staff("pvp", AlertScope.GLOBAL);
+            subscribe(kind, kept, revoked);
+            when(revoked.hasPermission(anyString())).thenReturn(false);
+
+            raise(kind, ON_PVP);
+            alerts.deliverReceived(kind, Component.text(kind.id()), "pvp", null);
+            when(revoked.hasPermission(anyString())).thenReturn(true);
+            raise(kind, ON_PVP);
+
+            assertEquals(3, messages(kept), kind.id());
+            assertEquals(0, messages(revoked), kind.id());
+            assertFalse(AlertSets.subscribed(revoked).contains(TYPES.get(kind)), kind.id());
+            leave();
+        }
+    }
+
+    @Test
+    void eachKindNeedsItsOwnPermissionAndNoOther() {
+        for (AlertKind kind : AlertKind.values()) {
+            PlatformPlayer denied = staff("pvp", AlertScope.GLOBAL);
+            PlatformPlayer othersDenied = staff("pvp", AlertScope.GLOBAL);
+            subscribe(kind, denied, othersDenied);
+            when(denied.hasPermission(PERMISSIONS.get(kind))).thenReturn(false);
+            for (AlertKind other : AlertKind.values()) {
+                if (other != kind)
+                    when(othersDenied.hasPermission(PERMISSIONS.get(other))).thenReturn(false);
+            }
+
+            raise(kind, ON_PVP);
+
+            assertEquals(0, messages(denied), kind.id());
+            assertEquals(1, messages(othersDenied), kind.id());
+            leave();
+        }
+    }
+
+    @Test
+    void theVerbosePermissionKeepsTheAlertsOfAVerboseSubscriberOnly() {
+        PlatformPlayer verbose = staff("pvp", AlertScope.GLOBAL);
+        PlatformPlayer alertsOnly = staff("pvp", AlertScope.GLOBAL);
+        subscribe(AlertKind.VERBOSE, verbose);
+        subscribe(AlertKind.ALERT, alertsOnly);
+        when(verbose.hasPermission("cult.alerts")).thenReturn(false);
+        when(alertsOnly.hasPermission("cult.alerts")).thenReturn(false);
+
+        raise(AlertKind.ALERT, ON_PVP);
+
+        assertEquals(1, messages(verbose));
+        assertEquals(0, messages(alertsOnly));
+    }
+
+    @Test
+    void aVerboseCopyRefusedForThePermissionLeavesTheReceivedAlertToArrive() {
+        PlatformPlayer staffer = staff("pvp", AlertScope.GLOBAL);
+        subscribe(AlertKind.VERBOSE, staffer);
+        when(staffer.hasPermission("cult.verbose")).thenReturn(false);
+
+        alerts.deliverReceived(AlertKind.VERBOSE, Component.text("verbose"), "pvp", "pair");
+        alerts.deliverReceived(AlertKind.ALERT, Component.text("alert"), "pvp", "pair");
+
+        assertEquals(1, messages(staffer));
     }
 
     @Test
