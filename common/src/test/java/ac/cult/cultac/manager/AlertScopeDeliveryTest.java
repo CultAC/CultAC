@@ -12,12 +12,14 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.manager.AlertManagerImpl.Recipients;
 import ac.cult.cultac.manager.alerts.AlertKind;
+import ac.cult.cultac.manager.alerts.AlertPermits;
 import ac.cult.cultac.manager.alerts.AlertScope;
 import ac.cult.cultac.manager.alerts.AlertScopes;
 import ac.cult.cultac.manager.alerts.AlertSubject;
@@ -62,6 +64,7 @@ class AlertScopeDeliveryTest {
     private final HostContext host = host();
     private boolean proxy = true;
     private boolean relay;
+    private long now;
     private AlertManagerImpl alerts;
     private Object previousServer;
     private boolean consoleAlerts;
@@ -98,7 +101,8 @@ class AlertScopeDeliveryTest {
 
     /** An engine generation of instance {@code running.instanceId()}, sharing the host with every other. */
     private AlertManagerImpl manager(NetworkService running) {
-        AlertManagerImpl manager = new AlertManagerImpl(scopes, () -> running, () -> proxy, host, () -> relay);
+        AlertManagerImpl manager = new AlertManagerImpl(
+                scopes, () -> running, () -> proxy, host, () -> relay, new AlertPermits(() -> now));
         manager.network().attach(running);
         return manager;
     }
@@ -287,6 +291,27 @@ class AlertScopeDeliveryTest {
         alerts.deliverReceived(AlertKind.ALERT, Component.text("alert"), "pvp", "pair");
 
         assertEquals(1, messages(staffer));
+    }
+
+    @Test
+    void thePermissionIsAskedOncePerRecheckAndATakenOneStopsMessagesAtTheNext() throws ReflectiveOperationException {
+        PlatformPlayer staffer = staff("pvp", AlertScope.GLOBAL);
+        subscribe(AlertKind.ALERT, staffer);
+
+        raise(AlertKind.ALERT, ON_PVP);
+        raise(AlertKind.ALERT, ON_PVP);
+        when(staffer.hasPermission(anyString())).thenReturn(false);
+        now += AlertPermits.RECHECK_MILLIS - 1;
+        raise(AlertKind.ALERT, ON_PVP);
+
+        assertEquals(3, messages(staffer));
+        verify(staffer, times(1)).hasPermission("cult.alerts");
+
+        now += 1;
+        raise(AlertKind.ALERT, ON_PVP);
+
+        assertEquals(3, messages(staffer));
+        assertFalse(AlertSets.subscribed(staffer).contains("NORMAL"));
     }
 
     @Test
@@ -612,8 +637,13 @@ class AlertScopeDeliveryTest {
     void aServerScopedVerboseListenerOnOneProxyGetsVerboseAnotherProxyRaisesAboutAPlayerOnItsServer() {
         PlatformPlayer listener = staff("pvp", AlertScope.SERVER);
         PlatformPlayer elsewhere = staff("lobby", AlertScope.SERVER);
-        AlertManagerImpl other =
-                new AlertManagerImpl(new AlertScopes(null, () -> null), () -> peer, () -> true, host(), () -> false);
+        AlertManagerImpl other = new AlertManagerImpl(
+                new AlertScopes(null, () -> null),
+                () -> peer,
+                () -> true,
+                host(),
+                () -> false,
+                new AlertPermits(() -> now));
         other.network().attach(peer);
         assertFalse(other.hasVerboseListeners());
 
