@@ -204,8 +204,9 @@ class StaffBansTest {
         }
     }
 
-    private static String query(String terms, String durations, String server) {
-        return "/api/v1/bans/pending?terms=" + terms + "&durations=" + durations + "&server=" + server + "&caps=terms";
+    private static String query(String terms, String durations, String server, String vars) {
+        return "/api/v1/bans/pending?terms=" + terms + "&durations=" + durations + "&server=" + server + "&caps=terms"
+                + "&vars=" + vars;
     }
 
     /** {@code ban} as a service that sends the term, the length token, the reason label and the silent flag. */
@@ -245,7 +246,7 @@ class StaffBansTest {
         assertEquals(List.of("ban Notch fly hacks"), dispatched);
         Seen get = seen.get(0);
         assertEquals("GET", get.method());
-        assertEquals(query("permanent,timed,server", "all", "arena-1"), get.uri());
+        assertEquals(query("permanent,timed,server", "all", "arena-1", "player,reason"), get.uri());
         assertEquals("Bearer " + KEY, get.authorization());
         List<Seen> posts = posts();
         assertEquals(2, posts.size());
@@ -595,12 +596,33 @@ class StaffBansTest {
 
         assertEquals(
                 List.of(
-                        query("permanent,server", "permanent", "perm"),
-                        query("permanent,timed", "timed", "temp"),
-                        query("permanent,timed,server", "all", "both"),
-                        query("permanent,timed,server", "permanent", "one"),
-                        query("timed", "timed", "lobby+%7B1%7D%2Feu")),
+                        query("permanent,server", "permanent", "perm", "player"),
+                        query("permanent,timed", "timed", "temp", "duration,player"),
+                        query("permanent,timed,server", "all", "both", "player"),
+                        query("permanent,timed,server", "permanent", "one", "duration,player,reason,silent"),
+                        query("timed", "timed", "lobby+%7B1%7D%2Feu", "player,seconds")),
                 seen.stream().map(Seen::uri).toList());
+    }
+
+    @Test
+    void thePendingQueryNamesThePlaceholdersEverySetCommandHolds() throws Exception {
+        bans("lite", new StaffBans.Commands("litebans:ban %silent% %uuid% %duration% %reason% %foo%", ""))
+                .pollOnce()
+                .get(5, TimeUnit.SECONDS);
+        bans("advanced", new StaffBans.Commands(
+                        "advancedban:ban %silent% %player% %reason% (by %staff%)",
+                        "advancedban:tempban %silent% %player% %duration% %reason%"))
+                .pollOnce()
+                .get(5, TimeUnit.SECONDS);
+
+        assertEquals(
+                List.of(
+                        query("permanent,timed,server", "permanent", "lite", "duration,reason,silent,uuid"),
+                        query("permanent,timed,server", "all", "advanced", "player,reason,silent")),
+                seen.stream().map(Seen::uri).toList());
+        assertEquals("", StaffBans.Commands.NONE.vars());
+        assertEquals("player", new StaffBans.Commands("", "tempban %player% %%").vars());
+        assertEquals(BanCommand.NAMES, BanCommand.values(StaffBans.ban(ban(BAN, PLAYER, null, NOW))).keySet());
     }
 
     @Test
@@ -672,7 +694,9 @@ class StaffBansTest {
                         "litebans:ban -s " + OTHER + " 30d fly hacks",
                         "litebans:ban " + PLAYER + " fly hacks"),
                 dispatched.stream().sorted().toList());
-        assertEquals(query("permanent,timed,server", "permanent", "arena-1"), seen.get(0).uri());
+        assertEquals(
+                query("permanent,timed,server", "permanent", "arena-1", "duration,reason,silent,uuid"),
+                seen.get(0).uri());
     }
 
     @Test
@@ -826,7 +850,9 @@ class StaffBansTest {
                 .pollOnce()
                 .get(5, TimeUnit.SECONDS);
 
-        assertEquals(query("permanent,timed,server", "all", "arena-1"), seen.get(0).uri());
+        assertEquals(
+                query("permanent,timed,server", "all", "arena-1", "ban_id,evidence,reason,staff,staff_uuid,uuid"),
+                seen.get(0).uri());
         String serverBan = "gladiatorban target=" + PLAYER + " staff=" + staff + " seconds= ban=" + BAN + " evidence="
                 + evidence + " by=Mod reason=blacklisted_modifications";
         String timedBan = "gladiatorban target=" + OTHER + " seconds=86400 ban=" + TIMED + " by=Mod reason=fly hacks";

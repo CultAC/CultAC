@@ -20,8 +20,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.SortedSet;
 import java.util.StringJoiner;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -148,6 +150,24 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
             return tempCommand.isEmpty() ? "permanent" : "all";
         }
 
+        /**
+         * The placeholders every set command holds, sorted, as the pending query's comma-separated {@code vars}; empty
+         * when neither is set. A placeholder CultAC does not fill is never listed.
+         */
+        String vars() {
+            SortedSet<String> vars = null;
+            for (String template : List.of(command, tempCommand)) {
+                if (template.isEmpty()) continue;
+                SortedSet<String> used = BanCommand.used(template);
+                if (vars == null) {
+                    vars = used;
+                } else {
+                    vars.retainAll(used);
+                }
+            }
+            return vars == null ? "" : String.join(",", vars);
+        }
+
         /** Why a {@code term} ban cannot run here, as its result says. */
         static String unrunnable(Term term) {
             return switch (term) {
@@ -232,6 +252,8 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
     }
 
     private final Commands commands;
+    /** {@link Commands#vars}, worked out once per configure. */
+    private final String vars;
     private final Host host;
     private final LongSupplier clock;
 
@@ -249,6 +271,7 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
             LongFunction<Executor> after) {
         super(KIND, base, apiKey, serverId, http, executor, generation, handled, after);
         this.commands = commands;
+        this.vars = commands.vars();
         this.host = host;
         this.clock = clock;
     }
@@ -293,7 +316,7 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
     @Override
     protected String pendingQuery() {
         return "?terms=" + commands.terms() + "&durations=" + commands.durations() + "&server="
-                + URLEncoder.encode(serverId, StandardCharsets.UTF_8) + "&caps=" + CAPS;
+                + URLEncoder.encode(serverId, StandardCharsets.UTF_8) + "&caps=" + CAPS + "&vars=" + vars;
     }
 
     @Override

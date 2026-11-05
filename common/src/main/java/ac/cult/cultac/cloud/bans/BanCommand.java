@@ -3,7 +3,10 @@ package ac.cult.cultac.cloud.bans;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.SortedSet;
 import java.util.StringJoiner;
+import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
@@ -36,8 +39,34 @@ public final class BanCommand {
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
     private static final long[] UNIT_SECONDS = {86400, 3600, 60};
     private static final String[] UNITS = {"d", "h", "m"};
+    /** The placeholders {@link #fill} fills, the keys of {@link #values}. */
+    static final Set<String> NAMES = Set.of(
+            "player",
+            "uuid",
+            "reason",
+            "reason_label",
+            "cheat",
+            "cheat_id",
+            "duration",
+            "seconds",
+            "silent",
+            "staff",
+            "ban_id",
+            "link",
+            "staff_uuid",
+            "evidence");
 
     private BanCommand() {}
+
+    /** The placeholders of {@link #NAMES} that {@code template} holds, sorted. */
+    static SortedSet<String> used(String template) {
+        SortedSet<String> used = new TreeSet<>();
+        Matcher matcher = PLACEHOLDER.matcher(template);
+        while (matcher.find()) {
+            if (NAMES.contains(matcher.group(1))) used.add(matcher.group(1));
+        }
+        return used;
+    }
 
     /**
      * {@code template} with each placeholder {@code ban} has a value for filled once and others left as they are,
