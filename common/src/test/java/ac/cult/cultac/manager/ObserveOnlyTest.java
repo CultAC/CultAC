@@ -175,6 +175,12 @@ class ObserveOnlyTest {
     }
 
     @Test
+    void aFormatsLiteralActionTextIsKeptAsText() throws ReflectiveOperationException {
+        when(config.getStringElse(eq("staff-suspected"), any())).thenReturn("[alert] [proxy] %check_name%");
+        assertEquals(List.of("[alert] [proxy] ObserveOnlyProbe"), alertsFired(List.of("1:0 [alert:staff-suspected]")));
+    }
+
+    @Test
     void theShippedSuspectedFormatIsKnown() {
         assertTrue(PunishmentManager.unknownAlertFormats(punishments(List.of("1:0 [alert:alerts-format-suspected]")))
                 .isEmpty());

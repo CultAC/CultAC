@@ -828,9 +828,13 @@ public final class CultConfigSpecs {
         return matcher.matches() ? matcher : null;
     }
 
-    /** v4 → v5: adds {@code alerts-format-suspected}, the shipped {@code [alert:<key>]} format. */
+    /**
+     * v4 → v5: adds {@code alerts-format-suspected}, the shipped {@code [alert:<key>]} format. Messages the operator
+     * added for {@code [alert:<key>]} survive every upgrade.
+     */
     public static @NotNull ConfigUpdater.Spec messages() {
         return ConfigUpdater.Spec.builder("/messages/", 5, ConfigUpdater.ConfigFlavor.V2)
+                .keepOperatorKeys()
                 .migration(4, CultConfigSpecs::spectateAlerts)
                 .build();
     }

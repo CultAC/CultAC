@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.logging.Logger;
 import net.kyori.adventure.text.Component;
@@ -55,6 +56,20 @@ class MessageAlertUpgradeTest {
     }
 
     @Test
+    void messagesTheOperatorAddedSurviveTheUpgrade() throws Exception {
+        Map<String, Object> updated = upgradeV4("en", Map.of("alerts-format-staff", "%player% needs a look"));
+        assertEquals("%player% needs a look", updated.get("alerts-format-staff"));
+        assertEquals(5, updated.get("config-version"));
+    }
+
+    @Test
+    void aTranslatedFileKeepsTheOperatorsSuspectedFormat() throws Exception {
+        Map<String, Object> updated = upgradeV4("de", Map.of("alerts-format-suspected", "%player% ist verdächtig"));
+        assertEquals("%player% ist verdächtig", updated.get("alerts-format-suspected"));
+        assertEquals(5, updated.get("config-version"));
+    }
+
+    @Test
     void operatorClickActionsArePreserved() throws Exception {
         String format = "<click:run_command:'/custom %player%'>%player%</click>";
         assertEquals(format, upgrade(format).get("alerts-format"));
@@ -68,6 +83,18 @@ class MessageAlertUpgradeTest {
             return true;
         }
         return component.children().stream().anyMatch(MessageAlertUpgradeTest::hasSpectate);
+    }
+
+    private Map<String, Object> upgradeV4(String language, Map<String, Object> messages) throws Exception {
+        Path file = directory.resolve("messages.yml");
+        Map<String, Object> data = new LinkedHashMap<>(messages);
+        data.put("config-version", 4);
+        data.put("config-flavor", "V2");
+        Files.writeString(file, new Yaml().dump(data));
+        var results = new ConfigUpdater(CultConfigSpecs.class, Logger.getAnonymousLogger())
+                .updateAll(Map.of(file.toFile(), CultConfigSpecs.messages()), language);
+        assertTrue(results.get(file.toFile()).migrated);
+        return new Yaml().load(Files.readString(file));
     }
 
     private Map<String, Object> upgrade(String format) throws Exception {
