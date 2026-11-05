@@ -16,10 +16,13 @@ import com.google.gson.JsonObject;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -168,6 +171,20 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
             return vars == null ? "" : String.join(",", vars);
         }
 
+        /**
+         * The pending query's {@code cmds}: the first 16 lowercase hex characters of the SHA-256 of {@link #command},
+         * a line feed and {@link #tempCommand} in UTF-8, so the panel can tell whether these are the lines it generated.
+         */
+        String cmds() {
+            try {
+                byte[] digest = MessageDigest.getInstance("SHA-256")
+                        .digest((command + "\n" + tempCommand).getBytes(StandardCharsets.UTF_8));
+                return HexFormat.of().formatHex(digest, 0, 8);
+            } catch (NoSuchAlgorithmException e) {
+                throw new IllegalStateException(e);
+            }
+        }
+
         /** Why a {@code term} ban cannot run here, as its result says. */
         static String unrunnable(Term term) {
             return switch (term) {
@@ -254,6 +271,8 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
     private final Commands commands;
     /** {@link Commands#vars}, worked out once per configure. */
     private final String vars;
+    /** {@link Commands#cmds}, worked out once per configure. */
+    private final String cmds;
     private final Host host;
     private final LongSupplier clock;
 
@@ -272,6 +291,7 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
         super(KIND, base, apiKey, serverId, http, executor, generation, handled, after);
         this.commands = commands;
         this.vars = commands.vars();
+        this.cmds = commands.cmds();
         this.host = host;
         this.clock = clock;
     }
@@ -316,7 +336,7 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
     @Override
     protected String pendingQuery() {
         return "?terms=" + commands.terms() + "&durations=" + commands.durations() + "&server="
-                + URLEncoder.encode(serverId, StandardCharsets.UTF_8) + "&caps=" + CAPS + "&vars=" + vars;
+                + URLEncoder.encode(serverId, StandardCharsets.UTF_8) + "&caps=" + CAPS + "&vars=" + vars + "&cmds=" + cmds;
     }
 
     @Override
