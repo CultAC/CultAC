@@ -186,7 +186,12 @@ public final class ConfigPatcher {
         String s = value.toString();
         if (s.isEmpty()) return "\"\"";
         boolean needsQuotes = false;
-        if (YAML_KEYWORDS_TO_QUOTE.contains(s) || s.startsWith(" ") || s.endsWith(" ")) {
+        if (YAML_KEYWORDS_TO_QUOTE.contains(s)
+                || s.startsWith(" ")
+                || s.endsWith(" ")
+                || s.indexOf('\n') >= 0
+                || s.indexOf('\r') >= 0
+                || s.indexOf('\t') >= 0) {
             needsQuotes = true;
         } else {
             try {
@@ -211,7 +216,14 @@ public final class ConfigPatcher {
             // raw `\d` from a regex round-trips as an "unknown escape"
             // parser error. Escape `\` first so the `\` we inject ahead of
             // any embedded `"` doesn't get re-doubled by the second pass.
-            return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+            // A raw line break inside quotes reads back as a space.
+            return "\""
+                    + s.replace("\\", "\\\\")
+                            .replace("\"", "\\\"")
+                            .replace("\n", "\\n")
+                            .replace("\r", "\\r")
+                            .replace("\t", "\\t")
+                    + "\"";
         }
         return s;
     }

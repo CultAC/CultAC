@@ -26,6 +26,19 @@ class ConfigPatcherTest {
         assertEquals("old", patched.get("a.b"));
     }
 
+    @Test
+    void aReplacedValueKeepsItsLineBreaksTabsQuotesAndBackslashes() throws Exception {
+        String value = "a\nb\r\tc \"d\" \\e";
+        Path file = directory.resolve("messages.yml");
+        Files.writeString(file, "format: \"old\"\nother: kept\n");
+        ConfigPatcher patcher = new ConfigPatcher(file.toFile());
+        patcher.applyChange(new ConfigPatcher.PendingChange(patcher.getNodePosition("format"), value));
+        patcher.save();
+        Map<String, Object> patched = new Yaml().load(Files.readString(file));
+        assertEquals(value, patched.get("format"));
+        assertEquals("kept", patched.get("other"));
+    }
+
     private Map<String, Object> insert(String yaml, String path, Object value) throws Exception {
         Path file = directory.resolve("config.yml");
         Files.writeString(file, yaml);
