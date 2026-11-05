@@ -63,8 +63,6 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
     /** Ban ids this instance claimed and results it still owes, across reloads. */
     private static final Handled HANDLED = new Handled(MAX_HANDLED);
     private static final Kind KIND = new Kind("Staff bans", "bans", "bans", "ban");
-    /** What this build reads beyond the oldest pending bans, as the pending query's {@code caps}. */
-    static final String CAPS = "terms";
 
     /**
      * How long a ban lasts: a length staff picked ({@code timed}), {@code permanent}, or whatever this server's own
@@ -269,6 +267,8 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
     }
 
     private final Commands commands;
+    /** {@link #caps}, worked out once per configure. */
+    private final String caps;
     /** {@link Commands#vars}, worked out once per configure. */
     private final String vars;
     /** {@link Commands#cmds}, worked out once per configure. */
@@ -281,6 +281,7 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
             String apiKey,
             String serverId,
             Commands commands,
+            boolean proxy,
             HttpClient http,
             Executor executor,
             Host host,
@@ -290,6 +291,7 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
             LongFunction<Executor> after) {
         super(KIND, base, apiKey, serverId, http, executor, generation, handled, after);
         this.commands = commands;
+        this.caps = caps(proxy);
         this.vars = commands.vars();
         this.cmds = commands.cmds();
         this.host = host;
@@ -298,9 +300,11 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
 
     /**
      * Applies a configure: polling starts when the upload is configured, a command is set and this instance has a
-     * {@code serverId}; any chain an earlier configure started stops.
+     * {@code serverId}; any chain an earlier configure started stops. {@code proxy} is whether this instance is a
+     * proxy rather than a backend server.
      */
-    public static void configure(CloudSettings settings, Commands commands, @Nullable String serverId) {
+    public static void configure(
+            CloudSettings settings, Commands commands, @Nullable String serverId, boolean proxy) {
         if (!settings.enabled() || !commands.any()) {
             stop();
             return;
@@ -315,6 +319,7 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
                         settings.apiKey(),
                         serverId,
                         commands,
+                        proxy,
                         CloudHttp.HTTP,
                         CloudHttp.CALLS,
                         new PlatformHost(),
@@ -333,10 +338,18 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
         GENERATION.next();
     }
 
+    /**
+     * What this build reads beyond the oldest pending bans and the tier it runs on, as the pending query's
+     * comma-separated {@code caps}: {@code terms}, then {@code proxy} or {@code backend}.
+     */
+    static String caps(boolean proxy) {
+        return "terms," + (proxy ? "proxy" : "backend");
+    }
+
     @Override
     protected String pendingQuery() {
         return "?terms=" + commands.terms() + "&durations=" + commands.durations() + "&server="
-                + URLEncoder.encode(serverId, StandardCharsets.UTF_8) + "&caps=" + CAPS + "&vars=" + vars + "&cmds=" + cmds;
+                + URLEncoder.encode(serverId, StandardCharsets.UTF_8) + "&caps=" + caps + "&vars=" + vars + "&cmds=" + cmds;
     }
 
     @Override

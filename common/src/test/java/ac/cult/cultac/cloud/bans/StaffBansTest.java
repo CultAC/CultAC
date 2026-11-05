@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.cloud.CloudSettings;
 import ac.cult.cultac.cloud.Generation;
 import ac.cult.cultac.platform.api.CommandOutcome;
@@ -41,6 +42,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -100,6 +102,11 @@ class StaffBansTest {
         }
     };
 
+    @BeforeAll
+    static void installPlatform() {
+        OfflineCultTestBootstrap.installConfig();
+    }
+
     @BeforeEach
     void start() throws IOException {
         server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
@@ -150,11 +157,16 @@ class StaffBansTest {
     }
 
     private StaffBans bans(String serverId, StaffBans.Commands commands) {
+        return bans(serverId, commands, false);
+    }
+
+    private StaffBans bans(String serverId, StaffBans.Commands commands, boolean proxy) {
         return new StaffBans(
                 base(),
                 KEY,
                 serverId,
                 commands,
+                proxy,
                 HttpClient.newHttpClient(),
                 calls,
                 host,
@@ -205,7 +217,12 @@ class StaffBansTest {
     }
 
     private static String query(String terms, String durations, String server, String vars, String cmds) {
-        return "/api/v1/bans/pending?terms=" + terms + "&durations=" + durations + "&server=" + server + "&caps=terms"
+        return query(terms, durations, server, "terms,backend", vars, cmds);
+    }
+
+    private static String query(
+            String terms, String durations, String server, String caps, String vars, String cmds) {
+        return "/api/v1/bans/pending?terms=" + terms + "&durations=" + durations + "&server=" + server + "&caps=" + caps
                 + "&vars=" + vars + "&cmds=" + cmds;
     }
 
@@ -636,6 +653,31 @@ class StaffBansTest {
     }
 
     @Test
+    void thePendingQueryCapsNameTheTierAProxyOrABackendRunsOn() throws Exception {
+        StaffBans.Commands commands = new StaffBans.Commands("ban %silent% %uuid% %duration% %reason%", "");
+        bans("velocity-1", commands, true).pollOnce().get(5, TimeUnit.SECONDS);
+        bans("arena-1", commands, false).pollOnce().get(5, TimeUnit.SECONDS);
+
+        assertEquals(
+                List.of(
+                        query(
+                                "permanent,timed,server",
+                                "permanent",
+                                "velocity-1",
+                                "terms,proxy",
+                                "duration,reason,silent,uuid",
+                                "6cb9884991b8f871"),
+                        query(
+                                "permanent,timed,server",
+                                "permanent",
+                                "arena-1",
+                                "terms,backend",
+                                "duration,reason,silent,uuid",
+                                "6cb9884991b8f871")),
+                seen.stream().map(Seen::uri).toList());
+    }
+
+    @Test
     void theCommandsHashIsTheSha256OfBothStrippedCommandsJoinedByALineFeed() {
         assertEquals(
                 "4e0a22648432a8b3",
@@ -951,8 +993,8 @@ class StaffBansTest {
     void noCommandSetSendsNothing() throws Exception {
         CloudSettings settings = new CloudSettings(base(), KEY, "{server}", "arena-1", List.of(5), false, false);
 
-        StaffBans.configure(settings, StaffBans.Commands.NONE, "arena-1");
-        StaffBans.configure(settings, new StaffBans.Commands("ban %player%", ""), null);
+        StaffBans.configure(settings, StaffBans.Commands.NONE, "arena-1", false);
+        StaffBans.configure(settings, new StaffBans.Commands("ban %player%", ""), null, false);
         Thread.sleep(200);
 
         assertTrue(seen.isEmpty());

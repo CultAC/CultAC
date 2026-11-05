@@ -94,7 +94,7 @@ public final class CloudService {
         CONNECTIONS.configure(settings);
         LabelClient.refreshCatalogWhile(settings.enabled());
         String ownId = CloudServerIds.own(settings.serverIdTemplate(), settings.proxyId(), proxy);
-        StaffBans.configure(settings, StaffBans.Commands.read(config), ownId);
+        StaffBans.configure(settings, StaffBans.Commands.read(config), ownId, proxy);
         CloudFlags.configure(settings, ownId);
         CloudCapture.uplinks(UPLINKS);
         boolean on = UPLINKS.enabled();
