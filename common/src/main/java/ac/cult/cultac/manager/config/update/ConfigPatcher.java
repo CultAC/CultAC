@@ -72,7 +72,9 @@ public final class ConfigPatcher {
         String prefix = parentPath + ".";
         for (Map.Entry<String, NodePosition> entry : locationMap.entrySet()) {
             String path = entry.getKey();
-            if (path.startsWith(prefix) && path.indexOf('.', prefix.length()) < 0) return entry.getValue().indent();
+            if (path.startsWith(prefix)
+                    && path.indexOf('.', prefix.length()) < 0
+                    && entry.getValue().indent() > parent.indent()) return entry.getValue().indent();
         }
         return parent.indent() + 2;
     }
