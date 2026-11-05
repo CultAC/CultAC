@@ -58,6 +58,7 @@ public class VehicleTimer extends AbstractTimerCheck {
 
     @CultPacketHandler("serverbound.client_tick_end")
     public void onClientTickEnd(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
+        if (event.isCancelled()) return;
         countedVehicleMovementThisClientTick = false;
     }
 

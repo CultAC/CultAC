@@ -382,6 +382,7 @@ public class CheckManager {
                 player.openWindow,
                 new VehicleA(player),
                 new VehicleB(player),
+                new VehicleGround(player),
                 new VehicleD(player),
                 new VehicleE(player),
                 new VehicleF(player),
@@ -1088,20 +1089,29 @@ public class CheckManager {
     }
 
     public void onPredictionFinish(final PredictionComplete complete) {
-        for (PostPredictionListener check : predictionListeners) {
-            if (!shouldDispatch(check)) {
-                continue;
+        SetbackTeleportUtil setbacks = getSetbackUtil();
+        // A tick predicted without a movement packet is the client's movement for that tick as well.
+        setbacks.movementReceived();
+        try {
+            for (PostPredictionListener check : predictionListeners) {
+                if (!shouldDispatch(check)) {
+                    continue;
+                }
+                check.onPredictionComplete(complete);
             }
-            check.onPredictionComplete(complete);
-        }
-        for (PostPredictionListener check : pseudoListeners) {
-            if (!shouldDispatch(check)) {
-                continue;
+            for (PostPredictionListener check : pseudoListeners) {
+                if (!shouldDispatch(check)) {
+                    continue;
+                }
+                if (!MovementProfiles.forPlayer(player).shouldRunPseudoCheck(check.getClass())) {
+                    continue;
+                }
+                check.onPredictionComplete(complete);
             }
-            if (!MovementProfiles.forPlayer(player).shouldRunPseudoCheck(check.getClass())) {
-                continue;
-            }
-            check.onPredictionComplete(complete);
+        } finally {
+            // SetbackTeleportUtil stages the safe position where its friction is current; a listener after it that
+            // sets this movement back must roll back past it.
+            setbacks.commitSafePosition();
         }
     }
 

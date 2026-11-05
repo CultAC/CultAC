@@ -1,5 +1,6 @@
 package ac.cult.cultac.utils.data;
 
+import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionSetbackState;
 import ac.cult.cultac.utils.math.Vec3;
 import lombok.Getter;
@@ -14,6 +15,8 @@ public class SetbackPosWithVector {
     private final PredictionSetbackState profileState;
     // The sprint modifier state the prediction at this position committed; null keeps the current one.
     private ClientSprintState.Outcomes sprintOutcomes;
+    // The onGround the horse's accepted move left at this position; null when no horse move reached it.
+    private DesyncStatus horseOnGround;
 
     public SetbackPosWithVector(Vec3 pos, Vec3 vector, int tick) {
         this(pos, vector, tick, null);

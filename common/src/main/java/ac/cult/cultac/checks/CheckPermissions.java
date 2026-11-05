@@ -188,6 +188,7 @@ public final class CheckPermissions {
             "vehicled",
             "vehiclee",
             "vehiclef",
+            "vehicleground",
             "vehicleoffset",
             "verticaloffset",
             "wrongbreak");

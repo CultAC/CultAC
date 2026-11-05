@@ -266,6 +266,19 @@ public final class VelocityCandidates {
         return tracesVerticalClip(result, trace) && trace.position().y != trace.preCollisionMovement().y;
     }
 
+    /**
+     * The onGround the accepted move leaves: Entity#move's verticalCollisionBelow, {@code delta.y != movement.y &&
+     * delta.y < 0.0}, which a locally authoritative entity sets on every move. UNKNOWN when the trace cannot show the
+     * clip.
+     */
+    public static DesyncStatus verticalCollisionBelow(PredictionResult result) {
+        MovementTrace trace =
+                result.getValidMovements() == null ? null : result.getValidMovements().getClosestTrace();
+        if (!tracesVerticalClip(result, trace)) return DesyncStatus.UNKNOWN;
+        double delta = trace.preCollisionMovement().y;
+        return DesyncStatus.fromBoolean(delta < 0.0D && trace.position().y != delta);
+    }
+
     /** Whether {@code trace} holds Entity#collide's vertical movement: an unshifted move at full vertical speed. */
     private static boolean tracesVerticalClip(PredictionResult result, MovementTrace trace) {
         if (trace == null

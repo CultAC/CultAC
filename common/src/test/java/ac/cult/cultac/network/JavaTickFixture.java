@@ -105,7 +105,8 @@ final class JavaTickFixture implements AutoCloseable {
                 "timerBalanceRealTime",
                 System.nanoTime() - 10_000_000_000L);
         DumbTimer dumbTimer = player.checkManager.getListener(DumbTimer.class);
-        setField(DumbTimer.class, dumbTimer, "balance", (double) System.nanoTime() - 10_000_000_000L);
+        // DumbTimer counts every client tick, idle ones included, so a long fixture would outrun any finite backlog.
+        setField(DumbTimer.class, dumbTimer, "balance", Double.NEGATIVE_INFINITY);
         setField(DumbTimer.class, dumbTimer, "limitAbuseOverPing", -1L);
     }
 
