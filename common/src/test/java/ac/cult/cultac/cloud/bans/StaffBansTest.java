@@ -596,10 +596,10 @@ class StaffBansTest {
         assertEquals(
                 List.of(
                         query("permanent,server", "permanent", "perm"),
-                        query("permanent,timed,server", "timed", "temp"),
+                        query("permanent,timed", "timed", "temp"),
                         query("permanent,timed,server", "all", "both"),
                         query("permanent,timed,server", "permanent", "one"),
-                        query("timed,server", "timed", "lobby+%7B1%7D%2Feu")),
+                        query("timed", "timed", "lobby+%7B1%7D%2Feu")),
                 seen.stream().map(Seen::uri).toList());
     }
 
@@ -616,8 +616,8 @@ class StaffBansTest {
         String[][] rows = {
             {"", "", "", "", "", "", "timed"},
             {"", tempPlain, tempPlain, "", tempPlain, "timed,server", "timed"},
-            {"", tempDuration, tempDuration, tempDuration, tempDuration, all, "timed"},
-            {"", tempSeconds, tempSeconds, "", tempSeconds, "timed,server", "timed"},
+            {"", tempDuration, tempDuration, tempDuration, "", "permanent,timed", "timed"},
+            {"", tempSeconds, tempSeconds, "", "", "timed", "timed"},
             {plain, "", "", plain, plain, "permanent,server", "permanent"},
             {plain, tempPlain, tempPlain, plain, plain, all, "all"},
             {plain, tempDuration, tempDuration, plain, plain, all, "all"},
@@ -642,6 +642,18 @@ class StaffBansTest {
         }
     }
 
+    @Test
+    void aTempCommandThatNeedsALengthNeverRunsABanTheServerLengthens() {
+        StaffBans.Commands needs = new StaffBans.Commands("", "tempban %player% %duration% %reason%");
+        assertEquals("", needs.of(StaffBans.Term.SERVER));
+        assertEquals("permanent,timed", needs.terms());
+        assertEquals(
+                "no command here runs bans whose length the server decides: set command",
+                StaffBans.Commands.unrunnable(StaffBans.Term.SERVER));
+        StaffBans.Commands lengthless = new StaffBans.Commands("", "tempban %player% %reason%");
+        assertEquals("tempban %player% %reason%", lengthless.of(StaffBans.Term.SERVER));
+        assertEquals("timed,server", lengthless.terms());
+    }
     @Test
     void oneCommandWithADurationRunsTimedPermanentAndServerBans() throws Exception {
         String third = "2f0e0d0c-0b0a-4908-8706-050403020102";
@@ -743,7 +755,7 @@ class StaffBansTest {
                 .get(5, TimeUnit.SECONDS);
 
         assertTrue(dispatched.isEmpty());
-        assertResult(resultFor(BAN), false, "not run: %reason% has a word starting with -");
+        assertResult(resultFor(BAN), false, "not run: %reason% has a flag word (- and a letter)");
         assertResult(resultFor(TIMED), false, "not run: %silent% is not one flag starting with -");
     }
 

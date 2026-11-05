@@ -320,20 +320,20 @@ class BanCommandTest {
     @Test
     void aValueThatWouldAddAFlagIsRefused() {
         assertEquals(
-                "%reason% has a word starting with -",
+                "%reason% has a flag word (- and a letter)",
                 refusal("ban %player% %reason%", ban("Notch", "hacking -s", null, "s")));
         assertEquals(
-                "%reason% has a word starting with -",
+                "%reason% has a flag word (- and a letter)",
                 refusal("ban %player% %reason%", ban("Notch", "hacking -s", null, "s")));
         assertEquals(
-                "%reason_label% has a word starting with -",
+                "%reason_label% has a flag word (- and a letter)",
                 refusal(
                         "ban %player% %reason_label%",
                         v2(Term.PERMANENT, null, null, "other", "Other --sender=Console", "")));
         assertEquals(
-                "%staff% has a word starting with -", refusal("ban %player% by %staff%", ban("Notch", "r", null, "Mod -p")));
+                "%staff% has a flag word (- and a letter)", refusal("ban %player% by %staff%", ban("Notch", "r", null, "Mod -p")));
         assertEquals(
-                "%cheat% has a word starting with -",
+                "%cheat% has a flag word (- and a letter)",
                 refusal("ban %player% %cheat%", hostile("killaura", "Kill -Aura", "https://p.example/x")));
     }
 
@@ -360,10 +360,21 @@ class BanCommandTest {
     }
 
     @Test
-    void aPermanentTokenStartingWithADashIsRefused() {
+    void aBareDashOrANegativeNumberIsNotAFlag() {
+        assertEquals("ban Notch -1", BanCommand.fill("ban %player% %duration%", v2(Term.PERMANENT, null, "-1", "r", null, "")));
         assertEquals(
-                "%duration% has a word starting with -",
-                refusal("ban %player% %duration%", v2(Term.PERMANENT, null, "-1", "r", null, "")));
+                "ban Notch fly - see replay",
+                BanCommand.fill("ban %player% %reason%", ban("Notch", "fly - see replay", null, "s")));
+        assertEquals(
+                "%reason% has a flag word (- and a letter)",
+                refusal("ban %player% %reason%", ban("Notch", "fly -s", null, "s")));
+    }
+
+    @Test
+    void aPermanentTokenThatIsAFlagIsRefused() {
+        assertEquals(
+                "%duration% has a flag word (- and a letter)",
+                refusal("ban %player% %duration%", v2(Term.PERMANENT, null, "-perm", "r", null, "")));
         assertEquals(
                 "ban Notch", BanCommand.fill("ban %player% %duration%", v2(Term.PERMANENT, null, "perm -s", "r", null, "")));
     }

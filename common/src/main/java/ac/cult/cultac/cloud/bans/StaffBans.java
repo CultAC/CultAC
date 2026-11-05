@@ -112,7 +112,9 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
          * The command that runs a {@code term} ban; empty when none can. A timed ban runs {@link #tempCommand}, else
          * {@link #command} when it holds {@code %duration%} or {@code %seconds%}; a permanent one {@link #command},
          * else {@link #tempCommand} when it holds {@code %duration%}; one whose length the server decides
-         * {@link #command}, else {@link #tempCommand}. A command without a length never runs a timed ban.
+         * {@link #command}, else {@link #tempCommand} only when it holds neither {@code %duration%} nor
+         * {@code %seconds%}. A command without a length never runs a timed ban, and a command that needs a length
+         * never runs a ban whose length the server decides.
          */
         String of(Term term) {
             return switch (term) {
@@ -122,7 +124,9 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
                 case PERMANENT -> !command.isEmpty()
                         ? command
                         : tempCommand.contains("%duration%") ? tempCommand : "";
-                case SERVER -> !command.isEmpty() ? command : tempCommand;
+                case SERVER -> !command.isEmpty()
+                        ? command
+                        : tempCommand.contains("%duration%") || tempCommand.contains("%seconds%") ? "" : tempCommand;
             };
         }
 
@@ -149,7 +153,7 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
             return switch (term) {
                 case TIMED -> "no command here runs timed bans: set temp-command, or put %duration% in command";
                 case PERMANENT -> "no command here runs permanent bans: set command, or put %duration% in temp-command";
-                case SERVER -> "no command is set here";
+                case SERVER -> "no command here runs bans whose length the server decides: set command";
             };
         }
     }

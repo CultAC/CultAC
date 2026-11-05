@@ -32,7 +32,7 @@ public final class BanCommand {
     /** A length token the service may send as {@code duration}, such as {@code 30d} or a permanent ban's {@code perm}. */
     private static final Pattern TOKEN = Pattern.compile("[A-Za-z0-9_.:+-]{0,32}");
     private static final Pattern SILENT = Pattern.compile("-[A-Za-z0-9_.:+-]{0,31}");
-    private static final Pattern FLAG_WORD = Pattern.compile("(?:^|\\s)-");
+    private static final Pattern FLAG_WORD = Pattern.compile("(?:^|\\s)-[A-Za-z-]");
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
     private static final long[] UNIT_SECONDS = {86400, 3600, 60};
     private static final String[] UNITS = {"d", "h", "m"};
@@ -80,7 +80,7 @@ public final class BanCommand {
                 throw new Refused("%silent% is not one flag starting with -");
             }
         } else if (FLAG_WORD.matcher(value).find()) {
-            throw new Refused("%" + name + "% has a word starting with -");
+            throw new Refused("%" + name + "% has a flag word (- and a letter)");
         }
     }
 
@@ -145,11 +145,11 @@ public final class BanCommand {
     }
 
     /**
-     * {@code text} with a {@code '} before a leading {@code -}, so a ban plugin never reads it as a flag, cut so the
+     * {@code text} with a {@code '} before a leading {@code -} and a letter or {@code -}, so a ban plugin never reads it as a flag, cut so the
      * whole stays within {@code max} characters.
      */
     static String unflagged(String text, int max) {
-        return text.startsWith("-") ? "'" + cut(text, max - 1) : text;
+        return FLAG_WORD.matcher(text).lookingAt() ? "'" + cut(text, max - 1) : text;
     }
 
     /** {@code text}'s first {@code max} characters, one fewer when that would split a surrogate pair, stripped. */
