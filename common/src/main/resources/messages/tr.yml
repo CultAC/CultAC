@@ -170,4 +170,4 @@ findplayer-usage: "%prefix% &cTo search, type &f/%command% findplayer brand=luna
 
 # Şema işaretçileri — bkz. config.yml'deki başlık yorumu.
 config-flavor: V2
-config-version: 4
+config-version: 5

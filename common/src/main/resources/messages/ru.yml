@@ -171,4 +171,4 @@ findplayer-usage: "%prefix% &cTo search, type &f/%command% findplayer brand=luna
 
 # Маркеры схемы — см. шапку config.yml.
 config-flavor: V2
-config-version: 4
+config-version: 5

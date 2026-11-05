@@ -19,8 +19,8 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Each staff member's alert scope: their own choice, persisted as the player setting {@value #SETTING_KEY}, else
- * {@link #DEFAULT}, which is never persisted. Choices are held per native player, from the join that loads them to the
- * quit, in an object every engine generation on the proxy shares.
+ * the configured default, which is never persisted. Choices are held per native player, from the join that loads them
+ * to the quit, in an object every engine generation on the proxy shares.
  */
 public final class AlertScopes {
     public static final String SETTING_KEY = "alert-scope";
@@ -33,6 +33,8 @@ public final class AlertScopes {
     private final Map<Object, String> chosen;
 
     private final Supplier<@Nullable DataStore> store;
+
+    private volatile AlertScope defaultScope = DEFAULT;
 
     @SuppressWarnings("unchecked")
     public AlertScopes(@Nullable HostContext host, Supplier<@Nullable DataStore> store) {
@@ -67,7 +69,20 @@ public final class AlertScopes {
 
     public AlertScope scope(PlatformPlayer player) {
         AlertScope choice = chosen(player);
-        return choice != null ? choice : DEFAULT;
+        return choice != null ? choice : defaultScope;
+    }
+
+    /** Sets the scope of staff who made no choice. */
+    public void defaultScope(AlertScope scope) {
+        defaultScope = scope;
+    }
+
+    /** The scope {@code alerts.default-scope} names; {@link #DEFAULT}, with a warning, for one it does not name. */
+    public static AlertScope parseDefault(@Nullable String id) {
+        AlertScope scope = AlertScope.parse(id);
+        if (scope != null) return scope;
+        LogUtil.warn("config.yml: alerts.default-scope '" + id + "' is not server or global; using " + DEFAULT.id());
+        return DEFAULT;
     }
 
     public void choose(PlatformPlayer player, AlertScope scope) {

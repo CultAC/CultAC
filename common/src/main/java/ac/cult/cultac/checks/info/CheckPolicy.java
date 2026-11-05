@@ -78,7 +78,7 @@ public final class CheckPolicy {
             List<Action> actions = new ArrayList<>();
             for (PunishmentRules.Command command : rule.commands()) {
                 int threshold = command.threshold();
-                switch (command.command()) {
+                switch (PunishmentRules.isAlert(command.command()) ? "[alert]" : command.command()) {
                     case "[alert]", "[proxy]" -> {
                         if (alertAt == null || threshold < alertAt) alertAt = threshold;
                     }

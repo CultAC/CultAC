@@ -163,4 +163,4 @@ findplayer-usage: "%prefix% &cTo search, type &f/%command% findplayer brand=luna
 
 # Marcatori di schema — vedi il commento di intestazione in config.yml.
 config-flavor: V2
-config-version: 4
+config-version: 5

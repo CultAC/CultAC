@@ -246,4 +246,4 @@ findplayer-usage: "%prefix% &cДля пошуку введіть &f/%command% fi
 
 # Маркери схеми — див. заголовний коментар у config.yml.
 config-flavor: V2
-config-version: 4
+config-version: 5

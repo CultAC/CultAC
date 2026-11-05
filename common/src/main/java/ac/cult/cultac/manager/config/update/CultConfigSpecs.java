@@ -101,9 +101,11 @@ public final class CultConfigSpecs {
      *
      * <p>v16 → v17: {@code network.type} picks the broker, configured in its own block; see {@link #networkBlocks}.
      * Every step reads the user's file as it was, so a v15 config takes the v16 step inside the v17 one.
+     *
+     * <p>v17 → v18: adds {@code alerts.default-scope}; default rewriting adds the key.
      */
     public static @NotNull ConfigUpdater.Spec mainConfig() {
-        return ConfigUpdater.Spec.builder("/config/", 17, ConfigUpdater.ConfigFlavor.V2)
+        return ConfigUpdater.Spec.builder("/config/", 18, ConfigUpdater.ConfigFlavor.V2)
                 .migration(10, ctx -> {
                     String typeRaw = ctx.input().getString("history.database.type");
                     String type = typeRaw == null ? null : typeRaw.trim().toUpperCase(Locale.ROOT);
@@ -826,8 +828,9 @@ public final class CultConfigSpecs {
         return matcher.matches() ? matcher : null;
     }
 
+    /** v4 → v5: adds {@code alerts-format-suspected}, the shipped {@code [alert:<key>]} format. */
     public static @NotNull ConfigUpdater.Spec messages() {
-        return ConfigUpdater.Spec.builder("/messages/", 4, ConfigUpdater.ConfigFlavor.V2)
+        return ConfigUpdater.Spec.builder("/messages/", 5, ConfigUpdater.ConfigFlavor.V2)
                 .migration(4, CultConfigSpecs::spectateAlerts)
                 .build();
     }

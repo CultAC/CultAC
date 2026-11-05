@@ -31,7 +31,27 @@ class MessageAlertUpgradeTest {
                     .deserialize(format.replace("%command%", "gladiator").replace("%player%", "Alice"));
             assertTrue(hasSpectate(rendered));
         }
-        assertEquals(4, updated.get("config-version"));
+        assertEquals(5, updated.get("config-version"));
+    }
+
+    @Test
+    void aV4FileGainsTheSuspectedFormatAndKeepsItsOwnAlerts() throws Exception {
+        String format = "<click:run_command:'/custom %player%'>%player%</click> flagged";
+        Path file = directory.resolve("messages.yml");
+        Files.writeString(
+                file, new Yaml().dump(Map.of("config-version", 4, "config-flavor", "V2", "alerts-format", format)));
+        assertTrue(new ConfigUpdater(CultConfigSpecs.class, Logger.getAnonymousLogger())
+                .update(file.toFile(), CultConfigSpecs.messages())
+                .migrated);
+        Map<String, Object> updated = new Yaml().load(Files.readString(file));
+
+        assertEquals(format, updated.get("alerts-format"));
+        String suspected = (String) updated.get("alerts-format-suspected");
+        assertTrue(suspected.contains("is suspected of cheating!"), suspected);
+        Component rendered = MiniMessage.miniMessage()
+                .deserialize(suspected.replace("%command%", "gladiator").replace("%player%", "Alice"));
+        assertTrue(hasSpectate(rendered));
+        assertEquals(5, updated.get("config-version"));
     }
 
     @Test

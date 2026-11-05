@@ -14,6 +14,9 @@ alerts:
         send: false
         # Les alertes reçues des autres serveurs doivent-elles être annoncées sur ce serveur ?
         receive: false
+    # Portée des alertes du staff qui n'en a pas choisi avec /cult alerts scope : server ou global.
+    # global ne s'applique que si les alertes réseau sont actives ; sinon server est utilisé.
+    default-scope: server
 
 verbose:
     print-to-console: false
@@ -341,4 +344,4 @@ update:
   webhook: ""
 
 config-flavor: V2
-config-version: 17
+config-version: 18
