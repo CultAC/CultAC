@@ -133,12 +133,13 @@ public class PunishmentManager implements ConfigReloadable {
     }
 
     /** {@code original} with its placeholders filled; {@code verbose} is rendered only for a %verbose% in it. */
-    private String replaceAlertPlaceholders(String original, int vl, Check check, Supplier<String> verbose) {
+    private String replaceAlertPlaceholders(ParsedCommand command, int vl, Check check, Supplier<String> verbose) {
+        String original = command.alertFormat != null
+                ? command.alertFormat
+                : command.command.replace("[alert]", alertString).replace("[proxy]", proxyAlertString);
         String replaced = MessageUtil.replacePlaceholders(
                 player,
-                original.replace("[alert]", alertString)
-                        .replace("[proxy]", proxyAlertString)
-                        .replace("%check_name%", check.getDisplayName())
+                original.replace("%check_name%", check.getDisplayName())
                         .replace("%experimental%", check.isExperimental() ? experimentalSymbol : "")
                         .replace("%vl%", Integer.toString(vl))
                         .replace("%description%", check.getDescription())
@@ -178,7 +179,7 @@ public class PunishmentManager implements ConfigReloadable {
                             && CultAPI.INSTANCE.getAlertManager().hasVerboseListeners(player)) {
                         sentDebug = true;
                         try {
-                            String listenerCmd = replaceAlertPlaceholders(command.text(), vl, check, verbose);
+                            String listenerCmd = replaceAlertPlaceholders(command, vl, check, verbose);
                             verboseListeners = CultAPI.INSTANCE
                                     .getAlertManager()
                                     .sendVerbose(
@@ -196,7 +197,7 @@ public class PunishmentManager implements ConfigReloadable {
                         if (shouldRun) {
                             Supplier<String> text = command.command.equals("[log]") ? logVerbose : verbose;
                             Supplier<String> shown = () -> safeGet(text);
-                            String cmd = replaceAlertPlaceholders(command.text(), vl, check, shown);
+                            String cmd = replaceAlertPlaceholders(command, vl, check, shown);
                             // Only console commands can reach a backend's CommandExecuteEvent listeners;
                             // the built-in actions below are decided by this event alone.
                             boolean withheld =
@@ -386,10 +387,5 @@ class ParsedCommand {
     /** The built-in action or console command this runs; every alert runs as [alert]. */
     String action() {
         return alertFormat != null ? "[alert]" : command;
-    }
-
-    /** The text placeholders are filled into. */
-    String text() {
-        return alertFormat != null ? alertFormat : command;
     }
 }
