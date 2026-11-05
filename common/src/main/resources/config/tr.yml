@@ -14,6 +14,9 @@ alerts:
         send: false
         # Diğer sunuculardan alınan uyarılar bu sunucuya duyurulmalı mı?
         receive: false
+    # /cult alerts scope ile kapsam seçmemiş yetkililerin uyarı kapsamı: server veya global.
+    # global yalnızca ağ genelinde uyarılar açıkken geçerlidir; aksi halde server kullanılır.
+    default-scope: server
 
 verbose:
     print-to-console: false
@@ -337,4 +340,4 @@ update:
   webhook: ""
 
 config-flavor: V2
-config-version: 17
+config-version: 18

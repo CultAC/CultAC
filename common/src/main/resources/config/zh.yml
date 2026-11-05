@@ -14,6 +14,9 @@ alerts:
         send: false
         # 此服务器是否接收来自其他子服的作弊消息？
         receive: false
+    # 未通过 /cult alerts scope 选择范围的管理员的默认警报范围：server 或 global。
+    # global 仅在启用全网警报时生效，否则按 server 处理。
+    default-scope: server
 
 verbose:
     # 是否在控制台中打印verbose信息
@@ -353,4 +356,4 @@ update:
   webhook: ""
 
 config-flavor: V2
-config-version: 17
+config-version: 18

@@ -70,7 +70,11 @@ public class PunishmentManager implements ConfigReloadable {
 
             List<ParsedCommand> parsed = new ArrayList<>();
             for (PunishmentRules.Command command : rule.commands()) {
-                parsed.add(new ParsedCommand(command.threshold(), command.interval(), command.command()));
+                parsed.add(new ParsedCommand(
+                        command.threshold(),
+                        command.interval(),
+                        command.command(),
+                        alertFormat(config, command.command())));
             }
             groups.add(new PunishGroup(held, parsed, rule.removeViolationsAfter() * 1000));
         }
@@ -82,6 +86,46 @@ public class PunishmentManager implements ConfigReloadable {
         if (rules.failure() != null) {
             LogUtil.error("Error while loading punishments.yml! This is likely your fault!", rules.failure());
         }
+    }
+
+    /** What {@code command} alerts with: {@code alerts-format}, or the message an {@code [alert:<key>]} names. */
+    private @Nullable String alertFormat(ConfigManager config, String command) {
+        if (command.equals("[alert]")) return alertString;
+        String key = PunishmentRules.alertKey(command);
+        if (key == null) return null;
+        String named = namedAlertFormat(config, key);
+        return named != null ? named : alertString;
+    }
+
+    /** The message {@code key} names, or null when it names none or a blank one. */
+    static @Nullable String namedAlertFormat(ConfigManager config, String key) {
+        if (key.isEmpty()) return null;
+        String format;
+        try {
+            format = config.getStringElse(key, EnglishDefaults.stringOrNull("messages", key));
+        } catch (RuntimeException notText) {
+            return null;
+        }
+        return format == null || format.isBlank() ? null : format;
+    }
+
+    /**
+     * One warning per group and key for each {@code [alert:<key>]} whose key names no message; such an alert sends
+     * {@code alerts-format}.
+     */
+    public static List<String> unknownAlertFormats(ConfigManager config) {
+        List<String> warnings = new ArrayList<>();
+        List<String> punish = config.getStringListElse("Punishments", new ArrayList<>());
+        for (PunishmentRules.Group group : PunishmentRules.parse(punish).groups()) {
+            Set<String> warned = new HashSet<>();
+            for (PunishmentRules.Command command : group.commands()) {
+                String key = PunishmentRules.alertKey(command.command());
+                if (key == null || namedAlertFormat(config, key) != null || !warned.add(key)) continue;
+                warnings.add("punishments.yml: the group with checks " + group.selectors() + " runs [alert:" + key
+                        + "], but no message is named '" + key + "'; it sends alerts-format instead");
+            }
+        }
+        return warnings;
     }
 
     private static @Nullable String lowerCase(@Nullable String name) {
@@ -130,11 +174,11 @@ public class PunishmentManager implements ConfigReloadable {
                     // Verbose that prints all flags: /cult verbose subscribers get EVERY flag, not just thresholded
                     // alerts. The verbose string is only rendered (safeGet) when there are listeners, so the flag
                     // path stays lazy when nobody is subscribed.
-                    if (command.command.equals("[alert]")
+                    if (command.alertFormat != null
                             && CultAPI.INSTANCE.getAlertManager().hasVerboseListeners(player)) {
                         sentDebug = true;
                         try {
-                            String listenerCmd = replaceAlertPlaceholders(command.command, vl, check, verbose);
+                            String listenerCmd = replaceAlertPlaceholders(command.text(), vl, check, verbose);
                             verboseListeners = CultAPI.INSTANCE
                                     .getAlertManager()
                                     .sendVerbose(
@@ -152,12 +196,12 @@ public class PunishmentManager implements ConfigReloadable {
                         if (shouldRun) {
                             Supplier<String> text = command.command.equals("[log]") ? logVerbose : verbose;
                             Supplier<String> shown = () -> safeGet(text);
-                            String cmd = replaceAlertPlaceholders(command.command, vl, check, shown);
+                            String cmd = replaceAlertPlaceholders(command.text(), vl, check, shown);
                             // Only console commands can reach a backend's CommandExecuteEvent listeners;
                             // the built-in actions below are decided by this event alone.
                             boolean withheld =
                                     CultAPI.INSTANCE.getConfigManager().isObserveOnly()
-                                            && !BUILTIN_ACTIONS.contains(command.command);
+                                            && !BUILTIN_ACTIONS.contains(command.action());
                             boolean canceled = withheld
                                     || COMMAND_CHANNEL.fire(
                                             ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(player),
@@ -172,7 +216,7 @@ public class PunishmentManager implements ConfigReloadable {
                             if (canceled) continue;
 
                             try {
-                                switch (command.command) {
+                                switch (command.action()) {
                                     case "[webhook]" ->
                                         CultAPI.INSTANCE
                                                 .getDiscordManager()
@@ -263,7 +307,7 @@ public class PunishmentManager implements ConfigReloadable {
             int violationCount = group.violations.size() + pending;
             for (ParsedCommand command : group.commands) {
                 if (command.command.equals("[log]")) continue;
-                if (verboseListeners && command.command.equals("[alert]")) return true;
+                if (verboseListeners && command.alertFormat != null) return true;
                 if (violationCount >= command.threshold
                         && (command.interval == 0 ? command.executeCount == 0 : violationCount >= command.nextBoundary))
                     return true;
@@ -324,15 +368,28 @@ class ParsedCommand {
     public final int threshold;
     public final int interval;
     public final String command;
+    // The text an [alert] or [alert:<key>] sends; null for every other command.
+    public final @Nullable String alertFormat;
     // For M=0, a non-zero count keeps the command from running again in this loaded state.
     public int executeCount;
     // For M>0, the next active violation count that should run this command.
     public int nextBoundary;
 
-    public ParsedCommand(int threshold, int interval, String command) {
+    public ParsedCommand(int threshold, int interval, String command, @Nullable String alertFormat) {
         this.threshold = threshold;
         this.interval = interval;
         this.command = command;
+        this.alertFormat = alertFormat;
         this.nextBoundary = threshold;
+    }
+
+    /** The built-in action or console command this runs; every alert runs as [alert]. */
+    String action() {
+        return alertFormat != null ? "[alert]" : command;
+    }
+
+    /** The text placeholders are filled into. */
+    String text() {
+        return alertFormat != null ? alertFormat : command;
     }
 }

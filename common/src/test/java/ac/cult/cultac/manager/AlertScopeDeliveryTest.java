@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.never;
@@ -26,6 +27,7 @@ import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.reload.api.HostContext;
+import ac.grim.grimac.api.config.ConfigManager;
 import com.google.gson.JsonObject;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -484,6 +486,35 @@ class AlertScopeDeliveryTest {
         alerts.handlePlayerQuit(player);
         assertNull(alerts.chosenScope(player));
         assertEquals(AlertScope.SERVER, alerts.scope(player));
+    }
+
+    @Test
+    void aConfiguredGlobalDefaultAppliesUntilAChoiceAndOnlyWithNetworkAlerts() {
+        alerts.reload(defaultScope("global"));
+        PlatformPlayer player = staff("lobby");
+        assertEquals(AlertScope.GLOBAL, alerts.scope(player));
+        assertNull(alerts.chosenScope(player));
+
+        alerts.chooseScope(player, AlertScope.SERVER);
+        assertEquals(AlertScope.SERVER, alerts.scope(player));
+
+        AlertManagerImpl offline = manager(networks.withoutTransport("p9"));
+        offline.reload(defaultScope("global"));
+        assertEquals(AlertScope.SERVER, offline.scope(staff("lobby")));
+    }
+
+    @Test
+    void anUnknownDefaultScopeIsServer() {
+        alerts.reload(defaultScope("global"));
+        alerts.reload(defaultScope("everywhere"));
+        assertEquals(AlertScope.SERVER, alerts.scope(staff("lobby")));
+    }
+
+    private static ConfigManager defaultScope(String scope) {
+        ConfigManager config = mock(ConfigManager.class);
+        when(config.getStringElse(anyString(), anyString())).thenAnswer(invocation -> invocation.getArgument(1));
+        when(config.getStringElse(eq("alerts.default-scope"), anyString())).thenReturn(scope);
+        return config;
     }
 
     @Test

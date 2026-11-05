@@ -110,6 +110,7 @@ A command that names a player on another server runs there, with the sender's pe
 to the sender: `profile` and the Java and Geyser packet logs, for example. `findings` and `history` look the player up
 across the whole network. `spectate` sends the staff member to the player's server through their own proxy.
 `/cult alerts scope global` receives alerts from every server; `server` only from players on the staff member's own
-server. `/cult findplayer` counts the client brands of everyone online on the network, and
+server. Staff who never chose a scope get `alerts.default-scope` from `config.yml` (`server` unless set to
+`global`); their own choice wins, and `global` acts as `server` while network-wide alerts are off. `/cult findplayer` counts the client brands of everyone online on the network, and
 `/cult findplayer brand=<text>` lists the players whose brand contains that text. While the network runs, a server
 does not also send its alerts through the proxy (`alerts.proxy.send`), as the network already brings them.

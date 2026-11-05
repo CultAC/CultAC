@@ -14,6 +14,9 @@ alerts:
         send: false
         # Чи показувати на цьому сервері сповіщення, отримані з інших серверів?
         receive: false
+    # Область сповіщень для персоналу, який не обрав її через /cult alerts scope: server або global.
+    # global діє лише з увімкненими мережевими сповіщеннями; інакше використовується server.
+    default-scope: server
 
 verbose:
     print-to-console: false
@@ -336,4 +339,4 @@ update:
 #                   конфігурації автоматично мігрують вбудованим оновлювачем
 #                   під час наступного запуску.
 config-flavor: V2
-config-version: 17
+config-version: 18

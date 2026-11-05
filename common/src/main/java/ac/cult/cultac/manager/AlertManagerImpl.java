@@ -214,6 +214,8 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
             setConsoleAlertsEnabled(config.getBooleanElse("alerts.print-to-console", true), true);
             setConsoleVerboseEnabled(config.getBooleanElse("verbose.print-to-console", false), true);
         }
+        scopes.defaultScope(
+                AlertScopes.parseDefault(config.getStringElse("alerts.default-scope", AlertScopes.DEFAULT.id())));
 
         AlertType.NORMAL.enableMessage = config.getStringElse("alerts-enabled", "%prefix% &fAlerts enabled");
         AlertType.NORMAL.disableMessage = config.getStringElse("alerts-disabled", "%prefix% &fAlerts disabled");

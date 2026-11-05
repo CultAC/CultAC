@@ -1,6 +1,7 @@
 package ac.cult.cultac;
 
 import ac.cult.cultac.cloud.CloudModule;
+import ac.cult.cultac.manager.PunishmentManager;
 import ac.cult.cultac.manager.config.ConfigManagerFileImpl;
 import ac.cult.cultac.manager.init.start.StartableInitable;
 import ac.cult.cultac.network.routing.NetworkModule;
@@ -238,6 +239,7 @@ public class CultExternalAPI implements GrimAbstractAPI, ConfigReloadObserver, S
             configManager = newConfig;
         }
         updateVariables();
+        for (String warning : PunishmentManager.unknownAlertFormats(configManager)) LogUtil.warn(warning);
         CultAPI.INSTANCE.getAlertManager().reload(configManager);
         CultAPI.INSTANCE.getDiscordManager().reload();
         CultAPI.INSTANCE.getSpectateManager().reload();

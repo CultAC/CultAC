@@ -44,6 +44,8 @@ webhook-test-failed: "Discord webhook test failed!"
 # The check name links to /%command% info check.
 alerts-format: "%prefix% &f<click:run_command:'/%command% spectate %player%'><hover:show_text:'&7Click to spectate %player%'>%player%</hover></click> &bfailed <hover:show_text:\"&b%check_name%%experimental%\n&8Description: &f%description%\n&7Click for more info\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
 alerts-format-proxy: "%prefix% &f[&cproxy&f] &f<click:run_command:'/%command% spectate %player%'><hover:show_text:'&7Click to spectate %player%'>%player%</hover></click> &bfailed <hover:show_text:\"&b%check_name%%experimental%\n&8Description: &f%description%\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
+# Sent by a punishments.yml [alert:alerts-format-suspected] command; same placeholders.
+alerts-format-suspected: "%prefix% &f<click:run_command:'/%command% spectate %player%'><hover:show_text:\"&7Click to spectate %player%\n&b%check_name%%experimental%\n&8%description%\">%player%</hover></click> &cis suspected of cheating!"
 experimental-symbol: "*"
 
 profile-client-classification: "&7%client_classification%"
@@ -255,4 +257,4 @@ findplayer-wait: "%prefix% &7Please wait a moment before searching again."
 
 # Schema markers — see header comment in config.yml.
 config-flavor: V2
-config-version: 4
+config-version: 5
