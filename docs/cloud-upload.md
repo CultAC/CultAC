@@ -184,18 +184,19 @@ shared database) and leave them empty everywhere else.
 | Key | Default | Meaning |
 |---|---|---|
 | `cloud.staff-ban.command` | `""` | Runs every ban when it holds `%duration%`; otherwise permanent bans and bans whose length your server decides. |
-| `cloud.staff-ban.temp-command` | `""` | Optional. Runs timed bans in place of `command`. |
+| `cloud.staff-ban.temp-command` | `""` | Optional. Runs timed bans in place of `command` when it holds `%duration%` or `%seconds%`. |
 
 The panel's ban policy decides what staff fill in, and so which kind of ban reaches your server and which command
 runs it:
 
 | Ban | Command |
 |---|---|
-| Timed: staff picked a length | `temp-command`; else `command` when it holds `%duration%` or `%seconds%`; else this server never takes it |
-| Permanent | `command`; else `temp-command` when it holds `%duration%`; else this server never takes it |
-| Length set by your server: the policy asks staff for no length | `command`; else `temp-command`, with `%duration%` and `%seconds%` empty |
+| Timed: staff picked a length | `temp-command` when it holds `%duration%` or `%seconds%`; else `command` when it does; else this server never takes it |
+| Permanent | `command`; else `temp-command` when it holds `%duration%`, which runs it only when the ban policy sets a permanent length such as `perm` (else the ban is not run); else this server never takes it |
+| Length set by your server: the policy asks staff for no length | `command`; else `temp-command` when it holds neither `%duration%` nor `%seconds%`; else this server never takes it |
 
-A command without a length therefore never turns a timed ban into a permanent one. One `command` such as
+A command without a length therefore never turns a timed ban into a permanent one, and a permanent ban never runs as
+a `temp-command` missing its length. One `command` such as
 `ban %silent% %uuid% %duration% %reason%` covers every ban for a ban plugin that reads a ban without a length as
 permanent.
 
@@ -227,7 +228,8 @@ How a command is filled:
 - `%reason%`, `%reason_label%`, `%staff%` and `%cheat%` may hold spaces, so they are only safe at the end of the
   command: put `%reason%` last, after `%duration%`. A ban plugin may also read a reason such as `1d spam` as a length.
 - Text other than `%reason%` and `%reason_label%` never contains `=`, so it cannot read as a key in a `key=value`
-  command, and a value that would start with `-` gets a leading `'` (within the 200 characters).
+  command, and a value that would start with `-` gets a leading `'` (within the 200 characters). In a command holding
+  `=%` (a `key=value` command), a ban whose `%reason%` or `%reason_label%` holds a word starting `name=` is not run.
 - A value never adds a flag to the command: a ban whose value holds a word starting with `-` anywhere else is not run,
   and `%silent%` must be one word starting with `-`. Only the placeholders the command uses are checked.
 - A placeholder CultAC does not know stays as it is, and a leading `/` is dropped.
@@ -266,7 +268,9 @@ the outcome goes back to the service:
 | `unknown command` | The server or proxy has no such command. |
 | `not run: the server was busy` | The main thread did not take the command within 30 seconds; it never runs later. |
 | `not run: no command here runs timed bans: …` | Neither command can run this kind of ban (see the table above); the same for permanent bans. |
-| `not run: %reason% has a word starting with -` | That placeholder would have added a flag to the command, which did not run. |
+| `not run: permanent bans need cloud.staff-ban.command, or a permanent length set in the ban policy` | Only `temp-command` runs permanent bans here and the ban policy sets no permanent length, so `%duration%` would fill empty; the command did not run. |
+| `not run: %reason% has a flag word (- and a letter)` | That placeholder would have added a flag to the command, which did not run. |
+| `not run: %reason% has a name= word, which this key=value command would read as an option` | The same for a key in a `key=value` command. |
 | `not run: %silent% is not one flag starting with -` | The silent flag is not one word starting with `-`; the command did not run. |
 | `not run: the command is empty once filled` | Every word of the command filled empty; nothing ran. |
 | anything else | The error the command threw. |

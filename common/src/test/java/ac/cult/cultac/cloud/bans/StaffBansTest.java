@@ -615,7 +615,7 @@ class StaffBansTest {
                 List.of(
                         query("permanent,server", "permanent", "perm", "player", "affd092b8fa901c6"),
                         query("permanent,timed", "timed", "temp", "duration,player", "882384187d9c1753"),
-                        query("permanent,timed,server", "all", "both", "player", "8ce5c56ada419a79"),
+                        query("permanent,server", "all", "both", "player", "8ce5c56ada419a79"),
                         query(
                                 "permanent,timed,server",
                                 "permanent",
@@ -708,19 +708,19 @@ class StaffBansTest {
         // command, temp-command; the template a timed, a permanent and a server ban runs, "" when none; terms; durations
         String[][] rows = {
             {"", "", "", "", "", "", "timed"},
-            {"", tempPlain, tempPlain, "", tempPlain, "timed,server", "timed"},
+            {"", tempPlain, "", "", tempPlain, "server", "timed"},
             {"", tempDuration, tempDuration, tempDuration, "", "permanent,timed", "timed"},
             {"", tempSeconds, tempSeconds, "", "", "timed", "timed"},
             {plain, "", "", plain, plain, "permanent,server", "permanent"},
-            {plain, tempPlain, tempPlain, plain, plain, all, "all"},
+            {plain, tempPlain, "", plain, plain, "permanent,server", "all"},
             {plain, tempDuration, tempDuration, plain, plain, all, "all"},
             {plain, tempSeconds, tempSeconds, plain, plain, all, "all"},
             {duration, "", duration, duration, duration, all, "permanent"},
-            {duration, tempPlain, tempPlain, duration, duration, all, "all"},
+            {duration, tempPlain, duration, duration, duration, all, "all"},
             {duration, tempDuration, tempDuration, duration, duration, all, "all"},
             {duration, tempSeconds, tempSeconds, duration, duration, all, "all"},
             {seconds, "", seconds, seconds, seconds, all, "permanent"},
-            {seconds, tempPlain, tempPlain, seconds, seconds, all, "all"},
+            {seconds, tempPlain, seconds, seconds, seconds, all, "all"},
             {seconds, tempDuration, tempDuration, seconds, seconds, all, "all"},
             {seconds, tempSeconds, tempSeconds, seconds, seconds, all, "all"},
         };
@@ -745,8 +745,37 @@ class StaffBansTest {
                 StaffBans.Commands.unrunnable(StaffBans.Term.SERVER));
         StaffBans.Commands lengthless = new StaffBans.Commands("", "tempban %player% %reason%");
         assertEquals("tempban %player% %reason%", lengthless.of(StaffBans.Term.SERVER));
-        assertEquals("timed,server", lengthless.terms());
+        assertEquals("server", lengthless.terms());
     }
+
+    @Test
+    void aTempCommandWithoutALengthNeverRunsATimedBan() {
+        StaffBans.Commands commands = new StaffBans.Commands("", "ban %player% %reason%");
+        assertEquals("", commands.of(StaffBans.Term.TIMED));
+        assertEquals("server", commands.terms());
+        StaffBans.Commands withCommand = new StaffBans.Commands("ban %player% %reason%", "ban %player% %reason%");
+        assertEquals("", withCommand.of(StaffBans.Term.TIMED));
+        assertEquals("permanent,server", withCommand.terms());
+    }
+
+    @Test
+    void aPermanentBanThroughATempCommandWithoutAPermanentLengthIsReportedNotRun() throws Exception {
+        String withToken = "2f0e0d0c-0b0a-4908-8706-050403020102";
+        pending(
+                v2(ban(BAN, PLAYER, null, NOW - 60_000), "permanent", "", "Cheating", ""),
+                ban(TIMED, OTHER, null, NOW - 60_000),
+                v2(ban(withToken, PLAYER, null, NOW - 60_000), "permanent", "perm", "Cheating", ""));
+
+        StaffBans.Commands commands = new StaffBans.Commands("", "tempban %player% %duration% %reason%");
+        assertEquals("permanent,timed", commands.terms());
+        bans("arena-1", commands).pollOnce().get(5, TimeUnit.SECONDS);
+
+        assertEquals(List.of("tempban Notch perm fly hacks"), dispatched);
+        String refused = "not run: permanent bans need cloud.staff-ban.command, or a permanent length set in the ban policy";
+        assertResult(resultFor(BAN), false, refused);
+        assertResult(resultFor(TIMED), false, refused);
+    }
+
     @Test
     void oneCommandWithADurationRunsTimedPermanentAndServerBans() throws Exception {
         String third = "2f0e0d0c-0b0a-4908-8706-050403020102";
@@ -839,7 +868,7 @@ class StaffBansTest {
         assertResult(
                 results().get(0),
                 false,
-                "not run: no command here runs timed bans: set temp-command, or put %duration% in command");
+                "not run: no command here runs timed bans: put %duration% in temp-command or command");
     }
 
     @Test

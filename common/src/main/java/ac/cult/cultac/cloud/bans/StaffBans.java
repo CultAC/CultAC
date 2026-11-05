@@ -54,6 +54,9 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
 
     static final CommandOutcome BUSY = new CommandOutcome(false, "not run: the server was busy");
     static final String FAILED = "the command failed";
+    /** Why a permanent ban that only {@code temp-command} runs, whose {@code %duration%} fills empty, is refused. */
+    static final String PERMANENT_WITHOUT_LENGTH =
+            "permanent bans need cloud.staff-ban.command, or a permanent length set in the ban policy";
     /** How Velocity and Bukkit start the message of the exception they wrap around what a command threw. */
     private static final Pattern WRAPPER = Pattern.compile("Unable to invoke command |Unhandled exception executing ");
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
@@ -112,25 +115,26 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
         }
 
         /**
-         * The command that runs a {@code term} ban; empty when none can. A timed ban runs {@link #tempCommand}, else
-         * {@link #command} when it holds {@code %duration%} or {@code %seconds%}; a permanent one {@link #command},
-         * else {@link #tempCommand} when it holds {@code %duration%}; one whose length the server decides
-         * {@link #command}, else {@link #tempCommand} only when it holds neither {@code %duration%} nor
+         * The command that runs a {@code term} ban; empty when none can. A timed ban runs {@link #tempCommand} when it
+         * holds {@code %duration%} or {@code %seconds%}, else {@link #command} when it does; a permanent one
+         * {@link #command}, else {@link #tempCommand} when it holds {@code %duration%}; one whose length the server
+         * decides {@link #command}, else {@link #tempCommand} only when it holds neither {@code %duration%} nor
          * {@code %seconds%}. A command without a length never runs a timed ban, and a command that needs a length
          * never runs a ban whose length the server decides.
          */
         String of(Term term) {
             return switch (term) {
-                case TIMED -> !tempCommand.isEmpty()
-                        ? tempCommand
-                        : command.contains("%duration%") || command.contains("%seconds%") ? command : "";
+                case TIMED -> lengthened(tempCommand) ? tempCommand : lengthened(command) ? command : "";
                 case PERMANENT -> !command.isEmpty()
                         ? command
                         : tempCommand.contains("%duration%") ? tempCommand : "";
-                case SERVER -> !command.isEmpty()
-                        ? command
-                        : tempCommand.contains("%duration%") || tempCommand.contains("%seconds%") ? "" : tempCommand;
+                case SERVER -> !command.isEmpty() ? command : lengthened(tempCommand) ? "" : tempCommand;
             };
+        }
+
+        /** Whether {@code template} holds {@code %duration%} or {@code %seconds%}. */
+        private static boolean lengthened(String template) {
+            return template.contains("%duration%") || template.contains("%seconds%");
         }
 
         /** The terms these commands can run, as the pending query's comma-separated {@code terms}. */
@@ -186,7 +190,7 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
         /** Why a {@code term} ban cannot run here, as its result says. */
         static String unrunnable(Term term) {
             return switch (term) {
-                case TIMED -> "no command here runs timed bans: set temp-command, or put %duration% in command";
+                case TIMED -> "no command here runs timed bans: put %duration% in temp-command or command";
                 case PERMANENT -> "no command here runs permanent bans: set command, or put %duration% in temp-command";
                 case SERVER -> "no command here runs bans whose length the server decides: set command";
             };
@@ -376,6 +380,9 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
         try {
             String template = commands.of(ban.term());
             if (template.isEmpty()) throw new BanCommand.Refused(Commands.unrunnable(ban.term()));
+            if (ban.term() == Term.PERMANENT
+                    && commands.command().isEmpty()
+                    && BanCommand.duration(ban).isEmpty()) throw new BanCommand.Refused(PERMANENT_WITHOUT_LENGTH);
             command = BanCommand.fill(template, ban);
         } catch (BanCommand.Refused refused) {
             if (!latest()) {

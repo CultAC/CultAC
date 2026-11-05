@@ -324,7 +324,7 @@ class BanCommandTest {
                 refusal("ban %player% %reason%", ban("Notch", "hacking -s", null, "s")));
         assertEquals(
                 "%reason% has a flag word (- and a letter)",
-                refusal("ban %player% %reason%", ban("Notch", "hacking -s", null, "s")));
+                refusal("ban %player% %reason%", ban("Notch", "hacking\u00A0-s", null, "s")));
         assertEquals(
                 "%reason_label% has a flag word (- and a letter)",
                 refusal(
@@ -335,6 +335,27 @@ class BanCommandTest {
         assertEquals(
                 "%cheat% has a flag word (- and a letter)",
                 refusal("ban %player% %cheat%", hostile("killaura", "Kill -Aura", "https://p.example/x")));
+    }
+
+    @Test
+    void aReasonWithANameEqualsWordIsRefusedOnlyInAKeyValueTemplate() {
+        String keyed = "gban target=%uuid% by=%staff% reason=%reason%";
+        assertEquals(
+                "%reason% has a name= word, which this key=value command would read as an option",
+                refusal(keyed, ban("Notch", "x target=" + PLAYER, null, "s")));
+        assertEquals(
+                "%reason% has a name= word, which this key=value command would read as an option",
+                refusal(keyed, ban("Notch", "_a-1=b", null, "s")));
+        assertEquals(
+                "%reason_label% has a name= word, which this key=value command would read as an option",
+                refusal(
+                        "gban target=%uuid% label=%reason_label%",
+                        v2(Term.PERMANENT, null, null, "other", "Other by=Console", "")));
+        assertEquals(
+                "gban target=" + PLAYER + " by=s reason=2+2=4 x = y",
+                BanCommand.fill(keyed, ban("Notch", "2+2=4 x = y", null, "s")));
+        assertEquals(
+                "ban Notch x target=forged", BanCommand.fill("ban %player% %reason%", ban("Notch", "x target=forged", null, "s")));
     }
 
     @Test

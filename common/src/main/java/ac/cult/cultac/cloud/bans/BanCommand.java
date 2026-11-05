@@ -24,7 +24,9 @@ import org.jetbrains.annotations.Nullable;
  * <p>The template is filled one whitespace-separated word at a time: a word holding a placeholder that fills empty is
  * left out whole, and the words that remain are joined by single spaces. A ban is {@linkplain Refused refused} rather
  * than filled when a placeholder the template uses would put a word starting with {@code -} into the command, other
- * than {@code silent}, which must be one flag starting with {@code -} or empty.
+ * than {@code silent}, which must be one flag starting with {@code -} or empty. It is also refused when the template
+ * holds {@code =%} (a {@code key=value} command) and {@code reason} or {@code reason_label} holds a word starting
+ * {@code name=}.
  */
 public final class BanCommand {
     static final int MAX_TEXT = 200;
@@ -36,6 +38,8 @@ public final class BanCommand {
     private static final Pattern TOKEN = Pattern.compile("[A-Za-z0-9_.:+-]{0,32}");
     private static final Pattern SILENT = Pattern.compile("-[A-Za-z0-9_.:+-]{0,31}");
     private static final Pattern FLAG_WORD = Pattern.compile("(?:^|\\s)-[A-Za-z-]");
+    /** A word that starts {@code name=}, which a {@code key=value} command reads as another option. */
+    private static final Pattern KEY_WORD = Pattern.compile("(?:^|\\s)[A-Za-z_][A-Za-z0-9_-]*=");
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
     private static final long[] UNIT_SECONDS = {86400, 3600, 60};
     private static final String[] UNITS = {"d", "h", "m"};
@@ -73,10 +77,12 @@ public final class BanCommand {
      * without the words whose placeholder filled empty, its whitespace runs single spaces and a leading {@code /}
      * dropped.
      *
-     * @throws Refused when a used placeholder's value would add a flag, or nothing is left to run
+     * @throws Refused when a used placeholder's value would add a flag or, in a {@code key=value} template, a key, or
+     *     nothing is left to run
      */
     public static String fill(String template, StaffBans.Ban ban) {
         Map<String, String> values = values(ban);
+        boolean keyed = template.contains("=%");
         StringJoiner command = new StringJoiner(" ");
         for (String word : WHITESPACE.split(template.strip())) {
             Matcher matcher = PLACEHOLDER.matcher(word);
@@ -88,7 +94,7 @@ public final class BanCommand {
                 if (value == null) {
                     value = matcher.group();
                 } else {
-                    check(name, value);
+                    check(name, value, keyed);
                     empty |= value.isEmpty();
                 }
                 matcher.appendReplacement(out, Matcher.quoteReplacement(value));
@@ -102,14 +108,21 @@ public final class BanCommand {
         return filled;
     }
 
-    /** Refuses {@code value} for the placeholder {@code name} when it would add a flag the panel did not send as one. */
-    private static void check(String name, String value) {
+    /**
+     * Refuses {@code value} for the placeholder {@code name} when it would add a flag the panel did not send as one,
+     * or, in a {@code keyed} template, when a reason holds a word starting {@code name=}.
+     */
+    private static void check(String name, String value, boolean keyed) {
         if (name.equals("silent")) {
             if (!value.isEmpty() && !SILENT.matcher(value).matches()) {
                 throw new Refused("%silent% is not one flag starting with -");
             }
         } else if (FLAG_WORD.matcher(value).find()) {
             throw new Refused("%" + name + "% has a flag word (- and a letter)");
+        } else if (keyed
+                && (name.equals("reason") || name.equals("reason_label"))
+                && KEY_WORD.matcher(value).find()) {
+            throw new Refused("%" + name + "% has a name= word, which this key=value command would read as an option");
         }
     }
 
