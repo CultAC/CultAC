@@ -41,6 +41,7 @@ public final class CultLogViewers {
         PlatformPlayer staff = Mockito.mock(PlatformPlayer.class);
         Mockito.when(staff.getUniqueId()).thenReturn(UUID.randomUUID());
         Mockito.when(staff.getNative()).thenReturn(new Object());
+        Mockito.when(staff.hasPermission(Mockito.anyString())).thenReturn(true);
         alerts.setVerboseEnabled(staff, true, true);
         return () -> {
             alerts.handlePlayerQuit(staff);

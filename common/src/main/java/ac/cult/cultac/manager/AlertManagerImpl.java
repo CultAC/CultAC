@@ -64,18 +64,26 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
             Set<@Nullable PlatformPlayer> players, @Nullable String pair) {}
 
     private enum AlertType {
-        NORMAL(AlertKind.ALERT, "%prefix% &fAlerts enabled", "%prefix% &fAlerts disabled"),
-        VERBOSE(AlertKind.VERBOSE, "%prefix% &fVerbose enabled", "%prefix% &fVerbose disabled"),
-        BRAND(AlertKind.BRAND, "%prefix% &fBrands enabled", "%prefix% &fBrands disabled");
+        NORMAL(AlertKind.ALERT, "cult.alerts", "%prefix% &fAlerts enabled", "%prefix% &fAlerts disabled"),
+        VERBOSE(AlertKind.VERBOSE, "cult.verbose", "%prefix% &fVerbose enabled", "%prefix% &fVerbose disabled"),
+        BRAND(AlertKind.BRAND, "cult.brand", "%prefix% &fBrands enabled", "%prefix% &fBrands disabled");
 
         public final @NotNull AlertKind kind;
+        /** Checked on every message: it can be taken away while a subscriber stays online. */
+        public final @NotNull String permission;
+
         public @NotNull String enableMessage;
         public @NotNull String disableMessage;
         public final @NotNull Set<@NotNull PlatformPlayer> players;
         private final AtomicBoolean console;
 
-        AlertType(@NotNull AlertKind kind, @NotNull String enableMessage, @NotNull String disableMessage) {
+        AlertType(
+                @NotNull AlertKind kind,
+                @NotNull String permission,
+                @NotNull String enableMessage,
+                @NotNull String disableMessage) {
             this.kind = kind;
+            this.permission = permission;
             this.enableMessage = enableMessage;
             this.disableMessage = disableMessage;
             var host = RuntimeEnvironment.host();
@@ -127,7 +135,8 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
                 }
                 listeners.removeIf(listener -> excludedNatives.contains(listener.getNative()));
             }
-            listeners.removeIf(listener -> !covered.test(listener));
+            // covered may use up a staff member's share of a verbose/alert pair, so it runs only for those who stay.
+            listeners.removeIf(listener -> !permitted(listener) || !covered.test(listener));
 
             for (PlatformPlayer platformPlayer : listeners) {
                 platformPlayer.sendMessage(component);
@@ -139,6 +148,19 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
             }
 
             return listeners;
+        }
+
+        /** Whether {@code listener} still holds what grants this subscription; one who does not is unsubscribed. */
+        private boolean permitted(PlatformPlayer listener) {
+            // Verbose turns alerts on with it, so cult.verbose keeps the alerts of a verbose subscriber.
+            if (listener.hasPermission(permission)
+                    || this == NORMAL
+                            && VERBOSE.players.contains(listener)
+                            && listener.hasPermission(VERBOSE.permission)) {
+                return true;
+            }
+            players.remove(listener);
+            return false;
         }
     }
 
