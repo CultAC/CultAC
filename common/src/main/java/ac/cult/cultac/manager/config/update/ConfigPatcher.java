@@ -59,11 +59,22 @@ public final class ConfigPatcher {
         org.yaml.snakeyaml.DumperOptions options = new org.yaml.snakeyaml.DumperOptions();
         options.setDefaultFlowStyle(org.yaml.snakeyaml.DumperOptions.FlowStyle.BLOCK);
         String yaml = new org.yaml.snakeyaml.Yaml(options).dump(nested);
-        String indent = " ".repeat(parent == null ? 0 : parent.indent() + 2);
+        String indent = " ".repeat(
+                parent == null ? 0 : childIndent(String.join(".", Arrays.copyOf(parts, parentDepth)), parent));
         List<String> inserted = yaml.lines().map(line -> indent + line).toList();
         lines.addAll(parent == null ? lines.size() : parent.lineIndex() + 1, inserted);
         locationMap.clear();
         mapFile();
+    }
+
+    /** The indent of {@code parentPath}'s existing children, or two past the parent's when it has none. */
+    private int childIndent(String parentPath, NodePosition parent) {
+        String prefix = parentPath + ".";
+        for (Map.Entry<String, NodePosition> entry : locationMap.entrySet()) {
+            String path = entry.getKey();
+            if (path.startsWith(prefix) && path.indexOf('.', prefix.length()) < 0) return entry.getValue().indent();
+        }
+        return parent.indent() + 2;
     }
 
     /**

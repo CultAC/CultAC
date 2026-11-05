@@ -63,6 +63,15 @@ class MessageAlertUpgradeTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void messagesTheOperatorAddedInsideAShippedSectionSurviveTheUpgrade() throws Exception {
+        Map<String, Object> updated = upgradeV4("en", Map.of("disconnect", Map.of("staff", "%player% needs a look")));
+        Map<String, Object> disconnect = (Map<String, Object>) updated.get("disconnect");
+        assertEquals("%player% needs a look", disconnect.get("staff"));
+        assertTrue(disconnect.size() > 1, disconnect.toString());
+    }
+
+    @Test
     void aTranslatedFileKeepsTheOperatorsSuspectedFormat() throws Exception {
         Map<String, Object> updated = upgradeV4("de", Map.of("alerts-format-suspected", "%player% ist verdächtig"));
         assertEquals("%player% ist verdächtig", updated.get("alerts-format-suspected"));

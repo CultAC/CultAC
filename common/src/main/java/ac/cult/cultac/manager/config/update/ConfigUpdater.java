@@ -85,7 +85,7 @@ public final class ConfigUpdater {
         public final int latestVersion;
         public final String versionKey;
         public final boolean inPlace;
-        /** Whether top-level keys the operator added, absent from the bundled default, survive an upgrade. */
+        /** Whether keys the operator added, absent from the bundled default, survive an upgrade. */
         public final boolean keepsOperatorKeys;
         public final @NotNull ConfigFlavor flavor;
         /** Keyed by the version this migration upgrades TO. */
@@ -142,7 +142,7 @@ public final class ConfigUpdater {
                 return this;
             }
 
-            /** Top-level keys the operator added that the bundled default lacks survive an upgrade. */
+            /** Keys the operator added that the bundled default lacks survive an upgrade, at any depth. */
             public @NotNull Builder keepOperatorKeys() {
                 keepsOperatorKeys = true;
                 return this;
@@ -316,11 +316,7 @@ public final class ConfigUpdater {
         // walk records each lift in ownLog so it goes through the same
         // patcher pass as migration writes.
         autoLift("", oldData, newData, outputView);
-        if (spec.keepsOperatorKeys) {
-            for (Map.Entry<String, Object> entry : oldData.entrySet()) {
-                if (!newData.containsKey(entry.getKey())) outputView.put(entry.getKey(), entry.getValue());
-            }
-        }
+        if (spec.keepsOperatorKeys) keepOperatorKeys("", oldData, newData, outputView);
 
         // Run each version-gated migration in order.
         for (int v = oldVersion + 1; v <= spec.latestVersion; v++) {
@@ -366,6 +362,21 @@ public final class ConfigUpdater {
                 + " migrated " + spec.versionKey + " v" + oldVersion + " → v" + spec.latestVersion
                 + " (flavor " + spec.flavor + ", backup at " + backup.getFileName() + ")");
         return new Result(true, oldVersion, spec.latestVersion, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void keepOperatorKeys(
+            String pathPrefix, Map<String, Object> oldData, Map<String, Object> newData, YamlMap output) {
+        for (Map.Entry<String, Object> entry : oldData.entrySet()) {
+            String currentPath = pathPrefix.isEmpty() ? entry.getKey() : pathPrefix + "." + entry.getKey();
+            Object newValue = newData.get(entry.getKey());
+            if (!newData.containsKey(entry.getKey())) {
+                output.put(currentPath, entry.getValue());
+            } else if (entry.getValue() instanceof Map && newValue instanceof Map) {
+                keepOperatorKeys(
+                        currentPath, (Map<String, Object>) entry.getValue(), (Map<String, Object>) newValue, output);
+            }
+        }
     }
 
     @SuppressWarnings("unchecked")
