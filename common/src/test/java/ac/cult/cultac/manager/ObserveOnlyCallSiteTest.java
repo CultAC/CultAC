@@ -82,6 +82,7 @@ class ObserveOnlyCallSiteTest {
             "blockMovementsUntilResync",
             "resync",
             "cancel",
+            "cancelFinally",
             "setCancelled",
             "replace",
             "correctPlayerSlot",
@@ -116,7 +117,7 @@ class ObserveOnlyCallSiteTest {
             [shouldBlockMovement()] true in observe-only only before the world loads; the codec forwards the client's packet
             checks/impl/combat/ReachCheck.java#handleInteract(PacketReceiveEvent,ServerboundInteract) setCancelled
             checks/impl/movement/timer/AbstractTimerCheck.java#recordModernMovePlayerPacket(PacketReceiveEvent,boolean) setCancelled
-            checks/impl/movement/timer/DumbTimer.java#handleMovePlayer(PacketReceiveEvent,ServerboundMovePlayer) setCancelled
+            checks/impl/movement/timer/DumbTimer.java#handleMovement(PacketReceiveEvent) setCancelled
             [shouldCancel(] BadPacketsH.shouldCancel(int) requires shouldModifyPackets()
             checks/impl/badpackets/BadPacketsH.java#onBlockBreak(BlockBreak) cancel
             checks/impl/badpackets/BadPacketsH.java#onBlockPlace(BlockPlace) resync
@@ -154,7 +155,8 @@ class ObserveOnlyCallSiteTest {
             [] the codec forwards the client's packet in observe-only
             checks/impl/crash/CrashA.java#onMovePlayer(PacketReceiveEvent,CultPlayer,ServerboundMovePlayer) setCancelled
             checks/impl/crash/CrashB.java#onSetCreativeModeSlot(PacketReceiveEvent,CultPlayer,CreativeSlot) setCancelled
-            checks/impl/crash/CrashC.java#onMovePlayer(PacketReceiveEvent,CultPlayer,ServerboundMovePlayer) setCancelled
+            checks/impl/crash/CrashC.java#onMovePlayer(PacketReceiveEvent,CultPlayer,ServerboundMovePlayer) cancelFinally
+            checks/impl/crash/CrashC.java#rejectMoveVehicle(PacketReceiveEvent,ServerboundMoveVehicle) cancelFinally
             checks/impl/crash/CrashD.java#onContainerClick(PacketReceiveEvent,CultPlayer,InventoryClick) setCancelled
             checks/impl/crash/CrashE.java#sanitizeClientInformation(PacketReceiveEvent,ServerboundClientInformation) replace
             checks/impl/crash/CrashF.java#onContainerClick(PacketReceiveEvent,CultPlayer,InventoryClick) setCancelled x2
@@ -312,6 +314,9 @@ class ObserveOnlyCallSiteTest {
             network/routing/RedisTransport.java#disconnect() disconnect
             network/routing/RedisTransport.java#ping() disconnect x2
             platform/velocity/RedisBungeeTransport.java#close() shutdown
+            [] the private Velocity companion channel is consumed by the bridge
+            platform/velocity/bridge/BridgeService.java#interceptBackendPayload(PacketEvent,ClientboundCustomPayload) cancelFinally
+            platform/velocity/bridge/BridgeService.java#stripClientPayload(PacketEvent,ServerboundCustomPayload) cancelFinally
             """;
 
     @Test

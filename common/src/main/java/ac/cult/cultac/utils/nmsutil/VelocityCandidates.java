@@ -45,6 +45,7 @@ public final class VelocityCandidates {
         double collisionMovementY = diff.y;
 
         CultPlayer player = result.getPlayer();
+        Vec3 withoutCurrent = null;
         if (player != null) {
             Vec3 moved = diff;
             diff = applyPostMoveLivingFluidCurrent(player, result, diff);
@@ -56,6 +57,11 @@ public final class VelocityCandidates {
             if (edge != null) {
                 validPlayerStartingVels.add(edge);
                 return validPlayerStartingVels;
+            }
+            // A pre-move water state the engine cannot resolve leaves both LivingEntity#checkFallDamage branches open.
+            if (!moved.equals(diff)
+                    && result.getSimulationContext().getWorldData().getInWater() == DesyncStatus.UNKNOWN) {
+                withoutCurrent = moved;
             }
         }
 
@@ -74,6 +80,7 @@ public final class VelocityCandidates {
         if (requiredPostCollisionY.isEmpty() && player != null) requiredPostCollisionY = risingMoveY(player, result);
         if (requiredPostCollisionY.isPresent()) {
             diff = new Vec3(diff.x, requiredPostCollisionY.getAsDouble(), diff.z);
+            if (withoutCurrent != null) withoutCurrent = new Vec3(withoutCurrent.x, diff.y, withoutCurrent.z);
             isY = false;
         }
         boolean stepped = requiredPostCollisionY.isEmpty()
@@ -86,10 +93,12 @@ public final class VelocityCandidates {
                     diff.x,
                     applyPostVerticalCollisionBlockVelocity(result, preCollisionVelocity(result).y, collisionMovementY),
                     diff.z);
+            if (withoutCurrent != null) withoutCurrent = new Vec3(withoutCurrent.x, diff.y, withoutCurrent.z);
             isY = false;
         }
 
         addVelocityCandidates(validPlayerStartingVels, diff, isX, isY, isZ);
+        if (withoutCurrent != null) addVelocityCandidates(validPlayerStartingVels, withoutCurrent, isX, isY, isZ);
         addPostMoveDeltaMovementCandidates(validPlayerStartingVels, result, isX, isY, isZ, collisionMovementY, stepped);
 
         if (hasUnknownStuckSpeed(lastPrediction)) {
@@ -128,7 +137,7 @@ public final class VelocityCandidates {
         if (context == null
                 || vehicle != null && (EntityTypeUtil.isBoat(vehicle.type) || vehicle instanceof PacketEntityHappyGhast)
                 || player.getClientVersion() == ClientVersion.V_1_21_4
-                || context.getWorldData().getInWater().determineOptimistically()) {
+                || context.getWorldData().getInWater().determinePessimistically()) {
             return postMoveDelta;
         }
 
@@ -257,6 +266,19 @@ public final class VelocityCandidates {
         return tracesVerticalClip(result, trace) && trace.position().y != trace.preCollisionMovement().y;
     }
 
+    /**
+     * The onGround the accepted move leaves: Entity#move's verticalCollisionBelow, {@code delta.y != movement.y &&
+     * delta.y < 0.0}, which a locally authoritative entity sets on every move. UNKNOWN when the trace cannot show the
+     * clip.
+     */
+    public static DesyncStatus verticalCollisionBelow(PredictionResult result) {
+        MovementTrace trace =
+                result.getValidMovements() == null ? null : result.getValidMovements().getClosestTrace();
+        if (!tracesVerticalClip(result, trace)) return DesyncStatus.UNKNOWN;
+        double delta = trace.preCollisionMovement().y;
+        return DesyncStatus.fromBoolean(delta < 0.0D && trace.position().y != delta);
+    }
+
     /** Whether {@code trace} holds Entity#collide's vertical movement: an unshifted move at full vertical speed. */
     private static boolean tracesVerticalClip(PredictionResult result, MovementTrace trace) {
         if (trace == null
@@ -315,10 +337,15 @@ public final class VelocityCandidates {
                 || (ClientBlockProperties.isBed(onBlock) && !BlockIds.is(onBlock, BlockIds.STRAW_BED));
     }
 
+    /** {@code Block#getBounceRestitution}. */
+    public static float blockBounceRestitution(int block) {
+        return BlockIds.is(block, BlockIds.SLIME_BLOCK) ? 1.0F : isBouncyBlock(block) ? 0.75F : 0.0F;
+    }
+
     private static double blockBounciness(int onBlock, boolean living) {
         // MCP-Reborn 26.2 Entity#getBlockBounciness: non-living entities (such as
         // boats and minecarts) only receive 80% of the block's restitution.
-        double restitution = BlockIds.is(onBlock, BlockIds.SLIME_BLOCK) ? 1.0D : isBouncyBlock(onBlock) ? 0.75D : 0.0D;
+        double restitution = blockBounceRestitution(onBlock);
         return living ? restitution : restitution * 0.8D;
     }
 
@@ -340,7 +367,7 @@ public final class VelocityCandidates {
         return restitutedBounceY(deltaY, clippedY, gravity, airDrag, restitution);
     }
 
-    static double restitutedBounceY(
+    public static double restitutedBounceY(
             double deltaY, double clippedY, double gravity, double airDrag, double restitution) {
         // MCP-Reborn 26.2 Entity#restituteMovementAfterCollisions uses this raw
         // ratio. It deliberately does not clamp it: collision resolution can

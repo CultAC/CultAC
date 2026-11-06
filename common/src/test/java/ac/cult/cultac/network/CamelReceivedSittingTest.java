@@ -13,6 +13,7 @@ import ac.cult.cultac.checks.impl.combat.PlayerReach;
 import ac.cult.cultac.checks.impl.combat.ReachCheck.MeasuredAttack;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.vehicle.VehicleGround;
 import ac.cult.cultac.network.codec.ObservedPacketValues;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.packet.WorldPackets.TimeUpdate;
@@ -123,6 +124,8 @@ class CamelReceivedSittingTest {
             f.command(PlayerCommandAction.START_SPRINTING);
             assertExact(ride(f, START, 0F, 0F, true));
             assertExact(ride(f, new Vec3(START.x, START.y, START.z + GROUND_INPUT), 0F, 0F, true));
+            assertEquals(0.0, f.player.checkManager.getCheck(VehicleGround.class).violations,
+                    "the captured seated-camel ground sequence was flagged");
         }
     }
 

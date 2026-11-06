@@ -20,6 +20,11 @@ import org.junit.Test;
 public class ClippedAxisReselectTest {
     private static final double RADIUS = 0.25D;
     private static final double CLIP_X = 0.1D;
+    /** Entity#WATER_FLOW_SCALE, the circular allowance FluidPush grants a water current. */
+    private static final double WATER_FLOW_SCALE = 0.014D;
+    /** LivingEntity#BASE_SWIM_SPEED, the input LivingEntity#travelInWater moves by. */
+    private static final double BASE_SWIM_SPEED = 0.02F;
+
     private static final UncertaintyHandler CIRCULAR =
             (player, valid, result, context, last, start, end) -> UncertaintyHelper.handleCircular(start, end, RADIUS);
 
@@ -48,6 +53,52 @@ public class ClippedAxisReselectTest {
 
         assertEquals(0.2D, valid.getClosestToTarget().x, 1.0E-12D);
         assertEquals(-CLIP_X, valid.getClosestToTarget().z, 1.0E-12D);
+    }
+
+    @Test
+    public void flushClipIsReselectedTowardsTheStartingVelocityOnItsSide() {
+        UncertaintyHandler current = (player, valid, result, context, last, start, end) ->
+                UncertaintyHelper.handleCircular(start, end, 0.014D);
+        Vec3 start = new Vec3(0.8904352072270036D, 0.39998779222364655D, 0.7324055423304645D);
+        Vec3 target = new Vec3(0.0D, 0.3999877922236479D, 0.7062298077853484D);
+        ValidMovements valid = selectAndClip(start, target, flushX(1), current);
+        assertEquals(0.7319941681581141D, valid.getClosestToTarget().z, 1.0E-12D);
+
+        Vec3 retarget = valid.targetPastClippedAxes();
+        assertEquals(new Vec3(start.x, target.y, target.z), retarget);
+        reselect(valid, retarget, flushX(1));
+
+        assertEquals(0.0D, valid.getClosestToTarget().x, 0.0D);
+        assertEquals(0.7184055423304645D, valid.getClosestToTarget().z, 1.0E-12D);
+    }
+
+    @Test
+    public void flushClipReselectionGrantsNoMoreThanTheAllowanceOnTheFreeAxis() {
+        UncertaintyHandler current = (player, valid, result, context, last, start, end) ->
+                UncertaintyHelper.handleCircular(start, end, WATER_FLOW_SCALE);
+        Vec3 start = new Vec3(0.8904352072270036D, 0.39998779222364655D, 0.7324055423304645D);
+        Vec3 target = new Vec3(0.0D, 0.3999877922236479D, 0.65D);
+        ValidMovements valid = selectAndClip(start, target, flushX(1), current);
+
+        reselect(valid, valid.targetPastClippedAxes(), flushX(1));
+
+        double residual = valid.getClosestToTarget().z - target.z;
+        assertTrue("residual " + residual, residual > BASE_SWIM_SPEED + WATER_FLOW_SCALE);
+        assertEquals(0.7184055423304645D, valid.getClosestToTarget().z, 1.0E-12D);
+    }
+
+    @Test
+    public void flushClipOnTheOtherSideKeepsTheTarget() {
+        UncertaintyHandler current = (player, valid, result, context, last, start, end) ->
+                UncertaintyHelper.handleCircular(start, end, 0.014D);
+        Vec3 target = new Vec3(0.0D, 0.3999877922236479D, 0.7062298077853484D);
+        ValidMovements valid = selectAndClip(
+                new Vec3(0.8904352072270036D, 0.39998779222364655D, 0.7324055423304645D),
+                target,
+                flushX(-1),
+                current);
+
+        assertSame(target, valid.targetPastClippedAxes());
     }
 
     @Test
@@ -147,6 +198,15 @@ public class ClippedAxisReselectTest {
                 null,
                 null,
                 new CollideAxisData.CollideResult(true, clip),
+                new ArrayList<>());
+    }
+
+    private static CollideAxisData flushX(int side) {
+        return new CollideAxisData(
+                new CollideAxisData.CollideResult(true, 0.0D, side),
+                null,
+                null,
+                new CollideAxisData.CollideResult(false, 0.0D),
                 new ArrayList<>());
     }
 

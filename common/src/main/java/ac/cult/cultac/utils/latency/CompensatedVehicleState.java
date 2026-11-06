@@ -578,7 +578,8 @@ public final class CompensatedVehicleState implements Debuggable {
 
     public boolean canServerPlayerVehicleBeLocalAuthoritative() {
         PacketEntity vehicle = serverPlayerVehicle == null ? null : entities.getEntity(serverPlayerVehicle);
-        return hasClientObservedServerVehicle()
+        // Until its dismount's proof, passengerIndex reads the client-visible passengers, which still seat the player.
+        return (hasClientObservedServerVehicle() || hasPendingServerDismount())
                 && vehicle != null
                 && passengerIndex(vehicle) == 0
                 && canLocalClientAuthoritativelyMove(vehicle);

@@ -44,7 +44,7 @@ class FairReachDeadlineCancellationTest {
             f.fairReach.max_ping_compensation = 0;
             f.move(1);
             f.acknowledge();
-            assertEquals(1, f.target().targetPosition.x);
+            assertEquals(1, f.target().targetX);
             f.target().lerpTicks = 0;
             f.platform.modelEntries = 0;
 
@@ -63,7 +63,7 @@ class FairReachDeadlineCancellationTest {
             f.platform.modelEntries = 0;
             f.channel.runScheduledPendingTasks();
             assertEquals(1, f.platform.modelEntries);
-            assertEquals(1, f.target().targetPosition.x);
+            assertEquals(1, f.target().targetX);
             assertEquals(3, f.target().lerpTicks);
 
             f.target().lerpTicks = 0;
@@ -80,7 +80,7 @@ class FairReachDeadlineCancellationTest {
             f.player.lastTransactionReceived.set(1);
             f.move(1);
 
-            assertEquals(1, f.target().targetPosition.x);
+            assertEquals(1, f.target().targetX);
             verify(timer.executor, never()).schedule(any(Callable.class), anyLong(), eq(TimeUnit.MILLISECONDS));
         }
     }
@@ -108,7 +108,7 @@ class FairReachDeadlineCancellationTest {
             CapturedDeadline timer = f.captureDeadline(ignored -> f.acknowledge());
             f.move(1);
             verify(timer.future).cancel(false);
-            assertEquals(1, f.target().targetPosition.x);
+            assertEquals(1, f.target().targetX);
             f.target().lerpTicks = 0;
             timer.callbacks.getFirst().call();
             assertEquals(0, f.target().lerpTicks);
@@ -127,7 +127,7 @@ class FairReachDeadlineCancellationTest {
             });
             f.move(1);
             verify(timer.future).cancel(false);
-            assertEquals(1, f.target().targetPosition.x);
+            assertEquals(1, f.target().targetX);
             f.target().lerpTicks = 0;
             f.acknowledge();
             timer.callbacks.getFirst().call();
@@ -142,9 +142,9 @@ class FairReachDeadlineCancellationTest {
                 throw new RejectedExecutionException("executor stopped");
             });
             assertThrows(RejectedExecutionException.class, () -> f.move(1));
-            assertEquals(0, f.target().targetPosition.x);
+            assertEquals(0, f.target().targetX);
             f.acknowledge();
-            assertEquals(1, f.target().targetPosition.x);
+            assertEquals(1, f.target().targetX);
         }
     }
 
@@ -154,14 +154,14 @@ class FairReachDeadlineCancellationTest {
             f.fairReach.max_ping_compensation = 10;
             f.move(1);
             List<Double> observed = new ArrayList<>();
-            f.channel.eventLoop().schedule(() -> observed.add(f.target().targetPosition.x), 15, TimeUnit.MILLISECONDS);
+            f.channel.eventLoop().schedule(() -> observed.add(f.target().targetX), 15, TimeUnit.MILLISECONDS);
             f.fairReach.max_ping_compensation = 20;
             f.move(2);
             f.channel.advanceTimeBy(30, TimeUnit.MILLISECONDS);
             f.channel.runScheduledPendingTasks();
 
             assertEquals(List.of(1.0), observed, "a delayed executor must not batch a later move ahead of a reader");
-            assertEquals(2, f.target().targetPosition.x);
+            assertEquals(2, f.target().targetX);
             f.target().lerpTicks = 0;
             f.acknowledge();
             assertEquals(0, f.target().lerpTicks);

@@ -10,10 +10,13 @@ import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.vehicle.VehicleGround;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
+import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.MainSupportingBlockData;
@@ -102,6 +105,46 @@ class VehicleSupportingBlockTest {
         }
     }
 
+    /** AbstractBoat#tick calls Entity#move before LocalPlayer sends its root's ground bit. */
+    @Test
+    void aBoatLandingOnStoneCannotClaimAirborne() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            PacketEntity boat = mount(
+                    f, EntityTypeIds.OAK_BOAT, new Vec3(0.5, FLOOR_Y + 0.1, 0.5), new Vec3(0, -0.16, 0), false);
+
+            assertSupport(ON_FLOOR, ride(f, new Vec3(0.5, FLOOR_Y, 0.5), false));
+            assertTrue(f.player.checkManager.getCheck(VehicleGround.class).violations > 0);
+            assertTrue(boat.onGround, "the false claim became the next boat tick's ground state");
+        }
+    }
+
+    /** The first 1.21.11 ridden tick after loading sends the camel's post-collision ground bit. */
+    @Test
+    void aCamelLandingOnItsFirstLoadedRideTickCanReportGround() throws Exception {
+        try (var f = new JavaTickFixture(ProtocolVersion.V1_21_11, ClientVersion.V_1_21_11)) {
+            Vec3 at = new Vec3(0.5, FLOOR_Y, 0.5);
+            f.player.checkManager.getCheck(VehicleGround.class).setEnabled(true);
+            f.place(at, Vec3.ZERO);
+            f.player.compensatedEntities.addEntity(VEHICLE, EntityTypeIds.CAMEL, at, 0, 0, 0);
+            PacketEntityHorse camel = (PacketEntityHorse) f.player.compensatedEntities.getEntity(VEHICLE);
+            camel.hasSaddle = true;
+            camel.isTame = true;
+            camel.onGround = false;
+            f.setPassengers(VEHICLE, List.of(f.player.entityID));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            f.player.packetStateData.playerLoadedIntoLevel = false;
+            // The client's first loaded tick sends the rider's Rot and this vehicle move.
+            f.input(NO_KEYS);
+            f.player.checkManager.getSimulationProcessor().seedStartingVelocity(new Vec3(0, GROUNDED_Y, 0));
+            f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.FALSE);
+
+            PredictionResult result = ride(f, at, true);
+            assertSupport(ON_FLOOR, result);
+            assertEquals(0.0, f.player.checkManager.getCheck(VehicleGround.class).violations);
+            assertTrue(camel.onGround);
+        }
+    }
+
     /** Air in place of the fixture's stone floor east of x 0. */
     private static void airEastOfX0(JavaTickFixture f) {
         for (int x = 1; x <= 8; x++) {
@@ -124,6 +167,7 @@ class VehicleSupportingBlockTest {
 
     /** The vehicle at {@code start} carrying {@code velocity}, ridden with no keys held. */
     private static PacketEntity mount(JavaTickFixture f, int type, Vec3 start, Vec3 velocity, boolean onGround) {
+        f.player.checkManager.getCheck(VehicleGround.class).setEnabled(true);
         f.player.compensatedEntities.addEntity(VEHICLE, type, start, 0, 0, 0);
         PacketEntity vehicle = f.player.compensatedEntities.getEntity(VEHICLE);
         if (vehicle instanceof PacketEntityHorse horse) {

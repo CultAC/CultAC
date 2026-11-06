@@ -373,7 +373,8 @@ public class Collisions {
         }
     }
 
-    private static List<Axis> getAxisStepOrder(Vec3 movement) {
+    /** {@code Direction#axisStepOrder}. */
+    public static List<Axis> getAxisStepOrder(Vec3 movement) {
         return getAxisStepOrder(movement.x, movement.z);
     }
 
@@ -837,50 +838,9 @@ public class Collisions {
             SimpleCollisionBox playerBB,
             boolean overrideVersion) {
         if (!player.isFlying && player.isSneaking && isAboveGround(player, lastOnGround, playerBB)) {
-            double x = vec3.getX();
-            double z = vec3.getZ();
-
-            double maxStepDown = -player.getMaxUpStep();
-            SimpleCollisionBox probe = player.boundingBox.copy();
-
-            while (x != 0.0 && isEmpty(player, probe.set(player.boundingBox).offset(x, maxStepDown, 0.0))) {
-                if (x < 0.05D && x >= -0.05D) {
-                    x = 0.0D;
-                } else if (x > 0.0D) {
-                    x -= 0.05D;
-                } else {
-                    x += 0.05D;
-                }
-            }
-            while (z != 0.0 && isEmpty(player, probe.set(player.boundingBox).offset(0.0, maxStepDown, z))) {
-                if (z < 0.05D && z >= -0.05D) {
-                    z = 0.0D;
-                } else if (z > 0.0D) {
-                    z -= 0.05D;
-                } else {
-                    z += 0.05D;
-                }
-            }
-            while (x != 0.0
-                    && z != 0.0
-                    && isEmpty(player, probe.set(player.boundingBox).offset(x, maxStepDown, z))) {
-                if (x < 0.05D && x >= -0.05D) {
-                    x = 0.0D;
-                } else if (x > 0.0D) {
-                    x -= 0.05D;
-                } else {
-                    x += 0.05D;
-                }
-
-                if (z < 0.05D && z >= -0.05D) {
-                    z = 0.0D;
-                } else if (z > 0.0D) {
-                    z -= 0.05D;
-                } else {
-                    z += 0.05D;
-                }
-            }
-            vec3 = new Vector3dm(x, vec3.getY(), z);
+            Vec3 backedOff = SneakEdgeBackoff.backOff(
+                    player, player.boundingBox, new Vec3(vec3.getX(), vec3.getY(), vec3.getZ()), player.getMaxUpStep());
+            vec3 = new Vector3dm(backedOff.x, vec3.getY(), backedOff.z);
         }
 
         return vec3;

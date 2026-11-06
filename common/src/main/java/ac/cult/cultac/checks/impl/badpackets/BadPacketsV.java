@@ -14,7 +14,7 @@ import ac.grim.grimac.api.storage.verbose.Verbose;
 @CheckData(
         name = "BadPacketsV",
         stableKey = "cult.badpackets.slow_move",
-        description = "Did not move far enough",
+        description = "Sent a position update without moving, before the 20-tick position reminder was due",
         experimental = true)
 public class BadPacketsV extends Check implements CheckListener {
     private static final Verbose V = Verbose.of("delta={f64}");

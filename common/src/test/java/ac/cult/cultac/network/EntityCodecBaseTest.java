@@ -190,7 +190,7 @@ class EntityCodecBaseTest {
             f.pongThrough(f.player.lastTransactionSent.get());
             assertEquals(
                     0.5, f.player.compensatedEntities.getTrackedEntity(ENTITY).getX(), "tracked x");
-            assertEquals(0.5, ((Vec3) field(target, "targetPosition")).x, 1e-12, "fair reach target x");
+            assertEquals(0.5, (double) field(target, "targetX"), 1e-12, "fair reach target x");
         }
     }
 
@@ -230,7 +230,7 @@ class EntityCodecBaseTest {
             f.pongThrough(f.player.lastTransactionSent.get());
             tick(target);
             double shown = 0.5 + 5.5 / 3;
-            assertEquals(shown, ((Vec3) field(target, "currentPosition")).x, 1e-12);
+            assertEquals(shown, (double) field(target, "currentX"), 1e-12);
 
             send(
                     f,
@@ -256,7 +256,7 @@ class EntityCodecBaseTest {
                 case V_1_21_9, V_1_21_11, V_26_1, V_26_2 -> changed ? restarted : kept;
                 case V_26_3 -> kept;
             };
-            assertEquals(expected, ((Vec3) field(target, "currentPosition")).x, 1e-12, "shown x");
+            assertEquals(expected, (double) field(target, "currentX"), 1e-12, "shown x");
             if (version == Version.V_26_3) return;
 
             var attack =
@@ -285,7 +285,7 @@ class EntityCodecBaseTest {
                         teleport(f, new Vec3d(6, FLOOR_Y, 1.5));
                         for (int i = 0; i < before; i++) tick(target);
                         double shown = 0.5 + 5.5 * before / 3.0;
-                        assertEquals(shown, ((Vec3) field(target, "currentPosition")).x, 1e-12);
+                        assertEquals(shown, (double) field(target, "currentX"), 1e-12);
 
                         rotate(f, changed ? 90 : 0, changed ? 30 : 0);
                         TrackerData tracked = f.player.compensatedEntities.getTrackedEntity(ENTITY);
@@ -300,10 +300,10 @@ class EntityCodecBaseTest {
                             case V_1_21_9, V_1_21_11, V_26_1, V_26_2 -> changed;
                             default -> false;
                         };
-                        assertEquals(holds ? shown : 6, ((Vec3) field(target, "targetPosition")).x, 1e-12);
+                        assertEquals(holds ? shown : 6, (double) field(target, "targetX"), 1e-12);
                         tick(target);
                         double expected = holds ? shown : shown + (6 - shown) / (restarts ? 3 : 3 - before);
-                        assertEquals(expected, ((Vec3) field(target, "currentPosition")).x, 1e-12, "shown x");
+                        assertEquals(expected, (double) field(target, "currentX"), 1e-12, "shown x");
                         if (version != Version.V_26_3) {
                             assertEquals(expected > 3.8, attackCancelled(f, fairReach), "attack at x " + expected);
                         }
@@ -324,7 +324,7 @@ class EntityCodecBaseTest {
             tick(target);
             rotate(f, 90, 30);
             for (int i = 0; i < 4; i++) tick(target);
-            assertEquals(0.5, ((Vec3) field(target, "currentPosition")).x, 1e-12, "shown x");
+            assertEquals(0.5, (double) field(target, "currentX"), 1e-12, "shown x");
             assertFalse(attackCancelled(f, fairReach), "attack on the snapped player");
         }
     }
@@ -343,7 +343,7 @@ class EntityCodecBaseTest {
                 tick(target);
                 rotate(f, 90 + i, 30);
             }
-            assertEquals(0.5, ((Vec3) field(target, "currentPosition")).x, 1e-12, "shown x");
+            assertEquals(0.5, (double) field(target, "currentX"), 1e-12, "shown x");
             assertFalse(attackCancelled(f, fairReach), "attack on the snapped player");
         }
     }
@@ -363,7 +363,7 @@ class EntityCodecBaseTest {
             tick(target);
             rotate(f, 90, 30);
             for (int i = 0; i < 6; i++) tick(target);
-            assertEquals(0.5, ((Vec3) field(target, "currentPosition")).x, 1e-12, "shown x");
+            assertEquals(0.5, (double) field(target, "currentX"), 1e-12, "shown x");
             assertFalse(attackCancelled(f, fairReach), "attack on the snapped player");
         }
     }
@@ -375,7 +375,7 @@ class EntityCodecBaseTest {
         try (var f = fixture(version, new Vec3(0.5, FLOOR_Y, 0.5))) {
             FairReach fairReach = spawnPlayer(f, new Vec3d(64, FLOOR_Y, 1.5));
             walkThenTeleport(f, fairReach);
-            assertEquals(0.5, ((Vec3) field(fairReachEntity(fairReach), "currentPosition")).x, 1e-9, "shown x");
+            assertEquals(0.5, (double) field(fairReachEntity(fairReach), "currentX"), 1e-9, "shown x");
             assertFalse(attackCancelled(f, fairReach), "attack on the teleported player");
         }
     }
@@ -389,7 +389,7 @@ class EntityCodecBaseTest {
             tick(target);
             rotate(f, 90, 30);
             for (int i = 0; i < 6; i++) tick(target);
-            double x = ((Vec3) field(target, "currentPosition")).x;
+            double x = (double) field(target, "currentX");
             assertTrue(Math.abs(x - 0.5) < 1.0, "shown x " + x);
             assertFalse(attackCancelled(f, fairReach), "attack at x " + x);
         }
@@ -407,7 +407,7 @@ class EntityCodecBaseTest {
             tick(target);
             rotate(f, 90, 30);
             for (int i = 0; i < 6; i++) tick(target);
-            double x = ((Vec3) field(target, "currentPosition")).x;
+            double x = (double) field(target, "currentX");
             assertTrue(Math.abs(x - 0.5) < 1.0, "shown x " + x);
             assertFalse(attackCancelled(f, fairReach), "attack at x " + x);
         }
@@ -425,9 +425,9 @@ class EntityCodecBaseTest {
                 new ClientboundMoveEntity(
                         ENTITY, new EntityDelta.Linear((short) 3072, (short) 0, (short) 0), 0, 0, true, true, false),
                 (r, e) -> r.onMoveEntity(e, f.player, e.getPacket()));
-        assertEquals(64.75, ((Vec3) field(target, "targetPosition")).x, 1e-12, "walk target");
+        assertEquals(64.75, (double) field(target, "targetX"), 1e-12, "walk target");
         tick(target);
-        assertEquals(64.25, ((Vec3) field(target, "currentPosition")).x, 1e-12, "walk shown");
+        assertEquals(64.25, (double) field(target, "currentX"), 1e-12, "walk shown");
         teleport(f, new Vec3d(0.5, FLOOR_Y, 1.5));
         return target;
     }

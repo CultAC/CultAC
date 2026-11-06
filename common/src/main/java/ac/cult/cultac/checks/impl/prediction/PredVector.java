@@ -168,6 +168,20 @@ public class PredVector extends Vec3 implements DebugText.Recordable {
         return null;
     }
 
+    /** The latest step with {@code reason} in this lineage, null when none. */
+    public PredVector latestWithReason(String reason) {
+        for (PredVector current = this; current != null && current.lastVector != null; current = current.lastVector) {
+            if (reason.equals(current.reason)) return current;
+        }
+        return null;
+    }
+
+    /** What the latest step with {@code reason} in this lineage added to the vector before it; zero when none. */
+    public Vec3 additionOfReason(String reason) {
+        PredVector step = latestWithReason(reason);
+        return step == null ? Vec3.ZERO : step.subtract(step.lastVector);
+    }
+
     public Vec3 vectorBeforeFirstReason(String reason) {
         PredVector current = this;
         Vec3 beforeReason = null;

@@ -3,6 +3,7 @@ package ac.cult.cultac.bedrock.prediction.integration;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
+import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.math.Vec3;
@@ -42,7 +43,8 @@ public final class BedrockFrameProcessor {
         // passenger transition blocks movement. Count and admit the tick first.
         // TODO: Check timer interactions with blocking sneaking and blocking teleports
         if (player.checkManager.getCheck(TimerCheck.class).onBedrockAuthInput()
-                == TimerCheck.BedrockAuthInputDecision.REJECT) return null;
+                        == TimerCheck.BedrockAuthInputDecision.REJECT
+                || player.checkManager.getListener(DumbTimer.class).onBedrockAuthInput()) return null;
         var state = processMovement(player, original, trigger, localBlockActions);
         if (state == null) {
             player.packetStateData.bedrockTranslatedMovement.reject();

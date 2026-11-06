@@ -1,5 +1,6 @@
 package ac.cult.cultac.utils.data;
 
+import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionSetbackState;
 import ac.cult.cultac.utils.math.Vec3;
 import lombok.Getter;
@@ -17,6 +18,8 @@ public class SetBackData {
     Vec3 velocity;
     boolean vehicle;
     boolean expectedOnGround;
+    // The onGround a Java horse setback leaves the horse with at its position; null keeps the carried one.
+    DesyncStatus horseOnGround;
     PredictionSetbackState profileState;
     boolean isComplete = false;
     // TODO: Rethink when we block movements for teleports, perhaps after 10 ticks or 5 blocks?

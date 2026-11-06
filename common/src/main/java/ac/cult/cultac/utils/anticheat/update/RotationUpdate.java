@@ -19,8 +19,21 @@ public final class RotationUpdate {
     public RotationUpdate(HeadRotation from, HeadRotation to, float deltaXRot, float deltaYRot) {
         this.from = from;
         this.to = to;
-        this.deltaXRot = deltaXRot;
-        this.deltaYRot = deltaYRot;
+        // Two finite wire rotations can still overflow when subtracted as floats.
+        this.deltaXRot = Float.isFinite(deltaXRot) ? deltaXRot : finiteDifference(to.yaw(), from.yaw());
+        this.deltaYRot = Float.isFinite(deltaYRot) ? deltaYRot : finiteDifference(to.pitch(), from.pitch());
+    }
+
+    public static float finiteDifference(float end, float start) {
+        float difference = end - start;
+        return Float.isFinite(difference) ? difference : finiteFloat((double) end - start);
+    }
+
+    public static float finiteFloat(double value) {
+        if (Double.isNaN(value)) return 0;
+        if (value > Float.MAX_VALUE) return Float.MAX_VALUE;
+        if (value < -Float.MAX_VALUE) return -Float.MAX_VALUE;
+        return (float) value;
     }
 
     public float getDeltaXRotABS() {

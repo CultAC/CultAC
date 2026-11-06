@@ -192,6 +192,7 @@ import ac.cult.cultac.checks.impl.vehicle.VehicleC;
 import ac.cult.cultac.checks.impl.vehicle.VehicleD;
 import ac.cult.cultac.checks.impl.vehicle.VehicleE;
 import ac.cult.cultac.checks.impl.vehicle.VehicleF;
+import ac.cult.cultac.checks.impl.vehicle.VehicleGround;
 import ac.cult.cultac.checks.impl.visibility.AttackMobVisibility;
 import ac.cult.cultac.checks.impl.visibility.AttackPlayerVisibility;
 import ac.cult.cultac.checks.impl.visibility.BreakVisibility;
@@ -289,6 +290,7 @@ public final class CheckCatalog {
             check(VehicleD.class, VEHICLES),
             check(VehicleE.class, VEHICLES),
             check(VehicleF.class, VEHICLES),
+            check(VehicleGround.class, VEHICLES),
             check(VehicleOffset.INFO, VEHICLES),
             check(AirLiquidBreak.class, BUILDING),
             check(AirLiquidPlace.class, BUILDING),

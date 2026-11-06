@@ -181,6 +181,8 @@ public class MovementModifiers {
 
                 if (vel.isVelocity()) { // Velocity
                     vector = vector.withXYZ(eventVel.x, eventVel.y, eventVel.z, "Velocity");
+                    // ClientPacketListener#handleSetEntityMotion -> Entity#lerpMotion sets the whole delta movement.
+                    vector.setTickSkip(false);
                 } else { // Explosion
                     vector = vector.add(eventVel, "Explosion");
                 }

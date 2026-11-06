@@ -6,23 +6,30 @@ import static org.junit.Assert.assertTrue;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
+import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockFrameProcessor;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
 import ac.cult.cultac.checks.impl.movement.timer.AbstractTimerCheck;
+import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
+import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveVehicle;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPassengers;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.data.SetbackPosWithVector;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.reflect.Field;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
@@ -44,6 +51,133 @@ public final class BedrockTransportAuthorityTest {
 
             assertEquals(TimerCheck.BedrockAuthInputDecision.REJECT, timer.onBedrockAuthInput());
             assertEquals(1, player.cancelledPackets.get());
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    /** A Bedrock client tick is its auth frame; Geyser's Java movement only projects the frame. */
+    @Test
+    public void dumbTimerCountsBedrockAuthFramesAndNotTheirJavaProjection() throws Exception {
+        OfflineCultTestBootstrap.installConfig();
+        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            DumbTimer dumb = player.checkManager.getListener(DumbTimer.class);
+            setDumbTimerField(dumb, "limitAbuseOverPing", -1L);
+            setDumbTimerField(dumb, "balance", System.nanoTime() - 10e9);
+            double before = dumbTimerBalance(dumb);
+
+            var move = new ServerboundMovePlayer(.5, 70, .5, 0, 0, false, false, true, true);
+            dumb.onMovePlayer(
+                    new PacketReceiveEvent<>(player.user, ConnectionPhase.PLAY, ServerboundPackets.MOVE_PLAYER, move),
+                    player,
+                    move);
+            assertEquals(before, dumbTimerBalance(dumb), 0.0);
+
+            assertFalse(dumb.onBedrockAuthInput());
+            assertEquals(before + 45e6, dumbTimerBalance(dumb), 0.0);
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    @Test
+    public void bedrockAuthFrameAheadOfRealTimeIsRejected() throws Exception {
+        OfflineCultTestBootstrap.installConfig();
+        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            Vec3 start = new Vec3(.5, 70, .5);
+            player.compensatedWorld.ensureValidationChunkLoaded(0, 0);
+            player.lastTransactionReceived.set(1);
+            player.getSetbackTeleportUtil().hasFullyLoaded = true;
+            player.x = player.lastX = start.x;
+            player.y = player.lastY = start.y;
+            player.z = player.lastZ = start.z;
+            player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, start.x, start.y, start.z);
+            assertTrue(BedrockFrameProcessor.process(player, idleFrame(player, 1, start),
+                            BedrockPredictionTrigger.OFFLINE_REPLAY) != null);
+            assertFalse(player.getSetbackTeleportUtil().isPendingSetback());
+
+            // A second of frames already ahead of real time, outside any long-teleport window.
+            DumbTimer dumb = player.checkManager.getListener(DumbTimer.class);
+            setDumbTimerField(dumb, "lastLongTeleport", System.nanoTime() - 3e9);
+            setDumbTimerField(dumb, "balance", System.nanoTime() + 1e9);
+
+            assertTrue(BedrockFrameProcessor.process(player, idleFrame(player, 2, start),
+                            BedrockPredictionTrigger.OFFLINE_REPLAY) == null);
+            assertTrue(player.getSetbackTeleportUtil().isPendingSetback());
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    private static BedrockAuthInputFrame idleFrame(CultPlayer player, long tick, Vec3 position) {
+        return BedrockAuthInputFrame.builder(player.playerUUID)
+                .protocolVersion(2193)
+                .clientTick(tick)
+                .inputMode(1)
+                .playMode(2)
+                .deviceId(3)
+                .position(position)
+                .packetPosition(position.add(0, 1.6200103759765625, 0))
+                .rotation(0, 0, 0)
+                .moveVector(0, 0)
+                .delta(Vec3.ZERO)
+                .reportedEndOfTickVelocity(Vec3.ZERO)
+                .build();
+    }
+
+    private static void setDumbTimerField(DumbTimer dumb, String name, Object value) throws Exception {
+        Field field = DumbTimer.class.getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(dumb, value);
+    }
+
+    private static double dumbTimerBalance(DumbTimer dumb) throws Exception {
+        Field field = DumbTimer.class.getDeclaredField("balance");
+        field.setAccessible(true);
+        return field.getDouble(dumb);
+    }
+
+    @Test
+    public void setbackAfterAcceptedBedrockFrameDoesNotAddAnotherTravelTick() {
+        OfflineCultTestBootstrap.installConfig();
+        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            Vec3 start = new Vec3(.5, 70, .5);
+            player.compensatedWorld.ensureValidationChunkLoaded(0, 0);
+            player.lastTransactionReceived.set(1);
+            player.getSetbackTeleportUtil().hasFullyLoaded = true;
+            player.x = player.lastX = start.x;
+            player.y = player.lastY = start.y;
+            player.z = player.lastZ = start.z;
+            player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, start.x, start.y, start.z);
+            var frame = BedrockAuthInputFrame.builder(player.playerUUID)
+                    .protocolVersion(2193)
+                    .clientTick(1)
+                    .inputMode(1)
+                    .playMode(2)
+                    .deviceId(3)
+                    .position(start)
+                    .packetPosition(start.add(0, 1.6200103759765625, 0))
+                    .rotation(0, 0, 0)
+                    .moveVector(0, 0)
+                    .delta(new Vec3(.1, -.3, 0))
+                    .reportedEndOfTickVelocity(new Vec3(.1, -.3, 0))
+                    .build();
+            assertTrue(BedrockFrameProcessor.process(player, frame, BedrockPredictionTrigger.OFFLINE_REPLAY) != null);
+            var safe = player.getSetbackTeleportUtil().lastKnownGoodPosition;
+            assertTrue(safe != null);
+            safe.setVector(new Vec3(.1, -.3, 0));
+            assertTrue(safe.getVector().lengthSqr() > 0.01);
+            assertTrue(player.checkManager.getSimulationProcessor().getLastPrediction() != null);
+            assertFalse(player.getSetbackTeleportUtil().isPendingSetback());
+
+            player.getSetbackTeleportUtil().executeForceResync("after accepted Bedrock frame");
+
+            assertTrue(player.getSetbackTeleportUtil().isPendingSetback());
+            assertEquals(safe.getPos(), player.getSetbackTeleportUtil().getRequiredSetBack()
+                    .getTeleportData().getLocation());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }

@@ -19,7 +19,7 @@ public class KnockbackHandler extends PacketModHandler {
             .altName("AntiKnockback")
             .configName("Knockback")
             .description("Did not take the expected entity knockback")
-            .setback(10)
+            .setback(0)
             .decay(0.025)
             .build();
 

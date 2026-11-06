@@ -203,12 +203,16 @@ public class CollideAxisData implements DebugText.Recordable {
         }
 
         CollideResult combine(boolean newLikelyCollide, double newResult, int newSide) {
+            boolean ourSideCollided = side != 0 || isLikelyCollide;
+            boolean newSideCollided = newSide != 0 || newLikelyCollide;
             isLikelyCollide = isLikelyCollide || newLikelyCollide;
             boolean areWeGreater = Math.abs(result) > Math.abs(newResult);
             if (areWeGreater) {
                 side = newSide;
             } else if (Math.abs(result) == Math.abs(newResult) && side != newSide) {
-                side = 0;
+                // A probe that stopped at no face gives no side; only two faces of the same reach conflict.
+                if (!ourSideCollided) side = newSide;
+                else if (newSideCollided) side = 0;
             }
             result = areWeGreater ? newResult : result;
             return this;
