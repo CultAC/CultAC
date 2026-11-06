@@ -257,15 +257,6 @@ public final class BedrockEntityMove {
                 || Math.abs(requestedZ - move.appliedDelta().z()) > EPSILON;
     }
 
-    public static boolean horizontalBlockContactAt(
-            Vec3d feet, BlockCollisionWorld blockCollisionWorld, PlayerDimensionsState dimensions) {
-        if (blockCollisionWorld.isEmpty()) {
-            return false;
-        }
-        return BedrockBlockCollisionResolver.hasHorizontalBlockContact(
-                feet, BedrockCollisionSweep.collisionObstacles(blockCollisionWorld), dimensions);
-    }
-
     public static BedrockCollisionFlags finalizedCollisionFlags(
             BedrockMovementState previous,
             Vec3d requestedDelta,

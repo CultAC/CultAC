@@ -1,7 +1,6 @@
 package ac.cult.cultac.command.commands;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -9,23 +8,18 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
-import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.info.CheckCatalog;
 import ac.cult.cultac.checks.info.CheckCategory;
 import ac.cult.cultac.checks.info.CheckPolicy;
 import ac.cult.cultac.checks.info.CheckPolicy.Handling;
 import ac.cult.cultac.checks.info.CheckTexts;
-import ac.cult.cultac.command.CloudCommandService;
 import ac.cult.cultac.platform.api.sender.Sender;
-import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.grim.grimac.api.config.ConfigManager;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.TextComponent;
-import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -148,24 +142,6 @@ class CheckInfoLinesTest {
                 PlainTextComponentSerializer.plainText().serialize(lines.getFirst()));
     }
 
-    @Test
-    void theCheckNameInAnAlertLinksToItsInfo() {
-        Component alert = MessageUtil.miniMessage("&fSteve <click:suggest_command:'/tp Steve'>&bfailed</click> "
-                + "<hover:show_text:'Ground Speed'>&fGround Speed*</hover> &f(x3) &7Ground Speedy Ground Speed_2");
-
-        Component linked = CultInfo.linkCheckName(alert, check("Speed", "Ground Speed"));
-
-        ClickEvent info = ClickEvent.runCommand(CloudCommandService.command("info check Speed"));
-        assertEquals("Ground Speed", textWithClick(linked, info));
-        assertEquals("failed", textWithClick(linked, ClickEvent.suggestCommand("/tp Steve")));
-    }
-
-    @Test
-    void anAlertFromACheckOutsideTheCatalogIsUnchanged() {
-        Component alert = Component.text("SomeoneElsesCheck");
-        assertSame(alert, CultInfo.linkCheckName(alert, check("SomeoneElsesCheck", "SomeoneElsesCheck")));
-    }
-
     private static List<String> groupLines() {
         ConfigManager config = config();
         when(config.getStringElse(eq("info-group-header"), anyString())).thenReturn("%category% checks");
@@ -208,25 +184,5 @@ class CheckInfoLinesTest {
         ConfigManager config = mock(ConfigManager.class);
         when(config.getStringElse(anyString(), anyString())).thenAnswer(invocation -> invocation.getArgument(1));
         return config;
-    }
-
-    private static Check check(String name, String displayName) {
-        Check check = mock(Check.class);
-        when(check.getCheckName()).thenReturn(name);
-        when(check.getDisplayName()).thenReturn(displayName);
-        return check;
-    }
-
-    /** The text in {@code component} that runs {@code click}, whether the click is set on it or on a parent. */
-    private static String textWithClick(Component component, ClickEvent click) {
-        return textWithClick(component, null, click);
-    }
-
-    private static String textWithClick(Component component, ClickEvent inherited, ClickEvent click) {
-        ClickEvent active = component.clickEvent() != null ? component.clickEvent() : inherited;
-        StringBuilder text = new StringBuilder();
-        if (component instanceof TextComponent part && click.equals(active)) text.append(part.content());
-        for (Component child : component.children()) text.append(textWithClick(child, active, click));
-        return text.toString();
     }
 }

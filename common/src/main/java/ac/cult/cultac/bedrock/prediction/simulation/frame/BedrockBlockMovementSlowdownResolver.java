@@ -27,25 +27,6 @@ public final class BedrockBlockMovementSlowdownResolver {
                 context.effectState().weaving());
     }
 
-    public static BlockMovementSlowdownState nextStateFromSweptMove(
-            BedrockMovementContext context,
-            Vec3d previousPosition,
-            Vec3d nextPosition,
-            PlayerDimensionsState committedMovementDimensions) {
-        Objects.requireNonNull(previousPosition, "previousPosition");
-        Objects.requireNonNull(nextPosition, "nextPosition");
-        Objects.requireNonNull(context, "context");
-        Objects.requireNonNull(committedMovementDimensions, "committedMovementDimensions");
-        return fromActorBox(
-                sweptActorBox(
-                        committedMovementDimensions.width(),
-                        committedMovementDimensions.height(),
-                        previousPosition,
-                        nextPosition),
-                context.worldState().blockCollisionWorld(),
-                context.effectState().weaving());
-    }
-
     public static BlockMovementSlowdownState fromBlockWorld(
             double actorWidth,
             double actorHeight,
@@ -118,18 +99,5 @@ public final class BedrockBlockMovementSlowdownResolver {
                 physicalFeetPosition.x() + radius - ENTITY_INSIDE_AABB_CONTRACTION,
                 physicalFeetPosition.y() + actorHeight - ENTITY_INSIDE_AABB_CONTRACTION,
                 physicalFeetPosition.z() + radius - ENTITY_INSIDE_AABB_CONTRACTION);
-    }
-
-    private static WorldCollisionBox sweptActorBox(
-            double actorWidth, double actorHeight, Vec3d previousPosition, Vec3d nextPosition) {
-        WorldCollisionBox previous = actorBox(actorWidth, actorHeight, previousPosition);
-        WorldCollisionBox next = actorBox(actorWidth, actorHeight, nextPosition);
-        return new WorldCollisionBox(
-                Math.min(previous.minX(), next.minX()),
-                Math.min(previous.minY(), next.minY()),
-                Math.min(previous.minZ(), next.minZ()),
-                Math.max(previous.maxX(), next.maxX()),
-                Math.max(previous.maxY(), next.maxY()),
-                Math.max(previous.maxZ(), next.maxZ()));
     }
 }

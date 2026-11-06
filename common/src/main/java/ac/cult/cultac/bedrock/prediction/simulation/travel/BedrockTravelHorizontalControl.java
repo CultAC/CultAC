@@ -150,10 +150,6 @@ public final class BedrockTravelHorizontalControl {
                 GROUND_FRICTION);
     }
 
-    public static double dryAirHorizontalInputLimit(boolean sprintSpeedInput, float moveInputScale) {
-        return scaledInputLimit(DRY_AIR_TRAVEL_SPEED * GROUND_CONTROL, moveInputScale, sprintSpeedInput);
-    }
-
     private static double scaledInputLimit(double baseLimit, float moveInputScale, boolean sprintSpeedInput) {
         double horizontalInputLimit = baseLimit * moveInputScale;
         return sprintSpeedInput ? horizontalInputLimit * SPRINT_MOVEMENT_SPEED_MULTIPLIER : horizontalInputLimit;

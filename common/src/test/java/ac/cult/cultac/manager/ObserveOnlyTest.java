@@ -153,6 +153,74 @@ class ObserveOnlyTest {
         verify(player).sendMessage(any(Component.class));
     }
 
+    @Test
+    void aNamedFormatAlertSendsItsMessageAndIsNotWithheld() throws ReflectiveOperationException {
+        when(config.getStringElse(eq("staff-suspected"), any())).thenReturn("%check_name% suspected (x%vl%)");
+        assertEquals(
+                List.of("ObserveOnlyProbe suspected (x1)"),
+                alertsFired(List.of("1:0 [alert:staff-suspected]", "1:0 kick probe")));
+        verify(player).sendMessage(any(Component.class));
+    }
+
+    @Test
+    void anUnknownFormatKeySendsAlertsFormatWithOneWarningPerGroupAndKey() throws ReflectiveOperationException {
+        List<String> commands = List.of("1:0 [alert:missing]", "1:1 [alert:missing]", "1:0 [alert:]");
+        assertEquals(List.of("alert", "alert", "alert"), alertsFired(commands));
+
+        List<String> warnings = PunishmentManager.unknownAlertFormats(config);
+        assertEquals(2, warnings.size(), warnings.toString());
+        assertTrue(warnings.get(0).contains("[observeonlyprobe]")
+                && warnings.get(0).contains("[alert:missing]"));
+        assertTrue(warnings.get(1).contains("[alert:]"));
+    }
+
+    @Test
+    void aFormatsLiteralActionTextIsKeptAsText() throws ReflectiveOperationException {
+        when(config.getStringElse(eq("staff-suspected"), any())).thenReturn("[alert] [proxy] %check_name%");
+        assertEquals(List.of("[alert] [proxy] ObserveOnlyProbe"), alertsFired(List.of("1:0 [alert:staff-suspected]")));
+    }
+
+    @Test
+    void theShippedSuspectedFormatIsKnown() {
+        assertTrue(PunishmentManager.unknownAlertFormats(punishments(List.of("1:0 [alert:alerts-format-suspected]")))
+                .isEmpty());
+    }
+
+    /** What the commands of one group holding the probe fire for its first flag while observing only. */
+    private List<String> alertsFired(List<String> commands) throws ReflectiveOperationException {
+        Check check = probe();
+        doReturn(List.of(check)).when(player).getChecks();
+        when(config.getBooleanElse("test-mode", false)).thenReturn(true);
+        when(config.getStringElse(eq("alerts-format"), anyString())).thenReturn("alert");
+        punishments(commands);
+        PunishmentManager punishments = new PunishmentManager(player);
+        punishments.reload(config);
+
+        GrimPlugin plugin = mock(GrimPlugin.class);
+        List<String> fired = new ArrayList<>();
+        CultAPI.INSTANCE
+                .getEventBus()
+                .get(CommandExecuteEvent.class)
+                .onCommandExecuteSupplier(plugin, (user, flagged, verbose, command, cancelled) -> {
+                    fired.add(command);
+                    return cancelled;
+                });
+        try (var ignored = installConfig(true)) {
+            punishments.handleViolation(check);
+            punishments.handleAlert(player, "verbose", check);
+        } finally {
+            CultAPI.INSTANCE.getEventBus().unregisterAllListeners(plugin);
+        }
+        return fired;
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private ConfigManager punishments(List<String> commands) {
+        when(config.getStringListElse(eq("Punishments"), any())).thenReturn((List)
+                List.of(new LinkedHashMap<>(Map.of("checks", List.of("observeonlyprobe"), "commands", commands))));
+        return config;
+    }
+
     /** The client confirms a server teleport (transaction 5, id 7) but reports another position past transaction 6. */
     @Test
     void anIgnoredServerTeleportLeavesNoSetback() throws ReflectiveOperationException {

@@ -29,4 +29,14 @@ public class PointThreeTesting implements UncertaintyHandler {
         }
         return start;
     }
+
+    /** Coordinate {@code axis} (0 x, 1 y, 2 z) of {@link #handleUncertainty}'s result. */
+    double coordinate(CultPlayer player, SimulationContext context, PredVector start, Vec3 end, int axis) {
+        if (context.isTestingPointThree()) {
+            double threshold = player.getMovementThreshold();
+            threshold *= Math.max(context.getTargetScalarHoriz(), context.getTargetScalarVert());
+            return UncertaintyHelper.sphericalCoordinate(start, end, threshold, axis);
+        }
+        return axis == 0 ? start.x : axis == 1 ? start.y : start.z;
+    }
 }

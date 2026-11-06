@@ -11,18 +11,15 @@ import org.jetbrains.annotations.NotNull;
 public class AutoclickerLimit extends AutoClickCheck {
     double maxCps = 25;
 
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("AutoClickerLimit")
+            .description("Clicked too fast")
+            .configName("AutoclickerLimit")
+            .stableKey("cult.autoclicker.limit")
+            .build();
+
     public AutoclickerLimit(CultPlayer playerData) {
-        super(
-                playerData,
-                CheckInfo.builder()
-                        .name("AutoClickerLimit")
-                        .description("Clicked too fast")
-                        .configName("AutoclickerLimit")
-                        .stableKey("cult.autoclicker.limit")
-                        .build(),
-                50,
-                0.2,
-                3);
+        super(playerData, INFO, 50, 0.2, 3);
     }
 
     @Override

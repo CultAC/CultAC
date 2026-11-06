@@ -101,7 +101,7 @@ class MessageLimitTest {
         byte[] join = IntakeWire.join(new UUID(1, 2), 773, "vanilla", -64, 384, null, null, 0);
         int limit = frame.length + join.length - 1;
         CloudConnection.Batch batch = new CloudConnection.Batch();
-        List<byte[]> part = new ArrayList<>();
+        List<CloudConnection.Queued> part = new ArrayList<>();
         queuedBytes.addAndGet(frame.length);
         queue.add(new CloudConnection.Queued(1, frame, 0));
         assertEquals(frame.length, CloudConnection.nextPart(queue, queuedBytes, 1, limit, MESSAGE_LIMIT, batch, part));
@@ -117,7 +117,8 @@ class MessageLimitTest {
 
         assertEquals(join.length, CloudConnection.nextPart(queue, queuedBytes, 1, limit, MESSAGE_LIMIT, batch, part));
         assertTrue(batch.full, "the JOIN ends the next message, which it opens");
-        assertEquals(List.of(join), part);
+        assertEquals(
+                List.of(join), part.stream().map(CloudConnection.Queued::record).toList());
         assertTrue(queue.isEmpty());
     }
 
@@ -149,10 +150,10 @@ class MessageLimitTest {
             queuedBytes.addAndGet(entry.length());
             queue.add(entry);
             while (true) {
-                List<byte[]> part = new ArrayList<>();
+                List<CloudConnection.Queued> part = new ArrayList<>();
                 int bytes = CloudConnection.nextPart(queue, queuedBytes, generation, limit, resolvedLimit, batch, part);
                 queuedBytes.addAndGet(-bytes);
-                message.addAll(part);
+                for (CloudConnection.Queued taken : part) message.add(taken.record());
                 if (!batch.full) break;
                 messages.add(message);
                 message = new ArrayList<>();

@@ -3,6 +3,7 @@ package ac.cult.cultac.network.codec;
 import ac.cult.cultac.network.packet.SectionSnapshot;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.utils.latency.PalettedSection;
+import ac.cult.cultac.utils.latency.SectionPool;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
@@ -28,6 +29,18 @@ final class SectionProjection {
 
     static List<SectionSnapshot> decodedSections(
             ByteBuf input, ProtocolVersion version, int count, Registries registries) {
+        return decodedSections(input, version, count, registries, null, 0, 0);
+    }
+
+    /** Block storage is shared with the sections pooled at the column in {@code dimension}, if any; null pools none. */
+    static List<SectionSnapshot> decodedSections(
+            ByteBuf input,
+            ProtocolVersion version,
+            int count,
+            Registries registries,
+            String dimension,
+            int chunkX,
+            int chunkZ) {
         var sections = new ArrayList<SectionSnapshot>(count);
         for (int i = 0; i < count; i++)
             sections.add(SectionSnapshot.read(
@@ -38,7 +51,8 @@ final class SectionProjection {
                     registries.sourceBiomes(),
                     registries.modelBiomes(),
                     registries.states(),
-                    registries.biomes()));
+                    registries.biomes(),
+                    SectionPool.existing(dimension, chunkX, i, chunkZ)));
         return List.copyOf(sections);
     }
 

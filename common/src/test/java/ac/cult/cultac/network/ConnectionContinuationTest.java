@@ -28,6 +28,7 @@ class ConnectionContinuationTest {
         var previous = player(TestUsers.create(profile(), new EmbeddedChannel()));
         previous.checkManager.getCheck(ClientBrand.class).restore("fabric");
         previous.checkManager.getCheck(ChatD.class).observe(information);
+        previous.pluginChannelManager.handleChannelRegistered("fabric:registry/sync/direct");
 
         // The host copies the released state between engine class loaders.
         var state = Map.copyOf(ConnectionContinuation.capture(previous.user.getCultConnection()));
@@ -42,6 +43,7 @@ class ConnectionContinuationTest {
 
         assertEquals(previous.user.getConnectionId(), adopted.user.getConnectionId());
         assertEquals("fabric", adopted.getBrand());
+        assertEquals(previous.getClientClassification(), adopted.getClientClassification());
         assertTrue(adopted.checkManager.getCheck(ClientBrand.class).isHasBrand());
         assertEquals(information, adopted.checkManager.getCheck(ChatD.class).information());
     }

@@ -309,6 +309,7 @@ public class PacketPlayerRespawn {
                     false; // If somewhere else pulls last ground to fix other issues
             player.packetStateData.clientSidePosition = Vec3.ZERO;
             player.packetStateData.lastClientTickEndTransaction = Integer.MIN_VALUE;
+            player.packetStateData.lastDeltaConsumedTickEndTransaction = Integer.MIN_VALUE;
             player.packetStateData.clearPendingVehicleMoveAfterPassengerRotation();
             final ac.cult.cultac.manager.player.ActionManager actions = player.actionManager;
             actions.onRespawn();

@@ -7,7 +7,6 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
-import java.util.function.LongSupplier;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.jetbrains.annotations.NotNull;
@@ -16,11 +15,9 @@ import org.jetbrains.annotations.Nullable;
 /**
  * The sender of a command another instance, or another engine generation here, forwarded to this one: the name, UUID
  * and console flag its own instance reported, only the permission nodes that instance granted, and no player. Its
- * output goes back to the sender as it is sent, until {@value #LINGER_MILLIS} ms after the command completed.
+ * output goes back to the sender with the answer once the command completed; output after that is dropped.
  */
 public final class RemoteCommandSource implements Sender {
-    static final long LINGER_MILLIS = 30_000;
-
     /**
      * The loader's runtime administration and the cloud commands that run on the sender's own instance. Findings stay
      * allowed: each instance holds those of its own players.
@@ -33,10 +30,8 @@ public final class RemoteCommandSource implements Sender {
     private final boolean console;
     private final Set<String> granted;
     private final Consumer<Component> output;
-    private final LongSupplier clock;
     private final @Nullable Object base;
     private volatile boolean done;
-    private volatile long doneAt;
     private volatile boolean targetLeft;
 
     /**
@@ -50,7 +45,6 @@ public final class RemoteCommandSource implements Sender {
             Collection<String> granted,
             Set<String> known,
             Consumer<Component> output,
-            LongSupplier clock,
             @Nullable Object base) {
         this.uuid = uuid;
         this.name = name;
@@ -61,13 +55,11 @@ public final class RemoteCommandSource implements Sender {
         }
         this.granted = Set.copyOf(held);
         this.output = output;
-        this.clock = clock;
         this.base = base;
     }
 
-    /** Starts the linger window; output after it is dropped. */
+    /** Ends the command's output; what it sends after this is dropped. */
     void done() {
-        doneAt = clock.getAsLong();
         done = true;
     }
 
@@ -120,7 +112,7 @@ public final class RemoteCommandSource implements Sender {
 
     @Override
     public boolean isValid() {
-        return !done || clock.getAsLong() - doneAt <= LINGER_MILLIS;
+        return !done;
     }
 
     @Override

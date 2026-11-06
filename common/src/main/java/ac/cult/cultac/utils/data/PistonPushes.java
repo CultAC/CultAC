@@ -2,13 +2,14 @@ package ac.cult.cultac.utils.data;
 
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.debug.DebugText;
 import ac.cult.cultac.utils.latency.CompensatedBlockEntities;
 import java.util.List;
 import java.util.Set;
 import lombok.Data;
 
 @Data
-public class PistonPushes {
+public class PistonPushes implements DebugText.Recordable {
     SimpleCollisionBox push;
     SimpleCollisionBox pistonPush;
     SimpleCollisionBox shulkerPush;
@@ -37,6 +38,24 @@ public class PistonPushes {
         this.pistonPush = pistonPush;
         this.shulkerPush = shulkerPush;
         this.slimeBlockLaunches = slimeBlockLaunches;
+    }
+
+    @Override
+    public void appendTo(DebugText.Builder sb) {
+        sb.append("PistonPushes(push=").append(push);
+        sb.append(", pistonPush=").append(pistonPush);
+        sb.append(", shulkerPush=").append(shulkerPush);
+        sb.append(", slimeBlockLaunches=").appendAll(slimeBlockLaunches);
+        sb.append(", shulkerBoxPush=").append(shulkerBoxPush);
+        sb.append(", shulkerBoxShoveBeforeTravel=").append(shulkerBoxShoveBeforeTravel);
+        sb.append(", shulkerBoxShoveResult=").append(shulkerBoxShoveResult);
+        sb.append(", shulkerBoxShovesAfterTravel=").appendAll(shulkerBoxShovesAfterTravel);
+        sb.append(')');
+    }
+
+    @Override
+    public String toString() {
+        return DebugText.print(this);
     }
 
     /**

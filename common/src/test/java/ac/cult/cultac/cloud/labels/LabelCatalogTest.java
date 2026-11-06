@@ -46,8 +46,6 @@ public class LabelCatalogTest {
                         "scaffold",
                         "fastplace",
                         "latency-abuse",
-                        "blink",
-                        "fakelag",
                         "other"),
                 bundled.ids());
         assertEquals(

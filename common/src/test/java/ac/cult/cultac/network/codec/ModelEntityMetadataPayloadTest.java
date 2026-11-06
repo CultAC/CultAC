@@ -3,10 +3,12 @@ package ac.cult.cultac.network.codec;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import ac.cult.cultac.network.packet.EntityMetadata;
+import ac.cult.cultac.protocol.MalformedPacketException;
 import ac.cult.cultac.protocol.ProtocolCodecs;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.value.EntityPose;
@@ -73,6 +75,71 @@ class ModelEntityMetadataPayloadTest {
                 output.release();
             }
         }
+    }
+
+    @Test
+    void aRejectedPacketLeavesNoEntriesForTheNextRead() {
+        ByteBuf rejected = Unpooled.buffer();
+        Wire.writeVarInt(rejected, 42);
+        rejected.writeByte(0);
+        Wire.writeVarInt(rejected, 0);
+        rejected.writeByte(2);
+        rejected.writeByte(1);
+        Wire.writeVarInt(rejected, 9999);
+        assertThrows(MalformedPacketException.class, () -> values.read(rejected));
+
+        ByteBuf single = Unpooled.buffer();
+        Wire.writeVarInt(single, 7);
+        single.writeByte(4);
+        Wire.writeVarInt(single, 0);
+        single.writeByte(1);
+        single.writeByte(255);
+        EntityMetadata metadata = values.read(single);
+        assertEquals(7, metadata.id());
+        assertEquals(1, metadata.packedItems().size());
+        assertEquals(4, metadata.packedItems().get(0).id());
+        assertEquals((byte) 1, metadata.packedItems().get(0).value());
+
+        ByteBuf full = packet();
+        assertEquals(ENTRIES, values.read(full).packedItems().size());
+        full.release();
+    }
+
+    @Test
+    void aHeldReaderAndASinglePacketReaderDecodeTheSameEntriesAfterAnOversizedPacket() {
+        for (int count : new int[] {0, 1, 2, 3, 200, 1, 70, 5}) {
+            ByteBuf input = integers(count);
+            EntityMetadata held = values.read(input.readerIndex(0));
+            EntityMetadata once = new ModelEntityMetadataValues(
+                            ProtocolCodecs.decoder(),
+                            ProtocolVersion.V26_3,
+                            new WireRegistryState(ProtocolVersion.V26_3, () -> null),
+                            name -> null)
+                    .readOnce(input.readerIndex(0), null);
+            input.release();
+            assertEquals(once.id(), held.id());
+            assertEquals(count, held.packedItems().size());
+            assertEquals(once.packedItems().size(), held.packedItems().size());
+            for (int i = 0; i < count; i++) {
+                var expected = once.packedItems().get(i);
+                var actual = held.packedItems().get(i);
+                assertEquals(expected.id(), actual.id());
+                assertEquals(expected.value(), actual.value());
+                assertEquals(expected.bytes(), actual.bytes());
+            }
+        }
+    }
+
+    private static ByteBuf integers(int count) {
+        ByteBuf input = Unpooled.buffer();
+        Wire.writeVarInt(input, count);
+        for (int index = 0; index < count; index++) {
+            input.writeByte(index);
+            Wire.writeVarInt(input, 1);
+            Wire.writeVarInt(input, index * 1000);
+        }
+        input.writeByte(255);
+        return input;
     }
 
     @Test

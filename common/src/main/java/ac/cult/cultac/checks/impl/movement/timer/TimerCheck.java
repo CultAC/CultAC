@@ -11,15 +11,16 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
 
 @BedrockSupported
 public class TimerCheck extends AbstractTimerCheck {
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("Timer")
+            .stableKey("grim.timer.timer")
+            .description("Game ran faster than normal")
+            .configName("TimerA")
+            .setback(5)
+            .build();
+
     public TimerCheck(CultPlayer cultPlayer) {
-        super(
-                cultPlayer,
-                CheckInfo.builder()
-                        .name("Timer")
-                        .description("Game ran faster than normal")
-                        .configName("TimerA")
-                        .setback(5)
-                        .build());
+        super(cultPlayer, INFO);
     }
 
     @CultPacketHandler
@@ -37,8 +38,8 @@ public class TimerCheck extends AbstractTimerCheck {
 
     @CultPacketHandler("serverbound.client_tick_end")
     public void onClientTickEnd(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
-        recordModernClientTickEndPacket();
         recordTimerEvent(event, false, shouldCountClientTickEndForTimer());
+        if (!event.isCancelled()) recordModernClientTickEndPacket();
     }
 
     @CultPacketHandler

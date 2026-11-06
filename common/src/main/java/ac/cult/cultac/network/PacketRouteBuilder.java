@@ -21,6 +21,8 @@ public final class PacketRouteBuilder {
     private final PacketHandlerScanner scanner;
     private final Map<PacketType<?>, List<ReceiveRegistration>> receives = new HashMap<>();
     private final Map<PacketType<?>, List<SendRegistration>> sends = new HashMap<>();
+    // Handlers added while this is set are CultAC's own, which keep no event past their handler.
+    boolean own;
 
     public PacketRouteBuilder(PacketHandlerScanner scanner) {
         this.scanner = Objects.requireNonNull(scanner);
@@ -186,7 +188,7 @@ public final class PacketRouteBuilder {
             throw new IllegalArgumentException("Not serverbound: " + type);
         if (scanner.supports(type))
             receives.computeIfAbsent(type, ignored -> new ArrayList<>())
-                    .add(new ReceiveRegistration(priority, stage, handler));
+                    .add(new ReceiveRegistration(priority, stage, handler, own));
     }
 
     private void addSend(
@@ -200,7 +202,7 @@ public final class PacketRouteBuilder {
             throw new IllegalArgumentException("Not clientbound: " + type);
         if (scanner.supports(type))
             sends.computeIfAbsent(type, ignored -> new ArrayList<>())
-                    .add(new SendRegistration(priority, handler, connection));
+                    .add(new SendRegistration(priority, handler, connection, own));
     }
 
     public Map<PacketType<?>, PacketReceiveRoute<Object>> receiveRoutes(ReceiveStage stage) {
@@ -249,16 +251,19 @@ public final class PacketRouteBuilder {
                     compileReceive(registrations, ReceiveStage.EARLY),
                     compileReceive(registrations, ReceiveStage.ORDINARY),
                     compileReceive(registrations, ReceiveStage.CONNECTION));
-            entries[runtime.slot(type)] = new PacketDispatcher.Route(type, route, null);
+            boolean own = registrations.stream().allMatch(ReceiveRegistration::own);
+            entries[runtime.slot(type)] = new PacketDispatcher.Route(type, route, null, own);
         });
-        sends.forEach((type, registrations) ->
-                entries[runtime.slot(type)] = new PacketDispatcher.Route(type, null, compileSend(registrations)));
+        sends.forEach((type, registrations) -> {
+            boolean own = registrations.stream().allMatch(SendRegistration::own);
+            entries[runtime.slot(type)] = new PacketDispatcher.Route(type, null, compileSend(registrations), own);
+        });
         return new PacketRoutes(runtime, entries);
     }
 
     private record ReceiveRegistration(
-            PacketListenerPriority priority, ReceiveStage stage, PacketReceiveHandler<Object> handler) {}
+            PacketListenerPriority priority, ReceiveStage stage, PacketReceiveHandler<Object> handler, boolean own) {}
 
     private record SendRegistration(
-            PacketListenerPriority priority, PacketSendHandler<Object> handler, boolean connection) {}
+            PacketListenerPriority priority, PacketSendHandler<Object> handler, boolean connection, boolean own) {}
 }

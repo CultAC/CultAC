@@ -1,5 +1,6 @@
 package ac.cult.cultac.network.routing;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -9,6 +10,7 @@ import static org.mockito.Mockito.when;
 import ac.cult.cultac.manager.alerts.AlertNetwork;
 import ac.cult.reload.api.HostContext;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
@@ -41,7 +43,7 @@ class SharedClaimsTest {
     }
 
     @Test
-    void generationsOnOneHostShareTheirClaimsPerKey() {
+    void generationsOnOneHostShareOneMapWithTheirClaimsPerScope() {
         HostContext host = host();
         SharedClaims older = new SharedClaims(host, AlertNetwork.CLAIMS, clock::get);
         SharedClaims newer = new SharedClaims(host, AlertNetwork.CLAIMS, clock::get);
@@ -50,6 +52,9 @@ class SharedClaimsTest {
         assertTrue(newer.claim("a"));
         assertFalse(older.claim("a"));
         assertTrue(other.claim("a"));
+        assertEquals(
+                Set.of(AlertNetwork.CLAIMS + ":a", RemoteCommands.CLAIMS + ":a"),
+                ((Map<?, ?>) host.shared(SharedClaims.KEY, ConcurrentHashMap::new)).keySet());
     }
 
     @Test

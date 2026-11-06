@@ -68,7 +68,7 @@ public class Check extends CultProcessor implements AbstractCheck {
         final CheckData checkData = this.getClass().getAnnotation(CheckData.class);
         if (checkData != null) {
             this.checkName = checkData.name();
-            this.configName = checkData.configName().equals("DEFAULT") ? this.checkName : checkData.configName();
+            this.configName = configName(this.checkName, checkData.configName());
             this.defaultDecay = checkData.decay();
             this.defaultSetbackVL = checkData.setback();
             this.alternativeName = checkData.alternativeName();
@@ -96,8 +96,7 @@ public class Check extends CultProcessor implements AbstractCheck {
         Objects.requireNonNull(checkInfo, "checkInfo");
 
         this.checkName = checkInfo.getName();
-        final String infoConfigName = checkInfo.getConfigName();
-        this.configName = infoConfigName == null || infoConfigName.equals("DEFAULT") ? this.checkName : infoConfigName;
+        this.configName = configName(this.checkName, checkInfo.getConfigName());
         this.defaultDecay = checkInfo.getDecay();
         this.defaultSetbackVL = checkInfo.getSetback();
         this.alternativeName = checkInfo.getAltName();
@@ -107,6 +106,11 @@ public class Check extends CultProcessor implements AbstractCheck {
         this.displayName = this.checkName;
 
         reload();
+    }
+
+    /** The prefix of a check's config keys: the declared config name, or the check name when it declares none. */
+    public static @NotNull String configName(@NotNull String checkName, @Nullable String declared) {
+        return declared == null || declared.equals("DEFAULT") ? checkName : declared;
     }
 
     /** Whether this check may run for Bedrock-platform players. */
@@ -164,6 +168,16 @@ public class Check extends CultProcessor implements AbstractCheck {
         return recordFlag(alertText, alertText);
     }
 
+    /**
+     * Flags with {@code verbose} for flag consumers and the flag history, and {@code alertText} for alerts, verbose,
+     * webhooks, proxy forwards and punishment commands. Each is rendered only if something reads it.
+     */
+    public boolean flag(@NotNull Supplier<String> verbose, @NotNull Supplier<String> alertText) {
+        return recordFlag(
+                memoize(Objects.requireNonNull(verbose, "verbose")),
+                memoize(Objects.requireNonNull(alertText, "alertText")));
+    }
+
     public final boolean flag(@NotNull Verbose.Writer verbose) {
         BinaryVerbose binary = lazyVerbose(verbose);
         return recordFlag(binary, binary.rendered());
@@ -174,15 +188,19 @@ public class Check extends CultProcessor implements AbstractCheck {
         return recordFlag(binary, alertText);
     }
 
+    /** Whether a flag of this check reaches its consumers: false while the player is disabled or exempt from it. */
+    public final boolean canRecordFlags() {
+        return !player.isDisabled() && (!experimental || player.isExperimentalChecks()) && !exemptPermission;
+    }
+
     private boolean recordFlag(@NotNull Supplier<String> verbose, @NotNull Supplier<String> alertText) {
-        if (player.isDisabled() || (experimental && !player.isExperimentalChecks()) || exemptPermission)
-            return false; // Avoid calling event if disabled
+        if (!canRecordFlags()) return false; // Avoid calling event if disabled
 
         if (FLAG_CHANNEL.fire(RuntimeEnvironment.outwardUser(player), RuntimeEnvironment.outwardCheck(this), verbose))
             return false;
 
         FlagArbiter arbiter = player.getFlagArbiter();
-        if (arbiter == null || !defer(arbiter, verbose, null, alertText)) commitFlag(null, alertText);
+        if (arbiter == null || !defer(arbiter, verbose, null, alertText)) commitFlag(null, verbose, alertText);
         return true;
     }
 
@@ -190,8 +208,7 @@ public class Check extends CultProcessor implements AbstractCheck {
         Supplier<String> rendered = verbose.rendered();
         byte[] verboseData = verbose.data();
 
-        if (player.isDisabled() || (experimental && !player.isExperimentalChecks()) || exemptPermission)
-            return false; // Avoid calling event if disabled
+        if (!canRecordFlags()) return false; // Avoid calling event if disabled
 
         if (FLAG_CHANNEL.fire(
                 RuntimeEnvironment.outwardUser(player),
@@ -199,12 +216,15 @@ public class Check extends CultProcessor implements AbstractCheck {
                 RuntimeEnvironment.outwardVerbose(rendered))) return false;
 
         FlagArbiter arbiter = player.getFlagArbiter();
-        if (arbiter == null || !defer(arbiter, rendered, verboseData, alertText)) commitFlag(verboseData, alertText);
+        if (arbiter == null || !defer(arbiter, rendered, verboseData, alertText)) {
+            commitFlag(verboseData, rendered, alertText);
+        }
         return true;
     }
 
     /** {@code verboseData} is null for a text verbose, which stores no binary flag row. */
-    private void commitFlag(byte @Nullable [] verboseData, @NotNull Supplier<String> alertText) {
+    private void commitFlag(
+            byte @Nullable [] verboseData, @NotNull Supplier<String> verbose, @NotNull Supplier<String> alertText) {
         lastFlagStoredBinaryVerbose = verboseData != null;
         player.punishmentManager.handleViolation(this);
         lastViolationTime = System.currentTimeMillis();
@@ -217,7 +237,7 @@ public class Check extends CultProcessor implements AbstractCheck {
                     .liveWriteHooks()
                     .recordFlagDataFromCheck(player, this, violations, verboseData);
         }
-        alert(alertText);
+        player.punishmentManager.handleAlert(player, memoize(alertText), memoize(verbose), this);
     }
 
     private boolean defer(
@@ -226,8 +246,12 @@ public class Check extends CultProcessor implements AbstractCheck {
             byte @Nullable [] verboseData,
             @NotNull Supplier<String> alertText) {
         double prospective = violations + deferredFlags + 1;
-        if (!arbiter.defer(this, verbose, prospective, new DeferredFlag(verboseData, alertText))) return false;
+        Supplier<String> alert = memoize(alertText);
+        if (!arbiter.defer(this, verbose, prospective, new DeferredFlag(verboseData, verbose, alert))) return false;
         deferredFlags++;
+        // The verdict commits after this prediction's listeners, too late for a Cult Log identifier the alert shows to
+        // build its log. Render the alert now if committing could render it.
+        if (player.punishmentManager.mayRenderVerbose(this, deferredFlags)) alert.get();
         return true;
     }
 
@@ -356,17 +380,20 @@ public class Check extends CultProcessor implements AbstractCheck {
 
     private final class DeferredFlag implements FlagOutcome {
         private final byte @Nullable [] verboseData;
+        private final @NotNull Supplier<String> verbose;
         private final @NotNull Supplier<String> alertText;
 
-        private DeferredFlag(byte @Nullable [] verboseData, @NotNull Supplier<String> alertText) {
+        private DeferredFlag(
+                byte @Nullable [] verboseData, @NotNull Supplier<String> verbose, @NotNull Supplier<String> alertText) {
             this.verboseData = verboseData;
+            this.verbose = verbose;
             this.alertText = alertText;
         }
 
         @Override
         public void commit() {
             deferredFlags--;
-            commitFlag(verboseData, alertText);
+            commitFlag(verboseData, verbose, alertText);
         }
 
         @Override

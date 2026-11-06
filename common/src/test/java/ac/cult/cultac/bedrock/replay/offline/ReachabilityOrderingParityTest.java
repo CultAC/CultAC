@@ -30,7 +30,7 @@ import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.inventory.Inventory;
 import io.netty.channel.embedded.EmbeddedChannel;
-import it.unimi.dsi.fastutil.ints.IntSet;
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -450,6 +450,7 @@ public final class ReachabilityOrderingParityTest {
         return (Queue<Object>) field.get(player);
     }
 
+    @SuppressWarnings("unchecked")
     private static void enqueueSentTransaction(CultPlayer player, int transaction, int id)
             throws ReflectiveOperationException {
         Class<?> sentTransaction = Class.forName("ac.cult.cultac.player.CultPlayer$"
@@ -458,14 +459,13 @@ public final class ReachabilityOrderingParityTest {
                 ? sentTransaction.getDeclaredConstructor(int.class, int.class)
                 : sentTransaction.getDeclaredConstructor(int.class, int.class, long.class);
         constructor.setAccessible(true);
-        sentTransactions(player)
-                .add(
-                        player.isBedrockMovement()
-                                ? constructor.newInstance(transaction, id)
-                                : constructor.newInstance(transaction, id, System.nanoTime()));
-        Field ids = CultPlayer.class.getDeclaredField("transactionIdsSent");
+        Object sent = player.isBedrockMovement()
+                ? constructor.newInstance(transaction, id)
+                : constructor.newInstance(transaction, id, System.nanoTime());
+        sentTransactions(player).add(sent);
+        Field ids = CultPlayer.class.getDeclaredField("transactionsSentById");
         ids.setAccessible(true);
-        ((IntSet) ids.get(player)).add(id);
+        ((Int2ObjectMap<Object>) ids.get(player)).put(id, sent);
     }
 
     private static long longField(Object target, String name) throws ReflectiveOperationException {

@@ -13,13 +13,11 @@ import org.yaml.snakeyaml.Yaml;
 class NetworkMessagesTest {
     @Test
     void everyBundledMessagesFileExplainsTheDisabledNetwork() {
-        for (String locale : List.of("de", "en", "es", "fr", "it", "ja", "nl", "pt", "ru", "tr", "zh")) {
+        for (String locale : List.of("de", "en", "es", "fr", "it", "ja", "nl", "pt", "ru", "tr", "uk", "zh")) {
             try (var input = getClass().getResourceAsStream("/messages/" + locale + ".yml")) {
                 Map<?, ?> messages = new Yaml().load(new String(input.readAllBytes(), StandardCharsets.UTF_8));
-                for (String key : List.of("network-disabled-command", "network-disabled-alerts")) {
-                    String text = assertInstanceOf(String.class, messages.get(key), locale + " " + key);
-                    assertTrue(text.startsWith("%prefix% "), locale + " " + key);
-                }
+                String text = assertInstanceOf(String.class, messages.get("network-disabled-alerts"), locale);
+                assertTrue(text.startsWith("%prefix% ") && text.contains("network.type"), locale);
             } catch (IOException failure) {
                 throw new AssertionError(locale, failure);
             }
@@ -28,7 +26,7 @@ class NetworkMessagesTest {
 
     @Test
     void everyBundledMessagesFileNamesTheAlertScope() {
-        for (String locale : List.of("de", "en", "es", "fr", "it", "ja", "nl", "pt", "ru", "tr", "zh")) {
+        for (String locale : List.of("de", "en", "es", "fr", "it", "ja", "nl", "pt", "ru", "tr", "uk", "zh")) {
             try (var input = getClass().getResourceAsStream("/messages/" + locale + ".yml")) {
                 Map<?, ?> messages = new Yaml().load(new String(input.readAllBytes(), StandardCharsets.UTF_8));
                 for (String key : List.of(
@@ -56,12 +54,9 @@ class NetworkMessagesTest {
                 Map.entry("network-command-not-forwarded", List.of("%instance%")),
                 Map.entry("network-command-target-left", List.of("%player%", "%instance%")),
                 Map.entry("network-command-failed", List.of("%instance%", "%reason%")),
-                Map.entry("network-command-line-too-large", List.of()),
-                Map.entry("network-command-output-lost", List.of("%instance%")),
-                Map.entry("network-command-unfinished", List.of("%instance%")),
                 Map.entry("network-command-no-answer", List.of("%instance%")),
                 Map.entry("network-command-output-cut", List.of("%instance%", "%lines%", "%kb%")));
-        for (String locale : List.of("de", "en", "es", "fr", "it", "ja", "nl", "pt", "ru", "tr", "zh")) {
+        for (String locale : List.of("de", "en", "es", "fr", "it", "ja", "nl", "pt", "ru", "tr", "uk", "zh")) {
             try (var input = getClass().getResourceAsStream("/messages/" + locale + ".yml")) {
                 Map<?, ?> messages = new Yaml().load(new String(input.readAllBytes(), StandardCharsets.UTF_8));
                 for (var expected : placeholders.entrySet()) {

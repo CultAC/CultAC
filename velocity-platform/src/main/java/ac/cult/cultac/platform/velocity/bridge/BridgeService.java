@@ -163,7 +163,7 @@ public final class BridgeService implements BridgeSessions, AutoCloseable {
 
     /** Always registered, so no client can forge bridge frames even when sessions are off. */
     void registerStripRoutes(PacketDispatcher dispatcher) {
-        dispatcher.register(routes -> {
+        dispatcher.registerOwn(routes -> {
             routes.earlyReceive(
                     ServerboundPackets.CUSTOM_PAYLOAD,
                     PacketListenerPriority.LOWEST,
@@ -175,7 +175,7 @@ public final class BridgeService implements BridgeSessions, AutoCloseable {
 
     /** Connection-level, so players without a CultPlayer (exempt) still get sessions. */
     void registerSessionRoutes(PacketDispatcher dispatcher) {
-        dispatcher.register(routes -> {
+        dispatcher.registerOwn(routes -> {
             routes.sendConnection(
                     ClientboundPackets.CUSTOM_PAYLOAD, PacketListenerPriority.LOWEST, this::interceptBackendPayload);
             routes.sendConnection(ClientboundPackets.LOGIN, PacketListenerPriority.LOWEST, (event, packet) -> {

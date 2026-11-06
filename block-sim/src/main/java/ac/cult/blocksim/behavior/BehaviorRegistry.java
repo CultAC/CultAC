@@ -1,6 +1,5 @@
 package ac.cult.blocksim.behavior;
 
-import ac.cult.blocksim.data.BlockDefinition;
 import ac.cult.blocksim.data.DataTables;
 import java.util.HashMap;
 import java.util.Map;

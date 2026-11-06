@@ -2,6 +2,7 @@ package ac.cult.cultac.utils.latency;
 
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.cultac.checks.impl.badpackets.BadPacketsM;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.packet.InventoryPackets.EquipmentEntry;
@@ -928,9 +929,7 @@ public class CompensatedEntities {
         if (EntityTypeUtil.isHorseFamily(entityType)) {
             return new PacketEntityHorse(player, entityID, entityType, position.x, position.y, position.z, xRot);
         }
-        if (entityType == EntityTypeIds.SLIME
-                || entityType == EntityTypeIds.MAGMA_CUBE
-                || entityType == EntityTypeIds.PHANTOM) {
+        if (EntityTypeUtil.isCubeMob(entityType) || entityType == EntityTypeIds.PHANTOM) {
             return new PacketEntitySizeable(player, entityID, entityType, position.x, position.y, position.z);
         }
         if ((entityType == EntityTypeIds.PIG)) {
@@ -959,6 +958,9 @@ public class CompensatedEntities {
         }
         if (PacketEntityHurtingProjectile.isHurtingProjectile(entityType)) {
             return new PacketEntityHurtingProjectile(player, entityID, entityType, position, data);
+        }
+        if (entityType == EntityTypeIds.FALLING_BLOCK) {
+            return new PacketEntityFallingBlock(player, entityID, position);
         }
         return new PacketEntity(player, entityID, entityType, position.x, position.y, position.z);
     }
@@ -1114,8 +1116,13 @@ public class CompensatedEntities {
             }
             var health = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.LIVING_HEALTH);
             if (health != null && health.value() instanceof Float value) {
-                if (entity instanceof PacketEntitySelf self) self.setHealth(value);
-                else entity.actionAlive = value > 0.0F;
+                if (entity instanceof PacketEntitySelf self) {
+                    self.setHealth(value);
+                    // Gui#tick opens the death screen once DATA_HEALTH_ID makes LivingEntity#isDeadOrDying true.
+                    if (value <= 0.0F && !player.isBedrockMovement()) {
+                        player.checkManager.getListener(BadPacketsM.class).onDeath();
+                    }
+                } else entity.actionAlive = value > 0.0F;
             }
         }
         if (entity instanceof PacketEntityCreaking creaking) {

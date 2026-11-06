@@ -5,7 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.cloud.CloudSettings;
+import ac.cult.cultac.cloud.Generation;
 import ac.cult.cultac.platform.api.CommandOutcome;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -24,8 +26,10 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -38,6 +42,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -57,6 +62,7 @@ class StaffBansTest {
     private volatile JsonArray pending = new JsonArray();
     private volatile int pendingStatus = 200;
     private volatile int claimStatus = 200;
+    private volatile String claimReply = "{\"leaseSeconds\":60}";
     private final Queue<Integer> resultStatuses = new ConcurrentLinkedQueue<>();
     private volatile Runnable beforePending = () -> {};
 
@@ -69,7 +75,7 @@ class StaffBansTest {
     private volatile Runnable beforeClaim = () -> {};
     private final List<Runnable> held = Collections.synchronizedList(new ArrayList<>());
     private final AtomicLong clock = new AtomicLong(NOW);
-    private final StaffBans.Generation generation = new StaffBans.Generation();
+    private final Generation generation = new Generation();
     private final StaffBans.Handled handled = new StaffBans.Handled(StaffBans.MAX_HANDLED);
 
     private final StaffBans.Host host = new StaffBans.Host() {
@@ -95,6 +101,11 @@ class StaffBansTest {
             return outcome;
         }
     };
+
+    @BeforeAll
+    static void installPlatform() {
+        OfflineCultTestBootstrap.installConfig();
+    }
 
     @BeforeEach
     void start() throws IOException {
@@ -129,7 +140,7 @@ class StaffBansTest {
         } else if (uri.endsWith("/claim")) {
             beforeClaim.run();
             status = claimStatus;
-            reply = "{\"leaseSeconds\":60}";
+            reply = claimReply;
         } else {
             Integer result = resultStatuses.poll();
             status = result == null ? 200 : result;
@@ -146,11 +157,16 @@ class StaffBansTest {
     }
 
     private StaffBans bans(String serverId, StaffBans.Commands commands) {
+        return bans(serverId, commands, false);
+    }
+
+    private StaffBans bans(String serverId, StaffBans.Commands commands, boolean proxy) {
         return new StaffBans(
                 base(),
                 KEY,
                 serverId,
                 commands,
+                proxy,
                 HttpClient.newHttpClient(),
                 calls,
                 host,
@@ -191,12 +207,39 @@ class StaffBansTest {
         }
     }
 
-    private long gets(String serverId) {
+    private long gets(String durations) {
         synchronized (seen) {
             return seen.stream()
-                    .filter(s -> s.uri().startsWith("/api/v1/bans/pending?server=" + serverId + "&"))
+                    .filter(s -> s.uri().startsWith("/api/v1/bans/pending?")
+                            && s.uri().contains("&durations=" + durations + "&"))
                     .count();
         }
+    }
+
+    private static String query(String terms, String durations, String server, String vars, String cmds) {
+        return query(terms, durations, server, "terms,backend", vars, cmds);
+    }
+
+    private static String query(
+            String terms, String durations, String server, String caps, String vars, String cmds) {
+        return "/api/v1/bans/pending?terms=" + terms + "&durations=" + durations + "&server=" + server + "&caps=" + caps
+                + "&vars=" + vars + "&cmds=" + cmds;
+    }
+
+    /** {@code ban} as a service that sends the term, the length token, the reason label and the silent flag. */
+    private static JsonObject v2(JsonObject ban, String term, String duration, String reasonLabel, String silentFlag) {
+        ban.addProperty("term", term);
+        ban.addProperty("duration", duration);
+        ban.addProperty("reasonLabel", reasonLabel);
+        ban.addProperty("silentFlag", silentFlag);
+        return ban;
+    }
+
+    private Seen resultFor(String id) {
+        return results().stream()
+                .filter(s -> s.uri().equals("/api/v1/bans/" + id + "/result"))
+                .findFirst()
+                .orElseThrow();
     }
 
     private List<Seen> results() {
@@ -220,7 +263,7 @@ class StaffBansTest {
         assertEquals(List.of("ban Notch fly hacks"), dispatched);
         Seen get = seen.get(0);
         assertEquals("GET", get.method());
-        assertEquals("/api/v1/bans/pending?server=arena-1&durations=all", get.uri());
+        assertEquals(query("permanent,timed,server", "all", "arena-1", "player,reason", "2009f92b3e562497"), get.uri());
         assertEquals("Bearer " + KEY, get.authorization());
         List<Seen> posts = posts();
         assertEquals(2, posts.size());
@@ -367,12 +410,12 @@ class StaffBansTest {
 
             assertNull(ban.staffUuid(), other.toString());
             assertNull(ban.evidence(), other.toString());
-            assertEquals("gban s= e=", BanCommand.fill("gban s=%staff_uuid% e=%evidence%", ban));
+            assertEquals("gban", BanCommand.fill("gban s=%staff_uuid% e=%evidence%", ban));
         }
     }
 
     @Test
-    void staffUuidAndEvidenceReachTheCommandAndOlderServicesLeaveThemEmpty() throws Exception {
+    void staffUuidAndEvidenceReachTheCommandAndOlderServicesLeaveThemOut() throws Exception {
         JsonObject withBoth = ban(BAN, PLAYER, null, NOW - 60_000);
         withBoth.addProperty("staffUuid", "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d");
         withBoth.addProperty("evidence", "https://panel.example/replays/watch?window=w1");
@@ -388,8 +431,8 @@ class StaffBansTest {
 
         assertEquals(
                 List.of(
-                        "gban staff= evidence= Other",
-                        "gban staff= evidence= Other",
+                        "gban Other",
+                        "gban Other",
                         "gban staff=0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
                                 + " evidence=https://panel.example/replays/watch?window=w1 Notch"),
                 dispatched.stream().sorted().toList());
@@ -462,9 +505,8 @@ class StaffBansTest {
         pending(ban(BAN, PLAYER, null, NOW - 60_000));
 
         bans().pollOnce().get(5, TimeUnit.SECONDS);
-        assertTrue(handled.owes(BAN));
         bans().pollOnce().get(5, TimeUnit.SECONDS);
-        waitFor(() -> !handled.owes(BAN));
+        waitFor(() -> results().size() == 3);
         bans().pollOnce().get(5, TimeUnit.SECONDS);
 
         assertEquals(List.of("ban Notch fly hacks"), dispatched);
@@ -482,7 +524,6 @@ class StaffBansTest {
             resultStatuses.add(statuses[i]);
             pending(ban(ids[i], PLAYER, null, NOW - 60_000));
             bans().pollOnce().get(5, TimeUnit.SECONDS);
-            assertFalse(handled.owes(ids[i]));
         }
         Thread.sleep(StaffBans.RESULT_RETRY_SECONDS * 10 + 200);
 
@@ -555,23 +596,394 @@ class StaffBansTest {
     }
 
     @Test
-    void thePendingQueryAsksOnlyForBansACommandCovers() throws Exception {
+    void thePendingQueryNamesTheTermsTheCommandsRunAndTheDurationsOlderServicesRead() throws Exception {
         bans("perm", new StaffBans.Commands("ban %player%", "")).pollOnce().get(5, TimeUnit.SECONDS);
-        bans("temp", new StaffBans.Commands("", "tempban %player%")).pollOnce().get(5, TimeUnit.SECONDS);
+        bans("temp", new StaffBans.Commands("", "tempban %player% %duration%"))
+                .pollOnce()
+                .get(5, TimeUnit.SECONDS);
         bans("both", new StaffBans.Commands("ban %player%", "tempban %player%"))
+                .pollOnce()
+                .get(5, TimeUnit.SECONDS);
+        bans("one", new StaffBans.Commands("ban %silent% %player% %duration% %reason%", ""))
+                .pollOnce()
+                .get(5, TimeUnit.SECONDS);
+        bans("lobby {1}/eu", new StaffBans.Commands("", "tempban %player% %seconds%"))
                 .pollOnce()
                 .get(5, TimeUnit.SECONDS);
 
         assertEquals(
                 List.of(
-                        "/api/v1/bans/pending?server=perm&durations=permanent",
-                        "/api/v1/bans/pending?server=temp&durations=timed",
-                        "/api/v1/bans/pending?server=both&durations=all"),
+                        query("permanent,server", "permanent", "perm", "player", "affd092b8fa901c6"),
+                        query("permanent,timed", "timed", "temp", "duration,player", "882384187d9c1753"),
+                        query("permanent,server", "all", "both", "player", "8ce5c56ada419a79"),
+                        query(
+                                "permanent,timed,server",
+                                "permanent",
+                                "one",
+                                "duration,player,reason,silent",
+                                "a68e6f300adc315b"),
+                        query("timed", "timed", "lobby+%7B1%7D%2Feu", "player,seconds", "d762761c7b23dbe4")),
                 seen.stream().map(Seen::uri).toList());
     }
 
     @Test
-    void aGameplayBanRunsWithTheCheatEmpty() throws Exception {
+    void thePendingQueryNamesThePlaceholdersEverySetCommandHolds() throws Exception {
+        bans("lite", new StaffBans.Commands("litebans:ban %silent% %uuid% %duration% %reason% %foo%", ""))
+                .pollOnce()
+                .get(5, TimeUnit.SECONDS);
+        bans("advanced", new StaffBans.Commands(
+                        "advancedban:ban %silent% %player% %reason% (by %staff%)",
+                        "advancedban:tempban %silent% %player% %duration% %reason%"))
+                .pollOnce()
+                .get(5, TimeUnit.SECONDS);
+
+        assertEquals(
+                List.of(
+                        query(
+                                "permanent,timed,server",
+                                "permanent",
+                                "lite",
+                                "duration,reason,silent,uuid",
+                                "f8c0ee28b54a45be"),
+                        query("permanent,timed,server", "all", "advanced", "player,reason,silent", "32559674ea098b10")),
+                seen.stream().map(Seen::uri).toList());
+        assertEquals("", StaffBans.Commands.NONE.vars());
+        assertEquals("player", new StaffBans.Commands("", "tempban %player% %%").vars());
+        assertEquals(BanCommand.NAMES, BanCommand.values(StaffBans.ban(ban(BAN, PLAYER, null, NOW))).keySet());
+    }
+
+    @Test
+    void thePendingQueryCapsNameTheTierAProxyOrABackendRunsOn() throws Exception {
+        StaffBans.Commands commands = new StaffBans.Commands("ban %silent% %uuid% %duration% %reason%", "");
+        bans("velocity-1", commands, true).pollOnce().get(5, TimeUnit.SECONDS);
+        bans("arena-1", commands, false).pollOnce().get(5, TimeUnit.SECONDS);
+
+        assertEquals(
+                List.of(
+                        query(
+                                "permanent,timed,server",
+                                "permanent",
+                                "velocity-1",
+                                "terms,proxy",
+                                "duration,reason,silent,uuid",
+                                "6cb9884991b8f871"),
+                        query(
+                                "permanent,timed,server",
+                                "permanent",
+                                "arena-1",
+                                "terms,backend",
+                                "duration,reason,silent,uuid",
+                                "6cb9884991b8f871")),
+                seen.stream().map(Seen::uri).toList());
+    }
+
+    @Test
+    void theCommandsHashIsTheSha256OfBothStrippedCommandsJoinedByALineFeed() {
+        assertEquals(
+                "4e0a22648432a8b3",
+                new StaffBans.Commands(
+                                "ban %silent% %uuid% %duration% %reason%",
+                                "tempban %silent% %uuid% %duration% %reason%")
+                        .cmds());
+        assertEquals(
+                "4e0a22648432a8b3",
+                new StaffBans.Commands(
+                                "  ban %silent% %uuid% %duration% %reason%\n",
+                                "\ttempban %silent% %uuid% %duration% %reason% ")
+                        .cmds());
+        assertEquals("6cb9884991b8f871", new StaffBans.Commands("ban %silent% %uuid% %duration% %reason%", null).cmds());
+        assertEquals("01ba4719c80b6fe9", StaffBans.Commands.NONE.cmds());
+        assertEquals("3b2f7fbae85d69d8", new StaffBans.Commands("ban é %player%", "tempban %player% %duration%").cmds());
+    }
+
+    @Test
+    void eachTermRunsTheTemplateTheSelectionTableGives() {
+        String plain = "ban %player% %reason%";
+        String duration = "ban %player% %duration% %reason%";
+        String seconds = "ban %player% seconds=%seconds% %reason%";
+        String tempPlain = "tempban %player% %reason%";
+        String tempDuration = "tempban %player% %duration% %reason%";
+        String tempSeconds = "tempban %player% %seconds% %reason%";
+        String all = "permanent,timed,server";
+        // command, temp-command; the template a timed, a permanent and a server ban runs, "" when none; terms; durations
+        String[][] rows = {
+            {"", "", "", "", "", "", "timed"},
+            {"", tempPlain, "", "", tempPlain, "server", "timed"},
+            {"", tempDuration, tempDuration, tempDuration, "", "permanent,timed", "timed"},
+            {"", tempSeconds, tempSeconds, "", "", "timed", "timed"},
+            {plain, "", "", plain, plain, "permanent,server", "permanent"},
+            {plain, tempPlain, "", plain, plain, "permanent,server", "all"},
+            {plain, tempDuration, tempDuration, plain, plain, all, "all"},
+            {plain, tempSeconds, tempSeconds, plain, plain, all, "all"},
+            {duration, "", duration, duration, duration, all, "permanent"},
+            {duration, tempPlain, duration, duration, duration, all, "all"},
+            {duration, tempDuration, tempDuration, duration, duration, all, "all"},
+            {duration, tempSeconds, tempSeconds, duration, duration, all, "all"},
+            {seconds, "", seconds, seconds, seconds, all, "permanent"},
+            {seconds, tempPlain, seconds, seconds, seconds, all, "all"},
+            {seconds, tempDuration, tempDuration, seconds, seconds, all, "all"},
+            {seconds, tempSeconds, tempSeconds, seconds, seconds, all, "all"},
+        };
+        for (String[] row : rows) {
+            StaffBans.Commands commands = new StaffBans.Commands(row[0], row[1]);
+            String where = "command '" + row[0] + "', temp-command '" + row[1] + "'";
+            assertEquals(row[2], commands.of(StaffBans.Term.TIMED), "timed, " + where);
+            assertEquals(row[3], commands.of(StaffBans.Term.PERMANENT), "permanent, " + where);
+            assertEquals(row[4], commands.of(StaffBans.Term.SERVER), "server, " + where);
+            assertEquals(row[5], commands.terms(), "terms, " + where);
+            assertEquals(row[6], commands.durations(), "durations, " + where);
+        }
+    }
+
+    @Test
+    void aTempCommandThatNeedsALengthNeverRunsABanTheServerLengthens() {
+        StaffBans.Commands needs = new StaffBans.Commands("", "tempban %player% %duration% %reason%");
+        assertEquals("", needs.of(StaffBans.Term.SERVER));
+        assertEquals("permanent,timed", needs.terms());
+        assertEquals(
+                "no command here runs bans whose length the server decides: set command",
+                StaffBans.Commands.unrunnable(StaffBans.Term.SERVER));
+        StaffBans.Commands lengthless = new StaffBans.Commands("", "tempban %player% %reason%");
+        assertEquals("tempban %player% %reason%", lengthless.of(StaffBans.Term.SERVER));
+        assertEquals("server", lengthless.terms());
+    }
+
+    @Test
+    void aTempCommandWithoutALengthNeverRunsATimedBan() {
+        StaffBans.Commands commands = new StaffBans.Commands("", "ban %player% %reason%");
+        assertEquals("", commands.of(StaffBans.Term.TIMED));
+        assertEquals("server", commands.terms());
+        StaffBans.Commands withCommand = new StaffBans.Commands("ban %player% %reason%", "ban %player% %reason%");
+        assertEquals("", withCommand.of(StaffBans.Term.TIMED));
+        assertEquals("permanent,server", withCommand.terms());
+    }
+
+    @Test
+    void aPermanentBanThroughATempCommandWithoutAPermanentLengthIsReportedNotRun() throws Exception {
+        String withToken = "2f0e0d0c-0b0a-4908-8706-050403020102";
+        pending(
+                v2(ban(BAN, PLAYER, null, NOW - 60_000), "permanent", "", "Cheating", ""),
+                ban(TIMED, OTHER, null, NOW - 60_000),
+                v2(ban(withToken, PLAYER, null, NOW - 60_000), "permanent", "perm", "Cheating", ""));
+
+        StaffBans.Commands commands = new StaffBans.Commands("", "tempban %player% %duration% %reason%");
+        assertEquals("permanent,timed", commands.terms());
+        bans("arena-1", commands).pollOnce().get(5, TimeUnit.SECONDS);
+
+        assertEquals(List.of("tempban Notch perm fly hacks"), dispatched);
+        String refused = "not run: permanent bans need cloud.staff-ban.command, or a permanent length set in the ban policy";
+        assertResult(resultFor(BAN), false, refused);
+        assertResult(resultFor(TIMED), false, refused);
+    }
+
+    @Test
+    void oneCommandWithADurationRunsTimedPermanentAndServerBans() throws Exception {
+        String third = "2f0e0d0c-0b0a-4908-8706-050403020102";
+        pending(
+                v2(ban(TIMED, OTHER, 2592000L, NOW - 60_000), "timed", "30d", "Cheating", "-s"),
+                v2(ban(BAN, PLAYER, null, NOW - 60_000), "permanent", "", "Cheating", ""),
+                v2(ban(third, PLAYER, null, NOW - 60_000), "server", "", "Cheating", "-s"));
+
+        bans("arena-1", new StaffBans.Commands("litebans:ban %silent% %uuid% %duration% %reason%", ""))
+                .pollOnce()
+                .get(5, TimeUnit.SECONDS);
+
+        assertEquals(
+                List.of(
+                        "litebans:ban -s " + PLAYER + " fly hacks",
+                        "litebans:ban -s " + OTHER + " 30d fly hacks",
+                        "litebans:ban " + PLAYER + " fly hacks"),
+                dispatched.stream().sorted().toList());
+        assertEquals(
+                query(
+                        "permanent,timed,server",
+                        "permanent",
+                        "arena-1",
+                        "duration,reason,silent,uuid",
+                        "bad382ba09940ec3"),
+                seen.get(0).uri());
+    }
+
+    @Test
+    void aBanWithAnUnknownTermOrATermThatDisagreesWithItsLengthIsNeverClaimed() throws Exception {
+        String[][] cases = {{"forever", null}, {"timed", null}, {"permanent", "3600"}, {"server", "3600"}, {"TIMED", "3600"}};
+        List<JsonObject> bans = new ArrayList<>();
+        for (int i = 0; i < cases.length; i++) {
+            Long seconds = cases[i][1] == null ? null : Long.parseLong(cases[i][1]);
+            JsonObject ban = ban("2f0e0d0c-0b0a-4908-8706-05040302011" + i, PLAYER, seconds, NOW - 60_000);
+            ban.addProperty("term", cases[i][0]);
+            assertNull(StaffBans.ban(ban), String.join(" ", cases[i][0], String.valueOf(cases[i][1])));
+            bans.add(ban);
+        }
+        pending(bans.toArray(JsonObject[]::new));
+
+        bans().pollOnce().get(5, TimeUnit.SECONDS);
+
+        assertTrue(posts().isEmpty());
+        assertTrue(dispatched.isEmpty());
+    }
+
+    @Test
+    void theNewFieldsAreReadAndABanWithoutThemTakesItsTermFromItsLength() {
+        StaffBans.Ban server =
+                StaffBans.ban(v2(ban(BAN, PLAYER, null, NOW), "server", "", "Blacklisted modifications", "-s"));
+        assertEquals(StaffBans.Term.SERVER, server.term());
+        assertEquals("", server.duration());
+        assertEquals("Blacklisted modifications", server.reasonLabel());
+        assertEquals("-s", server.silentFlag());
+
+        StaffBans.Ban permanent = StaffBans.ban(ban(BAN, PLAYER, null, NOW));
+        assertEquals(StaffBans.Term.PERMANENT, permanent.term());
+        assertNull(permanent.duration());
+        assertNull(permanent.reasonLabel());
+        assertEquals("", permanent.silentFlag());
+        assertEquals(StaffBans.Term.TIMED, StaffBans.ban(ban(TIMED, PLAYER, 3600L, NOW)).term());
+
+        JsonObject odd = ban(TIMED, PLAYER, 3600L, NOW);
+        odd.add("term", JsonNull.INSTANCE);
+        odd.addProperty("duration", 30);
+        odd.add("reasonLabel", new JsonArray());
+        odd.addProperty("silentFlag", true);
+        StaffBans.Ban oddBan = StaffBans.ban(odd);
+        assertEquals(StaffBans.Term.TIMED, oddBan.term());
+        assertNull(oddBan.duration());
+        assertNull(oddBan.reasonLabel());
+        assertEquals("", oddBan.silentFlag());
+    }
+
+    @Test
+    void aClaimAnsweredWithABanNoCommandHereRunsIsReportedNotRun() throws Exception {
+        JsonObject answered = v2(ban(BAN, PLAYER, 3600L, NOW - 60_000), "timed", "1h", "Fly", "");
+        JsonObject reply = new JsonObject();
+        reply.addProperty("leaseSeconds", 60);
+        reply.add("ban", answered);
+        claimReply = reply.toString();
+        pending(ban(BAN, PLAYER, null, NOW - 60_000));
+
+        bans("arena-1", new StaffBans.Commands("ban %player% %reason%", ""))
+                .pollOnce()
+                .get(5, TimeUnit.SECONDS);
+
+        assertTrue(dispatched.isEmpty());
+        assertResult(
+                results().get(0),
+                false,
+                "not run: no command here runs timed bans: put %duration% in temp-command or command");
+    }
+
+    @Test
+    void aBanWhoseValueWouldAddAFlagIsReportedNotRun() throws Exception {
+        JsonObject flagged = ban(BAN, PLAYER, null, NOW - 60_000);
+        flagged.addProperty("reason", "fly hacks -s");
+        JsonObject badSilent = v2(ban(TIMED, OTHER, 3600L, NOW - 60_000), "timed", "1h", "Fly", "s");
+        pending(flagged, badSilent);
+
+        bans("arena-1", new StaffBans.Commands(
+                        "ban %silent% %player% %reason%", "tempban %silent% %player% %duration% %reason%"))
+                .pollOnce()
+                .get(5, TimeUnit.SECONDS);
+
+        assertTrue(dispatched.isEmpty());
+        assertResult(resultFor(BAN), false, "not run: %reason% has a flag word (- and a letter)");
+        assertResult(resultFor(TIMED), false, "not run: %silent% is not one flag starting with -");
+    }
+
+    @Test
+    void aBanFromAServiceWithoutTheNewFieldsRunsAsBefore() throws Exception {
+        String staff = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+        String evidence = "https://panel.example/replays/watch?window=w1";
+        JsonObject permanent = ban(BAN, PLAYER, null, NOW - 60_000);
+        JsonObject timed = ban(TIMED, OTHER, 43200L, NOW - 60_000);
+        for (JsonObject ban : List.of(permanent, timed)) {
+            ban.addProperty("staffUuid", staff);
+            ban.addProperty("evidence", evidence);
+        }
+        pending(permanent, timed);
+
+        bans("arena-1", new StaffBans.Commands(
+                        "ban %player% %reason% (%staff%) %link%",
+                        "tempban %player% %duration% %reason% [%cheat%/%cheat_id%] %seconds%s by %staff_uuid%"
+                                + " #%ban_id% %evidence% %uuid%"))
+                .pollOnce()
+                .get(5, TimeUnit.SECONDS);
+
+        assertEquals(
+                List.of(
+                        "ban Notch fly hacks (Mod) https://panel.example/players/" + PLAYER,
+                        "tempban Other 12h fly hacks [Fly/fly] 43200s by " + staff + " #" + TIMED + " " + evidence + " "
+                                + OTHER),
+                dispatched.stream().sorted().toList());
+    }
+
+    /** The {@code key=value} arguments before {@code reason=}, without empty ones, then the reason under its key. */
+    private static Map<String, String> arguments(String command) {
+        int reason = command.indexOf(" reason=");
+        Map<String, String> arguments = new TreeMap<>();
+        for (String word : command.substring(0, reason).split(" ")) {
+            int equals = word.indexOf('=');
+            if (equals > 0 && equals < word.length() - 1) {
+                arguments.put(word.substring(0, equals), word.substring(equals + 1));
+            }
+        }
+        arguments.put("reason", command.substring(reason + " reason=".length()));
+        return arguments;
+    }
+
+    @Test
+    void aKeyValueTemplatePairKeepsItsArgumentsForEveryTerm() throws Exception {
+        String permanentTemplate = "gladiatorban target=%uuid% staff=%staff_uuid% seconds= ban=%ban_id%"
+                + " evidence=%evidence% by=%staff% reason=%reason%";
+        String timedTemplate = "gladiatorban target=%uuid% staff=%staff_uuid% seconds=%seconds% ban=%ban_id%"
+                + " evidence=%evidence% by=%staff% reason=%reason%";
+        String staff = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+        String evidence = "https://panel.example/replays/watch?window=w1";
+        String olderPermanent = "2f0e0d0c-0b0a-4908-8706-050403020102";
+        String olderTimed = "2f0e0d0c-0b0a-4908-8706-050403020103";
+        JsonObject server = v2(ban(BAN, PLAYER, null, NOW - 60_000), "server", "", "Blacklisted modifications", "");
+        server.addProperty("reason", "blacklisted_modifications");
+        server.addProperty("staffUuid", staff);
+        server.addProperty("evidence", evidence);
+        JsonObject timed = v2(ban(TIMED, OTHER, 86400L, NOW - 60_000), "timed", "1d", "Griefing", "");
+        JsonObject permanent = ban(olderPermanent, OTHER, null, NOW - 60_000);
+        permanent.addProperty("reason", "exploiting");
+        JsonObject timedWithStaff = ban(olderTimed, PLAYER, 604800L, NOW - 60_000);
+        timedWithStaff.addProperty("staffUuid", staff);
+        timedWithStaff.addProperty("evidence", evidence);
+        pending(server, timed, permanent, timedWithStaff);
+
+        bans("arena-1", new StaffBans.Commands(permanentTemplate, timedTemplate))
+                .pollOnce()
+                .get(5, TimeUnit.SECONDS);
+
+        assertEquals(
+                query(
+                        "permanent,timed,server",
+                        "all",
+                        "arena-1",
+                        "ban_id,evidence,reason,staff,staff_uuid,uuid",
+                        "7631b1f461ccd59f"),
+                seen.get(0).uri());
+        String serverBan = "gladiatorban target=" + PLAYER + " staff=" + staff + " seconds= ban=" + BAN + " evidence="
+                + evidence + " by=Mod reason=blacklisted_modifications";
+        String timedBan = "gladiatorban target=" + OTHER + " seconds=86400 ban=" + TIMED + " by=Mod reason=fly hacks";
+        String permanentBan = "gladiatorban target=" + OTHER + " seconds= ban=" + olderPermanent + " by=Mod reason=exploiting";
+        String timedWithStaffBan = "gladiatorban target=" + PLAYER + " staff=" + staff + " seconds=604800 ban="
+                + olderTimed + " evidence=" + evidence + " by=Mod reason=fly hacks";
+        assertEquals(
+                List.of(serverBan, timedBan, permanentBan, timedWithStaffBan).stream().sorted().toList(),
+                dispatched.stream().sorted().toList());
+        assertEquals(
+                arguments("gladiatorban target=" + OTHER + " staff= seconds= ban=" + olderPermanent
+                        + " evidence= by=Mod reason=exploiting"),
+                arguments(permanentBan));
+        assertEquals(
+                arguments("gladiatorban target=" + OTHER + " staff= seconds=86400 ban=" + TIMED
+                        + " evidence= by=Mod reason=fly hacks"),
+                arguments(timedBan));
+    }
+
+    @Test
+    void aGameplayBanRunsWithoutTheCheat() throws Exception {
         JsonObject gameplay = ban(BAN, PLAYER, null, NOW - 60_000);
         gameplay.add("cheat", JsonNull.INSTANCE);
         gameplay.add("cheatName", JsonNull.INSTANCE);
@@ -581,7 +993,7 @@ class StaffBansTest {
                 .pollOnce()
                 .get(5, TimeUnit.SECONDS);
 
-        assertEquals(List.of("ban Notch [|] fly hacks"), dispatched);
+        assertEquals(List.of("ban Notch fly hacks"), dispatched);
         assertResult(results().get(0), true, "dispatched");
     }
 
@@ -594,25 +1006,24 @@ class StaffBansTest {
 
     @Test
     void aReconfigureStopsTheOldChain() throws Exception {
-        StaffBans.Commands commands = new StaffBans.Commands("ban %player%", "");
-        bans("old", commands).start();
-        waitFor(() -> gets("old") >= 3);
-        bans("new", commands).start();
-        waitFor(() -> gets("new") >= 3);
-        long old = gets("old");
+        bans("arena-1", new StaffBans.Commands("ban %player%", "")).start();
+        waitFor(() -> gets("permanent") >= 3);
+        bans("arena-1", new StaffBans.Commands("", "tempban %player%")).start();
+        waitFor(() -> gets("timed") >= 3);
+        long old = gets("permanent");
 
         Thread.sleep(200);
 
-        assertEquals(old, gets("old"));
-        assertTrue(gets("new") > 3);
+        assertEquals(old, gets("permanent"));
+        assertTrue(gets("timed") > 3);
     }
 
     @Test
     void noCommandSetSendsNothing() throws Exception {
         CloudSettings settings = new CloudSettings(base(), KEY, "{server}", "arena-1", List.of(5), false, false);
 
-        StaffBans.configure(settings, StaffBans.Commands.NONE, "arena-1");
-        StaffBans.configure(settings, new StaffBans.Commands("ban %player%", ""), null);
+        StaffBans.configure(settings, StaffBans.Commands.NONE, "arena-1", false);
+        StaffBans.configure(settings, new StaffBans.Commands("ban %player%", ""), null, false);
         Thread.sleep(200);
 
         assertTrue(seen.isEmpty());

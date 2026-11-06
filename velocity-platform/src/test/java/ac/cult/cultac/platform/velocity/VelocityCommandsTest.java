@@ -12,6 +12,7 @@ import ac.cult.cultac.platform.api.scheduler.AsyncScheduler;
 import ac.cult.cultac.platform.api.scheduler.PlatformScheduler;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.utils.anticheat.LogUtil;
+import ac.cult.cultac.utils.debug.DebugText;
 import ac.grim.grimac.api.plugin.GrimPlugin;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
@@ -168,12 +169,12 @@ class VelocityCommandsTest {
         Object previousLoader = loaderField.get(CultAPI.INSTANCE);
         var flagsField = SuperDebug.class.getDeclaredField("flags");
         flagsField.setAccessible(true);
-        String[] flags = (String[]) flagsField.get(null);
-        String previousLog = flags[42];
+        DebugText[] flags = (DebugText[]) flagsField.get(null);
+        DebugText previousLog = flags[42];
         String log = "Player: ProxyTest\nDebug: saved locally ✓\n";
         try {
             loaderField.set(CultAPI.INSTANCE, loader);
-            flags[42] = log;
+            flags[42] = new DebugText.Builder().append(log).toText();
             service.execute(sender, "grim log 42 -l").toCompletableFuture().join();
             try (var files = Files.list(dataFolder.resolve("debug-logs"))) {
                 var paths = files.toList();

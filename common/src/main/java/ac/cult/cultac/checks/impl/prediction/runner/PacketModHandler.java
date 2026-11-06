@@ -173,8 +173,9 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
                 this.threshold = Math.min(this.threshold + offset, ceiling);
                 String offsetDescription =
                         offset == Double.MAX_VALUE ? "ignored" : NumFormatter.formatNumberStandard(offset);
-                flag("offset=" + offsetDescription + " threshold=" + NumFormatter.formatNumberStandard(threshold));
-                if (offset >= immediate || threshold >= maxAdvantage) {
+                boolean flagged = flag(
+                        "offset=" + offsetDescription + " threshold=" + NumFormatter.formatNumberStandard(threshold));
+                if (flagged && (offset >= immediate || threshold >= maxAdvantage)) {
                     setbackIfAboveSetbackVL();
                 }
 
@@ -341,11 +342,17 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
         // MCP-Reborn applies velocity/explosion packets immediately to delta movement,
         // then LocalPlayer#tick consumes that delta before Minecraft#tick sends
         // ServerboundClientTickEndPacket. Once Cult has seen that tick-end after the
-        // packet's proof transaction, the previous modifier is already consumed. A push
-        // the client's own tick applies after its travel is consumed by the next tick.
+        // packet's proof transaction, the previous modifier is already consumed. Before the
+        // client has loaded, LocalPlayer#tick returns at once and only Entity#rideTick zeroes
+        // the delta, so an explosion's Entity#push adds to a push before an unridden tick; a
+        // velocity's Entity#lerpMotion replaces the delta at any tick. A push the client's own
+        // tick applies after its travel is consumed by the next tick.
+        int consumedThrough = currentIsVelocity || player.isBedrockMovement()
+                ? player.packetStateData.lastClientTickEndTransaction
+                : player.packetStateData.lastDeltaConsumedTickEndTransaction;
         if (previous.isAppliedAfterTravel()
                 ? player.packetStateData.acceptedClientTick >= previous.getConsumedAtClientTick()
-                : player.packetStateData.lastClientTickEndTransaction >= previous.getTransaction()) {
+                : consumedThrough >= previous.getTransaction()) {
             return false;
         }
 
@@ -372,6 +379,21 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
 
     public boolean hasPacketVelocity() {
         return firstBread != null || secondBread != null;
+    }
+
+    /**
+     * {@link #lastSent} if the client tick being predicted began with it applied, else null. Minecraft#runTick handles
+     * a Java velocity's bundle, proof ping included, before it ticks; a push applied after travel is taken next tick.
+     */
+    public TransactionVel lastSentAppliedBeforeTick() {
+        TransactionVel sent = lastSent;
+        if (sent == null || player.isBedrockMovement()) return null;
+        if (sent.isAppliedAfterTravel()) {
+            return player.packetStateData.acceptedClientTick + 1 >= sent.getConsumedAtClientTick() ? sent : null;
+        }
+        // A velocity whose trailing ping could not be sent has no proof.
+        int proof = sent.getProofTransaction();
+        return proof >= sent.getTransaction() && player.lastTransactionReceived.get() >= proof ? sent : null;
     }
 
     public void clearVelocitiesFromSourceEntity(int entityId) {

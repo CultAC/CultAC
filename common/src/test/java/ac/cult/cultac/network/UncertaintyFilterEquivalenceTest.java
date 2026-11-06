@@ -27,6 +27,7 @@ import ac.cult.cultac.utils.nmsutil.ClientBlockProperties;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -70,7 +71,7 @@ class UncertaintyFilterEquivalenceTest {
                 whole = PredictionDigestTest.dump(
                         seed, new TreeMap<>(), UncertaintyFilterEquivalenceTest::holdWorldResync);
             } finally {
-                System.arraycopy(original, 0, modifiers, 0, original.length);
+                restore(modifiers, original);
             }
             assertEquals(whole, filtered, "scenario " + seed);
         }
@@ -94,7 +95,7 @@ class UncertaintyFilterEquivalenceTest {
                 }
             }
         } finally {
-            System.arraycopy(original, 0, modifiers, 0, original.length);
+            restore(modifiers, original);
         }
         assertEquals(List.of(), mismatches.stream().limit(20).toList());
         for (UncertaintyHandler handler : original) {
@@ -146,8 +147,24 @@ class UncertaintyFilterEquivalenceTest {
         return (UncertaintyHandler[]) field.get(null);
     }
 
-    private static void wrap(UncertaintyHandler[] modifiers, IntFunction<UncertaintyHandler> wrapper) {
+    /** Wrappers override handleMovementTrace, so none of them runs on the position alone. */
+    private static void wrap(UncertaintyHandler[] modifiers, IntFunction<UncertaintyHandler> wrapper) throws Exception {
         for (int i = 0; i < modifiers.length; i++) modifiers[i] = wrapper.apply(i);
+        Arrays.fill(positionOnly(), false);
+    }
+
+    private static void restore(UncertaintyHandler[] modifiers, UncertaintyHandler[] original) throws Exception {
+        System.arraycopy(original, 0, modifiers, 0, original.length);
+        Method derive = ValidMovements.class.getDeclaredMethod("positionOnly", UncertaintyHandler[].class);
+        derive.setAccessible(true);
+        boolean[] flags = positionOnly();
+        System.arraycopy((boolean[]) derive.invoke(null, (Object) original), 0, flags, 0, flags.length);
+    }
+
+    private static boolean[] positionOnly() throws Exception {
+        Field field = ValidMovements.class.getDeclaredField("MODIFIER_POSITION_ONLY");
+        field.setAccessible(true);
+        return (boolean[]) field.get(null);
     }
 
     private static final int SLIME_STATE = 14379;

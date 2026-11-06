@@ -374,7 +374,11 @@ public final class GeyserBedrockBridgeRuntime {
                 installedTap.detach();
                 return;
             }
-            installedTap.detach();
+            // Geyser can replace the handler during login: LoginPacketHandler#finishLogin installs
+            // UpstreamPacketHandler after SessionInitializeEvent. The successor reuses this tap's
+            // latency queue, so detach as a transfer. Otherwise the cleanup, deferred to the tick
+            // loop, retires the queue the successor is already writing through.
+            installedTap.detach(true);
         }
 
         if (currentHandler instanceof PacketTapHandler tap) {

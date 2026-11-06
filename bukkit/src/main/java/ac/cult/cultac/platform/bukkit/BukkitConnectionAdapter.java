@@ -14,7 +14,6 @@ import ac.cult.cultac.protocol.ProtocolCodecs;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.anticheat.LogUtil;
-import ac.cult.cultac.utils.latency.ClientWorldRegistries;
 import com.mojang.authlib.GameProfile;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
@@ -45,13 +44,6 @@ public final class BukkitConnectionAdapter implements PlatformConnection {
     private final Channel channel;
     /** Received model registry names and older-wire values; Velocity owns the same per connection. */
     private final ConnectionModelValues model = new ConnectionModelValues(ProtocolCodecs.decoder());
-
-    @Override
-    public ClientWorldRegistries.Data initialWorldData() {
-        // Host registry values use the host's own schemas, which are the model's only on a 26.3 host.
-        if (NATIVE_PROTOCOL != ProtocolVersion.V26_3) return ClientWorldRegistries.modelDefaults();
-        return BukkitWorldRegistries.read(MinecraftServer.getServer().registryAccess());
-    }
 
     @Override
     public ConnectionModelValues modelValues() {

@@ -28,12 +28,38 @@ done
 # Disable workflow commands so malicious build/plugin stdout cannot alter the job.
 marker="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
 echo "::stop-commands::$marker"
-trap 'echo "::$marker::"' EXIT
-docker run --rm --init --read-only --network=none \
+network=(--network=none)
+egress=""
+cleanup() {
+  if [[ -n "$egress" ]]; then
+    echo "Egress proxy log:"
+    docker logs "$egress" 2>&1 | tail -n 200 || true
+    docker rm -f "$egress" > /dev/null 2>&1 || true
+    docker network rm "$egress" > /dev/null 2>&1 || true
+  fi
+  echo "::$marker::"
+}
+trap cleanup EXIT
+if [[ "$suite" = bedrock ]]; then
+  # The pinned Geyser fetches Bedrock auth discovery when it starts and shuts down without it.
+  # The Bedrock sandbox joins an internal network whose only route out is an allowlisting proxy.
+  egress="cultac-egress-${sandbox##*.}"
+  docker network create --internal "$egress" > /dev/null
+  docker run -d --init --read-only --name "$egress" \
+    --user "$(id -u):$(id -g)" \
+    --cap-drop=ALL --security-opt=no-new-privileges:true \
+    --pids-limit=64 --memory=256m --cpus=0.5 \
+    --mount "type=bind,src=$GITHUB_WORKSPACE/ci/.github/scripts/egress-proxy.py,dst=/egress-proxy.py,readonly" \
+    cultac-smoketest python3 -I /egress-proxy.py 3128 > /dev/null
+  docker network connect "$egress" "$egress"
+  network=(--network "$egress" --env "CULTAC_EGRESS_PROXY=$egress:3128")
+fi
+# Docker mounts tmpfs noexec unless asked; the JVMs load native libraries (SQLite, JLine) from /tmp.
+docker run --rm --init --read-only "${network[@]}" \
   --user "$(id -u):$(id -g)" \
   --cap-drop=ALL --security-opt=no-new-privileges:true \
   --pids-limit=1024 --memory=6g --memory-swap=6g --cpus=2 \
-  --tmpfs /tmp:rw,nosuid,size=1g \
+  --tmpfs /tmp:rw,exec,nosuid,size=1g \
   --mount "type=bind,src=$sandbox/workspace,dst=$GITHUB_WORKSPACE" \
   --mount "type=bind,src=$sandbox/home,dst=$HOME" \
   --workdir "$GITHUB_WORKSPACE" \

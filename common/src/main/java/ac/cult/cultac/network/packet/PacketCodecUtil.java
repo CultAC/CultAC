@@ -94,9 +94,19 @@ public final class PacketCodecUtil {
         }
 
         return new Vec3(
-                xa == 0L ? base.x : decodeEntityPosition(encodeEntityPosition(base.x) + xa),
-                ya == 0L ? base.y : decodeEntityPosition(encodeEntityPosition(base.y) + ya),
-                za == 0L ? base.z : decodeEntityPosition(encodeEntityPosition(base.z) + za));
+                decodeRelativeEntityCoordinate(base.x, xa),
+                decodeRelativeEntityCoordinate(base.y, ya),
+                decodeRelativeEntityCoordinate(base.z, za));
+    }
+
+    /** One axis of {@link #decodeRelativeEntityPosition(Vec3, double, double, double)}. */
+    public static double decodeRelativeEntityCoordinate(double base, double delta) {
+        return decodeRelativeEntityCoordinate(base, Math.round(delta * 4096.0D));
+    }
+
+    /** One axis of {@link #decodeRelativeEntityPosition(Vec3, long, long, long)}. */
+    public static double decodeRelativeEntityCoordinate(double base, long delta) {
+        return delta == 0L ? base : decodeEntityPosition(encodeEntityPosition(base) + delta);
     }
 
     private static double sanitizeLp(double value) {

@@ -4,6 +4,8 @@
 # %verbose% - extra information
 # %player% - player name
 # [alert] - special command to alert
+# [alert:<key>] - [alert] with the message <key> from messages.yml instead of alerts-format,
+#                 e.g. [alert:alerts-format-suspected]
 # [webhook] - special command to alert to discord webhook
 # [proxy] - special command to alert to other servers connected to your proxy (BungeeCord/Velocity)
 
@@ -102,6 +104,7 @@ Punishments:
       - "Chat"
       - "Exploit"
       - "SkinBlinker"
+      - "!Cloud"
     commands:
       - "10:5 [alert]"
       - "1:1 [log]"
@@ -136,4 +139,4 @@ Punishments:
       - "3:3 [webhook]"
       - "3:3 [proxy]"
 
-cult-config-version: 4
+cult-config-version: 5

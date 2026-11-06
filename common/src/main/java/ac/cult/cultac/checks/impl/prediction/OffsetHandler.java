@@ -30,15 +30,15 @@ public class OffsetHandler extends Check implements PostPredictionListener {
     // Current advantage gained
     double advantageGained = 0;
 
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("Simulation")
+            .stableKey("cult.prediction.simulation")
+            .description("Moved differently than predicted movement simulation")
+            .decay(0.02)
+            .build();
+
     public OffsetHandler(CultPlayer cultPlayer) {
-        super(
-                cultPlayer,
-                CheckInfo.builder()
-                        .name("Simulation")
-                        .stableKey("cult.prediction.simulation")
-                        .description("Moved differently than predicted movement simulation")
-                        .decay(0.02)
-                        .build());
+        super(cultPlayer, INFO);
     }
 
     @Override
@@ -65,7 +65,7 @@ public class OffsetHandler extends Check implements PostPredictionListener {
         if ((offset >= threshold || offset >= immediateSetbackThreshold)
                 && flag(
                         V.write(verbose()).f64(offset),
-                        () -> formatOffset(offset) + " " + "\u00a78" + predictionResult.getIdentifier())) {
+                        () -> formatOffset(offset) + " " + "\u00a78" + predictionResult.shownIdentifier())) {
             advantageGained += offset;
 
             boolean isSetback = advantageGained >= maxAdvantage

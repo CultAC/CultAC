@@ -94,7 +94,7 @@ public final class CloudService {
         CONNECTIONS.configure(settings);
         LabelClient.refreshCatalogWhile(settings.enabled());
         String ownId = CloudServerIds.own(settings.serverIdTemplate(), settings.proxyId(), proxy);
-        StaffBans.configure(settings, StaffBans.Commands.read(config), ownId);
+        StaffBans.configure(settings, StaffBans.Commands.read(config), ownId, proxy);
         CloudFlags.configure(settings, ownId);
         CloudCapture.uplinks(UPLINKS);
         boolean on = UPLINKS.enabled();
@@ -361,6 +361,16 @@ public final class CloudService {
         @Override
         public boolean send(long generation, byte[] record, long resolvedExtra) {
             return connection.send(generation, record, resolvedExtra);
+        }
+
+        @Override
+        public byte[] frame(int length) {
+            return connection.frame(length);
+        }
+
+        @Override
+        public boolean send(long generation, byte[] record, int length, long resolvedExtra) {
+            return connection.send(generation, record, length, resolvedExtra);
         }
 
         @Override

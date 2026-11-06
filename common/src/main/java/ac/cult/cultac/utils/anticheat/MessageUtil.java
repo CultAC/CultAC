@@ -66,6 +66,10 @@ public class MessageUtil {
             return string;
         }
 
+        if (cultPlayer != null && cultPlayer.isBedrockMovement()) {
+            string = string.replace("%h_sensitivity%%", "%h_sensitivity%")
+                    .replace("%v_sensitivity%%", "%v_sensitivity%");
+        }
         final Matcher matcher = UNIFIED_PLACEHOLDER_PATTERN.matcher(string);
 
         // If '%' exists but doesn't form a valid simple placeholder, skip to the PAPI/Legacy handler.

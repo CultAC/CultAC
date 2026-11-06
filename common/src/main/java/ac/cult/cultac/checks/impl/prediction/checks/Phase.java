@@ -24,22 +24,23 @@ import java.util.Map;
 
 @BedrockSupported
 public class Phase extends Check implements PostPredictionListener {
+    public static final CheckInfo INFO = CheckInfo.builder()
+            .name("Phase")
+            .stableKey("cult.prediction.phase")
+            .description("Moved into a solid block during movement prediction")
+            .setback(1)
+            .decay(0.005)
+            .build();
     // Temporary Bedrock penetration approximation, inset on every face.
     private static final double BEDROCK_PENETRATION_INSET = 0.001D;
 
     public Phase(CultPlayer cultPlayer) {
-        super(
-                cultPlayer,
-                CheckInfo.builder()
-                        .name("Phase")
-                        .stableKey("cult.prediction.phase")
-                        .description("Moved into a solid block during movement prediction")
-                        .setback(1)
-                        .decay(0.005)
-                        .build());
+        super(cultPlayer, INFO);
     }
 
     SimpleCollisionBox oldBox = null;
+    // Read only within one checkMovement call; never stored.
+    private final SimpleCollisionBox newBoxScratch = new SimpleCollisionBox();
 
     private void handleMovePlayer(ServerboundMovePlayer packet) {
         // Geyser projections must neither check movement nor replace auth-input history.
@@ -94,7 +95,7 @@ public class Phase extends Check implements PostPredictionListener {
                     1.8f,
                     false);
         }
-        SimpleCollisionBox newBox = boxAt(location, 0.6f, bedrock);
+        SimpleCollisionBox newBox = boxAt(newBoxScratch, location, 0.6f, bedrock);
 
         List<SimpleCollisionBox> boxes = new ArrayList<>();
         SimpleCollisionBox savedBox = player.boundingBox;
@@ -137,9 +138,13 @@ public class Phase extends Check implements PostPredictionListener {
     }
 
     private SimpleCollisionBox boxAt(Vec3 location, float height, boolean bedrock) {
+        return boxAt(new SimpleCollisionBox(), location, height, bedrock);
+    }
+
+    private SimpleCollisionBox boxAt(SimpleCollisionBox out, Vec3 location, float height, boolean bedrock) {
         float scale = player.isBedrockMovement() ? 1.0f : player.getScale();
         SimpleCollisionBox box = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                location.x, location.y, location.z, 0.6f * scale, height * scale);
+                out, location.x, location.y, location.z, 0.6f * scale, height * scale);
         return bedrock ? box.expand(-BEDROCK_PENETRATION_INSET) : box;
     }
 

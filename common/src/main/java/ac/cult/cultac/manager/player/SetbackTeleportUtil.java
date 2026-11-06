@@ -13,6 +13,7 @@ import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsB;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsN;
+import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.PredictionSetbackState;
@@ -47,6 +48,7 @@ import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.*;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.lists.EvictingQueue;
 import ac.cult.cultac.utils.math.CultMath;
@@ -144,6 +146,18 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
     private SetBackData droppedVehicleSetback = null;
     private volatile BedrockVehicleSetback bedrockVehicleSetback;
     public SetbackPosWithVector lastKnownGoodPosition;
+    // The safe position a movement reached, staged until every check on that movement has run, and the safe
+    // position it replaces. A check that sets the movement back must roll back past it, not onto it.
+    private SetbackPosWithVector stagedSafePosition;
+    private SetbackPosWithVector stagedOver;
+    // A Java movement packet's receive handlers check it after its prediction pass.
+    private boolean holdingSafePosition;
+    // The safe position when the client's latest movement arrived. While it is still the safe position, that
+    // movement is not part of it, and a setback rejects it.
+    private SetbackPosWithVector safePositionAtLatestMovement;
+    // The transaction of the ping before the latest Java correction's player_position. That teleport's absolute delta
+    // movement replaces every impulse the client applied before it, and the correction's velocity accounts for them.
+    private int correctionTransaction = Integer.MIN_VALUE;
     // The position of the last Bedrock movement packet actually forwarded to
     // Paper (Geyser's Java projection or a teleport echo), captured at the
     // packet level after all cancellation decisions. Never derived from
@@ -235,10 +249,18 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                     context.getWorldData().getStuckSpeed().getStuckSpeedMultiplier() != null,
                     null);
         } else {
-            final TransactionVel sentKnockback =
-                    player.checkManager.getKnockbackHandler().getLastSent();
-            if (sentKnockback != null) {
-                afterTickFriction = sentKnockback.getVel();
+            // CheckManagerListener#applyTeleportResponse completes an answer away from the target without a prediction.
+            final PredictionResult answered = predictionComplete.getPredictionResult();
+            TeleportData accepted = answered == null ? null : answered.getSetBackData();
+            if (isAcceptedCorrection(accepted)) {
+                // ClientPacketListener#setValuesFromPositionPacket set the delta movement to the correction's own.
+                afterTickFriction = accepted.getDeltaMovement();
+            } else {
+                final TransactionVel sentKnockback =
+                        player.checkManager.getKnockbackHandler().getLastSent();
+                if (sentKnockback != null) {
+                    afterTickFriction = sentKnockback.getVel();
+                }
             }
         }
 
@@ -256,22 +278,99 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 lastKnownGoodPosition.setSprintOutcomes(SimulationProcessor.sprintOutcomesAfter(
                         player, predictionComplete.isTeleport() ? null : completedPrediction));
             }
-        } else if ((!player.isBedrockMovement() || profileState != null)
-                && (requiredSetBack == null
-                        || requiredSetBack.isComplete()
-                                && !blockOffsets
-                                && !player.getSetbackTeleportUtil().insideUnloadedChunk())) {
+        } else if ((!player.isBedrockMovement() || profileState != null) && safePositionUnblocked()) {
             // TODO: When flagging immediately after a setback, we don't give uncertainty or allow inputs. This is too
             // strict.
             // No simulation... we can do that later. We just need to know the valid position.
-            // As we didn't setback here, the new position is known to be safe!
-            lastKnownGoodPosition =
+            // As we didn't setback here, the new position is safe unless a check that runs later sets it back.
+            SetbackPosWithVector safe =
                     new SetbackPosWithVector(to, afterTickFriction, player.totalFlyingPacketsSent, profileState);
-            lastKnownGoodPosition.setSprintOutcomes(SimulationProcessor.sprintOutcomesAfter(
+            safe.setSprintOutcomes(SimulationProcessor.sprintOutcomesAfter(
                     player, predictionComplete.isTeleport() ? null : completedPrediction));
+            if (!player.isBedrockMovement() && !predictionComplete.isTeleport()) {
+                // This tick's travel took every velocity the client applied before it, and its friction carries them.
+                safe.setCarriedKnockback(
+                        player.checkManager.getKnockbackHandler().lastSentAppliedBeforeTick());
+                safe.setCarriedExplosion(
+                        player.checkManager.getExplosionHandler().lastSentAppliedBeforeTick());
+                if (completedPrediction.getSimulationContext().getVehicle() instanceof PacketEntityHorse) {
+                    safe.setHorseOnGround(VelocityCandidates.verticalCollisionBelow(completedPrediction));
+                }
+            }
+            stageSafePosition(safe);
         }
 
         if (requiredSetBack != null) requiredSetBack.tick();
+    }
+
+    private boolean safePositionUnblocked() {
+        return requiredSetBack == null
+                || requiredSetBack.isComplete()
+                        && !blockOffsets
+                        && !player.getSetbackTeleportUtil().insideUnloadedChunk();
+    }
+
+    /** Whether the client just accepted {@code teleport} as a Java correction whose delta movement is absolute. */
+    private boolean isAcceptedCorrection(TeleportData teleport) {
+        SetBackData setback = requiredSetBack;
+        return teleport != null
+                && setback != null
+                && setback.isComplete()
+                && !setback.isPlugin()
+                && setback.getTeleportData().getTransaction() == teleport.getTransaction()
+                && !teleport.isRelativeDeltaX()
+                && !teleport.isRelativeDeltaY()
+                && !teleport.isRelativeDeltaZ();
+    }
+
+    private void stageSafePosition(SetbackPosWithVector safe) {
+        // A packet that runs several prediction passes commits each before staging the next.
+        commitStagedSafePosition();
+        stagedSafePosition = safe;
+        stagedOver = lastKnownGoodPosition;
+    }
+
+    /** The vehicle runner resolves the root's post-tick ground after the prediction staged this safe position. */
+    public void setStagedHorseOnGround(DesyncStatus onGround) {
+        if (stagedSafePosition != null) stagedSafePosition.setHorseOnGround(onGround);
+    }
+
+    /**
+     * Commits the safe position staged by this prediction pass once every listener on it has run. A Java movement
+     * packet holds it until its receive handlers have run too.
+     */
+    public void commitSafePosition() {
+        if (!holdingSafePosition) commitStagedSafePosition();
+    }
+
+    public void holdSafePosition() {
+        holdingSafePosition = true;
+    }
+
+    public void releaseSafePosition() {
+        holdingSafePosition = false;
+        commitStagedSafePosition();
+    }
+
+    private void commitStagedSafePosition() {
+        SetbackPosWithVector safe = stagedSafePosition;
+        stagedSafePosition = null;
+        // A setback since staging rejected the movement; a teleport since then replaced the safe position.
+        if (safe == null || lastKnownGoodPosition != stagedOver || !safePositionUnblocked()) return;
+        lastKnownGoodPosition = safe;
+    }
+
+    /** The client's movement for a tick arrived. Until a safe position includes it, a setback rejects it. */
+    public void movementReceived() {
+        safePositionAtLatestMovement = lastKnownGoodPosition;
+    }
+
+    /**
+     * Whether a setback now rejects a movement the safe position does not include. Its correction tick stands in for
+     * that movement; with none rejected, the tick would come on top of the client's own.
+     */
+    private boolean rejectsMovement() {
+        return lastKnownGoodPosition != null && safePositionAtLatestMovement == lastKnownGoodPosition;
     }
 
     public void executeForceResync(String cause) {
@@ -335,6 +434,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
      */
     public void levelLeft() {
         lastKnownGoodPosition = null;
+        stagedSafePosition = null;
         hasFullyLoaded = false;
         respawnUnread = false;
         requiredSetBack = null;
@@ -348,6 +448,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
      */
     public void respawnSent() {
         lastKnownGoodPosition = null;
+        stagedSafePosition = null;
         hasFullyLoaded = false;
         respawnUnread = !player.isBedrockMovement();
         blockOffsets = false;
@@ -458,12 +559,12 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
 
         TransactionVel sentKnockback = player.checkManager.getKnockbackHandler().getLastSent();
         TransactionVel sentExplosion = player.checkManager.getExplosionHandler().getLastSent();
-        if (sentKnockback != null) {
+        if (isPendingImpulse(sentKnockback)) {
             clientVel = sentKnockback.getVel();
         }
         // Don't apply explosions multiple times when spamming violations. Use the client's order: one flush ping can
         // prove both the motion and a later explosion.
-        final boolean explosionIsNewer = sentExplosion != null
+        final boolean explosionIsNewer = isPendingImpulse(sentExplosion)
                 && (sentKnockback == null || TransactionVel.compareClientOrder(sentExplosion, sentKnockback) > 0);
         if (explosionIsNewer) {
             clientVel = clientVel.add(sentExplosion.getVel());
@@ -471,24 +572,28 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
 
         PredictionResult lastPrediction =
                 player.checkManager.getSimulationProcessor().getLastPrediction();
-        boolean expectedOnGround = anchorProfileState != null
-                ? anchorProfileState.expectedOnGround()
-                : !player.isBedrockMovement()
-                        && lastPrediction != null
-                        && lastPrediction
-                                .getSimulationContext()
-                                .getLastOnGround()
-                                .determinePessimistically();
+        // A Java setback forwards this with its stand-in move, and Paper resets fall distance on a ground claim. Only
+        // the correction tick's own Entity#move can put the player on the ground; without one the move only confirms
+        // the safe position, like the teleport response ClientPacketListener#handleMovePlayer sends off the ground.
+        boolean expectedOnGround = anchorProfileState != null && anchorProfileState.expectedOnGround();
 
         boolean vehicleSimulated = simulateNext
                 && flagged != null
                 && !player.isBedrockMovement()
                 && flagged.getSimulationContext().getVehicle() != null;
+        boolean onFootTick = simulateNext
+                && lastPrediction != null
+                && !player.compensatedEntities.getSelf().inVehicle();
+        // We don't want to make it IMPOSSIBLE for high ping players to play after taking knockback
+        // If the player isn't really moving at all, don't bother
+        if (onFootTick && ignoreUnchanged && barelyMoves(position, clientVel)) {
+            return;
+        }
         // Use Java's correction tick for both platforms. The caller owns whether
         // a tick is allowed: timer setbacks must stay on the non-simulating path.
-        if (simulateNext
-                && lastPrediction != null
-                && !player.compensatedEntities.getSelf().inVehicle()) {
+        // The tick stands in for the movement this setback rejects. A setback after the client's latest
+        // movement became safe, such as one from a command sent after it, takes the safe state as it is.
+        if (onFootTick && rejectsMovement()) {
             SimpleCollisionBox oldBB = player.boundingBox;
             double oldX = player.x, oldY = player.y, oldZ = player.z;
             try {
@@ -500,16 +605,8 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                         .get(0);
 
                 Vec3 collide = Collisions.collide(player, clientVel.x, clientVel.y, clientVel.z);
-                if (player.isBedrockMovement()) {
-                    // doesn't matter on bedrock players except the synthetic movement
-                    expectedOnGround = clientVel.y < 0.0D && clientVel.y != collide.y;
-                }
-
-                // We don't want to make it IMPOSSIBLE for high ping players to play after taking knockback
-                // If the player isn't really moving at all, don't bother
-                if (ignoreUnchanged && collide.lengthSqr() < 0.001 * 0.001) {
-                    return;
-                }
+                // Entity#move's verticalCollisionBelow for the correction tick.
+                expectedOnGround = clientVel.y < 0.0D && clientVel.y != collide.y;
 
                 SimulationContext context = lastPrediction.getSimulationContext();
 
@@ -609,6 +706,15 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                     vehicleSimulated && vehicle.isBoat() ? BoatTransform.predictedBoatYaw(player, flagged) : Float.NaN;
             data.setVehicleYaw(Float.isNaN(boatYaw) ? vehicle.clientPhysicalYaw : boatYaw);
             data.setVehiclePitch(vehicle.clientPhysicalPitch);
+            if (vehicle instanceof PacketEntityHorse) {
+                // ClientPacketListener#handleMoveVehicle leaves the onGround of the client's last, rejected tick,
+                // which can be a ground the setback position is far from. The horse leaves the setback with the
+                // onGround of the move that reached the position instead, so it never jumps there from the air.
+                data.setHorseOnGround(
+                        vehicleSimulated
+                                ? VelocityCandidates.verticalCollisionBelow(flagged)
+                                : lastKnownGoodPosition.getHorseOnGround());
+            }
         }
         sendSetback(data, simulateNext);
         // Something weird has occurred in the player's movement, block offsets until the client accepts this
@@ -619,6 +725,32 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         if (debug) {
             LogUtil.info(
                     "Teleport sent | resync=" + fullResync + ", infc=" + ignoreUnchanged + ", simNext=" + simulateNext);
+        }
+    }
+
+    /**
+     * Whether the client has yet to take {@code impulse} from the safe state. The safe vector carries one the safe tick
+     * took, and the latest Java correction's delta movement replaced one the client applied before that teleport. A
+     * push the client's own tick applies after travel follows the packets its transaction proves and precedes the rest.
+     */
+    private boolean isPendingImpulse(TransactionVel impulse) {
+        if (impulse == null || lastKnownGoodPosition.carries(impulse)) return false;
+        return impulse.isAppliedAfterTravel()
+                ? impulse.getTransaction() > correctionTransaction
+                : impulse.getTransaction() >= correctionTransaction;
+    }
+
+    /** Whether one tick of {@code velocity} from {@code position} leaves the player where it is. */
+    private boolean barelyMoves(Vec3 position, Vec3 velocity) {
+        SimpleCollisionBox oldBB = player.boundingBox;
+        try {
+            player.boundingBox = GetBoundingBox.getPlayerBoundingBox(player, position.x, position.y, position.z);
+            Vec3 moved = VelocityTransformer.applyMovementThreshold(
+                            Collections.singletonList(new PredVector(velocity)), player.getClientVersion())
+                    .get(0);
+            return Collisions.collide(player, moved.x, moved.y, moved.z).lengthSqr() < 0.001 * 0.001;
+        } finally {
+            player.boundingBox = oldBB;
         }
     }
 
@@ -768,14 +900,22 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 }
             } else {
                 bedrockVehicleSetback = null;
+                // ClientPacketListener#setValuesFromPositionPacket sets the delta movement to a teleport's absolute
+                // one (PositionMoveRotation#calculateAbsolute) in the handler that answers it. A Java correction
+                // carries its velocity there, so the client cannot accept the position without the velocity.
+                Vec3 delta = data.getVelocity() == null ? Vec3.ZERO : data.getVelocity();
                 // Track the correction before sending; its outbound packet is silenced below.
-                if (!player.isBedrockMovement())
+                if (!player.isBedrockMovement()) {
                     addSentTeleport(
                             position,
+                            delta,
                             data.getTeleportData().getTransaction(),
                             new RelativeFlag(0b11000),
                             false,
                             teleportId);
+                    if (!player.inVehicle()) lastKnownGoodPosition.setVector(delta);
+                    correctionTransaction = data.getTeleportData().getTransaction();
+                }
                 // Receive the player's position packet to make setbacks appear smooth for other players (and to stop
                 // vanilla ac setbacks)
                 // For Bedrock this move is Paper's teleport response, which is never on ground.
@@ -793,7 +933,10 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                             data.getTeleportData().getTransaction());
                 } else {
                     sendPlayerSetbackPackets(
-                            teleportId, position, data.getTeleportData().getFlags().getMask());
+                            teleportId,
+                            position,
+                            delta,
+                            data.getTeleportData().getFlags().getMask());
                 }
             }
 
@@ -813,12 +956,12 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                     now);
 
             final KnockbackHandler knockbackHandler = player.checkManager.getKnockbackHandler();
-            if (!bedrockVehicle
+            // A Java correction of the player carries its velocity in its player_position.
+            boolean velocityInTeleport = !player.isBedrockMovement() && vehicleEntityId == Integer.MIN_VALUE;
+            if (!velocityInTeleport
+                    && !bedrockVehicle
                     && data.getVelocity() != null
-                    && (dismounted
-                            || leftVehicle
-                            || data.getVelocity().lengthSqr() > 0
-                            || vehicleEntityId != Integer.MIN_VALUE)) {
+                    && (dismounted || data.getVelocity().lengthSqr() > 0 || vehicleEntityId != Integer.MIN_VALUE)) {
                 knockbackHandler.setSetbackVal(true);
                 player.user.write(new CultWrite(
                         new ClientboundEntityMotion(
@@ -834,13 +977,15 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         }
     }
 
-    private void sendPlayerSetbackPackets(int teleportId, Vec3 position, int relativeMask) {
+    private void sendPlayerSetbackPackets(int teleportId, Vec3 position, Vec3 delta, int relativeMask) {
         var point = new Vec3d(position.x, position.y, position.z);
         var relatives = Relative.unpack(relativeMask);
         // unfortunately, 26.3 clients don't like ClietboundTeleportEntity as it causes weird interpolation if multiple
         // teleports are sent within a few ticks.
         player.user.write(new CultWrite(
-                new ClientboundPlayerPosition(teleportId, point, Vec3d.ZERO, 0.0F, 0.0F, relatives), true));
+                new ClientboundPlayerPosition(
+                        teleportId, point, new Vec3d(delta.x, delta.y, delta.z), 0.0F, 0.0F, relatives),
+                true));
     }
 
     private boolean isServerPassenger() {

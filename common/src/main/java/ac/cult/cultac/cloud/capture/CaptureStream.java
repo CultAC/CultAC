@@ -69,6 +69,19 @@ public final class CaptureStream {
             return send(record);
         }
 
+        /** An array of at least {@code length} bytes for a frame record, which {@link #send(byte[], int, long)} takes. */
+        default byte[] frame(int length) {
+            return new byte[length];
+        }
+
+        /**
+         * As {@link #send(byte[], long)}, for the record in the first {@code length} bytes of {@code record}, an array
+         * from {@link #frame} the caller no longer touches.
+         */
+        default boolean send(byte[] record, int length, long resolvedExtra) {
+            return send(record.length == length ? record : Arrays.copyOf(record, length), resolvedExtra);
+        }
+
         /** The socket's queue is backed up: sections wait until it drains. */
         default boolean backlogged() {
             return false;
@@ -122,8 +135,10 @@ public final class CaptureStream {
     private static final int MIN_FRAME_RECORDS = 16;
 
     private static final int MAX_PRESIZED_RECORDS = 4096;
-    /** The largest record columns a released frame leaves for the next frame to reuse. */
+    /** The record capacity released frames leave, in all, for the next frames to reuse. */
     private static final int MAX_SPARE_RECORDS = 1024;
+    /** Released frames' record columns kept at most, for ticks cut before the last one's verdict. */
+    private static final int MAX_SPARES = 4;
     /** Room a section record leaves in a frame for its header, verdict and envelopes. */
     static final int RELEASE_HEADROOM = FRAME_HEADROOM + 1024;
 
@@ -267,8 +282,11 @@ public final class CaptureStream {
     private int lostSending;
 
     private CaptureRecords frame = new CaptureRecords(MIN_FRAME_RECORDS);
-    /** Record columns a released frame left, for the next frame to reuse. */
-    private CaptureRecords spareRecords;
+    /** Record columns released frames left, for the next frames to reuse; their capacities sum to the spare bound. */
+    private final CaptureRecords[] spareRecords = new CaptureRecords[MAX_SPARES];
+
+    private int spares;
+    private int spareCapacity;
     /** The open frame's packet copies; null until it copies one. */
     private CapturePacketCopies copies;
     /** Packet copies a released frame left, for the next frame to reuse. */
@@ -310,6 +328,7 @@ public final class CaptureStream {
     private PlayerText text;
 
     private final PlayerText.TeamNames teams = new PlayerText.TeamNames();
+    private final PlayerText.Reader reader = new PlayerText.Reader();
 
     private final Sections sections = new Sections();
     /** The open frame's terrain records, in the order put; each record's id is its index here. */
@@ -575,7 +594,9 @@ public final class CaptureStream {
             // Before JOIN the socket's textStripped is unknown: such a packet waits for it in the held frames.
             unstripped = preparing && text.unstripped(!serverbound, id);
             boolean stripped = textStripped && !unstripped;
-            bytes = serverbound ? text.serverbound(id, bytes, stripped) : text.clientbound(id, bytes, stripped, teams);
+            bytes = serverbound
+                    ? text.serverbound(id, bytes, stripped, reader)
+                    : text.clientbound(id, bytes, stripped, teams, reader);
             if (bytes == null) return;
         }
         if (kind == IntakeWire.SERVERBOUND && !terrainFull) terrainFull = !sections.check(terrainOut, nanos);
@@ -617,7 +638,7 @@ public final class CaptureStream {
     }
 
     private static void lose(List<ActionRef> lost) {
-        for (ActionRef action : lost) action.state = ActionRef.LOST;
+        for (int i = 0; i < lost.size(); i++) lost.get(i).state = ActionRef.LOST;
     }
 
     /** On protocol 5, whether a clientbound packet loads, forgets or changes terrain, which never goes out as one. */
@@ -738,7 +759,7 @@ public final class CaptureStream {
         }
         overflow = true;
         lastServerbound = -1;
-        for (ActionRef action : actions) action.position = -1;
+        for (int i = 0; i < actions.size(); i++) actions.get(i).position = -1;
         if (frameWorld) owedWorld = true;
         frameWorld = false;
         if (frame.capacity() <= MAX_SPARE_RECORDS) frame.clear();
@@ -812,9 +833,10 @@ public final class CaptureStream {
     private Tick takeOpen(long nanos, long index, List<ActionRef> cutActions) {
         CaptureRecords records = frame;
         if (records.isEmpty()) records = CaptureRecords.EMPTY;
-        else if (spareRecords != null) {
-            frame = spareRecords;
-            spareRecords = null;
+        else if (spares > 0) {
+            frame = spareRecords[--spares];
+            spareRecords[spares] = null;
+            spareCapacity -= frame.capacity();
         } else frame = new CaptureRecords(Math.clamp(records.size(), MIN_FRAME_RECORDS, MAX_PRESIZED_RECORDS));
         Tick tick = new Tick(records, frameBytes, nanos, index, overflow);
         tick.reserved = frameReserved;
@@ -823,7 +845,8 @@ public final class CaptureStream {
         tick.terrain = framedTerrain;
         tick.world = frameWorld;
         tick.actions = cutActions;
-        for (ActionRef action : cutActions) {
+        for (int i = 0; i < cutActions.size(); i++) {
+            ActionRef action = cutActions.get(i);
             action.frameSeq = index - origin - 1;
             action.state = ActionRef.CUT;
         }
@@ -896,7 +919,10 @@ public final class CaptureStream {
         if (records == CaptureRecords.EMPTY) return;
         tick.records = CaptureRecords.EMPTY;
         records.clear();
-        if (spareRecords == null && records.capacity() <= MAX_SPARE_RECORDS) spareRecords = records;
+        if (spares < MAX_SPARES && spareCapacity + records.capacity() <= MAX_SPARE_RECORDS) {
+            spareRecords[spares++] = records;
+            spareCapacity += records.capacity();
+        }
     }
 
     /** A frame's terrain records are done with: those it did not carry to the service are owed again. */
@@ -1062,10 +1088,13 @@ public final class CaptureStream {
                     carried);
         }
         record(IntakeWire.VERDICT, tick.nanos, verdicts.bytes(), verdict, 0, 0, 0);
-        byte[] record = builder.build(player, seq);
+        int length = builder.length(seq);
+        byte[] record = sink.frame(length);
+        builder.build(player, seq, record);
         builder.clear();
-        boolean sent = sink.send(record, resolvedExtra);
-        for (ActionRef action : tick.actions) action.state = sent ? ActionRef.SENT : ActionRef.LOST;
+        boolean sent = sink.send(record, length, resolvedExtra);
+        List<ActionRef> framed = tick.actions;
+        for (int i = 0; i < framed.size(); i++) framed.get(i).state = sent ? ActionRef.SENT : ActionRef.LOST;
         if (sent) {
             outcomesSent.addAndGet(sending.size());
             lostSending = 0;
@@ -1367,7 +1396,9 @@ public final class CaptureStream {
         lastEngine = null;
         sinceKeyframe = 0;
         frame = new CaptureRecords(MIN_FRAME_RECORDS);
-        spareRecords = null;
+        Arrays.fill(spareRecords, null);
+        spares = 0;
+        spareCapacity = 0;
         frameBytes = 0;
         if (copies != null) copies.release();
         if (spareCopies != null) spareCopies.release();

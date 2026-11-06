@@ -112,31 +112,6 @@ public record BedrockCollisionFlags(
                 zCollision);
     }
 
-    public BedrockCollisionFlags withPacketCollision(
-            boolean nextOnGround, boolean nextHorizontalCollision, boolean nextVerticalCollision) {
-        boolean nextXCollision = nextHorizontalCollision && xCollision;
-        boolean nextZCollision = nextHorizontalCollision && zCollision;
-        boolean nextVerticalCollisionBelow = nextVerticalCollision && (verticalCollisionBelow || nextOnGround);
-        if (onGround == nextOnGround
-                && horizontalCollision == nextHorizontalCollision
-                && verticalCollision == nextVerticalCollision
-                && horizontalBlockContact == nextHorizontalCollision
-                && verticalCollisionBelow == nextVerticalCollisionBelow
-                && xCollision == nextXCollision
-                && zCollision == nextZCollision) {
-            return this;
-        }
-        return new BedrockCollisionFlags(
-                nextOnGround,
-                nextHorizontalCollision,
-                nextVerticalCollision,
-                nextHorizontalCollision,
-                liquidClimbOut,
-                nextVerticalCollisionBelow,
-                nextXCollision,
-                nextZCollision);
-    }
-
     public BedrockCollisionFlags withLiquidClimbOut(boolean nextLiquidClimbOut) {
         if (liquidClimbOut == nextLiquidClimbOut) {
             return this;

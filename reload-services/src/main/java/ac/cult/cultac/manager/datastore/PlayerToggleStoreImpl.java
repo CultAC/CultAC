@@ -34,9 +34,8 @@ import org.jetbrains.annotations.Nullable;
  * a precedence-gated CAS loop:
  * <pre>
  *   USER_TOGGLED      30  — staff explicitly issued /cult toggle. Stomps anything.
- *   PERSISTED         20  — prefetch returned a row. Wins over PERMISSION_DEFAULT.
- *   PERMISSION_DEFAULT 10 — onUserLogin's cult.*.enable-on-join fallback.
- *   UNKNOWN            0  — initial state.
+ *   PERSISTED         20  — prefetch returned a row.
+ *   UNKNOWN            0  — initial state; the cult.*.enable-on-join permission decides.
  * </pre>
  *
  * <h2>Coalesced persists</h2>
@@ -47,7 +46,6 @@ public final class PlayerToggleStoreImpl implements PlayerToggleStore {
 
     public enum Source {
         UNKNOWN(0),
-        PERMISSION_DEFAULT(10),
         PERSISTED(20),
         USER_TOGGLED(30);
 
@@ -142,16 +140,6 @@ public final class PlayerToggleStoreImpl implements PlayerToggleStore {
         if (slot == null) return null;
         AtomicReference<TogglePair> ref = refFor(slot, key);
         return ref == null ? null : ref.get().value();
-    }
-
-    @Override
-    public void applyPermissionDefault(@NotNull UUID uuid, @NotNull String key, boolean value) {
-        ToggleSlot slot = slots.computeIfAbsent(uuid, k -> new ToggleSlot());
-        AtomicReference<TogglePair> ref = refFor(slot, key);
-        if (ref == null) return;
-        if (trySetWithPrecedence(ref, Source.PERMISSION_DEFAULT, value)) {
-            persist(uuid, key, value);
-        }
     }
 
     @Override

@@ -13,6 +13,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -70,10 +71,11 @@ final class CloudArguments {
     /**
      * Runs {@code then} with the player {@code input} names, or tells {@code sender} why there is none. A UUID or an
      * online player is answered inline; any other name goes to Mojang off the calling thread, and {@code then} runs
-     * when that completes. A lookup that fails, or a {@code then} that throws, is told to {@code sender} too.
+     * when that completes. A lookup that fails, or a {@code then} that throws, is told to {@code sender} too. Completes
+     * once {@code then} ran or {@code sender} was told.
      */
-    static void resolve(Sender sender, String input, Consumer<Target> then) {
-        LOOKUP.resolve(input).whenComplete((outcome, error) -> {
+    static CompletableFuture<Void> resolve(Sender sender, String input, Consumer<Target> then) {
+        return LOOKUP.resolve(input).handle((outcome, error) -> {
             try {
                 if (error != null) {
                     sender.sendMessage(Component.text(
@@ -89,6 +91,7 @@ final class CloudArguments {
                 sender.sendMessage(Component.text(
                         "The command failed: " + failed.getClass().getSimpleName() + ".", NamedTextColor.RED));
             }
+            return null;
         });
     }
 

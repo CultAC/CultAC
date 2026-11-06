@@ -22,10 +22,6 @@ public final class BedrockLiquidVerticalMovement {
                 currentVelocity.z());
     }
 
-    public static double waterJumpImpulse(boolean jumpImpulseApplies) {
-        return jumpImpulseApplies ? WATER_VERTICAL_IMPULSE : 0.0D;
-    }
-
     public static double lavaSwimUpVelocityY(double baseVelocityY) {
         return (float) ((float) baseVelocityY + (float) WATER_VERTICAL_IMPULSE);
     }

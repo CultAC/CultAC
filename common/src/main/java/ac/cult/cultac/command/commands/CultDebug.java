@@ -7,6 +7,7 @@ import ac.cult.cultac.bridge.protocol.BridgeMessage.ClientMods;
 import ac.cult.cultac.bridge.protocol.ServerCapability;
 import ac.cult.cultac.command.BuildableCommand;
 import ac.cult.cultac.command.CloudCommandService;
+import ac.cult.cultac.command.NetworkPlayerArguments;
 import ac.cult.cultac.manager.player.SmoketestControlBridge;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.command.PlayerSelector;
@@ -18,6 +19,7 @@ import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.incendo.cloud.Command;
@@ -38,6 +40,7 @@ public class CultDebug implements BuildableCommand {
                 .literal("debug", Description.of("Toggle debug output for a player"))
                 .permission("cult.debug")
                 .optional("target", arguments.singlePlayerSelectorParser())
+                .meta(NetworkPlayerArguments.LOCAL, true)
                 .handler(this::handleDebug);
 
         commandManager.command(cultCommand
@@ -45,6 +48,7 @@ public class CultDebug implements BuildableCommand {
                 .literal("rewind", Description.of("Toggle Bedrock rewind positions and offsets"))
                 .permission("cult.debug")
                 .optional("target", arguments.singlePlayerSelectorParser())
+                .meta(NetworkPlayerArguments.LOCAL, true)
                 .handler(this::handleDebugRewind));
 
         commandManager.command(cultCommand
@@ -52,6 +56,7 @@ public class CultDebug implements BuildableCommand {
                 .literal("places", Description.of("Toggle processed block-state changes for you or a player"))
                 .permission("cult.debug")
                 .optional("target", arguments.singlePlayerSelectorParser())
+                .meta(NetworkPlayerArguments.LOCAL, true)
                 .handler(this::handleDebugPlaces));
 
         commandManager.command(cultCommand
@@ -59,14 +64,15 @@ public class CultDebug implements BuildableCommand {
                 .literal("channels", Description.of("List the plugin channels a player's client opened"))
                 .permission("cult.debug")
                 .required("target", arguments.singlePlayerSelectorParser())
-                .handler(this::handleDebugChannels));
+                .futureHandler(this::handleDebugChannels));
 
         commandManager.command(cultCommand
                 .literal("debug")
                 .literal("mods", Description.of("List a player's Lunar Client mods reported through Apollo"))
                 .permission("cult.debug")
                 .required("target", arguments.singlePlayerSelectorParser())
-                .handler(this::handleDebugMods));
+                .flag(commandManager.flagBuilder("internal"))
+                .futureHandler(this::handleDebugMods));
 
         commandManager.command(cultCommand
                 .literal("debug")
@@ -79,12 +85,14 @@ public class CultDebug implements BuildableCommand {
                 .literal("itemslow", Description.of("Toggle item-use balance and server-view use tracking"))
                 .permission("cult.debug")
                 .optional("target", arguments.singlePlayerSelectorParser())
+                .meta(NetworkPlayerArguments.LOCAL, true)
                 .handler(this::handleDebugItemSlow));
 
         Command.Builder<Sender> proxyTicksCommand = cultCommand
                 .literal("debug")
                 .literal("proxyticks", Description.of("Show observed proxy tick-end hits and misses"))
-                .permission("cult.debug");
+                .permission("cult.debug")
+                .meta(NetworkPlayerArguments.LOCAL, true);
         commandManager.command(proxyTicksCommand
                 .optional("target", arguments.singlePlayerSelectorParser())
                 .flag(commandManager.flagBuilder("reset"))
@@ -230,69 +238,111 @@ public class CultDebug implements BuildableCommand {
         });
     }
 
-    private void handleDebugChannels(@NotNull CommandContext<Sender> context) {
+    /** Completes once the channels were listed. */
+    private CompletableFuture<Void> handleDebugChannels(@NotNull CommandContext<Sender> context) {
         Sender sender = context.sender();
         PlayerSelector selector = context.get("target");
         CultPlayer target = parseTarget(sender, selector.getSinglePlayer());
-        if (target == null) return;
+        if (target == null) return CompletableFuture.completedFuture(null);
+        CompletableFuture<Void> listed = new CompletableFuture<>();
         target.runSafely(() -> {
-            var channels = target.pluginChannelManager.channels();
-            if (channels.isEmpty()) {
-                sender.sendMessage(
-                        line(target, "debug-channels-none", "%prefix% &f%player% &bhas no plugin channels open"));
-                return;
-            }
-            sender.sendMessage(line(
-                    target,
-                    "debug-channels-header",
-                    "%prefix% &b%player% has &f%count% &bplugin channels open",
-                    "%count%",
-                    Integer.toString(channels.size())));
-            for (String channel : channels) {
-                sender.sendMessage(line(target, "debug-channels-entry", "&8- &f%channel%", "%channel%", channel));
-            }
+            sendChannels(sender, target);
+            listed.complete(null);
         });
+        return listed;
     }
 
-    private void handleDebugMods(@NotNull CommandContext<Sender> context) {
-        Sender sender = context.sender();
-        PlayerSelector selector = context.get("target");
-        CultPlayer target = parseTarget(sender, selector.getSinglePlayer());
-        if (target == null) return;
-        PlatformPlayer platformPlayer = target.platformPlayer;
-        var request = platformPlayer == null
-                ? java.util.concurrent.CompletableFuture.<ClientMods>completedFuture(null)
-                : platformPlayer.requestClientMods();
-        request.whenComplete((fresh, failure) -> {
-            if (fresh != null) target.clientMods = fresh;
-            sendMods(sender, target, fresh != null ? fresh : target.clientMods);
-        });
-    }
-
-    private static void sendMods(Sender sender, CultPlayer target, @Nullable ClientMods mods) {
-        if (mods == null) {
-            sender.sendMessage(line(
-                    target,
-                    "debug-mods-unavailable",
-                    "%prefix% &cNo Apollo data for &f%player%&c; their server needs Apollo-Bukkit and the CultAC"
-                            + " companion"));
-            return;
-        }
-        if (!mods.lunar()) {
-            sender.sendMessage(line(
-                    target,
-                    "debug-mods-not-lunar",
-                    "%prefix% &f%player% &bis not connected to Apollo; not a Lunar Client player"));
+    private static void sendChannels(Sender sender, CultPlayer target) {
+        var channels = target.pluginChannelManager.channels();
+        if (channels.isEmpty()) {
+            sender.sendMessage(
+                    line(target, "debug-channels-none", "%prefix% &f%player% &bhas no plugin channels open"));
             return;
         }
         sender.sendMessage(line(
                 target,
-                "debug-mods-header",
-                "%prefix% &b%player% has &f%count% &bLunar Client mods",
+                "debug-channels-header",
+                "%prefix% &b%player% has &f%count% &bplugin channels open",
                 "%count%",
-                Integer.toString(mods.mods().size())));
-        var byType = new java.util.TreeMap<String, java.util.List<ClientMod>>();
+                Integer.toString(channels.size())));
+        for (String channel : channels) {
+            sender.sendMessage(line(target, "debug-channels-entry", "&8- &f%channel%", "%channel%", channel));
+        }
+    }
+
+    /** Completes once the mods were listed. */
+    private CompletableFuture<Void> handleDebugMods(@NotNull CommandContext<Sender> context) {
+        Sender sender = context.sender();
+        PlayerSelector selector = context.get("target");
+        boolean internal = context.flags().hasFlag("internal");
+        CultPlayer target = parseTarget(sender, selector.getSinglePlayer());
+        if (target == null) return CompletableFuture.completedFuture(null);
+        PlatformPlayer platformPlayer = target.platformPlayer;
+        var request = platformPlayer == null
+                ? CompletableFuture.<ClientMods>completedFuture(null)
+                : platformPlayer.requestClientMods();
+        return request.handle((fresh, failure) -> {
+                    CompletableFuture<Void> listed = new CompletableFuture<>();
+                    target.runSafely(() -> {
+                        try {
+                            if (fresh != null) target.clientMods = fresh;
+                            sendMods(sender, target, fresh != null ? fresh : target.clientMods, internal);
+                            listed.complete(null);
+                        } catch (RuntimeException exception) {
+                            listed.completeExceptionally(exception);
+                        }
+                    });
+                    return listed;
+                })
+                .thenCompose(listed -> listed);
+    }
+
+    private static void sendMods(Sender sender, CultPlayer target, @Nullable ClientMods mods, boolean internal) {
+        if (mods == null || !mods.lunar()) {
+            sender.sendMessage(
+                    mods == null
+                            ? line(
+                                    target,
+                                    "debug-mods-unavailable",
+                                    "%prefix% &bNo Apollo mod report for &f%player%&b. Apollo reports mods only for Lunar Client.")
+                            : line(
+                                    target,
+                                    "debug-mods-not-lunar",
+                                    "%prefix% &f%player% &bis not connected to Apollo. Apollo reports mods only for Lunar Client."));
+            sender.sendMessage(line(
+                    target, "debug-client-brand", "%prefix% &bClient brand: &f%brand%", "%brand%", target.getBrand()));
+            sendChannels(sender, target);
+            return;
+        }
+        var shown = new java.util.ArrayList<ClientMod>();
         for (ClientMod mod : mods.mods()) {
+            if (internal || !isInternal(mod)) shown.add(mod);
+        }
+        sender.sendMessage(
+                internal
+                        ? line(
+                                target,
+                                "debug-mods-header",
+                                "%prefix% &b%player% has &f%count% &bLunar Client mods",
+                                "%count%",
+                                Integer.toString(shown.size()))
+                        : line(
+                                target,
+                                "debug-mods-header-added",
+                                "%prefix% &b%player% added &f%count% &bmods to Lunar Client",
+                                "%count%",
+                                Integer.toString(shown.size())));
+        int hidden = mods.mods().size() - shown.size();
+        if (hidden > 0) {
+            sender.sendMessage(line(
+                    target,
+                    "debug-mods-internal-hidden",
+                    "&7%count% mods that come with Lunar Client are hidden. Add &f--internal &7to list them.",
+                    "%count%",
+                    Integer.toString(hidden)));
+        }
+        var byType = new java.util.TreeMap<String, java.util.List<ClientMod>>();
+        for (ClientMod mod : shown) {
             byType.computeIfAbsent(mod.type(), ignored -> new java.util.ArrayList<>())
                     .add(mod);
         }
@@ -313,6 +363,11 @@ public class CultDebug implements BuildableCommand {
                         mod.version()));
             }
         }
+    }
+
+    /** Apollo reports the mods Lunar Client ships with as FABRIC_INTERNAL or FORGE_INTERNAL. */
+    private static boolean isInternal(ClientMod mod) {
+        return mod.type().toUpperCase(Locale.ROOT).endsWith("_INTERNAL");
     }
 
     private static String modName(ClientMod mod) {

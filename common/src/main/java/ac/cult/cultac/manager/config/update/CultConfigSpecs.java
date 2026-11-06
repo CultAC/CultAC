@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.experimental.UtilityClass;
@@ -100,9 +101,11 @@ public final class CultConfigSpecs {
      *
      * <p>v16 → v17: {@code network.type} picks the broker, configured in its own block; see {@link #networkBlocks}.
      * Every step reads the user's file as it was, so a v15 config takes the v16 step inside the v17 one.
+     *
+     * <p>v17 → v18: adds {@code alerts.default-scope}; default rewriting adds the key.
      */
     public static @NotNull ConfigUpdater.Spec mainConfig() {
-        return ConfigUpdater.Spec.builder("/config/", 17, ConfigUpdater.ConfigFlavor.V2)
+        return ConfigUpdater.Spec.builder("/config/", 18, ConfigUpdater.ConfigFlavor.V2)
                 .migration(10, ctx -> {
                     String typeRaw = ctx.input().getString("history.database.type");
                     String type = typeRaw == null ? null : typeRaw.trim().toUpperCase(Locale.ROOT);
@@ -307,16 +310,48 @@ public final class CultConfigSpecs {
     public static @NotNull ConfigUpdater.Spec cultConfig(String resourceDirectory) {
         ConfigUpdater.Spec.Builder builder = ConfigUpdater.Spec.builder(
                         resourceDirectory,
-                        resourceDirectory.equals("/punishments/") ? 4 : 0,
+                        resourceDirectory.equals("/punishments/") ? 5 : 0,
                         ConfigUpdater.ConfigFlavor.V2)
                 .cultVersioning();
         if (resourceDirectory.equals("/punishments/")) {
             builder.migration(1, CultConfigSpecs::addBedrockPunishment)
                     .migration(2, CultConfigSpecs::addMissingCheckPunishments)
                     .migration(3, CultConfigSpecs::addNoSneakSlowPunishment)
-                    .migration(4, CultConfigSpecs::addSkinBlinkerAndCloudPunishments);
+                    .migration(4, CultConfigSpecs::addSkinBlinkerAndCloudPunishments)
+                    .migration(5, CultConfigSpecs::excludeCloudFromDefaultMisc);
         }
         return builder.build();
+    }
+
+    /** {@code Misc}'s selectors as revision 4 shipped them. */
+    private static final List<String> DEFAULT_MISC_CHECKS = List.of(
+            "Vehicle",
+            "NoSlow",
+            "NoSneakSlow",
+            "Sprint",
+            "MultiActions",
+            "Place",
+            "Baritone",
+            "Break",
+            "TransactionOrder",
+            "Elytra",
+            "Chat",
+            "Exploit",
+            "SkinBlinker");
+
+    private static final List<String> DEFAULT_MISC_COMMANDS =
+            List.of("10:5 [alert]", "1:1 [log]", "20:10 [webhook]", "20:10 [proxy]");
+
+    /** Keeps an unmodified default {@code Misc} group's {@code Exploit} selector off the Cloud checks. */
+    private static void excludeCloudFromDefaultMisc(MigrationContext ctx) {
+        Map<String, Object> misc = ctx.output().getMap("Punishments.Misc");
+        if (misc == null
+                || !DEFAULT_MISC_CHECKS.equals(misc.get("checks"))
+                || !DEFAULT_MISC_COMMANDS.equals(misc.get("commands"))
+                || !Integer.valueOf(300).equals(misc.get("remove-violations-after"))) return;
+        List<Object> checks = new ArrayList<>(DEFAULT_MISC_CHECKS);
+        checks.add("!Cloud");
+        ctx.output().put("Punishments.Misc.checks", checks);
     }
 
     private static void addSkinBlinkerAndCloudPunishments(MigrationContext ctx) {
@@ -500,17 +535,15 @@ public final class CultConfigSpecs {
      * stays. The new layout leaves out the state or verbose line the operator turned off. {@code include-state} is
      * added by the default rewrite; {@code embed-image-url} and {@code include-verbose}, which no bundled file
      * carries, are kept.
-     * v3 → v4: the shipped sensitivity line shows percentages; the rest of the file is kept.
      * v4 → v5: the description goes back to one value per line, with verbose and state as fields, and the footer
-     * shows only the version. A description still in the shipped v3/v4 layout, in any language and with or without
-     * its state and verbose lines, takes the new default, and the shipped footer text does too; anything the operator
-     * wrote stays.
+     * shows only the version. A file from before v4 has its shipped sensitivity line in percentages first. A
+     * description still in the shipped v3/v4 layout, in any language and with or without its state and verbose lines,
+     * takes the new default, and the shipped footer text does too; anything the operator wrote stays.
      */
     public static @NotNull ConfigUpdater.Spec discord() {
         return ConfigUpdater.Spec.builder("/discord/", 5, ConfigUpdater.ConfigFlavor.V2)
                 .migration(2, CultConfigSpecs::discordAlertLayout)
                 .migration(3, CultConfigSpecs::discordAlertLayout)
-                .migration(4, CultConfigSpecs::discordPercentSensitivity)
                 .migration(5, CultConfigSpecs::discordValuePerLine)
                 .build();
     }
@@ -705,18 +738,16 @@ public final class CultConfigSpecs {
         keepUnbundledDiscordKeys(ctx);
     }
 
-    static void discordPercentSensitivity(MigrationContext ctx) {
-        keepUnbundledDiscordKeys(ctx);
-        List<?> content = ctx.output().getList("violation-content");
-        if (content == null || !content.contains(SHIPPED_V3_DISCORD_SENSITIVITY)) return;
-        List<Object> layout = new ArrayList<>(content);
-        layout.replaceAll(line -> SHIPPED_V3_DISCORD_SENSITIVITY.equals(line) ? PERCENT_DISCORD_SENSITIVITY : line);
-        ctx.output().put("violation-content", layout);
-    }
-
     static void discordValuePerLine(MigrationContext ctx) {
         keepUnbundledDiscordKeys(ctx);
         List<?> content = ctx.output().getList("violation-content");
+        Integer version = ctx.input().getInt("config-version");
+        if (content != null && (version == null || version < 4) && content.contains(SHIPPED_V3_DISCORD_SENSITIVITY)) {
+            List<Object> layout = new ArrayList<>(content);
+            layout.replaceAll(line -> SHIPPED_V3_DISCORD_SENSITIVITY.equals(line) ? PERCENT_DISCORD_SENSITIVITY : line);
+            ctx.output().put("violation-content", layout);
+            content = layout;
+        }
         List<?> newContent = ctx.defaults().getList("violation-content");
         if (content != null && newContent != null && isShippedV4DiscordLayout(content)) {
             ctx.output().put("violation-content", new ArrayList<>(newContent));
@@ -797,10 +828,34 @@ public final class CultConfigSpecs {
         return matcher.matches() ? matcher : null;
     }
 
+    /**
+     * v4 → v5: adds {@code alerts-format-suspected}, the shipped {@code [alert:<key>]} format. Messages the operator
+     * added for {@code [alert:<key>]} survive every upgrade.
+     */
     public static @NotNull ConfigUpdater.Spec messages() {
-        return ConfigUpdater.Spec.builder("/messages/", 3, ConfigUpdater.ConfigFlavor.V2)
+        return ConfigUpdater.Spec.builder("/messages/", 5, ConfigUpdater.ConfigFlavor.V2)
+                .keepOperatorKeys()
+                .migration(4, CultConfigSpecs::spectateAlerts)
                 .build();
     }
+
+    static void spectateAlerts(MigrationContext ctx) {
+        for (String key : List.of("alerts-format", "alerts-format-proxy")) {
+            String format = ctx.input().getString(key);
+            if (format == null || !format.contains("%player%")) continue;
+            int player = format.indexOf("%player%");
+            if (player != format.lastIndexOf("%player%") || format.contains("<click:")
+                    || format.lastIndexOf("<", player) > format.lastIndexOf(">", player)) {
+                Logger.getLogger("cult-config")
+                        .warning("Cannot migrate " + key + ": wrap the player name in " + SPECTATE_PLAYER);
+                continue;
+            }
+            ctx.output().put(key, format.replace("%player%", SPECTATE_PLAYER));
+        }
+    }
+
+    private static final String SPECTATE_PLAYER =
+            "<click:run_command:'/%command% spectate %player%'><hover:show_text:'&7Click to spectate %player%'>%player%</hover></click>";
 
     /**
      * The datastore router config (top-level {@code database:} wrapper).

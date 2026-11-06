@@ -253,6 +253,13 @@ final class BridgeService implements CompanionBridge {
             notifyClosed(session);
             return;
         }
+        for (CompanionMessageHandler handler : handlers) {
+            try {
+                handler.onOpened(session);
+            } catch (Throwable failure) {
+                logger.log(Level.WARNING, "Bridge handler failed after READY", failure);
+            }
+        }
         CloudFacts facts = platform.cloudFacts();
         if (facts != null) session.send(facts);
         sendPlayerFacts(session);

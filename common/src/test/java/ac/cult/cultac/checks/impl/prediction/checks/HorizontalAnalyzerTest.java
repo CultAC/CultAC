@@ -2,7 +2,10 @@ package ac.cult.cultac.checks.impl.prediction.checks;
 
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.math.OptifineFastMath;
+import ac.cult.cultac.utils.math.VanillaMath;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.Random;
 import org.junit.Test;
 
 import static org.junit.Assert.*;
@@ -91,5 +94,56 @@ public class HorizontalAnalyzerTest {
         Vec3 input = HorizontalAnalyzer.getBestTheoreticalPlayerInput(new Vec3(-0.1, 0, 0.1), 45, ClientVersion.V_1_8);
         assertEquals(0, input.x, 1.0E-4);
         assertEquals(Math.sqrt(0.02), input.z, 1.0E-4);
+    }
+
+    @Test public void bestInputMatchesBothTablesRotatedIntoVectors() {
+        Random random = new Random(11);
+        double[] wanted = {0, -0.0, 0.1, -0.1, 1.0E-300, Double.MAX_VALUE, Double.POSITIVE_INFINITY, Double.NaN};
+        ClientVersion[] versions = {ClientVersion.V_1_8, ClientVersion.V_1_21_4, ClientVersion.V_1_21_11, ClientVersion.V_26_3};
+        for (int i = 0; i < 400_000; i++) {
+            double x = random.nextInt(4) == 0 ? wanted[random.nextInt(wanted.length)] : random.nextGaussian() * 0.3;
+            double z = random.nextInt(4) == 0 ? wanted[random.nextInt(wanted.length)] : random.nextGaussian() * 0.3;
+            float yaw = random.nextBoolean() ? YAWS[random.nextInt(YAWS.length)] : (float) (random.nextGaussian() * Math.pow(10, random.nextInt(40)));
+            if (random.nextInt(50) == 0) yaw = Float.NaN;
+            ClientVersion version = versions[random.nextInt(versions.length)];
+            Vec3 want = rotatedIntoVectors(x, z, yaw, version);
+            Vec3 got = HorizontalAnalyzer.getBestTheoreticalPlayerInput(x, z, yaw, version);
+            String at = x + " " + z + " " + yaw + " " + version;
+            assertEquals(at, Double.doubleToRawLongBits(want.x), Double.doubleToRawLongBits(got.x));
+            assertEquals(at, Double.doubleToRawLongBits(want.y), Double.doubleToRawLongBits(got.y));
+            assertEquals(at, Double.doubleToRawLongBits(want.z), Double.doubleToRawLongBits(got.z));
+        }
+    }
+
+    /** The input selection rotating each table's input into a Vec3 and comparing the vectors. */
+    private static Vec3 rotatedIntoVectors(double wantedX, double wantedZ, float f2, ClientVersion version) {
+        float radians = f2 * 0.017453292f;
+        Vec3 correct = invert(wantedX, wantedZ, VanillaMath.sin(version, radians), VanillaMath.cos(version, radians));
+        Vec3 fast = invert(wantedX, wantedZ, OptifineFastMath.sin(radians), OptifineFastMath.cos(radians));
+        if (correct == null || fast == null) {
+            if (correct != null) return correct;
+            if (fast != null) return fast;
+            double length = Math.sqrt(wantedX * wantedX + wantedZ * wantedZ);
+            if (length == 0) return Vec3.ZERO;
+            return new Vec3(wantedX / length * Float.MAX_VALUE, 0, wantedZ / length * Float.MAX_VALUE);
+        }
+        double correctLength = correct.lengthSqr();
+        double fastLength = fast.lengthSqr();
+        if (Math.abs(correctLength - fastLength) > 1.0E-3 * Math.max(correctLength, fastLength)) {
+            return correctLength < fastLength ? correct : fast;
+        }
+        return distanceToValidInput(correct) < distanceToValidInput(fast) ? correct : fast;
+    }
+
+    private static Vec3 invert(double movementX, double movementZ, float sin, float cos) {
+        double scale = (double) sin * sin + (double) cos * cos;
+        if (scale == 0) return null;
+        return new Vec3((movementX * cos + movementZ * sin) / scale, 0, (movementZ * cos - movementX * sin) / scale);
+    }
+
+    private static double distanceToValidInput(Vec3 input) {
+        double absX = Math.abs(input.x);
+        double absZ = Math.abs(input.z);
+        return Math.min(Math.min(Math.abs(absX - absZ), absX), absZ);
     }
 }

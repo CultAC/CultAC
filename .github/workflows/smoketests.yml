@@ -121,6 +121,23 @@ jobs:
           token: ${{ secrets.SMOKETEST_REPO_TOKEN || secrets.CULTAC_REPLAY_READ_TOKEN }}
           persist-credentials: false
 
+      # The warm-up below runs CultAC's Gradle build before the cache is saved. Keying the cache on that build's
+      # inputs keeps an entry a build change wrote from being restored once the change is reverted.
+      - name: Check out CultAC build inputs for the cache key (not built here)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: cultac-build-inputs
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            *.gradle.kts
+            *.gradle
+            gradle.properties
+            /buildSrc/
+            /gradle/
+            /gradlew
+
       - name: Identify trusted cache inputs
         id: inputs
         env:
@@ -128,6 +145,12 @@ jobs:
         run: |
           if [ "$SUITE" = java ]; then source=mcp-client-smoketest; else source=replay; fi
           echo "revision=$(git -C "$source" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          set -o pipefail
+          # Gradle scripts, gradle.properties, buildSrc, the wrapper and gradlew, by committed blob id.
+          inputs=$(git -C cultac-build-inputs ls-tree -r HEAD | awk -F '\t' \
+            '$2 ~ /(^|\/)[^\/]*\.gradle(\.kts)?$|(^|\/)gradle\.properties$|^(buildSrc|gradle)\/|^gradlew$/')
+          test -n "$inputs"
+          echo "build=$(printf '%s\n' "$inputs" | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Java 25
         uses: actions/setup-java@v4
@@ -140,7 +163,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           # Separate namespace: never restore caches from the old mixed-trust job.
-          key: trusted-smoketest-v2-${{ matrix.suite }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.inputs.outputs.revision }}
+          key: trusted-smoketest-v2-${{ matrix.suite }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.inputs.outputs.revision }}-${{ steps.inputs.outputs.build }}
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
@@ -168,7 +191,17 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$SUITE" = java ]; then task=:bukkit:devShadowJar; else task=:bukkit:shadowJar; fi
-          ./gradlew "$task" --no-daemon --console=plain --max-workers=2
+          # Third-party repositories (PlaceholderAPI's above all) stall at times; wait longer and retry.
+          attempt=1
+          until ./gradlew "$task" --no-daemon --console=plain --max-workers=2 \
+              -Dorg.gradle.internal.http.connectionTimeout=60000 \
+              -Dorg.gradle.internal.http.socketTimeout=120000 \
+              -Dorg.gradle.internal.repository.max.retries=5; do
+            if [ "$attempt" -ge 3 ]; then exit 1; fi
+            echo "::warning::Gradle dependency warm-up attempt $attempt failed; retrying"
+            sleep $((attempt * 30))
+            attempt=$((attempt + 1))
+          done
 
       - name: Prepare trusted Java workspace manifest
         if: matrix.suite == 'java'

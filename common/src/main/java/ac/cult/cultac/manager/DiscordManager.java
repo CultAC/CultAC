@@ -1,6 +1,7 @@
 package ac.cult.cultac.manager;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.manager.config.EnglishDefaults;
 import ac.cult.cultac.manager.init.ReloadableInitable;
 import ac.cult.cultac.manager.init.start.StartableInitable;
 import ac.cult.cultac.manager.init.stop.StoppableInitable;
@@ -17,6 +18,7 @@ import ac.cult.cultac.utils.data.webhook.discord.EmbedFooter;
 import ac.cult.cultac.utils.data.webhook.discord.WebhookMessage;
 import ac.grim.grimac.api.GrimUser;
 import ac.grim.grimac.api.config.ConfigManager;
+import com.google.gson.JsonParser;
 import java.awt.*;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -27,10 +29,13 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -41,10 +46,8 @@ import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
-import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.Unmodifiable;
 
 public class DiscordManager implements StartableInitable, ReloadableInitable, StoppableInitable {
     private static final Predicate<String> WEBHOOK_REGEX = Pattern.compile(
@@ -94,6 +97,7 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
 
     @Override
     public void reload() {
+        queue.forgetRejections();
         try {
             // These fields are not volatile: an HTTP thread may briefly read the previous config after a reload.
             ConfigManager config = CultAPI.INSTANCE.getConfigManager().getConfig();
@@ -149,7 +153,9 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
             }
 
             StringBuilder sb = new StringBuilder();
-            for (String string : config.getStringListElse("violation-content", getDefaultContents())) {
+            List<String> content = config.getStringListElse(
+                    "violation-content", EnglishDefaults.stringList("discord", "violation-content"));
+            for (String string : content) {
                 sb.append(string).append("\n");
             }
             includeTimestamp = config.getBooleanElse("include-timestamp", true);
@@ -161,21 +167,6 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
         } catch (Exception e) {
             LogUtil.error("Failed to load Discord webhook configuration", e);
         }
-    }
-
-    @Contract(value = " -> new", pure = true)
-    private @NotNull @Unmodifiable List<@NotNull String> getDefaultContents() {
-        return List.of(
-                "**Player**: `%player%`",
-                "**UUID**: `%uuid%`",
-                "**Check**: `%check%`",
-                "**Client Version**: `%version%`",
-                "**Brand**: `%brand%`",
-                "**Sensitivity**: `H %h_sensitivity%% / V %v_sensitivity%%`",
-                "**Ping**: `%ping%`",
-                "**TPS**: `%tps%`",
-                "**Server**: `%server%`",
-                "**World**: `%world% (%world_type%)`");
     }
 
     public void sendAlert(@NotNull CultPlayer player, String verbose, String checkName, int violations) {
@@ -193,11 +184,17 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
         statics.put("%check%", checkName);
         statics.put("%violations%", Integer.toString(violations));
         statics.put("%verbose%", verbose);
+        statics.put("%world%", AlertDetails.worldLocation(player));
 
         Map<String, Function<GrimUser, String>> dynamics =
                 CultAPI.INSTANCE.getExternalAPI().getVariableReplacements();
 
         String content = compiledContent.render(player, statics, dynamics, backtickReplacement);
+        if (compiledContent.uses("%brand%")
+                && !compiledContent.uses("%client_classification%")
+                && !compiledContent.uses("%brandtype%")) {
+            content += "\n" + player.getClientClassification().display();
+        }
         String title = compiledTitle.render(player, statics, dynamics, backtickReplacement);
 
         Embed embed = new Embed(truncate(content, Embed.MAX_DESCRIPTION_LENGTH))
@@ -274,10 +271,8 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
     static final class WebhookQueue {
         static final int MAX_QUEUED = 50_000;
         private static final int BACKLOG_WARNING = 1_000;
-        private static final int MAX_EMBED_TEXT = 6_000;
         private static final long MIN_BACKOFF_MS = 1_000;
         private static final long MAX_BACKOFF_MS = 60_000;
-        private static final long MAX_RATE_LIMIT_MS = 3_600_000;
 
         interface Transport {
             CompletableFuture<HttpResponse<String>> post(URI uri, String body);
@@ -289,6 +284,7 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
         private final LongSupplier clock;
         private final Supplier<Logger> logger;
         private final ConcurrentLinkedDeque<Alert> queue = new ConcurrentLinkedDeque<>();
+        private final Set<URI> rejected = ConcurrentHashMap.newKeySet();
         private final AtomicInteger queued = new AtomicInteger();
         private final AtomicInteger backlogWarning = new AtomicInteger(BACKLOG_WARNING);
         private final AtomicInteger overflowed = new AtomicInteger();
@@ -305,15 +301,20 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
             this.logger = logger;
         }
 
-        CompletableFuture<Boolean> add(URI uri, WebhookMessage message) {
+        synchronized CompletableFuture<Boolean> add(URI uri, WebhookMessage message) {
             CompletableFuture<Boolean> future = new CompletableFuture<>();
+            if (stopped || rejected.contains(uri)) {
+                future.complete(false);
+                return future;
+            }
             int size = queued.incrementAndGet();
             if (size > MAX_QUEUED) {
                 queued.decrementAndGet();
-                overflowed.incrementAndGet();
-                logger.get()
-                        .warning("Discord alert backlog is full (" + MAX_QUEUED + "), alert not sent: "
-                                + describe(message));
+                if (overflowed.getAndIncrement() == 0) {
+                    logger.get()
+                            .warning("Discord alert backlog is full (" + MAX_QUEUED
+                                    + "); excess alerts cannot be queued");
+                }
                 future.complete(false);
                 return future;
             }
@@ -327,7 +328,7 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
             return future;
         }
 
-        void tick() {
+        synchronized void tick() {
             if (stopped || clock.getAsLong() < nextAttemptAt || (inFlight == null && queue.isEmpty())) return;
             if (!sending.compareAndSet(false, true)) return;
             List<Alert> batch = inFlight;
@@ -369,7 +370,7 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
             });
         }
 
-        void stop() {
+        synchronized void stop() {
             stopped = true;
             List<Alert> unsent = new ArrayList<>();
             List<Alert> batch = inFlight;
@@ -382,8 +383,9 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
             for (Alert alert : unsent) alert.future().complete(false);
         }
 
-        private void complete(
+        private synchronized void complete(
                 List<Alert> batch, @Nullable HttpResponse<String> response, @Nullable Throwable throwable) {
+            if (stopped) return;
             long now = clock.getAsLong();
             if (throwable != null || response == null) {
                 retry(now, "Could not send Discord alerts, retrying with backoff", throwable);
@@ -391,8 +393,8 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
             }
             int status = response.statusCode();
             if (status == 429) {
-                long wait = rateLimitWait(response.headers(), now);
-                nextAttemptAt = now + (wait >= 0 ? wait : backoff());
+                long wait = Math.max(rateLimitWait(response.headers(), now), retryAfterBody(response.body()));
+                nextAttemptAt = delayed(now, wait > 0 ? wait : backoff());
                 return;
             }
             if (status >= 500) {
@@ -403,12 +405,21 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
                         null);
                 return;
             }
+            if (response.headers()
+                    .firstValue("X-RateLimit-Remaining")
+                    .orElse("")
+                    .equals("0")) {
+                long wait = rateLimitWait(response.headers(), now);
+                nextAttemptAt = delayed(now, wait > 0 ? wait : MIN_BACKOFF_MS);
+            }
             inFlight = null;
             if (status >= 400) {
                 logger.get()
                         .severe("Discord rejected " + batch.size() + " alerts with status " + status + " and body "
                                 + response.body() + "; alert text:\n" + describe(batch));
                 for (Alert alert : batch) alert.future().complete(false);
+                if (status == 401 || status == 403 || status == 404)
+                    reject(batch.get(0).uri(), status);
             } else {
                 failures = 0;
                 if (failing) {
@@ -422,8 +433,30 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
             if (queued.get() < BACKLOG_WARNING && backlogWarning.getAndSet(BACKLOG_WARNING) != BACKLOG_WARNING) {
                 logger.get()
                         .info("Discord alert backlog is back under " + BACKLOG_WARNING + " alerts; "
-                                + overflowed.getAndSet(0) + " alerts past the cap were written to the server log");
+                                + overflowed.getAndSet(0) + " alerts past the cap could not be queued");
             }
+        }
+
+        /** Discord asks clients to stop calling a webhook that answers 401, 403 or 404 until it is configured again. */
+        private void reject(URI uri, int status) {
+            if (!rejected.add(uri)) return;
+            int dropped = 0;
+            for (Iterator<Alert> it = queue.iterator(); it.hasNext(); ) {
+                Alert alert = it.next();
+                if (!alert.uri().equals(uri)) continue;
+                it.remove();
+                queued.decrementAndGet();
+                alert.future().complete(false);
+                dropped++;
+            }
+            logger.get()
+                    .severe("Discord answered status " + status + " for the configured webhook; " + dropped
+                            + " queued alerts were dropped and no more are sent to it until the Discord config is"
+                            + " reloaded");
+        }
+
+        void forgetRejections() {
+            rejected.clear();
         }
 
         private void retry(long now, String message, @Nullable Throwable throwable) {
@@ -439,11 +472,15 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
             return Math.min(MAX_BACKOFF_MS, MIN_BACKOFF_MS << Math.min(attempt, 6));
         }
 
+        private static long delayed(long now, long wait) {
+            return wait >= Long.MAX_VALUE - now ? Long.MAX_VALUE : now + wait;
+        }
+
         private static long rateLimitWait(HttpHeaders headers, long now) {
             long wait = secondsHeader(headers, "Retry-After", 0);
-            if (wait < 0) wait = secondsHeader(headers, "X-RateLimit-Reset-After", 0);
+            wait = Math.max(wait, secondsHeader(headers, "X-RateLimit-Reset-After", 0));
             if (wait < 0) wait = secondsHeader(headers, "X-RateLimit-Reset", now);
-            return wait < 0 ? -1 : Math.min(wait, MAX_RATE_LIMIT_MS);
+            return wait;
         }
 
         private static long secondsHeader(HttpHeaders headers, String name, long origin) {
@@ -465,59 +502,25 @@ public class DiscordManager implements StartableInitable, ReloadableInitable, St
         }
 
         private List<Alert> takeBatch() {
-            List<Alert> batch = new ArrayList<>();
             Alert head = poll();
-            if (head == null) return batch;
-            batch.add(head);
-            if (!embedOnly(head.message())) return batch;
-            int embeds = head.message().embeds().length;
-            int text = embedText(head.message());
-            for (Alert next; (next = queue.peek()) != null; ) {
-                if (!embedOnly(next.message()) || !next.uri().equals(head.uri())) break;
-                int nextEmbeds = next.message().embeds().length;
-                int nextText = embedText(next.message());
-                if (embeds + nextEmbeds > WebhookMessage.MAX_EMBEDS || text + nextText > MAX_EMBED_TEXT) break;
-                if (!queue.removeFirstOccurrence(next)) break;
-                queued.decrementAndGet();
-                batch.add(next);
-                embeds += nextEmbeds;
-                text += nextText;
-            }
-            return batch;
+            return head == null ? List.of() : List.of(head);
         }
 
         private static String body(List<Alert> batch) {
-            if (batch.size() == 1) return batch.get(0).message().toJson().toString();
-            List<Embed> embeds = new ArrayList<>();
-            for (Alert alert : batch) embeds.addAll(List.of(alert.message().embeds()));
-            return new WebhookMessage()
-                    .embeds(embeds.toArray(Embed[]::new))
-                    .toJson()
-                    .toString();
+            return batch.get(0).message().toJson().toString();
         }
 
-        private static boolean embedOnly(WebhookMessage message) {
-            return message.content() == null
-                    && message.username() == null
-                    && message.avatar() == null
-                    && message.tts() == null
-                    && message.embeds() != null
-                    && message.embeds().length > 0;
-        }
-
-        private static int embedText(WebhookMessage message) {
-            int length = 0;
-            for (Embed embed : message.embeds()) {
-                length += embed.description().length();
-                if (embed.title() != null) length += embed.title().length();
-                if (embed.footer() != null) length += embed.footer().text().length();
-                if (embed.author() != null) length += embed.author().name().length();
-                if (embed.fields() != null) {
-                    for (EmbedField field : embed.fields())
-                        length += field.name().length() + field.value().length();
-                }
+        private static long retryAfterBody(String body) {
+            try {
+                double seconds = JsonParser.parseString(body)
+                        .getAsJsonObject()
+                        .get("retry_after")
+                        .getAsDouble();
+                if (!Double.isFinite(seconds) || seconds < 0) return -1;
+                return (long) Math.ceil(seconds * 1000);
+            } catch (RuntimeException e) {
+                return -1;
             }
-            return length;
         }
 
         private static String describe(List<Alert> alerts) {

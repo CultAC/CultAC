@@ -429,6 +429,7 @@ public final class PassengerRideTick {
         int maxY = CultMath.floor(this.box.maxY);
         int minZ = CultMath.floor(this.box.minZ);
         int maxZ = CultMath.floor(this.box.maxZ);
+        if (!player.compensatedWorld.mayHaveFluid(minX, minY, minZ, maxX, maxY, maxZ)) return false;
         for (int x = minX; x <= maxX; x++) {
             for (int y = minY; y <= maxY; y++) {
                 for (int z = minZ; z <= maxZ; z++) {
@@ -468,6 +469,7 @@ public final class PassengerRideTick {
         int maxY = (int) Math.ceil(boat.maxY + 0.001D);
         int minZ = CultMath.floor(boat.minZ);
         int maxZ = (int) Math.ceil(boat.maxZ);
+        if (!player.compensatedWorld.mayHaveFluid(minX, minY, minZ, maxX - 1, maxY - 1, maxZ - 1)) return false;
         for (int x = minX; x < maxX; x++) {
             for (int y = minY; y < maxY; y++) {
                 for (int z = minZ; z < maxZ; z++) {

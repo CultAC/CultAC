@@ -112,6 +112,8 @@ class CreativeFlightTest {
     /** The movement speed with the minecraft:sprinting modifier, on stone. */
     private static final float SPRINT_GROUND_SPEED = (float) ((double) 0.1F * (1.0D + (double) 0.3F));
     private static final Vec3 SKY = new Vec3(0.5, FLOOR_Y + 12, 0.5);
+    /** Moves bundle 01a17a7c's landing at Y 99 onto the floor. */
+    private static final Vec3 LANDING_SHIFT = new Vec3(0, -35, 26);
 
     @Test
     void aVelocityTakenInFlightWithJumpHeldRisesByTheFlightImpulse() throws Exception {
@@ -1029,6 +1031,28 @@ class CreativeFlightTest {
     }
 
     /**
+     * An airborne double-tap that lands in the same tick sends the toggle's flight start and LocalPlayer#aiStep's
+     * landing stop, so the tick travels at the flying speed although its press would arm a stopping toggle.
+     */
+    @Test
+    void anAirborneFlightToggleThatLandsTravelsAtTheFlyingSpeed() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            armInTheAir(f);
+            f.abilities(true);
+            f.abilities(false);
+            f.input(FORWARD_JUMP);
+            Vec3 input = ClientMoveInput.of(f, FORWARD_JUMP, 1.0F, FLYING_SPEED, f.player.xRot);
+            PredictionResult result = f.tick(TAKEOFF.add(input.x, 0, input.z), true);
+            // getOffset reads the player's flight state after the landing stop, not the predicted tick's
+            assertTrue(
+                    result.selectionOffset() < 1.0E-5,
+                    "selection offset " + result.selectionOffset() + ", " + describe(result));
+            assertFalse(result.hasFlag(Strafe.class), describe(result));
+            assertFalse(f.player.isFlying, "the landing did not stop flight");
+        }
+    }
+
+    /**
      * A join writes LOGIN and player_abilities before the platform player exists to send a ping.
      * ClientPacketListener#handlePlayerAbilities sets flying after handleLogin's MultiPlayerGameMode#setLocalMode.
      */
@@ -1203,6 +1227,81 @@ class CreativeFlightTest {
                 }
             }
         }
+    }
+
+    /**
+     * A sprinting 1.21.11 client double-taps jump on the tick it lands: LocalPlayer#aiStep's toggle starts flight
+     * ahead of travel, the tick travels at the sprinting flying speed, and the landing stops flight after it. The
+     * sprint jump that follows starts from that flight's carry. Ticks 17873-17879 of bundle 01a17a7c, shifted 35
+     * blocks down and 26 blocks south onto the floor.
+     */
+    @Test
+    void aDoubleTapThatStartsFlightOnTheLandingTickFliesThroughItsTravel() throws Exception {
+        try (var f = new JavaTickFixture(ProtocolVersion.V1_21_11, ClientVersion.V_1_21_11)) {
+            PredictionResult landing = sprintLandingWithAFlightStartAndStop(f, true);
+            assertTrue(landing.selectionOffset() < 1.0E-5, "selection offset " + landing.selectionOffset());
+            assertTrue(landing.getFlags().isEmpty(), describe(landing));
+            assertFalse(f.player.isFlying, "the landing did not stop flight");
+
+            Vec3 jumpTo = new Vec3(-4.35417030434841, 99.41999998688698, -25.270610687907563).add(LANDING_SHIFT);
+            PredictionResult jump = f.tick(jumpTo, false);
+            assertPredicted(jump);
+            assertFalse(jump.hasFlag(Strafe.class), describe(jump));
+        }
+    }
+
+    /** Without Abilities#mayfly the client never toggles, so the same flight start and stop leave a walking travel. */
+    @Test
+    void aFlightStartAndStopOnTheLandingTickWithoutMayflyFlags() throws Exception {
+        try (var f = new JavaTickFixture(ProtocolVersion.V1_21_11, ClientVersion.V_1_21_11)) {
+            PredictionResult landing = sprintLandingWithAFlightStartAndStop(f, false);
+            assertTrue(landing.hasFlag(Strafe.class), describe(landing));
+        }
+    }
+
+    /** LocalPlayer#aiStep stops flight after travel only on the ground, so a move that doesn't land walks. */
+    @Test
+    void aMayflyFlightStartAndStopOnAMoveThatDoesNotLandFlags() throws Exception {
+        try (var f = new JavaTickFixture(ProtocolVersion.V1_21_11, ClientVersion.V_1_21_11)) {
+            PredictionResult move = sprintLandingWithAFlightStartAndStop(f, true, false);
+            assertTrue(move.hasFlag(Strafe.class), describe(move));
+        }
+    }
+
+    /** Bundle 01a17a7c's ticks 17873-17878, the landing sent after a player_abilities start and stop. */
+    private static PredictionResult sprintLandingWithAFlightStartAndStop(JavaTickFixture f, boolean mayfly) {
+        return sprintLandingWithAFlightStartAndStop(f, mayfly, true);
+    }
+
+    private static PredictionResult sprintLandingWithAFlightStartAndStop(
+            JavaTickFixture f, boolean mayfly, boolean onGround) {
+        f.place(
+                new Vec3(-4.495884633426166, 102.33837923111669, -25.401978598121758).add(LANDING_SHIFT),
+                new Vec3(
+                        0.001141549055788893 * 0.91F,
+                        (-0.655295547680879 - 0.08) * 0.98F,
+                        -0.17401020351924856 * 0.91F));
+        if (mayfly) grantFlight(f, false);
+        f.command(PlayerCommandAction.START_SPRINTING);
+        f.player.xRot = 8271.2880859375F;
+        f.player.yRot = 20.70020294189453F;
+
+        f.input(new ServerboundPlayerInput(true, false, false, false, true, false, true));
+        Vec3 pressedAt = new Vec3(-4.490983938934036, 101.61778958036477, -25.535142252779472).add(LANDING_SHIFT);
+        assertPredicted(f.tick(pressedAt, false));
+        assertPredicted(
+                f.tick(new Vec3(-4.482662421996249, 100.83321170735786, -25.63113554690195).add(LANDING_SHIFT), false));
+        f.input(new ServerboundPlayerInput(true, false, false, false, false, false, true));
+        assertPredicted(
+                f.tick(new Vec3(-4.471227956543199, 99.98592537532058, -25.693303811962533).add(LANDING_SHIFT), false));
+        f.input(FORWARD);
+        assertPredicted(
+                f.tick(new Vec3(-4.456960707859619, 99.07718475223746, -25.72469129968969).add(LANDING_SHIFT), false));
+
+        f.abilities(true);
+        f.abilities(false);
+        f.input(FORWARD_JUMP);
+        return f.tick(new Vec3(-4.429124107045095, 99.0, -25.65638608062012).add(LANDING_SHIFT), onGround);
     }
 
     /** A player hovering at {@link #HOVER} that the server lets fly and sets flying. */

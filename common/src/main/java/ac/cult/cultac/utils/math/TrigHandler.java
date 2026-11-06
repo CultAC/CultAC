@@ -7,7 +7,7 @@ public class TrigHandler {
     CultPlayer player;
 
     @Getter
-    private boolean isVanillaMath = true;
+    private volatile boolean isVanillaMath = true;
 
     public TrigHandler(CultPlayer player) {
         this.player = player;

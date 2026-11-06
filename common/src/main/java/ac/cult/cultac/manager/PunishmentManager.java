@@ -2,8 +2,8 @@ package ac.cult.cultac.manager;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.Check;
-import ac.cult.cultac.command.commands.CultInfo;
 import ac.cult.cultac.manager.AlertManagerImpl.Recipients;
+import ac.cult.cultac.manager.config.EnglishDefaults;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.MessageUtil;
@@ -39,104 +39,113 @@ public class PunishmentManager implements ConfigReloadable {
         List<String> punish = config.getStringListElse("Punishments", new ArrayList<>());
         experimentalSymbol = config.getStringElse("experimental-symbol", "*");
 
-        alertString = config.getStringElse(
-                "alerts-format",
-                "%prefix% &f%player% &bfailed <hover:show_text:\"&b%check_name%%experimental%\n&8Description: &f%description%\n&7Click for more info\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%");
+        alertString = config.getStringElse("alerts-format", EnglishDefaults.string("messages", "alerts-format"));
 
         testMode = config.getBooleanElse("test-mode", false);
 
-        proxyAlertString = config.getStringElse(
-                "alerts-format-proxy",
-                "%prefix% &f[&cproxy&f] &f%player% &bfailed <hover:show_text:\"&b%check_name%%experimental%\\n&8Description: &f%description%\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%");
+        proxyAlertString =
+                config.getStringElse("alerts-format-proxy", EnglishDefaults.string("messages", "alerts-format-proxy"));
 
-        try {
-            groups.clear();
+        PunishmentRules rules = PunishmentRules.parse(punish);
+        groups.clear();
 
-            // To support reloading
-            for (AbstractCheck check : player.getChecks()) {
-                check.setEnabled(false);
+        // To support reloading
+        for (AbstractCheck check : player.getChecks()) {
+            check.setEnabled(false);
+        }
+
+        AbstractCheck[] known = player.getChecks().toArray(new AbstractCheck[0]);
+        String[] names = new String[known.length];
+        String[] alternativeNames = new String[known.length];
+        for (int i = 0; i < known.length; i++) {
+            names[i] = lowerCase(known[i].getCheckName());
+            alternativeNames[i] = lowerCase(known[i].getAlternativeName());
+        }
+        for (PunishmentRules.Group rule : rules.groups()) {
+            List<AbstractCheck> held = new ArrayList<>();
+            for (int i = 0; i < known.length; i++) {
+                if (rule.holds(names[i], alternativeNames[i])) held.add(known[i]);
             }
+            for (AbstractCheck check : held) check.setEnabled(true);
 
-            AbstractCheck[] known = null;
-            String[] names = null, alternativeNames = null;
-            for (Object s : punish) {
-                LinkedHashMap<String, Object> map = (LinkedHashMap<String, Object>) s;
-
-                List<String> checks = (List<String>) map.getOrDefault("checks", new ArrayList<>());
-                List<String> commands = (List<String>) map.getOrDefault("commands", new ArrayList<>());
-                int removeViolationsAfter = (int) map.getOrDefault("remove-violations-after", 300);
-
-                List<ParsedCommand> parsed = new ArrayList<>();
-                List<AbstractCheck> checksList = new ArrayList<>();
-                List<AbstractCheck> excluded = new ArrayList<>();
-                for (String command : checks) {
-                    command = command.toLowerCase(Locale.ROOT);
-                    boolean exclude = false;
-                    if (command.startsWith("!")) {
-                        exclude = true;
-                        command = command.substring(1);
-                    }
-                    if (known == null) {
-                        known = player.getChecks().toArray(new AbstractCheck[0]);
-                        names = new String[known.length];
-                        alternativeNames = new String[known.length];
-                        for (int i = 0; i < known.length; i++) {
-                            String name = known[i].getCheckName();
-                            String alternativeName = known[i].getAlternativeName();
-                            names[i] = name == null ? null : name.toLowerCase(Locale.ROOT);
-                            alternativeNames[i] =
-                                    alternativeName == null ? null : alternativeName.toLowerCase(Locale.ROOT);
-                        }
-                    }
-                    for (int i = 0; i < known.length; i++) {
-                        AbstractCheck check = known[i];
-                        String alternativeName = alternativeNames[i];
-                        // Some checks have equivalent names like AntiKB and AntiKnockback
-                        if (names[i] != null
-                                && (names[i].contains(command)
-                                        || (alternativeName != null && alternativeName.contains(command)))) {
-                            if (exclude) {
-                                excluded.add(check);
-                            } else {
-                                checksList.add(check);
-                            }
-                        }
-                    }
-                    for (AbstractCheck check : excluded) checksList.remove(check);
-                }
-                for (AbstractCheck check : checksList) {
-                    check.setEnabled(true);
-                }
-
-                for (String command : commands) {
-                    String firstNum = command.substring(0, command.indexOf(":"));
-                    String secondNum = command.substring(command.indexOf(":"), command.indexOf(" "));
-
-                    int threshold = Integer.parseInt(firstNum);
-                    int interval = Integer.parseInt(secondNum.substring(1));
-                    String commandString = command.substring(command.indexOf(" ") + 1);
-
-                    parsed.add(new ParsedCommand(threshold, interval, commandString));
-                }
-
-                groups.add(new PunishGroup(checksList, parsed, removeViolationsAfter * 1000));
+            List<ParsedCommand> parsed = new ArrayList<>();
+            for (PunishmentRules.Command command : rule.commands()) {
+                parsed.add(new ParsedCommand(
+                        command.threshold(),
+                        command.interval(),
+                        command.command(),
+                        alertFormat(config, command.command())));
             }
-        } catch (Exception e) {
-            LogUtil.error("Error while loading punishments.yml! This is likely your fault!", e);
+            groups.add(new PunishGroup(held, parsed, rule.removeViolationsAfter() * 1000));
+        }
+        for (int i = 0; i < known.length; i++) {
+            if (PunishmentRules.holds(rules.unreadGroupSelectors(), names[i], alternativeNames[i])) {
+                known[i].setEnabled(true);
+            }
+        }
+        if (rules.failure() != null) {
+            LogUtil.error("Error while loading punishments.yml! This is likely your fault!", rules.failure());
         }
     }
 
-    private String replaceAlertPlaceholders(String original, int vl, Check check, String verbose) {
-        return MessageUtil.replacePlaceholders(
-                        player,
-                        original.replace("[alert]", alertString)
-                                .replace("[proxy]", proxyAlertString)
-                                .replace("%check_name%", check.getDisplayName())
-                                .replace("%experimental%", check.isExperimental() ? experimentalSymbol : "")
-                                .replace("%vl%", Integer.toString(vl))
-                                .replace("%description%", check.getDescription())
-                                .replace("%stable_key%", check.getStableKey()))
-                .replace("%verbose%", MessageUtil.miniMessageSafe(verbose));
+    /** What {@code command} alerts with: {@code alerts-format}, or the message an {@code [alert:<key>]} names. */
+    private @Nullable String alertFormat(ConfigManager config, String command) {
+        if (command.equals("[alert]")) return alertString;
+        String key = PunishmentRules.alertKey(command);
+        if (key == null) return null;
+        String named = namedAlertFormat(config, key);
+        return named != null ? named : alertString;
+    }
+
+    /** The message {@code key} names, or null when it names none or a blank one. */
+    static @Nullable String namedAlertFormat(ConfigManager config, String key) {
+        if (key.isEmpty()) return null;
+        String format;
+        try {
+            format = config.getStringElse(key, EnglishDefaults.stringOrNull("messages", key));
+        } catch (RuntimeException notText) {
+            return null;
+        }
+        return format == null || format.isBlank() ? null : format;
+    }
+
+    /**
+     * One warning per group and key for each {@code [alert:<key>]} whose key names no message; such an alert sends
+     * {@code alerts-format}.
+     */
+    public static List<String> unknownAlertFormats(ConfigManager config) {
+        List<String> warnings = new ArrayList<>();
+        List<String> punish = config.getStringListElse("Punishments", new ArrayList<>());
+        for (PunishmentRules.Group group : PunishmentRules.parse(punish).groups()) {
+            Set<String> warned = new HashSet<>();
+            for (PunishmentRules.Command command : group.commands()) {
+                String key = PunishmentRules.alertKey(command.command());
+                if (key == null || namedAlertFormat(config, key) != null || !warned.add(key)) continue;
+                warnings.add("punishments.yml: the group with checks " + group.selectors() + " runs [alert:" + key
+                        + "], but no message is named '" + key + "'; it sends alerts-format instead");
+            }
+        }
+        return warnings;
+    }
+
+    private static @Nullable String lowerCase(@Nullable String name) {
+        return name == null ? null : name.toLowerCase(Locale.ROOT);
+    }
+
+    /** {@code original} with its placeholders filled; {@code verbose} is rendered only for a %verbose% in it. */
+    private String replaceAlertPlaceholders(ParsedCommand command, int vl, Check check, Supplier<String> verbose) {
+        String original = command.alertFormat != null
+                ? command.alertFormat
+                : command.command.replace("[alert]", alertString).replace("[proxy]", proxyAlertString);
+        String replaced = MessageUtil.replacePlaceholders(
+                player,
+                original.replace("%check_name%", check.getDisplayName())
+                        .replace("%experimental%", check.isExperimental() ? experimentalSymbol : "")
+                        .replace("%vl%", Integer.toString(vl))
+                        .replace("%description%", check.getDescription())
+                        .replace("%stable_key%", check.getStableKey()));
+        if (!replaced.contains("%verbose%")) return replaced;
+        return replaced.replace("%verbose%", MessageUtil.miniMessageSafe(safeGet(verbose)));
     }
 
     public boolean handleAlert(CultPlayer player, String verbose, Check check) {
@@ -145,6 +154,15 @@ public class PunishmentManager implements ConfigReloadable {
     }
 
     public boolean handleAlert(CultPlayer player, Supplier<String> verbose, Check check) {
+        return handleAlert(player, verbose, verbose, check);
+    }
+
+    /**
+     * Runs the commands a flag of {@code check} makes due. Alerts, webhooks, proxy forwards and console commands show
+     * {@code verbose}; a [log] row stores {@code logVerbose}. Each is rendered only for a command that uses it, since
+     * verbose that shows a Cult Log identifier builds the log when it is rendered.
+     */
+    public boolean handleAlert(CultPlayer player, Supplier<String> verbose, Supplier<String> logVerbose, Check check) {
         boolean sentDebug = false;
 
         // Check commands
@@ -157,18 +175,16 @@ public class PunishmentManager implements ConfigReloadable {
                     // Verbose that prints all flags: /cult verbose subscribers get EVERY flag, not just thresholded
                     // alerts. The verbose string is only rendered (safeGet) when there are listeners, so the flag
                     // path stays lazy when nobody is subscribed.
-                    if (command.command.equals("[alert]")
-                            && CultAPI.INSTANCE.getAlertManager().hasVerboseListeners()) {
+                    if (command.alertFormat != null
+                            && CultAPI.INSTANCE.getAlertManager().hasVerboseListeners(player)) {
                         sentDebug = true;
                         try {
-                            String verboseForListeners = safeGet(verbose);
-                            String listenerCmd =
-                                    replaceAlertPlaceholders(command.command, vl, check, verboseForListeners);
+                            String listenerCmd = replaceAlertPlaceholders(command, vl, check, verbose);
                             verboseListeners = CultAPI.INSTANCE
                                     .getAlertManager()
                                     .sendVerbose(
                                             player,
-                                            CultInfo.linkCheckName(MessageUtil.miniMessage(listenerCmd), check),
+                                            CheckNameLink.link(MessageUtil.miniMessage(listenerCmd), check),
                                             null);
                         } catch (RuntimeException e) {
                             logDeliveryFailure(command, check, e);
@@ -179,18 +195,19 @@ public class PunishmentManager implements ConfigReloadable {
                                 ? command.executeCount == 0
                                 : violationCount >= command.nextBoundary;
                         if (shouldRun) {
-                            String renderedVerbose = safeGet(verbose);
-                            String cmd = replaceAlertPlaceholders(command.command, vl, check, renderedVerbose);
+                            Supplier<String> text = command.command.equals("[log]") ? logVerbose : verbose;
+                            Supplier<String> shown = () -> safeGet(text);
+                            String cmd = replaceAlertPlaceholders(command, vl, check, shown);
                             // Only console commands can reach a backend's CommandExecuteEvent listeners;
                             // the built-in actions below are decided by this event alone.
                             boolean withheld =
                                     CultAPI.INSTANCE.getConfigManager().isObserveOnly()
-                                            && !BUILTIN_ACTIONS.contains(command.command);
+                                            && !BUILTIN_ACTIONS.contains(command.action());
                             boolean canceled = withheld
                                     || COMMAND_CHANNEL.fire(
                                             ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(player),
                                             ac.cult.cultac.runtime.RuntimeEnvironment.outwardCheck(check),
-                                            renderedVerbose,
+                                            shown,
                                             cmd);
                             if (command.interval == 0) {
                                 command.executeCount++;
@@ -200,15 +217,16 @@ public class PunishmentManager implements ConfigReloadable {
                             if (canceled) continue;
 
                             try {
-                                switch (command.command) {
+                                switch (command.action()) {
                                     case "[webhook]" ->
                                         CultAPI.INSTANCE
                                                 .getDiscordManager()
-                                                .sendAlert(player, renderedVerbose, check.getDisplayName(), vl);
+                                                .sendAlert(player, safeGet(verbose), check.getDisplayName(), vl);
                                     case "[log]" -> {
                                         // Binary flags already stored a row; avoid an extra legacy text row.
                                         if (!check.isLastFlagStoredBinaryVerbose()) {
-                                            String verboseWithoutGl = renderedVerbose.replaceAll(" /gl .*", "");
+                                            String verboseWithoutGl =
+                                                    safeGet(logVerbose).replaceAll(" /gl .*", "");
                                             CultAPI.INSTANCE
                                                     .getDataStoreLifecycle()
                                                     .liveWriteHooks()
@@ -216,10 +234,10 @@ public class PunishmentManager implements ConfigReloadable {
                                         }
                                     }
                                     case "[proxy]" ->
-                                        CultAPI.INSTANCE.getPlatformServer().forwardAlert(cmd);
+                                        CultAPI.INSTANCE.getAlertManager().forwardAlert(cmd);
                                     case "[alert]" -> {
                                         sentDebug = true;
-                                        Component message = CultInfo.linkCheckName(MessageUtil.miniMessage(cmd), check);
+                                        Component message = CheckNameLink.link(MessageUtil.miniMessage(cmd), check);
                                         if (testMode) { // secret test mode
                                             if (verboseListeners == null
                                                     || verboseListeners
@@ -235,6 +253,12 @@ public class PunishmentManager implements ConfigReloadable {
                                     }
                                     default -> {
                                         double violations = check.getViolations();
+                                        // Only where the platform hands it on, such as to a backend plugin.
+                                        String renderedVerbose = CultAPI.INSTANCE
+                                                        .getPlatformServer()
+                                                        .dispatchesVerbose(cmd, player.platformPlayer)
+                                                ? safeGet(verbose)
+                                                : "";
                                         CultAPI.INSTANCE
                                                 .getScheduler()
                                                 .getGlobalRegionScheduler()
@@ -269,6 +293,28 @@ public class PunishmentManager implements ConfigReloadable {
         }
 
         return sentDebug;
+    }
+
+    /**
+     * Whether committing {@code pending} more flags of {@code check} could make {@link #handleAlert} render a flag's
+     * shown verbose: a verbose listener hears every flag an alerting group takes, and a command other than [log]
+     * renders it once the group's violations reach it. Leans to true, since violations may expire before the flags
+     * commit.
+     */
+    public boolean mayRenderVerbose(Check check, int pending) {
+        boolean verboseListeners = CultAPI.INSTANCE.getAlertManager().hasVerboseListeners(player);
+        for (PunishGroup group : groups) {
+            if (!group.checks.contains(check)) continue;
+            int violationCount = group.violations.size() + pending;
+            for (ParsedCommand command : group.commands) {
+                if (command.command.equals("[log]")) continue;
+                if (verboseListeners && command.alertFormat != null) return true;
+                if (violationCount >= command.threshold
+                        && (command.interval == 0 ? command.executeCount == 0 : violationCount >= command.nextBoundary))
+                    return true;
+            }
+        }
+        return false;
     }
 
     private static void logDeliveryFailure(ParsedCommand command, Check check, RuntimeException e) {
@@ -323,15 +369,23 @@ class ParsedCommand {
     public final int threshold;
     public final int interval;
     public final String command;
+    // The text an [alert] or [alert:<key>] sends; null for every other command.
+    public final @Nullable String alertFormat;
     // For M=0, a non-zero count keeps the command from running again in this loaded state.
     public int executeCount;
     // For M>0, the next active violation count that should run this command.
     public int nextBoundary;
 
-    public ParsedCommand(int threshold, int interval, String command) {
+    public ParsedCommand(int threshold, int interval, String command, @Nullable String alertFormat) {
         this.threshold = threshold;
         this.interval = interval;
         this.command = command;
+        this.alertFormat = alertFormat;
         this.nextBoundary = threshold;
+    }
+
+    /** The built-in action or console command this runs; every alert runs as [alert]. */
+    String action() {
+        return alertFormat != null ? "[alert]" : command;
     }
 }

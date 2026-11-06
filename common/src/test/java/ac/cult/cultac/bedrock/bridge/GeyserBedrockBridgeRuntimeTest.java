@@ -2,6 +2,7 @@ package ac.cult.cultac.bedrock.bridge;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
@@ -278,6 +279,153 @@ public final class GeyserBedrockBridgeRuntimeTest {
         @Override
         public void close() {
             scope.close();
+            wire.finishAndReleaseAll();
+        }
+    }
+
+    @Test
+    public void loginHandlerSwapHandsTheLatencyQueueToTheSuccessorTap() throws Exception {
+        try (var login = new LoginSwapFixture()) {
+            List<String> completed = new ArrayList<>();
+            // SessionInitializeEvent: the first tap wraps Geyser's LoginPacketHandler.
+            login.install();
+            var first = login.handler;
+            var queue = (GeyserQueue) login.session.getLatencyPingCache();
+            queue.add(() -> completed.add("native-A"));
+            login.writeLatency();
+            login.field(first, "latencyScope", GeyserQueue.Scope.class)
+                    .insert(() -> completed.add("retired-engine"), () -> {});
+            // Cloudburst handed this reply to the first tap; it still awaits the tick loop.
+            first.handlePacket(login.reply());
+
+            // LoginPacketHandler#finishLogin installs UpstreamPacketHandler, then
+            // SessionLoginEvent reaches Cult off the tick loop, which defers the old cleanup.
+            login.handler = login.upstream;
+            login.install();
+            var successor = login.handler;
+            assertTrue(successor != first && login.tapType.isInstance(successor));
+            assertSame(queue, login.field(successor, "latencyQueue", GeyserQueue.class));
+            login.tickLoop.drain();
+            login.wire.runPendingTasks();
+            successor.handlePacket(login.reply());
+            login.tickLoop.drain();
+
+            // Geyser registers the callback before Cloudburst writes the packet.
+            queue.add(() -> completed.add("native-B"));
+            login.writeLatency();
+            successor.handlePacket(login.reply());
+            login.tickLoop.drain();
+
+            assertEquals(List.of("native-A", "native-B"), completed);
+            assertTrue(queue.isEmpty());
+            assertTrue(queue.isTrackingWrites());
+            assertNull(login.wire.pipeline().get(login.field(first, "outboundHandlerName", String.class)));
+            assertNotNull(login.wire.pipeline().get(login.field(successor, "outboundHandlerName", String.class)));
+        }
+    }
+
+    /** Geyser's tick loop: tasks from other threads queue, tasks on the loop run inline. */
+    private static final class TickLoop {
+        private final Deque<Runnable> tasks = new ArrayDeque<>();
+        private boolean running;
+
+        void ensure(Runnable task) {
+            if (running) task.run();
+            else tasks.add(task);
+        }
+
+        void drain() {
+            running = true;
+            try {
+                while (!tasks.isEmpty()) tasks.removeFirst().run();
+            } finally {
+                running = false;
+            }
+        }
+    }
+
+    private static final class LoginSwapFixture implements AutoCloseable {
+        final GeyserSession session = Mockito.mock(GeyserSession.class);
+        final org.cloudburstmc.protocol.bedrock.packet.BedrockPacketHandler upstream =
+                Mockito.mock(org.cloudburstmc.protocol.bedrock.packet.BedrockPacketHandler.class);
+        final EmbeddedChannel wire = new EmbeddedChannel();
+        final TickLoop tickLoop = new TickLoop();
+        final Class<?> tapType;
+        org.cloudburstmc.protocol.bedrock.packet.BedrockPacketHandler handler =
+                Mockito.mock(org.cloudburstmc.protocol.bedrock.packet.BedrockPacketHandler.class);
+
+        LoginSwapFixture() throws Exception {
+            tapType = Class.forName(GeyserBedrockBridgeRuntime.class.getName() + "$PacketTapHandler");
+            var cache = GeyserSession.class.getDeclaredField("latencyPingCache");
+            cache.setAccessible(true);
+            cache.set(session, new java.util.concurrent.ConcurrentLinkedQueue<Runnable>());
+            Mockito.doCallRealMethod().when(session).getLatencyPingCache();
+            var geyserUpstream = Mockito.mock(org.geysermc.geyser.session.UpstreamSession.class);
+            var bedrock = Mockito.mock(org.cloudburstmc.protocol.bedrock.BedrockServerSession.class);
+            var peer = Mockito.mock(org.cloudburstmc.protocol.bedrock.BedrockPeer.class);
+            Mockito.when(session.getUpstream()).thenReturn(geyserUpstream);
+            Mockito.when(geyserUpstream.getSession()).thenReturn(bedrock);
+            Mockito.when(bedrock.getPeer()).thenReturn(peer);
+            Mockito.when(peer.getChannel()).thenReturn(wire);
+            Mockito.when(bedrock.getPacketHandler()).thenAnswer(call -> handler);
+            Mockito.doAnswer(call -> {
+                        handler = call.getArgument(0);
+                        return null;
+                    })
+                    .when(bedrock)
+                    .setPacketHandler(Mockito.any());
+            Mockito.when(session.getTickEventLoop()).thenReturn(wire.eventLoop());
+            Mockito.doAnswer(call -> {
+                        tickLoop.ensure(call.getArgument(0));
+                        return null;
+                    })
+                    .when(session)
+                    .ensureInEventLoop(Mockito.any(Runnable.class));
+            // BedrockNetworkStackLatencyTranslator: each reply runs the next written callback.
+            Mockito.doAnswer(call -> {
+                        Runnable callback = session.getLatencyPingCache().poll();
+                        if (callback != null) callback.run();
+                        return org.cloudburstmc.protocol.common.PacketSignal.HANDLED;
+                    })
+                    .when(upstream)
+                    .handlePacket(Mockito.any());
+        }
+
+        void install() throws Exception {
+            var install = GeyserBedrockBridgeRuntime.class.getDeclaredMethod(
+                    "installPacketTap", org.geysermc.geyser.api.connection.GeyserConnection.class);
+            install.setAccessible(true);
+            install.invoke(null, session);
+        }
+
+        <T> T field(Object tap, String name, Class<T> type) throws Exception {
+            var field = tapType.getDeclaredField(name);
+            field.setAccessible(true);
+            return type.cast(field.get(tap));
+        }
+
+        NetworkStackLatencyPacket reply() {
+            var reply = new NetworkStackLatencyPacket();
+            reply.setFromServer(true);
+            return reply;
+        }
+
+        void writeLatency() {
+            var wrapper = latencyPacket();
+            try {
+                assertTrue(wire.writeOutbound(wrapper));
+                assertSame(wrapper, wire.readOutbound());
+                assertNull(wire.readOutbound());
+            } finally {
+                wrapper.release();
+            }
+        }
+
+        @Override
+        public void close() throws Exception {
+            var taps = GeyserBedrockBridgeRuntime.class.getDeclaredField("PACKET_TAPS");
+            taps.setAccessible(true);
+            ((java.util.Map<?, ?>) taps.get(null)).remove(session);
             wire.finishAndReleaseAll();
         }
     }

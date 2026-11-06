@@ -40,6 +40,7 @@ class ProtocolSubversionTest {
                 assertEquals(new Vec3d(1, 2, 3), vehicle.position());
                 assertEquals(version.atLeast(ProtocolVersion.V1_21_4), vehicle.hasOnGround());
                 assertEquals(version.atLeast(ProtocolVersion.V1_21_4), vehicle.onGround());
+                assertWrittenBytes(version, ServerboundPackets.MOVE_VEHICLE, vehicle, bytes);
                 if (version == ProtocolVersion.V1_21_3) {
                     bytes.writeByte(1);
                     assertThrows(
