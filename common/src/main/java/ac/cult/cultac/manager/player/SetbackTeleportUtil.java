@@ -572,14 +572,10 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
 
         PredictionResult lastPrediction =
                 player.checkManager.getSimulationProcessor().getLastPrediction();
-        boolean expectedOnGround = anchorProfileState != null
-                ? anchorProfileState.expectedOnGround()
-                : !player.isBedrockMovement()
-                        && lastPrediction != null
-                        && lastPrediction
-                                .getSimulationContext()
-                                .getLastOnGround()
-                                .determinePessimistically();
+        // A Java setback forwards this with its stand-in move, and Paper resets fall distance on a ground claim. Only
+        // the correction tick's own Entity#move can put the player on the ground; without one the move only confirms
+        // the safe position, like the teleport response ClientPacketListener#handleMovePlayer sends off the ground.
+        boolean expectedOnGround = anchorProfileState != null && anchorProfileState.expectedOnGround();
 
         boolean vehicleSimulated = simulateNext
                 && flagged != null
@@ -609,10 +605,8 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                         .get(0);
 
                 Vec3 collide = Collisions.collide(player, clientVel.x, clientVel.y, clientVel.z);
-                if (player.isBedrockMovement()) {
-                    // doesn't matter on bedrock players except the synthetic movement
-                    expectedOnGround = clientVel.y < 0.0D && clientVel.y != collide.y;
-                }
+                // Entity#move's verticalCollisionBelow for the correction tick.
+                expectedOnGround = clientVel.y < 0.0D && clientVel.y != collide.y;
 
                 SimulationContext context = lastPrediction.getSimulationContext();
 
