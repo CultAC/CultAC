@@ -8,11 +8,13 @@ import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.VectorUtils;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.ClientBlockProperties;
 import ac.cult.cultac.utils.nmsutil.Friction;
+import java.util.List;
 
 public class PointThree implements UncertaintyHandler {
 
@@ -69,7 +71,8 @@ public class PointThree implements UncertaintyHandler {
                     ? Friction.computeModifiedFriction(
                             0.98F, (float) player.compensatedEntities.getEntityInControl().airDragModifier)
                     : 0.98F;
-            box.unionY((-gravity - threshold * 2) * verticalDrag);
+            // Entity#pushFromExplosion adds its impulse to the delta movement; only the carried part is unknown.
+            box.unionY(explosionImpulseY(start) + (-gravity - threshold * 2) * verticalDrag);
             start = start.with(VectorUtils.cutBoxToVector(end, box), "gravity missing");
 
             if (!valid.isTestingMaxStartingVelExtents(end)) {
@@ -87,6 +90,16 @@ public class PointThree implements UncertaintyHandler {
         }
 
         return start;
+    }
+
+    private static double explosionImpulseY(PredVector start) {
+        double impulseY = 0.0;
+        List<TransactionVel> modifiers = start.getPacketModifiers();
+        if (modifiers == null) return impulseY;
+        for (TransactionVel modifier : modifiers) {
+            if (!modifier.isVelocity()) impulseY += modifier.getVel().y;
+        }
+        return impulseY;
     }
 
     private boolean controlsVerticalMovement(CultPlayer player, PredictionResult result) {
