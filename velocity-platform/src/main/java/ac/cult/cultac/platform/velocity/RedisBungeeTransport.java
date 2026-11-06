@@ -17,7 +17,7 @@ import org.jetbrains.annotations.Nullable;
 /**
  * The network transport over RedisBungee's own pub/sub, reached by reflection through RedisBungee's class loader.
  * RedisBungee owns the connection and its reconnects. Messages publish in order from one thread, at most
- * {@value Backlog#MAX_ITEMS} of {@value Backlog#MAX_BYTES} characters in all waiting for it; the rest are dropped. The
+ * {@value Backlog#MAX_ITEMS} of {@value Backlog#MAX_BYTES} bytes in all waiting for it; the rest are dropped. The
  * channels stay registered after {@link #close}: every runtime on this proxy shares RedisBungee's registrations.
  */
 final class RedisBungeeTransport implements MessageTransport {

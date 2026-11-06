@@ -12,7 +12,10 @@ import ac.cult.cultac.utils.data.SetBackData;
 import ac.cult.cultac.utils.math.Vec3;
 import org.junit.jupiter.api.Test;
 
-/** A setback sends the position and velocity the 26.3 client reaches by one input-less tick from the safe state. */
+/**
+ * A setback that rejects a movement sends the position and velocity the 26.3 client reaches by one input-less tick
+ * from the safe state.
+ */
 class SetbackVelocityTest {
     private static final double GRAVITY = 0.08D;
     // LivingEntity#travelInAir: computeModifiedFriction(0.98F, 1.0) for the vertical drag and Entity#getAirDrag.
@@ -89,6 +92,8 @@ class SetbackVelocityTest {
         // The client has the chunk it stands in once it answers a ping sent after it.
         f.pongThrough(f.player.sendTrailingTransaction());
         SetbackTeleportUtil teleports = f.player.getSetbackTeleportUtil();
+        // The client's next movement arrives and this setback rejects it; the correction tick stands in for it.
+        teleports.movementReceived();
         assertTrue(teleports.executeViolationSetback());
         return teleports.getRequiredSetBack();
     }

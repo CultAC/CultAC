@@ -129,6 +129,23 @@ class BridgeServiceTest {
     }
 
     @Test
+    void openedHandlersCanSendAfterReady() {
+        service.addHandler(new CompanionMessageHandler() {
+            @Override
+            public void onOpened(CompanionSession session) {
+                assertTrue(session.isReady());
+                assertSame(session, service.session(PLAYER));
+                session.send(new BridgeMessage.ClientMods(0, false, List.of()));
+            }
+        });
+        service.receive(endpoint, hello(nonce(1)));
+        Challenge challenge = (Challenge) endpoint.sent.get(0);
+        service.receive(endpoint, new Auth(hmac(nonce(1), challenge)));
+        assertInstanceOf(Ready.class, endpoint.sent.get(1));
+        assertInstanceOf(BridgeMessage.ClientMods.class, endpoint.sent.get(2));
+    }
+
+    @Test
     void readyCarriesTheBackendProof() {
         service.receive(endpoint, hello(nonce(1)));
         Challenge challenge = (Challenge) endpoint.sent.get(0);

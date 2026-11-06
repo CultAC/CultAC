@@ -11,12 +11,19 @@ import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
+import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
+import ac.cult.cultac.protocol.value.AttributeModifier;
+import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.math.Vector3dm;
+import ac.cult.cultac.utils.nmsutil.Collisions;
+import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -47,6 +54,16 @@ class JavaSneakEdgeWaterTest {
             new ServerboundPlayerInput(true, false, false, false, false, false, true);
     private static final ServerboundPlayerInput SWIM_SHIFT =
             new ServerboundPlayerInput(true, false, false, false, false, true, true);
+    private static final ServerboundPlayerInput SNEAK_SPRINT_KEY =
+            new ServerboundPlayerInput(false, false, false, false, false, true, true);
+    private static final ServerboundPlayerInput SNEAK_FORWARD_SPRINT_KEY =
+            new ServerboundPlayerInput(true, false, false, false, false, true, true);
+    private static final ServerboundPlayerInput SNEAK_FORWARD_LEFT_SPRINT_KEY =
+            new ServerboundPlayerInput(true, false, true, false, false, true, true);
+    private static final ServerboundPlayerInput SPRINT_KEY =
+            new ServerboundPlayerInput(false, false, false, false, false, false, true);
+    private static final ServerboundPlayerInput FORWARD_SPRINT_KEY =
+            new ServerboundPlayerInput(true, false, false, false, false, false, true);
     // JavaTickFixture's floor ends at x = 9; the player's box overhangs it by 0.299.
     private static final double EDGE_X = 9.299;
 
@@ -280,6 +297,133 @@ class JavaSneakEdgeWaterTest {
             }
             assertTrue(hidden >= 3, "hidden ticks " + hidden);
         }
+    }
+
+    /**
+     * A 1.21.11 client with Swift Sneak III crouches on the 0.1875-wide floor an open trapdoor leaves, in the water of
+     * a waterlogged open trapdoor whose panel stands at its feet past the floor's end. Player#canFallAtLeast probes
+     * only the slab under the feet, so the panel never props the edge: Player#maybeBackOffFromEdge holds x while
+     * deltaMovement keeps it, and releasing shift moves on it. The moves are a real client's, translated onto the
+     * fixture: the trapdoors' cell becomes the origin.
+     */
+    @Test
+    void aPanelBesideTheFeetLeavesTheEdgeHidingVelocity() throws Exception {
+        try (var f = new JavaTickFixture(ProtocolVersion.V1_21_11, ClientVersion.V_1_21_11)) {
+            holdLedge(f);
+            f.input(SPRINT_KEY);
+            assertLedgeExact(f, 282.8528747558594F, 30.488279342651367F, 2694.5004999474063, 66.0, -1302.654464900829);
+        }
+    }
+
+    /**
+     * Player#canFallAtLeast reaches 1.0E-5F below the step height without deflating the box before 1.21.5 and 1.0E-7
+     * below it inside a 1.0E-7 deflated box from 1.21.5, so feet 5e-6 above the step clear the floor only from 1.21.5.
+     */
+    @Test
+    void theEdgeProbeReachesBelowTheStepByTheClientsSlab() throws Exception {
+        assertEquals(0.1, backedOffX(ClientVersion.V_1_21_4));
+        assertEquals(0.0, backedOffX(ClientVersion.V_1_21_5));
+        assertEquals(0.0, backedOffX(ClientVersion.V_1_21_11));
+    }
+
+    private static double backedOffX(ClientVersion client) throws Exception {
+        try (var f = new JavaTickFixture(ProtocolVersion.V26_3, client)) {
+            f.place(new Vec3(0.5, FLOOR_Y + 0.6 + 5.0E-6, 0.5), new Vec3(0.0, 0.0, 0.0));
+            f.player.isSneaking = true;
+            return Collisions.maybeBackOffFromEdge(
+                            new Vector3dm(0.1, 0.0, 0.0), f.player, true, f.player.boundingBox, false)
+                    .getX();
+        }
+    }
+
+    /**
+     * The same ledge released with no keys, moving 0.08 along x: past the 0.0588 a held water edge's deltaMovement can
+     * reach (0.8F drag on 0.02F * 0.98F * 0.75 of input per tick) and past the hidden velocity any detected edge allows.
+     */
+    @Test
+    void aReleaseBeyondTheHiddenVelocityFlagsSpeed() throws Exception {
+        try (var f = new JavaTickFixture(ProtocolVersion.V1_21_11, ClientVersion.V_1_21_11)) {
+            holdLedge(f);
+            f.input(SPRINT_KEY);
+            rotate(f, 282.8528747558594F, 30.488279342651367F);
+            PredictionResult result = f.tick(ledge(2694.469471827136 + 0.08, 66.0, -1302.654464900829), true);
+            assertTrue(
+                    result.getFlags().stream()
+                            .anyMatch(flag -> flag.getCheck().getCheckName().equals("Speed")),
+                    describe(result));
+        }
+    }
+
+    /** The recorded ticks up to the release: walking onto the ledge, then held on it with the keys and without. */
+    private static void holdLedge(JavaTickFixture f) {
+        trapdoorLedge(f);
+        f.player.compensatedEntities.updateAttributes(
+                f.player.entityID,
+                List.of(new AttributeSnapshot(
+                        "minecraft:sneaking_speed",
+                        0.3,
+                        List.of(new AttributeModifier(
+                                "minecraft:enchantment.swift_sneak/legs",
+                                0.45000001788139343,
+                                AttributeModifier.Operation.ADD_VALUE)))));
+        rotate(f, 284.9393310546875F, 62.97637176513672F);
+        f.place(ledge(2694.3716942201227, 66.0, -1302.699999988079), Vec3.ZERO);
+        f.input(SNEAK_SPRINT_KEY);
+        assertLedgeExact(f, 284.9393310546875F, 62.97637176513672F, 2694.3716942201227, 66.0, -1302.699999988079);
+
+        f.input(SNEAK_FORWARD_SPRINT_KEY);
+        assertLedgeExact(f, 284.2240295410156F, 58.02863693237305F, 2694.385943693707, 66.0, -1302.6963885472253);
+        assertLedgeExact(f, 283.50872802734375F, 52.90208053588867F, 2694.411636649494, 66.0, -1302.6900658290654);
+        assertLedgeExact(f, 282.49530029296875F, 46.76212692260742F, 2694.446543039719, 66.0, -1302.6818281325902);
+        // The edge holds x from here on; the 0.05 steps leave the part of deltaMovement above them.
+        f.input(SNEAK_FORWARD_LEFT_SPRINT_KEY);
+        assertLedgeExact(f, 281.839599609375F, 42.41050720214844F, 2694.446543039719, 66.0, -1302.6861782049396);
+        f.input(SNEAK_FORWARD_SPRINT_KEY);
+        assertLedgeExact(f, 282.31640625F, 40.62217712402344F, 2694.446638843134, 66.0, -1302.6865227872026);
+        assertLedgeExact(f, 283.03167724609375F, 38.476173400878906F, 2694.451037005505, 66.0, -1302.683484227055);
+        assertLedgeExact(f, 283.15087890625F, 36.09172058105469F, 2694.4588700324425, 66.0, -1302.6777089531383);
+        assertLedgeExact(f, 282.79327392578125F, 33.945716857910156F, 2694.469471827136, 66.0, -1302.6698349518222);
+        f.input(SNEAK_SPRINT_KEY);
+        assertLedgeExact(f, 282.55487060546875F, 32.276611328125F, 2694.469471827136, 66.0, -1302.6635357506755);
+        assertLedgeExact(f, 282.79327392578125F, 31.0247745513916F, 2694.469471827136, 66.0, -1302.658496389683);
+    }
+
+    /**
+     * The recorded ledge at the origin over air: an open top iron trapdoor facing east under the feet, a waterlogged one
+     * facing west in the feet's cell, and the full blocks around that cell.
+     */
+    private static void trapdoorLedge(JavaTickFixture f) {
+        for (int x = -8; x <= 8; x++) {
+            for (int z = -8; z <= 8; z++) {
+                f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y - 1, z), BlockIds.AIR.defaultState());
+            }
+        }
+        var registry = DataTables.defaults().registry();
+        int trapdoor = registry.with(
+                registry.with(registry.block("minecraft:iron_trapdoor").defaultState(), "half", "top"), "open", "true");
+        f.player.compensatedWorld.updateBlock(
+                new BlockPos(0, FLOOR_Y - 1, 0), registry.with(trapdoor, "facing", "east"));
+        f.player.compensatedWorld.updateBlock(
+                new BlockPos(0, FLOOR_Y, 0),
+                registry.with(registry.with(trapdoor, "facing", "west"), "waterlogged", "true"));
+        for (int x = -1; x <= 1; x++) {
+            f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y, -1), BlockIds.STONE.defaultState());
+            f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y, 1), BlockIds.STONE.defaultState());
+        }
+        f.player.compensatedWorld.updateBlock(new BlockPos(-1, FLOOR_Y, 0), BlockIds.STONE.defaultState());
+        f.player.compensatedWorld.updateBlock(new BlockPos(1, FLOOR_Y, 0), BlockIds.STONE.defaultState());
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+    }
+
+    private static void assertLedgeExact(JavaTickFixture f, float yaw, float pitch, double x, double y, double z) {
+        rotate(f, yaw, pitch);
+        PredictionResult result = f.tick(ledge(x, y, z), true);
+        assertTrue(exact(result), describe(result));
+    }
+
+    /** A recorded ledge position moved onto the fixture: the trapdoors' cell 2694, 66, -1303 becomes 0, FLOOR_Y, 0. */
+    private static Vec3 ledge(double x, double y, double z) {
+        return new Vec3(x - 2694.0, y - 66.0 + FLOOR_Y, z + 1303.0);
     }
 
     /** Still water four blocks deep over the stone floor, with a one-block water trench at x = 1 and 2. */

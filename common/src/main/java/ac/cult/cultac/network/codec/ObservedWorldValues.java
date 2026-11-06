@@ -12,10 +12,12 @@ final class ObservedWorldValues {
     private static final String BIOME = "minecraft:worldgen/biome";
     private final ObservedPacketValues values;
     private final Supplier<int[]> dimension;
+    private final Supplier<String> poolDimension;
 
-    ObservedWorldValues(ObservedPacketValues values, Supplier<int[]> dimension) {
+    ObservedWorldValues(ObservedPacketValues values, Supplier<int[]> dimension, Supplier<String> poolDimension) {
         this.values = values;
         this.dimension = dimension;
+        this.poolDimension = poolDimension;
     }
 
     Object read(ByteBuf input, String name) {
@@ -30,11 +32,13 @@ final class ObservedWorldValues {
                 var dimension = this.dimension.get();
                 if (dimension == null) yield null;
                 int count = dimension[1] / 16;
+                String pools = poolDimension.get();
                 yield ModelWorldValues.chunkDecoded(
                         input,
                         version,
                         types,
-                        sections -> SectionProjection.decodedSections(sections, version, count, registries()));
+                        (sections, x, z) ->
+                                SectionProjection.decodedSections(sections, version, count, registries(), pools, x, z));
             }
             case "minecraft:chunks_biomes" -> {
                 var dimension = this.dimension.get();

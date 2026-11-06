@@ -22,6 +22,8 @@ class PlacedEntityPositionTest {
             JavaTickFixture.setField(CultPlayer.class, player, "resolvedClientVersion", ClientVersion.V_1_21_11);
             player.compensatedEntities.addEntity(10, EntityTypeIds.FALLING_BLOCK, new Vec3(0.5, 86, 0.5), 0, 0, 0);
             PacketEntity block = player.compensatedEntities.getEntity(10);
+            // No gravity, so FallingBlockEntity#tick adds no local movement between server positions.
+            block.hasGravity = false;
 
             block.onBundledPositionSyncTransaction(0.5, 85.9599609375, 0.5, player);
             tick(player, block, 3);

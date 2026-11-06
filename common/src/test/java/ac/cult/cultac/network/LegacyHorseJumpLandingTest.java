@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.vehicle.VehicleGround;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -92,6 +93,7 @@ class LegacyHorseJumpLandingTest {
      * jump: LocalPlayer#aiStep sends START_JUMPING_WITH_HORSE after the horse's tick.
      */
     private static void mount(JavaTickFixture f, Vec3 start, Vec3 carried) {
+        f.player.checkManager.getCheck(VehicleGround.class).setEnabled(true);
         f.player.compensatedEntities.addEntity(HORSE, EntityTypeIds.HORSE, start, YAW, 0, 0);
         PacketEntityHorse horse = (PacketEntityHorse) f.player.compensatedEntities.getEntity(HORSE);
         horse.hasSaddle = true;

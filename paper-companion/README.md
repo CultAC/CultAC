@@ -116,7 +116,7 @@ bridge session (until the player reconnects, switches servers or re-enters confi
 not sent to the backend.
 
 `CommandExecuteEvent` fires only for punishment commands the proxy runs on this backend's console, which are commands
-the proxy itself doesn't know. It does not fire for `[alert]`, `[log]`, `[webhook]` or `[proxy]` actions, or for
+the proxy itself doesn't know. It does not fire for `[alert]`, `[alert:<key>]`, `[log]`, `[webhook]` or `[proxy]` actions, or for
 commands a proxy plugin registers; cancel those from a proxy plugin.
 
 Not available through the companion (they throw `UnsupportedOperationException` or are never fired):

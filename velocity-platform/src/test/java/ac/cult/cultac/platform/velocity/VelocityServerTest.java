@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -286,6 +287,19 @@ class VelocityServerTest {
             log.verifyNoMoreInteractions();
         }
         verify(session, times(1)).exchange(any(), anyLong());
+    }
+
+    @Test
+    void onlyABackendListeningForCommandExecuteGetsAPunishmentsVerbose() {
+        when(session.has(ServerCapability.FLAG_VERDICT)).thenReturn(true);
+        when(session.listeners()).thenReturn(ListenerKind.FLAG.flag());
+        assertFalse(server.dispatchesVerbose(BAN, subject));
+
+        listensForCommandExecute();
+        assertTrue(server.dispatchesVerbose(BAN, subject));
+
+        when(proxy.getCommandManager().hasCommand(anyString())).thenReturn(true);
+        assertFalse(server.dispatchesVerbose(BAN, subject), "a proxy command runs on the proxy");
     }
 
     @Test

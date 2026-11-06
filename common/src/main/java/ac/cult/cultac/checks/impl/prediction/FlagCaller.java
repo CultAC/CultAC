@@ -19,22 +19,23 @@ public class FlagCaller extends CultProcessor implements PostPredictionListener 
         if (!player.shouldEnforceMovementSetbacks()) return;
         boolean sharedSetbacks = MovementProfiles.forPlayer(player).usesSharedOffsetSetbacks(player);
 
-        if (!predictionComplete.isExempt() && predictionComplete.getPredictionResult() != null) {
-            List<PredictionResult.Flag> flags =
-                    predictionComplete.getPredictionResult().getFlags();
+        PredictionResult result = predictionComplete.getPredictionResult();
+        if (!predictionComplete.isExempt() && result != null) {
+            List<PredictionResult.Flag> flags = result.getFlags();
 
             for (int i = 0; i < flags.size(); i++) {
                 PredictionResult.Flag flag = flags.get(i);
                 if (!sharedSetbacks && !(flag.getCheck() instanceof BedrockMovement)) continue;
                 if (flag.getCheck() instanceof BedrockMovement movement) {
-                    movement.flagMovement(
-                            flag.getSeverity(),
-                            predictionComplete.getPredictionResult().getIdentifier());
+                    movement.flagMovement(flag.getSeverity(), result::shownIdentifier);
                     continue;
                 }
                 StringReturner verbose = flag.getVerbose();
-                int identifier = predictionComplete.getPredictionResult().getIdentifier();
-                flag.getCheck().flag(() -> verbose.getString() + " " + "\u00a78" + identifier);
+                // Only the alert shows the identifier, and builds its Cult Log, if something renders it.
+                flag.getCheck()
+                        .flag(
+                                verbose::getString,
+                                () -> verbose.getString() + " " + "\u00a78" + result.shownIdentifier());
             }
         }
     }

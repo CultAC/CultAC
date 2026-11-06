@@ -4,7 +4,6 @@ import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.world.BlockCollision;
-import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import java.util.List;
 import java.util.Objects;
@@ -63,25 +62,6 @@ public final class BedrockBlockCollisionResolver {
                 verticalCollision,
                 steppedUp,
                 onGround);
-    }
-
-    public static boolean hasFloorContact(Vec3d feet, BlockCollisionWorld world, double radius) {
-        if (world.isEmpty()) {
-            return false;
-        }
-        WorldCollisionBox footprint = new WorldCollisionBox(
-                feet.x() - radius,
-                feet.y(),
-                feet.z() - radius,
-                feet.x() + radius,
-                feet.y() + EPSILON,
-                feet.z() + radius);
-        for (BlockCollision obstacle : BedrockCollisionSweep.collisionObstacles(world)) {
-            if (Math.abs(obstacle.box().maxY() - feet.y()) <= EPSILON && footprint.overlapsXz(obstacle.box())) {
-                return true;
-            }
-        }
-        return false;
     }
 
     public static boolean hasHorizontalBlockContact(

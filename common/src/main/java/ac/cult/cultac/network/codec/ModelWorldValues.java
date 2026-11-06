@@ -69,13 +69,10 @@ final class ModelWorldValues {
     }
 
     static WorldPackets.Chunk chunkDecoded(
-            ByteBuf input,
-            ProtocolVersion version,
-            IntFunction<String> types,
-            Function<ByteBuf, List<SectionSnapshot>> sections) {
+            ByteBuf input, ProtocolVersion version, IntFunction<String> types, ColumnSections sections) {
         int x = input.readInt(), z = input.readInt();
         long[] motionBlocking = MotionHeightmapValues.read(input, version);
-        var model = sections.apply(input.readSlice(Wire.readLength(input, 2097152)));
+        var model = sections.read(input.readSlice(Wire.readLength(input, 2097152)), x, z);
         return finishChunk(input, version, types, x, z, motionBlocking, null, model);
     }
 
@@ -123,6 +120,12 @@ final class ModelWorldValues {
             chunks.add(new WorldPackets.BiomeChunk((int) pos, (int) (pos >>> 32), null, model));
         }
         return new WorldPackets.ChunkBiomes(chunks);
+    }
+
+    /** A column's section data as snapshots. */
+    @FunctionalInterface
+    interface ColumnSections {
+        List<SectionSnapshot> read(ByteBuf sections, int chunkX, int chunkZ);
     }
 
     private static IntFunction<String> blockEntityTypes(RegistryNames names) {

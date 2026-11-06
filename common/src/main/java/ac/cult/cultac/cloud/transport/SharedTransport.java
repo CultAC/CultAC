@@ -9,7 +9,8 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * What every socket on one service shares: one {@link HttpClient} (one selector thread, its callbacks on virtual
- * threads), one compression pool, and the count of bytes queued across every socket in the process.
+ * threads), one compression pool, the arrays frame records are written into, and the count of bytes queued across
+ * every socket in the process.
  *
  * <p>Each connection {@link #acquire acquires} it when created and {@link #release releases} it when its sender has shut
  * down; once {@link #retire retired} and released by the last of them, the client and the pool stop. Nothing here blocks.
@@ -24,6 +25,7 @@ final class SharedTransport {
     final HttpClient http;
     final ExecutorService pool;
     final int threads;
+    final FrameBuffers frames = new FrameBuffers();
     private final ExecutorService callbacks;
     private int users;
     private boolean retired;

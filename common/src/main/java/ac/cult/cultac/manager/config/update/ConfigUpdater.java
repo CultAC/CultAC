@@ -85,6 +85,8 @@ public final class ConfigUpdater {
         public final int latestVersion;
         public final String versionKey;
         public final boolean inPlace;
+        /** Whether keys the operator added, absent from the bundled default, survive an upgrade. */
+        public final boolean keepsOperatorKeys;
         public final @NotNull ConfigFlavor flavor;
         /** Keyed by the version this migration upgrades TO. */
         public final @NotNull Map<Integer, Migration> migrations;
@@ -95,12 +97,14 @@ public final class ConfigUpdater {
                 @NotNull ConfigFlavor flavor,
                 @NotNull Map<Integer, Migration> migrations,
                 String versionKey,
-                boolean inPlace) {
+                boolean inPlace,
+                boolean keepsOperatorKeys) {
             Objects.requireNonNull(resourceDirectory, "resourceDirectory");
             this.resourceDirectory = resourceDirectory.endsWith("/") ? resourceDirectory : resourceDirectory + "/";
             this.latestVersion = latestVersion;
             this.versionKey = versionKey;
             this.inPlace = inPlace;
+            this.keepsOperatorKeys = keepsOperatorKeys;
             this.flavor = Objects.requireNonNull(flavor, "flavor");
             this.migrations = Map.copyOf(migrations);
         }
@@ -117,6 +121,7 @@ public final class ConfigUpdater {
             private final Map<Integer, Migration> migrations = new LinkedHashMap<>();
             private String versionKey = "config-version";
             private boolean inPlace;
+            private boolean keepsOperatorKeys;
 
             private Builder(String resourceDirectory, int latestVersion, ConfigFlavor flavor) {
                 this.resourceDirectory = resourceDirectory;
@@ -137,8 +142,15 @@ public final class ConfigUpdater {
                 return this;
             }
 
+            /** Keys the operator added that the bundled default lacks survive an upgrade, at any depth. */
+            public @NotNull Builder keepOperatorKeys() {
+                keepsOperatorKeys = true;
+                return this;
+            }
+
             public @NotNull Spec build() {
-                return new Spec(resourceDirectory, latestVersion, flavor, migrations, versionKey, inPlace);
+                return new Spec(
+                        resourceDirectory, latestVersion, flavor, migrations, versionKey, inPlace, keepsOperatorKeys);
             }
         }
     }
@@ -304,6 +316,7 @@ public final class ConfigUpdater {
         // walk records each lift in ownLog so it goes through the same
         // patcher pass as migration writes.
         autoLift("", oldData, newData, outputView);
+        if (spec.keepsOperatorKeys) keepOperatorKeys("", oldData, newData, outputView);
 
         // Run each version-gated migration in order.
         for (int v = oldVersion + 1; v <= spec.latestVersion; v++) {
@@ -349,6 +362,21 @@ public final class ConfigUpdater {
                 + " migrated " + spec.versionKey + " v" + oldVersion + " → v" + spec.latestVersion
                 + " (flavor " + spec.flavor + ", backup at " + backup.getFileName() + ")");
         return new Result(true, oldVersion, spec.latestVersion, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void keepOperatorKeys(
+            String pathPrefix, Map<String, Object> oldData, Map<String, Object> newData, YamlMap output) {
+        for (Map.Entry<String, Object> entry : oldData.entrySet()) {
+            String currentPath = pathPrefix.isEmpty() ? entry.getKey() : pathPrefix + "." + entry.getKey();
+            Object newValue = newData.get(entry.getKey());
+            if (!newData.containsKey(entry.getKey())) {
+                output.put(currentPath, entry.getValue());
+            } else if (entry.getValue() instanceof Map && newValue instanceof Map) {
+                keepOperatorKeys(
+                        currentPath, (Map<String, Object>) entry.getValue(), (Map<String, Object>) newValue, output);
+            }
+        }
     }
 
     @SuppressWarnings("unchecked")

@@ -98,6 +98,47 @@ class CompressionPipelineTest {
     }
 
     @Test
+    void queuedRecordsInLargerArraysWriteTheMessagesTheirExactArraysWrite() throws Exception {
+        Random random = new Random(11);
+        FrameBuffers frames = new FrameBuffers();
+        QueuedBytes exactQueued = new QueuedBytes(new AtomicLong());
+        QueuedBytes pooledQueued = new QueuedBytes(new AtomicLong());
+        try (CompressionPipeline exact = pipeline(1, NAME, exactQueued);
+                CompressionPipeline pooled = pipeline(1, NAME + "-pooled", pooledQueued)) {
+            for (int message = 0; message < 40; message++) {
+                for (int part = 0, parts = 1 + random.nextInt(4); part < parts; part++) {
+                    List<byte[]> records = new ArrayList<>();
+                    List<CloudConnection.Queued> queued = new ArrayList<>();
+                    for (int i = 0, count = 1 + random.nextInt(6); i < count; i++) {
+                        byte[] record = new byte[1 + random.nextInt(i == 0 ? 70_000 : 3000)];
+                        if (random.nextBoolean()) random.nextBytes(record);
+                        records.add(record);
+                        if (random.nextInt(3) == 0) {
+                            queued.add(new CloudConnection.Queued(0, record, 0));
+                        } else {
+                            byte[] larger = frames.take(record.length);
+                            Arrays.fill(larger, (byte) random.nextInt());
+                            System.arraycopy(record, 0, larger, 0, record.length);
+                            queued.add(new CloudConnection.Queued(0, larger, record.length, 0, true));
+                        }
+                    }
+                    boolean end = part == parts - 1;
+                    exactQueued.addAndGet(bytes(records));
+                    pooledQueued.addAndGet(bytes(records));
+                    exact.submit(records, bytes(records), end);
+                    pooled.submitQueued(queued, bytes(records), end, frames);
+                }
+                byte[] written = exact.take();
+                assertArrayEquals(written, pooled.take());
+                exact.sent(written);
+                pooled.sent(written);
+            }
+        }
+        assertEquals(0, exactQueued.get());
+        assertEquals(0, pooledQueued.get());
+    }
+
+    @Test
     void holdsAtMostTwoMessagesPerThread() throws Exception {
         QueuedBytes queued = new QueuedBytes(new AtomicLong());
         try (CompressionPipeline pipeline = pipeline(2, NAME, queued)) {

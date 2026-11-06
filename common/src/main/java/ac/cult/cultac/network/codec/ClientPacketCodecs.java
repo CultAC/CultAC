@@ -319,7 +319,7 @@ public final class ClientPacketCodecs {
                     var registries = worldRegistries.apply(context);
                     return registries == null ? null : registries.painting(name);
                 });
-                return values.read(
+                return values.readOnce(
                         input, context.state() instanceof FrameLease.Source lender ? lender.lease(input) : null);
             }
 

@@ -555,9 +555,43 @@ class ReachInteractionRangeTest {
                 setup.move(to);
                 setup.loadedTickEnd();
             });
+            // LocalPlayer#tick skips the unloaded tick, so both Entity#push calls add to the motion its travel takes.
+            var result = setup.player.checkManager.getSimulationProcessor().getLastPrediction();
+            assertTrue(JavaTickFixture.exact(result), JavaTickFixture.describe(result));
+            assertEquals(0, setup.player.checkManager.getExplosionHandler().violations);
             // The pushes cancel out, and the first travel leaves 1 times the air drag .91.
             assertEquals(List.of("PlayerReach"), setup.attackAlong(0, 4.1, 0));
             assertEquals(List.of(), setup.attackAlong(0, 4.5, 0));
+        }
+    }
+
+    @Test
+    void anUnloadedRideTickZeroesAnExplosionBeforeIt() throws Exception {
+        try (var setup = new Setup()) {
+            setup.respawnFacing(0, SPEAR);
+            setup.explosion(.5);
+            setup.board(0);
+            setup.unloadedTickEnd();
+            setup.setPassengers(Setup.BOAT, List.of(Setup.BOAT + 1));
+            setup.explosion(.25);
+            // ClientLevel#tickPassenger runs Entity#rideTick, whose setDeltaMovement(ZERO) drops the first push.
+            assertEquals(
+                    new Vec3(0, 0, .25),
+                    setup.player.checkManager.getExplosionHandler().secondBread.getVel());
+        }
+    }
+
+    @Test
+    void aMotionAfterAnUnloadedTickEndReplacesTheMotionBeforeIt() throws Exception {
+        try (var setup = new Setup()) {
+            setup.respawnFacing(0, SPEAR);
+            setup.motion(.5);
+            setup.unloadedTickEnd();
+            setup.motion(1);
+            // ClientPacketListener#handleSetEntityMotion replaces the delta movement through Entity#lerpMotion.
+            var knockback = setup.player.checkManager.getKnockbackHandler();
+            assertEquals(new Vec3(0, 0, 1), knockback.secondBread.getVel());
+            assertEquals(List.of(), knockback.overriddenVels);
         }
     }
 

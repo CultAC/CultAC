@@ -1,5 +1,5 @@
 {
-  "version": "c5ddf4fdb08e6c99",
+  "version": "1149858c70e26496",
   "cheats": [
     {
       "id": "triggerbot",
@@ -58,14 +58,6 @@
       "name": "Latency Abuse"
     },
     {
-      "id": "blink",
-      "name": "Blink"
-    },
-    {
-      "id": "fakelag",
-      "name": "Fakelag"
-    },
-    {
       "id": "other",
       "name": "Other"
     }
@@ -106,6 +98,10 @@
     {
       "id": "badpackets",
       "name": "Bad packets"
+    },
+    {
+      "id": "hacked-client",
+      "name": "Hacked client"
     }
   ]
 }

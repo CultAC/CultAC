@@ -40,6 +40,10 @@ public record ServerboundMovePlayer(
         return new ServerboundMovePlayer(x, y, z, yaw, pitch, ground, horizontalCollision, hasPosition, hasRotation);
     }
 
+    public ServerboundMovePlayer withPitch(float pitch) {
+        return new ServerboundMovePlayer(x, y, z, yaw, pitch, onGround, horizontalCollision, hasPosition, hasRotation);
+    }
+
     /** A position projection retains optional rotation and clears horizontal collision. */
     public ServerboundMovePlayer withPosition(double x, double y, double z, boolean ground) {
         return new ServerboundMovePlayer(x, y, z, yawOr(0), pitchOr(0), ground, false, true, hasRotation);

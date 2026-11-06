@@ -12,6 +12,8 @@ import ac.cult.cultac.utils.data.ShulkerBoxShoveResult;
 import ac.cult.cultac.utils.math.VanillaMath;
 import ac.cult.cultac.utils.math.Vec3;
 
+import java.util.List;
+
 /**
  * The client's {@code horizontalCollision && !minorHorizontalCollision} after an accepted move, which
  * LocalPlayer#shouldStopRunSprinting reads in the next aiStep.
@@ -76,9 +78,7 @@ public final class ClientHorizontalCollision {
             int strafe = (int) keys.strafeImpulse();
             int forward = (int) keys.forwardImpulse();
             // A minor collision never stops the sprint, from whichever accepted start the keys reach the delta.
-            if (move.minor(strafe, forward)
-                    && move.reaches(
-                            strafe, forward, result.getValidMovements().getCollisionIgnoredMaxStartingVelExtents())) {
+            if (move.minor(strafe, forward) && reachesFromAcceptedStart(result, move, strafe, forward)) {
                 return DesyncStatus.FALSE;
             }
             int reported = move.collisions(strafe, forward);
@@ -91,6 +91,42 @@ public final class ClientHorizontalCollision {
             }
         }
         return verdict(collisions);
+    }
+
+    private static boolean otherZeroFlagReality(PredictionResult result, PredictionResult reality) {
+        return reality != result
+                && reality.getFlagSeverity() == 0.0
+                && reality.getSimulationContext() != null
+                && reality.getValidMovements() != null
+                && !reality.getInitialStartingVel().isTickSkip();
+    }
+
+    /**
+     * Whether the key direction (strafe, forward) reaches the reported delta from the selected movement's starts or
+     * from those of any reality the prediction accepted, each the start of a client the move is consistent with.
+     */
+    private static boolean reachesFromAcceptedStart(PredictionResult result, Move move, int strafe, int forward) {
+        if (move.reaches(strafe, forward, result.getValidMovements().getCollisionIgnoredMaxStartingVelExtents())) {
+            return true;
+        }
+        List<PredictionResult> realities = result.getRealities();
+        for (int i = 0, size = realities == null ? 0 : realities.size(); i < size; i++) {
+            PredictionResult reality = realities.get(i);
+            if (!otherZeroFlagReality(result, reality)) continue;
+            MovementTrace trace = reality.getValidMovements().getClosestTrace();
+            if (trace == null || trace.shulkerBoxShove() != null) continue;
+            Vec3 stuck = trace.position().collisionStuckSpeedMultiplier(reality.getSimulationContext());
+            Move from = move.from(
+                    trace.preCollisionMovement(),
+                    stuck == null ? 1 : stuck.x,
+                    stuck == null ? 1 : stuck.z,
+                    reality.getHorizontalInputRadius());
+            if (from.reaches(
+                    strafe, forward, reality.getValidMovements().getCollisionIgnoredMaxStartingVelExtents())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -188,6 +224,11 @@ public final class ClientHorizontalCollision {
             double maxInput,
             double sin,
             double cos) {
+        /** The same reported move attempted from {@code base} with its own stuck multipliers and input allowance. */
+        Move from(Vec3 base, double stuckX, double stuckZ, double maxInput) {
+            return new Move(base, target, wallX, wallZ, stuckX, stuckZ, maxInput, sin, cos);
+        }
+
         /**
          * {@link #SOFT} and {@link #HARD} for the collisions the key direction (strafe, forward) can end in with an
          * input length that reaches the reported delta, 0 when no length does.

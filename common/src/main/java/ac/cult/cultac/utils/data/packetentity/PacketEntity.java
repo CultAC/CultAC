@@ -121,6 +121,7 @@ public class PacketEntity {
     private @Nullable ReachInterpolationData settledInterpolation;
     private @Nullable Vec3 settledPhysicalPosition;
     private @Nullable ReachInterpolationData spareInterpolation;
+    private @Nullable SimpleCollisionBox interpolationStart;
     // Valid while the position, the world and its chunk epoch are the ones it was computed for.
     private @Nullable Vec3 loadedChunkPosition;
     private @Nullable CompensatedWorld loadedChunkWorld;
@@ -210,7 +211,7 @@ public class PacketEntity {
     }
 
     public boolean isSize() {
-        return type == EntityTypeIds.PHANTOM || type == EntityTypeIds.SLIME || type == EntityTypeIds.MAGMA_CUBE;
+        return type == EntityTypeIds.PHANTOM || EntityTypeUtil.isCubeMob(type);
     }
 
     public boolean isStrider() {
@@ -221,7 +222,7 @@ public class PacketEntity {
     // Set the new packet location to the updated packet location
     public void onFirstTransaction(
             boolean relative, boolean hasPos, double relX, double relY, double relZ, CultPlayer player) {
-        onFirstTransaction(relative, hasPos, relX, relY, relZ, null, null, player, true);
+        onFirstTransaction(relative, hasPos, relX, relY, relZ, false, 0.0F, false, 0.0F, player, true);
     }
 
     public void onFirstTransaction(
@@ -233,7 +234,32 @@ public class PacketEntity {
             @Nullable Float yaw,
             @Nullable Float pitch,
             CultPlayer player) {
-        onFirstTransaction(relative, hasPos, relX, relY, relZ, yaw, pitch, player, true);
+        onFirstTransaction(
+                relative,
+                hasPos,
+                relX,
+                relY,
+                relZ,
+                yaw != null,
+                yaw != null ? yaw : 0.0F,
+                pitch != null,
+                pitch != null ? pitch : 0.0F,
+                player,
+                true);
+    }
+
+    /** The yaw and pitch apply only when {@code hasRotation}. */
+    public void onFirstTransaction(
+            boolean relative,
+            boolean hasPos,
+            double relX,
+            double relY,
+            double relZ,
+            boolean hasRotation,
+            float yaw,
+            float pitch,
+            CultPlayer player) {
+        onFirstTransaction(relative, hasPos, relX, relY, relZ, hasRotation, yaw, hasRotation, pitch, player, true);
     }
 
     public void onBundleFirstTransaction(
@@ -254,7 +280,32 @@ public class PacketEntity {
         // sub-packets in order, so the trailing ping's pong proves the handler
         // applied this movement before the client's next tick; the caller drops
         // the old packet box with onSecondTransaction at that same pong.
-        onFirstTransaction(relative, hasPos, relX, relY, relZ, yaw, pitch, player, false);
+        onFirstTransaction(
+                relative,
+                hasPos,
+                relX,
+                relY,
+                relZ,
+                yaw != null,
+                yaw != null ? yaw : 0.0F,
+                pitch != null,
+                pitch != null ? pitch : 0.0F,
+                player,
+                false);
+    }
+
+    /** The yaw and pitch apply only when {@code hasRotation}. */
+    public void onBundleFirstTransaction(
+            boolean relative,
+            boolean hasPos,
+            double relX,
+            double relY,
+            double relZ,
+            boolean hasRotation,
+            float yaw,
+            float pitch,
+            CultPlayer player) {
+        onFirstTransaction(relative, hasPos, relX, relY, relZ, hasRotation, yaw, hasRotation, pitch, player, false);
     }
 
     private void onFirstTransaction(
@@ -263,8 +314,10 @@ public class PacketEntity {
             double relX,
             double relY,
             double relZ,
-            @Nullable Float yaw,
-            @Nullable Float pitch,
+            boolean hasYaw,
+            float yaw,
+            boolean hasPitch,
+            float pitch,
             CultPlayer player,
             boolean uncertainInitialSteps) {
         applyEntityPositionUpdate(relative, hasPos, relX, relY, relZ);
@@ -272,16 +325,18 @@ public class PacketEntity {
             return;
         }
 
-        float targetYaw = interpolationTargetYaw(yaw);
-        float targetPitch = interpolationTargetPitch(pitch);
+        float targetYaw = interpolationTargetYaw(hasYaw, yaw);
+        float targetPitch = interpolationTargetPitch(hasPitch, pitch);
         if (matchesActiveInterpolationTarget(
                 desyncClientPos.x, desyncClientPos.y, desyncClientPos.z, targetYaw, targetPitch)) {
             return;
         }
 
         boolean placed = placedAtPacketPosition(player);
-        SimpleCollisionBox startingLocation =
-                placed ? packetPositionBox(player) : interpolationStartingLocation(player);
+        SimpleCollisionBox startingLocation = placed
+                ? GetBoundingBox.getPacketEntityBoundingBox(
+                        interpolationStart(), player, desyncClientPos.x, desyncClientPos.y, desyncClientPos.z, this)
+                : interpolationStartingLocation(player, interpolationStart());
         boolean ridingInVehicle = player.compensatedEntities.getSelf().inVehicle();
         ReachInterpolationData dropped = oldPacketLocation;
         this.oldPacketLocation = newPacketLocation;
@@ -334,13 +389,45 @@ public class PacketEntity {
             @Nullable Float pitch,
             CultPlayer player,
             boolean bundled) {
+        onPositionPath(
+                path,
+                hasPosition,
+                yaw != null,
+                yaw != null ? yaw : 0.0F,
+                pitch != null,
+                pitch != null ? pitch : 0.0F,
+                player,
+                bundled);
+    }
+
+    /** The yaw and pitch apply only when {@code hasRotation}. */
+    public void onPositionPath(
+            EntityPositionPath path,
+            boolean hasPosition,
+            boolean hasRotation,
+            float yaw,
+            float pitch,
+            CultPlayer player,
+            boolean bundled) {
+        onPositionPath(path, hasPosition, hasRotation, yaw, hasRotation, pitch, player, bundled);
+    }
+
+    private void onPositionPath(
+            EntityPositionPath path,
+            boolean hasPosition,
+            boolean hasYaw,
+            float yaw,
+            boolean hasPitch,
+            float pitch,
+            CultPlayer player,
+            boolean bundled) {
         if (hasPosition) desyncClientPos = path.endPosition();
         if (skipsInterpolation(player)) {
             setPositionRaw(
                     GetBoundingBox.getPacketEntityBoundingBox(
                             player, desyncClientPos.x, desyncClientPos.y, desyncClientPos.z, this),
-                    interpolationTargetYaw(yaw),
-                    interpolationTargetPitch(pitch));
+                    interpolationTargetYaw(hasYaw, yaw),
+                    interpolationTargetPitch(hasPitch, pitch));
             return;
         }
         if (living && (newPacketLocation == null || !newPacketLocation.usesSteppedInterpolation())) {
@@ -361,8 +448,8 @@ public class PacketEntity {
                     false);
         }
         if (newPacketLocation != null && newPacketLocation.usesSteppedInterpolation()) {
-            float targetYaw = interpolationTargetYaw(yaw);
-            float targetPitch = interpolationTargetPitch(pitch);
+            float targetYaw = interpolationTargetYaw(hasYaw, yaw);
+            float targetPitch = interpolationTargetPitch(hasPitch, pitch);
             EntityPositionPath actualPath = hasPosition
                     ? path
                     : EntityPositionPath.linear(
@@ -391,7 +478,9 @@ public class PacketEntity {
                     path.endPosition().x,
                     path.endPosition().y,
                     path.endPosition().z,
+                    hasYaw,
                     yaw,
+                    hasPitch,
                     pitch,
                     player);
         else
@@ -401,9 +490,12 @@ public class PacketEntity {
                     path.endPosition().x,
                     path.endPosition().y,
                     path.endPosition().z,
+                    hasYaw,
                     yaw,
+                    hasPitch,
                     pitch,
-                    player);
+                    player,
+                    true);
     }
 
     private void applyEntityPositionUpdate(boolean relative, boolean hasPos, double relX, double relY, double relZ) {
@@ -429,6 +521,44 @@ public class PacketEntity {
             @Nullable Float yaw,
             @Nullable Float pitch,
             CultPlayer player) {
+        onBundleTransaction(
+                relative,
+                hasPos,
+                relX,
+                relY,
+                relZ,
+                yaw != null,
+                yaw != null ? yaw : 0.0F,
+                pitch != null,
+                pitch != null ? pitch : 0.0F,
+                player);
+    }
+
+    /** The yaw and pitch apply only when {@code hasRotation}. */
+    public void onBundleTransaction(
+            boolean relative,
+            boolean hasPos,
+            double relX,
+            double relY,
+            double relZ,
+            boolean hasRotation,
+            float yaw,
+            float pitch,
+            CultPlayer player) {
+        onBundleTransaction(relative, hasPos, relX, relY, relZ, hasRotation, yaw, hasRotation, pitch, player);
+    }
+
+    private void onBundleTransaction(
+            boolean relative,
+            boolean hasPos,
+            double relX,
+            double relY,
+            double relZ,
+            boolean hasYaw,
+            float yaw,
+            boolean hasPitch,
+            float pitch,
+            CultPlayer player) {
         if (hasPos) {
             if (relative) {
                 desyncClientPos = PacketCodecUtil.decodeRelativeEntityPosition(desyncClientPos, relX, relY, relZ);
@@ -441,8 +571,8 @@ public class PacketEntity {
             return;
         }
 
-        float targetYaw = interpolationTargetYaw(yaw);
-        float targetPitch = interpolationTargetPitch(pitch);
+        float targetYaw = interpolationTargetYaw(hasYaw, yaw);
+        float targetPitch = interpolationTargetPitch(hasPitch, pitch);
         if (placedAtPacketPosition(player)) {
             // The client has handled the packet: setPos moves the physical position with the packet position, even
             // where local physics has carried it off an unchanged target. Delta movement is kept.
@@ -458,7 +588,7 @@ public class PacketEntity {
         this.oldPacketLocation = null;
         this.newPacketLocation = nextInterpolation(
                 player,
-                interpolationStartingLocation(player),
+                interpolationStartingLocation(player, interpolationStart()),
                 desyncClientPos.x,
                 desyncClientPos.y,
                 desyncClientPos.z,
@@ -473,7 +603,11 @@ public class PacketEntity {
     }
 
     private float interpolationTargetYaw(@Nullable Float yaw) {
-        if (yaw != null) {
+        return interpolationTargetYaw(yaw != null, yaw != null ? yaw : 0.0F);
+    }
+
+    private float interpolationTargetYaw(boolean hasYaw, float yaw) {
+        if (hasYaw) {
             return yaw;
         }
         return newPacketLocation != null && newPacketLocation.hasActiveInterpolationTarget()
@@ -482,7 +616,11 @@ public class PacketEntity {
     }
 
     private float interpolationTargetPitch(@Nullable Float pitch) {
-        if (pitch != null) {
+        return interpolationTargetPitch(pitch != null, pitch != null ? pitch : 0.0F);
+    }
+
+    private float interpolationTargetPitch(boolean hasPitch, float pitch) {
+        if (hasPitch) {
             return pitch;
         }
         return newPacketLocation != null && newPacketLocation.hasActiveInterpolationTarget()
@@ -572,15 +710,25 @@ public class PacketEntity {
     }
 
     private SimpleCollisionBox interpolationStartingLocation(CultPlayer player) {
+        return interpolationStartingLocation(player, new SimpleCollisionBox());
+    }
+
+    private SimpleCollisionBox interpolationStartingLocation(CultPlayer player, SimpleCollisionBox out) {
         if (hasUsableMountedPhysicalPosition(player)) {
             return GetBoundingBox.getPacketEntityBoundingBox(
-                    player, clientPhysicalPosition.x, clientPhysicalPosition.y, clientPhysicalPosition.z, this);
+                    out, player, clientPhysicalPosition.x, clientPhysicalPosition.y, clientPhysicalPosition.z, this);
         }
 
         return newPacketLocation == null
                 ? GetBoundingBox.getPacketEntityBoundingBox(
-                        player, desyncClientPos.x, desyncClientPos.y, desyncClientPos.z, this)
-                : newPacketLocation.getPossibleMovementLocationCombined();
+                        out, player, desyncClientPos.x, desyncClientPos.y, desyncClientPos.z, this)
+                : newPacketLocation.getPossibleMovementLocationCombined(out);
+    }
+
+    /** Scratch for the starting location {@link #nextInterpolation} copies; nothing else holds it. */
+    private SimpleCollisionBox interpolationStart() {
+        if (interpolationStart == null) interpolationStart = new SimpleCollisionBox();
+        return interpolationStart;
     }
 
     public void onBundledPositionSyncTransaction(double x, double y, double z, CultPlayer player) {
@@ -598,6 +746,12 @@ public class PacketEntity {
         onBundleTransaction(false, true, x, y, z, yaw, pitch, player);
     }
 
+    /** The yaw and pitch apply only when {@code hasRotation}. */
+    public void onBundledPositionSyncTransaction(
+            double x, double y, double z, boolean hasRotation, float yaw, float pitch, CultPlayer player) {
+        onBundleTransaction(false, true, x, y, z, hasRotation, yaw, hasRotation, pitch, player);
+    }
+
     // Remove the possibility of the old packet location
     public void onSecondTransaction() {
         ReachInterpolationData dropped = oldPacketLocation;
@@ -613,7 +767,10 @@ public class PacketEntity {
         spareInterpolation = dropped;
     }
 
-    /** {@link ReachInterpolationData#takingStart}, restarting the spare snapshot when there is one. */
+    /**
+     * {@link ReachInterpolationData#takingStart} on a copy of {@code startingLocation}, restarting the spare snapshot
+     * when there is one.
+     */
     private ReachInterpolationData nextInterpolation(
             CultPlayer player,
             SimpleCollisionBox startingLocation,
@@ -646,7 +803,7 @@ public class PacketEntity {
         }
         return ReachInterpolationData.takingStart(
                 player,
-                startingLocation,
+                startingLocation.copy(),
                 x,
                 y,
                 z,
@@ -1220,10 +1377,14 @@ public class PacketEntity {
     }
 
     public SimpleCollisionBox getPossibleCollisionBoxes() {
-        return getPossibleCollisionBoxes(new SimpleCollisionBox(), new SimpleCollisionBox());
+        return getPossibleCollisionBoxes(
+                new SimpleCollisionBox(), oldPacketLocation == null ? null : new SimpleCollisionBox());
     }
 
-    /** The bounds of {@link #getPossibleCollisionBoxes()} in {@code out}; {@code scratch} must be distinct. */
+    /**
+     * The bounds of {@link #getPossibleCollisionBoxes()} in {@code out}. {@code scratch} must be distinct; it is read only
+     * when an old location exists and may otherwise be null.
+     */
     public SimpleCollisionBox getPossibleCollisionBoxes(SimpleCollisionBox out, SimpleCollisionBox scratch) {
         if (passengerPhysicalBox != null && riding != null) return out.set(passengerPhysicalBox);
         newPacketLocation.getPossibleLocationCombined(out);
@@ -1233,10 +1394,14 @@ public class PacketEntity {
     }
 
     public SimpleCollisionBox getPossibleMovementCollisionBoxes() {
-        return getPossibleMovementCollisionBoxes(new SimpleCollisionBox(), new SimpleCollisionBox());
+        return getPossibleMovementCollisionBoxes(
+                new SimpleCollisionBox(), oldPacketLocation == null ? null : new SimpleCollisionBox());
     }
 
-    /** The bounds of {@link #getPossibleMovementCollisionBoxes()} in {@code out}; {@code scratch} must be distinct. */
+    /**
+     * The bounds of {@link #getPossibleMovementCollisionBoxes()} in {@code out}. {@code scratch} must be distinct; it is read only
+     * when an old location exists and may otherwise be null.
+     */
     public SimpleCollisionBox getPossibleMovementCollisionBoxes(SimpleCollisionBox out, SimpleCollisionBox scratch) {
         if (passengerPhysicalBox != null && riding != null) return out.set(passengerPhysicalBox);
         newPacketLocation.getPossibleMovementLocationCombined(out);

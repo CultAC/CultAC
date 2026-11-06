@@ -236,32 +236,6 @@ class CloudHistoryTest {
     }
 
     @Test
-    void aSummaryCountsOnlyEngineChecks() {
-        Session session = new Session(
-                new UUID(1, 0),
-                NEWEST_START,
-                null,
-                "",
-                NEWEST_START + 60_000,
-                "server-0",
-                "Steve",
-                "vanilla",
-                773,
-                "2.1.0",
-                9,
-                List.of(
-                        new Check("engine", "Reach", 3, 4.0, NEWEST_START, NEWEST_START),
-                        new Check("engine", "Timer", 2, 5.0, NEWEST_START, NEWEST_START),
-                        new Check("cloud-check", "Reach", 3, 0.9, NEWEST_START, NEWEST_START),
-                        new Check("cloud-model", "killaura", 1, 0.5, NEWEST_START, NEWEST_START)));
-
-        SessionSummary summary = CloudHistory.summary(PLAYER, session, 1);
-
-        assertEquals(5, summary.violationCount());
-        assertEquals(2, summary.uniqueCheckCount());
-    }
-
-    @Test
     void aSessionIsFoundByOrdinalOrLatest() throws Exception {
         Cloud cloud = new Cloud(120);
 
@@ -312,7 +286,7 @@ class CloudHistoryTest {
         List<Finding> findings = new ArrayList<>();
         for (int i = 0; i < 1200; i++) {
             String check = i % 2 == 0 ? "Reach" : "killaura";
-            String source = i % 2 == 0 ? CloudHistory.ENGINE : CloudHistory.CLOUD_MODEL;
+            String source = i % 2 == 0 ? "engine" : "heuristic";
             findings.add(new Finding(session.started() + i * 1000L, i, source, check, i / 10.0, "d" + i));
         }
         cloud.findings.put(session.id(), findings);
@@ -324,8 +298,9 @@ class CloudHistoryTest {
         SessionDetail detail = shown.detail();
         assertEquals(1200, detail.violations().size());
         ViolationEntry third = detail.violations().get(3);
-        assertEquals("killaura (cloud model)", third.displayName());
-        assertEquals("cloud-model", third.description());
+        assertEquals("killaura", third.displayName());
+        assertEquals("heuristic:killaura", third.stableKey());
+        assertEquals("heuristic", third.description());
         assertEquals(3000, third.offsetFromSessionStartMs());
         assertEquals(0.3, third.vl(), 1e-9);
         assertEquals("d3", third.verbose());
@@ -340,39 +315,6 @@ class CloudHistoryTest {
                         "findings " + session.id() + " 500 500",
                         "findings " + session.id() + " 1000 500"),
                 cloud.calls.stream().filter(call -> call.startsWith("findings")).toList());
-    }
-
-    @Test
-    void theCloudsDetectionsAreLabelledAndCountApartFromEngineChecks() throws Exception {
-        Cloud cloud = new Cloud(1);
-        Session session = cloud.at(0);
-        cloud.findings.put(
-                session.id(),
-                List.of(
-                        new Finding(session.started(), 0, "engine", "Reach", 3.0, "distance=3.4"),
-                        new Finding(session.started() + 1, 0, "cloud-check", "Reach", 0.9, ""),
-                        new Finding(session.started() + 2, 0, "cloud-model", "killaura", 0.5, ""),
-                        new Finding(session.started() + 3, 0, "heuristic", "Reach", 0.25, "")));
-
-        SessionDetail detail =
-                CloudHistory.detail(cloud, PLAYER, "latest", 30_000, null).get().detail();
-
-        List<ViolationEntry> violations = detail.violations();
-        assertEquals(
-                List.of("Reach", "Reach (cloud check)", "killaura (cloud model)", "Reach (cloud check)"),
-                violations.stream().map(ViolationEntry::displayName).toList());
-        assertEquals(
-                List.of("engine", "cloud-check", "cloud-model", "heuristic"),
-                violations.stream().map(ViolationEntry::description).toList());
-        assertEquals(
-                List.of(false, true, true, true),
-                violations.stream().map(CloudHistory::isDetection).toList());
-        assertEquals(3, detail.uniqueCheckCount());
-        assertEquals(
-                List.of("Reach x1", "Reach (cloud check) x2", "killaura (cloud model) x1"),
-                detail.buckets().get(0).checks().stream()
-                        .map(check -> check.displayName() + " x" + check.count())
-                        .toList());
     }
 
     @Test
@@ -429,15 +371,13 @@ class CloudHistoryTest {
             assertTrue(answered.local.get(), failure.toString());
             assertNote(answered.sent.get(0), CloudHistory.UNAVAILABLE, NamedTextColor.GRAY);
         }
-        for (int status : new int[] {401, 403}) {
-            Cloud cloud = new Cloud(3);
-            cloud.findingsFailures.put(cloud.at(2).id(), new HistoryClient.Failure(status, "HTTP " + status));
+        Cloud refused = new Cloud(3);
+        refused.findingsFailures.put(refused.at(2).id(), new HistoryClient.Failure(401, "HTTP 401"));
 
-            Answered answered = answer(cloud, violation -> true);
+        Answered answered = answer(refused, violation -> true);
 
-            assertTrue(answered.local.get());
-            assertNote(answered.sent.get(0), CloudHistory.REFUSED, NamedTextColor.RED);
-        }
+        assertTrue(answered.local.get());
+        assertNote(answered.sent.get(0), CloudHistory.REFUSED, NamedTextColor.RED);
     }
 
     @Test
@@ -463,15 +403,24 @@ class CloudHistoryTest {
 
     @Test
     void aRefusedKeyIsToldAndFallsBackToThisServer() {
-        for (int status : new int[] {401, 403}) {
-            Cloud cloud = new Cloud(3);
-            cloud.sessionsFailure = new HistoryClient.Failure(status, "HTTP " + status);
+        Cloud cloud = new Cloud(3);
+        cloud.sessionsFailure = new HistoryClient.Failure(401, "HTTP 401");
 
-            Answered answered = answer(cloud, null);
+        Answered answered = answer(cloud, null);
 
-            assertTrue(answered.local.get());
-            assertNote(answered.sent.get(0), CloudHistory.REFUSED, NamedTextColor.RED);
-        }
+        assertTrue(answered.local.get());
+        assertNote(answered.sent.get(0), CloudHistory.REFUSED, NamedTextColor.RED);
+    }
+
+    @Test
+    void aForbiddenHistoryIsToldNeutrallyAndFallsBackToThisServer() {
+        Cloud cloud = new Cloud(3);
+        cloud.sessionsFailure = new HistoryClient.Failure(403, "HTTP 403");
+
+        Answered answered = answer(cloud, null);
+
+        assertTrue(answered.local.get());
+        assertNote(answered.sent.get(0), CloudHistory.UNAVAILABLE, NamedTextColor.GRAY);
     }
 
     @Test
@@ -535,10 +484,10 @@ class CloudHistoryTest {
             assertTrue(detail.contains("Cult: " + HOSTILE_VERSION + ", Server: " + HOSTILE_SERVER), detail);
             assertTrue(detail.contains("Brand: " + HOSTILE_BRAND), detail);
             assertTrue(detail.contains("- " + HOSTILE_CHECK + " (1s) " + HOSTILE_DETAIL), detail);
-            assertTrue(detail.contains("- Fly (cloud check) (2s) &aok"), detail);
-            assertTrue(detail.contains("Fly (cloud check) — " + HOSTILE_SOURCE), detail);
+            assertTrue(detail.contains("- Fly (2s) &aok"), detail);
+            assertTrue(detail.contains("Fly — " + HOSTILE_SOURCE), detail);
             String groups = text(grouped);
-            assertTrue(groups.contains("- " + HOSTILE_CHECK + " x1, Fly (cloud check) x1 (0s)"), groups);
+            assertTrue(groups.contains("- " + HOSTILE_CHECK + " x1, Fly x1 (0s)"), groups);
             assertTrue(groups.contains(HOSTILE_CHECK + " — engine — " + HOSTILE_DETAIL), groups);
             assertFalse(clickCommands(list).isEmpty());
             for (List<Component> lines : List.of(list, rows, grouped)) {
@@ -546,29 +495,6 @@ class CloudHistoryTest {
                     assertFalse(command.contains("/op"), command);
                 }
             }
-        }
-    }
-
-    @Test
-    void aCloudDetectionShowsAConfidenceAndAnEngineFindingItsLevel() throws Exception {
-        Cloud cloud = new Cloud(1);
-        Session session = cloud.at(0);
-        cloud.findings.put(
-                session.id(),
-                List.of(
-                        new Finding(session.started(), 0, "engine", "Reach", 3.0, "distance=3.4"),
-                        new Finding(session.started() + 1, 0, "cloud-model", "Reach", 0.876, "")));
-
-        try (AutoCloseable messages = shippedMessages()) {
-            List<Component> rows = render(
-                    CloudHistory.detail(cloud, PLAYER, "latest", 30_000, null).get(), true);
-
-            assertEquals("Reach — engine\n@ 0s — vl 3.0\ndistance=3.4", hover(rows.get(4)));
-            assertEquals("Reach (cloud model) — cloud-model\n@ 0s — confidence 0.88", hover(rows.get(5)));
-            String grouped = text(render(
-                    CloudHistory.detail(cloud, PLAYER, "latest", 30_000, null).get(), false));
-            assertTrue(grouped.contains("cloud-model") && grouped.contains("confidence 0.88"), grouped);
-            assertFalse(grouped.contains("confidence 3.0"), grouped);
         }
     }
 
@@ -648,12 +574,6 @@ class CloudHistoryTest {
 
     private static String plain(Component component) {
         return PlainTextComponentSerializer.plainText().serialize(component);
-    }
-
-    private static String hover(Component line) {
-        HoverEvent<?> hover = line.hoverEvent();
-        assertNotNull(hover);
-        return plain((Component) hover.value());
     }
 
     /** Every line's text, then the text of every hover in it, one per line. */

@@ -38,10 +38,6 @@ public final class BedrockBlockSurfaceMovement {
                         physicalFeetPosition, blockCollisionWorld, playerDimensions));
     }
 
-    public static Vec3d applyKnownStandingSlowdownAfterMove(Vec3d currentVelocity) {
-        return standingSlowdownVelocity(currentVelocity);
-    }
-
     public static Vec3d applyInsideBlockAfterPostMoveEffects(
             Vec3d currentVelocity,
             HoneySlideState honeySlideState,

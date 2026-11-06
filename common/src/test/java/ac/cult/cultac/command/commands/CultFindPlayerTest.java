@@ -17,6 +17,8 @@ import ac.cult.cultac.network.routing.TestNetworks.Players;
 import ac.cult.cultac.platform.api.sender.Sender;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
@@ -78,6 +80,11 @@ class CultFindPlayerTest {
                 .toList();
     }
 
+    private List<String> runAfterCooldown(String line) {
+        networks.advance(2000);
+        return run(line);
+    }
+
     private List<String> suggest(String input) {
         return manager.suggestionFactory().suggestImmediately(sender, input).list().stream()
                 .map(Suggestion::suggestion)
@@ -100,7 +107,7 @@ class CultFindPlayerTest {
                         "» unknown (1)"),
                 run("cult findplayer"));
         assertEquals(ClickEvent.runCommand("/cult findplayer brand=vanilla"), click(1));
-        assertEquals(ClickEvent.runCommand("/cult findplayer brand=Fabric Loader"), click(2));
+        assertEquals(ClickEvent.runCommand("/cult findplayer brand=\"Fabric Loader\""), click(2));
         assertEquals(ClickEvent.runCommand("/cult findplayer brand=unknown"), click(4));
         assertEquals(run("cult findplayer"), run("cult findplayer brand="));
     }
@@ -120,7 +127,24 @@ class CultFindPlayerTest {
                 List.of(
                         "Cult » Players whose brand contains fabric lo · 1 online",
                         "» Carl on survival · Fabric Loader"),
-                run("cult findplayer BRAND=fabric lo"));
+                runAfterCooldown("cult findplayer BRAND=fabric lo"));
+    }
+
+    @Test
+    void combinedFiltersShowTheValuesReturnedByTheOtherProxy() {
+        TestNetworks.install(networks.service("p3").platform(here).start());
+        var peer = networks.service("p7").platform(onP7).start();
+        peer.searchDetails(
+                uuid -> Map.of("mod", List.of("Replay Mod"), "sens", List.of("50"), "platform", List.of("java")));
+        try {
+            List<String> lines = run("cult findplayer mod=Replay sens=50 server=survival");
+            assertEquals(2, lines.size());
+            assertTrue(lines.getFirst().contains("Players matching mod=Replay sens=50 server=survival"));
+            assertTrue(lines.get(1).contains("Carl on survival"));
+            assertTrue(lines.get(1).contains("mod=Replay Mod; sens=50; server=survival"));
+        } finally {
+            networks.stop(peer);
+        }
     }
 
     @Test
@@ -183,9 +207,7 @@ class CultFindPlayerTest {
     @Test
     void tabCompletionOffersTheFilterWithEachBrandOnline() {
         networked();
-        assertEquals(
-                List.of("brand=vanilla", "brand=Fabric Loader", "brand=lunarclient:1.8.9", "brand=unknown"),
-                suggest("cult findplayer "));
+        assertTrue(suggest("cult findplayer ").containsAll(List.of("brand=", "ping=", "mod=", "platform=")));
         assertEquals(List.of("brand=lunarclient:1.8.9"), suggest("cult findplayer brand=LU"));
     }
 
@@ -196,5 +218,27 @@ class CultFindPlayerTest {
         assertEquals(List.of(), run("cult findplayer"));
         when(sender.hasPermission(CultFindPlayer.PERMISSION)).thenReturn(true);
         assertEquals(5, run("cult findplayer").size());
+    }
+
+    @Test
+    void repeatedSearchAsksSenderToWait() {
+        networked();
+        run("cult findplayer brand=vanilla");
+        assertTrue(run("cult findplayer brand=vanilla").getFirst().contains("wait a moment"));
+    }
+
+    @Test
+    void summaryLinksPreserveQuotedBrands() {
+        here.with(UUID.randomUUID(), "Quoted", null, "Client bogus=test \"quoted\" \\ path");
+        networked();
+        run("cult findplayer");
+        String command = sent.stream()
+                .map(Component::clickEvent)
+                .filter(Objects::nonNull)
+                .map(event -> ((ClickEvent.Payload.Text) event.payload()).value())
+                .filter(value -> value.contains("bogus"))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(run(command.substring(1)).stream().anyMatch(line -> line.contains("Quoted")));
     }
 }

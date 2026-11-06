@@ -144,62 +144,47 @@ public class CultHistory implements BuildableCommand {
             return b.required("target", StringParser.stringParser(), targetSuggestions);
         };
 
-        // handleSessionHelp echoes whichever prefix was used.
-        final boolean viaPlayer = withPlayerLiteral;
-
         // List, page 1
-        commandManager.command(applyFilterFlags(commandManager, base.get()).handler(this::handleListPage1));
+        commandManager.command(applyFilterFlags(commandManager, base.get()).handler(this::handleList));
         // List, page N
         commandManager.command(applyFilterFlags(
                         commandManager,
                         base.get()
                                 .literal("page")
                                 .required("page_number", IntegerParser.integerParser(1), listPageNumberSuggestions))
-                .handler(this::handleListPageN));
+                .handler(this::handleList));
         // Help branch on bare 'session' — Cloud would otherwise reject with
         // a parse error that reads like a syntax mistake, not a hint.
-        commandManager.command(base.get().literal("session").handler(ctx -> handleSessionHelp(ctx, viaPlayer)));
-        // 'session' literal at the same tree slot as 'page'; session-ordinal is
-        // String so it accepts 'latest' / 'last' / 'l' alongside integers.
-        commandManager.command(applyFilterFlags(
+        commandManager.command(base.get().literal("session").handler(ctx -> handleSessionHelp(ctx, withPlayerLiteral)));
+        // Each branch starts with a fresh builder; sibling flags must stay independent.
+        Supplier<Command.Builder<Sender>> session = () -> base.get()
+                .literal("session")
+                .required("session", StringParser.stringParser(), sessionOrdinalSuggestions);
+        commandManager.command(applyDetailFlags(commandManager, session.get()).handler(this::handleDetail));
+        commandManager.command(applyDetailFlags(
                         commandManager,
-                        base.get()
-                                .literal("session")
-                                .required("session", StringParser.stringParser(), sessionOrdinalSuggestions)
-                                .flag(commandManager
-                                        .flagBuilder("detailed")
-                                        .withAliases("d")
-                                        .withDescription(Description.of(
-                                                "Show each violation as its own row instead of time-bucketed groups.")))
-                                .flag(
-                                        commandManager
-                                                .flagBuilder("verbose")
-                                                .withAliases("v")
-                                                .withDescription(
-                                                        Description.of(
-                                                                "Include the raw verbose text inline on each line (also always available on hover)."))))
-                .handler(this::handleDetailDefaultPage));
-        // Detail, violation page N
-        commandManager.command(applyFilterFlags(
-                        commandManager,
-                        base.get()
-                                .literal("session")
-                                .required("session", StringParser.stringParser(), sessionOrdinalSuggestions)
+                        session.get()
                                 .literal("page")
-                                .required("page_number", IntegerParser.integerParser(1), violationPageSuggestions)
-                                .flag(commandManager
-                                        .flagBuilder("detailed")
-                                        .withAliases("d")
-                                        .withDescription(Description.of(
-                                                "Show each violation as its own row instead of time-bucketed groups.")))
-                                .flag(
-                                        commandManager
-                                                .flagBuilder("verbose")
-                                                .withAliases("v")
-                                                .withDescription(
-                                                        Description.of(
-                                                                "Include the raw verbose text inline on each line (also always available on hover)."))))
-                .handler(this::handleDetailPageN));
+                                .required("page_number", IntegerParser.integerParser(1), violationPageSuggestions))
+                .handler(this::handleDetail));
+    }
+
+    private static Command.Builder<Sender> applyDetailFlags(
+            CommandManager<Sender> commandManager, Command.Builder<Sender> builder) {
+        return applyFilterFlags(
+                commandManager,
+                builder.flag(commandManager
+                                .flagBuilder("detailed")
+                                .withAliases("d")
+                                .withDescription(Description.of(
+                                        "Show each violation as its own row instead of time-bucketed groups.")))
+                        .flag(
+                                commandManager
+                                        .flagBuilder("verbose")
+                                        .withAliases("v")
+                                        .withDescription(
+                                                Description.of(
+                                                        "Include the raw verbose text inline on each line (also always available on hover)."))));
     }
 
     /** Attach the {@code --name} / {@code --match} / {@code --grep} regex flags. */
@@ -221,23 +206,10 @@ public class CultHistory implements BuildableCommand {
                                 "Filter to violations whose display name OR verbose text matches this regex.")));
     }
 
-    private void handleListPage1(CommandContext<Sender> context) {
+    private void handleList(CommandContext<Sender> context) {
         Sender sender = context.sender();
         String target = context.get("target");
-        Predicate<ViolationEntry> filter = parseFilterFromContext(sender, context);
-        if (filter == FILTER_ERROR) return;
-        runWithPrelude(
-                sender,
-                target,
-                (uuid, displayName, lifecycle, history) ->
-                        renderList(sender, lifecycle, history, uuid, displayName, 1, filter),
-                (source, uuid, displayName) -> renderCloudList(sender, source, uuid, displayName, 1, filter));
-    }
-
-    private void handleListPageN(CommandContext<Sender> context) {
-        Sender sender = context.sender();
-        String target = context.get("target");
-        int page = context.<Integer>get("page_number");
+        int page = context.getOrDefault("page_number", 1);
         Predicate<ViolationEntry> filter = parseFilterFromContext(sender, context);
         if (filter == FILTER_ERROR) return;
         runWithPrelude(
@@ -248,46 +220,11 @@ public class CultHistory implements BuildableCommand {
                 (source, uuid, displayName) -> renderCloudList(sender, source, uuid, displayName, page, filter));
     }
 
-    private void handleDetailDefaultPage(CommandContext<Sender> context) {
+    private void handleDetail(CommandContext<Sender> context) {
         Sender sender = context.sender();
         String target = context.get("target");
         String sessionRaw = context.get("session");
-        boolean detailed = context.flags().hasFlag("detailed");
-        boolean verbose = context.flags().hasFlag("verbose");
-        Predicate<ViolationEntry> filter = parseFilterFromContext(sender, context);
-        if (filter == FILTER_ERROR) return;
-        runWithPrelude(
-                sender,
-                target,
-                (uuid, displayName, lifecycle, history) -> {
-                    Integer ordinal = resolveSessionOrdinal(sessionRaw, uuid, history);
-                    if (ordinal == null) {
-                        return List.of(message(
-                                "cult-history-session-not-found",
-                                "%prefix% &cSession &f%ordinal%&c not found for &f%player%&c.",
-                                Map.of("player", displayName, "ordinal", sessionRaw)));
-                    }
-                    return renderDetail(
-                            sender,
-                            lifecycle,
-                            history,
-                            uuid,
-                            displayName,
-                            ordinal,
-                            detailed,
-                            verbose, /*pageArg*/
-                            null,
-                            filter);
-                },
-                (source, uuid, displayName) -> renderCloudDetail(
-                        sender, source, uuid, displayName, sessionRaw, detailed, verbose, null, filter));
-    }
-
-    private void handleDetailPageN(CommandContext<Sender> context) {
-        Sender sender = context.sender();
-        String target = context.get("target");
-        String sessionRaw = context.get("session");
-        int page = context.<Integer>get("page_number");
+        Integer page = context.getOrDefault("page_number", null);
         boolean detailed = context.flags().hasFlag("detailed");
         boolean verbose = context.flags().hasFlag("verbose");
         Predicate<ViolationEntry> filter = parseFilterFromContext(sender, context);
@@ -1028,7 +965,8 @@ public class CultHistory implements BuildableCommand {
 
     /** Whether history commands answer from the cloud, whose counts suggestions cannot ask for. */
     private static boolean readsFromCloud() {
-        return HistoryClient.configured() != null;
+        HistoryClient client = HistoryClient.configured();
+        return client != null && !client.refused();
     }
 
     private static @Nullable UUID resolveTargetUuid(CommandContext<Sender> ctx) {

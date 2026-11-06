@@ -59,6 +59,10 @@ tasks.shadowJar {
         exclude(dependency("org.slf4j:slf4j-api:.*"))
     }
 
+    // Velocity plugins share class lookups, and some (LiteBans) read org.bukkit.entity.Player as running on Bukkit.
+    // GrimAPI needs the shim only to build its proxies here, and the runtime jar never resolves it on Velocity.
+    relocate("org.bukkit.entity.Player", "ac.cult.velocity.shim.bukkit.Player")
+
     mergeServiceFiles()
     exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
     exclude("META-INF/services/javax.annotation.processing.Processor")

@@ -65,14 +65,15 @@ final class ExactFraction implements Comparable<ExactFraction> {
         if (signum() == 0) return other;
         if (other.signum() == 0) return this;
         BigInteger common = gcd(denominator, other.denominator);
-        BigInteger left = denominator.divide(common);
-        BigInteger right = other.denominator.divide(common);
+        BigInteger left = exactQuotient(denominator, common);
+        BigInteger right = exactQuotient(other.denominator, common);
         BigInteger sum = numerator.multiply(right).add(other.numerator.multiply(left));
         if (sum.signum() == 0) return ZERO;
         // Only the shared denominator factor can divide this sum: the inputs
         // were already reduced. Avoid building and reducing the full product.
         BigInteger reduction = gcd(sum, common);
-        return new ExactFraction(sum.divide(reduction), left.multiply(other.denominator.divide(reduction)));
+        return new ExactFraction(
+                exactQuotient(sum, reduction), left.multiply(exactQuotient(other.denominator, reduction)));
     }
 
     ExactFraction subtract(ExactFraction other) {
@@ -86,8 +87,8 @@ final class ExactFraction implements Comparable<ExactFraction> {
         BigInteger left = gcd(numerator, other.denominator);
         BigInteger right = gcd(other.numerator, denominator);
         return new ExactFraction(
-                numerator.divide(left).multiply(other.numerator.divide(right)),
-                denominator.divide(right).multiply(other.denominator.divide(left)));
+                exactQuotient(numerator, left).multiply(exactQuotient(other.numerator, right)),
+                exactQuotient(denominator, right).multiply(exactQuotient(other.denominator, left)));
     }
 
     ExactFraction divide(ExactFraction other) {
@@ -96,8 +97,8 @@ final class ExactFraction implements Comparable<ExactFraction> {
         if (other == ONE) return this;
         BigInteger left = numerator.gcd(other.numerator);
         BigInteger right = gcd(other.denominator, denominator);
-        BigInteger top = numerator.divide(left).multiply(other.denominator.divide(right));
-        BigInteger bottom = denominator.divide(right).multiply(other.numerator.divide(left));
+        BigInteger top = exactQuotient(numerator, left).multiply(exactQuotient(other.denominator, right));
+        BigInteger bottom = exactQuotient(denominator, right).multiply(exactQuotient(other.numerator, left));
         return bottom.signum() < 0 ? new ExactFraction(top.negate(), bottom.negate()) : new ExactFraction(top, bottom);
     }
 
@@ -121,6 +122,14 @@ final class ExactFraction implements Comparable<ExactFraction> {
             return common == shift ? positive : BigInteger.ONE.shiftLeft(common);
         }
         return value.gcd(positive);
+    }
+
+    /** {@code value.divide(divisor)} for a positive divisor that divides {@code value}. */
+    private static BigInteger exactQuotient(BigInteger value, BigInteger divisor) {
+        int shift = divisor.getLowestSetBit();
+        return divisor.signum() > 0 && divisor.bitLength() == shift + 1
+                ? value.shiftRight(shift)
+                : value.divide(divisor);
     }
 
     int signum() {

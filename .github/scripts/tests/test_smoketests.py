@@ -13,6 +13,9 @@ ROOT = SCRIPTS.parents[1]
 spec = importlib.util.spec_from_file_location('collector', SCRIPTS / 'collect-smoketest-artifacts.py')
 collector = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(collector)
+spec = importlib.util.spec_from_file_location('egress', SCRIPTS / 'egress-proxy.py')
+egress = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(egress)
 
 
 class SmoketestTests(unittest.TestCase):
@@ -101,12 +104,62 @@ print('::set-env name=EVIL::malicious output')
             self.assertNotIn(forbidden, '\n'.join(args))
         self.assertIn('--read-only', args)
         self.assertIn('--network=none', args)
+        self.assertIn('/tmp:rw,exec,nosuid,size=1g', args)
         self.assertIn('--cap-drop=ALL', args)
         self.assertIn('--security-opt=no-new-privileges:true', args)
         lines = result.stdout.splitlines()
         marker = lines[0].removeprefix('::stop-commands::')
         self.assertEqual(len(marker), 64)
         self.assertEqual(lines[-1], f'::{marker}::')
+
+    def test_bedrock_sandbox_leaves_only_through_the_egress_proxy(self):
+        workspace, home, runner = [self.root / name for name in ('workspace', 'home', 'runner')]
+        runner.mkdir()
+        (workspace / 'ci/.github').mkdir(parents=True)
+        shutil.copytree(SCRIPTS, workspace / 'ci/.github/scripts')
+        (workspace / 'ci/scripts/smoketests').mkdir(parents=True)
+        (workspace / 'ci/scripts/smoketests/bedrock-replay-runtime.json').write_text('{}')
+        for name in ('cultac', 'replay', 'scenarios'):
+            (workspace / name).mkdir()
+        (home / '.gradle').mkdir(parents=True)
+        calls, output = self.root / 'docker-calls.jsonl', self.root / 'outputs'
+        fake_bin = self.root / 'bin'
+        self.executable(fake_bin / 'docker', f'''#!/usr/bin/env python3
+import json, sys
+with open({str(calls)!r}, 'a') as stream:
+    stream.write(json.dumps(sys.argv[1:]) + '\\n')
+''')
+        env = dict(os.environ, PATH=f'{fake_bin}:{os.environ["PATH"]}', HOME=str(home),
+                   GITHUB_WORKSPACE=str(workspace), RUNNER_TEMP=str(runner), GITHUB_OUTPUT=str(output))
+        subprocess.run(['bash', str(SCRIPTS / 'run-smoketest-container.sh'), 'bedrock'],
+                       env=env, cwd=self.root, capture_output=True, text=True, check=True)
+        invocations = [json.loads(line) for line in calls.read_text().splitlines()]
+        network = next(args for args in invocations if args[:2] == ['network', 'create'])
+        self.assertEqual(network[2], '--internal')
+        name = network[3]
+        proxy = next(args for args in invocations if args[0] == 'run' and '-d' in args)
+        sandbox = next(args for args in invocations if args[0] == 'run' and '-d' not in args)
+        for args in (proxy, sandbox):
+            self.assertIn('--read-only', args)
+            self.assertIn('--cap-drop=ALL', args)
+            self.assertIn('--security-opt=no-new-privileges:true', args)
+            self.assertNotIn('--network=host', args)
+            self.assertNotIn('--privileged', args)
+        self.assertEqual(proxy[proxy.index('--name') + 1], name)
+        self.assertEqual(proxy[-5:], ['cultac-smoketest', 'python3', '-I', '/egress-proxy.py', '3128'])
+        self.assertIn(['network', 'connect', name, name], invocations)
+        self.assertEqual(sandbox[sandbox.index('--network') + 1], name)
+        self.assertIn(f'CULTAC_EGRESS_PROXY={name}:3128', sandbox)
+        self.assertIn(['rm', '-f', name], invocations)
+        self.assertIn(['network', 'rm', name], invocations)
+
+    def test_egress_proxy_allows_only_https_to_the_runtime_services(self):
+        for host in ('client.discovery.minecraft-services.net', 'authorization.franchise.minecraft-services.net',
+                     'piston-data.mojang.com', 'MOJANG.COM.'):
+            self.assertTrue(egress.allowed(host, '443'), host)
+        for host, port in (('piston-data.mojang.com', '80'), ('evilmojang.com', '443'),
+                           ('mojang.com.example.org', '443'), ('github.com', '443'), ('127.0.0.1', '443')):
+            self.assertFalse(egress.allowed(host, port), host)
 
     def test_only_reach_and_dedup_run_and_failure_does_not_skip_reach(self):
         (self.root / 'cultac').mkdir()
@@ -144,8 +197,9 @@ mkdir -p cultac/bukkit/build/libs
 touch cultac/bukkit/build/libs/CultAC-paper.jar
 ''')
         self.executable(self.root / 'replay/scripts/run-movement-regressions.py', '''#!/usr/bin/env python3
-import json, pathlib, sys
+import json, os, pathlib, sys
 pathlib.Path('replay-args.json').write_text(json.dumps(sys.argv[1:]))
+pathlib.Path('replay-java-options.txt').write_text(os.environ.get('JAVA_TOOL_OPTIONS', ''))
 ''')
         fake_bin = self.root / 'bin'
         self.executable(fake_bin / 'git', '#!/usr/bin/env bash\nprintf "%040d\\n" 1\n')
@@ -159,6 +213,14 @@ pathlib.Path('replay-args.json').write_text(json.dumps(sys.argv[1:]))
             '--server-dir', 'server', '--artifacts', 'artifacts', '--seed', '42',
             '--replay-runtime-lock', 'replay/.ci-runtime-offline.json',
         ])
+        self.assertEqual((self.root / 'replay-java-options.txt').read_text(), '')
+        env.update(CULTAC_EGRESS_PROXY='cultac-egress-test:3128', JAVA_TOOL_OPTIONS='-Duser.home=/home/runner')
+        subprocess.run(['bash', str(SCRIPTS / 'run-selected-smoketests.sh'), 'bedrock'],
+                       env=env, cwd=self.root, capture_output=True, text=True, check=True)
+        self.assertEqual(json.loads((self.root / 'replay-args.json').read_text()), args)
+        self.assertEqual((self.root / 'replay-java-options.txt').read_text(),
+                         '-Duser.home=/home/runner -Dhttp.proxyHost=cultac-egress-test -Dhttp.proxyPort=3128'
+                         ' -Dhttps.proxyHost=cultac-egress-test -Dhttps.proxyPort=3128')
 
     def test_workflow_trust_order_and_branch_filters(self):
         import yaml

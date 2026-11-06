@@ -8,6 +8,7 @@ import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.cultac.utils.floodgate.GeyserUtil;
+import java.util.concurrent.CompletableFuture;
 import net.kyori.adventure.text.Component;
 import org.incendo.cloud.CommandManager;
 import org.incendo.cloud.context.CommandContext;
@@ -22,20 +23,21 @@ public final class CultGeyserPacketLog implements BuildableCommand {
                 .permission("cult.debug")
                 .optional("username", NetworkPlayerArguments.playerName(StringParser.quotedStringParser()))
                 .flag(manager.flagBuilder("onjoin"))
-                .handler(this::handle));
+                .futureHandler(this::handle));
     }
 
-    private void handle(CommandContext<Sender> context) {
+    /** Completes once the packet log's feedback was sent. */
+    private CompletableFuture<Void> handle(CommandContext<Sender> context) {
         Sender sender = context.sender();
         if (!GeyserUtil.isGeyserAvailable()) {
             sender.sendMessage(Component.text("Local Geyser is unavailable."));
-            return;
+            return CompletableFuture.completedFuture(null);
         }
         // Without a username, capture the player running the command.
         String username = context.getOrDefault("username", sender.isPlayer() ? sender.getName() : "");
         if (username.isBlank()) {
             sender.sendMessage(Component.text("Specify a Bedrock username."));
-            return;
+            return CompletableFuture.completedFuture(null);
         }
         boolean onJoin = context.flags().isPresent("onjoin");
         PlatformPlayer player =
@@ -43,17 +45,23 @@ public final class CultGeyserPacketLog implements BuildableCommand {
         if (!onJoin && player == null) {
             sender.sendMessage(Component.text(
                     "Player is offline. Use --onjoin with their Bedrock username to capture their next join."));
-            return;
+            return CompletableFuture.completedFuture(null);
         }
+        CompletableFuture<Void> answered = new CompletableFuture<>();
         try {
             GeyserBedrockBridgeRuntime.configurePacketLog(
                     username,
                     player == null ? null : player.getUniqueId(),
                     onJoin,
-                    message -> sender.sendMessage(Component.text(message)));
+                    message -> {
+                        sender.sendMessage(Component.text(message));
+                        answered.complete(null);
+                    });
         } catch (RuntimeException | LinkageError failure) {
             sender.sendMessage(Component.text(
                     "Geyser packet logger is unavailable: " + failure.getClass().getSimpleName()));
+            answered.complete(null);
         }
+        return answered;
     }
 }

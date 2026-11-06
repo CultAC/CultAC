@@ -59,11 +59,24 @@ public final class ConfigPatcher {
         org.yaml.snakeyaml.DumperOptions options = new org.yaml.snakeyaml.DumperOptions();
         options.setDefaultFlowStyle(org.yaml.snakeyaml.DumperOptions.FlowStyle.BLOCK);
         String yaml = new org.yaml.snakeyaml.Yaml(options).dump(nested);
-        String indent = " ".repeat(parent == null ? 0 : parent.indent() + 2);
+        String indent = " ".repeat(
+                parent == null ? 0 : childIndent(String.join(".", Arrays.copyOf(parts, parentDepth)), parent));
         List<String> inserted = yaml.lines().map(line -> indent + line).toList();
         lines.addAll(parent == null ? lines.size() : parent.lineIndex() + 1, inserted);
         locationMap.clear();
         mapFile();
+    }
+
+    /** The indent of {@code parentPath}'s existing children, or two past the parent's when it has none. */
+    private int childIndent(String parentPath, NodePosition parent) {
+        String prefix = parentPath + ".";
+        for (Map.Entry<String, NodePosition> entry : locationMap.entrySet()) {
+            String path = entry.getKey();
+            if (path.startsWith(prefix)
+                    && path.indexOf('.', prefix.length()) < 0
+                    && entry.getValue().indent() > parent.indent()) return entry.getValue().indent();
+        }
+        return parent.indent() + 2;
     }
 
     /**
@@ -173,7 +186,12 @@ public final class ConfigPatcher {
         String s = value.toString();
         if (s.isEmpty()) return "\"\"";
         boolean needsQuotes = false;
-        if (YAML_KEYWORDS_TO_QUOTE.contains(s) || s.startsWith(" ") || s.endsWith(" ")) {
+        if (YAML_KEYWORDS_TO_QUOTE.contains(s)
+                || s.startsWith(" ")
+                || s.endsWith(" ")
+                || s.indexOf('\n') >= 0
+                || s.indexOf('\r') >= 0
+                || s.indexOf('\t') >= 0) {
             needsQuotes = true;
         } else {
             try {
@@ -198,7 +216,14 @@ public final class ConfigPatcher {
             // raw `\d` from a regex round-trips as an "unknown escape"
             // parser error. Escape `\` first so the `\` we inject ahead of
             // any embedded `"` doesn't get re-doubled by the second pass.
-            return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+            // A raw line break inside quotes reads back as a space.
+            return "\""
+                    + s.replace("\\", "\\\\")
+                            .replace("\"", "\\\"")
+                            .replace("\n", "\\n")
+                            .replace("\r", "\\r")
+                            .replace("\t", "\\t")
+                    + "\"";
         }
         return s;
     }

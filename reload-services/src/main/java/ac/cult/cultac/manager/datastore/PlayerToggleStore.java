@@ -34,21 +34,13 @@ public interface PlayerToggleStore {
     void prefetch(@NotNull UUID uuid, @NotNull UUID connectionId);
 
     /**
-     * Read the slot's current best-known value. Returns {@code null} if no
-     * source has won the slot yet (prefetch in flight + no permission-default
-     * applied).
+     * Read the slot's explicit value: a stored row or a toggle made this
+     * session. Returns {@code null} when staff never set it (or the prefetch
+     * is still in flight); the caller's permission default then applies and
+     * is never stored.
      */
     @Nullable
     Boolean current(@NotNull UUID uuid, @NotNull String key);
-
-    /**
-     * Apply a permission-default value to the slot. No-op if anything else has
-     * already settled the slot. Persists the chosen value when applied (one-shot
-     * at login, no risk of spam) so subsequent logins see this as the persisted
-     * choice — turning the permission into a one-time onboarding policy rather
-     * than a recurring override.
-     */
-    void applyPermissionDefault(@NotNull UUID uuid, @NotNull String key, boolean value);
 
     /**
      * Apply a user-driven toggle. Stomps any prior source unconditionally; the
@@ -81,9 +73,6 @@ public interface PlayerToggleStore {
         public @Nullable Boolean current(@NotNull UUID uuid, @NotNull String key) {
             return null;
         }
-
-        @Override
-        public void applyPermissionDefault(@NotNull UUID uuid, @NotNull String key, boolean value) {}
 
         @Override
         public void applyUserToggle(@NotNull UUID uuid, @NotNull String key, boolean value) {}

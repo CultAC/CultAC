@@ -5,13 +5,6 @@ import ac.cult.cultac.utils.math.Vec3;
 
 public class UncertaintyHelper {
 
-    public static PredVector handleDownwards(PredVector start, Vec3 end, double offset) {
-        if (end.y < start.y) {
-            return handleVertical(start, end, offset);
-        }
-        return start;
-    }
-
     public static PredVector handleVertical(PredVector start, Vec3 end, double radius) {
         double yDiff = end.y - start.y;
         if (Math.abs(yDiff) > radius) {
@@ -65,5 +58,28 @@ public class UncertaintyHelper {
             // Enough Y distance to reach the target
             return handleCircular(start, end, Math.sqrt(radius)).withY(end.y, "spherical");
         }
+    }
+
+    /** Coordinate {@code axis} (0 x, 1 y, 2 z) of {@link #handleSpherical}'s result, with the same arithmetic. */
+    public static double sphericalCoordinate(PredVector start, Vec3 end, double radius, int axis) {
+        double yDiff = end.y - start.y;
+        if (Math.abs(yDiff) > radius) {
+            yDiff = radius * Math.signum(yDiff);
+            return axis == 0 ? start.x + 0 : axis == 1 ? start.y + yDiff : start.z + 0;
+        }
+        radius = radius * radius;
+        radius -= yDiff * yDiff;
+        if (axis == 1) return end.y;
+        return circularCoordinate(start, end, Math.sqrt(radius), axis);
+    }
+
+    private static double circularCoordinate(PredVector start, Vec3 end, double radius, int axis) {
+        double dx = end.x - start.x;
+        double dz = end.z - start.z;
+        double distance = Math.sqrt(dx * dx + dz * dz);
+        if (distance == 0) return axis == 0 ? start.x : start.z;
+        double scale = Math.min(radius, distance);
+        if (distance < 1.0E-5F) return axis == 0 ? start.x + 0.0D * scale : start.z + 0.0D * scale;
+        return axis == 0 ? start.x + dx / distance * scale : start.z + dz / distance * scale;
     }
 }

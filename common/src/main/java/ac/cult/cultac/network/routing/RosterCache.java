@@ -9,16 +9,20 @@ import com.google.gson.JsonPrimitive;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * The other instances' players, as their {@value #TYPE} messages list them. A roster body is
- * {@code {servers:{server:{uuid:name}}, brands:{brand:[uuid]}, full, left:[u], verbose, nonce, o}}, {@code ""}
- * standing for no server: a full one replaces the instance's list, a delta adds or updates players and removes
+ * {@code {servers:{server:{uuid:name}}, brands:{brand:[uuid]}, full, left:[u], verbose, verbose-servers:[server],
+ * nonce, o}}, {@code ""} standing for no server and {@code verbose-servers} listing the servers whose players the
+ * instance's verbose staff cover, {@value NetworkService#EVERY_SERVER} for all of them; {@code verbose} alone, true,
+ * stands for all of them. A full one replaces the instance's list, a delta adds or updates players and removes
  * {@code left}. {@code brands} groups the listed players whose client brand is known by that brand, so a player costs
  * one UUID there however long the brand; a player it leaves out, or a body without it, has no known brand. A body too
  * large with {@code brands} goes out without them. A body whose {@code o} is not above the last one applied from its
@@ -35,7 +39,7 @@ final class RosterCache {
 
     private static final class Peer {
         final Map<UUID, NetworkPlayer> players = new LinkedHashMap<>();
-        boolean verbose;
+        Set<String> verbose = Set.of();
         long heard;
         long applied = Long.MIN_VALUE;
         long order = Long.MIN_VALUE;
@@ -84,7 +88,7 @@ final class RosterCache {
                 }
             }
             for (NetworkPlayer player : listed) peer.players.put(player.uuid(), player);
-            peer.verbose = body.has("verbose") && body.get("verbose").getAsBoolean();
+            peer.verbose = verbose(body);
         }
     }
 
@@ -106,14 +110,27 @@ final class RosterCache {
         }
     }
 
-    /** Whether a live instance has staff with verbose on. */
-    boolean verbose(long now) {
+    /** The servers whose players the verbose staff on live instances cover. */
+    Set<String> verbose(long now) {
+        Set<String> servers = new HashSet<>();
         synchronized (peers) {
             for (Peer peer : peers.values()) {
-                if (peer.verbose && live(peer, now)) return true;
+                if (live(peer, now)) servers.addAll(peer.verbose);
             }
         }
-        return false;
+        return servers;
+    }
+
+    private static Set<String> verbose(JsonObject body) {
+        if (body.get("verbose-servers") instanceof JsonArray listed) {
+            Set<String> servers = new HashSet<>();
+            for (JsonElement server : listed) {
+                if (server.isJsonPrimitive()) servers.add(server.getAsString());
+            }
+            return servers;
+        }
+        boolean any = body.get("verbose") instanceof JsonPrimitive flag && flag.isBoolean() && flag.getAsBoolean();
+        return any ? Set.of(NetworkService.EVERY_SERVER) : Set.of();
     }
 
     void expire(long now) {
@@ -163,7 +180,11 @@ final class RosterCache {
     }
 
     static JsonObject body(
-            Collection<OnlinePlayer> players, boolean full, Collection<UUID> left, boolean verbose, String nonce) {
+            Collection<OnlinePlayer> players,
+            boolean full,
+            Collection<UUID> left,
+            Set<String> verbose,
+            String nonce) {
         JsonObject servers = new JsonObject();
         JsonObject brands = new JsonObject();
         for (OnlinePlayer player : players) {
@@ -192,7 +213,10 @@ final class RosterCache {
             for (UUID uuid : left) gone.add(uuid.toString());
             body.add("left", gone);
         }
-        body.addProperty("verbose", verbose);
+        body.addProperty("verbose", !verbose.isEmpty());
+        JsonArray wanted = new JsonArray();
+        for (String server : verbose) wanted.add(server);
+        body.add("verbose-servers", wanted);
         body.addProperty(NONCE, nonce);
         return body;
     }

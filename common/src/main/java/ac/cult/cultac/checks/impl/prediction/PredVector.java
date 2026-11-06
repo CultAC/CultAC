@@ -6,6 +6,7 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ClientSprintState;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.TransactionVel;
+import ac.cult.cultac.utils.debug.DebugText;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -13,7 +14,7 @@ import java.util.List;
 import lombok.Getter;
 import lombok.Setter;
 
-public class PredVector extends Vec3 {
+public class PredVector extends Vec3 implements DebugText.Recordable {
 
     PredVector lastVector = null;
     String reason = null;
@@ -165,6 +166,20 @@ public class PredVector extends Vec3 {
             current = current.lastVector;
         }
         return null;
+    }
+
+    /** The latest step with {@code reason} in this lineage, null when none. */
+    public PredVector latestWithReason(String reason) {
+        for (PredVector current = this; current != null && current.lastVector != null; current = current.lastVector) {
+            if (reason.equals(current.reason)) return current;
+        }
+        return null;
+    }
+
+    /** What the latest step with {@code reason} in this lineage added to the vector before it; zero when none. */
+    public Vec3 additionOfReason(String reason) {
+        PredVector step = latestWithReason(reason);
+        return step == null ? Vec3.ZERO : step.subtract(step.lastVector);
     }
 
     public Vec3 vectorBeforeFirstReason(String reason) {
@@ -321,16 +336,30 @@ public class PredVector extends Vec3 {
     }
 
     @Override
+    public void appendTo(DebugText.Builder sb) {
+        sb.append("PredVector{x=")
+                .append(x)
+                .append(", y=")
+                .append(y)
+                .append(", z=")
+                .append(z)
+                .append(", reason='")
+                .append(reason)
+                .append("', isJump=")
+                .append(isJump)
+                .append(", isKnockback=")
+                .append(isKnockback)
+                .append(", isTickSkip=")
+                .append(isTickSkip)
+                .append(", packetModifiers=")
+                .appendAll(packetModifiers)
+                .append(", lastVector=")
+                .append(lastVector)
+                .append('}');
+    }
+
+    @Override
     public String toString() {
-        return "PredVector{" + "x="
-                + x + ", y="
-                + y + ", z="
-                + z + ", reason='"
-                + reason + '\'' + ", isJump="
-                + isJump + ", isKnockback="
-                + isKnockback + ", isTickSkip="
-                + isTickSkip + ", packetModifiers="
-                + packetModifiers + ", lastVector="
-                + lastVector + '}';
+        return DebugText.print(this);
     }
 }

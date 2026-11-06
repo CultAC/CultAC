@@ -115,13 +115,19 @@ public final class ClientWorldRegistries {
     }
 
     private final Data defaults;
+    private final ClientWorldView view;
     private Data data;
     private TimelineGeneration timelines;
     private Map<String, PaintingSize> paintings;
     private String initialPainting;
 
     public ClientWorldRegistries(Data defaults) {
+        this(defaults, ClientWorldView.RECEIVED);
+    }
+
+    public ClientWorldRegistries(Data defaults, ClientWorldView view) {
         this.defaults = defaults;
+        this.view = view;
         publish(derive(defaults));
     }
 
@@ -129,13 +135,27 @@ public final class ClientWorldRegistries {
         return data;
     }
 
-    /** Rain eligibility reads this connection's biome climate without retaining another decoded table. */
+    /** Rain eligibility for the client's biome {@code biome} (see {@link #biome}), from its climate. */
     public boolean canRain(String biome, BlockPos pos, int seaLevel) {
-        for (var definition : data.registries().get(BIOMES)) {
-            if (definition.key().equals(biome))
-                return BiomeWeather.canRain(definition.value().data(), pos, seaLevel);
-        }
-        throw new IllegalArgumentException("Missing received biome " + biome);
+        var definition = view.biomeDefinition(biome, receivedBiome(biome));
+        if (definition == null) throw new IllegalArgumentException("Missing received biome " + biome);
+        return BiomeWeather.canRain(definition.data(), pos, seaLevel);
+    }
+
+    /** The biome the client uses for the received biome {@code key} in a level of {@code dimension}. */
+    public String biome(String key, DimensionData dimension) {
+        return view.biome(key, dimension);
+    }
+
+    /** The heights at which the client can hold blocks in a level of {@code dimension}. */
+    public ClientWorldView.Heights heights(DimensionData dimension) {
+        return view.heights(dimension, data.registries().get(DIMENSIONS));
+    }
+
+    private ClientWorldDefaults.Entry receivedBiome(String key) {
+        for (var definition : data.registries().get(BIOMES))
+            if (definition.key().equals(key)) return definition.value();
+        return null;
     }
 
     /** One generation's definitions and tags with the values derived from them; publishing cannot fail. */
@@ -318,8 +338,9 @@ public final class ClientWorldRegistries {
     }
 
     public PaintingSize painting(String key) {
+        String name = HolderSets.identifier(key);
         return Objects.requireNonNull(
-                paintings.get(HolderSets.identifier(key)), "Missing received painting variant " + key);
+                view.painting(name, paintings.get(name)), "Missing received painting variant " + key);
     }
 
     /** Only fitting sizes matter to local consumption; artwork selection stays random in the client. */
@@ -386,11 +407,15 @@ public final class ClientWorldRegistries {
         return new DimensionData.Binding(dimension, () -> {
             var biomeAttributes = new HashMap<Integer, JsonObject>();
             var biomes = data.registries().get(BIOMES);
-            for (int id = 0; id < biomes.size(); id++)
+            for (int id = 0; id < biomes.size(); id++) {
+                var received = biomes.get(id);
+                String biome = view.biome(received.key(), dimension);
+                var definition = view.biomeDefinition(
+                        biome, biome.equals(received.key()) ? received.value() : receivedBiome(biome));
+                if (definition == null) throw new IllegalArgumentException("Missing received biome " + biome);
                 biomeAttributes.put(
-                        id,
-                        attributes(JsonParser.parseString(biomes.get(id).value().json())
-                                .getAsJsonObject()));
+                        id, attributes(JsonParser.parseString(definition.json()).getAsJsonObject()));
+            }
             return new EnvironmentData(
                     attributes(json), biomeAttributes, capturedTimelines.resolve(json.get("timelines")));
         });

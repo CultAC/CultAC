@@ -6,15 +6,17 @@ import ac.cult.cultac.checks.impl.exploit.ExploitC;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.player.ClientClassification;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomPayload;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import java.util.concurrent.ConcurrentHashMap;
+import lombok.AccessLevel;
 import lombok.Getter;
 
 /**
@@ -32,9 +34,14 @@ public class PluginChannelManager extends CultProcessor implements CheckListener
         super(cultPlayer);
     }
 
-    private final Set<String> registeredChannels = new LinkedHashSet<>();
-    private final Set<String> payloadChannels = new LinkedHashSet<>();
+    private final Set<String> registeredChannels = ConcurrentHashMap.newKeySet();
+    private final Set<String> payloadChannels = ConcurrentHashMap.newKeySet();
+
+    @Getter(AccessLevel.NONE)
+    private final int[] channelTypeCounts = new int[ClientClassification.Type.values().length];
+
     private String brand = null;
+    private volatile ClientClassification.Type channelType = ClientClassification.Type.UNSET;
 
     @CultPacketHandler
     public void onCustomPayload(
@@ -94,14 +101,30 @@ public class PluginChannelManager extends CultProcessor implements CheckListener
         if (channel == null || channel.isBlank() || registeredChannels.size() >= MAX_REGISTERED_CHANNELS) {
             return;
         }
-        registeredChannels.add(channel);
+        if (registeredChannels.add(channel)) updateChannelType(channel, 1);
     }
 
     public void handleChannelUnregistered(String channel) {
         if (channel == null || channel.isBlank()) {
             return;
         }
-        registeredChannels.remove(channel);
+        if (registeredChannels.remove(channel)) updateChannelType(channel, -1);
+    }
+
+    private void updateChannelType(String channel, int delta) {
+        ClientClassification.Type type = ClientClassification.channelType(channel);
+        if (type == ClientClassification.Type.UNSET) return;
+        channelTypeCounts[type.ordinal()] += delta;
+        ClientClassification.Type result = ClientClassification.Type.UNSET;
+        for (ClientClassification.Type candidate : ClientClassification.Type.values()) {
+            if (channelTypeCounts[candidate.ordinal()] == 0) continue;
+            if (result != ClientClassification.Type.UNSET) {
+                result = ClientClassification.Type.UNKNOWN;
+                break;
+            }
+            result = candidate;
+        }
+        channelType = result;
     }
 
     /** Records a channel the client sent a payload on; false when ExploitC flagged it instead. */
@@ -130,11 +153,11 @@ public class PluginChannelManager extends CultProcessor implements CheckListener
     }
 
     private static boolean isRegister(String channel) {
-        return "minecraft:register".equals(channel);
+        return "minecraft:register".equals(channel) || "REGISTER".equals(channel);
     }
 
     private static boolean isUnregister(String channel) {
-        return "minecraft:unregister".equals(channel);
+        return "minecraft:unregister".equals(channel) || "UNREGISTER".equals(channel);
     }
 
     /** The NUL-separated channel ids of a register or unregister payload. */

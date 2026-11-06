@@ -62,7 +62,7 @@ public class BukkitPlatformServer implements PlatformServer {
 
     @Override
     public void forwardAlert(String message) {
-        ac.cult.cultac.events.packets.ProxyAlertMessenger.sendPluginMessage(message);
+        ProxyAlertMessenger.sendPluginMessage(message);
     }
 
     @Override

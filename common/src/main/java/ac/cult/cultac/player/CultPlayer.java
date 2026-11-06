@@ -8,6 +8,7 @@ import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.aim.processor.AimProcessor;
 import ac.cult.cultac.checks.impl.combat.FairReach;
 import ac.cult.cultac.checks.impl.combat.KeepSprint;
+import ac.cult.cultac.checks.impl.misc.ClientBrand;
 import ac.cult.cultac.checks.impl.movement.GhostBlockMitigator;
 import ac.cult.cultac.checks.impl.movement.timer.ItemUseBurst;
 import ac.cult.cultac.checks.impl.packetorder.PacketOrderProcessor;
@@ -81,7 +82,6 @@ import com.viaversion.viaversion.api.Via;
 import com.viaversion.viaversion.api.connection.UserConnection;
 import com.viaversion.viaversion.api.protocol.packet.PacketTracker;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
-import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.ArrayDeque;
@@ -157,8 +157,8 @@ public class CultPlayer implements GrimUser {
     // Determining player ping
     // The difference between keepalive and transactions is that keepalive is async while transactions are sync
     private Queue<SentTransaction> transactionsSent = new ArrayDeque<>();
-    /** The ids in {@link #transactionsSent}, which never holds one id twice. */
-    private final IntOpenHashSet transactionIdsSent = new IntOpenHashSet();
+    /** The entries of {@link #transactionsSent} by id; it never holds one id twice. */
+    private final Int2ObjectOpenHashMap<SentTransaction> transactionsSentById = new Int2ObjectOpenHashMap<>();
 
     private final Int2ObjectOpenHashMap<@NotNull TrackedTransaction> transactionsPendingSend =
             new Int2ObjectOpenHashMap<>(4);
@@ -622,23 +622,20 @@ public class CultPlayer implements GrimUser {
     // But if some error made a client miss a packet, then it won't hurt them too bad.
     // Also it forces players to take knockback
     public synchronized boolean addTransactionResponse(int id) {
-        // Count how many unacknowledged transactions this response jumps past
-        int skipped = 0;
-        boolean known = false;
-        for (SentTransaction pending : transactionsSent) {
-            if (pending.id() == id) {
-                known = true;
-                break;
-            }
-            skipped++;
-        }
-        if (!known) {
+        SentTransaction answered = transactionsSentById.get(id);
+        if (answered == null) {
             return false;
         }
 
         // A skipped transaction is only suspicious with a valid keep alive baseline;
         // switching servers can legitimately drop transaction responses.
-        if (!isBedrockMovement() && skipped > 0 && keepAliveProcessor.lastKeepAlivePing > 0) {
+        if (!isBedrockMovement() && keepAliveProcessor.lastKeepAlivePing > 0 && transactionsSent.peek() != answered) {
+            // Count how many unacknowledged transactions this response jumps past. Each is acknowledged below.
+            int skipped = 0;
+            for (SentTransaction pending : transactionsSent) {
+                if (pending == answered) break;
+                skipped++;
+            }
             checkManager.getCheck(TransactionOrder.class).skipped(skipped);
         }
 
@@ -666,7 +663,7 @@ public class CultPlayer implements GrimUser {
             if (current == null) {
                 return null;
             }
-            transactionIdsSent.remove(current.id());
+            transactionsSentById.remove(current.id());
             lastTransactionReceived.set(current.transaction());
             rawTransactionPing = System.nanoTime() - current.sentAt();
             playerClockAtLeast = current.sentAt();
@@ -1002,12 +999,15 @@ public class CultPlayer implements GrimUser {
             return -1;
         }
 
+        SentTransaction sent;
         if (isBedrockMovement()) {
-            bedrockTransactions().add(new BedrockTransaction(transaction.transaction(), transaction.id()));
+            sent = new BedrockTransaction(transaction.transaction(), transaction.id());
+            bedrockTransactions().add(sent);
         } else {
-            transactionsSent.add(new SentTransaction(transaction.transaction(), transaction.id(), System.nanoTime()));
+            sent = new SentTransaction(transaction.transaction(), transaction.id(), System.nanoTime());
+            transactionsSent.add(sent);
         }
-        transactionIdsSent.add(transaction.id());
+        transactionsSentById.put(sent.id(), sent);
         if (!TransactionChannels.SEND.isEmpty()) {
             TransactionChannels.SEND.fire(
                     ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(this), transaction.id(), timestamp);
@@ -1026,11 +1026,7 @@ public class CultPlayer implements GrimUser {
 
     /** Whether {@code id} is a ping CultAC created whose response has not arrived yet. */
     public synchronized boolean awaitsTransactionResponse(int id) {
-        if (transactionsPendingSend.containsKey(id)) return true;
-        for (SentTransaction sent : transactionsSent) {
-            if (sent.id() == id) return true;
-        }
-        return false;
+        return transactionsPendingSend.containsKey(id) || transactionsSentById.containsKey(id);
     }
 
     private int nextTransactionId() {
@@ -1042,7 +1038,7 @@ public class CultPlayer implements GrimUser {
         boolean used;
         do {
             id = nextWireId(random);
-            used = transactionIdsSent.contains(id);
+            used = transactionsSentById.containsKey(id);
             used |= transactionsPendingSend.containsKey(id);
             used |= foreignPings.contains(id);
         } while (used);
@@ -1092,7 +1088,7 @@ public class CultPlayer implements GrimUser {
             if (index < 0) throw new IllegalStateException("Last written transaction is missing");
             pending.add(index + 1, transaction);
         }
-        transactionIdsSent.add(transaction.id());
+        transactionsSentById.put(transaction.id(), transaction);
         return transaction;
     }
 
@@ -1108,11 +1104,9 @@ public class CultPlayer implements GrimUser {
 
     /** Observe actual Bedrock writes, not Java allocation order. */
     public synchronized void markBedrockTransactionClientbound(long id) {
-        for (SentTransaction entry : transactionsSent) {
-            if (entry.id() == id && entry instanceof BedrockTransaction sent) {
-                bedrockState.lastClientboundTransaction = sent;
-                return;
-            }
+        if (id != (int) id) return;
+        if (transactionsSentById.get((int) id) instanceof BedrockTransaction sent) {
+            bedrockState.lastClientboundTransaction = sent;
         }
     }
 
@@ -1191,10 +1185,20 @@ public class CultPlayer implements GrimUser {
         return isSneaking && !isFlying ? Pose.CROUCHING : Pose.STANDING;
     }
 
-    /** Player#canPlayerFitWithinBlocksAndEntitiesWhen with the player at {@code (x, y, z)}. */
+    // Fit-query scratch: read only within one query on the player's thread, never stored or returned.
+    private final SimpleCollisionBox fitBox = new SimpleCollisionBox();
+    private final SimpleCollisionBox fitStandingBox = new SimpleCollisionBox();
+    private final SimpleCollisionBox fitBandBox = new SimpleCollisionBox();
+    private final SimpleCollisionBox fitEntityBox = new SimpleCollisionBox();
+    private final SimpleCollisionBox fitEntityScratch = new SimpleCollisionBox();
+
+    /**
+     * Player#canPlayerFitWithinBlocksAndEntitiesWhen with the player at {@code (x, y, z)}.
+     * Call on this player's packet thread only: the query uses per-player scratch boxes.
+     */
     public boolean canPlayerFitWithinBlocksAndEntitiesWhen(Pose newPose, double x, double y, double z) {
         SimpleCollisionBox box = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                        x, y, z, newPose.width * getScale(), newPose.height * getScale())
+                        fitBox, x, y, z, newPose.width * getScale(), newPose.height * getScale())
                 .expand(-1.0E-7D);
         return Collisions.isEmpty(this, box, y) && hasNoEntityCollision(box);
     }
@@ -1202,16 +1206,19 @@ public class CultPlayer implements GrimUser {
     /**
      * Whether the {@code newPose} box at the position may fit within blocks and entities: false when blocks or an
      * entity at each of its possible positions overlap it.
+     * Call on this player's packet thread only: the query uses per-player scratch boxes.
      */
     public boolean mayPlayerFitWithinBlocksAndEntitiesWhen(Pose newPose, double x, double y, double z) {
         SimpleCollisionBox box = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                        x, y, z, newPose.width * getScale(), newPose.height * getScale())
+                        fitBox, x, y, z, newPose.width * getScale(), newPose.height * getScale())
                 .expand(-1.0E-7D);
         if (!Collisions.isEmpty(this, box, y)) return false;
         PacketEntity riding = compensatedEntities.getSelf().getRiding();
-        SimpleCollisionBox entityBox = new SimpleCollisionBox();
-        SimpleCollisionBox scratch = new SimpleCollisionBox();
-        for (PacketEntity entity : compensatedEntities.poseCollisionCandidates()) {
+        SimpleCollisionBox entityBox = fitEntityBox;
+        SimpleCollisionBox scratch = fitEntityScratch;
+        List<PacketEntity> candidates = compensatedEntities.poseCollisionCandidates();
+        for (int i = 0, size = candidates.size(); i < size; i++) {
+            PacketEntity entity = candidates.get(i);
             if (canCollideWithForPoseCheck(riding, entity)
                     && collidesWithPoseBox(entity, box, entityBox, scratch)
                     && overlapsAtEachPossiblePosition(entity, box, entityBox)) {
@@ -1225,22 +1232,25 @@ public class CultPlayer implements GrimUser {
      * Whether at some possible position of each entity the crouching box at the position fits blocks and entities while
      * the standing box does not: the standing box is the crouching one with a band above it, so something must overlap
      * that band without overlapping the crouching box.
+     * Call on this player's packet thread only: the query uses per-player scratch boxes.
      */
     public boolean mayFitOnlyCrouchingWhen(double x, double y, double z) {
         if (!mayPlayerFitWithinBlocksAndEntitiesWhen(Pose.CROUCHING, x, y, z)) return false;
         SimpleCollisionBox crouching = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                        x, y, z, Pose.CROUCHING.width * getScale(), Pose.CROUCHING.height * getScale())
+                        fitBox, x, y, z, Pose.CROUCHING.width * getScale(), Pose.CROUCHING.height * getScale())
                 .expand(-1.0E-7D);
         SimpleCollisionBox standing = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                        x, y, z, Pose.STANDING.width * getScale(), Pose.STANDING.height * getScale())
+                        fitStandingBox, x, y, z, Pose.STANDING.width * getScale(), Pose.STANDING.height * getScale())
                 .expand(-1.0E-7D);
-        SimpleCollisionBox band = new SimpleCollisionBox(
+        SimpleCollisionBox band = fitBandBox.set(
                 standing.minX, crouching.maxY, standing.minZ, standing.maxX, standing.maxY, standing.maxZ);
         if (!Collisions.isEmpty(this, band, y)) return true;
         PacketEntity riding = compensatedEntities.getSelf().getRiding();
-        SimpleCollisionBox entityBox = new SimpleCollisionBox();
-        SimpleCollisionBox scratch = new SimpleCollisionBox();
-        for (PacketEntity entity : compensatedEntities.poseCollisionCandidates()) {
+        SimpleCollisionBox entityBox = fitEntityBox;
+        SimpleCollisionBox scratch = fitEntityScratch;
+        List<PacketEntity> candidates = compensatedEntities.poseCollisionCandidates();
+        for (int c = 0, size = candidates.size(); c < size; c++) {
+            PacketEntity entity = candidates.get(c);
             if (!canCollideWithForPoseCheck(riding, entity)
                     || !collidesWithPoseBox(entity, standing, entityBox, scratch)) {
                 continue;
@@ -1263,9 +1273,11 @@ public class CultPlayer implements GrimUser {
 
     private boolean hasNoEntityCollision(SimpleCollisionBox playerBox) {
         PacketEntity riding = compensatedEntities.getSelf().getRiding();
-        SimpleCollisionBox entityBox = new SimpleCollisionBox();
-        SimpleCollisionBox scratch = new SimpleCollisionBox();
-        for (PacketEntity entity : compensatedEntities.poseCollisionCandidates()) {
+        SimpleCollisionBox entityBox = fitEntityBox;
+        SimpleCollisionBox scratch = fitEntityScratch;
+        List<PacketEntity> candidates = compensatedEntities.poseCollisionCandidates();
+        for (int i = 0, size = candidates.size(); i < size; i++) {
+            PacketEntity entity = candidates.get(i);
             if (!canCollideWithForPoseCheck(riding, entity)
                     || !collidesWithPoseBox(entity, playerBox, entityBox, scratch)) {
                 continue;
@@ -1555,13 +1567,18 @@ public class CultPlayer implements GrimUser {
         return usesModernJavaItemUse() ? clientItemUse.hand() : packetStateData.itemInUseHand;
     }
 
-    public boolean canThePlayerBeCloseToZeroMovement(int ticks) {
-        return checkManager.getSimulationProcessor().getLastTickSkip().hasOccurredSince(ticks);
+    public ac.cult.cultac.utils.latency.ClientWorldRegistries getWorldRegistries() {
+        return registryState().worldRegistries(user.getCultConnection().platform()::initialWorldData);
     }
 
-    public ac.cult.cultac.utils.latency.ClientWorldRegistries getWorldRegistries() {
-        if (registryState == null) registryState = new ac.cult.cultac.utils.latency.ClientComponentRegistries();
-        return registryState.worldRegistries(user.getCultConnection().platform()::initialWorldData);
+    /** This connection's received registries, created with the view its client has of them. */
+    public ClientComponentRegistries registryState() {
+        if (registryState == null)
+            registryState = new ClientComponentRegistries(
+                    bedrockState == null || !isBedrockMovement()
+                            ? ac.cult.cultac.utils.latency.ClientWorldView.RECEIVED
+                            : bedrockState.worldView);
+        return registryState;
     }
 
     public CompensatedInventory getInventory() {
@@ -1694,6 +1711,22 @@ public class CultPlayer implements GrimUser {
         return platformPlayer != null ? platformPlayer.getWorld().getUID() : null;
     }
 
+    public ClientClassification getClientClassification() {
+        if (isBedrockMovement()) {
+            return new ClientClassification(
+                    ClientClassification.Type.BEDROCK,
+                    ClientClassification.Type.UNSET,
+                    ClientClassification.Type.UNSET);
+        }
+        var mods = clientMods;
+        return new ClientClassification(
+                checkManager.getCheck(ClientBrand.class).isHasBrand()
+                        ? ClientClassification.brandType(getBrand())
+                        : ClientClassification.Type.UNKNOWN,
+                pluginChannelManager.getChannelType(),
+                mods != null && mods.lunar() ? ClientClassification.Type.LUNAR : ClientClassification.Type.UNSET);
+    }
+
     @Override
     public String getBrand() {
         var check = checkManager.getCheck(ac.cult.cultac.checks.impl.misc.ClientBrand.class);
@@ -1736,14 +1769,16 @@ public class CultPlayer implements GrimUser {
         return getClientVersion().getReleaseName();
     }
 
+    /** Java mouse sensitivity, or {@link Double#NaN} when the client does not supply Java mouse rotations. */
     @Override
     public double getHorizontalSensitivity() {
-        return checkManager.getCheck(AimProcessor.class).sensitivityX;
+        return isBedrockMovement() ? Double.NaN : checkManager.getCheck(AimProcessor.class).sensitivityX;
     }
 
+    /** Java mouse sensitivity, or {@link Double#NaN} when the client does not supply Java mouse rotations. */
     @Override
     public double getVerticalSensitivity() {
-        return checkManager.getCheck(AimProcessor.class).sensitivityY;
+        return isBedrockMovement() ? Double.NaN : checkManager.getCheck(AimProcessor.class).sensitivityY;
     }
 
     @Override
@@ -1842,26 +1877,14 @@ public class CultPlayer implements GrimUser {
     }
 
     public void onEndOfTickEvent() {
-        runEndOfTickTasks();
+        tick++;
         packetEntityReplication.onEndOfTickEvent();
     }
 
     /** Paper's end of server tick {@code serverTick}. Owner thread only. */
     public void onEndOfTickEvent(int serverTick) {
-        runEndOfTickTasks();
-        packetEntityReplication.onEndOfTickEvent(serverTick);
-    }
-
-    private void runEndOfTickTasks() {
         tick++;
-        for (Runnable task : endOfTickTasks) task.run();
-        endOfTickTasks.clear();
-    }
-
-    private final List<Runnable> endOfTickTasks = new ArrayList<>(4);
-
-    public void addEndOfTickTask(Runnable task) {
-        endOfTickTasks.add(task);
+        packetEntityReplication.onEndOfTickEvent(serverTick);
     }
 
     @Getter

@@ -34,10 +34,13 @@ import ac.cult.cultac.checks.impl.exploit.ExploitB;
 import ac.cult.cultac.checks.impl.exploit.ExploitC;
 import ac.cult.cultac.checks.impl.exploit.ExploitF;
 import ac.cult.cultac.checks.impl.groundspoof.NoFallExecutor;
+import ac.cult.cultac.checks.impl.misc.BrandSpoofA;
+import ac.cult.cultac.checks.impl.misc.BrandSpoofB;
 import ac.cult.cultac.checks.impl.misc.ClientBrand;
 import ac.cult.cultac.checks.impl.misc.GhostBlockMitigation;
 import ac.cult.cultac.checks.impl.misc.SkinBlinker;
 import ac.cult.cultac.checks.impl.movement.EntityControl;
+import ac.cult.cultac.checks.impl.movement.GhostFriction;
 import ac.cult.cultac.checks.impl.movement.SetbackBlocker;
 import ac.cult.cultac.checks.impl.movement.VehiclePredictionRunner;
 import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
@@ -313,6 +316,8 @@ public class CheckManager {
                 new ChatE(player),
                 new ClientBrand(player),
                 new SkinBlinker(player),
+                new BrandSpoofA(player),
+                new BrandSpoofB(player),
                 new NoFallExecutor(player),
                 new PingA(player),
                 new TransactionOrder(player),
@@ -377,6 +382,7 @@ public class CheckManager {
                 player.openWindow,
                 new VehicleA(player),
                 new VehicleB(player),
+                new VehicleGround(player),
                 new VehicleD(player),
                 new VehicleE(player),
                 new VehicleF(player),
@@ -433,8 +439,9 @@ public class CheckManager {
     private static ClassToInstanceMap<PostPredictionListener> buildPostPredictionChecks(CultPlayer player) {
         return listenerMap(List.<PostPredictionListener>of(
                 player.getGhostBlockMitigator(),
-                new FlagCaller(player),
+                // Before every listener that shows the Cult Log identifier: the first one to show it builds the log.
                 new SuperDebug(player),
+                new FlagCaller(player),
                 new NoSlow(player),
                 player.getItemUseDesync(),
                 player.itemUseBurst,
@@ -448,6 +455,7 @@ public class CheckManager {
                 player.knockbackHandler,
                 player.explosionHandler,
                 player.keepSprint,
+                new GhostFriction(player),
                 player.compensatedFireworks,
                 player.lastInstanceManager,
                 new PacketOrderE(player),
@@ -611,6 +619,7 @@ public class CheckManager {
         registerReceive(registrations, packetChecks.get(BadPacketsO.class));
         registerReceive(registrations, packetChecks.get(ClientBrand.class));
         registerReceive(registrations, packetChecks.get(SkinBlinker.class));
+        registerReceive(registrations, packetChecks.get(BrandSpoofA.class));
         registerReceive(registrations, packetChecks.get(NoFallExecutor.class));
         registerReceive(registrations, prePredictionChecks.get(ExploitA.class));
         registerReceive(registrations, prePredictionChecks.get(ExploitB.class));
@@ -1080,20 +1089,29 @@ public class CheckManager {
     }
 
     public void onPredictionFinish(final PredictionComplete complete) {
-        for (PostPredictionListener check : predictionListeners) {
-            if (!shouldDispatch(check)) {
-                continue;
+        SetbackTeleportUtil setbacks = getSetbackUtil();
+        // A tick predicted without a movement packet is the client's movement for that tick as well.
+        setbacks.movementReceived();
+        try {
+            for (PostPredictionListener check : predictionListeners) {
+                if (!shouldDispatch(check)) {
+                    continue;
+                }
+                check.onPredictionComplete(complete);
             }
-            check.onPredictionComplete(complete);
-        }
-        for (PostPredictionListener check : pseudoListeners) {
-            if (!shouldDispatch(check)) {
-                continue;
+            for (PostPredictionListener check : pseudoListeners) {
+                if (!shouldDispatch(check)) {
+                    continue;
+                }
+                if (!MovementProfiles.forPlayer(player).shouldRunPseudoCheck(check.getClass())) {
+                    continue;
+                }
+                check.onPredictionComplete(complete);
             }
-            if (!MovementProfiles.forPlayer(player).shouldRunPseudoCheck(check.getClass())) {
-                continue;
-            }
-            check.onPredictionComplete(complete);
+        } finally {
+            // SetbackTeleportUtil stages the safe position where its friction is current; a listener after it that
+            // sets this movement back must roll back past it.
+            setbacks.commitSafePosition();
         }
     }
 

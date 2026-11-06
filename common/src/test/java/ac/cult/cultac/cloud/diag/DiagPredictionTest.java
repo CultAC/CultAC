@@ -23,6 +23,7 @@ import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerSteer;
 import ac.cult.cultac.manager.datastore.DataStoreLifecycle;
 import ac.cult.cultac.network.CultConnection;
+import ac.cult.cultac.network.CultLogViewers;
 import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.player.User;
@@ -128,16 +129,19 @@ class DiagPredictionTest {
     }
 
     @Test
-    void watchingLeavesPredictionUnchanged() throws IOException {
+    void watchingLeavesPredictionUnchanged() throws Exception {
         Diagnostics diagnostics = diagnostics();
         Bot plain = new Bot(0);
         Bot watched = new Bot(0);
         AtomicLong tick = new AtomicLong();
         DiagWatch watch = watched.watch(diagnostics, tick::get);
         assertNotNull(watch);
-        try {
+        // Staff see each Simulation flag's Cult Log identifier, so each such flag gets its log.
+        try (AutoCloseable plainStaff = CultLogViewers.watch(plain.player);
+                AutoCloseable watchedStaff = CultLogViewers.watch(watched.player)) {
             run(200, tick, plain, watched);
             assertTrue(plain.flagged > 0, "the script makes the engine flag");
+            assertFalse(plain.logs.isEmpty(), "the flags staff saw have logs");
             assertEquals(plain.signatures, watched.signatures);
             assertEquals(plain.violations(), watched.violations());
             assertEquals(plain.logs, watched.logs);
@@ -352,8 +356,8 @@ class DiagPredictionTest {
             }
             signature.append(" setback ").append(player.getSetbackTeleportUtil().isPendingSetback());
             signatures.add(signature.toString());
+            if (result.hasEffectiveFlags()) flagged++;
             if (result.getIdentifier() != 0) {
-                flagged++;
                 String log = SuperDebug.getFlag(result.getIdentifier());
                 logs.add(
                         log == null

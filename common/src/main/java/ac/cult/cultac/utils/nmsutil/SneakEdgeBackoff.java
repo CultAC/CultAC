@@ -255,13 +255,16 @@ final class SneakEdgeBackoff {
             double deltaX,
             double deltaZ,
             double minHeight) {
+        boolean legacy = player.getClientVersion().isOlderThan(ClientVersion.V_1_21_5);
+        double inset = legacy ? 0.0 : 1.0E-7;
+        double depth = legacy ? (double) 1.0E-5F : 1.0E-7;
         probe.set(
-                box.minX + 1.0E-7 + deltaX,
-                box.minY - minHeight - 1.0E-7,
-                box.minZ + 1.0E-7 + deltaZ,
-                box.maxX - 1.0E-7 + deltaX,
+                box.minX + inset + deltaX,
+                box.minY - minHeight - depth,
+                box.minZ + inset + deltaZ,
+                box.maxX - inset + deltaX,
                 box.minY,
-                box.maxZ - 1.0E-7 + deltaZ);
+                box.maxZ - inset + deltaZ);
         return Collisions.isEmpty(player, probe, box.minY);
     }
 }

@@ -4,15 +4,14 @@ import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CarriedPush;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.*;
+import ac.cult.cultac.utils.debug.DebugText;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.Setter;
-import lombok.ToString;
 
 @AllArgsConstructor
 @Getter
-@ToString
-public class WorldData {
+public class WorldData implements DebugText.Recordable {
     @Setter
     DesyncStatus lastOnGround;
 
@@ -99,6 +98,53 @@ public class WorldData {
      * Entity#hurtOrSimulate, and RemotePlayer is the one LivingEntity whose hurtClient returns true.
      */
     boolean spinAttackPlayer;
+
+    /** Every field, as the Cult Log prints them. A new field belongs here too; CultLogContentTest checks. */
+    @Override
+    public void appendTo(DebugText.Builder sb) {
+        sb.append("WorldData(lastOnGround=").append(lastOnGround);
+        sb.append(", inWater=").append(inWater);
+        sb.append(", inLava=").append(inLava);
+        sb.append(", touchingLava=").append(touchingLava);
+        sb.append(", inFlowingLiquid=").append(inFlowingLiquid);
+        sb.append(", mightBeInBlock=").append(mightBeInBlock);
+        sb.append(", canJump=").append(canJump);
+        sb.append(", canFluidHop=").append(canFluidHop);
+        sb.append(", canFloatWhileRidden=").append(canFloatWhileRidden);
+        sb.append(", couldFloatWhileRidden=").append(couldFloatWhileRidden);
+        sb.append(", climbingAtStart=").append(climbingAtStart);
+        sb.append(", climbing=").append(climbing);
+        sb.append(", numColliding=").append(numColliding);
+        sb.append(", numCollidingTickingAfterPlayer=").append(numCollidingTickingAfterPlayer);
+        sb.append(", numRidersTickingAfterPlayer=").append(numRidersTickingAfterPlayer);
+        sb.append(", numPushing=").append(numPushing);
+        sb.append(", numCarriedPushing=").append(numCarriedPushing);
+        sb.append(", carriedPush=").append(carriedPush);
+        sb.append(", pushable=").append(pushable);
+        sb.append(", onBlock=").append(onBlock);
+        sb.append(", sneak=").append(sneak);
+        sb.append(", bubbleColumn=").append(bubbleColumn);
+        sb.append(", pistonPushes=").append(pistonPushes);
+        sb.append(", stuckSpeed=").append(stuckSpeed);
+        sb.append(", honeySlide=").append(honeySlide);
+        sb.append(", onHoneyBlock=").append(onHoneyBlock);
+        sb.append(", mainSupportingBlockPos=").append(mainSupportingBlockPos);
+        sb.append(", fishingRodPulls=").append(fishingRodPulls);
+        sb.append(", loadingLevelPushes=").append(loadingLevelPushes);
+        sb.append(", carriedOnGround=").append(carriedOnGround);
+        sb.append(", eyeInWater=").append(eyeInWater);
+        sb.append(", underwater=").append(underwater);
+        sb.append(", swimming=").append(swimming);
+        sb.append(", vehicleInWater=").append(vehicleInWater);
+        sb.append(", spinAttackTarget=").append(spinAttackTarget);
+        sb.append(", spinAttackPlayer=").append(spinAttackPlayer);
+        sb.append(')');
+    }
+
+    @Override
+    public String toString() {
+        return DebugText.print(this);
+    }
 
     /** A shallow copy: carry contexts share its sub-objects and boxes, so none may be mutated in place. */
     public WorldData copy() {

@@ -30,17 +30,19 @@ public class BadPacketsD extends Check implements CheckListener {
         final float pitch = packet.pitch();
         if (pitch > 90 || pitch < -90) {
             if (flag(V.write(verbose()).f32(pitch)) && shouldModifyPackets()) {
+                // Paper clamps the pitch the same way. Rewrite the current packet so NoFall's ground rewrite stays.
+                event.replace(event.getPacket().withPitch(clampPitch(pitch)));
                 // prevent other checks from using an invalid pitch
                 clampPitch(player);
-
-                event.setCancelled(true);
-                player.onPacketCancel();
             }
         }
     }
 
+    static float clampPitch(float pitch) {
+        return Math.clamp(pitch, -90.0F, 90.0F);
+    }
+
     static void clampPitch(CultPlayer player) {
-        if (player.yRot > 90) player.yRot = 90;
-        if (player.yRot < -90) player.yRot = -90;
+        player.yRot = clampPitch(player.yRot);
     }
 }

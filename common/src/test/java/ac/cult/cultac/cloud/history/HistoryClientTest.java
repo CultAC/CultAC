@@ -20,6 +20,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -182,6 +183,52 @@ class HistoryClientTest {
                     failure(() -> client().findings(PLAYER, SESSION, null, 10).get(10, TimeUnit.SECONDS));
             assertEquals(code, findings.status());
         }
+    }
+
+    @Test
+    void aForbiddenAnswerHoldsWithoutAskingUntilItsMemoryPasses() throws Exception {
+        AtomicLong now = new AtomicLong();
+        HistoryClient client = new HistoryClient(
+                "http://127.0.0.1:" + server.getAddress().getPort(),
+                KEY,
+                HttpClient.newHttpClient(),
+                calls,
+                now::get);
+        status = 403;
+
+        assertEquals(403, failure(() -> client.sessions(PLAYER, null, 10).get(10, TimeUnit.SECONDS)).status());
+        assertTrue(client.refused());
+        status = 200;
+        answer = "{\"total\":0,\"sessions\":[]}";
+        now.addAndGet(HistoryClient.REFUSAL_MEMORY.toNanos() - 1);
+        assertEquals(403, failure(() -> client.findings(PLAYER, SESSION, null, 10).get(10, TimeUnit.SECONDS)).status());
+        assertEquals(1, seen.size());
+        assertFalse(client().refused());
+
+        now.incrementAndGet();
+        assertFalse(client.refused());
+        assertEquals(0, client.sessions(PLAYER, null, 10).get(10, TimeUnit.SECONDS).total());
+        assertEquals(2, seen.size());
+    }
+
+    @Test
+    void anOkAnswerForgetsTheForbiddenOne() throws Exception {
+        AtomicLong now = new AtomicLong();
+        HistoryClient client = new HistoryClient(
+                "http://127.0.0.1:" + server.getAddress().getPort(),
+                KEY,
+                HttpClient.newHttpClient(),
+                calls,
+                now::get);
+        status = 403;
+        failure(() -> client.sessions(PLAYER, null, 10).get(10, TimeUnit.SECONDS));
+        status = 200;
+        answer = "{\"total\":0,\"sessions\":[]}";
+        now.addAndGet(HistoryClient.REFUSAL_MEMORY.toNanos());
+
+        assertEquals(0, client.sessions(PLAYER, null, 10).get(10, TimeUnit.SECONDS).total());
+        now.set(0);
+        assertFalse(client.refused());
     }
 
     @Test

@@ -16,6 +16,12 @@ categories:
   cloud: "Cloud Review"
 
 checks:
+  BrandSpoofA:
+    summary: "Reported conflicting client information"
+    details: "The client name does not match the client features it reported."
+  BrandSpoofB:
+    summary: "Reported different client brands"
+    details: "The player reported more than one client name during the same connection."
   # Combat
   AimDuplicateLook:
     summary: "Sent aim updates that Minecraft never sends"
@@ -102,6 +108,9 @@ checks:
   NoFall:
     summary: "Avoided fall damage they should have taken"
     details: "Their game sent false ground or movement information to cancel fall damage. That's what NoFall cheats do."
+  GhostFriction:
+    summary: "Kept speed from a block that was never placed"
+    details: "The player moved with the slipperiness of a block the server never placed, such as ice, and kept the speed it gave them."
   NoSlow:
     summary: "Moved too fast while using an item"
     details: "Eating, drinking, blocking with a shield, drawing a bow and using other items slow you down. NoSlow cheats remove that, so the player can, for example, run at full speed while eating a golden apple."
@@ -227,6 +236,9 @@ checks:
   VehicleF:
     summary: "Rowed a boat in an impossible way"
     details: "A modified client or boat cheat sends boat controls like these, which Minecraft can't produce."
+  VehicleGround:
+    summary: "Reported an impossible vehicle ground state"
+    details: "The vehicle claimed to be on or off the ground when its movement collision proves otherwise. A modified client can use this to jump in midair or to avoid falling."
   VehicleOffset:
     summary: "Moved a vehicle in an impossible way"
     details: "Their boat, horse or other ride moved faster, higher or in other ways Minecraft doesn't allow. BoatFly and vehicle Speed or Fly cheats do this."

@@ -30,6 +30,9 @@ public class VelocityTransformer {
 
     private static final Vec3 attackSlowMultiplier = new Vec3(0.6, 1, 0.6);
 
+    /** The reason of the step that adds LivingEntity#jumpFromGround's sprint boost to the jump before it. */
+    public static final String SPRINT_JUMP_REASON = "Jumping sprinting";
+
     public List<PredVector> generateMovementVectors(CultPlayer player, List<PredVector> input) {
         if (simulationContext.getVehicle() != null
                 && ac.cult.cultac.utils.nmsutil.EntityTypeUtil.isBoat(simulationContext.getVehicle().type)) {
@@ -90,7 +93,9 @@ public class VelocityTransformer {
             input = applyFlightTakeoff(player, input);
             input = applyFlightInput(player, input);
         }
-        input = applyMovementThreshold(input, simulationContext.getVersion(), simulationContext.getVehicle() == null);
+        input = simulationContext.getVehicle() == null
+                ? applyPushedMovementThreshold(player, input, abilityFlying)
+                : applyMovementThreshold(input, simulationContext.getVersion(), false);
         // Player#isAffectedByFluids is false in flight, so LivingEntity#aiStep runs neither jump.
         return abilityFlying ? input : applyJumps(player, input);
     }
@@ -192,20 +197,23 @@ public class VelocityTransformer {
 
         List<PredVector> transformed = new ArrayList<>(input.size());
         for (PredVector vector : input) {
-            PredVector current = vector;
-            Vec3 water = WaterCurrent.calculateWaterCurrent(
-                    player, simulationContext, simulationContext.getStart(), current);
-            if (water != null && isFinite(water)) {
-                current = current.add(water, "water current");
-            }
-            Vec3 lava =
-                    WaterCurrent.calculateLavaCurrent(player, simulationContext, simulationContext.getStart(), current);
-            if (lava != null && isFinite(lava)) {
-                current = current.add(lava, "lava current");
-            }
-            transformed.add(current);
+            transformed.add(addFluidCurrents(player, vector));
         }
         return transformed;
+    }
+
+    private PredVector addFluidCurrents(CultPlayer player, PredVector vector) {
+        PredVector current = vector;
+        Vec3 water =
+                WaterCurrent.calculateWaterCurrent(player, simulationContext, simulationContext.getStart(), current);
+        if (water != null && isFinite(water)) {
+            current = current.add(water, "water current");
+        }
+        Vec3 lava = WaterCurrent.calculateLavaCurrent(player, simulationContext, simulationContext.getStart(), current);
+        if (lava != null && isFinite(lava)) {
+            current = current.add(lava, "lava current");
+        }
+        return current;
     }
 
     private boolean isFinite(Vec3 vector) {
@@ -613,30 +621,73 @@ public class VelocityTransformer {
     }
 
     public static PredVector applyMovementThreshold(PredVector vector, ClientVersion version, boolean playerEntity) {
+        return applyMovementThreshold(vector, vector, version, playerEntity);
+    }
+
+    /** Zeroes the axes of {@code vector} that LivingEntity#aiStep zeroes in the deltaMovement {@code tested}. */
+    private static PredVector applyMovementThreshold(
+            PredVector vector, Vec3 tested, ClientVersion version, boolean playerEntity) {
         double minimumMovement = 0.003D;
 
         // LivingEntity#aiStep switched players from per-axis cutoffs to a
         // horizontal-length cutoff in 1.21.5. Ridden entities retain per-axis cutoffs.
         if (playerEntity && version.isNewerThanOrEquals(ClientVersion.V_1_21_5)) {
-            if (vector.x * vector.x + vector.z * vector.z < minimumMovement * minimumMovement) {
+            if (tested.x * tested.x + tested.z * tested.z < minimumMovement * minimumMovement) {
                 vector = vector.withXYZOrSelf(0, vector.y, vector.z, "Inertia threshold")
                         .withXYZOrSelf(0, vector.y, 0, "Inertia threshold");
             }
         } else {
-            if (Math.abs(vector.x) < minimumMovement) {
+            if (Math.abs(tested.x) < minimumMovement) {
                 vector = vector.withXYZOrSelf(0, vector.y, vector.z, "Inertia threshold");
             }
 
-            if (Math.abs(vector.z) < minimumMovement) {
+            if (Math.abs(tested.z) < minimumMovement) {
                 vector = vector.withXYZOrSelf(vector.x, vector.y, 0, "Inertia threshold");
             }
         }
 
-        if (Math.abs(vector.y) < minimumMovement) {
+        if (Math.abs(tested.y) < minimumMovement) {
             vector = vector.withXYZOrSelf(vector.x, 0, vector.z, "Inertia threshold");
         }
 
         return vector;
+    }
+
+    /**
+     * LivingEntity#aiStep thresholds the deltaMovement that Entity#baseTick has already pushed by the fluid current.
+     * The on-foot current itself stays with FluidPush, so only the threshold reads it here.
+     */
+    private List<PredVector> applyPushedMovementThreshold(
+            CultPlayer player, List<PredVector> input, boolean abilityFlying) {
+        ClientVersion version = simulationContext.getVersion();
+        // Player#isPushedByFluid is false in flight.
+        if (abilityFlying) {
+            return applyMovementThreshold(input, version, true);
+        }
+
+        List<PredVector> outputs = new ArrayList<>(input.size());
+        boolean noCurrent = false;
+        for (PredVector vector : input) {
+            if (!mayFallUnderMovementThreshold(vector, version)) {
+                outputs.add(vector);
+                continue;
+            }
+
+            // Whether any current is added depends on the start box alone, not on the starting velocity.
+            Vec3 pushed = noCurrent ? vector : addFluidCurrents(player, vector);
+            noCurrent = pushed == vector;
+            outputs.add(applyMovementThreshold(vector, pushed, version, true));
+        }
+        return outputs;
+    }
+
+    /** Whether a water (at most 0.014) and lava (at most 0.007) current can leave an axis under the threshold. */
+    private static boolean mayFallUnderMovementThreshold(Vec3 vector, ClientVersion version) {
+        double minimumMovement = 0.003D + 0.014D + 0.007D;
+        boolean horizontal = version.isNewerThanOrEquals(ClientVersion.V_1_21_5)
+                ? vector.x * vector.x + vector.z * vector.z < minimumMovement * minimumMovement
+                : Math.abs(vector.x) < minimumMovement || Math.abs(vector.z) < minimumMovement;
+        return horizontal || Math.abs(vector.y) < minimumMovement;
     }
 
     private List<PredVector> applyJumps(CultPlayer player, List<PredVector> velocities) {
@@ -784,7 +835,7 @@ public class VelocityTransformer {
                                 0.0,
                                 simulationContext.getTrig().cos(f2) * 0.2f);
                         // ensure to not change the original vector
-                        outputs.add(modified.add(jumpBonus, "Jumping sprinting"));
+                        outputs.add(modified.add(jumpBonus, SPRINT_JUMP_REASON));
                         // By doing this twice, we brute-force FastMath
                         simulationContext.getTrig().toggleShitMath();
                     }

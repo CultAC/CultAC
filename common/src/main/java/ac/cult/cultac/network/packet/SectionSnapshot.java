@@ -2,6 +2,7 @@ package ac.cult.cultac.network.packet;
 
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.utils.latency.PalettedSection;
+import ac.cult.cultac.utils.latency.SectionPool;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
@@ -9,14 +10,22 @@ import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.function.IntUnaryOperator;
 
-/** Immutable owned palettes. Mutable consumers copy storage; no frame or encoded copy is retained. */
+/**
+ * Immutable palettes; a section pool may share their block storage across connections, copy-on-write. Mutable consumers
+ * copy storage; no frame or encoded copy is retained.
+ */
 public final class SectionSnapshot {
     private final short nonEmpty, fluids;
+    /** The fluid count when the wire (26.1+) or a pooled section with these contents supplied it; -1 otherwise. */
+    private final int knownFluids;
+
     private final PalettedSection blocks, biomes;
 
-    private SectionSnapshot(short nonEmpty, short fluids, PalettedSection blocks, PalettedSection biomes) {
+    private SectionSnapshot(
+            short nonEmpty, short fluids, int knownFluids, PalettedSection blocks, PalettedSection biomes) {
         this.nonEmpty = nonEmpty;
         this.fluids = fluids;
+        this.knownFluids = knownFluids;
         this.blocks = blocks;
         this.biomes = biomes;
     }
@@ -30,12 +39,32 @@ public final class SectionSnapshot {
             int modelBiomes,
             IntUnaryOperator states,
             IntUnaryOperator biomes) {
+        return read(input, version, sourceStates, modelStates, sourceBiomes, modelBiomes, states, biomes, null);
+    }
+
+    /**
+     * As the read without a pool, sharing the block storage of a section in {@code pool} that the wire holds.
+     * {@code states} must be pure and non-blocking: it runs under the pool's lock, possibly once per pooled candidate.
+     */
+    public static SectionSnapshot read(
+            ByteBuf input,
+            ProtocolVersion version,
+            int sourceStates,
+            int modelStates,
+            int sourceBiomes,
+            int modelBiomes,
+            IntUnaryOperator states,
+            IntUnaryOperator biomes,
+            SectionPool pool) {
         short nonEmpty = input.readShort();
-        short fluids = version.atLeast(ProtocolVersion.V26_1) ? input.readShort() : 0;
+        boolean wireFluids = version.atLeast(ProtocolVersion.V26_1);
+        short fluids = wireFluids ? input.readShort() : 0;
+        var blocks = PalettedSection.readBlocksPooled(input, version, sourceStates, states, modelStates, pool);
         return new SectionSnapshot(
                 nonEmpty,
                 fluids,
-                PalettedSection.readBlocks(input, version, sourceStates, states, modelStates),
+                wireFluids ? fluids : blocks.pooledFluidCount(),
+                blocks.states(),
                 PalettedSection.readBiomes(input, version, sourceBiomes, biomes, modelBiomes));
     }
 
@@ -44,12 +73,23 @@ public final class SectionSnapshot {
         return new SectionSnapshot(
                 (short) 0,
                 (short) 0,
+                -1,
                 null,
                 PalettedSection.readBiomes(input, version, sourceBiomes, biomes, modelBiomes));
     }
 
     public PalettedSection copyBlocks() {
         return blocks.copyOnWrite();
+    }
+
+    /** The non-air block count the wire carried. */
+    public int nonEmptyBlockCount() {
+        return nonEmpty;
+    }
+
+    /** The wire's fluid count (26.1+), else a pooled section's with the same contents; -1 when neither is known. */
+    public int knownFluidCount() {
+        return knownFluids;
     }
 
     /** The biome of every cell when the palette holds a single entry; -1 otherwise. */

@@ -36,15 +36,6 @@ public class MovementModifiers {
         return applyModifers(player, initial, state, lastResult, canTickSkip, FluidHopMode.INCLUDE);
     }
 
-    public List<PredVector> applyWithoutFluidHop(
-            CultPlayer player,
-            Set<Vec3> initial,
-            SimulationContext state,
-            PredictionResult lastResult,
-            boolean canTickSkip) {
-        return applyWithoutJavaFluidHop(player, initial, state, lastResult, canTickSkip);
-    }
-
     public List<PredVector> applyWithoutJavaFluidHop(
             CultPlayer player,
             Set<Vec3> initial,
@@ -190,6 +181,8 @@ public class MovementModifiers {
 
                 if (vel.isVelocity()) { // Velocity
                     vector = vector.withXYZ(eventVel.x, eventVel.y, eventVel.z, "Velocity");
+                    // ClientPacketListener#handleSetEntityMotion -> Entity#lerpMotion sets the whole delta movement.
+                    vector.setTickSkip(false);
                 } else { // Explosion
                     vector = vector.add(eventVel, "Explosion");
                 }

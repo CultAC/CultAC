@@ -10,6 +10,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Consumer;
+import org.jetbrains.annotations.ApiStatus;
 
 /** Owns registration and dispatch. Each packet retains one immutable route entry. */
 public class PacketDispatcher {
@@ -49,23 +50,31 @@ public class PacketDispatcher {
     }
 
     public synchronized void register(Consumer<PacketRouteBuilder> batch) {
-        publish(batch, false);
+        publish(batch, false, false);
+    }
+
+    /** Registers CultAC's own handlers, which keep no event past their handler. */
+    @ApiStatus.Internal
+    public synchronized void registerOwn(Consumer<PacketRouteBuilder> batch) {
+        publish(batch, false, true);
     }
 
     public synchronized void replace(Consumer<PacketRouteBuilder> batch) {
-        publish(batch, true);
+        publish(batch, true, false);
     }
 
     public void clear() {
         replace(ignored -> {});
     }
 
-    private void publish(Consumer<PacketRouteBuilder> batch, boolean replace) {
+    private void publish(Consumer<PacketRouteBuilder> batch, boolean replace, boolean own) {
         if (registering) throw new IllegalStateException("Nested packet registration batch");
         registering = true;
         try {
             var next = replace ? newRouteBuilder() : registrations.copy();
+            next.own = own;
             Objects.requireNonNull(batch).accept(next);
+            next.own = false;
             var routes = next.compile();
             // Do not retain a mutable builder supplied to application code.
             registrations = next.copy();
@@ -83,7 +92,16 @@ public class PacketDispatcher {
         return snapshot.get(type);
     }
 
-    public record Route(PacketType<?> type, ReceiveRoute<ServerboundPacket> receive, PacketSendRoute<Object> send) {}
+    /**
+     * {@code own} is true when every handler on the route is CultAC's own; the transport reuses events only on such
+     * a route.
+     */
+    public record Route(
+            PacketType<?> type, ReceiveRoute<ServerboundPacket> receive, PacketSendRoute<Object> send, boolean own) {
+        public Route(PacketType<?> type, ReceiveRoute<ServerboundPacket> receive, PacketSendRoute<Object> send) {
+            this(type, receive, send, false);
+        }
+    }
 
     public record ReceiveRoute<R extends ServerboundPacket>(
             PacketReceiveRoute<? super R> early,
