@@ -97,8 +97,9 @@ class JavaIdleTickGroundTest {
             f.statusTick(true, false);
             loadFloor(f);
             for (int tick = 0; tick < 6; tick++) f.tickEnd();
+            // A fall that could reach the floor does not re-prove a claim the client never moved down to.
             assertEquals(
-                    DesyncStatus.TRUE,
+                    DesyncStatus.FALSE,
                     f.player.checkManager.getSimulationProcessor().getLastOnGround());
             f.input(SPRINT_LEFT);
             PredictionResult result = f.tick(new Vec3(STRAFE_X[0], hover, SPAWN.z), true);

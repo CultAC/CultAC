@@ -237,8 +237,8 @@ checks:
     summary: "Rowed a boat in an impossible way"
     details: "A modified client or boat cheat sends boat controls like these, which Minecraft can't produce."
   VehicleGround:
-    summary: "Reported an impossible horse ground state"
-    details: "The horse claimed to be on or off the ground when its movement collision proves otherwise. A modified client can use this to jump in midair."
+    summary: "Reported an impossible vehicle ground state"
+    details: "The vehicle claimed to be on or off the ground when its movement collision proves otherwise. A modified client can use this to jump in midair or to avoid falling."
   VehicleOffset:
     summary: "Moved a vehicle in an impossible way"
     details: "Their boat, horse or other ride moved faster, higher or in other ways Minecraft doesn't allow. BoatFly and vehicle Speed or Fly cheats do this."
