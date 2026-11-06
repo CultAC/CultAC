@@ -515,12 +515,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         this.couldPotentiallyTickSkip = false;
         this.certainSpinHit = false;
         this.player.riptideSpinCertain = false;
-        if (!this.player.isBedrockMovement()
-                && teleportAcceptData.getSetback() != null
-                && teleportAcceptData.getSetback().getVelocity() != null) {
-            this.validPlayerStartingVels.clear();
-            this.validPlayerStartingVels.add(teleportAcceptData.getSetback().getVelocity());
-        }
 
         if (this.player.isBedrockMovement()) {
             if (teleportCommit != null) {

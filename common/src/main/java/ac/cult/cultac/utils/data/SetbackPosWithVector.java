@@ -17,6 +17,9 @@ public class SetbackPosWithVector {
     private ClientSprintState.Outcomes sprintOutcomes;
     // The onGround the horse's accepted move left at this position; null when no horse move reached it.
     private DesyncStatus horseOnGround;
+    // The sent knockback and explosion the vector already carries.
+    private TransactionVel carriedKnockback;
+    private TransactionVel carriedExplosion;
 
     public SetbackPosWithVector(Vec3 pos, Vec3 vector, int tick) {
         this(pos, vector, tick, null);
@@ -27,5 +30,9 @@ public class SetbackPosWithVector {
         this.vector = vector;
         this.tick = tick;
         this.profileState = profileState;
+    }
+
+    public boolean carries(TransactionVel impulse) {
+        return impulse != null && (impulse == carriedKnockback || impulse == carriedExplosion);
     }
 }

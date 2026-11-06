@@ -155,6 +155,9 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
     // The safe position when the client's latest movement arrived. While it is still the safe position, that
     // movement is not part of it, and a setback rejects it.
     private SetbackPosWithVector safePositionAtLatestMovement;
+    // The transaction of the ping before the latest Java correction's player_position. That teleport's absolute delta
+    // movement replaces every impulse the client applied before it, and the correction's velocity accounts for them.
+    private int correctionTransaction = Integer.MIN_VALUE;
     // The position of the last Bedrock movement packet actually forwarded to
     // Paper (Geyser's Java projection or a teleport echo), captured at the
     // packet level after all cancellation decisions. Never derived from
@@ -246,10 +249,18 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                     context.getWorldData().getStuckSpeed().getStuckSpeedMultiplier() != null,
                     null);
         } else {
-            final TransactionVel sentKnockback =
-                    player.checkManager.getKnockbackHandler().getLastSent();
-            if (sentKnockback != null) {
-                afterTickFriction = sentKnockback.getVel();
+            // CheckManagerListener#applyTeleportResponse completes an answer away from the target without a prediction.
+            final PredictionResult answered = predictionComplete.getPredictionResult();
+            TeleportData accepted = answered == null ? null : answered.getSetBackData();
+            if (isAcceptedCorrection(accepted)) {
+                // ClientPacketListener#setValuesFromPositionPacket set the delta movement to the correction's own.
+                afterTickFriction = accepted.getDeltaMovement();
+            } else {
+                final TransactionVel sentKnockback =
+                        player.checkManager.getKnockbackHandler().getLastSent();
+                if (sentKnockback != null) {
+                    afterTickFriction = sentKnockback.getVel();
+                }
             }
         }
 
@@ -276,10 +287,15 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                     new SetbackPosWithVector(to, afterTickFriction, player.totalFlyingPacketsSent, profileState);
             safe.setSprintOutcomes(SimulationProcessor.sprintOutcomesAfter(
                     player, predictionComplete.isTeleport() ? null : completedPrediction));
-            if (!player.isBedrockMovement()
-                    && !predictionComplete.isTeleport()
-                    && completedPrediction.getSimulationContext().getVehicle() instanceof PacketEntityHorse) {
-                safe.setHorseOnGround(VelocityCandidates.verticalCollisionBelow(completedPrediction));
+            if (!player.isBedrockMovement() && !predictionComplete.isTeleport()) {
+                // This tick's travel took every velocity the client applied before it, and its friction carries them.
+                safe.setCarriedKnockback(
+                        player.checkManager.getKnockbackHandler().lastSentAppliedBeforeTick());
+                safe.setCarriedExplosion(
+                        player.checkManager.getExplosionHandler().lastSentAppliedBeforeTick());
+                if (completedPrediction.getSimulationContext().getVehicle() instanceof PacketEntityHorse) {
+                    safe.setHorseOnGround(VelocityCandidates.verticalCollisionBelow(completedPrediction));
+                }
             }
             stageSafePosition(safe);
         }
@@ -292,6 +308,19 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 || requiredSetBack.isComplete()
                         && !blockOffsets
                         && !player.getSetbackTeleportUtil().insideUnloadedChunk();
+    }
+
+    /** Whether the client just accepted {@code teleport} as a Java correction whose delta movement is absolute. */
+    private boolean isAcceptedCorrection(TeleportData teleport) {
+        SetBackData setback = requiredSetBack;
+        return teleport != null
+                && setback != null
+                && setback.isComplete()
+                && !setback.isPlugin()
+                && setback.getTeleportData().getTransaction() == teleport.getTransaction()
+                && !teleport.isRelativeDeltaX()
+                && !teleport.isRelativeDeltaY()
+                && !teleport.isRelativeDeltaZ();
     }
 
     private void stageSafePosition(SetbackPosWithVector safe) {
@@ -530,12 +559,12 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
 
         TransactionVel sentKnockback = player.checkManager.getKnockbackHandler().getLastSent();
         TransactionVel sentExplosion = player.checkManager.getExplosionHandler().getLastSent();
-        if (sentKnockback != null) {
+        if (isPendingImpulse(sentKnockback)) {
             clientVel = sentKnockback.getVel();
         }
         // Don't apply explosions multiple times when spamming violations. Use the client's order: one flush ping can
         // prove both the motion and a later explosion.
-        final boolean explosionIsNewer = sentExplosion != null
+        final boolean explosionIsNewer = isPendingImpulse(sentExplosion)
                 && (sentKnockback == null || TransactionVel.compareClientOrder(sentExplosion, sentKnockback) > 0);
         if (explosionIsNewer) {
             clientVel = clientVel.add(sentExplosion.getVel());
@@ -705,6 +734,18 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         }
     }
 
+    /**
+     * Whether the client has yet to take {@code impulse} from the safe state. The safe vector carries one the safe tick
+     * took, and the latest Java correction's delta movement replaced one the client applied before that teleport. A
+     * push the client's own tick applies after travel follows the packets its transaction proves and precedes the rest.
+     */
+    private boolean isPendingImpulse(TransactionVel impulse) {
+        if (impulse == null || lastKnownGoodPosition.carries(impulse)) return false;
+        return impulse.isAppliedAfterTravel()
+                ? impulse.getTransaction() > correctionTransaction
+                : impulse.getTransaction() >= correctionTransaction;
+    }
+
     /** Whether one tick of {@code velocity} from {@code position} leaves the player where it is. */
     private boolean barelyMoves(Vec3 position, Vec3 velocity) {
         SimpleCollisionBox oldBB = player.boundingBox;
@@ -865,14 +906,22 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 }
             } else {
                 bedrockVehicleSetback = null;
+                // ClientPacketListener#setValuesFromPositionPacket sets the delta movement to a teleport's absolute
+                // one (PositionMoveRotation#calculateAbsolute) in the handler that answers it. A Java correction
+                // carries its velocity there, so the client cannot accept the position without the velocity.
+                Vec3 delta = data.getVelocity() == null ? Vec3.ZERO : data.getVelocity();
                 // Track the correction before sending; its outbound packet is silenced below.
-                if (!player.isBedrockMovement())
+                if (!player.isBedrockMovement()) {
                     addSentTeleport(
                             position,
+                            delta,
                             data.getTeleportData().getTransaction(),
                             new RelativeFlag(0b11000),
                             false,
                             teleportId);
+                    if (!player.inVehicle()) lastKnownGoodPosition.setVector(delta);
+                    correctionTransaction = data.getTeleportData().getTransaction();
+                }
                 // Receive the player's position packet to make setbacks appear smooth for other players (and to stop
                 // vanilla ac setbacks)
                 // For Bedrock this move is Paper's teleport response, which is never on ground.
@@ -890,7 +939,10 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                             data.getTeleportData().getTransaction());
                 } else {
                     sendPlayerSetbackPackets(
-                            teleportId, position, data.getTeleportData().getFlags().getMask());
+                            teleportId,
+                            position,
+                            delta,
+                            data.getTeleportData().getFlags().getMask());
                 }
             }
 
@@ -910,12 +962,12 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                     now);
 
             final KnockbackHandler knockbackHandler = player.checkManager.getKnockbackHandler();
-            if (!bedrockVehicle
+            // A Java correction of the player carries its velocity in its player_position.
+            boolean velocityInTeleport = !player.isBedrockMovement() && vehicleEntityId == Integer.MIN_VALUE;
+            if (!velocityInTeleport
+                    && !bedrockVehicle
                     && data.getVelocity() != null
-                    && (dismounted
-                            || leftVehicle
-                            || data.getVelocity().lengthSqr() > 0
-                            || vehicleEntityId != Integer.MIN_VALUE)) {
+                    && (dismounted || data.getVelocity().lengthSqr() > 0 || vehicleEntityId != Integer.MIN_VALUE)) {
                 knockbackHandler.setSetbackVal(true);
                 player.user.write(new CultWrite(
                         new ClientboundEntityMotion(
@@ -931,13 +983,15 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         }
     }
 
-    private void sendPlayerSetbackPackets(int teleportId, Vec3 position, int relativeMask) {
+    private void sendPlayerSetbackPackets(int teleportId, Vec3 position, Vec3 delta, int relativeMask) {
         var point = new Vec3d(position.x, position.y, position.z);
         var relatives = Relative.unpack(relativeMask);
         // unfortunately, 26.3 clients don't like ClietboundTeleportEntity as it causes weird interpolation if multiple
         // teleports are sent within a few ticks.
         player.user.write(new CultWrite(
-                new ClientboundPlayerPosition(teleportId, point, Vec3d.ZERO, 0.0F, 0.0F, relatives), true));
+                new ClientboundPlayerPosition(
+                        teleportId, point, new Vec3d(delta.x, delta.y, delta.z), 0.0F, 0.0F, relatives),
+                true));
     }
 
     private boolean isServerPassenger() {

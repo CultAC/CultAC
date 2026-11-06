@@ -381,6 +381,21 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
         return firstBread != null || secondBread != null;
     }
 
+    /**
+     * {@link #lastSent} if the client tick being predicted began with it applied, else null. Minecraft#runTick handles
+     * a Java velocity's bundle, proof ping included, before it ticks; a push applied after travel is taken next tick.
+     */
+    public TransactionVel lastSentAppliedBeforeTick() {
+        TransactionVel sent = lastSent;
+        if (sent == null || player.isBedrockMovement()) return null;
+        if (sent.isAppliedAfterTravel()) {
+            return player.packetStateData.acceptedClientTick + 1 >= sent.getConsumedAtClientTick() ? sent : null;
+        }
+        // A velocity whose trailing ping could not be sent has no proof.
+        int proof = sent.getProofTransaction();
+        return proof >= sent.getTransaction() && player.lastTransactionReceived.get() >= proof ? sent : null;
+    }
+
     public void clearVelocitiesFromSourceEntity(int entityId) {
         if (firstBread != null && firstBread.getSourceEntityId() == entityId) {
             firstBread.setConsumed(true);
