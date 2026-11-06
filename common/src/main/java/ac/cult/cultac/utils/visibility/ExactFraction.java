@@ -64,6 +64,12 @@ final class ExactFraction implements Comparable<ExactFraction> {
     ExactFraction add(ExactFraction other) {
         if (signum() == 0) return other;
         if (other.signum() == 0) return this;
+        if (denominator.equals(other.denominator)) {
+            BigInteger sum = numerator.add(other.numerator);
+            if (sum.signum() == 0) return ZERO;
+            BigInteger reduction = gcd(sum, denominator);
+            return new ExactFraction(exactQuotient(sum, reduction), exactQuotient(denominator, reduction));
+        }
         BigInteger common = gcd(denominator, other.denominator);
         BigInteger left = exactQuotient(denominator, common);
         BigInteger right = exactQuotient(other.denominator, common);
