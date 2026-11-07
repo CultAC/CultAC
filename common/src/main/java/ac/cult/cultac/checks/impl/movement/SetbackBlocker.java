@@ -162,7 +162,7 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
         // A client can intentionally delay transaction responses while continuing to send
         // movement. Only block this for Cult-owned vehicle setbacks; ordinary server
         // vehicle teleports may be pending while the client keeps moving old state.
-        if (!teleport && player.getSetbackTeleportUtil().hasUnacknowledgedSetbackVehicleTeleport()) {
+        if (!teleport && player.getSetbackTeleportUtil().vehicleTeleports().hasUnacknowledgedSetbackVehicleTeleport()) {
             event.setCancelled(true);
         }
 

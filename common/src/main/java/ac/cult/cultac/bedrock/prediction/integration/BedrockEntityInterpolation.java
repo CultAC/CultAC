@@ -130,7 +130,8 @@ public final class BedrockEntityInterpolation {
 
     /** One client tick: every state lerps once, and the client may handle a begun move before the next. */
     public void tick(CultPlayer player, PacketEntity entity) {
-        BedrockCoordinateFrame coordinates = player.getSetbackTeleportUtil().getActiveBedrockCoordinateFrame();
+        BedrockCoordinateFrame coordinates =
+                player.getSetbackTeleportUtil().bedrockTeleports().getActiveBedrockCoordinateFrame();
         float yawOffset = entity.isBoat() ? 90.0F : 0.0F;
         for (State state : states) step(coordinates, yawOffset, state);
         branch(player, entity);

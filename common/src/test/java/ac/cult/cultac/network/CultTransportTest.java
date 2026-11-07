@@ -7,6 +7,7 @@ import static org.mockito.Mockito.*;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
+import ac.cult.cultac.manager.player.setback.CorrectionSender;
 import ac.cult.cultac.network.logging.PacketLogObserver;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
@@ -853,8 +854,10 @@ class CultTransportTest {
                 try (var f = new Fixture(owned)) {
                     var player = mock(CultPlayer.class);
                     var setbacks = mock(SetbackTeleportUtil.class);
+                    var sender = mock(CorrectionSender.class);
                     when(player.getSetbackTeleportUtil()).thenReturn(setbacks);
-                    when(setbacks.takePendingServerMove())
+                    when(setbacks.sender()).thenReturn(sender);
+                    when(sender.takePendingServerMove())
                             .thenReturn(new ServerboundMovePlayer(40, 50, 60, 0, 0, false, false, true, false));
                     var userField = CultPlayer.class.getDeclaredField("user");
                     userField.setAccessible(true);
@@ -896,7 +899,7 @@ class CultTransportTest {
                     assertEquals(f.hex(expected), f.hex(actual));
                     assertEquals(0, position.refCnt());
                     assertNull(f.channel.readInbound());
-                    verify(setbacks, times(1)).takePendingServerMove();
+                    verify(sender, times(1)).takePendingServerMove();
                 }
             }
     }

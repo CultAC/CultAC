@@ -328,7 +328,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         }
         if (debugVehicle != null) {
             sb.append("\nRoot vehicle packet state: queuedVehicleTeleports=")
-                    .append(player.getSetbackTeleportUtil().queuedVehicleTeleportCount())
+                    .append(player.getSetbackTeleportUtil().vehicleTeleports().queuedVehicleTeleportCount())
                     .append(" lastPacketWasTeleport=")
                     .append(player.packetStateData.lastPacketWasTeleport);
         }

@@ -5,6 +5,7 @@ import static org.junit.Assert.*;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockProfileState;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.math.Vec3;
 import org.junit.Test;
@@ -17,8 +18,7 @@ public class BedrockMovementExemptionTest {
         try {
             player.canFly = true;
             player.isFlying = true;
-            player.getSetbackTeleportUtil().hasFullyLoaded = true;
-            player.getSetbackTeleportUtil().hasFullyJoined = true;
+            SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
             var processor = player.checkManager.getSimulationProcessor();
             var observed = new Vec3(2, 65, 3);
             var velocity = new Vec3(0.17, 0.06, 0.03);

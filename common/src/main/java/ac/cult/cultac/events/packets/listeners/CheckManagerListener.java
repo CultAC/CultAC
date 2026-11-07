@@ -492,6 +492,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                     event.replace(packet.withOnGround(false));
                 }
                 player.getSetbackTeleportUtil()
+                        .bedrockTeleports()
                         .setBedrockPaperVisiblePosition(new Vec3(packet.x(), packet.y(), packet.z()));
                 return;
             }
@@ -530,6 +531,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             if (!event.isCancelled() && event.getPacket().hasPosition()) {
                 var projected = event.getPacket();
                 player.getSetbackTeleportUtil()
+                        .bedrockTeleports()
                         .setBedrockPaperVisiblePosition(
                                 new Vec3(projected.xOr(player.x), projected.yOr(player.y), projected.zOr(player.z)));
             }
@@ -550,16 +552,18 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                             .version()
                             .atLeast(ac.cult.cultac.protocol.ProtocolVersion.V26_3);
             if (legacyJavaWire && packet.hasRotation()) {
-                player.getSetbackTeleportUtil().posRotReceived();
+                player.getSetbackTeleportUtil().javaTeleports().posRotReceived();
             }
             teleportData = player.isBedrockMovement()
                             || legacyJavaWire
-                            || player.getSetbackTeleportUtil().hasIdlessJavaPositionTeleport()
+                            || player.getSetbackTeleportUtil().javaTeleports().hasIdlessJavaPositionTeleport()
                     ? player.getSetbackTeleportUtil()
+                            .javaTeleports()
                             .checkTeleportQueue(movementPosition.x, movementPosition.y, movementPosition.z)
                     : new TeleportAcceptData();
         } else if (packet.rotationOnly()) {
             teleportData = player.getSetbackTeleportUtil()
+                    .javaTeleports()
                     .checkRotationTeleportQueue(packet.yawOr(player.xRot), packet.pitchOr(player.yRot));
         } else {
             teleportData = new TeleportAcceptData();
@@ -737,6 +741,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
             }
             Integer teleportVehicleId = packetRoot == null ? serverVehicle : Integer.valueOf(packetRoot.getEntityId());
             TeleportAcceptData teleportData = player.getSetbackTeleportUtil()
+                    .vehicleTeleports()
                     .checkVehicleTeleportQueue(teleportVehicleId, newPos.x, newPos.y, newPos.z);
             var movementGate = player.packetStateData.bedrockTranslatedMovement;
             if (!teleportData.isTeleport()
@@ -816,6 +821,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                         || (fromClientTick
                                 && player.compensatedEntities.vehicles.isVehicleSwitchBufferActiveFor(packetRoot));
         TeleportAcceptData teleportData = player.getSetbackTeleportUtil()
+                .vehicleTeleports()
                 .checkVehicleTeleportQueue(
                         packetRoot == null ? null : packetRoot.getEntityId(),
                         newPos.x,
@@ -1044,7 +1050,7 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
 
     private boolean shouldBlockVehicleMovementForSetback(CultPlayer player, TeleportAcceptData teleportData) {
         return !teleportData.isTeleport()
-                && (player.getSetbackTeleportUtil().hasUnacknowledgedSetbackVehicleTeleport()
+                && (player.getSetbackTeleportUtil().vehicleTeleports().hasUnacknowledgedSetbackVehicleTeleport()
                         || player.getSetbackTeleportUtil().shouldBlockVehicleMovement());
     }
 

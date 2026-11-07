@@ -17,6 +17,7 @@ import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -690,7 +691,7 @@ class JavaTravelAttributeTest {
     /** A respawn with no following attribute packet, after which the client has loaded into the level. */
     private static void respawn(JavaTickFixture f, byte dataToKeep) {
         f.fixture.respawn(dataToKeep);
-        f.player.getSetbackTeleportUtil().hasFullyLoaded = true;
+        SetbackFixtures.setLoaded(f.player.getSetbackTeleportUtil(), true);
         f.player.packetStateData.playerLoadedIntoLevel = true;
     }
 

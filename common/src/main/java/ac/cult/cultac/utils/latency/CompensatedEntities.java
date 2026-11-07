@@ -436,9 +436,10 @@ public class CompensatedEntities {
         entity.eject();
         if (player.isBedrockMovement()) {
             vehicles.seedStartingVelocityIfRootChanged(previousRoot);
-            if (previousRoot == null) player.getSetbackTeleportUtil().transferBedrockVehicleSetback(entityID);
+            if (previousRoot == null)
+                player.getSetbackTeleportUtil().vehicleTeleports().transferBedrockVehicleSetback(entityID);
         } else if (previousRoot != null) {
-            player.getSetbackTeleportUtil().reissueDroppedVehicleSetback();
+            player.getSetbackTeleportUtil().vehicleTeleports().reissueDroppedVehicleSetback();
         }
     }
 

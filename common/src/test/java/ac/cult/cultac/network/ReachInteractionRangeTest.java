@@ -18,6 +18,7 @@ import ac.cult.cultac.checks.impl.visibility.AttackMobVisibility;
 import ac.cult.cultac.checks.impl.visibility.AttackPlayerVisibility;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.codec.ModelRegistryNamesState;
 import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -1279,7 +1280,7 @@ class ReachInteractionRangeTest {
             player.y = 64;
             player.z = -1.5;
             player.registryState = new ClientComponentRegistries();
-            player.getSetbackTeleportUtil().hasFullyLoaded = true;
+            SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
             var world = player.compensatedWorld;
             var dimension = player.getWorldRegistries().dimension("minecraft:overworld");
             world.setLastClientboundDimension("minecraft:overworld", dimension.dimension());
@@ -1513,7 +1514,7 @@ class ReachInteractionRangeTest {
             // The fixture writes no pings; the client answers the one after the respawn.
             pongThrough(player.lastTransactionSent.get() + 1);
             assertFalse(player.packetStateData.localPlayerTickedSinceSpawn);
-            player.getSetbackTeleportUtil().hasFullyLoaded = true;
+            SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
             hold(attackRange);
         }
 

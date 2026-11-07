@@ -994,6 +994,7 @@ public final class GeyserBedrockBridgeRuntime {
             CultPlayer.BedrockTransaction before = player.getLastClientboundBedrockTransaction();
             int proof = before == null ? player.lastTransactionReceived.get() : before.transaction();
             long revision = player.getSetbackTeleportUtil()
+                    .bedrockTeleports()
                     .addImmediateBedrockTransportTeleport(
                             emission.frame().toWorld(physicalFeetPosition),
                             onGround,
@@ -1020,6 +1021,7 @@ public final class GeyserBedrockBridgeRuntime {
                 CultPlayer player, long revision, BedrockOriginDispatch.Emission emission, Vec3 localTarget) {
             if (emission == null) return;
             player.getSetbackTeleportUtil()
+                    .bedrockTeleports()
                     .confirmBedrockOrigin(revision, emission.operation(), emission.frame(), localTarget);
             BedrockPacketLogger logger = packetLogger;
             if (logger != null) logger.originReceipt(connection, revision);
@@ -1158,7 +1160,9 @@ public final class GeyserBedrockBridgeRuntime {
             var recoveryAdapter = GFP_ADAPTERS.get(connection);
             teleportRecovery.input(
                     player.bedrockState.lastMovementTick(),
-                    player.getSetbackTeleportUtil().isPendingBedrockSetback(teleportRecovery.operation()),
+                    player.getSetbackTeleportUtil()
+                            .bedrockTeleports()
+                            .isPendingBedrockSetback(teleportRecovery.operation()),
                     recoveryAdapter == null ? BedrockCoordinateFrame.IDENTITY : recoveryAdapter.coordinateFrame());
             if (state == null) {
                 var retryAdapter = GFP_ADAPTERS.get(connection);
@@ -1246,6 +1250,7 @@ public final class GeyserBedrockBridgeRuntime {
         private void submitMove(CultPlayer player, MovePlayerPacket packet) {
             if (!installFloatingPoints(connection, true)) return;
             player.bedrockState.setLastMoveFrame(player.getSetbackTeleportUtil()
+                    .bedrockTeleports()
                     .resolveBedrockCoordinates(
                             createMoveFrame(player.playerUUID, connection.protocolVersion(), packet)));
         }
@@ -1340,7 +1345,9 @@ public final class GeyserBedrockBridgeRuntime {
         CultPlayer player = tap.currentPlayer();
         if (player == null
                 || operation.setbackTransaction() == null
-                || !player.getSetbackTeleportUtil().isCurrentBedrockSetback(operation.setbackTransaction())) return;
+                || !player.getSetbackTeleportUtil()
+                        .bedrockTeleports()
+                        .isCurrentBedrockSetback(operation.setbackTransaction())) return;
         var adapter = GFP_ADAPTERS.get(tap.connection);
         var coordinates = adapter == null ? BedrockCoordinateFrame.IDENTITY : adapter.coordinateFrame();
         tap.connection.setUnconfirmedTeleport(null);
@@ -1368,7 +1375,7 @@ public final class GeyserBedrockBridgeRuntime {
             var vehicle = tap.connection.getPlayerEntity().getVehicle();
             if (player == null
                     || !tap.matchesJavaUser(user)
-                    || player.getSetbackTeleportUtil().hasPendingBedrockTransportTeleport()
+                    || player.getSetbackTeleportUtil().bedrockTeleports().hasPendingBedrockTransportTeleport()
                     || player.bedrockState.movementCorrections.generation() != correction.controlGeneration()
                     || correction.vehicle()
                             && (!(isPredictedHorse(vehicle) || vehicle instanceof BoatEntity)
@@ -1664,6 +1671,7 @@ public final class GeyserBedrockBridgeRuntime {
                             || ownTeleport.setbackTransaction() == null
                             || !observedPlayer
                                     .getSetbackTeleportUtil()
+                                    .bedrockTeleports()
                                     .isCurrentBedrockSetback(ownTeleport.setbackTransaction()))) {
                 io.netty.util.ReferenceCountUtil.release(message);
                 promise.trySuccess();
@@ -1681,7 +1689,10 @@ public final class GeyserBedrockBridgeRuntime {
                             == owner.connection.getPlayerEntity().geyserId()
                     && link.getEntityLink().getType()
                             != org.cloudburstmc.protocol.bedrock.data.entity.EntityLinkData.Type.REMOVE) {
-                Runnable received = observedPlayer.getSetbackTeleportUtil().captureBedrockVehicleMount();
+                Runnable received = observedPlayer
+                        .getSetbackTeleportUtil()
+                        .bedrockTeleports()
+                        .captureBedrockVehicleMount();
                 context.write(message, promise);
                 owner.writeLatencyBoundary(context, wrapper, player -> received.run());
                 return;
@@ -1945,7 +1956,9 @@ public final class GeyserBedrockBridgeRuntime {
             boolean isVehicle = packet.getPredictionType() == PredictionType.VEHICLE;
             if (source != null
                     && (player == null
-                            || player.getSetbackTeleportUtil().hasPendingBedrockTransportTeleport()
+                            || player.getSetbackTeleportUtil()
+                                    .bedrockTeleports()
+                                    .hasPendingBedrockTransportTeleport()
                             || source.controlGeneration() != player.bedrockState.movementCorrections.generation()
                             || isVehicle && (vehicle == null || vehicle.geyserId() != source.runtimeId())
                             || !isVehicle && vehicle != null)) {
@@ -2134,7 +2147,7 @@ public final class GeyserBedrockBridgeRuntime {
                     .handleObservedEntityVelocity(
                             observedMotion,
                             player.entityID,
-                            player.getSetbackTeleportUtil().getBedrockTeleportRevision(),
+                            player.getSetbackTeleportUtil().bedrockTeleports().getBedrockTeleportRevision(),
                             before,
                             receipt);
             context.write(message, promise);
@@ -2158,7 +2171,7 @@ public final class GeyserBedrockBridgeRuntime {
                 });
                 context.write(wrapper, promise);
             };
-            if (!player.getSetbackTeleportUtil().isBedrockSetbackTransport(revision)) {
+            if (!player.getSetbackTeleportUtil().bedrockTeleports().isBedrockSetbackTransport(revision)) {
                 if (!player.getSetbackTeleportUtil().isPendingSetback()) owner.teleportRecovery.clear();
                 if (player.bedrockState.lastMovementTick() > 0) {
                     writer.accept(

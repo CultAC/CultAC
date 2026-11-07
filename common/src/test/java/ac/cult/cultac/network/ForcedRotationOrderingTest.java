@@ -42,10 +42,11 @@ class ForcedRotationOrderingTest {
             send(fixture, new ClientboundPlayerRotation(90, false, 30, false));
             send(fixture, new ClientboundPlayerRotation(45, true, 80, true));
             var teleports = fixture.player.getSetbackTeleportUtil();
-            assertTrue(teleports.checkRotationTeleportQueue(90, 30).isTeleport());
+            assertTrue(
+                    teleports.javaTeleports().checkRotationTeleportQueue(90, 30).isTeleport());
             fixture.player.xRot = 90;
             fixture.player.yRot = 30;
-            var response = teleports.checkRotationTeleportQueue(135, 90);
+            var response = teleports.javaTeleports().checkRotationTeleportQueue(135, 90);
             assertTrue(response.isTeleport(), "Vanilla applies each relative rotation at receipt, then clamps pitch");
             assertEquals(135, response.getTeleportData().getFinalYaw());
             assertEquals(90, response.getTeleportData().getFinalPitch());
@@ -66,9 +67,12 @@ class ForcedRotationOrderingTest {
             fixture.player.xRot = 30;
             fixture.player.yRot = 20;
             var teleports = fixture.player.getSetbackTeleportUtil();
-            assertFalse(teleports.checkRotationTeleportQueue(45, -15).isTeleport());
+            assertFalse(teleports
+                    .javaTeleports()
+                    .checkRotationTeleportQueue(45, -15)
+                    .isTeleport());
             assertEquals(1, teleports.pendingTeleports.size());
-            var response = teleports.checkRotationTeleportQueue(75, 5);
+            var response = teleports.javaTeleports().checkRotationTeleportQueue(75, 5);
             assertTrue(response.isTeleport());
             assertEquals(30, response.getTeleportData().getSourceYaw());
             assertEquals(20, response.getTeleportData().getSourcePitch());
@@ -85,9 +89,13 @@ class ForcedRotationOrderingTest {
             fixture.player.xRot = 45;
             fixture.player.yRot = 15;
             var teleports = fixture.player.getSetbackTeleportUtil();
-            assertFalse(teleports.checkRotationTeleportQueue(135, 45).isTeleport());
+            assertFalse(teleports
+                    .javaTeleports()
+                    .checkRotationTeleportQueue(135, 45)
+                    .isTeleport());
             assertEquals(1, teleports.pendingTeleports.size());
-            assertTrue(teleports.checkRotationTeleportQueue(90, 30).isTeleport());
+            assertTrue(
+                    teleports.javaTeleports().checkRotationTeleportQueue(90, 30).isTeleport());
             assertTrue(teleports.pendingTeleports.isEmpty());
         }
     }

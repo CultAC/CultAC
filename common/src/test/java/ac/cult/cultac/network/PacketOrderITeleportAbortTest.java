@@ -115,6 +115,7 @@ class PacketOrderITeleportAbortTest {
             int transaction = f.player.sendTrailingTransaction();
             f.player
                     .getSetbackTeleportUtil()
+                    .javaTeleports()
                     .addSentTeleport(STAND, transaction, new RelativeFlag(0), false, TELEPORT_ID);
             f.pongThrough(transaction);
             use(f, Hand.MAIN_HAND);
@@ -149,7 +150,10 @@ class PacketOrderITeleportAbortTest {
         action(f, PlayerAction.START_DESTROY_BLOCK, DUG);
         f.tick(STAND, true);
         int transaction = f.player.sendTrailingTransaction();
-        f.player.getSetbackTeleportUtil().addSentTeleport(STAND, transaction, new RelativeFlag(0), false, TELEPORT_ID);
+        f.player
+                .getSetbackTeleportUtil()
+                .javaTeleports()
+                .addSentTeleport(STAND, transaction, new RelativeFlag(0), false, TELEPORT_ID);
         f.pongThrough(transaction);
         accept(f, id, position);
         assertEquals(0, check.getViolations());

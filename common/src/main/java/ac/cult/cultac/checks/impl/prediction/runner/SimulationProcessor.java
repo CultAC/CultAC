@@ -70,7 +70,7 @@ import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.HeadRotation;
 import ac.cult.cultac.utils.data.LastInstance;
 import ac.cult.cultac.utils.data.MainSupportingBlockData;
-import ac.cult.cultac.utils.data.SetbackPosWithVector;
+import ac.cult.cultac.utils.data.SetBackData;
 import ac.cult.cultac.utils.data.StuckSpeedData;
 import ac.cult.cultac.utils.data.TeleportAcceptData;
 import ac.cult.cultac.utils.data.TeleportData;
@@ -503,6 +503,16 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
 
         this.callPredictionEndListeners(result, teleportCommit);
+        SetBackData correction = teleportAcceptData.getSetback();
+        if (!this.player.isBedrockMovement()
+                && correction != null
+                && !correction.isPlugin()
+                && correction.getGroundAfter() != null
+                && !this.player.compensatedEntities.getSelf().inVehicle()) {
+            // ClientPacketListener#handleMovePlayer leaves onGround to the movement this correction rejected; the
+            // client's next tick starts from the ground the correction left it with, not from that rejected claim.
+            this.lastOnGround = correction.getGroundAfter();
+        }
         // A Geyser or GFP teleport's answer can follow the actual Cult setback
         // before any Bedrock travel. It must not consume that setback's guard.
         if (!this.player.isBedrockMovement()
@@ -796,7 +806,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         if (result != null
                 && (!this.player.isBedrockMovement()
                         || this.bedrockTeleport != null
-                        || !this.player.getSetbackTeleportUtil().mustAcknowledgeBedrockTransportTeleport())) {
+                        || !this.player
+                                .getSetbackTeleportUtil()
+                                .bedrockTeleports()
+                                .mustAcknowledgeBedrockTransportTeleport())) {
             var simulated = BedrockProfileState.previousState(this.profileCarry);
             if (simulated != null) currentPosition = BedrockVectorAdapter.toJava(simulated.physicalFeetPosition());
             boolean canonicalGround = canonicalBedrockGround(result, onGround);
@@ -815,7 +828,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     private PredictionResult simulateBedrockTick(
             Vec3 observed, Vec3 start, float yaw, float pitch, BedrockAuthInputFrame frame, MovementProfile profile) {
         boolean pendingTeleport = this.bedrockTeleport == null
-                && this.player.getSetbackTeleportUtil().mustAcknowledgeBedrockTransportTeleport();
+                && this.player.getSetbackTeleportUtil().bedrockTeleports().mustAcknowledgeBedrockTransportTeleport();
         PredictionResult result = this.getPredictionResult(
                 this.player,
                 this.validPlayerStartingVels,
@@ -856,7 +869,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
         this.callPredictionEndListeners(result, commit);
         PredictionCommit reconciledCommit = this.bedrockTeleport == null
-                        && this.player.getSetbackTeleportUtil().mustAcknowledgeBedrockTransportTeleport()
+                        && this.player
+                                .getSetbackTeleportUtil()
+                                .bedrockTeleports()
+                                .mustAcknowledgeBedrockTransportTeleport()
                 ? commit
                 : BedrockMovementEngine.INSTANCE.reconcileCommittedPosition(
                         commit,
@@ -981,7 +997,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
 
         if (length > 400.0) {
-            if (this.player.getSetbackTeleportUtil().hasFullyLoaded) {
+            if (this.player.getSetbackTeleportUtil().hasFullyLoaded()) {
                 Check crashCheck = (Check) this.player.checkManager.getListener(CrashF.class);
                 crashCheck.flag("len " + diff.length());
             }
@@ -1010,7 +1026,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             if (desync) {
                 SetbackTeleportUtil setbackUtil = this.player.getSetbackTeleportUtil();
                 if (setbackUtil.isPendingSetback()) {
-                    setbackUtil.blockOffsets = true;
+                    setbackUtil.blockOffsetsUntilSetbackAccepted();
                 }
 
                 setbackUtil.executeForceResync("sim desync");
@@ -1038,9 +1054,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                             .getConfigManager()
                             .getConfig()
                             .getBooleanElse("exploit.allow-sprint-jumping-when-using-elytra", true)) {
-                SetbackPosWithVector lastKnownGoodPosition = this.player.getSetbackTeleportUtil().lastKnownGoodPosition;
-                lastKnownGoodPosition.setVector(
-                        lastKnownGoodPosition.getVector().multiply(new Vec3(0.546, 1.0, 0.546)));
+                this.player.getSetbackTeleportUtil().scaleSafeVelocity(new Vec3(0.546, 1.0, 0.546));
                 this.player.getSetbackTeleportUtil().executeNonSimulatingSetback();
             }
 
@@ -1066,7 +1080,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         if (result.isExempt() || result.getFlagSeverity() <= 0.0) return;
         this.dumpRecentFlagsWhenDebugging(result);
         if (!CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
-            this.player.getSetbackTeleportUtil().resyncWorld();
+            this.player.getSetbackTeleportUtil().sender().resyncWorld();
         }
         boolean bedrockMovementFlag = this.player.isBedrockMovement() && result.hasFlag(BedrockMovement.class);
         boolean identifierShown = this.player.shouldEnforceMovementSetbacks()
@@ -1116,7 +1130,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         if (preparedCommit == null
                 || !this.player.isBedrockMovement()
                 || this.bedrockTeleport != null
-                || !this.player.getSetbackTeleportUtil().mustAcknowledgeBedrockTransportTeleport()) {
+                || !this.player.getSetbackTeleportUtil().bedrockTeleports().mustAcknowledgeBedrockTransportTeleport()) {
             if (!this.player.isBedrockMovement() || BedrockSetbackJumpGuard.advancesTravel(result)) {
                 this.lastMovementWasSetback = false;
             }
@@ -1203,8 +1217,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     private void commitSprintOutcomes(PredictionResult result) {
         ClientSprintState state = this.player.sprintState;
         SetbackTeleportUtil setbacks = this.player.getSetbackTeleportUtil();
-        if (setbacks.isPendingSetback() && setbacks.lastKnownGoodPosition != null) {
-            state.restore(setbacks.lastKnownGoodPosition.getSprintOutcomes());
+        if (setbacks.isPendingSetback() && setbacks.safePosition() != null) {
+            state.restore(setbacks.safePosition().getSprintOutcomes());
             state.settleReset();
             return;
         }
@@ -1553,7 +1567,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             return true;
         }
 
-        if (this.player.getSetbackTeleportUtil().blockOffsets) {
+        if (this.player.getSetbackTeleportUtil().isBlockingOffsets()) {
             SetbackTeleportUtil setbackUtil = this.player.getSetbackTeleportUtil();
             boolean awaitingSetback = setbackUtil.isPendingSetback();
             if (!awaitingSetback) {

@@ -642,7 +642,7 @@ public class CultPlayer implements GrimUser {
         }
 
         SentTransaction acknowledged = acknowledgeThrough(id);
-        if (!isBedrockMovement() && getSetbackTeleportUtil().hasWithheldJavaTeleport()) {
+        if (!isBedrockMovement() && getSetbackTeleportUtil().javaTeleports().hasWithheldJavaTeleport()) {
             withheld("answered a ping sent after a teleport it did not answer");
         }
 
@@ -1508,7 +1508,7 @@ public class CultPlayer implements GrimUser {
         boolean nowObserveOnly = CultAPI.INSTANCE.getConfigManager().isObserveOnly();
         if (nowObserveOnly != observeOnly) {
             observeOnly = nowObserveOnly;
-            if (nowObserveOnly) getSetbackTeleportUtil().observeOnlyStarted();
+            if (nowObserveOnly) getSetbackTeleportUtil().policy().observeOnlyStarted();
             else {
                 // Violations counted while nothing acted would otherwise set back on the next flag.
                 for (AbstractCheck check : getChecks()) {

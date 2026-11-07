@@ -18,6 +18,7 @@ import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerSteer;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.manager.config.BaseConfigManager;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -101,7 +102,7 @@ final class JavaTickFixture implements AutoCloseable {
         }
         // Let the block-change timing uncertainty expire at client tick boundaries.
         for (int tick = 0; tick < 3; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff(0);
-        player.getSetbackTeleportUtil().hasFullyLoaded = true;
+        SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
         resetTimerBalances();
     }
 
@@ -337,6 +338,7 @@ final class JavaTickFixture implements AutoCloseable {
             float finalPitch) {
         int id = ++teleportId;
         player.getSetbackTeleportUtil()
+                .javaTeleports()
                 .addSentTeleport(
                         target, delta, transaction, flags, false, id, sourceYaw, sourcePitch, finalYaw, finalPitch);
         pongThrough(transaction);

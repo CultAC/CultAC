@@ -180,7 +180,8 @@ final class GeyserEntityPositions {
                         pitch);
                 if (moveLocal && entity.bedrockPrediction != null) {
                     ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState.rebase(
-                            entity, player.getSetbackTeleportUtil().getActiveBedrockCoordinateFrame());
+                            entity,
+                            player.getSetbackTeleportUtil().bedrockTeleports().getActiveBedrockCoordinateFrame());
                 }
             } else {
                 interpolation(entity, playsBack).settle(player, entity, sequence, move);

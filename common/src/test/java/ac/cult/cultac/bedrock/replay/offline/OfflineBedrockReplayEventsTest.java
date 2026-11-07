@@ -121,10 +121,12 @@ public final class OfflineBedrockReplayEventsTest {
         try {
             Vec3 target = new Vec3(player.x + 0.12723159790039062D, player.y, player.z);
             Vec3 packetTarget = target.add(0.0D, 1.62D, 0.0D);
-            long revision = player.getSetbackTeleportUtil().addImmediateBedrockTransportTeleport(target, true);
+            long revision = player.getSetbackTeleportUtil()
+                    .bedrockTeleports()
+                    .addImmediateBedrockTransportTeleport(target, true);
 
-            assertTrue(player.getSetbackTeleportUtil().hasPendingPlayerPositionTeleport());
-            var accepted = player.getSetbackTeleportUtil().acknowledgeBedrockTeleportFrame(target);
+            assertTrue(player.getSetbackTeleportUtil().javaTeleports().hasPendingPlayerPositionTeleport());
+            var accepted = player.getSetbackTeleportUtil().bedrockTeleports().acknowledgeBedrockTeleportFrame(target);
             assertTrue(accepted.isTeleport());
             assertFalse(accepted.getTeleportData().isRelativeX());
             assertFalse(accepted.getTeleportData().isRelativeY());
@@ -139,7 +141,7 @@ public final class OfflineBedrockReplayEventsTest {
             assertEquals(target.x, player.x, 0.0D);
             assertEquals(target.y, player.y, 0.0D);
             assertEquals(target.z, player.z, 0.0D);
-            assertFalse(player.getSetbackTeleportUtil().hasPendingPlayerPositionTeleport());
+            assertFalse(player.getSetbackTeleportUtil().javaTeleports().hasPendingPlayerPositionTeleport());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
@@ -154,18 +156,23 @@ public final class OfflineBedrockReplayEventsTest {
             Vec3 secondSweep = new Vec3(player.x + 0.10D, player.y, player.z);
             Vec3 firstPacket = firstSweep.add(0.0D, 1.62D, 0.0D);
             Vec3 secondPacket = secondSweep.add(0.0D, 1.62D, 0.0D);
-            long firstRevision = player.getSetbackTeleportUtil().addImmediateBedrockTransportTeleport(firstSweep, true);
-            long secondRevision =
-                    player.getSetbackTeleportUtil().addImmediateBedrockTransportTeleport(secondSweep, true);
+            long firstRevision = player.getSetbackTeleportUtil()
+                    .bedrockTeleports()
+                    .addImmediateBedrockTransportTeleport(firstSweep, true);
+            long secondRevision = player.getSetbackTeleportUtil()
+                    .bedrockTeleports()
+                    .addImmediateBedrockTransportTeleport(secondSweep, true);
 
-            var firstAccepted = player.getSetbackTeleportUtil().acknowledgeBedrockTeleportFrame(firstSweep);
+            var firstAccepted =
+                    player.getSetbackTeleportUtil().bedrockTeleports().acknowledgeBedrockTeleportFrame(firstSweep);
             assertTrue(firstAccepted.isTeleport());
             assertEquals(firstSweep, firstAccepted.getTeleportData().getLocation());
 
-            var secondAccepted = player.getSetbackTeleportUtil().acknowledgeBedrockTeleportFrame(secondSweep);
+            var secondAccepted =
+                    player.getSetbackTeleportUtil().bedrockTeleports().acknowledgeBedrockTeleportFrame(secondSweep);
             assertTrue(secondAccepted.isTeleport());
             assertEquals(secondSweep, secondAccepted.getTeleportData().getLocation());
-            assertFalse(player.getSetbackTeleportUtil().hasPendingPlayerPositionTeleport());
+            assertFalse(player.getSetbackTeleportUtil().javaTeleports().hasPendingPlayerPositionTeleport());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
@@ -177,17 +184,42 @@ public final class OfflineBedrockReplayEventsTest {
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
             Vec3 target = new Vec3(player.x + 0.125D, player.y, player.z);
-            player.getSetbackTeleportUtil().addImmediateBedrockTransportTeleport(target, true);
-            player.getSetbackTeleportUtil().addImmediateBedrockTransportTeleport(target, true);
+            player.getSetbackTeleportUtil().bedrockTeleports().addImmediateBedrockTransportTeleport(target, true);
+            player.getSetbackTeleportUtil().bedrockTeleports().addImmediateBedrockTransportTeleport(target, true);
 
-            var ordinaryFrame = player.getSetbackTeleportUtil().acknowledgeBedrockTeleportFrame(target, false);
+            var ordinaryFrame =
+                    player.getSetbackTeleportUtil().bedrockTeleports().acknowledgeBedrockTeleportFrame(target, false);
             assertFalse(ordinaryFrame.isTeleport());
-            assertTrue(player.getSetbackTeleportUtil().hasPendingBedrockTransportTeleport());
+            assertTrue(player.getSetbackTeleportUtil().bedrockTeleports().hasPendingBedrockTransportTeleport());
 
-            var accepted = player.getSetbackTeleportUtil().acknowledgeBedrockTeleportFrame(target, true);
+            var accepted =
+                    player.getSetbackTeleportUtil().bedrockTeleports().acknowledgeBedrockTeleportFrame(target, true);
             assertTrue(accepted.isTeleport());
             assertEquals(target, accepted.getTeleportData().getLocation());
-            assertFalse(player.getSetbackTeleportUtil().hasPendingBedrockTransportTeleport());
+            assertFalse(player.getSetbackTeleportUtil().bedrockTeleports().hasPendingBedrockTransportTeleport());
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    /** A client claiming HANDLE_TELEPORT when no teleport is queued answers nothing and moves nothing. */
+    @Test
+    public void anInventedHandleTeleportWithNothingQueuedAcceptsNothing() throws Exception {
+        OfflineCultTestBootstrap.installConfig();
+        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            Vec3 before = new Vec3(player.x, player.y, player.z);
+            var safe = player.getSetbackTeleportUtil().safePosition();
+            assertFalse(player.getSetbackTeleportUtil().bedrockTeleports().hasPendingBedrockTransportTeleport());
+
+            var invented = player.getSetbackTeleportUtil()
+                    .bedrockTeleports()
+                    .acknowledgeBedrockTeleportFrame(new Vec3(player.x + 2.0D, player.y, player.z), true);
+
+            assertFalse(invented.isTeleport());
+            assertNull(invented.getSetback());
+            assertSame(safe, player.getSetbackTeleportUtil().safePosition());
+            assertEquals(before, new Vec3(player.x, player.y, player.z));
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
@@ -201,21 +233,25 @@ public final class OfflineBedrockReplayEventsTest {
             Vec3 target = new Vec3(player.x + 0.25D, player.y, player.z);
             int teleportTransaction = player.lastTransactionSent.incrementAndGet();
             player.getSetbackTeleportUtil()
+                    .javaTeleports()
                     .addSentTeleport(target, teleportTransaction, new RelativeFlag(0), false, 42);
-            long revision = player.getSetbackTeleportUtil().addImmediateBedrockTransportTeleport(target, false);
+            long revision = player.getSetbackTeleportUtil()
+                    .bedrockTeleports()
+                    .addImmediateBedrockTransportTeleport(target, false);
 
             // Geyser and Cult use the same exact correction echo. Cult consumes
             // it as a teleport boundary without offering it to ActorMove.
-            var beforeTransaction = player.getSetbackTeleportUtil().acknowledgeBedrockTeleportFrame(target);
+            var beforeTransaction =
+                    player.getSetbackTeleportUtil().bedrockTeleports().acknowledgeBedrockTeleportFrame(target);
             assertFalse(beforeTransaction.isTeleport());
-            assertTrue(player.getSetbackTeleportUtil().hasPendingPlayerPositionTeleport());
+            assertTrue(player.getSetbackTeleportUtil().javaTeleports().hasPendingPlayerPositionTeleport());
 
             player.lastTransactionReceived.set(teleportTransaction);
-            var accepted = player.getSetbackTeleportUtil().acknowledgeBedrockTeleportFrame(target);
+            var accepted = player.getSetbackTeleportUtil().bedrockTeleports().acknowledgeBedrockTeleportFrame(target);
             assertTrue(accepted.isTeleport());
             assertEquals(target, accepted.getTeleportData().getLocation());
 
-            var replayed = player.getSetbackTeleportUtil().acknowledgeBedrockTeleportFrame(target);
+            var replayed = player.getSetbackTeleportUtil().bedrockTeleports().acknowledgeBedrockTeleportFrame(target);
             assertFalse(replayed.isTeleport());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
@@ -228,14 +264,16 @@ public final class OfflineBedrockReplayEventsTest {
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
             Vec3 target = new Vec3(228.72578D, 82.875D, -77.0519D);
-            var rollbackBefore = player.getSetbackTeleportUtil().lastKnownGoodPosition;
-            long revision = player.getSetbackTeleportUtil().addImmediateBedrockTransportTeleport(target, false);
+            var rollbackBefore = player.getSetbackTeleportUtil().safePosition();
+            long revision = player.getSetbackTeleportUtil()
+                    .bedrockTeleports()
+                    .addImmediateBedrockTransportTeleport(target, false);
 
-            assertTrue(player.getSetbackTeleportUtil().hasPendingPlayerPositionTeleport());
+            assertTrue(player.getSetbackTeleportUtil().javaTeleports().hasPendingPlayerPositionTeleport());
             assertFalse(player.getSetbackTeleportUtil().pendingTeleports.peek().mayCompleteCultSetback());
             assertNull(player.getSetbackTeleportUtil().getRequiredSetBack());
-            assertSame(rollbackBefore, player.getSetbackTeleportUtil().lastKnownGoodPosition);
-            var accepted = player.getSetbackTeleportUtil().acknowledgeBedrockTeleportFrame(target);
+            assertSame(rollbackBefore, player.getSetbackTeleportUtil().safePosition());
+            var accepted = player.getSetbackTeleportUtil().bedrockTeleports().acknowledgeBedrockTeleportFrame(target);
             assertTrue(accepted.isTeleport());
             assertNull(accepted.getSetback());
             assertEquals(target, accepted.getTeleportData().getLocation());
@@ -248,7 +286,7 @@ public final class OfflineBedrockReplayEventsTest {
             assertNull(player.getSetbackTeleportUtil().getRequiredSetBack());
             assertEquals(
                     target,
-                    player.getSetbackTeleportUtil().lastKnownGoodPosition.getPos());
+                    player.getSetbackTeleportUtil().safePosition().getPos());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
@@ -263,13 +301,16 @@ public final class OfflineBedrockReplayEventsTest {
             Vec3 deltaMovement = new Vec3(0.25D, 0.5D, -0.125D);
             RelativeFlag flags = new RelativeFlag(RelativeFlag.DELTA_X.getMask() | RelativeFlag.DELTA_Z.getMask());
             player.getSetbackTeleportUtil()
+                    .javaTeleports()
                     .addImmediatePlayerTeleport(
                             target, deltaMovement, flags, player.lastTransactionSent.get(), 0.0F, 0.0F, 0.0F, 0.0F);
             Vec3 packetTarget = target.add(0.0D, 1.62D, 0.0D);
-            long revision = player.getSetbackTeleportUtil().addImmediateBedrockTransportTeleport(target, false);
+            long revision = player.getSetbackTeleportUtil()
+                    .bedrockTeleports()
+                    .addImmediateBedrockTransportTeleport(target, false);
 
             assertEquals(2, player.getSetbackTeleportUtil().pendingTeleports.size());
-            var accepted = player.getSetbackTeleportUtil().acknowledgeBedrockTeleportFrame(target);
+            var accepted = player.getSetbackTeleportUtil().bedrockTeleports().acknowledgeBedrockTeleportFrame(target);
             assertTrue(accepted.isTeleport());
             assertEquals(0, accepted.getTeleportData().getFlags().getMask());
             assertEquals(Vec3.ZERO, accepted.getTeleportData().getDeltaMovement());
@@ -290,10 +331,14 @@ public final class OfflineBedrockReplayEventsTest {
             RelativeFlag flags = new RelativeFlag(RelativeFlag.DELTA_X.getMask());
             int transaction = player.lastTransactionSent.get();
 
-            player.getSetbackTeleportUtil().addSentTeleport(target, deltaMovement, transaction, flags, false, 42);
+            player.getSetbackTeleportUtil()
+                    .javaTeleports()
+                    .addSentTeleport(target, deltaMovement, transaction, flags, false, 42);
             player.getSetbackTeleportUtil().pendingTeleports.clear();
 
-            long revision = player.getSetbackTeleportUtil().addImmediateBedrockTransportTeleport(target, false);
+            long revision = player.getSetbackTeleportUtil()
+                    .bedrockTeleports()
+                    .addImmediateBedrockTransportTeleport(target, false);
 
             assertEquals(1, player.getSetbackTeleportUtil().pendingTeleports.size());
             var queued = player.getSetbackTeleportUtil().pendingTeleports.peek();
@@ -303,7 +348,7 @@ public final class OfflineBedrockReplayEventsTest {
             assertEquals(Vec3.ZERO, queued.getDeltaMovement());
 
             player.lastTransactionReceived.set(transaction);
-            var accepted = player.getSetbackTeleportUtil().acknowledgeBedrockTeleportFrame(target);
+            var accepted = player.getSetbackTeleportUtil().bedrockTeleports().acknowledgeBedrockTeleportFrame(target);
             assertTrue(accepted.isTeleport());
             assertNull(accepted.getSetback());
             assertTrue(player.getSetbackTeleportUtil().isPendingSetback());

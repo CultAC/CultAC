@@ -772,7 +772,7 @@ public class PacketEntity {
             }
             if (isBoat() && bedrockPrediction != null) {
                 ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState.rebase(
-                        this, player.getSetbackTeleportUtil().getActiveBedrockCoordinateFrame());
+                        this, player.getSetbackTeleportUtil().bedrockTeleports().getActiveBedrockCoordinateFrame());
             }
             return;
         }
@@ -793,7 +793,7 @@ public class PacketEntity {
 
         if (player.isBedrockMovement() && isBoat() && bedrockPrediction != null) {
             ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState.rebase(
-                    this, player.getSetbackTeleportUtil().getActiveBedrockCoordinateFrame());
+                    this, player.getSetbackTeleportUtil().bedrockTeleports().getActiveBedrockCoordinateFrame());
         }
 
         // Handle uncertainty of second transaction spanning over multiple ticks

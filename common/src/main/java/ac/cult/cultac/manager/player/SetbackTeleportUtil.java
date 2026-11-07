@@ -1,180 +1,59 @@
 package ac.cult.cultac.manager.player;
 
-import ac.cult.cultac.CultAPI;
-import ac.cult.cultac.bedrock.bridge.GeyserBedrockBridgeRuntime;
-import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
-import ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState;
-import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
-import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
-import ac.cult.cultac.bedrock.protocol.BedrockMoveFrame;
-import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
-import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
-import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
 import ac.cult.cultac.checks.CultProcessor;
-import ac.cult.cultac.checks.impl.badpackets.BadPacketsB;
-import ac.cult.cultac.checks.impl.badpackets.BadPacketsN;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
-import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.checks.impl.prediction.PredictionSetbackState;
-import ac.cult.cultac.checks.impl.prediction.SimulationContext;
-import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngines;
-import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
-import ac.cult.cultac.checks.impl.prediction.runner.KnockbackHandler;
-import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
-import ac.cult.cultac.checks.impl.prediction.stage.UncertaintyPipeline;
-import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.BoatTransform;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ElytraTransform;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHandler;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHelper;
 import ac.cult.cultac.checks.type.PostPredictionListener;
-import ac.cult.cultac.events.packets.patch.ResyncWorldUtil;
-import ac.cult.cultac.network.CultWrite;
-import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
+import ac.cult.cultac.manager.player.setback.BedrockTeleportTracker;
+import ac.cult.cultac.manager.player.setback.CorrectionBuilder;
+import ac.cult.cultac.manager.player.setback.CorrectionReissue;
+import ac.cult.cultac.manager.player.setback.CorrectionSender;
+import ac.cult.cultac.manager.player.setback.CorrectionState;
+import ac.cult.cultac.manager.player.setback.JavaTeleportTracker;
+import ac.cult.cultac.manager.player.setback.MovementGate;
+import ac.cult.cultac.manager.player.setback.SafePositionCapture;
+import ac.cult.cultac.manager.player.setback.SafePositionTracker;
+import ac.cult.cultac.manager.player.setback.SafeProof;
+import ac.cult.cultac.manager.player.setback.SetbackEntity;
+import ac.cult.cultac.manager.player.setback.SetbackPolicy;
+import ac.cult.cultac.manager.player.setback.TeleportAnswers;
+import ac.cult.cultac.manager.player.setback.VehicleTeleportTracker;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityMotion;
-import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveVehicle;
-import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerPosition;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
-import ac.cult.cultac.protocol.value.GameMode;
-import ac.cult.cultac.protocol.value.Relative;
-import ac.cult.cultac.protocol.value.Vec3d;
-import ac.cult.cultac.utils.anticheat.LogUtil;
-import ac.cult.cultac.utils.anticheat.NumFormatter;
-import ac.cult.cultac.utils.anticheat.update.PositionUpdate;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
-import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.*;
-import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
-import ac.cult.cultac.utils.latency.CompensatedWorld;
-import ac.cult.cultac.utils.lists.EvictingQueue;
-import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
-import ac.cult.cultac.utils.math.VectorUtils;
-import ac.cult.cultac.utils.nmsutil.BlockProperties;
-import ac.cult.cultac.utils.nmsutil.Collisions;
-import ac.cult.cultac.utils.nmsutil.Friction;
-import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
-import ac.cult.cultac.utils.nmsutil.IsUsingItem;
-import ac.cult.cultac.utils.nmsutil.NextTickVelocityDeriver;
-import ac.cult.cultac.utils.nmsutil.VelocityCandidates;
-import ac.grim.grimac.api.event.events.GrimPlayerSetbackEvent;
-import ac.grim.grimac.api.event.events.GrimTeleportEvent;
-import java.util.Collections;
-import java.util.List;
-import java.util.Random;
 import java.util.concurrent.ConcurrentLinkedDeque;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 import lombok.Getter;
-import lombok.Setter;
-import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 
-public class SetbackTeleportUtil extends CultProcessor implements PostPredictionListener {
-    private ServerboundMovePlayer pendingServerMove;
-    private boolean forwardedPositionThisTick;
-
-    public boolean hasForwardedPositionThisTick() {
-        return forwardedPositionThisTick;
-    }
-
-    public void markForwardedPositionThisTick() {
-        forwardedPositionThisTick = true;
-    }
-
-    public void resetForwardedPositionThisTick() {
-        forwardedPositionThisTick = false;
-    }
-
-    public void setPendingServerMove(ServerboundMovePlayer move) {
-        pendingServerMove = move;
-    }
-
-    public ServerboundMovePlayer takePendingServerMove() {
-        var move = pendingServerMove;
-        pendingServerMove = null;
-        return move;
-    }
-
-    private static final class Channels {
-        private static final GrimTeleportEvent.Channel TELEPORT =
-                CultAPI.INSTANCE.getEventBus().get(GrimTeleportEvent.class);
-        private static final GrimPlayerSetbackEvent.Channel PLAYER_SETBACK =
-                CultAPI.INSTANCE.getEventBus().get(GrimPlayerSetbackEvent.class);
-    }
-
-    private static final float ROTATION_TELEPORT_EPSILON = 1.0E-4F;
+public class SetbackTeleportUtil extends CultProcessor
+        implements PostPredictionListener, SafePositionTracker.Corrections, MovementGate.Teleports, CorrectionReissue {
 
     // Sync to netty
     public final ConcurrentLinkedDeque<TeleportData> pendingTeleports = new ConcurrentLinkedDeque<>();
-    /** The teleport whose ID a pre-26.3 client sent last, until the PosRot that must follow it. */
-    private TeleportData awaitingPosRot;
-    private final ConcurrentLinkedQueue<VehicleTeleport> vehicleTeleports = new ConcurrentLinkedQueue<>();
-    private BedrockCoordinateFrame activeBedrockCoordinateFrame = BedrockCoordinateFrame.IDENTITY;
 
-    public BedrockCoordinateFrame getActiveBedrockCoordinateFrame() {
-        return activeBedrockCoordinateFrame;
-    }
-
-    private final AtomicLong bedrockTeleportRevision = new AtomicLong();
-
-    public long getBedrockTeleportRevision() {
-        return bedrockTeleportRevision.get();
-    }
-
-    // has the player fully joined the server yet
-    public boolean hasFullyJoined = false;
-
-    // Sync to netty, a player MUST accept a teleport to spawn into the world
-    // A teleport is used to end the loading screen.  Some cheats pretend to never end the loading screen
-    // in an attempt to disable the anticheat.  Be careful.
-    // We fix this by blocking serverbound movements until the player is out of the loading screen.
-    // TODO: Inspect the join packets to ensure that the player has sent player loaded packet
-    public boolean hasFullyLoaded = false;
-    /** ClientPacketListener#handleRespawn: until the Java client reads a respawn, its old LocalPlayer ticks and moves. */
-    public boolean respawnUnread = false;
-    // Was there a ghost block that forces us to block offsets until the player accepts their teleport?
-    public boolean blockOffsets = false;
-    // This required setback data is the head of the teleport.
-    // It is set by both bukkit and netty due to going on the bukkit thread to setback players
-    private volatile SetBackData requiredSetBack = null;
-    // A required vehicle setback whose vehicle teleport was dropped, kept until the client is off the vehicle.
-    private SetBackData droppedVehicleSetback = null;
-    private volatile BedrockVehicleSetback bedrockVehicleSetback;
-    public SetbackPosWithVector lastKnownGoodPosition;
-    // The safe position a movement reached, staged until every check on that movement has run, and the safe
-    // position it replaces. A check that sets the movement back must roll back past it, not onto it.
-    private SetbackPosWithVector stagedSafePosition;
-    private SetbackPosWithVector stagedOver;
-    // A Java movement packet's receive handlers check it after its prediction pass.
-    private boolean holdingSafePosition;
-    // The safe position when the client's latest movement arrived. While it is still the safe position, that
-    // movement is not part of it, and a setback rejects it.
-    private SetbackPosWithVector safePositionAtLatestMovement;
-    // The transaction of the ping before the latest Java correction's player_position. That teleport's absolute delta
-    // movement replaces every impulse the client applied before it, and the correction's velocity accounts for them.
-    private int correctionTransaction = Integer.MIN_VALUE;
-    // The position of the last Bedrock movement packet actually forwarded to
-    // Paper (Geyser's Java projection or a teleport echo), captured at the
-    // packet level after all cancellation decisions. Never derived from
-    // engine/canonical state, so it always equals Paper's lastGood* values.
-    private Vec3 bedrockPaperVisiblePosition;
-
-    public void setBedrockPaperVisiblePosition(Vec3 position) {
-        this.bedrockPaperVisiblePosition = position;
-    }
-    // Are we currently sending setback stuff?
-    public boolean isSendingSetback = false;
-    private long lastWorldResync = 0;
-    private int freeze = 5000;
+    private final CorrectionState corrections = new CorrectionState();
+    private final SafePositionTracker safePositions = new SafePositionTracker(player, this);
+    private final MovementGate gate = new MovementGate(player, corrections, this);
+    private final CorrectionBuilder builder = new CorrectionBuilder(player);
+    private final SafePositionCapture capture = new SafePositionCapture(player, safePositions, corrections);
+    private final TeleportAnswers answers = new TeleportAnswers(player, gate, safePositions, corrections);
+    private final VehicleTeleportTracker vehicles = new VehicleTeleportTracker(
+            player, corrections, safePositions, this, () -> this.bedrock.getActiveBedrockCoordinateFrame());
+    private final BedrockTeleportTracker bedrock =
+            new BedrockTeleportTracker(player, pendingTeleports, corrections, gate, answers, vehicles);
+    private final JavaTeleportTracker javaTeleports =
+            new JavaTeleportTracker(player, pendingTeleports, corrections, safePositions, answers, this);
+    private final CorrectionSender sender = new CorrectionSender(player, corrections, javaTeleports, bedrock, vehicles);
+    private final SetbackPolicy policy = new SetbackPolicy(
+            player, safePositions, corrections, gate, builder, sender, bedrock, vehicles, this::isDebug);
 
     @Getter
-    @Setter
     private boolean debug = false;
+
+    /** The packets a correction is sent with. */
+    public CorrectionSender sender() {
+        return sender;
+    }
 
     public SetbackTeleportUtil(CultPlayer player) {
         super(player);
@@ -182,164 +61,80 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
 
     @Override
     public void onPredictionComplete(final PredictionComplete predictionComplete) {
-        // If this is a regular teleport when on a vehicle, we may not set player variables
-        // Therefore, read it from the position update given to us.
-        Vec3 to;
-        final PositionUpdate positionUpdate = predictionComplete.getPositionUpdate();
-        if (positionUpdate != null) {
-            to = positionUpdate.getTo();
-        } else if (player.isBedrockMovement()
-                && predictionComplete.getPredictionResult() != null
-                && predictionComplete.getPredictionResult().isTeleport()
-                && predictionComplete.getPredictionResult().getSetBackData() != null) {
-            to = predictionComplete.getPredictionResult().getSetBackData().getLocation();
-        } else {
-            to = new Vec3(player.x, player.y, player.z);
-        }
-
-        Vec3 afterTickFriction = Vec3.ZERO;
-        PredictionSetbackState profileState = null;
-        if (player.isBedrockMovement()) {
-            profileState = MovementEngines.requireForProfile(MovementProfiles.forPlayer(player))
-                    .captureSetbackState(predictionComplete.getPreparedCommit());
-            if (profileState != null) {
-                to = profileState.position();
-                afterTickFriction = profileState.velocity();
-            }
-        } else if (!predictionComplete.isTeleport()) {
-            final PredictionResult result = predictionComplete.getPredictionResult();
-            PredVector initialVel = result.getInitialStartingVel();
-            final SimulationContext context = result.getSimulationContext();
-            final PredictionResult previousResult =
-                    player.checkManager.getSimulationProcessor().getLastPrediction();
-
-            MovementTrace trace = MovementTrace.start(initialVel);
-            for (UncertaintyHandler modifier : UncertaintyPipeline.MODIFIERS_FOR_SETBACKS) {
-                trace = modifier.handleMovementTrace(
-                        player,
-                        result.getValidMovements(),
-                        result,
-                        context,
-                        previousResult,
-                        trace,
-                        context.getTarget());
-            }
-            initialVel = trace.position();
-            float speed = context.getMaxSpeed(player);
-            if (player.usesModernJavaItemUse()) {
-                speed *= context.getItemUse().legalMultiplier();
-                if (player.isGliding && context.getItemUse().legalMultiplier() >= 1) speed = 0.0F;
-            } else if (IsUsingItem.isUsingItem(player)) {
-                speed *= 0.2F;
-            } else if (player.isGliding) {
-                speed = 0.0f;
-            }
-            initialVel = UncertaintyHelper.handleCircular(initialVel, context.getTarget(), speed);
-            if (VelocityCandidates.collidedVertically(result)) {
-                initialVel = initialVel.withY(
-                        VelocityCandidates.afterVerticalCollision(result, initialVel.y), "vertical restitution");
-            }
-
-            afterTickFriction = simulateFriction(
-                    initialVel,
-                    context.getWorldData().getInWater().determineOptimistically(),
-                    context.getWorldData().getInLava().determineOptimistically(),
-                    context.usesFallFlyingMovement(),
-                    context.getLastOnGround().determineOptimistically(),
-                    context.getWorldData().getStuckSpeed().getStuckSpeedMultiplier() != null,
-                    null);
-        } else {
-            // CheckManagerListener#applyTeleportResponse completes an answer away from the target without a prediction.
-            final PredictionResult answered = predictionComplete.getPredictionResult();
-            TeleportData accepted = answered == null ? null : answered.getSetBackData();
-            if (isAcceptedCorrection(accepted)) {
-                // ClientPacketListener#setValuesFromPositionPacket set the delta movement to the correction's own.
-                afterTickFriction = accepted.getDeltaMovement();
-            } else {
-                final TransactionVel sentKnockback =
-                        player.checkManager.getKnockbackHandler().getLastSent();
-                if (sentKnockback != null) {
-                    afterTickFriction = sentKnockback.getVel();
-                }
-            }
-        }
-
-        // We must first check if the player has accepted their setback
-        // If the setback isn't complete, then this position is illegitimate
-        // if we are currently blocking offsets, then the player is desync'd in a vehicle and needs to be teleported
-        // soon
-        final PredictionResult completedPrediction = predictionComplete.getPredictionResult();
-        final boolean positionOfSetbackEntity = isPositionOfSetbackEntity();
-        if (completedPrediction != null && completedPrediction.getSetBackData() != null) {
-            if (positionOfSetbackEntity) {
-                lastKnownGoodPosition =
-                        new SetbackPosWithVector(to, afterTickFriction, player.totalFlyingPacketsSent, profileState);
-                lastKnownGoodPosition.setSprintOutcomes(SimulationProcessor.sprintOutcomesAfter(
-                        player, predictionComplete.isTeleport() ? null : completedPrediction));
-            }
-        } else if ((!player.isBedrockMovement() || profileState != null)
-                && safePositionUnblocked()
-                && positionOfSetbackEntity) {
-            // TODO: When flagging immediately after a setback, we don't give uncertainty or allow inputs. This is too
-            // strict.
-            // No simulation... we can do that later. We just need to know the valid position.
-            // As we didn't setback here, the new position is safe unless a check that runs later sets it back.
-            SetbackPosWithVector safe =
-                    new SetbackPosWithVector(to, afterTickFriction, player.totalFlyingPacketsSent, profileState);
-            safe.setSprintOutcomes(SimulationProcessor.sprintOutcomesAfter(
-                    player, predictionComplete.isTeleport() ? null : completedPrediction));
-            if (!player.isBedrockMovement() && !predictionComplete.isTeleport()) {
-                // This tick's travel took every velocity the client applied before it, and its friction carries them.
-                safe.setCarriedKnockback(
-                        player.checkManager.getKnockbackHandler().lastSentAppliedBeforeTick());
-                safe.setCarriedExplosion(
-                        player.checkManager.getExplosionHandler().lastSentAppliedBeforeTick());
-                if (completedPrediction.getSimulationContext().getVehicle() instanceof PacketEntityHorse) {
-                    safe.setHorseOnGround(VelocityCandidates.verticalCollisionBelow(completedPrediction));
-                }
-            }
-            stageSafePosition(safe);
-        }
-
-        if (requiredSetBack != null) requiredSetBack.tick();
+        capture.capture(predictionComplete);
+    }
+    /** The entity a setback moves now. */
+    @Override
+    public SetbackEntity setbackEntity() {
+        return SetbackEntity.current(player);
     }
 
-    private boolean isPositionOfSetbackEntity() {
-        return player.isBedrockMovement()
-                || !isServerPassenger()
-                || player.compensatedEntities.vehicles.serverPlayerVehicle == player.getRidingVehicleId();
+    /** The position, velocity and state a setback returns the player to; null before the player is placed. */
+    public SetbackPosWithVector safePosition() {
+        return safePositions.current();
     }
 
-    private boolean safePositionUnblocked() {
-        return requiredSetBack == null
-                || requiredSetBack.isComplete()
-                        && !blockOffsets
-                        && !player.getSetbackTeleportUtil().insideUnloadedChunk();
+    /** Whether the client accepted the teleport that placed it after joining or respawning. */
+    public boolean hasFullyLoaded() {
+        return gate.hasFullyLoaded();
     }
 
-    /** Whether the client just accepted {@code teleport} as a Java correction whose delta movement is absolute. */
-    private boolean isAcceptedCorrection(TeleportData teleport) {
-        SetBackData setback = requiredSetBack;
-        return teleport != null
-                && setback != null
-                && setback.isComplete()
-                && !setback.isPlugin()
-                && setback.getTeleportData().getTransaction() == teleport.getTransaction()
-                && !teleport.isRelativeDeltaX()
-                && !teleport.isRelativeDeltaY()
-                && !teleport.isRelativeDeltaZ();
+    /** The Java client read its respawn; its new LocalPlayer waits for the placement teleport. */
+    public void respawnRead() {
+        gate.respawnRead();
     }
 
-    private void stageSafePosition(SetbackPosWithVector safe) {
-        // A packet that runs several prediction passes commits each before staging the next.
-        commitStagedSafePosition();
-        stagedSafePosition = safe;
-        stagedOver = lastKnownGoodPosition;
+    /** Whether offsets stay blocked until the client accepts the full-resync setback. */
+    public boolean isBlockingOffsets() {
+        return corrections.isBlockingOffsets();
+    }
+
+    /** The prediction desynced while a setback is pending: block offsets until the client accepts it. */
+    public void blockOffsetsUntilSetbackAccepted() {
+        corrections.blockOffsets();
+    }
+
+    /** Whether Cult is writing its own setback packets right now. */
+    public boolean isSendingSetback() {
+        return corrections.isSending();
+    }
+
+    void setLoaded(boolean loaded) {
+        gate.setLoaded(loaded);
+    }
+
+    void setBlockOffsets(boolean block) {
+        if (block) corrections.blockOffsets();
+        else corrections.unblockOffsets();
+    }
+
+    /** Test fixtures put a correction in flight without sending it. */
+    void requireCorrection(SetBackData data) {
+        corrections.require(data);
+    }
+
+    /** Test fixtures place the player at a known safe position without simulating how it got there. */
+    void seedSafePosition(SetbackPosWithVector safe) {
+        safePositions.write(safe, SafePositionTracker.Write.TEST_SEED);
+    }
+
+    /**
+     * Scales the safe velocity a following setback sends. The elytra sprint-jump config rejects the sprint-jump boost
+     * the safe tick took.
+     */
+    public void scaleSafeVelocity(Vec3 factor) {
+        safePositions.scaleVelocity(factor);
+    }
+
+    @Override
+    public boolean safePositionUnblocked() {
+        SetBackData required = corrections.required();
+        return required == null || required.isComplete() && !corrections.isBlockingOffsets() && !insideUnloadedChunk();
     }
 
     /** The vehicle runner resolves the root's post-tick ground after the prediction staged this safe position. */
     public void setStagedHorseOnGround(DesyncStatus onGround) {
-        if (stagedSafePosition != null) stagedSafePosition.setHorseOnGround(onGround);
+        safePositions.setStagedHorseOnGround(onGround);
     }
 
     /**
@@ -347,92 +142,41 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
      * packet holds it until its receive handlers have run too.
      */
     public void commitSafePosition() {
-        if (!holdingSafePosition) commitStagedSafePosition();
+        safePositions.commit();
     }
 
     public void holdSafePosition() {
-        holdingSafePosition = true;
+        safePositions.hold();
     }
 
     public void releaseSafePosition() {
-        holdingSafePosition = false;
-        commitStagedSafePosition();
-    }
-
-    private void commitStagedSafePosition() {
-        SetbackPosWithVector safe = stagedSafePosition;
-        stagedSafePosition = null;
-        // A setback since staging rejected the movement; a teleport since then replaced the safe position.
-        if (safe == null || lastKnownGoodPosition != stagedOver || !safePositionUnblocked()) return;
-        lastKnownGoodPosition = safe;
+        safePositions.release();
     }
 
     /** The client's movement for a tick arrived. Until a safe position includes it, a setback rejects it. */
     public void movementReceived() {
-        safePositionAtLatestMovement = lastKnownGoodPosition;
-    }
-
-    /**
-     * Whether a setback now rejects a movement the safe position does not include. Its correction tick stands in for
-     * that movement; with none rejected, the tick would come on top of the client's own.
-     */
-    private boolean rejectsMovement() {
-        return lastKnownGoodPosition != null && safePositionAtLatestMovement == lastKnownGoodPosition;
+        safePositions.movementReceived();
     }
 
     public void executeForceResync(String cause) {
-        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) return;
-        if (!player.shouldEnforceMovementSetbacks()) return;
-        if (player.isDisabled() || player.gamemode == GameMode.SPECTATOR)
-            return; // We don't care about spectators, they don't flag
-        if (lastKnownGoodPosition == null) return; // Player hasn't spawned yet
-        if (isPendingSetback()) return; // Don't spam setbacks // TODO: Remove plugin teleport status
-        if (player.getSetbackTeleportUtil().debug) {
-            LogUtil.warn("Setback sent to " + player.getName() + ", resync: " + cause);
-        }
-        blockMovementsUntilResync(
-                true, // simulate next tick
-                true, // full resync
-                false, // ignore if no forced change
-                null);
+        policy.executeForceResync(cause);
     }
 
     public void executeNonSimulatingSetback() {
-        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) return;
-        if (!player.shouldEnforceMovementSetbacks()) return;
-        if (player.isDisabled() || player.gamemode == GameMode.SPECTATOR)
-            return; // We don't care about spectators, they don't flag
-        if (isPendingSetback()) return; // Don't spam setbacks // TODO: Remove plugin teleport status
-        if (lastKnownGoodPosition == null) return; // Player hasn't spawned yet
-        if (player.getSetbackTeleportUtil().debug) {
-            LogUtil.warn("Setback sent to " + player.getName() + ", non simulating");
-        }
-        blockMovementsUntilResync(
-                false, // timer and other non-simulating setbacks must not advance a tick
-                false, // full resync
-                false, // ignore if no forced change
-                null);
+        policy.executeNonSimulatingSetback();
     }
 
     public boolean executeViolationSetback() {
-        return executeViolationSetback(null);
+        return policy.executeViolationSetback();
     }
 
     /** A setback for the rejected {@code flagged} movement; a ridden vehicle takes the tick simulated for it. */
     public boolean executeViolationSetback(PredictionResult flagged) {
-        if (isExempt()) return false;
-        if (isPendingSetback()) { // Don't spam setbacks // TODO: Remove plugin teleport status
-            return false;
-        }
-        if (player.getSetbackTeleportUtil().debug) {
-            LogUtil.warn("Setback sent to " + player.getName() + ", violation");
-        }
-        blockMovementsUntilResync(
-                true, // simulate next tick
-                false, // full resync
-                false, // ignore if no forced change
-                flagged);
-        return true;
+        return policy.executeViolationSetback(flagged);
+    }
+
+    public boolean executeTooHighLatencySetback(String cause) {
+        return policy.executeTooHighLatencySetback(cause);
     }
 
     /**
@@ -440,12 +184,9 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
      * the player afresh. Minecraft#clearClientLevel discards the player a required setback was meant to move.
      */
     public void levelLeft() {
-        lastKnownGoodPosition = null;
-        stagedSafePosition = null;
-        hasFullyLoaded = false;
-        respawnUnread = false;
-        requiredSetBack = null;
-        blockOffsets = false;
+        safePositions.clear();
+        gate.levelLeft();
+        corrections.drop();
         player.checkManager.getSimulationProcessor().getLastMovementTime().clear();
     }
 
@@ -454,11 +195,9 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
      * movement stays blocked until the client accepts it.
      */
     public void respawnSent() {
-        lastKnownGoodPosition = null;
-        stagedSafePosition = null;
-        hasFullyLoaded = false;
-        respawnUnread = !player.isBedrockMovement();
-        blockOffsets = false;
+        safePositions.clear();
+        gate.respawnSent(!player.isBedrockMovement());
+        corrections.unblockOffsets();
         // Latency is measured from the next movement of the placed player, not the last one before it died.
         player.checkManager.getSimulationProcessor().getLastMovementTime().clear();
     }
@@ -469,1312 +208,28 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
      * ID.
      */
     public void loginSent() {
-        pendingTeleports.removeIf(SetbackTeleportUtil::isJavaIdTeleport);
+        javaTeleports.loginSent();
     }
 
-    public boolean executeTooHighLatencySetback(String cause) {
-        if (isExempt()) return false;
-        // Latency is measured by movement: a dead client's movement is cancelled before prediction, and a client
-        // that has not accepted its placement teleport has no movement to send yet.
-        if (player.compensatedEntities.getSelf().isDead || !hasFullyLoaded) return false;
-        if (player.getSetbackTeleportUtil().debug) {
-            LogUtil.warn("Setback sent to " + player.getName() + ", high latency, " + cause);
-        }
-        blockMovementsUntilResync(
-                true, // simulate next tick
-                false, // full resync
-                true, // ignore if no forced change
-                null);
-        return true;
+    @Override
+    public void resendIgnored(String reason) {
+        policy.resendIgnoredRequiredSetback(reason);
     }
 
-    private boolean isExempt() {
-        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) return true;
-        // Not exempting spectators here because timer check for spectators is actually valid.
-        // Player hasn't spawned yet
-        if (lastKnownGoodPosition == null) return true;
-        // Setbacks aren't allowed
-        if (player.isDisabled()) {
-            return true;
-        }
-        if (!player.shouldEnforceMovementSetbacks()) return true;
-        // Player has permission to cheat, permission not given to OP by default.
-        return player.noSetbackPermission && player.platformPlayer != null;
+    @Override
+    public void release(Vec3 position) {
+        policy.releaseRequiredSetback(position);
     }
 
-    // Only let us full resync once every five seconds to prevent unneeded bukkit load
-    public void resyncWorld() {
-        if (System.currentTimeMillis() - lastWorldResync > 5 * 1000) {
-            final SimpleCollisionBox expandedBox = player.boundingBox.copy().expand(1);
-            ResyncWorldUtil.resyncPositions(player, expandedBox);
-            lastWorldResync = System.currentTimeMillis();
-        }
+    @Override
+    public boolean hasUnacknowledgedSetbackVehicleTeleport() {
+        return vehicles.hasUnacknowledgedSetbackVehicleTeleport();
     }
 
-    private void maybeThrowSetbackDebug(boolean simulateNext, boolean fullResync, boolean ignoreUnchanged) {
-        if (!player.throwError) return;
-        try {
-            final String setbackDebug = "Setback: " + simulateNext + ", " + fullResync + ", " + ignoreUnchanged;
-            throw new RuntimeException(setbackDebug);
-        } catch (Exception ex) {
-            ex.printStackTrace();
-        }
+    @Override
+    public void sendDismounted(SetBackData data) {
+        sender.sendSetback(data, false, true);
     }
-
-    private void blockMovementsUntilResync(
-            boolean simulateNext, boolean fullResync, boolean ignoreUnchanged, PredictionResult flagged) {
-        if (lastKnownGoodPosition == null) return; // Hasn't spawned
-        // A teleport changes neither attributes nor the sprint flag; the rejected moves' modifier evidence is dropped.
-        if (!player.isBedrockMovement()) player.sprintState.restore(lastKnownGoodPosition.getSprintOutcomes());
-
-        // If the chunk hasn't loaded, we can't simulate their movement yet
-        if (player.getSetbackTeleportUtil().insideUnloadedChunk()) {
-            simulateNext = false;
-            fullResync = true;
-        }
-
-        if (requiredSetBack != null) {
-            requiredSetBack.setPlugin(false); // The player has illegal movement, block from vanilla ac override
-        }
-        maybeThrowSetbackDebug(simulateNext, fullResync, ignoreUnchanged);
-        this.resyncWorld();
-
-        Vec3 clientVel = lastKnownGoodPosition.getVector();
-        Vec3 position = lastKnownGoodPosition.getPos();
-        if (player.isBedrockMovement()
-                && bedrockPaperVisiblePosition != null
-                && !player.compensatedEntities.vehicles.hasPlayerPassengerState()) {
-            // Anchor to the last position packet actually forwarded to Paper
-            // (== Paper's lastGood*), never the canonical prediction. A
-            // canonical-vs-authored gap would otherwise make the setback echo
-            // an upward move and wipe fallDistance (movedUpwards ->
-            // resetFallDistance; the anchor-desync NoFall bypass).
-            position = bedrockPaperVisiblePosition;
-        }
-        PredictionSetbackState anchorProfileState = lastKnownGoodPosition.getProfileState();
-        PredictionSetbackState profileState = player.isBedrockMovement()
-                ? player.checkManager.getSimulationProcessor().getBedrockSetbackState()
-                : anchorProfileState;
-        boolean bedrockVehicle = player.isBedrockMovement()
-                && BedrockVehicleControl.isSupported(player.compensatedEntities.getEntity(resolveSetbackVehicleId()));
-        if (bedrockVehicle && !simulateNext) {
-            profileState = anchorProfileState;
-        }
-        if (profileState == null) {
-            profileState = anchorProfileState;
-        }
-
-        TransactionVel sentKnockback = player.checkManager.getKnockbackHandler().getLastSent();
-        TransactionVel sentExplosion = player.checkManager.getExplosionHandler().getLastSent();
-        if (isPendingImpulse(sentKnockback)) {
-            clientVel = sentKnockback.getVel();
-        }
-        // Don't apply explosions multiple times when spamming violations. Use the client's order: one flush ping can
-        // prove both the motion and a later explosion.
-        final boolean explosionIsNewer = isPendingImpulse(sentExplosion)
-                && (sentKnockback == null || TransactionVel.compareClientOrder(sentExplosion, sentKnockback) > 0);
-        if (explosionIsNewer) {
-            clientVel = clientVel.add(sentExplosion.getVel());
-        }
-
-        PredictionResult lastPrediction =
-                player.checkManager.getSimulationProcessor().getLastPrediction();
-        // A Java setback forwards this with its stand-in move, and Paper resets fall distance on a ground claim. Only
-        // the correction tick's own Entity#move can put the player on the ground; without one the move only confirms
-        // the safe position, like the teleport response ClientPacketListener#handleMovePlayer sends off the ground.
-        boolean expectedOnGround = anchorProfileState != null && anchorProfileState.expectedOnGround();
-
-        boolean vehicleSimulated = simulateNext
-                && flagged != null
-                && !player.isBedrockMovement()
-                && flagged.getSimulationContext().getVehicle() != null;
-        boolean onFootTick = simulateNext
-                && lastPrediction != null
-                && !player.compensatedEntities.getSelf().inVehicle();
-        // We don't want to make it IMPOSSIBLE for high ping players to play after taking knockback
-        // If the player isn't really moving at all, don't bother
-        if (onFootTick && ignoreUnchanged && barelyMoves(position, clientVel)) {
-            return;
-        }
-        // Use Java's correction tick for both platforms. The caller owns whether
-        // a tick is allowed: timer setbacks must stay on the non-simulating path.
-        // The tick stands in for the movement this setback rejects. A setback after the client's latest
-        // movement became safe, such as one from a command sent after it, takes the safe state as it is.
-        if (onFootTick && rejectsMovement()) {
-            SimpleCollisionBox oldBB = player.boundingBox;
-            double oldX = player.x, oldY = player.y, oldZ = player.z;
-            try {
-                player.boundingBox = GetBoundingBox.getPlayerBoundingBox(player, position.x, position.y, position.z);
-
-                final PredVector thresholdInput = new PredVector(clientVel);
-                clientVel = VelocityTransformer.applyMovementThreshold(
-                                Collections.singletonList(thresholdInput), player.getClientVersion())
-                        .get(0);
-
-                Vec3 collide = Collisions.collide(player, clientVel.x, clientVel.y, clientVel.z);
-                // Entity#move's verticalCollisionBelow for the correction tick.
-                expectedOnGround = clientVel.y < 0.0D && clientVel.y != collide.y;
-
-                SimulationContext context = lastPrediction.getSimulationContext();
-
-                Vec3 stuckSpeedMultiplier =
-                        context.getWorldData().getStuckSpeed().getStuckSpeedMultiplier();
-
-                position = new Vec3(position.x + collide.x, position.y, position.z);
-                // 1.8 players need the collision epsilon to not phase into blocks when being setback
-                // Due to simulation, this will not allow a flight bypass by sending a billion invalid movements
-                position = new Vec3(position.x, position.y + collide.y, position.z);
-                position = new Vec3(position.x, position.y, position.z + collide.z);
-
-                if (stuckSpeedMultiplier != null) {
-                    final Vec3 slowedVel = clientVel.multiply(stuckSpeedMultiplier);
-                    clientVel = slowedVel;
-                }
-
-                if (clientVel.x != collide.x) clientVel = new Vec3(0, clientVel.y, clientVel.z);
-                if (clientVel.y != collide.y) {
-                    boolean landed = clientVel.y < 0.0D;
-                    // Entity#checkSupportingBlock ranks candidates by distance from the post-move position.
-                    player.x = position.x;
-                    player.y = position.y;
-                    player.z = position.z;
-                    MainSupportingBlockData support = player.checkManager
-                            .getSimulationProcessor()
-                            .mainSupportingBlockAfter(
-                                    GetBoundingBox.getPlayerBoundingBox(player, position.x, position.y, position.z),
-                                    collide,
-                                    landed);
-                    player.x = oldX;
-                    player.y = oldY;
-                    player.z = oldZ;
-                    double restitutedY = VelocityCandidates.afterVerticalCollision(
-                            player,
-                            BlockProperties.getOnPos(player, support, position),
-                            context.isSneaking(),
-                            true,
-                            clientVel.y,
-                            collide.y);
-                    clientVel = new Vec3(clientVel.x, restitutedY, clientVel.z);
-                }
-                if (clientVel.z != collide.z) clientVel = new Vec3(clientVel.x, clientVel.y, 0);
-
-                clientVel = simulateFriction(
-                        clientVel,
-                        context.getWorldData().getInWater().determineOptimistically(),
-                        context.getWorldData().getInLava().determineOptimistically(),
-                        context.usesFallFlyingMovement(),
-                        context.getLastOnGround().determineOptimistically(),
-                        stuckSpeedMultiplier != null,
-                        context);
-            } finally {
-                player.boundingBox = oldBB;
-                player.x = oldX;
-                player.y = oldY;
-                player.z = oldZ;
-            }
-        } else if (vehicleSimulated) {
-            // The vehicle's simulated tick from the safe state: its Entity#move and the deltaMovement it carries on.
-            Vec3 movement = flagged.getAcceptedClosestToTarget();
-            position = flagged.getSimulationContext().getStart().add(movement);
-            clientVel = NextTickVelocityDeriver.findVelocitiesForNextTick(
-                            player, flagged, lastPrediction, movement, null)
-                    .iterator()
-                    .next();
-        }
-
-        if (bedrockVehicle && profileState != null) {
-            position = profileState.position();
-            clientVel = profileState.velocity();
-            expectedOnGround = profileState.expectedOnGround();
-        }
-
-        if (!hasFullyLoaded) {
-            clientVel = null;
-        } // if the player hasn't spawned... don't force kb
-
-        if (debug) {
-            LogUtil.info("Teleported " + player.getName() + " to " + position + " with vel " + clientVel + " using "
-                    + simulateNext + " " + fullResync + " " + ignoreUnchanged);
-        }
-
-        SetBackData data = new SetBackData(
-                new TeleportData(position, new RelativeFlag(0b11000), player.lastTransactionSent.get(), 0),
-                player.xRot,
-                player.yRot,
-                clientVel,
-                player.compensatedEntities.getSelf().getRiding() != null,
-                false,
-                expectedOnGround,
-                profileState);
-        PacketEntity vehicle = player.compensatedEntities.getEntity(resolveSetbackVehicleId());
-        if (vehicle != null && !player.isBedrockMovement()) {
-            // The vehicle keeps its own rotation; a boat's is the yaw its simulated tick turned it to.
-            float boatYaw =
-                    vehicleSimulated && vehicle.isBoat() ? BoatTransform.predictedBoatYaw(player, flagged) : Float.NaN;
-            data.setVehicleYaw(Float.isNaN(boatYaw) ? vehicle.clientPhysicalYaw : boatYaw);
-            data.setVehiclePitch(vehicle.clientPhysicalPitch);
-            if (vehicle instanceof PacketEntityHorse) {
-                // ClientPacketListener#handleMoveVehicle leaves the onGround of the client's last, rejected tick,
-                // which can be a ground the setback position is far from. The horse leaves the setback with the
-                // onGround of the move that reached the position instead, so it never jumps there from the air.
-                data.setHorseOnGround(
-                        vehicleSimulated
-                                ? VelocityCandidates.verticalCollisionBelow(flagged)
-                                : lastKnownGoodPosition.getHorseOnGround());
-            }
-        }
-        sendSetback(data, simulateNext);
-        // Something weird has occurred in the player's movement, block offsets until the client accepts this
-        // setback. Only its acceptance clears the block, so a setback that was never tracked must not raise it.
-        if (fullResync && requiredSetBack == data) {
-            blockOffsets = true;
-        }
-        if (debug) {
-            LogUtil.info(
-                    "Teleport sent | resync=" + fullResync + ", infc=" + ignoreUnchanged + ", simNext=" + simulateNext);
-        }
-    }
-
-    /**
-     * Whether the client has yet to take {@code impulse} from the safe state. The safe vector carries one the safe tick
-     * took, and the latest Java correction's delta movement replaced one the client applied before that teleport. A
-     * push the client's own tick applies after travel follows the packets its transaction proves and precedes the rest.
-     */
-    private boolean isPendingImpulse(TransactionVel impulse) {
-        if (impulse == null || lastKnownGoodPosition.carries(impulse)) return false;
-        return impulse.isAppliedAfterTravel()
-                ? impulse.getTransaction() > correctionTransaction
-                : impulse.getTransaction() >= correctionTransaction;
-    }
-
-    /** Whether one tick of {@code velocity} from {@code position} leaves the player where it is. */
-    private boolean barelyMoves(Vec3 position, Vec3 velocity) {
-        SimpleCollisionBox oldBB = player.boundingBox;
-        try {
-            player.boundingBox = GetBoundingBox.getPlayerBoundingBox(player, position.x, position.y, position.z);
-            Vec3 moved = VelocityTransformer.applyMovementThreshold(
-                            Collections.singletonList(new PredVector(velocity)), player.getClientVersion())
-                    .get(0);
-            return Collisions.collide(player, moved.x, moved.y, moved.z).lengthSqr() < 0.001 * 0.001;
-        } finally {
-            player.boundingBox = oldBB;
-        }
-    }
-
-    private Vec3 simulateFriction(
-            Vec3 input,
-            boolean water,
-            boolean lava,
-            boolean gliding,
-            boolean wasOnGround,
-            boolean stuckSpeed,
-            SimulationContext correctionContextForElytra) {
-        double gravity = 0.08D;
-        final boolean noGravity = !player.compensatedEntities.getEntityInControl().hasGravity;
-        final boolean slowFalling = input.y < 0 && player.compensatedEntities.getSlowFallingAmplifier() != null;
-        final boolean ridingBoat = player.compensatedEntities.getSelf().inVehicle()
-                && player.compensatedEntities.getSelf().getRiding().isBoat();
-        if (noGravity) {
-            gravity = 0.0D;
-        } else if (slowFalling) {
-            gravity = 0.01D;
-        } else if (ridingBoat) {
-            gravity = 0.04D;
-        }
-
-        // We must always do this before simulating positions, as this is the last actual (safe) movement
-        // We must not do this for knockback or explosions, as they are at the start of the tick
-        Vec3 simulated;
-        if (stuckSpeed) {
-            simulated = new Vec3(0, -gravity, 0);
-        } else if (water) {
-            simulated = input.scale(0.8f).subtract(0.0D, gravity / 16.0f, 0.0D);
-        } else if (lava) {
-            simulated = input.scale(0.5D).subtract(0.0D, gravity / 4.0D, 0.0D);
-        } else if (gliding && correctionContextForElytra != null) {
-            // Route Java safe state capture already ran ElytraTransform, setbacks and bedrock must run it
-            simulated = new ElytraTransform().transformElytra(player, correctionContextForElytra, input, gravity);
-        } else if (gliding) {
-            simulated = input.multiply(0.99F, 0.98F, 0.99F);
-        } else { // Gliding doesn't have friction, we handle it differently
-            final double horizFriction = wasOnGround ? 0.91F * 0.6F : 0.91F;
-            simulated = new Vec3(input.x, Friction.applyAirGravity(player, input.y, gravity), input.z)
-                    .multiply(horizFriction, 0.98f, horizFriction);
-        }
-
-        // stop 1.8 players from stepping onto 1.25 high blocks, because why not?
-        return VelocityTransformer.applyMovementThreshold(new PredVector(simulated), player.getClientVersion(), true);
-    }
-
-    private final Random random = new Random();
-
-    public int nextTeleportId() {
-        return random.nextInt() | Integer.MIN_VALUE;
-    }
-
-    private void sendSetback(SetBackData data) {
-        sendSetback(data, false);
-    }
-
-    private void sendSetback(SetBackData data, boolean simulateVehicle) {
-        sendSetback(data, simulateVehicle, false);
-    }
-
-    private void sendSetback(SetBackData data, boolean simulateVehicle, boolean dismounted) {
-        // Nothing is tracked for a correction that cannot reach the client; login sends a new position.
-        if (!player.canSendPlayPackets()) return;
-        if (!player.user.getCultConnection().clientHasLevel()) {
-            // A client without a level cannot take a teleport; the play login that gives it one places it anew.
-            if (requiredSetBack == data) {
-                requiredSetBack = null;
-                blockOffsets = false;
-            }
-            return;
-        }
-        if (!player.isBedrockMovement() && !player.user.isPreparingWrites()) {
-            // Block movement as soon as the correction is requested. Allocate its
-            // proofs and dispatch its packets together at their outbound position,
-            // while isSendingSetback/isSetbackVal still describe those packets.
-            data.setPlugin(false);
-            requiredSetBack = data;
-            player.user.executeAfterWrites(() -> sendSetback(data, simulateVehicle, dismounted));
-            return;
-        }
-        isSendingSetback = true;
-        Vec3 position = data.getTeleportData().getLocation();
-
-        try {
-            // Send a transaction now to make sure there's always transactions around teleport
-            player.sendTransaction();
-
-            int teleportId = nextTeleportId();
-            data.setPlugin(false);
-            data.getTeleportData().setTeleportId(teleportId);
-            data.getTeleportData().setTransaction(player.lastTransactionSent.get());
-
-            // Every passenger change already written reaches the client first, so the server's graph decides its seat.
-            boolean leftVehicle = !player.isBedrockMovement()
-                    && !isServerPassenger()
-                    && player.getRidingVehicleId() != Integer.MIN_VALUE;
-            final int vehicleEntityId = dismounted || leftVehicle ? Integer.MIN_VALUE : resolveSetbackVehicleId();
-            boolean bedrockVehicle = player.isBedrockMovement()
-                    && BedrockVehicleControl.isSupported(player.compensatedEntities.getEntity(vehicleEntityId));
-
-            // Player is in a vehicle
-            if (vehicleEntityId != Integer.MIN_VALUE) {
-                // Don't setback the wrong vehicle
-                if (player.compensatedEntities.vehicles.serverPlayerVehicle == null
-                        || player.compensatedEntities.vehicles.serverPlayerVehicle != vehicleEntityId) {
-                    return;
-                }
-
-                // PacketServerTeleport observes this packet and queues the exact
-                // vanilla snap/echo response position for the vehicle teleport.
-                if (bedrockVehicle) {
-                    bedrockVehicleSetback = new BedrockVehicleSetback(
-                            data,
-                            vehicleEntityId,
-                            BedrockVehiclePredictionState.setbackPassengerPosition(
-                                    player,
-                                    player.compensatedEntities.getEntity(vehicleEntityId),
-                                    data.getProfileState(),
-                                    position,
-                                    activeBedrockCoordinateFrame));
-                    int transaction = data.getTeleportData().getTransaction();
-                    addBedrockVehicleTeleport(vehicleEntityId, transaction, position);
-                    if (simulateVehicle) {
-                        player.runSafely(() ->
-                                player.bedrockState.movementCorrections.requestSetback(vehicleEntityId, transaction));
-                    } else {
-                        sendBedrockMovementCorrection(
-                                vehicleEntityId,
-                                position,
-                                data.getVelocity() == null ? Vec3.ZERO : data.getVelocity(),
-                                player.xRot,
-                                player.yRot,
-                                data.isExpectedOnGround(),
-                                transaction,
-                                data.getProfileState());
-                    }
-                } else {
-                    boolean vehicleRotation = !Float.isNaN(data.getVehicleYaw());
-                    player.user.write(new CultWrite(
-                            new ClientboundMoveVehicle(
-                                    new Vec3d(position.x, position.y, position.z),
-                                    vehicleRotation ? data.getVehicleYaw() : player.xRot,
-                                    vehicleRotation ? data.getVehiclePitch() : player.yRot),
-                            false));
-                }
-            } else {
-                bedrockVehicleSetback = null;
-                // ClientPacketListener#setValuesFromPositionPacket sets the delta movement to a teleport's absolute
-                // one (PositionMoveRotation#calculateAbsolute) in the handler that answers it. A Java correction
-                // carries its velocity there, so the client cannot accept the position without the velocity.
-                Vec3 delta = data.getVelocity() == null ? Vec3.ZERO : data.getVelocity();
-                // Track the correction before sending; its outbound packet is silenced below.
-                if (!player.isBedrockMovement()) {
-                    addSentTeleport(
-                            position,
-                            delta,
-                            data.getTeleportData().getTransaction(),
-                            new RelativeFlag(0b11000),
-                            false,
-                            teleportId);
-                    if (!player.inVehicle()) lastKnownGoodPosition.setVector(delta);
-                    correctionTransaction = data.getTeleportData().getTransaction();
-                }
-                // Receive the player's position packet to make setbacks appear smooth for other players (and to stop
-                // vanilla ac setbacks)
-                // For Bedrock this move is Paper's teleport response, which is never on ground.
-                boolean serverMoveOnGround = !player.isBedrockMovement() && data.isExpectedOnGround();
-                player.user.execute(() -> setPendingServerMove(new ServerboundMovePlayer(
-                        position.x, position.y, position.z, 0, 0, serverMoveOnGround, false, true, false)));
-                if (player.isBedrockMovement()) {
-                    requiredSetBack = data;
-                    GeyserBedrockBridgeRuntime.sendPlayerTeleport(
-                            player.user,
-                            position,
-                            player.xRot,
-                            player.yRot,
-                            data.isExpectedOnGround(),
-                            data.getTeleportData().getTransaction());
-                } else {
-                    sendPlayerSetbackPackets(
-                            teleportId,
-                            position,
-                            delta,
-                            data.getTeleportData().getFlags().getMask());
-                }
-            }
-
-            // required setback applies for both our own vehicle teleports and regular teleports
-            requiredSetBack = data;
-
-            // Preserve the public packet-level and semantic setback signals from
-            // the PacketEvents path after the teleport is tracked and emitted.
-            long now = System.currentTimeMillis();
-            Channels.TELEPORT.fire(ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(player), teleportId, now);
-            Channels.PLAYER_SETBACK.fire(
-                    ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(player),
-                    teleportId,
-                    position.x,
-                    position.y,
-                    position.z,
-                    now);
-
-            final KnockbackHandler knockbackHandler = player.checkManager.getKnockbackHandler();
-            // A Java correction of the player carries its velocity in its player_position.
-            boolean velocityInTeleport = !player.isBedrockMovement() && vehicleEntityId == Integer.MIN_VALUE;
-            if (!velocityInTeleport
-                    && !bedrockVehicle
-                    && data.getVelocity() != null
-                    && (dismounted || data.getVelocity().lengthSqr() > 0 || vehicleEntityId != Integer.MIN_VALUE)) {
-                knockbackHandler.setSetbackVal(true);
-                player.user.write(new CultWrite(
-                        new ClientboundEntityMotion(
-                                vehicleEntityId == Integer.MIN_VALUE ? player.entityID : vehicleEntityId,
-                                new Vec3d(data.getVelocity().x, data.getVelocity().y, data.getVelocity().z)),
-                        false));
-                knockbackHandler.setSetbackVal(false);
-            } else {
-                player.sendTransaction();
-            }
-        } finally {
-            isSendingSetback = false;
-        }
-    }
-
-    private void sendPlayerSetbackPackets(int teleportId, Vec3 position, Vec3 delta, int relativeMask) {
-        var point = new Vec3d(position.x, position.y, position.z);
-        var relatives = Relative.unpack(relativeMask);
-        // unfortunately, 26.3 clients don't like ClietboundTeleportEntity as it causes weird interpolation if multiple
-        // teleports are sent within a few ticks.
-        player.user.write(new CultWrite(
-                new ClientboundPlayerPosition(
-                        teleportId, point, new Vec3d(delta.x, delta.y, delta.z), 0.0F, 0.0F, relatives),
-                true));
-    }
-
-    private boolean isServerPassenger() {
-        Integer serverVehicle = player.compensatedEntities.vehicles.serverPlayerVehicle;
-        return serverVehicle != null && player.compensatedEntities.vehicles.isServerPlayerPassengerOf(serverVehicle);
-    }
-
-    private int resolveSetbackVehicleId() {
-        if (isServerPassenger()) {
-            return player.compensatedEntities.vehicles.serverPlayerVehicle;
-        }
-
-        // The compensated graph trails the packet stream. For Bedrock it remains the
-        // client-visible authority during an ordered dismount transition.
-        return player.getRidingVehicleId();
-    }
-
-    /**
-     * @param x - Player X position
-     * @param y - Player Y position
-     * @param z - Player Z position
-     * @return - Whether the player has completed a teleport by being at this position
-     */
-    public TeleportAcceptData checkTeleportQueue(double px, double py, double pz) {
-        return checkTeleportQueue(new Vec3(px, py, pz), null, false);
-    }
-
-    public TeleportAcceptData checkExactJavaTeleportQueue(double px, double py, double pz, int teleportId) {
-        return checkTeleportQueue(new Vec3(px, py, pz), teleportId, true);
-    }
-
-    /** Entity-to-self teleports have no ID acknowledgement; normal player teleports do. */
-    public boolean hasIdlessJavaPositionTeleport() {
-        for (TeleportData pending : pendingTeleports) {
-            if (!pending.isRotationOnly()) return pending.isPositionOnly();
-        }
-        return false;
-    }
-
-    /** Resolve only from an already active origin or an emitted, transaction-proven exact local echo. */
-    public BedrockAuthInputFrame resolveBedrockCoordinates(BedrockAuthInputFrame input) {
-        if (!player.playerUUID.equals(input.getPlayerUuid())) return null;
-        BedrockCoordinateFrame frame = activeBedrockCoordinateFrame;
-        if (input.hasRawInputFlag(PlayerAuthInputData.HANDLE_TELEPORT)) {
-            for (TeleportData pending : pendingTeleports) {
-                if (isConfirmedBedrockTeleport(pending)
-                        && sameLocalPacket(pending.getBedrockLocalPacketTarget(), input.getPacketPosition())) {
-                    frame = pending.getBedrockCoordinateFrame();
-                }
-            }
-        }
-        if (!input.hasCoordinateProvenance() && !frame.equals(BedrockCoordinateFrame.IDENTITY)) return null;
-        // The bridge submits unresolved identity frames. Nonidentity provenance (e.g. a replay) must agree
-        // with transport evidence; it can never establish a frame by itself.
-        if (!input.getCoordinateFrame().equals(BedrockCoordinateFrame.IDENTITY)
-                && !input.getCoordinateFrame().equals(frame)) return null;
-        return input.resolveCoordinates(frame);
-    }
-
-    public BedrockMoveFrame resolveBedrockCoordinates(BedrockMoveFrame input) {
-        if (!player.playerUUID.equals(input.playerUuid())) return null;
-        if (!input.coordinateProvenance() && !activeBedrockCoordinateFrame.equals(BedrockCoordinateFrame.IDENTITY))
-            return null;
-        if (!input.coordinateFrame().equals(BedrockCoordinateFrame.IDENTITY)
-                && !input.coordinateFrame().equals(activeBedrockCoordinateFrame)) return null;
-        return input.resolveCoordinates(activeBedrockCoordinateFrame);
-    }
-
-    private static boolean sameLocalPacket(Vec3 target, Vec3 actual) {
-        return target != null
-                && actual != null
-                && (float) target.x == (float) actual.x
-                && (float) target.y == (float) actual.y
-                && (float) target.z == (float) actual.z;
-    }
-
-    private boolean isConfirmedBedrockTeleport(TeleportData pending) {
-        return !pending.isRotationOnly()
-                && pending.getBedrockTransportRevision() >= 0
-                && (pending.isBedrockOriginConfirmed()
-                        || pending.getBedrockCoordinateFrame().equals(activeBedrockCoordinateFrame))
-                && pending.getBedrockCoordinateFrame().revision() >= activeBedrockCoordinateFrame.revision()
-                && player.lastTransactionReceived.get() >= pending.getTransaction();
-    }
-
-    public TeleportAcceptData acknowledgeBedrockTeleportFrame(BedrockAuthInputFrame frame) {
-        return acknowledgeBedrockTeleportFrame(
-                frame.getPosition(), frame.hasRawInputFlag(PlayerAuthInputData.HANDLE_TELEPORT), frame);
-    }
-
-    public TeleportAcceptData acknowledgeBedrockTeleportFrame(Vec3 physicalFeetPosition) {
-        return acknowledgeBedrockTeleportFrame(physicalFeetPosition, true);
-    }
-
-    public TeleportAcceptData acknowledgeBedrockTeleportFrame(Vec3 physicalFeetPosition, boolean handlesTeleport) {
-        return acknowledgeBedrockTeleportFrame(physicalFeetPosition, handlesTeleport, null);
-    }
-
-    private TeleportAcceptData acknowledgeBedrockTeleportFrame(
-            Vec3 physicalFeetPosition, boolean handlesTeleport, BedrockAuthInputFrame frame) {
-        TeleportAcceptData accepted = new TeleportAcceptData();
-        if (!player.isBedrockMovement() || physicalFeetPosition == null || !handlesTeleport) {
-            return accepted;
-        }
-
-        Vec3 actual = VectorUtils.clampVector(physicalFeetPosition);
-        TeleportData matching = null;
-        for (TeleportData pending : pendingTeleports) {
-            if (isConfirmedBedrockTeleport(pending)
-                    && (frame == null
-                            ? pending.getBedrockCoordinateFrame().equals(BedrockCoordinateFrame.IDENTITY)
-                            : pending.getBedrockCoordinateFrame().equals(frame.getCoordinateFrame()))
-                    && (pending.getBedrockLocalPacketTarget() == null || frame == null
-                            ? samePosition(VectorUtils.clampVector(pending.getLocation()), actual)
-                            : sameLocalPacket(pending.getBedrockLocalPacketTarget(), frame.getPacketPosition()))) {
-                // One HANDLE_TELEPORT acknowledges the latest identical
-                // outbound teleport. Reliable packet order proves that every
-                // earlier identical boundary was processed first, so retaining
-                // those entries would wait for acknowledgements Geyser consumes
-                // and never projects to Java.
-                matching = pending;
-            }
-        }
-        if (matching == null) {
-            return accepted;
-        }
-
-        // An acknowledged teleport supersedes earlier Geyser and GFP targets.
-        // Cult setbacks remain pending until their own validated response.
-        long matchedRevision = matching.getBedrockTransportRevision();
-        pendingTeleports.removeIf(pending -> !pending.mayCompleteCultSetback()
-                && pending.getBedrockTransportRevision() >= 0L
-                && pending.getBedrockTransportRevision() < matchedRevision);
-
-        if (!pendingTeleports.remove(matching)) {
-            return accepted;
-        }
-
-        // The Bedrock receipt and exact HANDLE_TELEPORT frame prove this boundary.
-        activeBedrockCoordinateFrame = matching.getBedrockCoordinateFrame();
-        return completeTeleport(matching, actual, true);
-    }
-
-    public Runnable captureBedrockVehicleMount() {
-        long revision = bedrockTeleportRevision.get();
-        SetBackData setback = requiredSetBack;
-        int transaction = setback == null ? -1 : setback.getTeleportData().getTransaction();
-        List<VehicleTeleport> earlierVehicles = List.copyOf(vehicleTeleports);
-        long correctionGeneration = player.bedrockState.movementCorrections.generation();
-        return () -> {
-            pendingTeleports.removeIf(pending -> {
-                boolean preceding =
-                        pending.getBedrockTransportRevision() >= 0 && pending.getBedrockTransportRevision() <= revision;
-                boolean owned =
-                        setback != null && pending.getTransaction() == transaction && pending.mayCompleteCultSetback();
-                if (!preceding && !owned) return false;
-                if (preceding
-                        && pending.getBedrockCoordinateFrame().revision() >= activeBedrockCoordinateFrame.revision()) {
-                    activeBedrockCoordinateFrame = pending.getBedrockCoordinateFrame();
-                }
-                return true;
-            });
-            vehicleTeleports.removeAll(earlierVehicles);
-            if (setback != null
-                    && requiredSetBack == setback
-                    && setback.getTeleportData().getTransaction() == transaction) {
-                setback.setComplete(true);
-                bedrockVehicleSetback = null;
-                blockOffsets = false;
-            }
-            hasFullyLoaded = hasFullyJoined = true;
-            if (requiredSetBack == setback
-                    && (setback == null || setback.getTeleportData().getTransaction() == transaction)
-                    && player.bedrockState.movementCorrections.generation() == correctionGeneration) {
-                player.bedrockState.movementCorrections.clear();
-            }
-        };
-    }
-
-    public boolean hasPendingBedrockTransportTeleport() {
-        return pendingTeleports.stream()
-                .anyMatch(pending -> !pending.isRotationOnly() && pending.getBedrockTransportRevision() >= 0L);
-    }
-
-    public boolean isBedrockSetbackTransport(long revision) {
-        if (requiredSetBack == null || requiredSetBack.isPlugin()) return false;
-        return pendingTeleports.stream()
-                .anyMatch(pending -> pending.getBedrockTransportRevision() == revision
-                        && pending.mayCompleteCultSetback()
-                        && isRequiredSetbackTeleport(pending));
-    }
-
-    public boolean isCurrentBedrockSetback(int transaction) {
-        return player.isBedrockMovement()
-                && requiredSetBack != null
-                && !requiredSetBack.isPlugin()
-                && !requiredSetBack.isComplete()
-                && requiredSetBack.getTeleportData().getTransaction() == transaction;
-    }
-
-    public boolean isPendingBedrockSetback(BedrockTeleportOperation operation) {
-        return operation != null
-                && operation.provenance() == BedrockTeleportProvenance.CULT_SETBACK
-                && operation.setbackTransaction() != null
-                && isCurrentBedrockSetback(operation.setbackTransaction())
-                && pendingTeleports.stream().anyMatch(pending -> operation.equals(pending.getBedrockOperation()));
-    }
-
-    public boolean mustAcknowledgeBedrockTransportTeleport() {
-        return pendingTeleports.stream()
-                .anyMatch(pending -> !pending.isRotationOnly()
-                        && pending.getBedrockTransportRevision() >= 0L
-                        && (pending.getBedrockProvenance() != BedrockTeleportProvenance.GFP_REBASE
-                                || pending.isBedrockOriginConfirmed()
-                                        && player.lastTransactionReceived.get() >= pending.getTransaction()));
-    }
-
-    private static boolean samePosition(Vec3 first, Vec3 second) {
-        return Math.abs(first.x - second.x) <= BEDROCK_WIRE_POSITION_EPSILON
-                && Math.abs(first.y - second.y) <= BEDROCK_WIRE_POSITION_EPSILON
-                && Math.abs(first.z - second.z) <= BEDROCK_WIRE_POSITION_EPSILON;
-    }
-
-    // The Bedrock wire position is float32 with Geyser's 1.62f eye offset while
-    // the bridge canonicalizes through the double 1.6200103759765625 constant,
-    // so the same physical position can surface ~2e-5 apart. The match window
-    // only needs to exclude a client that did not adopt the teleport at all.
-    private static final double BEDROCK_WIRE_POSITION_EPSILON = 1.0E-4D;
-
-    private TeleportAcceptData completeTeleport(TeleportData teleport, Vec3 location, boolean matchedPosition) {
-        TeleportAcceptData accepted = new TeleportAcceptData();
-        boolean initialSpawn = !hasFullyLoaded;
-        accepted.setMatchedTeleportPosition(matchedPosition);
-        if (player.isBedrockMovement()
-                && teleport.getBedrockTransportRevision() >= 0
-                && teleport.getBedrockProvenance() != BedrockTeleportProvenance.GFP_REBASE) {
-            accepted.setInitialSpawnTeleport(initialSpawn);
-            hasFullyLoaded = true;
-            hasFullyJoined = true;
-            if (!isPendingSetback())
-                lastKnownGoodPosition = new SetbackPosWithVector(location, Vec3.ZERO, player.totalFlyingPacketsSent);
-        }
-
-        if (teleport.mayCompleteCultSetback()
-                && requiredSetBack != null
-                && requiredSetBack.getTeleportData().getTransaction() == teleport.getTransaction()) {
-            blockOffsets = false;
-            accepted.setSetback(requiredSetBack);
-            accepted.setInitialSpawnTeleport(initialSpawn);
-            requiredSetBack.setComplete(true);
-            this.hasFullyLoaded = true;
-            this.hasFullyJoined = true;
-        }
-        if (!player.isBedrockMovement() && !teleport.isPositionOnly() && teleport.getBedrockTransportRevision() < 0L) {
-            player.compensatedWorld.onClientTeleport();
-        }
-        accepted.setTeleportData(teleport.copyWithLocation(location));
-        accepted.setTeleport(true);
-        return accepted;
-    }
-
-    private TeleportAcceptData checkTeleportQueue(
-            Vec3 physicalFeetPosition, Integer teleportId, boolean exactPosition) {
-        // Support teleports without teleport confirmations
-        // If the player is in a vehicle when teleported, they will exit their vehicle
-        TeleportAcceptData teleportData = new TeleportAcceptData();
-        if (teleportId != null
-                && pendingTeleports.stream()
-                        .noneMatch(pending -> !pending.isRotationOnly()
-                                && pending.getBedrockTransportRevision() < 0L
-                                && pending.getTeleportId() == teleportId)) {
-            return teleportData;
-        }
-
-        TeleportData teleportPos;
-        while ((teleportPos = pendingTeleports.peek()) != null) {
-            if (teleportPos.isRotationOnly()) {
-                if (player.lastTransactionReceived.get() >= teleportPos.getTransaction()) {
-                    pendingTeleports.poll();
-                    continue;
-                }
-                break;
-            }
-
-            if (teleportPos.getBedrockTransportRevision() >= 0L) {
-                // Bedrock transport entries are completed only by the exact raw
-                // auth-input echo after their normal Cult transaction proof. A
-                // translated Java move is not a second acknowledgement channel.
-                break;
-            }
-
-            int receivedTransaction = player.lastTransactionReceived.get();
-            if (teleportId != null && teleportPos.getTeleportId() != teleportId) {
-                if (receivedTransaction > teleportPos.getTransaction()) {
-                    pendingTeleports.poll();
-                    continue;
-                }
-                break;
-            }
-            // ClientPacketListener#handleMovePlayer leaves passengers in place.
-            // Consume its single response at the same transaction boundary as a
-            // normal teleport, without applying the reported passenger position.
-            if (!player.isBedrockMovement()
-                    && receivedTransaction == teleportPos.getTransaction()
-                    && teleportPos.isSentWhileVehicle()
-                    && !teleportPos.isSentDuringVehicleDismount()
-                    && player.compensatedEntities.getSelf().inVehicle()) {
-                pendingTeleports.poll();
-                return completeMountedTeleport(teleportPos);
-            }
-
-            Vec3 shove = teleportPos.isRelativeX() || teleportPos.isRelativeY() || teleportPos.isRelativeZ()
-                    ? player.compensatedWorld.lastTickShulkerBoxShove()
-                    : Vec3.ZERO;
-            double trueTeleportX = (teleportPos.isRelativeX() ? player.x + shove.x : 0) + teleportPos.getLocation().x;
-            double trueTeleportY = (teleportPos.isRelativeY() ? player.y + shove.y : 0) + teleportPos.getLocation().y;
-            double trueTeleportZ = (teleportPos.isRelativeZ() ? player.z + shove.z : 0) + teleportPos.getLocation().z;
-
-            // There seems to be a version difference in teleports past 30 million... just clamp the vector
-            // I'm not sure how teleports work on 26.1
-            Vec3 clamped = VectorUtils.clampVector(new Vec3(trueTeleportX, trueTeleportY, trueTeleportZ));
-
-            // There was some previous claims that rounding was performed here, I see no evidence of this.
-            // TODO: Investigate vehicle teleports working for players too on 26.1?
-
-            double xDiff = Math.abs(clamped.x - physicalFeetPosition.x);
-            double yDiff = Math.abs(clamped.y - physicalFeetPosition.y);
-            double zDiff = Math.abs(clamped.z - physicalFeetPosition.z);
-
-            // idk why mojang just doesn't set the movement threshold to 0, but I'm not fighting over 0.0002
-            boolean xPass =
-                    xDiff <= (exactPosition ? 0 : teleportPos.isRelativeX() ? player.getMovementThreshold() : 0);
-            boolean yPass =
-                    yDiff <= (exactPosition ? 0 : teleportPos.isRelativeY() ? player.getMovementThreshold() : 0);
-            boolean zPass =
-                    zDiff <= (exactPosition ? 0 : teleportPos.isRelativeZ() ? player.getMovementThreshold() : 0);
-
-            if (debug)
-                LogUtil.info("dx=" + xDiff + " dy=" + yDiff + " dz=" + zDiff + " | trans=" + receivedTransaction + " | "
-                        + teleportPos.getTransaction());
-
-            boolean exactTeleportPosition = xPass && yPass && zPass;
-            if (exactTeleportPosition
-                    && (teleportPos.isPositionOnly() || receivedTransaction == teleportPos.getTransaction())) {
-                pendingTeleports.poll();
-                player.compensatedWorld.onClientPositionSet();
-                return completeTeleport(teleportPos, clamped, true);
-            } else if (teleportPos.isPositionOnly() && receivedTransaction <= teleportPos.getTransaction()) {
-                break;
-            } else if (teleportPos.isPositionOnly() || receivedTransaction > teleportPos.getTransaction()) {
-                if (debug) {
-                    LogUtil.info("TP ignored: xd=" + xDiff + " yd=" + yDiff + " zd=" + zDiff);
-                }
-
-                boolean currentRequiredSetback = requiredSetBack != null
-                        && requiredSetBack.getTeleportData().getTransaction() == teleportPos.getTransaction();
-                boolean vehicleTransitionCanIgnoreTeleport =
-                        teleportPos.isSentWhileVehicle() && isVehicleTransitionTeleportContext();
-
-                // MCP-Reborn ClientPacketListener#handleMovePlayer always
-                // confirms the teleport id, but only applies the position when
-                // minecraft.player is not a passenger. A mounted confirmation
-                // is therefore valid protocol, but it is not proof that a
-                // Cult-owned setback position was applied.
-                if (!vehicleTransitionCanIgnoreTeleport) {
-                    final String teleportDiffs = "xd=" + NumFormatter.formatNumberStandard(xDiff) + " yd="
-                            + NumFormatter.formatNumberStandard(yDiff) + " zd="
-                            + NumFormatter.formatNumberStandard(zDiff);
-                    player.checkManager.getListener(BadPacketsN.class).flag(teleportDiffs);
-                }
-                pendingTeleports.poll();
-                if (currentRequiredSetback) {
-                    if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
-                        releaseRequiredSetback(physicalFeetPosition);
-                    } else {
-                        requiredSetBack.setPlugin(false);
-                    }
-                }
-                if (!vehicleTransitionCanIgnoreTeleport && pendingTeleports.isEmpty() && requiredSetBack != null) {
-                    resendIgnoredRequiredSetback("player-position-ignored");
-                }
-                continue;
-            }
-            // No farther setbacks before the player's transactoin
-            break;
-        }
-
-        return teleportData;
-    }
-
-    public TeleportAcceptData checkRotationTeleportQueue(float yaw, float pitch) {
-        TeleportAcceptData teleportData = new TeleportAcceptData();
-
-        TeleportData teleportPos;
-        while ((teleportPos = pendingTeleports.peek()) != null) {
-            if (!teleportPos.isRotationOnly()) {
-                return teleportData;
-            }
-
-            // The first Rot after a ping that handleRotatePlayer's bundle task answered first is its echo.
-            TeleportData resolved = player.lastTransactionReceived.get() >= teleportPos.getBundleTransaction()
-                    ? teleportPos.resolvePlayerRotationEcho(yaw, pitch, player.xRot, player.yRot)
-                    : teleportPos.resolvePlayerRotation(player.xRot, player.yRot);
-            if (matchesRotationTeleport(resolved, yaw, pitch)) {
-                pendingTeleports.poll();
-                teleportData.setTeleportData(resolved.copyWithLocation(new Vec3(player.x, player.y, player.z)));
-                teleportData.setTeleport(true);
-                return teleportData;
-            }
-
-            if (player.lastTransactionReceived.get() >= teleportPos.getTransaction()) {
-                pendingTeleports.poll();
-                continue;
-            }
-
-            return teleportData;
-        }
-
-        return teleportData;
-    }
-
-    private static boolean matchesRotationTeleport(TeleportData teleportPos, float yaw, float pitch) {
-        return Math.abs(teleportPos.getFinalYaw() - yaw) <= ROTATION_TELEPORT_EPSILON
-                && Math.abs(teleportPos.getFinalPitch() - pitch) <= ROTATION_TELEPORT_EPSILON;
-    }
-
-    private boolean isVehicleTransitionTeleportContext() {
-        return player.compensatedEntities.vehicles.serverPlayerVehicle != null
-                || player.compensatedEntities.getSelf().inVehicle();
-    }
-
-    private TeleportAcceptData completeMountedTeleport(TeleportData teleport) {
-        Vec3 position = new Vec3(player.x, player.y, player.z);
-        if (!isRequiredSetbackTeleport(teleport) || requiredSetBack.isPlugin()) {
-            return completeTeleport(teleport, position, false);
-        }
-
-        // A passenger ignores the position. This cannot complete a Cult setback.
-        requiredSetBack.setPlugin(false);
-        resendIgnoredRequiredSetback("mounted-player-position-ignored");
-        TeleportAcceptData accepted = new TeleportAcceptData();
-        accepted.setTeleportData(teleport.copyWithLocation(position));
-        accepted.setTeleport(true);
-        return accepted;
-    }
-
-    /**
-     * @param x - Player X position
-     * @param y - Player Y position
-     * @param z - Player Z position
-     * @return - Whether the player has completed a teleport by being at this position
-     */
-    public TeleportAcceptData checkVehicleTeleportQueue(Integer vehicleId, double x, double y, double z) {
-        return checkVehicleTeleportQueue(vehicleId, x, y, z, false);
-    }
-
-    /**
-     * @param tickMove whether LocalPlayer#sendChanges sent the packet after the rider's Rot, which no
-     *     ClientPacketListener response is
-     */
-    public TeleportAcceptData checkVehicleTeleportQueue(
-            Integer vehicleId, double x, double y, double z, boolean tickMove) {
-        TeleportAcceptData acceptData = new TeleportAcceptData();
-
-        int lastTransaction = player.lastTransactionReceived.get();
-
-        while (true) {
-            VehicleTeleport teleportPos = vehicleTeleports.peek();
-            if (teleportPos == null) break;
-            // Bedrock corrections complete after rewind prediction, without a Java position echo.
-            if (teleportPos.rewind()) break;
-            if (vehicleId != null && teleportPos.vehicleId() != vehicleId) {
-                if (lastTransaction >= teleportPos.transaction()) {
-                    final VehicleTeleport staleEntry = vehicleTeleports.poll();
-                    continue;
-                }
-                break;
-            }
-
-            Vec3 position = teleportPos.position();
-
-            if (debug) {
-                LogUtil.info("Vehicle queue: id: " + teleportPos.vehicleId() + " pt: " + teleportPos.transaction()
-                        + " lt: " + lastTransaction + " | x=" + (position.x - x) + " y=" + (position.y - y) + " z="
-                        + (position.z - z));
-            }
-
-            if (matchesVehicleTeleportPosition(position, x, y, z, teleportPos.responseDistanceTolerance())) {
-                if (!tickMove) {
-                    final VehicleTeleport matchedEntry = vehicleTeleports.poll();
-                    return completeVehicleTeleport(teleportPos);
-                }
-                // A ticking boat interpolates onto a TELEPORT_ENTITY target and the client sends no response for it.
-                if (teleportPos.state() != null
-                        && !isRequiredSetbackVehicleTeleport(teleportPos)
-                        && lastTransaction >= teleportPos.transaction()) {
-                    vehicleTeleports.poll();
-                    continue;
-                }
-            }
-
-            // MCP-Reborn sends exact MoveVehicle responses from the packet
-            // handler for local-authoritative vehicle teleports. A coordinate
-            // match above is proof; otherwise wait for transaction ordering.
-            if (lastTransaction < teleportPos.transaction()) {
-                break;
-            } else if (lastTransaction > teleportPos.transaction() + 1) {
-                boolean ignoredRequiredSetbackVehicleTeleport = isRequiredSetbackVehicleTeleport(teleportPos);
-                final VehicleTeleport ignoredEntry = vehicleTeleports.poll();
-
-                if (ignoredRequiredSetbackVehicleTeleport) {
-                    resendIgnoredRequiredSetback("vehicle-position-ignored");
-                }
-
-                // Vehicles have terrible netcode so just ignore it if the teleport wasn't from us setting the player
-                // back
-                // Players don't have to respond to vehicle teleports if they aren't controlling the entity anyways
-                continue;
-            }
-
-            break;
-        }
-
-        return acceptData;
-    }
-
-    private TeleportAcceptData completeVehicleTeleport(VehicleTeleport teleport) {
-        TeleportAcceptData accepted = new TeleportAcceptData();
-        TeleportData data =
-                new TeleportData(teleport.position(), new RelativeFlag(0), player.lastTransactionReceived.get(), 0);
-        if (debug) {
-            LogUtil.info("Vehicle queue accepted (size: " + vehicleTeleports.size() + ")");
-        }
-        if (requiredSetBack != null && requiredSetBack.getTeleportData().getTransaction() == teleport.transaction()) {
-            if (debug) {
-                LogUtil.info("Removed vehicle blockOffsets, previous=" + blockOffsets);
-            }
-            blockOffsets = false;
-            requiredSetBack.setComplete(true);
-            accepted.setSetback(requiredSetBack);
-            data = requiredSetBack.getTeleportData();
-        }
-        accepted.setTeleportData(data);
-        accepted.setVehicleTeleportData(teleport.state());
-        accepted.setTeleport(true);
-        return accepted;
-    }
-
-    private boolean matchesVehicleTeleportPosition(
-            Vec3 position, double x, double y, double z, double responseDistanceTolerance) {
-        return (matchesVehicleTeleportCoordinate(position.x, x)
-                        && matchesVehicleTeleportCoordinate(position.y, y)
-                        && matchesVehicleTeleportCoordinate(position.z, z))
-                || matchesVehicleTeleportDistance(position, x, y, z, responseDistanceTolerance);
-    }
-
-    private boolean matchesVehicleTeleportCoordinate(double expected, double actual) {
-        if (!Double.isFinite(expected) || !Double.isFinite(actual)) {
-            return false;
-        }
-
-        // Cult sometimes reconstructs the same vanilla vehicle coordinate from
-        // its collision-box shadow. One ULP covers that arithmetic representation
-        // drift without accepting any measurable movement.
-        return expected == actual || Math.abs(expected - actual) <= Math.max(Math.ulp(expected), Math.ulp(actual));
-    }
-
-    private boolean matchesVehicleTeleportDistance(Vec3 expected, double x, double y, double z, double tolerance) {
-        if (tolerance <= 0.0D || !Double.isFinite(tolerance)) {
-            return false;
-        }
-        if (!Double.isFinite(expected.x)
-                || !Double.isFinite(expected.y)
-                || !Double.isFinite(expected.z)
-                || !Double.isFinite(x)
-                || !Double.isFinite(y)
-                || !Double.isFinite(z)) {
-            return false;
-        }
-        // MCP-Reborn ClientPacketListener#handleMoveVehicle only snaps when the
-        // packet is farther than 1.0E-5 from the current interpolation position.
-        // The queued response for that clientbound packet is therefore bounded to
-        // the same no-snap radius; other vehicle teleports pass zero tolerance.
-        return expected.distanceTo(new Vec3(x, y, z)) <= tolerance;
-    }
-
-    private boolean isRequiredSetbackVehicleTeleport(VehicleTeleport teleport) {
-        return requiredSetBack != null
-                && !requiredSetBack.isComplete()
-                && requiredSetBack.getTeleportData().getTransaction() == teleport.transaction();
-    }
-
-    private boolean isRequiredSetbackTeleport(TeleportData teleport) {
-        return requiredSetBack != null
-                && !requiredSetBack.isComplete()
-                && requiredSetBack.getTeleportData().getTransaction() == teleport.getTransaction();
-    }
-
-    private void resendIgnoredRequiredSetback(String reason) {
-        if (requiredSetBack == null || requiredSetBack.isPlugin()) {
-            return;
-        }
-        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
-            releaseRequiredSetback(new Vec3(player.x, player.y, player.z));
-            return;
-        }
-
-        requiredSetBack.setPlugin(false);
-        if (debug) {
-            LogUtil.info("Reissuing ignored Cult setback for " + player.getName() + ": " + reason);
-        }
-        sendSetback(requiredSetBack);
-    }
-
-    /** Lets go of a setback and held move that observe-only would otherwise keep waiting on. */
-    public void observeOnlyStarted() {
-        pendingServerMove = null;
-        if (requiredSetBack != null && !requiredSetBack.isComplete()) {
-            releaseRequiredSetback(new Vec3(player.x, player.y, player.z));
-        }
-        bedrockVehicleSetback = null;
-        blockOffsets = false;
-    }
-
-    private void releaseRequiredSetback(Vec3 position) {
-        requiredSetBack.setComplete(true);
-        blockOffsets = false;
-        if (!player.inVehicle()) {
-            lastKnownGoodPosition = new SetbackPosWithVector(position, Vec3.ZERO, player.totalFlyingPacketsSent);
-        }
-    }
-
-    public void addVehicleTeleport(int vehicleId, int transaction, Vec3 position) {
-        addVehicleTeleport(vehicleId, transaction, position, null);
-    }
-
-    public void addVehicleTeleport(int vehicleId, int transaction, Vec3 position, double responseDistanceTolerance) {
-        addVehicleTeleport(vehicleId, transaction, position, null, responseDistanceTolerance);
-    }
-
-    public void addVehicleTeleport(int vehicleId, int transaction, Vec3 position, VehicleTeleportData state) {
-        addVehicleTeleport(vehicleId, transaction, position, state, 0.0D);
-    }
-
-    public void addVehicleTeleport(
-            int vehicleId,
-            int transaction,
-            Vec3 position,
-            VehicleTeleportData state,
-            double responseDistanceTolerance) {
-        if (player.isBedrockMovement()
-                && ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl.isSupported(
-                        player.compensatedEntities.getEntity(vehicleId))) {
-            Vec3 local = activeBedrockCoordinateFrame.toLocal(position);
-            position =
-                    activeBedrockCoordinateFrame.toWorld(new Vec3((float) local.x, (float) local.y, (float) local.z));
-            responseDistanceTolerance = 0.0D;
-        }
-        vehicleTeleports.add(
-                new VehicleTeleport(vehicleId, transaction, position, state, responseDistanceTolerance, false));
-    }
-
-    public void addBedrockVehicleTeleport(int vehicleId, int transaction, Vec3 position) {
-        vehicleTeleports.add(new VehicleTeleport(vehicleId, transaction, position, null, 0.0D, true));
-    }
-
-    public void sendBedrockMovementCorrection(
-            int vehicleId, Vec3 position, Vec3 velocity, float yaw, float pitch, boolean onGround, int transaction) {
-        sendBedrockMovementCorrection(vehicleId, position, velocity, yaw, pitch, onGround, transaction, null);
-    }
-
-    private void sendBedrockMovementCorrection(
-            int vehicleId,
-            Vec3 position,
-            Vec3 velocity,
-            float yaw,
-            float pitch,
-            boolean onGround,
-            int transaction,
-            PredictionSetbackState setback) {
-        player.runSafely(() -> player.bedrockState.movementCorrections.request(
-                player, vehicleId, position, velocity, yaw, pitch, onGround, transaction, setback));
-    }
-
-    public int bedrockVehicleCorrectionTransaction(BedrockMovementCorrection correction) {
-        for (VehicleTeleport teleport : vehicleTeleports) {
-            if (matchesBedrockMovementCorrection(teleport, correction)) return teleport.transaction();
-        }
-        return -1;
-    }
-
-    /** Receipt alone cannot complete a rewind. Called only after movement from the corrected state passes. */
-    public boolean completeBedrockMovementCorrection(BedrockMovementCorrection correction) {
-        if (!player.isBedrockMovement()) return false;
-        if (correction.teleportTransaction() < 0) return true;
-        if (player.lastTransactionReceived.get() < correction.teleportTransaction()) return false;
-        for (VehicleTeleport teleport : vehicleTeleports) {
-            // A refresh targets the current simulated tick, not the original teleport position.
-            if (teleport.rewind()
-                    && teleport.vehicleId() == correction.vehicleId()
-                    && teleport.transaction() == correction.teleportTransaction()
-                    && vehicleTeleports.remove(teleport)) {
-                completeVehicleTeleport(teleport);
-                return true;
-            }
-        }
-        // A repeated correction can refer to a teleport already completed by an earlier packet.
-        return requiredSetBack == null
-                || requiredSetBack.isComplete()
-                || requiredSetBack.getTeleportData().getTransaction() != correction.teleportTransaction();
-    }
-
-    private boolean matchesBedrockMovementCorrection(VehicleTeleport teleport, BedrockMovementCorrection correction) {
-        if (teleport.vehicleId() != correction.vehicleId() || !teleport.rewind()) return false;
-        Vec3 local = correction.coordinates().toLocal(teleport.position());
-        Vec3 expected = correction.coordinates().toWorld(new Vec3((float) local.x, (float) local.y, (float) local.z));
-        return expected.equals(correction.position());
-    }
-
-    public void clearVehicleTeleports() {
-        if (!player.isBedrockMovement()
-                && vehicleTeleports.stream().anyMatch(this::isRequiredSetbackVehicleTeleport)) {
-            droppedVehicleSetback = requiredSetBack;
-        }
-        vehicleTeleports.clear();
-        if (player.bedrockState != null) {
-            player.runSafely(() -> player.bedrockState.movementCorrections.clear());
-        }
-        reissueDroppedVehicleSetback();
-    }
-
-    /**
-     * A client off the corrected vehicle never answers its move, so a dropped vehicle setback moves the player
-     * instead. Called where the client-visible graph leaves a vehicle.
-     */
-    public void reissueDroppedVehicleSetback() {
-        SetBackData dropped = droppedVehicleSetback;
-        if (dropped == null || player.getRidingVehicleId() != Integer.MIN_VALUE) return;
-        droppedVehicleSetback = null;
-        // A respawn places the player anew.
-        if (requiredSetBack != dropped || dropped.isComplete() || dropped.isPlugin() || lastKnownGoodPosition == null)
-            return;
-        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
-            releaseRequiredSetback(new Vec3(player.x, player.y, player.z));
-            return;
-        }
-        sendSetback(dropped, false, true);
-    }
-
-    public void transferBedrockVehicleSetback(int previousVehicleId) {
-        BedrockVehicleSetback pending = bedrockVehicleSetback;
-        if (pending == null
-                || pending.vehicleId() != previousVehicleId
-                || requiredSetBack != pending.setback()
-                || !isPendingSetback()
-                || player.compensatedEntities.getSelf().inVehicle()) return;
-        Integer serverVehicle = player.compensatedEntities.vehicles.serverPlayerVehicle;
-        if (serverVehicle != null && player.compensatedEntities.vehicles.isServerPlayerPassengerOf(serverVehicle))
-            return;
-
-        clearVehicleTeleports();
-        SetBackData previous = pending.setback();
-        SetBackData replacement = new SetBackData(
-                new TeleportData(pending.ridingPosition(), new RelativeFlag(0b11000), 0, 0),
-                previous.getXRot(),
-                previous.getYRot(),
-                Vec3.ZERO,
-                false,
-                false,
-                false);
-        sendSetback(replacement, false, true);
-    }
-
-    private record BedrockVehicleSetback(SetBackData setback, int vehicleId, Vec3 ridingPosition) {}
-
-    private record VehicleTeleport(
-            int vehicleId,
-            int transaction,
-            Vec3 position,
-            VehicleTeleportData state,
-            double responseDistanceTolerance,
-            boolean rewind) {}
 
     /**
      * @return If the player is in a desync state and is waiting on information from the server
@@ -1783,21 +238,9 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         return shouldBlockMovement(false);
     }
 
-    /** After reading a respawn, LocalPlayer#tick sends nothing until the placement teleport is accepted. */
-    private boolean awaitingSpawn() {
-        return !hasFullyLoaded && !respawnUnread;
-    }
-
     /** A corrected vehicle must still be checked before its pending setback can complete. */
     public boolean shouldBlockMovement(boolean validatingVehicleCorrection) {
-        boolean block = (awaitingSpawn() || (!validatingVehicleCorrection && (blockOffsets || isPendingSetback())))
-                && !insideUnloadedChunk();
-        return tooFarFromUnloadedChunk() || block;
-    }
-
-    public boolean hasPendingPlayerPositionTeleport() {
-        TeleportData teleport = pendingTeleports.peek();
-        return teleport != null && !teleport.isRotationOnly();
+        return gate.shouldBlockMovement(validatingVehicleCorrection);
     }
 
     public boolean shouldBlockVehicleMovement() {
@@ -1806,417 +249,93 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
 
     /** A validated auth frame cannot authorize another Java movement while its correction is pending. */
     public boolean blocksBedrockTranslatedMovement() {
-        return isPendingSetback()
-                || mustAcknowledgeBedrockTransportTeleport()
-                || hasUnacknowledgedSetbackVehicleTeleport();
+        return gate.blocksBedrockTranslatedMovement();
     }
 
     public boolean shouldBlockVehicleMovement(boolean simulatedCorrection) {
-        if (tooFarFromUnloadedChunk()) return true;
-        if (insideUnloadedChunk()) return false;
-
-        // Vehicle packets move the controlled root entity, not the player body. SetbackBlocker has
-        // already proved current server mount/control and active Cult vehicle setbacks separately.
-        return awaitingSpawn() || (!simulatedCorrection && isPendingSetback());
-    }
-
-    public boolean hasUnacknowledgedSetbackVehicleTeleport() {
-        if (requiredSetBack == null || requiredSetBack.isPlugin() || requiredSetBack.isComplete()) {
-            return false;
-        }
-
-        for (VehicleTeleport teleport : vehicleTeleports) {
-            if (isRequiredSetbackVehicleTeleport(teleport)
-                    && player.lastTransactionReceived.get() < teleport.transaction()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    public int queuedVehicleTeleportCount() {
-        return vehicleTeleports.size();
+        return gate.shouldBlockVehicleMovement(simulatedCorrection);
     }
 
     public String getDebugStrings() {
-        final String setbackState = requiredSetBack == null
+        SetBackData required = corrections.required();
+        final String setbackState = required == null
                 ? "null"
-                : !requiredSetBack.isComplete() + " x: " + player.x + ", y: " + player.y + " z: " + player.z;
+                : !required.isComplete() + " x: " + player.x + ", y: " + player.y + " z: " + player.z;
         return "tooFar: " + tooFarFromUnloadedChunk() + ", insideUnloadedChunk: " + insideUnloadedChunk()
-                + ", hasFullyLoaded: " + hasFullyLoaded + ", blockOffsets: " + blockOffsets + ", requiredSetBack: "
-                + setbackState;
+                + ", hasFullyLoaded: " + gate.hasFullyLoaded() + ", blockOffsets: " + corrections.isBlockingOffsets()
+                + ", requiredSetBack: " + setbackState;
     }
 
+    @Override
     public boolean isPendingSetback() {
-        if (requiredSetBack == null || requiredSetBack.isPlugin() || requiredSetBack.isComplete()) {
-            // Relative setbacks shouldn't count
-            return false;
-        }
-        if (requiredSetBack.getTeleportData().isRelativeX()
-                || requiredSetBack.getTeleportData().isRelativeY()
-                || requiredSetBack.getTeleportData().isRelativeZ()) {
-            return false;
-        }
-        // The setback is not complete
-        return true;
+        return corrections.isPending();
     }
 
-    /**
-     * If a player is inside of an unloaded chunk AND are too far away from the teleport so that we shouldn't consider
-     * their current position valid.
-     * <p>
-     * This prevents us from harassing players on teleport
-     * <p>
-     * PLEASE BE CAREFUL!!!
-     * <p>
-     * Unloaded chunks are the only exemption not bound by a teleport.
-     * This is required to prevent people from disabling cult.
-     */
+    /** Whether the player is in an unloaded chunk far enough from the correction that it cannot be the reason. */
     public boolean tooFarFromUnloadedChunk() {
-        if (requiredSetBack == null || !insideUnloadedChunk()) return false;
-        // check if the player is too far away from the teleport vertically
-        Vec3 teleportTarget = requiredSetBack.getTeleportData().getLocation();
-        if (player.y > teleportTarget.y) {
-            if (debug) LogUtil.info(player.getName() + " : T1 : y= " + player.y + " > " + teleportTarget.y);
-            return true;
-        }
-        // only check x and z because of players falling through the world
-        // can a hacked client actually abuse flying downwards in an unloaded chunk?
-        Vec3 copy = new Vec3(teleportTarget.x, 0, teleportTarget.z);
-        double distance = copy.distanceTo(new Vec3(player.x, 0, player.z));
-        if (debug) {
-            LogUtil.info(player.getName() + " : T1 : dist= " + distance);
-        }
-        return distance > 4.0D; // this could probably be reduced further now that it's only checking x and z
+        return gate.tooFarFromUnloadedChunk();
     }
 
-    /**
-     * When the player is inside an unloaded chunk, they simply fall through the void which shouldn't be checked
-     *
-     * @return Whether the player has loaded the chunk and accepted a teleport to correct movement or not
-     */
+    /** Whether the player is in a chunk the client has not loaded, where its movement is not checked. */
     public boolean insideUnloadedChunk() {
-        CompensatedWorld.CachedChunk column =
-                player.compensatedWorld.getChunk(CultMath.floor(player.x) >> 4, CultMath.floor(player.z) >> 4);
-
-        // If true, the player is in an unloaded chunk
-        return !player.isDisabled()
-                && (column == null || column.getTransaction() >= player.lastTransactionReceived.get());
+        return gate.insideUnloadedChunk();
     }
 
     /**
      * @return The current data for the setback, regardless of whether it is complete or not
      */
     public SetBackData getRequiredSetBack() {
-        return this.requiredSetBack;
+        return corrections.required();
     }
 
-    public void updateSafeVehiclePosition(Vec3 pos) {
-        this.lastKnownGoodPosition = new SetbackPosWithVector(pos, Vec3.ZERO, player.totalFlyingPacketsSent);
-    }
-
-    public void addSentTeleport(Vec3 position, int transaction, RelativeFlag flags, boolean plugin, int teleportId) {
-        addSentTeleport(position, Vec3.ZERO, transaction, flags, plugin, teleportId);
-    }
-
-    public void addSentTeleport(
-            Vec3 position, Vec3 deltaMovement, int transaction, RelativeFlag flags, boolean plugin, int teleportId) {
-        addSentTeleport(position, deltaMovement, transaction, flags, plugin, teleportId, 0.0F, 0.0F, 0.0F, 0.0F);
-    }
-
-    public void addSentTeleport(
-            Vec3 position,
-            Vec3 deltaMovement,
-            int transaction,
-            RelativeFlag flags,
-            boolean plugin,
-            int teleportId,
-            float sourceYaw,
-            float sourcePitch,
-            float finalYaw,
-            float finalPitch) {
-        TeleportData data = new TeleportData(
-                position, flags, deltaMovement, transaction, teleportId, sourceYaw, sourcePitch, finalYaw, finalPitch);
-        data.setSentWhileVehicle(player.compensatedEntities.vehicles.serverPlayerVehicle != null
-                || player.compensatedEntities.getSelf().inVehicle());
-        data.setSentDuringVehicleDismount(player.compensatedEntities.vehicles.hasPendingServerDismount());
-
-        Vec3 safePosition = position;
-
-        // We must convert relative teleports to avoid them becoming client controlled in the case of setback
-        if (flags.isSet(RelativeFlag.X.getMask())) {
-            safePosition = new Vec3(safePosition.x + lastKnownGoodPosition.getPos().x, safePosition.y, safePosition.z);
-        }
-
-        if (flags.isSet(RelativeFlag.Y.getMask())) {
-            safePosition = new Vec3(safePosition.x, safePosition.y + lastKnownGoodPosition.getPos().y, safePosition.z);
-        }
-
-        if (flags.isSet(RelativeFlag.Z.getMask())) {
-            safePosition = new Vec3(safePosition.x, safePosition.y, safePosition.z + lastKnownGoodPosition.getPos().z);
-        }
-
-        pendingTeleports.add(data);
-
-        data = data.copyWithLocation(safePosition);
-        this.requiredSetBack = new SetBackData(data, player.xRot, player.yRot, null, false, plugin);
-
-        if (!player.inVehicle()) {
-            this.lastKnownGoodPosition =
-                    new SetbackPosWithVector(safePosition, Vec3.ZERO, player.totalFlyingPacketsSent);
-        }
+    /** The server or Cult placed the vehicle {@code vehicleId} at {@code pos} after the ping {@code transaction}. */
+    public void updateSafeVehiclePosition(int vehicleId, int transaction, Vec3 pos) {
+        safePositions.offer(
+                new SetbackPosWithVector(pos, Vec3.ZERO)
+                        .provenBy(SetbackEntity.of(vehicleId), SafeProof.placement(transaction)),
+                SafePositionTracker.Write.VEHICLE_PLACEMENT);
     }
 
     /**
-     * ClientPacketListener#handleMovePlayer answers a teleport with its ID, carrying the position from 26.3 on and
-     * followed by a PosRot before.
+     * The server moves the vehicle {@code vehicleId} the player does not control, and the client is proven to have it
+     * at {@code pos}: a placement by the server, not a movement of the client's.
      */
-    public void teleportAnswered(int teleportId, boolean carriesPosition) {
-        awaitingPosRot = null;
-        for (TeleportData pending : pendingTeleports) {
-            if (isJavaIdTeleport(pending) && !pending.isAnswered() && pending.getTeleportId() == teleportId) {
-                if (carriesPosition) {
-                    pending.setAnswered(true);
-                } else {
-                    awaitingPosRot = pending;
-                }
-                return;
-            }
-        }
+    public void proveSafeVehiclePosition(int vehicleId, Vec3 pos) {
+        safePositions.offer(
+                new SetbackPosWithVector(pos, Vec3.ZERO)
+                        .provenBy(
+                                SetbackEntity.of(vehicleId), SafeProof.placement(player.lastTransactionReceived.get())),
+                SafePositionTracker.Write.VEHICLE_PLACEMENT);
     }
 
-    /** A PosRot from a client whose teleport answers carry no position. */
-    public void posRotReceived() {
-        if (awaitingPosRot != null) {
-            awaitingPosRot.setAnswered(true);
-            awaitingPosRot = null;
-        }
+    @Override
+    public boolean mustAcknowledgeBedrockTransportTeleport() {
+        return bedrock.mustAcknowledgeBedrockTransportTeleport();
+    }
+    /** The Java client's answers to player_position and rotation teleports. */
+    public JavaTeleportTracker javaTeleports() {
+        return javaTeleports;
     }
 
-    /**
-     * Whether the client handled a ping sent after a player_position teleport without answering it.
-     * ClientPacketListener#handleMovePlayer sends its answer before the client handles the next ping, so a vanilla
-     * client never does.
-     */
-    public boolean hasWithheldJavaTeleport() {
-        if (pendingTeleports.isEmpty()) return false;
-        int received = player.lastTransactionReceived.get();
-        for (TeleportData pending : pendingTeleports) {
-            if (isJavaIdTeleport(pending) && !pending.isAnswered() && received > pending.getTransaction()) return true;
-        }
-        return false;
+    /** Bedrock transport teleports and their coordinate frames. */
+    public BedrockTeleportTracker bedrockTeleports() {
+        return bedrock;
     }
 
-    /** A player_position teleport, which the Java client accepts by ID. */
-    private static boolean isJavaIdTeleport(TeleportData pending) {
-        return !pending.isRotationOnly() && !pending.isPositionOnly() && pending.getBedrockTransportRevision() < 0L;
+    /** Vehicle teleports and their answers. */
+    public VehicleTeleportTracker vehicleTeleports() {
+        return vehicles;
     }
 
-    public void addImmediatePlayerTeleport(
-            Vec3 position,
-            Vec3 deltaMovement,
-            RelativeFlag flags,
-            int proofTransaction,
-            float sourceYaw,
-            float sourcePitch,
-            float finalYaw,
-            float finalPitch) {
-        // ClientboundTeleportEntityPacket has no teleport id. When the vanilla
-        // client remaps a removed vehicle teleport onto the player, the following
-        // PosRot is the only acknowledgement. Accept the exact echo immediately,
-        // but keep the trailing proof transaction to detect an ignored echo.
-        int transaction = proofTransaction < 0 ? Integer.MAX_VALUE : proofTransaction;
-        TeleportData data = new TeleportData(
-                position, flags, deltaMovement, transaction, 0, sourceYaw, sourcePitch, finalYaw, finalPitch);
-        data.setPositionOnly(true);
-        pendingTeleports.addFirst(data);
-    }
-
-    public long addImmediateBedrockTransportTeleport(Vec3 physicalFeetPosition, boolean onGround) {
-        return addImmediateBedrockTransportTeleport(
-                physicalFeetPosition,
-                onGround,
-                BedrockCoordinateFrame.IDENTITY,
-                null,
-                null,
-                player.lastTransactionSent.get());
-    }
-
-    public long addImmediateBedrockTransportTeleport(
-            Vec3 physicalFeetPosition,
-            boolean onGround,
-            BedrockCoordinateFrame frame,
-            Vec3 localPacketTarget,
-            BedrockTeleportOperation operation,
-            int proofTransaction) {
-        long revision = bedrockTeleportRevision.incrementAndGet();
-        // Keep the complete boundary on the owning packet executor before its receipt
-        // or later auth input, including callers outside the local Geyser bridge.
-        player.runSafely(() -> registerBedrockTransportTeleport(
-                revision, physicalFeetPosition, onGround, frame, localPacketTarget, operation, proofTransaction));
-        return revision;
-    }
-
-    private void registerBedrockTransportTeleport(
-            long revision,
-            Vec3 physicalFeetPosition,
-            boolean onGround,
-            BedrockCoordinateFrame frame,
-            Vec3 localPacketTarget,
-            BedrockTeleportOperation operation,
-            int proofTransaction) {
-        BedrockTeleportProvenance provenance =
-                operation == null ? BedrockTeleportProvenance.GEYSER : operation.provenance();
-        Integer setbackTransaction = operation == null ? null : operation.setbackTransaction();
-        Vec3 clamped = VectorUtils.clampVector(physicalFeetPosition);
-        if (provenance == BedrockTeleportProvenance.CULT_SETBACK) {
-            if (setbackTransaction == null || !isCurrentBedrockSetback(setbackTransaction)) return;
-            pendingTeleports.removeIf(
-                    pending -> pending.getBedrockProvenance() == BedrockTeleportProvenance.CULT_SETBACK
-                            && !operation.equals(pending.getBedrockOperation()));
-        }
-        // A retry is another emission of the same operation, not a new transport-only move.
-        if (operation != null) {
-            for (TeleportData pending : pendingTeleports) {
-                if (operation.equals(pending.getBedrockOperation())) {
-                    boolean confirmed = pending.isBedrockOriginConfirmed()
-                            && sameBedrockDestination(pending, frame, localPacketTarget);
-                    pending.applyBedrockTransportBoundary(clamped, onGround, revision);
-                    applyBedrockOrigin(pending, frame, localPacketTarget);
-                    if (confirmed) pending.setBedrockOriginConfirmed(true);
-                    return;
-                }
-            }
-        }
-        // Only a Cult-owned native emission may satisfy a pending Cult setback.
-        if (provenance == BedrockTeleportProvenance.CULT_SETBACK
-                && requiredSetBack != null
-                && !requiredSetBack.isComplete()
-                && setbackTransaction != null
-                && requiredSetBack.getTeleportData().getTransaction() == setbackTransaction) {
-            TeleportData requiredTeleport = requiredSetBack.getTeleportData();
-            TeleportData data = requiredTeleport.copyWithLocation(clamped);
-            data.applyBedrockTransportBoundary(clamped, onGround, revision);
-            data.setBedrockOperation(operation);
-            applyBedrockOrigin(data, frame, localPacketTarget);
-            pendingTeleports.add(data);
-            return;
-        }
-
-        TeleportData data = new TeleportData(clamped, new RelativeFlag(0), Vec3.ZERO, proofTransaction, 0);
-        data.setPositionOnly(true);
-        data.setBedrockOperation(operation);
-        data.setBedrockOnGround(onGround);
-        data.setBedrockTransportRevision(revision);
-        applyBedrockOrigin(data, frame, localPacketTarget);
-        pendingTeleports.add(data);
-    }
-
-    public void confirmBedrockOrigin(
-            long transportRevision,
-            BedrockTeleportOperation operation,
-            BedrockCoordinateFrame frame,
-            Vec3 localPacketTarget) {
-        for (TeleportData pending : pendingTeleports) {
-            // A receipt for an earlier identical emission still proves this operation's origin.
-            // Operation identity alone is insufficient if a later emission changed its destination.
-            if ((pending.getBedrockTransportRevision() == transportRevision
-                            || operation != null && operation.equals(pending.getBedrockOperation()))
-                    && sameBedrockDestination(pending, frame, localPacketTarget)) {
-                pending.setBedrockOriginConfirmed(true);
-            }
-        }
-    }
-
-    private static boolean sameBedrockDestination(
-            TeleportData data, BedrockCoordinateFrame frame, Vec3 localPacketTarget) {
-        return data.getBedrockCoordinateFrame().equals(frame)
-                && java.util.Objects.equals(data.getBedrockLocalPacketTarget(), localPacketTarget);
-    }
-
-    private static void applyBedrockOrigin(TeleportData data, BedrockCoordinateFrame frame, Vec3 localPacketTarget) {
-        data.setBedrockOriginConfirmed(localPacketTarget == null);
-        data.setBedrockCoordinateFrame(frame);
-        data.setBedrockLocalPacketTarget(localPacketTarget);
-    }
-
-    public void addImmediatePlayerRotationTeleport(
-            RelativeFlag flags,
-            int bundleTransaction,
-            int proofTransaction,
-            float sourceYaw,
-            float sourcePitch,
-            float finalYaw,
-            float finalPitch,
-            ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerRotation rotation) {
-        int transaction = proofTransaction < 0 ? Integer.MAX_VALUE : proofTransaction;
-        TeleportData data = new TeleportData(
-                Vec3.ZERO, flags, Vec3.ZERO, transaction, 0, sourceYaw, sourcePitch, finalYaw, finalPitch);
-        data.setRotationOnly(true);
-        data.setPlayerRotation(rotation);
-        data.setBundleTransaction(bundleTransaction < 0 ? Integer.MAX_VALUE : bundleTransaction);
-        pendingTeleports.add(data);
-        if (proofTransaction >= 0) {
-            player.latencyUtils.addRealTimeTask(transaction, () -> {
-                // A matching Rot response removes this entry in
-                // checkRotationTeleportQueue. If it is still pending after
-                // the trailing transaction, the client processed the forced
-                // rotation without acknowledging it. This is the NMS-port
-                // equivalent of the old pendingRotations BadPacketsB call.
-                if (pendingTeleports.remove(data)) {
-                    player.checkManager.getCheck(BadPacketsB.class).flag();
-                }
-            });
-        }
+    /** When a setback is sent, and the freeze watchdog. */
+    public SetbackPolicy policy() {
+        return policy;
     }
 
     @Override
     public void reload() {
         super.reload();
-        this.freeze = getConfig().getIntElse("cult.prediction.max-freeze-time-ms", 5000);
+        policy.setFreeze(getConfig().getIntElse("cult.prediction.max-freeze-time-ms", 5000));
         this.debug = getConfig().getBooleanElse("cult.diagnostics.teleports", false);
-    }
-
-    // Every 60 ms we check if a player has taken knockback
-    // We do 60 ms instead of 50 ms to try to mitigate any advantages gained by abusing this
-    //
-    // We will assume that velocity is more sensitive to not moving than general movement
-    public void checkIfMustMove() {
-        checkIfMustMove(System.nanoTime());
-    }
-
-    public void checkIfMustMove(long currentTime) {
-        if (!mustMoveDue(currentTime)) return;
-        final long elapsed = currentTime - lastMovement();
-        // if the player must move
-        if (player.checkManager
-                .getSimulationProcessor()
-                .tryToAchievePointThree(new Vec3(player.x, player.y, player.z), player.xRot, player.yRot)
-                .getFlags()
-                .isEmpty()) {
-            return;
-        }
-        // This will activate the velocity part of this check
-        final String latencyReason = "move, " + TimeUnit.NANOSECONDS.toMillis(elapsed) + "ms";
-        executeTooHighLatencySetback(latencyReason);
-    }
-
-    /** True when {@link #checkIfMustMove} at {@code currentTime} goes on to test the player's position. */
-    public boolean mustMoveDue(long currentTime) {
-        final EvictingQueue<Long> movementTimes =
-                player.checkManager.getSimulationProcessor().getLastMovementTime();
-        if (movementTimes.isEmpty()) return false;
-        if (player.inVehicle()) return false;
-        final KnockbackHandler knockback = player.checkManager.getKnockbackHandler();
-        if (knockback.lastSent != null) return false;
-
-        // If the player hasn't sent a movement in 1.5 seconds, setback (and send velocity to activate other part)
-        final long elapsed = currentTime - lastMovement();
-        final long freezeNanos = TimeUnit.NANOSECONDS.convert(freeze, TimeUnit.MILLISECONDS);
-        return elapsed > freezeNanos;
-    }
-
-    private long lastMovement() {
-        return Collections.max(player.checkManager.getSimulationProcessor().getLastMovementTime());
     }
 }

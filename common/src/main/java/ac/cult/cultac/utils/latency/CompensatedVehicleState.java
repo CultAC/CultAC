@@ -159,7 +159,7 @@ public final class CompensatedVehicleState implements Debuggable {
 
         Vec3 safePosition = currentExactServerControlledPosition(root);
         if (safePosition != null) {
-            player.getSetbackTeleportUtil().updateSafeVehiclePosition(safePosition);
+            player.getSetbackTeleportUtil().proveSafeVehiclePosition(root.getEntityId(), safePosition);
         }
     }
 
@@ -256,7 +256,7 @@ public final class CompensatedVehicleState implements Debuggable {
         if (player.isBedrockMovement()
                 && ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl.isSupported(entity)) {
             BedrockVehiclePredictionState.rebase(
-                    entity, player.getSetbackTeleportUtil().getActiveBedrockCoordinateFrame());
+                    entity, player.getSetbackTeleportUtil().bedrockTeleports().getActiveBedrockCoordinateFrame());
         } else if (entity == getVelocityMovementVehicle()) {
             player.checkManager.getSimulationProcessor().seedVehicleStartingVelocity(deltaMovement);
         }
@@ -267,7 +267,7 @@ public final class CompensatedVehicleState implements Debuggable {
         PacketEntity entity = entities.getEntity(entityId);
         if (entity == null) return;
         if (player.isBedrockMovement() && BedrockHorseProperties.supports(entity.type)) {
-            var frame = player.getSetbackTeleportUtil().getActiveBedrockCoordinateFrame();
+            var frame = player.getSetbackTeleportUtil().bedrockTeleports().getActiveBedrockCoordinateFrame();
             var local = frame.toLocal(position);
             position = frame.toWorld(new Vec3((float) local.x, (float) local.y, (float) local.z));
         }
@@ -318,7 +318,7 @@ public final class CompensatedVehicleState implements Debuggable {
     public void setServerVehicle(int vehicleId, int[] passengers, int transaction) {
         PacketEntity vehicle = entities.getEntity(vehicleId);
         if (serverPlayerVehicle == null || serverPlayerVehicle != vehicleId) {
-            player.getSetbackTeleportUtil().clearVehicleTeleports();
+            player.getSetbackTeleportUtil().vehicleTeleports().clearVehicleTeleports();
         }
         // Rebuilding passengers does not interrupt the same first passenger's control of this root.
         // Keep its attachment proof; the full passenger graph still updates at this packet's receipt boundary.
@@ -369,7 +369,7 @@ public final class CompensatedVehicleState implements Debuggable {
         serverPlayerVehiclePassengers = null;
         serverPlayerVehicleTransaction = null;
         dismountedMountTransaction = null;
-        player.getSetbackTeleportUtil().clearVehicleTeleports();
+        player.getSetbackTeleportUtil().vehicleTeleports().clearVehicleTeleports();
     }
 
     public PacketEntity getVelocityMovementVehicle() {
@@ -795,7 +795,7 @@ public final class CompensatedVehicleState implements Debuggable {
         entities.updatePassengerPositions();
         seedStartingVelocityIfRootChanged(previousRoot);
         if (player.isBedrockMovement() && previousRoot == null && !containsLocalPlayer(passengerIds)) {
-            player.getSetbackTeleportUtil().transferBedrockVehicleSetback(vehicleId);
+            player.getSetbackTeleportUtil().vehicleTeleports().transferBedrockVehicleSetback(vehicleId);
         }
         return true;
     }
@@ -817,7 +817,9 @@ public final class CompensatedVehicleState implements Debuggable {
         Vec3 rootDeltaMovement = currentRoot == null ? entities.playerEntity.deltaMovement : currentRoot.deltaMovement;
         player.checkManager.getSimulationProcessor().seedStartingVelocity(rootDeltaMovement);
         if (player.isBedrockMovement() && previousRoot != null && currentRoot == null) {
-            player.getSetbackTeleportUtil().transferBedrockVehicleSetback(previousRoot.getEntityId());
+            player.getSetbackTeleportUtil()
+                    .vehicleTeleports()
+                    .transferBedrockVehicleSetback(previousRoot.getEntityId());
         }
     }
 

@@ -658,6 +658,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         int proofTransaction = proof(event, Proof.AFTER_RESPONSE);
 
         player.getSetbackTeleportUtil()
+                .javaTeleports()
                 .addImmediatePlayerTeleport(
                         position,
                         deltaMovement,
@@ -1047,7 +1048,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                             : new SelfDismountResyncState(
                                     seat != null ? seat : new Vec3(player.x, player.y, player.z),
                                     Vec3.ZERO,
-                                    player.getSetbackTeleportUtil().nextTeleportId());
+                                    player.getSetbackTeleportUtil().sender().nextTeleportId());
             CultPlayer.TrackedTransaction proof = proofForSetPassengers(event, null, dismountResyncState);
             int transaction = proof == null ? player.lastTransactionSent.get() + 1 : proof.transaction();
             if (changesSelfPassengers) player.compensatedEntities.markSelfPassengersChange(transaction);
@@ -1188,21 +1189,25 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     private void queueVehicleProtocolResync(int transaction, VehicleMountResyncState resyncState) {
         if (isBedrockVehicleResync(resyncState.vehicleId())) {
             player.getSetbackTeleportUtil()
+                    .vehicleTeleports()
                     .addBedrockVehicleTeleport(resyncState.vehicleId(), transaction, resyncState.position());
         } else if (player.isBedrockMovement() || player.getClientVersion() != ClientVersion.V_1_21_2) {
             player.getSetbackTeleportUtil()
+                    .vehicleTeleports()
                     .addVehicleTeleport(resyncState.vehicleId(), transaction, resyncState.position());
         }
         // Protocol 768's generated MoveVehicle packet goes through the outbound
         // PacketServerTeleport listener, which records its exact echo. A second
         // entry here consumes the following real vehicle tick at the same
         // position, losing its gravity/ground carry (no onGround wire field).
-        player.getSetbackTeleportUtil().updateSafeVehiclePosition(resyncState.position());
+        player.getSetbackTeleportUtil()
+                .updateSafeVehiclePosition(resyncState.vehicleId(), transaction, resyncState.position());
     }
 
     private void applyVehicleProtocolResync(int transaction, VehicleMountResyncState resyncState) {
         if (isBedrockVehicleResync(resyncState.vehicleId())) {
             player.getSetbackTeleportUtil()
+                    .sender()
                     .sendBedrockMovementCorrection(
                             resyncState.vehicleId(),
                             resyncState.position(),
@@ -1553,9 +1558,12 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                     && controlledVehicle.getEntityId() == movement.entityId) {
                 Vec3 target = new Vec3(absoluteX, absoluteY, absoluteZ);
                 int transaction = proveHandled(event, Proof.BEFORE_NEXT_TICK);
-                player.getSetbackTeleportUtil().addBedrockVehicleTeleport(movement.entityId, transaction, target);
-                player.getSetbackTeleportUtil().updateSafeVehiclePosition(target);
                 player.getSetbackTeleportUtil()
+                        .vehicleTeleports()
+                        .addBedrockVehicleTeleport(movement.entityId, transaction, target);
+                player.getSetbackTeleportUtil().updateSafeVehiclePosition(movement.entityId, transaction, target);
+                player.getSetbackTeleportUtil()
+                        .sender()
                         .sendBedrockMovementCorrection(
                                 movement.entityId,
                                 target,
@@ -1609,8 +1617,9 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                     movement.onGround,
                     movement.deltaMovement.movement());
             player.getSetbackTeleportUtil()
+                    .vehicleTeleports()
                     .addVehicleTeleport(movement.entityId, proof, vehicleTarget, vehicleTeleportData);
-            player.getSetbackTeleportUtil().updateSafeVehiclePosition(vehicleTarget);
+            player.getSetbackTeleportUtil().updateSafeVehiclePosition(movement.entityId, proof, vehicleTarget);
         }
         if (!ignoredMovement) {
             recordPacketHandlerTransform(

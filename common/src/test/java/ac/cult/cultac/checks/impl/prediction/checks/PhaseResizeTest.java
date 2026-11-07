@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.player.User;
@@ -38,7 +39,7 @@ class PhaseResizeTest {
         version.setAccessible(true);
         version.set(player, ClientVersion.V_1_21_11);
         player.gamemode = GameMode.SURVIVAL;
-        player.getSetbackTeleportUtil().hasFullyLoaded = true;
+        SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
         player.checkManager.getSimulationProcessor().handleRespawn();
         for (int x = -1; x <= 1; x++) {
             for (int z = -1; z <= 1; z++) {

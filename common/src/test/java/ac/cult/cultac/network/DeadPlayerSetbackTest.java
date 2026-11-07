@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.codec.ModelRegistryNamesState;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -45,13 +46,13 @@ class DeadPlayerSetbackTest {
             SetbackTeleportUtil teleports = f.player.getSetbackTeleportUtil();
             f.player.compensatedEntities.getSelf().isDead = true;
 
-            teleports.checkIfMustMove();
+            teleports.policy().checkIfMustMove();
             assertNull(teleports.getRequiredSetBack(), "a dead client has no movement to wait for");
             assertFalse(teleports.executeTooHighLatencySetback("kb 1200ms"));
             assertNull(teleports.getRequiredSetBack());
 
             f.player.compensatedEntities.getSelf().isDead = false;
-            teleports.checkIfMustMove();
+            teleports.policy().checkIfMustMove();
             assertTrue(teleports.isPendingSetback(), "a living client that stops moving is still set back");
         }
     }
@@ -62,14 +63,14 @@ class DeadPlayerSetbackTest {
             CultPlayer player = f.player;
             SetbackTeleportUtil teleports = player.getSetbackTeleportUtil();
             teleports.executeForceResync("phase");
-            assertTrue(teleports.blockOffsets);
+            assertTrue(teleports.isBlockingOffsets());
             player.compensatedEntities.getSelf().isDead = true;
 
             respawn(f);
-            assertFalse(teleports.blockOffsets, "the respawned player is not the one the setback corrected");
+            assertFalse(teleports.isBlockingOffsets(), "the respawned player is not the one the setback corrected");
             int placement = placeAt(f, SPAWN);
             // The latency watchdog keeps running while the placement is in flight.
-            teleports.checkIfMustMove();
+            teleports.policy().checkIfMustMove();
             assertEquals(
                     placement, teleports.getRequiredSetBack().getTeleportData().getTeleportId());
 
@@ -77,7 +78,7 @@ class DeadPlayerSetbackTest {
             player.packetStateData.playerLoadedIntoLevel = true;
 
             assertFalse(f.move(SPAWN, true).isCancelled(), teleports.getDebugStrings());
-            assertFalse(teleports.blockOffsets);
+            assertFalse(teleports.isBlockingOffsets());
             assertTrue(teleports.getRequiredSetBack().isComplete());
         }
     }
@@ -101,7 +102,7 @@ class DeadPlayerSetbackTest {
             assertTrue(teleports.insideUnloadedChunk());
             teleports.executeTooHighLatencySetback("move, 6000ms");
 
-            assertFalse(teleports.blockOffsets, "no tracked teleport can release it");
+            assertFalse(teleports.isBlockingOffsets(), "no tracked teleport can release it");
             assertTrue(teleports.getRequiredSetBack().isComplete());
             player.x = player.z = SPAWN.x;
             assertFalse(teleports.shouldBlockMovement());
@@ -128,7 +129,7 @@ class DeadPlayerSetbackTest {
                             .getLastMovementTime()
                             .isEmpty(),
                     "the latency clock starts at the placed player's first move, not the last one before it died");
-            teleports.checkIfMustMove();
+            teleports.policy().checkIfMustMove();
             assertTrue(teleports.getRequiredSetBack().isComplete());
             assertFalse(f.move(SPAWN, true).isCancelled(), teleports.getDebugStrings());
         }
@@ -200,7 +201,7 @@ class DeadPlayerSetbackTest {
         f.player.nettyScheduler.removeScheduler();
         Mockito.when(f.fixture.user.getPlayer().getWorld()).thenReturn(Mockito.mock(PlatformWorld.class));
         f.place(FALLING, FALL_VELOCITY);
-        f.player.getSetbackTeleportUtil().lastKnownGoodPosition = new SetbackPosWithVector(FALLING, FALL_VELOCITY, 0);
+        SetbackFixtures.seedSafePosition(f.player, new SetbackPosWithVector(FALLING, FALL_VELOCITY));
         f.player.checkManager.getSimulationProcessor().getLastMovementTime().add(System.nanoTime() - 6_000_000_000L);
         return f;
     }

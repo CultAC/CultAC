@@ -20,11 +20,13 @@ public class SetBackData {
     boolean expectedOnGround;
     // The onGround a Java horse setback leaves the horse with at its position; null keeps the carried one.
     DesyncStatus horseOnGround;
+    // The onGround a Java player correction leaves the player with: its tick's own landing, else the safe ground.
+    // Null keeps the carried one.
+    DesyncStatus groundAfter;
     PredictionSetbackState profileState;
     boolean isComplete = false;
     // TODO: Rethink when we block movements for teleports, perhaps after 10 ticks or 5 blocks?
     boolean isPlugin = false;
-    int ticksComplete = 0;
 
     public SetBackData(
             TeleportData teleportData, float xRot, float yRot, Vec3 velocity, boolean vehicle, boolean isPlugin) {
@@ -59,9 +61,5 @@ public class SetBackData {
         this.isPlugin = isPlugin;
         this.expectedOnGround = expectedOnGround;
         this.profileState = profileState;
-    }
-
-    public void tick() {
-        if (isComplete) ticksComplete++;
     }
 }

@@ -31,7 +31,7 @@ public class PacketServerTeleport {
             // Geyser's Java acknowledgement does not prove Bedrock processed the teleport.
             return;
         }
-        player.getSetbackTeleportUtil().teleportAnswered(ack.id(), ack.position() != null);
+        player.getSetbackTeleportUtil().javaTeleports().teleportAnswered(ack.id(), ack.position() != null);
         // The wire packet is ID-only through 26.2 and carries position in
         // 26.3. The transport preserves the intercepted endpoint's wire format.
         if (ack.position() == null) {
@@ -39,6 +39,7 @@ public class PacketServerTeleport {
         }
 
         TeleportAcceptData accepted = player.getSetbackTeleportUtil()
+                .javaTeleports()
                 .checkExactJavaTeleportQueue(
                         ack.position().x(), ack.position().y(), ack.position().z(), ack.id());
         if (!accepted.isTeleport()) {
@@ -117,6 +118,7 @@ public class PacketServerTeleport {
         event.getTasksAfterSend().add(player::sendTrailingTransaction);
 
         player.getSetbackTeleportUtil()
+                .javaTeleports()
                 .addSentTeleport(
                         pos,
                         deltaMovement,
@@ -147,6 +149,7 @@ public class PacketServerTeleport {
         int proofTransaction = proof == null ? -1 : proof.transaction();
 
         player.getSetbackTeleportUtil()
+                .javaTeleports()
                 .addImmediatePlayerRotationTeleport(
                         flags,
                         bundleTransaction,
@@ -184,7 +187,7 @@ public class PacketServerTeleport {
         // shares an earlier ping. A setback's echo keeps the transaction of the setback it completes.
         int lastSent = player.lastTransactionSent.get();
         CultPlayer.TrackedTransaction response = player.appendResponseProofTransaction(event);
-        int proofTransaction = player.getSetbackTeleportUtil().isSendingSetback || response == null
+        int proofTransaction = player.getSetbackTeleportUtil().isSendingSetback() || response == null
                 ? lastSent
                 : response.transaction();
         trackClientboundMoveVehicle(
@@ -235,9 +238,11 @@ public class PacketServerTeleport {
         });
         // An unsnapped response serializes the current physical position.
         player.getSetbackTeleportUtil()
+                .vehicleTeleports()
                 .addVehicleTeleport(
                         rootVehicleId, proofTransaction, expectedResponsePosition, MOVE_VEHICLE_SNAP_EPSILON);
-        player.getSetbackTeleportUtil().updateSafeVehiclePosition(expectedResponsePosition);
+        player.getSetbackTeleportUtil()
+                .updateSafeVehiclePosition(rootVehicleId, proofTransaction, expectedResponsePosition);
     }
 
     private PacketEntity clientVisibleLocalAuthoritativeVehicleRoot(CultPlayer player) {

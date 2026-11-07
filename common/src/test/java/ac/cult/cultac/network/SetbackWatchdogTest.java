@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.netty.CultEncoder;
@@ -58,7 +59,8 @@ class SetbackWatchdogTest {
                             f.player.nettyScheduler.removeScheduler();
                             f.place(FALLING, FALL_VELOCITY);
                             SetbackTeleportUtil teleports = f.player.getSetbackTeleportUtil();
-                            teleports.lastKnownGoodPosition = new SetbackPosWithVector(FALLING, FALL_VELOCITY, 0);
+                            SetbackFixtures.seedSafePosition(
+                                    teleports, new SetbackPosWithVector(FALLING, FALL_VELOCITY));
                             long now = System.nanoTime();
                             if (age != null)
                                 f.player
@@ -77,7 +79,7 @@ class SetbackWatchdogTest {
                             boolean wasIdle = (boolean) idle.invoke(f.player.nettyScheduler, now);
                             List<Object> before = state(f);
                             knockbackWatchdog.invoke(f.player.nettyScheduler, now);
-                            teleports.checkIfMustMove(now);
+                            teleports.policy().checkIfMustMove(now);
                             f.fixture.channel.runPendingTasks();
                             List<Object> after = state(f);
                             if (wasIdle) {
@@ -218,7 +220,7 @@ class SetbackWatchdogTest {
         var f = new JavaTickFixture();
         f.player.nettyScheduler.removeScheduler();
         f.place(FALLING, FALL_VELOCITY);
-        f.player.getSetbackTeleportUtil().lastKnownGoodPosition = new SetbackPosWithVector(FALLING, FALL_VELOCITY, 0);
+        SetbackFixtures.seedSafePosition(f.player, new SetbackPosWithVector(FALLING, FALL_VELOCITY));
         if (age != null)
             f.player.checkManager.getSimulationProcessor().getLastMovementTime().add(System.nanoTime() - age);
         f.fixture.channel.runPendingTasks();
@@ -252,7 +254,7 @@ class SetbackWatchdogTest {
                                 .executeTooHighLatencySetback(String.format("kb %dms", elapsedMs));
                 }
             }
-            player.getSetbackTeleportUtil().checkIfMustMove();
+            player.getSetbackTeleportUtil().policy().checkIfMustMove();
         });
     }
 
@@ -288,7 +290,7 @@ class SetbackWatchdogTest {
                                 + required.getTeleportData().getTransaction() + " " + required.getVelocity() + " "
                                 + required.isVehicle() + " " + required.isComplete(),
                 teleports.isPendingSetback(),
-                teleports.blockOffsets,
+                teleports.isBlockingOffsets(),
                 f.player.lastTransactionSent.get(),
                 List.copyOf(log));
     }
@@ -299,7 +301,7 @@ class SetbackWatchdogTest {
         return List.of(
                 System.identityHashCode(teleports.getRequiredSetBack()),
                 teleports.isPendingSetback(),
-                teleports.blockOffsets,
+                teleports.isBlockingOffsets(),
                 f.player.lastTransactionSent.get(),
                 f.fixture.channel.outboundMessages().size());
     }
