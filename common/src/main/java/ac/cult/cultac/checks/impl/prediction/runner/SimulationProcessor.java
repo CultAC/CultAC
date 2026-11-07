@@ -116,6 +116,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     boolean couldPotentiallyTickSkip = false;
     Set<Vec3> validPlayerStartingVels = new HashSet<>();
     PredictionResult lastPrediction = null;
+    /** The supporting block an accepted correction set after {@link #lastPrediction}; null when none did. */
+    private MainSupportingBlockData supportAfterCorrection;
     /** The committed tick's LivingEntity#checkAutoSpinAttack certainly hit, so the next tick starts from the rebound. */
     private boolean certainSpinHit;
 
@@ -169,12 +171,20 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     /** Entity#checkSupportingBlock after a move of {@code movement} that ended with the box {@code box}. */
     public MainSupportingBlockData mainSupportingBlockAfter(SimpleCollisionBox box, Vec3 movement, boolean onGround) {
         return this.worldStageBuilder.findMainSupportingBlockPos(
-                player,
-                this.lastPrediction == null ? null : this.lastPrediction.getSimulationContext(),
-                movement.x,
-                movement.z,
-                box,
-                onGround);
+                player, this.lastTickSupport(this.lastPrediction), movement.x, movement.z, box, onGround);
+    }
+
+    /**
+     * The supporting block a tick after {@code lastPrediction} starts with: the one a correction accepted since the
+     * player's last committed tick set, else the one that tick ended with. Null without either.
+     */
+    public @Nullable MainSupportingBlockData lastTickSupport(@Nullable PredictionResult lastPrediction) {
+        if (this.supportAfterCorrection != null && lastPrediction == this.lastPrediction) {
+            return this.supportAfterCorrection;
+        }
+        return lastPrediction == null
+                ? null
+                : lastPrediction.getSimulationContext().getWorldData().getMainSupportingBlockPos();
     }
 
     public StepCollisionMemo getStepCollisionMemo() {
@@ -500,14 +510,20 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
         this.callPredictionEndListeners(result, teleportCommit);
         SetBackData correction = teleportAcceptData.getSetback();
-        if (!this.player.isBedrockMovement()
-                && correction != null
-                && !correction.isPlugin()
-                && correction.getGroundAfter() != null
-                && !this.player.compensatedEntities.getSelf().inVehicle()) {
-            // ClientPacketListener#handleMovePlayer leaves onGround to the movement this correction rejected; the
-            // client's next tick starts from the ground the correction left it with, not from that rejected claim.
-            this.lastOnGround = correction.getGroundAfter();
+        if (correction != null && correction.isGroundSent()) {
+            // The correction's bundle ends with two ClientPacketListener#handleTeleportEntity calls on the player. The
+            // hop away clears the supporting block; the hop back's Entity#setOnGround runs
+            // Entity#checkSupportingBlock(onGround, null) at this position. The client's next tick starts from
+            // exactly that ground and supporting block, not from the movement the correction rejected.
+            boolean onGround = correction.getGroundAfter() == DesyncStatus.TRUE;
+            this.lastOnGround = DesyncStatus.fromBoolean(onGround);
+            this.supportAfterCorrection = this.worldStageBuilder.findMainSupportingBlockPos(
+                    this.player,
+                    null,
+                    0.0D,
+                    0.0D,
+                    GetBoundingBox.getPlayerBoundingBox(this.player, position.x, position.y, position.z),
+                    onGround);
         }
         // A Geyser or GFP teleport's answer can follow the actual Cult setback
         // before any Bedrock travel. It must not consume that setback's guard.
@@ -1137,6 +1153,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 this.player.isGliding = false;
             }
             this.lastPrediction = result;
+            this.supportAfterCorrection = null;
             this.carriedPush = CarriedPush.IDENTITY;
             this.rideTicksSinceLastPrediction = false;
             this.pushesWhileLoadingLevel = null;
@@ -2417,6 +2434,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                         && Float.floatToRawIntBits(player.boatData.vehicleForward) == 0
                 ? Vec3.ZERO
                 : new Vec3(player.boatData.vehicleHoriz, 0.0, player.boatData.vehicleForward);
+        MainSupportingBlockData lastTickSupport = this.lastTickSupport(lastPrediction);
         SimulationContext context = new SimulationContext(
                 start,
                 end,
@@ -2445,9 +2463,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 vehicleInputs,
                 player.packetStateData.clientMovementInputKnown,
                 player.packetStateData.clientMovementInput,
-                lastPrediction == null
-                        ? new MainSupportingBlockData(null, false)
-                        : lastPrediction.getSimulationContext().getWorldData().getMainSupportingBlockPos(),
+                lastTickSupport == null ? new MainSupportingBlockData(null, false) : lastTickSupport,
                 player.pose,
                 player.dimensionScale);
         if (player.usesModernJavaItemUse()) {

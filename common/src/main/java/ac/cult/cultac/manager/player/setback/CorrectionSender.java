@@ -4,6 +4,7 @@ import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.bridge.GeyserBedrockBridgeRuntime;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState;
+import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionSetbackState;
 import ac.cult.cultac.checks.impl.prediction.runner.KnockbackHandler;
 import ac.cult.cultac.events.packets.patch.ResyncWorldUtil;
@@ -13,6 +14,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityMotion;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveVehicle;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerPosition;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundTeleportEntity;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.value.Relative;
 import ac.cult.cultac.protocol.value.Vec3d;
@@ -21,6 +23,8 @@ import ac.cult.cultac.utils.data.SetBackData;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.grim.grimac.api.event.events.GrimPlayerSetbackEvent;
 import ac.grim.grimac.api.event.events.GrimTeleportEvent;
+import java.util.EnumSet;
+import java.util.List;
 import java.util.Random;
 
 /**
@@ -28,7 +32,8 @@ import java.util.Random;
  *
  * <ul>
  *   <li>A Java player correction is one player_position whose absolute delta carries the velocity, tracked before it is
- *       written, so the client cannot take the position without the velocity. A vehicle correction is a move_vehicle
+ *       written, so the client cannot take the position without the velocity, then two teleport_entity packets for the
+ *       player that set its onGround to the correction's ground. A vehicle correction is a move_vehicle
  *       and the vehicle's motion; a Bedrock one is a teleport or a rewind.
  *   <li>A Java correction blocks movement from the moment it is requested; its proofs and packets are written together
  *       at their outbound position.
@@ -39,6 +44,9 @@ import java.util.Random;
  * </ul>
  */
 public class CorrectionSender {
+    // Farther than the 64 blocks (distanceToSqr > 4096) ClientPacketListener#setValuesFromPositionPacket interpolates.
+    private static final double GROUND_HOP = 128.0D;
+
     private final CultPlayer player;
     private final CorrectionState corrections;
     private final JavaTeleportTracker javaTeleports;
@@ -228,11 +236,16 @@ public class CorrectionSender {
                             data.isExpectedOnGround(),
                             data.getTeleportData().getTransaction());
                 } else {
+                    // The client takes the ground only where this correction's tick or safe position proves it.
+                    boolean onGround = data.getGroundAfter() == DesyncStatus.TRUE;
+                    data.setGroundAfter(DesyncStatus.fromBoolean(onGround));
+                    data.setGroundSent(true);
                     sendPlayerSetbackPackets(
                             teleportId,
                             position,
                             delta,
-                            data.getTeleportData().getFlags().getMask());
+                            data.getTeleportData().getFlags().getMask(),
+                            onGround);
                 }
             }
 
@@ -273,15 +286,44 @@ public class CorrectionSender {
         }
     }
 
-    private void sendPlayerSetbackPackets(int teleportId, Vec3 position, Vec3 delta, int relativeMask) {
+    /**
+     * ClientPacketListener#handleMovePlayer leaves onGround to the movement the correction rejects, so the client's
+     * next tick could jump or step up from the air. #handleTeleportEntity on the player's own id calls
+     * Entity#setOnGround, but #setValuesFromPositionPacket interpolates a move of 64 blocks or less, and nothing on the
+     * client cancels that interpolation. The player hops away and back, each hop farther than that, so both only set
+     * the position; the second sets the ground at the target. Rotation and delta stay as the correction left them.
+     * The three go out in one client bundle, so no client tick or frame runs between them.
+     */
+    private void sendPlayerSetbackPackets(
+            int teleportId, Vec3 position, Vec3 delta, int relativeMask, boolean onGround) {
         var point = new Vec3d(position.x, position.y, position.z);
         var relatives = Relative.unpack(relativeMask);
-        // unfortunately, 26.3 clients don't like ClietboundTeleportEntity as it causes weird interpolation if multiple
-        // teleports are sent within a few ticks.
-        player.user.write(new CultWrite(
-                new ClientboundPlayerPosition(
-                        teleportId, point, new Vec3d(delta.x, delta.y, delta.z), 0.0F, 0.0F, relatives),
-                true));
+        var unchanged =
+                EnumSet.of(Relative.Y_ROT, Relative.X_ROT, Relative.DELTA_X, Relative.DELTA_Y, Relative.DELTA_Z);
+        var away = new Vec3d(position.x, position.y + GROUND_HOP, position.z);
+        // One client bundle: ClientPacketListener#handleBundlePacket handles all three before the next tick or frame.
+        player.user
+                .getCultConnection()
+                .write(
+                        List.of(
+                                new CultWrite(
+                                        new ClientboundPlayerPosition(
+                                                teleportId,
+                                                point,
+                                                new Vec3d(delta.x, delta.y, delta.z),
+                                                0.0F,
+                                                0.0F,
+                                                relatives),
+                                        true),
+                                new CultWrite(
+                                        new ClientboundTeleportEntity(
+                                                player.entityID, away, Vec3d.ZERO, 0.0F, 0.0F, unchanged, false),
+                                        true),
+                                new CultWrite(
+                                        new ClientboundTeleportEntity(
+                                                player.entityID, point, Vec3d.ZERO, 0.0F, 0.0F, unchanged, onGround),
+                                        true)),
+                        true);
     }
 
     public void sendBedrockMovementCorrection(
