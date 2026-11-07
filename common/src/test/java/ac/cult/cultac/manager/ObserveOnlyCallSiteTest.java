@@ -79,6 +79,7 @@ class ObserveOnlyCallSiteTest {
             "teleport",
             "eject",
             "sendSetback",
+            "sendDismounted",
             "blockMovementsUntilResync",
             "resync",
             "cancel",
@@ -111,9 +112,9 @@ class ObserveOnlyCallSiteTest {
      * an exception, 0 under a guard, by default).
      */
     private static final String ALLOWED = """
-            [isExempt()] SetbackTeleportUtil.isExempt() is true in observe-only
-            manager/player/SetbackTeleportUtil.java#executeTooHighLatencySetback(String) blockMovementsUntilResync
-            manager/player/SetbackTeleportUtil.java#executeViolationSetback(PredictionResult) blockMovementsUntilResync
+            [isExempt()] SetbackPolicy.isExempt() is true in observe-only
+            manager/player/setback/SetbackPolicy.java#executeTooHighLatencySetback(String) blockMovementsUntilResync
+            manager/player/setback/SetbackPolicy.java#executeViolationSetback(PredictionResult) blockMovementsUntilResync
             [shouldBlockMovement()] true in observe-only only before the world loads; the codec forwards the client's packet
             checks/impl/combat/ReachCheck.java#handleInteract(PacketReceiveEvent,ServerboundInteract) setCancelled
             checks/impl/movement/timer/AbstractTimerCheck.java#recordModernMovePlayerPacket(PacketReceiveEvent,boolean) setCancelled
@@ -131,17 +132,19 @@ class ObserveOnlyCallSiteTest {
             [] reached only from callers that return first in observe-only
             checks/impl/prediction/checks/NoSlow.java#clearFlaggedUse() clearActiveItem
             events/packets/patch/ResyncWorldUtil.java#resyncOnOwner(CultPlayer,int,int,int,int,int,int) sendServerStates
-            manager/player/SetbackTeleportUtil.java#blockMovementsUntilResync(boolean,boolean,boolean,PredictionResult) sendSetback
-            manager/player/SetbackTeleportUtil.java#sendSetback(SetBackData) sendSetback
-            manager/player/SetbackTeleportUtil.java#sendSetback(SetBackData,boolean) sendSetback
-            manager/player/SetbackTeleportUtil.java#sendSetback(SetBackData,boolean,boolean) sendSetback
-            manager/player/SetbackTeleportUtil.java#transferBedrockVehicleSetback(int) sendSetback
+            manager/player/setback/CorrectionSender.java#sendSetback(SetBackData) sendSetback
+            manager/player/setback/CorrectionSender.java#sendSetback(SetBackData,boolean) sendSetback
+            manager/player/setback/CorrectionSender.java#sendSetback(SetBackData,boolean,boolean) sendSetback
+            manager/player/setback/SetbackPolicy.java#blockMovementsUntilResync(boolean,boolean,boolean,PredictionResult) sendSetback
+            [] needs a Bedrock vehicle setback in flight; observe-only sends none and drops it when it starts
+            manager/player/setback/VehicleTeleportTracker.java#transferBedrockVehicleSetback(int) sendDismounted
             [reachesServer(] CheckManagerListener.reachesServer(PacketReceiveEvent) is true in observe-only
             events/packets/listeners/CheckManagerListener.java#handle(PacketReceiveEvent,CultPlayer,Object) rejectEarly
             events/packets/listeners/CheckManagerListener.java#onContainerClick(PacketReceiveEvent,CultPlayer,InventoryClick) resyncCancelledClick
             events/packets/listeners/CheckManagerListener.java#processPlayerActionReceive(PacketReceiveEvent,CultPlayer,ServerboundPlayerAction) rejectDig
             [] sends the correction its caller decided on; each caller is listed
             events/packets/patch/ResyncWorldUtil.java#sendServerStates(CultPlayer,Collection,int) sendCorrections x2
+            manager/player/SetbackTeleportUtil.java#sendDismounted(SetBackData) sendSetback
             utils/latency/BlockActionReconciler.java#rejectEarly(Object) rejectDig
             utils/latency/BlockActionReconciler.java#rejectEarly(Object) rejectPlace
             utils/latency/BlockActionReconciler.java#send(Correction) sendCorrections

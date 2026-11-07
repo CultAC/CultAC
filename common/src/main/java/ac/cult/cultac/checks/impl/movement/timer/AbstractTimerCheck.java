@@ -82,7 +82,17 @@ public abstract class AbstractTimerCheck extends Check implements CheckListener 
         // (cadence-split bypass) — each extra packet is a full free physics
         // tick. Reject this packet here: ordinary setback blocking runs after
         // Java prediction, but a timer rejection must never advance prediction.
-        if (++movePacketsSinceLastClientTickEnd > 1 && flag()) {
+        //
+        // The tick's first movement charges the tick. Like the tick end, it is
+        // sent only once Minecraft#tick has begun, so a tick over budget is
+        // rejected before prediction runs its movement rather than at its tick
+        // end, after that movement went through. A rejected movement is set
+        // back at once: prediction never ran it, so the client would otherwise
+        // stand a tick ahead of the simulation.
+        boolean rejected = ++movePacketsSinceLastClientTickEnd > 1
+                ? flag()
+                : prepareTimerEvent(false, true) && doCheckForPacketDecision(null);
+        if (rejected) {
             player.getSetbackTeleportUtil().executeNonSimulatingSetback();
             if (player.shouldEnforceMovementSetbacks()
                     && player.getSetbackTeleportUtil().shouldBlockMovement()) {
@@ -158,8 +168,9 @@ public abstract class AbstractTimerCheck extends Check implements CheckListener 
     }
 
     protected boolean shouldCountClientTickEndForTimer() {
-        // Minecraft#tick sends tick-end after the tick's movement packets.
-        return usesClientTickEndBoundary();
+        // Minecraft#tick sends tick-end after the tick's movement packets. A
+        // tick that sent movement was already charged by its first movement.
+        return usesClientTickEndBoundary() && movePacketsSinceLastClientTickEnd == 0;
     }
 
     protected final boolean usesClientTickEndBoundary() {

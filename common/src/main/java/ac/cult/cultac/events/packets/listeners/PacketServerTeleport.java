@@ -10,6 +10,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerPosition;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerRotation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
 import ac.cult.cultac.protocol.value.Relative;
+import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.TeleportAcceptData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
@@ -47,6 +48,14 @@ public class PacketServerTeleport {
             // A mismatched or transaction-unproven receipt must never reach it.
             event.setCancelled(true);
             return;
+        }
+        // An accepted passenger's answer is not matched against its coordinates; it is forwarded from the seat.
+        Vec3 forwarded = accepted.getForwardedPosition();
+        Vec3d reported = ack.position();
+        if (forwarded != null
+                && (forwarded.x != reported.x() || forwarded.y != reported.y() || forwarded.z != reported.z())) {
+            event.replace(new ServerboundAcceptTeleportation(
+                    ack.id(), new Vec3d(forwarded.x, forwarded.y, forwarded.z), ack.yaw(), ack.pitch()));
         }
         CheckManagerListener.applyTeleportResponse(player, accepted, ack.yaw(), ack.pitch());
     }

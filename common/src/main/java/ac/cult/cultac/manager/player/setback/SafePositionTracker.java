@@ -13,6 +13,8 @@ import ac.cult.cultac.utils.math.Vec3;
  *       movement every check passed. Never from a flagged or claimed position.
  *   <li>A movement is staged until every check on it, and its packet's receive handlers, have run, so a check that sets
  *       it back rolls back past it, not onto it.
+ *   <li>A staged movement commits only over the safe position it was staged over. A placement, answer or release that
+ *       replaced it in between is authoritative state the movement was predicted without, and is never rolled back.
  *   <li>It belongs to the entity a setback moves now; a position of another entity never replaces it.
  *   <li>It does not advance while a correction is unanswered, offsets are blocked, or the client has not proven the
  *       chunk it is in.
@@ -95,14 +97,19 @@ public final class SafePositionTracker {
      *       placement it moves from, and never while offsets are blocked or the chunk is unproven.
      * </ul>
      *
-     * Bedrock keeps its own rules: a movement only while nothing blocks it and, at commit, nothing replaced the safe
-     * position since it was staged; an answer only while no Cult setback is pending.
+     * For Java and Bedrock alike, a staged movement commits only if nothing replaced the safe position since it was
+     * staged. Its prediction ran from the state before that placement or answer, so taking it would roll the
+     * authoritative position back; the client's movements count again only once it moves from the new one.
+     *
+     * Bedrock keeps its own rules: a movement only while nothing blocks it; an answer only while no Cult setback is
+     * pending.
      */
     public boolean accepts(SetbackPosWithVector candidate, boolean committing) {
+        if (committing && current != stagedOver) return false;
         SafeProof proof = candidate.getProof();
         if (player.isBedrockMovement()) {
             return switch (proof.kind()) {
-                case MOVEMENT -> corrections.safePositionUnblocked() && (!committing || current == stagedOver);
+                case MOVEMENT -> corrections.safePositionUnblocked();
                 case ANSWER -> !corrections.isPendingSetback();
                 default -> true;
             };

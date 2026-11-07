@@ -35,7 +35,7 @@ import java.util.function.UnaryOperator;
 
 // You may not copy the check unless you are licensed under GPL
 public class ReachInterpolationData {
-    private static final double REACH_PACKET_POSITION_UNCERTAINTY = 0.03125D;
+    public static final double REACH_PACKET_POSITION_UNCERTAINTY = 0.03125D;
     /** A start extent within this of the new size is that size; the size change rounds by less. */
     private static final double SIZE_EPSILON = 1.0E-7D;
     /** Queue length past which the two oldest steps fold into one. */
@@ -550,6 +550,9 @@ public class ReachInterpolationData {
     }
 
     private static int vanillaInterpolationStepsFor(CultPlayer player, PacketEntity entity) {
+        // A Bedrock client lerps every actor over 3 ticks. From 26.51 the move's own tick count can raise that, which
+        // Geyser never sets.
+        if (player.isBedrockMovement()) return 3;
         if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11)) {
             // ExperienceOrb's handler takes the default 3 steps.
             if (entity.type == EntityTypeIds.EXPERIENCE_ORB) return 3;
@@ -755,6 +758,24 @@ public class ReachInterpolationData {
     }
 
     /**
+     * Whether the location after the next client tick is a single position: the interpolation starts from one, not from
+     * the union of several possible ones, or that tick lands on the target.
+     */
+    public boolean hasOnePositionAfterClientTick() {
+        return interpolationQueue != null
+                || interpolationStepsLowBound + 1 >= getInterpolationSteps()
+                || Math.abs((startingLocation.maxX - startingLocation.minX)
+                                        - (targetLocation.maxX - targetLocation.minX))
+                                <= SIZE_EPSILON
+                        && Math.abs((startingLocation.maxY - startingLocation.minY)
+                                        - (targetLocation.maxY - targetLocation.minY))
+                                <= SIZE_EPSILON
+                        && Math.abs((startingLocation.maxZ - startingLocation.minZ)
+                                        - (targetLocation.maxZ - targetLocation.minZ))
+                                <= SIZE_EPSILON;
+    }
+
+    /**
      * Writes into {@code out} the location {@link #copyAdvancedForClientTick copyAdvancedForClientTick(true, true)}
      * would report. Call only when {@link #hasExactMovementLocationAfterClientTick()}.
      */
@@ -830,6 +851,16 @@ public class ReachInterpolationData {
 
     public SimpleCollisionBox getTargetLocation() {
         return targetLocation.copy();
+    }
+
+    /** The feet position the target was built from, while only offsets moved it since; else {@link #targetPosition()}. */
+    public Vec3 targetFeet() {
+        return targetFeetKnown ? new Vec3(targetFeetX, targetFeetY, targetFeetZ) : targetPosition();
+    }
+
+    /** The lerp steps left to the target, the last landing on it. Call only when the step is exact. */
+    public int remainingLerpSteps() {
+        return getInterpolationSteps() - interpolationStepsLowBound;
     }
 
     /** The feet position of the target location, as computed from {@link #getTargetLocation()}. */

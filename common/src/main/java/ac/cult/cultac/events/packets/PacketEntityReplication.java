@@ -380,6 +380,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     }
 
     private void tickEntityInterpolationAtClientTickEnd() {
+        player.compensatedEntities.onClientTick();
         boolean tickingReliably = player.isTickingReliablyFor(3);
         PacketEntity velocityVehicle = player.compensatedEntities.vehicles.getVelocityMovementVehicle();
         java.util.function.Consumer<PacketEntity> tick = entity -> {
@@ -1090,12 +1091,16 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             player.compensatedEntities.markSelfPassengersChange(transaction);
         }
         int vehicleId = packet.vehicleId();
+        boolean seatsLocalPlayer =
+                mountsLocalPlayer && !player.compensatedEntities.vehicles.isServerPlayerPassengerOf(vehicleId);
         if (mountsLocalPlayer) {
             player.compensatedEntities.vehicles.setServerVehicle(vehicleId, passengers, transaction);
         }
         VehicleMountResyncState resyncState = mountResyncState;
         if (resyncState != null) {
             queueVehicleProtocolResync(transaction, resyncState);
+        } else if (seatsLocalPlayer) {
+            placeSeatedVehicle(vehicleId, transaction);
         }
         player.latencyUtils.addRealTimeTask(transaction, () -> {
             PacketEntity mounted = player.compensatedEntities.getEntity(vehicleId);
@@ -1202,6 +1207,16 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         // position, losing its gravity/ground carry (no onGround wire field).
         player.getSetbackTeleportUtil()
                 .updateSafeVehiclePosition(resyncState.vehicleId(), transaction, resyncState.position());
+    }
+
+    /** The vehicle's position as the server last placed it, for setbacks from this set_passengers on. */
+    private void placeSeatedVehicle(int vehicleId, int transaction) {
+        if (player.isBedrockMovement()) return;
+        TrackerData tracked = player.compensatedEntities.getTrackedEntity(vehicleId);
+        if (tracked == null) return;
+        player.getSetbackTeleportUtil()
+                .updateSafeVehiclePosition(
+                        vehicleId, transaction, new Vec3(tracked.getX(), tracked.getY(), tracked.getZ()));
     }
 
     private void applyVehicleProtocolResync(int transaction, VehicleMountResyncState resyncState) {

@@ -22,6 +22,7 @@ import java.util.function.Supplier;
  *
  * <ul>
  *   <li>Only the packet handler's echo completes a vehicle teleport, never a ticked move.
+ *   <li>A Java client's echo completes a Cult vehicle correction only after it answers the ping sent before it.
  *   <li>A Cult vehicle correction the client can no longer answer, because it left the vehicle, moves the player
  *       instead, with no vehicle velocity.
  *   <li>A Bedrock vehicle correction interrupted by a dismount moves the player to where it rode the corrected
@@ -92,6 +93,15 @@ public final class VehicleTeleportTracker {
                 LogUtil.info("Vehicle queue: id: " + teleportPos.vehicleId() + " pt: " + teleportPos.transaction()
                         + " lt: " + lastTransaction + " | x=" + (position.x - x) + " y=" + (position.y - y) + " z="
                         + (position.z - z));
+            }
+
+            // A Cult correction's move_vehicle follows its ping, and ClientPacketListener#handleMoveVehicle answers it
+            // from the handler, so a Java client answers it only after that ping. Geyser moves a Bedrock rider's
+            // vehicle itself, outside the client's ping order.
+            if (!player.isBedrockMovement()
+                    && isRequiredSetbackVehicleTeleport(teleportPos)
+                    && lastTransaction < teleportPos.transaction()) {
+                break;
             }
 
             if (matchesVehicleTeleportPosition(position, x, y, z, teleportPos.responseDistanceTolerance())) {

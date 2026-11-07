@@ -616,8 +616,16 @@ public final class GeyserBedrockBridgeRuntime {
         private final GeyserPoseConfirmations poses = new GeyserPoseConfirmations();
         private final GeyserVehicleAttributes vehicleAttributes = new GeyserVehicleAttributes();
         private final GeyserEntityPositions entityPositions = new GeyserEntityPositions();
+        // Markers per client tick past which no marker is written only to narrow when entity updates are handled.
+        private static final int MARKERS_PER_TICK = 2;
         // A packet carrying entity updates no latency marker has followed yet; the next flush writes one.
         private BedrockPacketWrapper entityUpdateSource;
+        // Whether a latency marker was written in this batch with nothing heavy after it: a move written now is
+        // handled right after the client answers it, unless its packet budget runs out in between.
+        private boolean freshMarker;
+        // Latency markers written since the client tick markerTick was processed.
+        private long markerTick = -1;
+        private int markersInTick;
         private final GeyserEntityAttributes entityAttributes = new GeyserEntityAttributes();
         private final GeyserMovementEffectAcks glideBoostAcks = new GeyserMovementEffectAcks();
         private final ac.cult.cultac.bedrock.player.BedrockLoadingScreenState loadingScreen =
@@ -1023,6 +1031,32 @@ public final class GeyserBedrockBridgeRuntime {
             if (logger != null) logger.originReceipt(connection, revision);
         }
 
+        /**
+         * Whether a marker that only narrows when entity updates are handled may be written: fewer than
+         * {@link #MARKERS_PER_TICK} markers went out since the last client tick was processed. The marker that
+         * proves updates is written regardless.
+         */
+        private boolean mayNarrowWithMarker() {
+            CultPlayer player = currentPlayer();
+            if (player == null) return false;
+            long tick = player.compensatedEntities.clientTicks();
+            if (tick != markerTick) {
+                markerTick = tick;
+                markersInTick = 0;
+            }
+            return markersInTick < MARKERS_PER_TICK;
+        }
+
+        private void countMarker() {
+            CultPlayer player = currentPlayer();
+            long tick = player == null ? markerTick : player.compensatedEntities.clientTicks();
+            if (tick != markerTick) {
+                markerTick = tick;
+                markersInTick = 0;
+            }
+            markersInTick++;
+        }
+
         private void writeLatencyBoundary(
                 ChannelHandlerContext context, BedrockPacketWrapper source, Consumer<CultPlayer> acknowledgement) {
             CultPlayer player = currentPlayer();
@@ -1066,6 +1100,8 @@ public final class GeyserBedrockBridgeRuntime {
                         BedrockPacketWrapper.create(
                                 0, BedrockSubClients.sender(source), BedrockSubClients.target(source), marker, null),
                         context.voidPromise());
+                freshMarker = true;
+                countMarker();
             });
         }
 
@@ -1496,6 +1532,24 @@ public final class GeyserBedrockBridgeRuntime {
                 }
             }
             super.flush(context);
+            // The next batch's waves need a marker of their own.
+            owner.freshMarker = false;
+        }
+
+        /**
+         * Packets the client can take long enough to handle that its 1 ms packet budget may run out on them: chunk
+         * data and the large registry and inventory snapshots.
+         */
+        private static boolean isHeavy(BedrockPacket packet) {
+            return packet instanceof org.cloudburstmc.protocol.bedrock.packet.LevelChunkPacket
+                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.SubChunkPacket
+                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.CraftingDataPacket
+                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.CreativeContentPacket
+                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.InventoryContentPacket
+                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.AvailableEntityIdentifiersPacket
+                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.BiomeDefinitionListPacket
+                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.AvailableCommandsPacket
+                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.StartGamePacket;
         }
 
         private void writeTapped(
@@ -1503,6 +1557,15 @@ public final class GeyserBedrockBridgeRuntime {
                 throws Exception {
             BedrockPacket packet = wrapper.getPacket();
             owner.initializeActor(owner.currentPlayer());
+            if (isHeavy(packet)) {
+                // A wave ends before data that can use up the client's packet budget, and the next one gets a
+                // marker after it.
+                if ((owner.entityPositions.hasPending() || owner.entityAttributes.hasPending())
+                        && owner.mayNarrowWithMarker()) {
+                    owner.writeLatencyBoundary(context, wrapper, player -> {});
+                }
+                owner.freshMarker = false;
+            }
             boolean normalizedVehicleEffect = false;
             if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.UpdateAttributesPacket attributes) {
                 owner.vehicleAttributes.written(attributes);
@@ -1701,6 +1764,14 @@ public final class GeyserBedrockBridgeRuntime {
                     || packet instanceof org.cloudburstmc.protocol.bedrock.packet.ChangeDimensionPacket) {
                 owner.teleportRecovery.clear();
             }
+            if (observedPlayer != null
+                    && !owner.freshMarker
+                    && GeyserEntityPositions.movesOtherActor(
+                            packet, owner.connection.getPlayerEntity().geyserId())
+                    && owner.mayNarrowWithMarker()) {
+                // The pre-wave marker: in this move's batch, right before its wave.
+                owner.writeLatencyBoundary(context, wrapper, player -> {});
+            }
             if (observedPlayer != null)
                 owner.entityPositions.capture(
                         owner.connection,
@@ -1754,6 +1825,8 @@ public final class GeyserBedrockBridgeRuntime {
                         }
                     }
                     context.write(message, promise);
+                    owner.freshMarker = true;
+                    owner.countMarker();
                     return receipt;
                 });
                 return;

@@ -26,7 +26,7 @@ import java.util.concurrent.ConcurrentLinkedDeque;
  *   <li>A teleport the client got past was ignored: BadPacketsN flags it, and the correction is sent again once
  *       nothing newer is queued.
  *   <li>A passenger's answer leaves its position, so it completes only a teleport sent while mounted and never a Cult
- *       correction.
+ *       correction. The server is told the seat the passenger stayed in, never the position it reported.
  *   <li>A ping answered past an unanswered ID teleport shows a client withholding its answer.
  *   <li>A relative teleport resolves against the safe position; a server teleport freezes it until answered.
  * </ul>
@@ -130,7 +130,7 @@ public final class JavaTeleportTracker {
             }
             // ClientPacketListener#handleMovePlayer leaves passengers in place.
             // Consume its single response at the same transaction boundary as a
-            // normal teleport, without applying the reported passenger position.
+            // normal teleport, without applying or forwarding the reported position.
             if (!player.isBedrockMovement()
                     && receivedTransaction == teleportPos.getTransaction()
                     && teleportPos.isSentWhileVehicle()
@@ -175,7 +175,9 @@ public final class JavaTeleportTracker {
                     && (teleportPos.isPositionOnly() || receivedTransaction == teleportPos.getTransaction())) {
                 pendingTeleports.poll();
                 player.compensatedWorld.onClientPositionSet();
-                return answers.complete(teleportPos, clamped, true);
+                TeleportAcceptData accepted = answers.complete(teleportPos, clamped, true);
+                accepted.setForwardedPosition(clamped);
+                return accepted;
             } else if (teleportPos.isPositionOnly() && receivedTransaction <= teleportPos.getTransaction()) {
                 break;
             } else if (teleportPos.isPositionOnly() || receivedTransaction > teleportPos.getTransaction()) {
@@ -263,8 +265,12 @@ public final class JavaTeleportTracker {
 
     private TeleportAcceptData completeMountedTeleport(TeleportData teleport) {
         Vec3 position = new Vec3(player.x, player.y, player.z);
+        // Paper takes the reported position as a move once the player is off the vehicle.
+        Vec3 seat = player.compensatedEntities.passengerReportPosition();
         if (!isRequiredSetbackTeleport(teleport) || corrections.required().isPlugin()) {
-            return answers.complete(teleport, position, false);
+            TeleportAcceptData accepted = answers.complete(teleport, position, false);
+            accepted.setForwardedPosition(seat);
+            return accepted;
         }
 
         // A passenger ignores the position. This cannot complete a Cult setback.
@@ -273,6 +279,7 @@ public final class JavaTeleportTracker {
         TeleportAcceptData accepted = new TeleportAcceptData();
         accepted.setTeleportData(teleport.copyWithLocation(position));
         accepted.setTeleport(true);
+        accepted.setForwardedPosition(seat);
         return accepted;
     }
 

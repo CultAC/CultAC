@@ -45,6 +45,8 @@ public class CompensatedEntities {
     public static final Set<String> EXCLUDED_MODIFIER_IDS = Set.of(SPRINTING_MODIFIER_ID, SNOW_MODIFIER_ID);
     private static final String ATTRIBUTE_NAMESPACE = "minecraft:";
     private static final long LOCAL_PLAYER_CLIENT_TICK_ORDER = 0L;
+    // Client ticks whose end has been processed, counting the one whose entities are ticking.
+    private long clientTicks;
     public final EntityMap entityMap = new EntityMap();
     public final Int2ObjectOpenHashMap<TrackerData> serverPositionsMap = new Int2ObjectOpenHashMap<>(40, 0.7f);
     public final CompensatedVehicleState vehicles;
@@ -800,6 +802,15 @@ public class CompensatedEntities {
         return rideTickSeat;
     }
 
+    /**
+     * Where a Java passenger's ClientPacketListener#handleMovePlayer reports it, from Cult's state alone. A passenger
+     * stays where the last Entity#rideTick's Entity#positionRider seated it; before its first ride tick it stays where
+     * it mounted, as Entity#startRiding moves nothing.
+     */
+    public Vec3 passengerReportPosition() {
+        return rideTickSeat != null ? rideTickSeat : new Vec3(player.x, player.y, player.z);
+    }
+
     /** Whether the local player was a passenger at the end of the last client tick. */
     public boolean rodeLastClientTick() {
         return rideTickSeat != null;
@@ -1419,5 +1430,15 @@ public class CompensatedEntities {
             mutations++;
             super.clear();
         }
+    }
+
+    /** The client ticks processed so far; while a tick's entities tick, that tick is counted. */
+    public long clientTicks() {
+        return clientTicks;
+    }
+
+    /** A client tick's end, before its entities tick. */
+    public void onClientTick() {
+        clientTicks++;
     }
 }

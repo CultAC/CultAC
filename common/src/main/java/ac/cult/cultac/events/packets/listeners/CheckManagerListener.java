@@ -343,11 +343,11 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         event.setTeleportPositionResponse(legacyWire
                 && packet.hasRotation()
                 && !teleport.getTeleportData().isPositionOnly());
-        if (teleport.isMatchedTeleportPosition()) {
-            // The answer is itself a server movement packet. Forward the accepted target, never the client's
-            // near-match coordinates, including for relative teleports.
-            Vec3 target = teleport.getTeleportData().getLocation();
-            event.replace(packet.withPosition(target.x, target.y, target.z, false));
+        Vec3 forwarded = teleport.getForwardedPosition();
+        if (forwarded != null) {
+            // The answer is itself a server movement packet. Forward the accepted target, or the seat a passenger
+            // stayed in, never the client's coordinates, including a relative teleport's near match.
+            event.replace(packet.withPosition(forwarded.x, forwarded.y, forwarded.z, false));
         }
         updatePassengerRotationPair(player, false, true);
         player.checkManager.dispatchPrePredictionReceive(event);
