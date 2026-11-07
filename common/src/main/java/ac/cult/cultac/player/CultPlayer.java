@@ -52,6 +52,7 @@ import ac.cult.cultac.utils.data.ClientItemUseState;
 import ac.cult.cultac.utils.data.ClientSprintState;
 import ac.cult.cultac.utils.data.ClientSwimState;
 import ac.cult.cultac.utils.data.PacketStateData;
+import ac.cult.cultac.utils.data.ServerSwingEcho;
 import ac.cult.cultac.utils.data.VehicleData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
@@ -266,6 +267,7 @@ public class CultPlayer implements GrimUser {
     public final ClientSwimState swimState = new ClientSwimState();
     public final ClientAttackStrength attackStrength = new ClientAttackStrength();
     public final ClientCombatAttributes combatAttributes = new ClientCombatAttributes();
+    public final ServerSwingEcho serverSwingEcho = new ServerSwingEcho();
     public final VisibilityDebug visibilityDebug = new VisibilityDebug(this);
     public boolean isFlying;
     public boolean canFly;

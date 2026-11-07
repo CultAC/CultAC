@@ -75,9 +75,18 @@ final class JavaTickFixture implements AutoCloseable {
     }
 
     JavaTickFixture(ProtocolVersion protocol, ClientVersion client) throws Exception {
+        this(protocol, client, false);
+    }
+
+    /** A {@code client} on a host whose wire is {@code observed}, older than the 26.3 model. */
+    static JavaTickFixture olderHost(ProtocolVersion observed, ClientVersion client) throws Exception {
+        return new JavaTickFixture(observed, client, true);
+    }
+
+    private JavaTickFixture(ProtocolVersion protocol, ClientVersion client, boolean olderHost) throws Exception {
         Class.forName(VerboseCodecs.class.getName());
-        services = new RecordConsumerServices(protocol);
-        fixture = new RecordReceiveFixture(protocol);
+        services = new RecordConsumerServices(olderHost ? ProtocolVersion.V26_3 : protocol);
+        fixture = olderHost ? RecordReceiveFixture.olderHost(protocol) : new RecordReceiveFixture(protocol);
         player = fixture.player;
         fixture.user.bind(Mockito.mock(PlatformPlayer.class));
         setField(CultPlayer.class, player, "resolvedClientVersion", client);

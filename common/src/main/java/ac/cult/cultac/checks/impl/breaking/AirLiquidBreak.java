@@ -165,6 +165,8 @@ public class AirLiquidBreak extends Check implements BlockBreakListener {
 
     @CultPacketHandler
     public void onSwing(PacketReceiveEvent<ServerboundSwing> event, CultPlayer player, ServerboundSwing packet) {
+        // ClientPacketListener#handleAnimate swings before the next tick's MultiPlayerGameMode#tick sends the slot.
+        if (player.serverSwingEcho.isEcho()) return;
         if (pendingStartTickEnded) settlePendingStart(player.getInventory().getHeldItem());
     }
 

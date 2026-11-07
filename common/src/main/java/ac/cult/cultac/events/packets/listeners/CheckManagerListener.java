@@ -1486,6 +1486,9 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
         @Override
         public void handle(PacketReceiveEvent event, CultPlayer player, Object packet) {
             if (event.getPhase() == ConnectionPhase.PLAY) {
+                if (packet instanceof ServerboundSwing swing) {
+                    player.serverSwingEcho.classify(swing.hand(), player.lastTransactionReceived.get());
+                }
                 player.checkManager.dispatchEarlyReceive(event);
                 if (!reachesServer(event)) player.blockActionReconciler.rejectEarly(packet);
             }
