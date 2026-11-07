@@ -42,14 +42,13 @@ public class Phase extends Check implements PostPredictionListener {
     // Read only within one checkMovement call; never stored.
     private final SimpleCollisionBox newBoxScratch = new SimpleCollisionBox();
 
-    private void handleMovePlayer(ServerboundMovePlayer packet) {
+    private void handleMovePlayer(ServerboundMovePlayer packet, boolean teleport) {
         // Geyser projections must neither check movement nor replace auth-input history.
         if (player.isBedrockMovement()) return;
         ServerboundMovePlayer flying = packet;
         if (!flying.hasPosition()) return;
 
-        checkMovement(
-                new Vec3(flying.x(), flying.y(), flying.z()), false, player.packetStateData.lastPacketWasTeleport);
+        checkMovement(new Vec3(flying.x(), flying.y(), flying.z()), false, teleport);
     }
 
     @Override
@@ -162,6 +161,6 @@ public class Phase extends Check implements PostPredictionListener {
     @CultPacketHandler
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
-        handleMovePlayer(packet);
+        handleMovePlayer(packet, event.answersTeleport());
     }
 }

@@ -322,7 +322,7 @@ class DiagPredictionTest {
             if (step.input != null) {
                 var input = event(ServerboundPackets.PLAYER_INPUT, step.input);
                 STEER.onPlayerInput(input, player, step.input);
-                LISTENER.onPlayerInput(input, player, step.input);
+                CheckManagerListener.receiveGeneric(input, player);
             }
             if (step.sprintChange != null) {
                 ServerboundPlayerCommand command = new ServerboundPlayerCommand(0, step.sprintChange, 0);

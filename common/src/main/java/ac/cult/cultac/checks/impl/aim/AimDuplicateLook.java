@@ -19,8 +19,7 @@ public class AimDuplicateLook extends Check implements RotationListener {
 
     @Override
     public void process(final RotationUpdate rotationUpdate) {
-        if (player.packetStateData.lastPacketWasTeleport
-                || player.compensatedEntities.getSelf().getRiding() != null) {
+        if (rotationUpdate.isTeleport() || player.compensatedEntities.getSelf().getRiding() != null) {
             exempt = true;
             return;
         }

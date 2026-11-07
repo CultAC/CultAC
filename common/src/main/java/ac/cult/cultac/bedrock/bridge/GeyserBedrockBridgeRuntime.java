@@ -773,11 +773,7 @@ public final class GeyserBedrockBridgeRuntime {
                     poses.confirm(connection, input, sprintBoundary());
                     GeyserVehicleInput.observe(connection, player, input);
                     player.actionManager.endClientTick();
-                    player.packetStateData.acceptedClientTick++;
-                    player.packetStateData.lastClientTickEndTransaction = player.lastTransactionReceived.get();
-                    player.packetStateData.carriedItemChangedThisClientTick = false;
-                    player.packetStateData.carriedItemClaimedThisClientTick = false;
-                    player.serverOpenedInventoryThisTick = false;
+                    player.endCountedClientTick();
                 }
             });
         }

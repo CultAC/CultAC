@@ -186,15 +186,9 @@ public final class ClientSprintState {
             @Nullable AttributeModifier modifier, boolean canonicalPossible, int certainEvents, int possibleResets) {}
 
     /**
-     * A LocalPlayer#tick movement packet opens its tick, after every earlier tick's travel; the next
-     * {@link #onClientTick} reconciles its aiStep.
+     * Every earlier tick's travel is over: the client's tick ended, or a LocalPlayer#tick movement packet opened the next
+     * one. The next {@link #onClientTick} reconciles that tick's aiStep.
      */
-    public void onClientMove() {
-        settleReset();
-        aiStepReconciled = false;
-    }
-
-    /** The client's tick ended after its travel; the next {@link #onClientTick} reconciles the next tick's aiStep. */
     public void onClientTickEnd() {
         settleReset();
         aiStepReconciled = false;

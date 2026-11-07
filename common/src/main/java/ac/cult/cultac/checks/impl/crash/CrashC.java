@@ -3,7 +3,6 @@ package ac.cult.cultac.checks.impl.crash;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.CheckListener;
-import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
@@ -18,7 +17,7 @@ public class CrashC extends Check implements CheckListener {
         super(player);
     }
 
-    @CultPacketHandler
+    /** CheckManagerListener calls this before teleport matching or last-sent tick state can consume the values. */
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
         if (packet.hasPosition() || packet.hasRotation()) {

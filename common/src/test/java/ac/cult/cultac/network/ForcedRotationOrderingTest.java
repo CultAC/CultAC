@@ -9,6 +9,7 @@ import ac.cult.cultac.checks.impl.badpackets.BadPacketsB;
 import ac.cult.cultac.checks.impl.movement.timer.TickTimer;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
 import ac.cult.cultac.checks.impl.packetorder.PacketOrderO;
+import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketPingListener;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.network.event.PacketListenerPriority;
@@ -205,7 +206,7 @@ class ForcedRotationOrderingTest {
             var pong = new ServerboundPong(wireId);
             var event = f.event(ServerboundPackets.PONG, pong);
             pings.onPong(event, f.player, pong);
-            f.listener.onPong(event, f.player, pong);
+            CheckManagerListener.receiveGeneric(event, f.player);
         }
     }
 

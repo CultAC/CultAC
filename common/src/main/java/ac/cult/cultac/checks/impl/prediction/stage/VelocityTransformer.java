@@ -276,7 +276,7 @@ public class VelocityTransformer {
     }
 
     private boolean canUseItemControlledMovement(CultPlayer player, PacketEntity vehicle) {
-        return player.compensatedEntities.vehicles.canCurrentPlayerControlServerVehicleForClientTickMovement()
+        return player.compensatedEntities.vehicles.canServerPlayerVehicleBeLocalAuthoritative()
                 || isVehicleControlSwitchTimingUnproven(player, vehicle);
     }
 

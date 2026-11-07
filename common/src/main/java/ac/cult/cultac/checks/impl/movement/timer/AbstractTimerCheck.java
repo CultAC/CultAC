@@ -149,12 +149,12 @@ public abstract class AbstractTimerCheck extends Check implements CheckListener 
         return rejected;
     }
 
-    protected boolean shouldCountMovePlayerForTimer() {
+    protected boolean shouldCountMovePlayerForTimer(boolean teleport) {
         if (player.isBedrockMovement()) {
             return false;
         }
         // TODO: We need a second check for too many move packets!
-        return !usesClientTickEndBoundary() && !player.packetStateData.lastPacketWasTeleport;
+        return !usesClientTickEndBoundary() && !teleport;
     }
 
     protected boolean shouldCountClientTickEndForTimer() {

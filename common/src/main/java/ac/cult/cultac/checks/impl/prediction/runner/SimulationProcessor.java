@@ -50,7 +50,6 @@ import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldStageBuilder;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.checks.type.PositionListener;
-import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -321,16 +320,12 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                         || this.player.compensatedEntities.vehicles.hasClientPlayerPassengerState());
     }
 
-    private boolean isPacketHandlerRotationTeleport(ServerboundMovePlayer packet) {
-        return packet.rotationOnly() && this.player.packetStateData.lastPacketWasTeleport;
-    }
-
     public void onPlayerTickEnd(PacketReceiveEvent event) {
         if (!this.player.isBedrockMovement()) {
             if (!this.player.compensatedEntities.vehicles.hasClientPlayerPassengerState()
                     && !this.player.packetStateData.hasPassengerRotationThisClientTick()) {
                 if (!this.player.packetStateData.receivedMovementThisClientTick) {
-                    if (CheckManagerListener.localPlayerTicked(this.player)) {
+                    if (this.player.localPlayerTicks()) {
                         Vec3 from = new Vec3(this.player.x, this.player.y, this.player.z);
                         this.player.checkManager.getExplosionHandler().beforeNoPositionTravel(from);
                         PredictionResult result =
@@ -373,11 +368,12 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         this.player.checkManager.getExplosionHandler().afterLocalTravel();
     }
 
-    private void handleMovePlayer(ServerboundMovePlayer packet) {
+    private void handleMovePlayer(ServerboundMovePlayer packet, boolean teleport) {
         if (!this.player.isBedrockMovement()) {
             ServerboundMovePlayer flying = packet;
             if (!flying.hasPosition()) {
-                if (!this.isPacketHandlerRotationTeleport(packet)) {
+                // A rotation-only packet answering a teleport came from the packet handler, not LocalPlayer#tick.
+                if (!teleport) {
                     if (!this.isPassengerRotationOnlyTick(packet)) {
                         this.player.onGround = flying.onGround();
                         Vec3 from = new Vec3(this.player.x, this.player.y, this.player.z);
@@ -421,7 +417,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     @CultPacketHandler
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
-        this.handleMovePlayer(packet);
+        this.handleMovePlayer(packet, event.answersTeleport());
     }
 
     public void onPositionUpdate(PositionUpdate positionUpdate) {
@@ -560,10 +556,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     }
 
     public PredictionResult onVehiclePositionUpdate(VehiclePositionUpdate positionUpdate) {
-        if (positionUpdate.getTeleportAcceptData().isTeleport()) {
-            this.handleTeleport(positionUpdate.getTeleportAcceptData());
-            return null;
-        }
         this.player.checkManager.getExplosionHandler().beforeLocalTravel(positionUpdate.getFrom());
 
         if (!this.player.isBedrockMovement() && !positionUpdate.isHasOnGround()) {

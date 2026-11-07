@@ -595,7 +595,6 @@ public class CheckManager {
         registerPreReceive(registrations, postPredictionCheck.get(ItemUseBurst.class));
         registerPreReceive(registrations, prePredictionChecks.get(DumbTimer.class));
         registerPreReceive(registrations, prePredictionChecks.get(CrashA.class));
-        registerPreReceive(registrations, prePredictionChecks.get(CrashC.class));
         registerPreReceive(registrations, prePredictionChecks.get(CrashI.class));
         registerPreReceive(registrations, prePredictionChecks.get(VehicleTimer.class));
         registerPreReceive(registrations, packetChecks.get(SetbackBlocker.class));

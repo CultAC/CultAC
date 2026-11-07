@@ -138,14 +138,15 @@ class ClientSprintStateTest {
     @Test
     void aPossibleResetNoCommitDecidedStaysPossibleAfterItsTravel() {
         ClientSprintState state = sprinting();
-        var server = new AttributeModifier("minecraft:sprinting", 3.0, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL);
+        var server =
+                new AttributeModifier("minecraft:sprinting", 3.0, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL);
         state.onServerModifier(server);
-        state.onClientMove();
+        state.onClientTickEnd();
         state.onAttack(ClientSprintState.AttackReset.POSSIBLE);
         state.onClientTick(true);
         assertTrue(state.resetOutcomePending());
         // The move is discarded unsimulated; the next tick's movement follows its travel.
-        state.onClientMove();
+        state.onClientTickEnd();
         assertFalse(state.resetOutcomePending());
         assertSame(server, state.heldModifier());
         assertTrue(state.canonicalPossible());

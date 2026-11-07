@@ -2,6 +2,7 @@ package ac.cult.cultac.network;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -213,13 +214,13 @@ class EntityQueryUncertaintyTest {
     /** The production receive route: CheckManagerListener's handler, the later routes and the observer. */
     private <T extends ServerboundPacket> PacketReceiveEvent<T> dispatch(PacketType<T> type, T packet) {
         PacketReceiveEvent<T> event = fixture.event(type, packet);
-        player.packetStateData.lastPacketMatchedTeleportPosition = true;
+        player.packetStateData.stageDesiredOnGround(true);
         try (var reported = new ReportedFailures()) {
             fixture.fixture.registrar.receive(
                     event, fixture.fixture.registrar.get(type).receive());
             reported.assertNone();
         }
-        assertFalse(player.packetStateData.lastPacketMatchedTeleportPosition, "the transient packet state is cleared");
+        assertNull(player.packetStateData.consumeDesiredOnGround(), "the transient packet state is cleared");
         assertEquals(List.of(packet), observed, "the observer receives the handled packet");
         return event;
     }

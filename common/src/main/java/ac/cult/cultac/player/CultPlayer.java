@@ -360,6 +360,21 @@ public class CultPlayer implements GrimUser {
         return movementPlatform == MovementPlatform.BEDROCK;
     }
 
+    /** LocalPlayer#tick runs only once ClientPacketListener#hasClientLoaded, which 1.21.4 introduced. */
+    public boolean localPlayerTicks() {
+        return !isBedrockMovement()
+                && (packetStateData.playerLoadedIntoLevel || getClientVersion().isOlderThan(ClientVersion.V_1_21_4));
+    }
+
+    /** A client tick the model counts ended: a Java tick end, or a Bedrock auth-input frame. */
+    public void endCountedClientTick() {
+        packetStateData.acceptedClientTick++;
+        packetStateData.lastClientTickEndTransaction = lastTransactionReceived.get();
+        packetStateData.carriedItemChangedThisClientTick = false;
+        packetStateData.carriedItemClaimedThisClientTick = false;
+        serverOpenedInventoryThisTick = false;
+    }
+
     public boolean shouldEnforceMovementSetbacks() {
         return movementPlatform == MovementPlatform.JAVA
                 || (bedrockState != null && bedrockState.shouldEnforceSetbacks());
@@ -385,8 +400,8 @@ public class CultPlayer implements GrimUser {
     public void tickHeadYaw() {
         float before = yawBeforeLook;
         yawBeforeLook = xRot;
-        // LocalPlayer#tick, and with it Player#aiStep, only runs once the client has loaded; before 1.21.4, from login.
-        if (!packetStateData.playerLoadedIntoLevel && !getClientVersion().isOlderThan(ClientVersion.V_1_21_4)) return;
+        // Player#aiStep runs in LocalPlayer#tick.
+        if (!localPlayerTicks()) return;
         float boatYawBefore = boatYawBeforeTurn;
         headYaw = xRot;
         unclampedHeadYaw = Float.NaN;
@@ -1487,8 +1502,6 @@ public class CultPlayer implements GrimUser {
     public boolean spoofHealth = false;
     public boolean throwError = false;
     public boolean chunkDebug = false;
-    public boolean debugPlaces = false;
-    public boolean debugBreaks = false;
     public boolean debugNoSlow = false;
     // end config
 

@@ -46,7 +46,7 @@ public final class TickTimer extends Check implements CheckListener {
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
         if (!hasClientTickEnd()) return;
-        if (player.packetStateData.lastPacketWasTeleport) return;
+        if (event.answersTeleport()) return;
 
         if (!receivedTickEnd
                 && flagWithTimerSetback(V.write(verbose()).bool(false).uint(flyingPackets))
@@ -62,8 +62,8 @@ public final class TickTimer extends Check implements CheckListener {
     public void onMoveVehicle(
             PacketReceiveEvent<ServerboundMoveVehicle> event, CultPlayer player, ServerboundMoveVehicle packet) {
         if (!hasClientTickEnd()) return;
-        if (!player.packetStateData.isVehicleMovementFromClientTick() || player.packetStateData.lastPacketWasTeleport)
-            return;
+        // A checked LocalPlayer#tick move is never a teleport answer.
+        if (!player.packetStateData.isVehicleMovementFromClientTick()) return;
         // LocalPlayer#tick sends one MoveVehicle for its locally authoritative root, after the passenger Rot.
         // VehicleTimer counts only the first move in a tick, so reject another before it can run prediction.
         if (++vehiclePackets > 1

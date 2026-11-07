@@ -39,10 +39,11 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
             } else {
                 // A frame that acknowledged a teleport projects as the teleport response,
                 // which the Java client sends with onGround=false.
-                player.packetStateData.lastPacketWasTeleport = authorization.teleport();
+                event.setAnswersTeleport(authorization.teleport());
+                if (authorization.teleport()) player.packetStateData.teleportedThisClientTick = true;
                 // Bedrock authored collision flags, not this Java ground bit. Normalize
                 // Geyser's velocity-based projection from the already simulated frame here.
-                boolean onGround = !player.packetStateData.lastPacketWasTeleport && authorization.canonicalGround();
+                boolean onGround = !authorization.teleport() && authorization.canonicalGround();
                 if (onGround != movePacket.onGround() && !player.isDisabled() && !player.noModifyPacketPermission) {
                     event.replace(movePacket.withOnGround(onGround));
                 }
@@ -55,7 +56,7 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
         // the client processes a server mount, ordinary movement must still
         // reach prediction and packet checks; forwarding is blocked afterward.
         // Packet-handler teleport acknowledgements have already set teleport.
-        boolean teleport = player.packetStateData.lastPacketWasTeleport;
+        boolean teleport = event.answersTeleport();
         if (!player.isBedrockMovement()
                 && !teleport
                 && player.compensatedEntities.vehicles.hasClientPlayerPassengerState()
@@ -80,7 +81,7 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
         } // Let's avoid letting people disable cult with cult.nomodifypackets
         if (!player.shouldEnforceMovementSetbacks()) return;
 
-        boolean teleport = player.packetStateData.lastPacketWasTeleport;
+        boolean teleport = event.answersTeleport();
         ServerboundMovePlayer wrapper = movePacket;
         // The player must obey setbacks
         if (!teleport
@@ -97,7 +98,7 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
     private void blockInactiveMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, ServerboundMovePlayer packet) {
         if (player.isDisabled() || !player.shouldEnforceMovementSetbacks()) return;
-        boolean teleport = player.packetStateData.lastPacketWasTeleport;
+        boolean teleport = event.answersTeleport();
         // Invalid sleeping/dead movement must not change the simulation's position anchor.
         if (!teleport && player.isInBed && packet.hasPosition()) {
             Vec3 bedPosition = player.bedPosition;
@@ -136,12 +137,12 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
         return top == Double.NEGATIVE_INFINITY ? bedPosition.y : top;
     }
 
-    private void handleMoveVehicle(final PacketReceiveEvent event) {
+    private void handleMoveVehicle(final PacketReceiveEvent<ServerboundMoveVehicle> event) {
         if (player.isDisabled()) {
             return;
         } // Let's avoid letting people disable cult with cult.nomodifypackets
 
-        boolean teleport = player.packetStateData.lastPacketWasTeleport;
+        boolean teleport = event.answersTeleport();
         Integer serverVehicle = player.compensatedEntities.vehicles.serverPlayerVehicle;
         int ridingVehicle = player.getRidingVehicleId();
 
@@ -191,7 +192,7 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
     public void onJavaMovePlayerAfterChecks(PacketReceiveEvent<ServerboundMovePlayer> event) {
         if (!player.isBedrockMovement()) {
             if (!event.getPacket().rotationOnly()
-                    && !player.packetStateData.lastPacketWasTeleport
+                    && !event.answersTeleport()
                     && player.compensatedEntities.vehicles.hasPlayerPassengerState()
                     && !player.compensatedEntities.vehicles.hasClientPlayerPassengerState()) {
                 event.setCancelled(true);

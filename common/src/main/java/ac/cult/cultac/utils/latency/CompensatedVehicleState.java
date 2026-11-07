@@ -109,10 +109,6 @@ public final class CompensatedVehicleState implements Debuggable {
         }
 
         entities.updatePassengerPositions();
-        Vec3 provenPassengerDelta = player.packetStateData.lastPacketProvenVehiclePhysicalMovement;
-        if (provenPassengerDelta != null && entities.playerEntity.getRiding() != null) {
-            entities.playerEntity.deltaMovement = provenPassengerDelta;
-        }
     }
 
     /**
@@ -139,7 +135,7 @@ public final class CompensatedVehicleState implements Debuggable {
     }
 
     public void updateServerControlledSafeSetbackPositionOnTickEnd() {
-        if (player.packetStateData.vehicleMovePacketsThisClientTick != 0) {
+        if (player.packetStateData.vehicleMovedThisClientTick) {
             return;
         }
 
@@ -372,8 +368,14 @@ public final class CompensatedVehicleState implements Debuggable {
         player.getSetbackTeleportUtil().vehicleTeleports().clearVehicleTeleports();
     }
 
+    /** The tracked entity the server last seated the player on. */
+    @Nullable
+    public PacketEntity serverVehicleEntity() {
+        return serverPlayerVehicle == null ? null : entities.getEntity(serverPlayerVehicle);
+    }
+
     public PacketEntity getVelocityMovementVehicle() {
-        PacketEntity serverVehicle = serverPlayerVehicle == null ? null : entities.getEntity(serverPlayerVehicle);
+        PacketEntity serverVehicle = serverVehicleEntity();
         return serverVehicle == null ? entities.playerEntity.getRiding() : serverVehicle;
     }
 
@@ -570,14 +572,14 @@ public final class CompensatedVehicleState implements Debuggable {
     @Nullable
     public PacketEntityHorse getClientVisibleHorseRoot() {
         if (entities.playerEntity.getRiding() instanceof PacketEntityHorse horse) return horse;
-        PacketEntity vehicle = serverPlayerVehicle == null ? null : entities.getEntity(serverPlayerVehicle);
+        PacketEntity vehicle = serverVehicleEntity();
         return vehicle instanceof PacketEntityHorse horse && canServerPlayerVehicleBeLocalAuthoritative()
                 ? horse
                 : null;
     }
 
     public boolean canServerPlayerVehicleBeLocalAuthoritative() {
-        PacketEntity vehicle = serverPlayerVehicle == null ? null : entities.getEntity(serverPlayerVehicle);
+        PacketEntity vehicle = serverVehicleEntity();
         // Until its dismount's proof, passengerIndex reads the client-visible passengers, which still seat the player.
         return (hasClientObservedServerVehicle() || hasPendingServerDismount())
                 && vehicle != null
@@ -586,16 +588,12 @@ public final class CompensatedVehicleState implements Debuggable {
     }
 
     public boolean canServerPlayerVehicleBeLocalAuthoritativeForMovementPacket(boolean fromClientTick) {
-        PacketEntity vehicle = serverPlayerVehicle == null ? null : entities.getEntity(serverPlayerVehicle);
+        PacketEntity vehicle = serverVehicleEntity();
         return vehicle != null
                 && passengerIndex(vehicle) == 0
                 && canLocalClientAuthoritativelyMove(vehicle)
                 && !(fromClientTick && hasUnprovenCurrentTickItemControl(vehicle))
                 && (hasClientObservedServerVehicle() || fromClientTick);
-    }
-
-    public boolean canCurrentPlayerControlServerVehicleForClientTickMovement() {
-        return canServerPlayerVehicleBeLocalAuthoritative();
     }
 
     /**
@@ -607,8 +605,7 @@ public final class CompensatedVehicleState implements Debuggable {
                 && vehicle != null
                 && vehicle == getVelocityMovementVehicle()
                 && (canClientAuthoritativelyMoveVisibleRoot(vehicle)
-                        || player.packetStateData.clientTickVehicleMovePacketsThisClientTick > 0
-                        || player.packetStateData.localAuthoritativeVehicleMovePacketsThisClientTick > 0);
+                        || player.packetStateData.clientTickVehicleMoveThisClientTick);
     }
 
     public boolean canClientAuthoritativelyMoveVisibleRoot(@Nullable PacketEntity vehicle) {

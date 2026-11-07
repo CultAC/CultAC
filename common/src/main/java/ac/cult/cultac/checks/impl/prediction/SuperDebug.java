@@ -328,9 +328,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         }
         if (debugVehicle != null) {
             sb.append("\nRoot vehicle packet state: queuedVehicleTeleports=")
-                    .append(player.getSetbackTeleportUtil().vehicleTeleports().queuedVehicleTeleportCount())
-                    .append(" lastPacketWasTeleport=")
-                    .append(player.packetStateData.lastPacketWasTeleport);
+                    .append(player.getSetbackTeleportUtil().vehicleTeleports().queuedVehicleTeleportCount());
         }
         sb.append("\nBoat data: oldStatus=")
                 .append(player.boatData.oldStatus)
@@ -519,9 +517,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
                 .append(" hasObservedServerVehicle=")
                 .append(player.compensatedEntities.vehicles.hasClientObservedServerVehicle())
                 .append(" canLocalVehicleControl=")
-                .append(
-                        player.compensatedEntities.vehicles
-                                .canCurrentPlayerControlServerVehicleForClientTickMovement());
+                .append(player.compensatedEntities.vehicles.canServerPlayerVehicleBeLocalAuthoritative());
 
         List<Vec3> inputVectors = debugRideableInputVectors(context, vehicle);
         if (!inputVectors.isEmpty()) {
@@ -531,7 +527,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
 
     private List<Vec3> debugRideableInputVectors(SimulationContext context, PacketEntity vehicle) {
         if (!player.packetStateData.isVehicleMovementFromClientTick()
-                || !player.compensatedEntities.vehicles.canCurrentPlayerControlServerVehicleForClientTickMovement()
+                || !player.compensatedEntities.vehicles.canServerPlayerVehicleBeLocalAuthoritative()
                 || EntityTypeUtil.isBoat(vehicle.type)) {
             return List.of();
         }

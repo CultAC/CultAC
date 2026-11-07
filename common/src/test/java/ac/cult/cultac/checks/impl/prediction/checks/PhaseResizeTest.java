@@ -6,9 +6,12 @@ import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.TestUsers;
+import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.math.Vec3;
@@ -138,10 +141,11 @@ class PhaseResizeTest {
     private void move(RecordingPhase phase, Vec3 position) {
         assertFalse(player.getSetbackTeleportUtil().shouldBlockMovement());
         assertFalse(player.checkManager.getSimulationProcessor().isExempt());
+        var packet = new ServerboundMovePlayer(position.x, position.y, position.z, 0, 0, false, false, true, false);
         phase.onMovePlayer(
-                null,
+                new PacketReceiveEvent<>(player.user, ConnectionPhase.PLAY, ServerboundPackets.MOVE_PLAYER, packet),
                 player,
-                new ServerboundMovePlayer(position.x, position.y, position.z, 0, 0, false, false, true, false));
+                packet);
     }
 
     /** Retain the real flag decision while collecting it before alert/setback side effects. */

@@ -42,7 +42,7 @@ public class NoSwingBreak extends Check implements BlockBreakListener {
     @CultPacketHandler
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
-        if (!player.packetStateData.lastPacketWasTeleport) {
+        if (!event.answersTeleport()) {
             onTickPacket();
         }
     }

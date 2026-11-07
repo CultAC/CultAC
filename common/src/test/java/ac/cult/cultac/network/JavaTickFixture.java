@@ -149,7 +149,7 @@ final class JavaTickFixture implements AutoCloseable {
     void input(ServerboundPlayerInput input) {
         var event = event(ServerboundPackets.PLAYER_INPUT, input);
         steer.onPlayerInput(event, player, input);
-        listener.onPlayerInput(event, player, input);
+        CheckManagerListener.receiveGeneric(event, player);
     }
 
     /** One client tick that sends a position: the move and the tick end; the prediction it committed. */
@@ -369,7 +369,7 @@ final class JavaTickFixture implements AutoCloseable {
     void abilities(boolean flying) {
         var packet = new ServerboundPlayerAbilities(flying);
         var event = event(ServerboundPackets.PLAYER_ABILITIES, packet);
-        listener.onPlayerAbilities(event, player, packet);
+        CheckManagerListener.receiveGeneric(event, player);
     }
 
     void command(PlayerCommandAction action) {

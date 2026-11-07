@@ -23,7 +23,7 @@ public class BadPacketsD extends Check implements CheckListener {
     @CultPacketHandler
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
-        if (player.packetStateData.lastPacketWasTeleport) return;
+        if (event.answersTeleport()) return;
 
         if (!packet.hasRotation()) return;
 

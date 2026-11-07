@@ -4,6 +4,7 @@ import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import ac.cult.cultac.checks.impl.packetorder.PacketOrderJ;
+import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSpectatorAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn;
@@ -46,7 +47,7 @@ class PacketOrderJSpectatorTest {
             f.place(STAND, Vec3.ZERO);
             f.tickEnd();
             var spectate = new ServerboundSpectatorAction(target);
-            f.listener.onSpectatorAction(f.event(ServerboundPackets.SPECTATOR_ACTION, spectate), f.player, spectate);
+            CheckManagerListener.receiveGeneric(f.event(ServerboundPackets.SPECTATOR_ACTION, spectate), f.player);
             var use = new ServerboundUseItemOn(
                     Hand.MAIN_HAND, CLICKED, Direction.UP, new Vec3d(0.734, 1.0, 0.357), false, false, 29);
             f.listener.onUseItemOn(f.event(ServerboundPackets.USE_ITEM_ON, use), f.player, use);

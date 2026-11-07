@@ -123,7 +123,7 @@ public final class BedrockPlayerTransportGateTest {
             listener.onMovePlayer(teleport, player, projection);
             assertFalse(teleport.isCancelled());
             assertFalse(teleport.getPacket().onGround());
-            assertFalse(player.packetStateData.lastPacketWasTeleport);
+            assertTrue(teleport.answersTeleport());
 
             gate.clear();
             gate.allowPlayer(true);
@@ -131,6 +131,7 @@ public final class BedrockPlayerTransportGateTest {
             listener.onMovePlayer(nextFrame, player, projection);
             assertFalse(nextFrame.isCancelled());
             assertTrue(nextFrame.getPacket().onGround());
+            assertFalse(nextFrame.answersTeleport());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
@@ -150,8 +151,8 @@ public final class BedrockPlayerTransportGateTest {
             listener.onMovePlayer(unannounced, player, response);
             assertTrue(unannounced.isCancelled());
 
-            ServerboundAcceptTeleportation accept =
-                    new ServerboundAcceptTeleportation(9, new Vec3d(5.0D, 70.0D, 5.0D), 10.0F, 20.0F);
+            // Before 26.3 the wire carries an ID-only acknowledgement, and Geyser's teleport PosRot follows it.
+            ServerboundAcceptTeleportation accept = new ServerboundAcceptTeleportation(9, null, 0.0F, 0.0F);
             listener.onAcceptTeleportation(RecordReceiveTestEvents.teleport(player, accept), player, accept);
             PacketReceiveEvent<ServerboundMovePlayer> answered = receiveEvent(player, response);
             listener.onMovePlayer(answered, player, response);
@@ -164,6 +165,28 @@ public final class BedrockPlayerTransportGateTest {
             PacketReceiveEvent<ServerboundMovePlayer> repeated = receiveEvent(player, response);
             listener.onMovePlayer(repeated, player, response);
             assertTrue(repeated.isCancelled());
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    @Test
+    public void geyserPositionedAcknowledgementLeavesTheNextProjectionGated() {
+        OfflineCultTestBootstrap.installConfig();
+        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            seedSetbackAnchor(player, new Vec3(0.5D, 64.0D, 0.5D));
+            CheckManagerListener listener = new CheckManagerListener();
+            // Geyser's JavaPlayerPositionTranslator#acceptTeleport answers a 26.3 teleport with this acknowledgement
+            // alone; no PosRot follows it, so the next projection is an ordinary auth frame's.
+            ServerboundAcceptTeleportation accept =
+                    new ServerboundAcceptTeleportation(9, new Vec3d(5.0D, 70.0D, 5.0D), 10.0F, 20.0F);
+            listener.onAcceptTeleportation(RecordReceiveTestEvents.teleport(player, accept), player, accept);
+            ServerboundMovePlayer projection =
+                    new ServerboundMovePlayer(5.0D, 70.0D, 5.0D, 10.0F, 20.0F, true, false, true, true);
+            PacketReceiveEvent<ServerboundMovePlayer> unpermitted = receiveEvent(player, projection);
+            listener.onMovePlayer(unpermitted, player, projection);
+            assertTrue(unpermitted.isCancelled());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }

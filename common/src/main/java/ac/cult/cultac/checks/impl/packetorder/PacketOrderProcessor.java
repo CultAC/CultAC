@@ -189,7 +189,7 @@ public final class PacketOrderProcessor extends Check implements DecodedPacketRe
     @CultPacketHandler
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
-        maybeReset(player, !player.packetStateData.lastPacketWasTeleport);
+        maybeReset(player, !event.answersTeleport());
     }
 
     // isTickPacket: tick end resets for 1.21.2+ clients when no movement arrived this client tick

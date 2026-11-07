@@ -87,7 +87,7 @@ public class PacketOrderD extends Check implements CheckListener {
     @CultPacketHandler
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
-        if (!player.packetStateData.lastPacketWasTeleport) {
+        if (!event.answersTeleport()) {
             sentMainhand = false;
         }
     }
