@@ -54,7 +54,7 @@ class JavaSneakIntoBoatTest {
             f.player
                     .compensatedEntities
                     .getEntity(BOAT)
-                    .onFirstTransaction(false, true, PASSING_TO.x, PASSING_TO.y, PASSING_TO.z, f.player);
+                    .onBundleFirstTransaction(false, true, PASSING_TO.x, PASSING_TO.y, PASSING_TO.z, f.player);
             assertRejected(walk(f), "NoSneakSlow");
         }
     }

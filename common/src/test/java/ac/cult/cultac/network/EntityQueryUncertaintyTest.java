@@ -13,24 +13,19 @@ import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.checks.impl.scaffolding.FarPlace;
-import ac.cult.cultac.events.packets.PacketEntityReplication;
 import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.packet.PacketCodecUtil;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.player.PlayerObserver;
-import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketType;
-import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
-import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveEntity;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
-import ac.cult.cultac.protocol.value.EntityDelta;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -92,7 +87,8 @@ class EntityQueryUncertaintyTest {
                 DRAGON, EntityTypes.defaults().byKey("minecraft:ender_dragon").id(), new Vec3(60, 100, 60), 0, 0, 0);
         player.packetStateData.clientSidePosition = STANDING;
 
-        var event = dispatch(ServerboundPackets.USE_ITEM, new ServerboundUseItem(Hand.MAIN_HAND, 7, player.xRot, player.yRot));
+        var event = dispatch(
+                ServerboundPackets.USE_ITEM, new ServerboundUseItem(Hand.MAIN_HAND, 7, player.xRot, player.yRot));
 
         assertFalse(event.isCancelled());
         assertEquals(7, lastForwarded(), "the reconciler records the forwarded sequence");
@@ -167,24 +163,21 @@ class EntityQueryUncertaintyTest {
         assertFalse(player.isClientUsingItem());
     }
 
-    /** A cow whose candidates straddle PLACED once its move's first transaction is answered and before the next one. */
+    /** A cow whose candidates straddle PLACED between the two halves of its move. */
     private void straddlingCow(Vec3 standing) throws Exception {
         JavaTickFixture.setField(CultPlayer.class, player, "resolvedClientVersion", ClientVersion.V_1_21_11);
-        JavaTickFixture.setField(
-                PacketEntityReplication.class, player.packetEntityReplication, "useReachBundleDelimiter", false);
         int stone = DataTables.defaults().registry().block("minecraft:stone").defaultState();
         player.compensatedWorld.updateBlock(CLICKED.getX(), CLICKED.getY(), CLICKED.getZ(), stone);
         stand(standing);
         hold("minecraft:stone", 16);
         player.packetEntityReplication.addEntity(
                 COW, EntityTypeIds.COW, new Vec3(1.6, JavaTickFixture.FLOOR_Y, 1.6), 0, 0, 0, -1);
-        var move = new ClientboundMoveEntity(
-                COW, new EntityDelta.Linear((short) 0, (short) 0, (short) -4506), 0.0F, 0.0F, true, true, false);
-        var sent = new PacketSendEvent<>(
-                fixture.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.MOVE_ENTITY, move, false);
-        player.packetEntityReplication.onMoveEntity(sent, player, move);
-        sent.getTasksAfterSend().forEach(Runnable::run);
         fixture.pongThrough(player.lastTransactionSent.get());
+        // The client handles the cow's move in this tick or the next: its first half applies, its second does not.
+        double movedZ = PacketCodecUtil.decodeRelativeEntityCoordinate(1.6, -4506L);
+        player.compensatedEntities
+                .getEntity(COW)
+                .onBundleFirstTransaction(false, true, 1.6, JavaTickFixture.FLOOR_Y, movedZ, player);
         fixture.tick(standing, true);
         var candidates = player.compensatedEntities.getEntity(COW).getPossibleMovementCollisionBoxCandidates();
         var cell = new SimpleCollisionBox(PLACED);
@@ -206,7 +199,9 @@ class EntityQueryUncertaintyTest {
     }
 
     private void hold(String item, int count) {
-        player.getInventory().inventory.getInventoryStorage()
+        player.getInventory()
+                .inventory
+                .getInventoryStorage()
                 .setItem(Inventory.HOTBAR_OFFSET, ItemUtil.modelItems().stack(item, count));
         player.getInventory().selectHotbarSlot(0);
     }
@@ -220,7 +215,8 @@ class EntityQueryUncertaintyTest {
         PacketReceiveEvent<T> event = fixture.event(type, packet);
         player.packetStateData.lastPacketMatchedTeleportPosition = true;
         try (var reported = new ReportedFailures()) {
-            fixture.fixture.registrar.receive(event, fixture.fixture.registrar.get(type).receive());
+            fixture.fixture.registrar.receive(
+                    event, fixture.fixture.registrar.get(type).receive());
             reported.assertNone();
         }
         assertFalse(player.packetStateData.lastPacketMatchedTeleportPosition, "the transient packet state is cleared");

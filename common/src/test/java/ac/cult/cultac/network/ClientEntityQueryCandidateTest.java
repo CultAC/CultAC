@@ -190,7 +190,7 @@ class ClientEntityQueryCandidateTest {
             assertTrue(first.size() >= 3, first.toString());
             assertEquals(new HashSet<>(first).size(), first.size(), "no duplicate boxes");
             queries.playerCollisionBoxes(new Box(0.6, Y, 1.1, 1.4, Y + 1, 1.9));
-            boat.onFirstTransaction(true, true, 0.4, 0, 0.3, f.player);
+            boat.onBundleFirstTransaction(true, true, 0.4, 0, 0.3, f.player);
             boat.onMovement(f.player, true);
             queries.playerCollisionBoxes(NEAR);
             assertEquals(copy, first);
@@ -216,7 +216,7 @@ class ClientEntityQueryCandidateTest {
         entities.addEntity(id, type, at, 0, 0, 0);
         var entity = entities.getEntity(id);
         for (int i = 0; i < moves; i++) {
-            entity.onFirstTransaction(true, true, 0.15 * (i + 1), 0.0, -0.1 * (i + 1), f.player);
+            entity.onBundleFirstTransaction(true, true, 0.15 * (i + 1), 0.0, -0.1 * (i + 1), f.player);
             entity.onMovement(f.player, true);
         }
         return entity;
@@ -259,7 +259,7 @@ class ClientEntityQueryCandidateTest {
                 ((PacketEntityPlayer) entity).actionPresent = random.nextInt(5) > 0;
                 int moves = random.nextInt(3);
                 for (int m = 0; m < moves; m++) {
-                    entity.onFirstTransaction(
+                    entity.onBundleFirstTransaction(
                             true, true, random.nextDouble() - .5, 0, random.nextDouble() - .5, f.player);
                     entity.onMovement(f.player, true);
                 }

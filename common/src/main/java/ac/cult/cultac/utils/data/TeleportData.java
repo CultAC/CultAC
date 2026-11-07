@@ -28,6 +28,14 @@ public class TeleportData {
         return bedrockOperation == null ? BedrockTeleportProvenance.GEYSER : bedrockOperation.provenance();
     }
 
+    /**
+     * Whether this teleport's answer can complete a Cult setback: any Java teleport, and on Bedrock only Cult's own
+     * emission. A teleport Geyser or GFP emitted never answers Cult's setback.
+     */
+    public boolean mayCompleteCultSetback() {
+        return bedrockTransportRevision < 0L || getBedrockProvenance() == BedrockTeleportProvenance.CULT_SETBACK;
+    }
+
     Vec3 location;
     RelativeFlag flags;
     Vec3 deltaMovement;
@@ -69,9 +77,6 @@ public class TeleportData {
     Boolean bedrockOnGround;
 
     @Setter
-    boolean bedrockTransportOnly;
-
-    @Setter
     long bedrockTransportRevision;
 
     public TeleportData(Vec3 location, RelativeFlag flags, Vec3 deltaMovement, int transaction, int teleportId) {
@@ -102,7 +107,6 @@ public class TeleportData {
         this.sentWhileVehicle = false;
         this.sentDuringVehicleDismount = false;
         this.bedrockOnGround = null;
-        this.bedrockTransportOnly = false;
         this.bedrockTransportRevision = -1L;
     }
 
@@ -122,7 +126,6 @@ public class TeleportData {
         copy.sentWhileVehicle = sentWhileVehicle;
         copy.sentDuringVehicleDismount = sentDuringVehicleDismount;
         copy.bedrockOnGround = bedrockOnGround;
-        copy.bedrockTransportOnly = bedrockTransportOnly;
         copy.bedrockTransportRevision = bedrockTransportRevision;
         copy.bedrockOperation = bedrockOperation;
         return copy;

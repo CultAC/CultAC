@@ -108,8 +108,6 @@ public class PacketEntity {
     public ReachInterpolationData newPacketLocation;
     // Set by an unproven receipt, fold, teleport, far sync, seat placement or uncertain vehicle; holds for life.
     private boolean trackedPositionInexact;
-    // Unbundled position paths received but not yet proven by the transaction after them.
-    private int unprovenUnbundledPaths;
     private long clientTickOrder = Long.MAX_VALUE;
     // Reused: valid only until the client tick that computed it applies it.
     private SimpleCollisionBox exactAfterClientTickBox;
@@ -153,7 +151,6 @@ public class PacketEntity {
         this.desyncClientPos = spawnPosition;
         this.clientPhysicalPosition = spawnPosition;
         SimpleCollisionBox spawnBox = GetBoundingBox.getPacketEntityBoundingBox(cultPlayer, x, y, z, this);
-        boolean ridingInVehicle = cultPlayer.compensatedEntities.getSelf().inVehicle();
         this.newPacketLocation = ReachInterpolationData.takingStart(
                 cultPlayer,
                 spawnBox,
@@ -164,9 +161,7 @@ public class PacketEntity {
                 clientPhysicalPitch,
                 clientPhysicalYaw,
                 clientPhysicalPitch,
-                !ridingInVehicle,
-                this,
-                false);
+                this);
     }
 
     public int getType() {
@@ -218,50 +213,6 @@ public class PacketEntity {
         return type == EntityTypeIds.STRIDER;
     }
 
-    // Set the old packet location to the new one
-    // Set the new packet location to the updated packet location
-    public void onFirstTransaction(
-            boolean relative, boolean hasPos, double relX, double relY, double relZ, CultPlayer player) {
-        onFirstTransaction(relative, hasPos, relX, relY, relZ, false, 0.0F, false, 0.0F, player, true);
-    }
-
-    public void onFirstTransaction(
-            boolean relative,
-            boolean hasPos,
-            double relX,
-            double relY,
-            double relZ,
-            @Nullable Float yaw,
-            @Nullable Float pitch,
-            CultPlayer player) {
-        onFirstTransaction(
-                relative,
-                hasPos,
-                relX,
-                relY,
-                relZ,
-                yaw != null,
-                yaw != null ? yaw : 0.0F,
-                pitch != null,
-                pitch != null ? pitch : 0.0F,
-                player,
-                true);
-    }
-
-    /** The yaw and pitch apply only when {@code hasRotation}. */
-    public void onFirstTransaction(
-            boolean relative,
-            boolean hasPos,
-            double relX,
-            double relY,
-            double relZ,
-            boolean hasRotation,
-            float yaw,
-            float pitch,
-            CultPlayer player) {
-        onFirstTransaction(relative, hasPos, relX, relY, relZ, hasRotation, yaw, hasRotation, pitch, player, true);
-    }
-
     public void onBundleFirstTransaction(
             boolean relative, boolean hasPos, double relX, double relY, double relZ, CultPlayer player) {
         onBundleFirstTransaction(relative, hasPos, relX, relY, relZ, null, null, player);
@@ -280,7 +231,7 @@ public class PacketEntity {
         // sub-packets in order, so the trailing ping's pong proves the handler
         // applied this movement before the client's next tick; the caller drops
         // the old packet box with onSecondTransaction at that same pong.
-        onFirstTransaction(
+        startInterpolation(
                 relative,
                 hasPos,
                 relX,
@@ -290,8 +241,7 @@ public class PacketEntity {
                 yaw != null ? yaw : 0.0F,
                 pitch != null,
                 pitch != null ? pitch : 0.0F,
-                player,
-                false);
+                player);
     }
 
     /** The yaw and pitch apply only when {@code hasRotation}. */
@@ -305,10 +255,11 @@ public class PacketEntity {
             float yaw,
             float pitch,
             CultPlayer player) {
-        onFirstTransaction(relative, hasPos, relX, relY, relZ, hasRotation, yaw, hasRotation, pitch, player, false);
+        startInterpolation(relative, hasPos, relX, relY, relZ, hasRotation, yaw, hasRotation, pitch, player);
     }
 
-    private void onFirstTransaction(
+    /** The interpolation toward a handled move; the caller drops the old one once the move is certain. */
+    private void startInterpolation(
             boolean relative,
             boolean hasPos,
             double relX,
@@ -318,8 +269,7 @@ public class PacketEntity {
             float yaw,
             boolean hasPitch,
             float pitch,
-            CultPlayer player,
-            boolean uncertainInitialSteps) {
+            CultPlayer player) {
         applyEntityPositionUpdate(relative, hasPos, relX, relY, relZ);
         if (desyncClientPos == null) {
             return;
@@ -337,7 +287,6 @@ public class PacketEntity {
                 ? GetBoundingBox.getPacketEntityBoundingBox(
                         interpolationStart(), player, desyncClientPos.x, desyncClientPos.y, desyncClientPos.z, this)
                 : interpolationStartingLocation(player, interpolationStart());
-        boolean ridingInVehicle = player.compensatedEntities.getSelf().inVehicle();
         ReachInterpolationData dropped = oldPacketLocation;
         this.oldPacketLocation = newPacketLocation;
         this.newPacketLocation = nextInterpolation(
@@ -349,9 +298,7 @@ public class PacketEntity {
                 placed ? targetYaw : clientPhysicalYaw,
                 placed ? targetPitch : clientPhysicalPitch,
                 targetYaw,
-                targetPitch,
-                !ridingInVehicle,
-                uncertainInitialSteps);
+                targetPitch);
         recycleInterpolation(dropped);
         trackedPositionInexact = true;
         keepPositionCertainty();
@@ -387,8 +334,7 @@ public class PacketEntity {
             boolean hasPosition,
             @Nullable Float yaw,
             @Nullable Float pitch,
-            CultPlayer player,
-            boolean bundled) {
+            CultPlayer player) {
         onPositionPath(
                 path,
                 hasPosition,
@@ -396,8 +342,7 @@ public class PacketEntity {
                 yaw != null ? yaw : 0.0F,
                 pitch != null,
                 pitch != null ? pitch : 0.0F,
-                player,
-                bundled);
+                player);
     }
 
     /** The yaw and pitch apply only when {@code hasRotation}. */
@@ -407,9 +352,8 @@ public class PacketEntity {
             boolean hasRotation,
             float yaw,
             float pitch,
-            CultPlayer player,
-            boolean bundled) {
-        onPositionPath(path, hasPosition, hasRotation, yaw, hasRotation, pitch, player, bundled);
+            CultPlayer player) {
+        onPositionPath(path, hasPosition, hasRotation, yaw, hasRotation, pitch, player);
     }
 
     private void onPositionPath(
@@ -419,8 +363,7 @@ public class PacketEntity {
             float yaw,
             boolean hasPitch,
             float pitch,
-            CultPlayer player,
-            boolean bundled) {
+            CultPlayer player) {
         if (hasPosition) desyncClientPos = path.endPosition();
         if (skipsInterpolation(player)) {
             setPositionRaw(
@@ -443,9 +386,7 @@ public class PacketEntity {
                     clientPhysicalPitch,
                     clientPhysicalYaw,
                     clientPhysicalPitch,
-                    false,
-                    this,
-                    false);
+                    this);
         }
         if (newPacketLocation != null && newPacketLocation.usesSteppedInterpolation()) {
             float targetYaw = interpolationTargetYaw(hasYaw, yaw);
@@ -456,46 +397,26 @@ public class PacketEntity {
                             newPacketLocation.hasActiveInterpolationTarget()
                                     ? newPacketLocation.targetPosition()
                                     : clientPhysicalPosition);
-            if (bundled) {
-                oldPacketLocation = null;
-            } else {
-                oldPacketLocation = newPacketLocation;
-                newPacketLocation = newPacketLocation.copy();
-            }
+            oldPacketLocation = null;
             // Starting/appending an interpolation records the entity's physical transform,
             // including its current passenger attachment, as the next delta reference.
             newPacketLocation.setPhysicalBeforePathAppend(
                     actualPath, targetYaw, targetPitch, clientPhysicalPosition, clientPhysicalYaw, clientPhysicalPitch);
             newPacketLocation.appendPath(actualPath, targetYaw, targetPitch);
-            if (!bundled) unprovenUnbundledPaths++;
             keepPositionCertainty();
             return;
         }
-        if (bundled)
-            onBundleTransaction(
-                    false,
-                    hasPosition,
-                    path.endPosition().x,
-                    path.endPosition().y,
-                    path.endPosition().z,
-                    hasYaw,
-                    yaw,
-                    hasPitch,
-                    pitch,
-                    player);
-        else
-            onFirstTransaction(
-                    false,
-                    hasPosition,
-                    path.endPosition().x,
-                    path.endPosition().y,
-                    path.endPosition().z,
-                    hasYaw,
-                    yaw,
-                    hasPitch,
-                    pitch,
-                    player,
-                    true);
+        onBundleTransaction(
+                false,
+                hasPosition,
+                path.endPosition().x,
+                path.endPosition().y,
+                path.endPosition().z,
+                hasYaw,
+                yaw,
+                hasPitch,
+                pitch,
+                player);
     }
 
     private void applyEntityPositionUpdate(boolean relative, boolean hasPos, double relX, double relY, double relZ) {
@@ -595,9 +516,7 @@ public class PacketEntity {
                 clientPhysicalYaw,
                 clientPhysicalPitch,
                 targetYaw,
-                targetPitch,
-                !player.compensatedEntities.getSelf().inVehicle(),
-                false);
+                targetPitch);
         recycleInterpolation(replaced);
         keepPositionCertainty();
     }
@@ -731,27 +650,6 @@ public class PacketEntity {
         return interpolationStart;
     }
 
-    public void onBundledPositionSyncTransaction(double x, double y, double z, CultPlayer player) {
-        onBundledPositionSyncTransaction(x, y, z, null, null, player);
-    }
-
-    public void onBundledPositionSyncTransaction(
-            double x, double y, double z, @Nullable Float yaw, @Nullable Float pitch, CultPlayer player) {
-        // MCP-Reborn ClientPacketListener#handleEntityPositionSync calls
-        // moveOrInterpolateTo for normal active entities. ClientLevel#isTickingEntity
-        // is membership in EntityTickList, not "currently inside this entity's
-        // tick", so nearby tracked entities keep their current box until their
-        // interpolation tick runs. The post-packet bundle ping proves the handler
-        // ran, not that interpolation has advanced.
-        onBundleTransaction(false, true, x, y, z, yaw, pitch, player);
-    }
-
-    /** The yaw and pitch apply only when {@code hasRotation}. */
-    public void onBundledPositionSyncTransaction(
-            double x, double y, double z, boolean hasRotation, float yaw, float pitch, CultPlayer player) {
-        onBundleTransaction(false, true, x, y, z, hasRotation, yaw, hasRotation, pitch, player);
-    }
-
     // Remove the possibility of the old packet location
     public void onSecondTransaction() {
         ReachInterpolationData dropped = oldPacketLocation;
@@ -780,60 +678,16 @@ public class PacketEntity {
             float currentYaw,
             float currentPitch,
             float targetYaw,
-            float targetPitch,
-            boolean isPointNine,
-            boolean uncertainInitialSteps) {
+            float targetPitch) {
         ReachInterpolationData spare = spareInterpolation;
         spareInterpolation = null;
         if (spare != null
                 && spare.restart(
-                        player,
-                        startingLocation,
-                        x,
-                        y,
-                        z,
-                        currentYaw,
-                        currentPitch,
-                        targetYaw,
-                        targetPitch,
-                        isPointNine,
-                        this,
-                        uncertainInitialSteps)) {
+                        player, startingLocation, x, y, z, currentYaw, currentPitch, targetYaw, targetPitch, this)) {
             return spare;
         }
         return ReachInterpolationData.takingStart(
-                player,
-                startingLocation.copy(),
-                x,
-                y,
-                z,
-                currentYaw,
-                currentPitch,
-                targetYaw,
-                targetPitch,
-                isPointNine,
-                this,
-                uncertainInitialSteps);
-    }
-
-    public int unprovenUnbundledPaths() {
-        return unprovenUnbundledPaths;
-    }
-
-    /**
-     * The transaction after an unbundled position path proves the client handled it. With no client tick since the one
-     * before it, the client handled the path between the same two client ticks as both pings.
-     */
-    public void onUnbundledPathProven() {
-        if (unprovenUnbundledPaths > 0) unprovenUnbundledPaths--;
-    }
-
-    /**
-     * Minecraft#runTick handles queued packets before each frame's client ticks, so a client tick between an unbundled
-     * path's two transactions leaves the path handled before or after that tick.
-     */
-    private void tickWithUnprovenUnbundledPath() {
-        if (unprovenUnbundledPaths > 0) markPositionInexact();
+                player, startingLocation.copy(), x, y, z, currentYaw, currentPitch, targetYaw, targetPitch, this);
     }
 
     /** Entity data replacing the pose, which the client has applied once it answers provenAt. */
@@ -912,14 +766,16 @@ public class PacketEntity {
     // If the old and new packet location are split, we need to combine bounding boxes
     public void onMovement(CultPlayer player, boolean tickingReliably) {
         if (player.isBedrockMovement() && bedrockRuntimeId != -1) {
-            if (bedrockInterpolation != null) bedrockInterpolation.tick(player, this);
+            if (bedrockInterpolation != null) {
+                bedrockInterpolation.tick(player, this);
+                if (bedrockInterpolation.idle()) bedrockInterpolation = null;
+            }
             if (isBoat() && bedrockPrediction != null) {
                 ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState.rebase(
                         this, player.getSetbackTeleportUtil().getActiveBedrockCoordinateFrame());
             }
             return;
         }
-        tickWithUnprovenUnbundledPath();
         ReachInterpolationData interpolation = newPacketLocation;
         Vec3 physicalBefore = clientPhysicalPosition;
         boolean idleProbe = false;
@@ -990,7 +846,6 @@ public class PacketEntity {
      * LivingEntity#aiStep reaches travelRidden. Covers 26.3's stepped interpolation and a boat's LinearInterpolationHandler.
      */
     public void interpolateBeforeLocalTravel(CultPlayer player) {
-        tickWithUnprovenUnbundledPath();
         if (!hasActiveLocalRootInterpolation()) {
             return;
         }
@@ -1030,7 +885,6 @@ public class PacketEntity {
 
     private void tickPacketInterpolationPreservingPhysical(
             CultPlayer player, Vec3 physicalPosition, float physicalYaw, float physicalPitch, boolean carryTarget) {
-        tickWithUnprovenUnbundledPath();
         if (carryTarget) {
             carryInterpolationTargetByLocalPhysics(player);
         }
@@ -1467,7 +1321,6 @@ public class PacketEntity {
         return riding == null
                 && received >= dataProvenAt
                 && !hasInexactPosition()
-                && unprovenUnbundledPaths == 0
                 && replacedPoses == 0
                 && Float.isNaN(replacedScale)
                 && getExactMovementCollisionBox() != null;

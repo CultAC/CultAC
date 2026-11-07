@@ -86,7 +86,7 @@ class JavaEntityPushTest {
     void anEntityTickingAfterThePlayerPushesFromWhereItsInterpolationStepLeftIt() throws Exception {
         try (var f = falling()) {
             PacketEntity entity = entity(f, 100, STEPPING_FROM);
-            entity.onFirstTransaction(true, true, 0, 0, STEPPING_DZ, f.player);
+            entity.onBundleFirstTransaction(true, true, 0, 0, STEPPING_DZ, f.player);
             entity.onSecondTransaction();
 
             PredictionResult first = f.tick(START.add(0, FIRST_FALL, 0), false);
@@ -576,7 +576,7 @@ class JavaEntityPushTest {
     void aLivingRiderOfAVehicleWithAnUncertainPositionMayPushFromAnySeat() throws Exception {
         try (var f = falling()) {
             PacketEntity vehicle = entity(f, 100, BELOW_TOUCHING);
-            vehicle.onFirstTransaction(true, true, 0, 0, 2.0, f.player);
+            vehicle.onBundleFirstTransaction(true, true, 0, 0, 2.0, f.player);
             seatSlime(f, vehicle);
 
             PredictionResult contact = f.tick(START.add(0, FIRST_FALL, 0), false);
@@ -597,14 +597,15 @@ class JavaEntityPushTest {
             f.input(NONE);
             PacketEntity entity = entity(f, 100, SNAP_FROM);
             assertExact(f.tick(STANDING, true));
-            entity.onFirstTransaction(true, true, SNAP_STEPPING_DX, 0, 0, f.player);
+            entity.onBundleFirstTransaction(true, true, SNAP_STEPPING_DX, 0, 0, f.player);
             entity.onSecondTransaction();
             assertExact(f.tick(STANDING, true));
 
             positionSync(f, 100, SNAPPED);
             assertExact(f.tick(STANDING, true));
             assertExact(f.tick(STANDING, true));
-            assertExact(f.tick(STANDING.add(-pushFrom(SNAPPED.x + 2.0 / 3.0 * SNAP_STEPPING_DX - STANDING.x), 0, 0), true));
+            assertExact(
+                    f.tick(STANDING.add(-pushFrom(SNAPPED.x + 2.0 / 3.0 * SNAP_STEPPING_DX - STANDING.x), 0, 0), true));
         }
     }
 

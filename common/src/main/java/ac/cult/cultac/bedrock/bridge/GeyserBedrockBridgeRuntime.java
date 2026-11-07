@@ -616,6 +616,8 @@ public final class GeyserBedrockBridgeRuntime {
         private final GeyserPoseConfirmations poses = new GeyserPoseConfirmations();
         private final GeyserVehicleAttributes vehicleAttributes = new GeyserVehicleAttributes();
         private final GeyserEntityPositions entityPositions = new GeyserEntityPositions();
+        // A packet carrying entity updates no latency marker has followed yet; the next flush writes one.
+        private BedrockPacketWrapper entityUpdateSource;
         private final GeyserEntityAttributes entityAttributes = new GeyserEntityAttributes();
         private final GeyserMovementEffectAcks glideBoostAcks = new GeyserMovementEffectAcks();
         private final ac.cult.cultac.bedrock.player.BedrockLoadingScreenState loadingScreen =
@@ -1480,6 +1482,19 @@ public final class GeyserBedrockBridgeRuntime {
             if (failure[0] != null) throw failure[0];
         }
 
+        /** A flush that carries entity updates ends with the latency marker that proves them, in the same batch. */
+        @Override
+        public void flush(ChannelHandlerContext context) throws Exception {
+            BedrockPacketWrapper source = owner.entityUpdateSource;
+            if (source != null && !owner.detached.get()) {
+                owner.entityUpdateSource = null;
+                if (owner.entityPositions.hasPending() || owner.entityAttributes.hasPending()) {
+                    inModel(owner.currentPlayer(), () -> owner.writeLatencyBoundary(context, source, player -> {}));
+                }
+            }
+            super.flush(context);
+        }
+
         private void writeTapped(
                 ChannelHandlerContext context, Object message, BedrockPacketWrapper wrapper, ChannelPromise promise)
                 throws Exception {
@@ -1689,6 +1704,9 @@ public final class GeyserBedrockBridgeRuntime {
             var replayUpdate = normalizedVehicleEffect ? null : GeyserReplayUpdate.capture(packet);
             if (observedPlayer != null && replayUpdate != null) {
                 owner.entityAttributes.capture(owner.connection, observedPlayer, replayUpdate);
+            }
+            if (owner.entityPositions.hasPending() || owner.entityAttributes.hasPending()) {
+                owner.entityUpdateSource = wrapper;
             }
             if (packet instanceof CorrectPlayerMovePredictionPacket correction) {
                 writeMovementCorrection(context, message, promise, wrapper, correction, emission);

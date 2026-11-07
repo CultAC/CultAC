@@ -16,9 +16,13 @@ import org.geysermc.geyser.session.GeyserSession;
 
 /** Reads final entity transforms; the shared entity tracker remains their only consumer. */
 final class GeyserEntityPositions {
+    // Bedrock 1.26.60: only projectiles and physics actors play back.
+    private static final int PLAYBACK_LIMITED_PROTOCOL = 2225;
     // Partial packets refer to the last written position, which may not be acknowledged yet.
     private final Map<Long, Position> written = new HashMap<>();
-    private final ArrayList<Runnable> pending = new ArrayList<>();
+    // Updates written since the last latency marker; the next marker proves them.
+    private ArrayList<Runnable> pending = new ArrayList<>();
+    private long moves;
 
     static boolean hasPosition(BedrockPacket packet) {
         return packet instanceof AddEntityPacket
@@ -136,22 +140,38 @@ final class GeyserEntityPositions {
         Vec3 feet = coordinates.toWorld(new Vec3(position.getX(), position.getY() - offset, position.getZ()));
         Vec3 spawnVelocity = motion == null ? null : new Vec3(motion.getX(), motion.getY(), motion.getZ());
         boolean moveLocal = forceLocal;
-        boolean complete = forceCompletion;
+        long sequence = ++moves;
+        var move = new BedrockEntityInterpolation.Move(
+                new BedrockEntityInterpolation.Target(world, yaw, pitch, offset, forceCompletion), teleport);
+        boolean playsBack = playsBack(session, translated);
+        if (!spawn && !moveLocal) {
+            // The client may handle the move once it has answered the marker written before it.
+            player.addBedrockTransactionTask(
+                    player.getLastClientboundBedrockTransaction(),
+                    () -> player.latencyUtils.addRealTimeTask(creationTransaction, () -> {
+                        PacketEntity entity = player.compensatedEntities.getEntity(javaId);
+                        if (entity == null || entity.bedrockRuntimeId != runtimeId || placedDirectly(player, entity))
+                            return;
+                        interpolation(entity, playsBack).begin(player, entity, sequence, move);
+                    }));
+        }
+        // The marker written after the move proves the client handled it.
         pending.add(() -> player.latencyUtils.addRealTimeTask(creationTransaction, () -> {
             PacketEntity entity = player.compensatedEntities.getEntity(javaId);
             if (entity == null || !spawn && entity.bedrockRuntimeId != runtimeId) return;
             if (spawn) entity.bedrockRuntimeId = runtimeId;
             if (spawnVelocity != null) entity.deltaMovement = spawnVelocity;
             if (entity == BedrockVehicleControl.controlledVehicle(player) && !spawn && !moveLocal) return;
-            if (!spawn
-                    && (teleport || moveLocal)
-                    && entity == player.compensatedEntities.getSelf().getRiding()) {
+            boolean ridden = entity == player.compensatedEntities.getSelf().getRiding();
+            if (!spawn && (teleport || moveLocal) && ridden) {
                 player.checkManager
                         .getListener(ac.cult.cultac.checks.impl.bedrock.BedrockMovement.class)
                         .onVehicleTeleport();
             }
             entity.onGround = ground;
-            if (teleport || moveLocal || !entity.isLivingEntity() && !entity.isBoat()) {
+            // A spawn and a forced local move place the actor. The player's own vehicle keeps snapping on a
+            // teleport for the ride's prediction; every other actor lerps or plays back as its client does.
+            if (spawn || moveLocal || ridden && teleport) {
                 entity.bedrockInterpolation = null;
                 entity.oldPacketLocation = null;
                 entity.setPositionRaw(
@@ -163,19 +183,48 @@ final class GeyserEntityPositions {
                             entity, player.getSetbackTeleportUtil().getActiveBedrockCoordinateFrame());
                 }
             } else {
-                var target = new BedrockEntityInterpolation.Target(world, yaw, pitch, offset, complete);
-                if (entity.bedrockInterpolation == null)
-                    entity.bedrockInterpolation = new BedrockEntityInterpolation(target);
-                else entity.bedrockInterpolation.update(target);
+                interpolation(entity, playsBack).settle(player, entity, sequence, move);
             }
         }));
-        if (pending.size() > 8192) throw new IllegalStateException("Entity updates lack a latency boundary");
+    }
+
+    /** The interpolation of {@code entity}, from where it is shown now when it has none. */
+    private static BedrockEntityInterpolation interpolation(PacketEntity entity, boolean playsBack) {
+        if (entity.bedrockInterpolation == null) {
+            entity.bedrockInterpolation = new BedrockEntityInterpolation(entity, entity.isAvatar(), playsBack);
+        }
+        return entity.bedrockInterpolation;
+    }
+
+    // The player's own ride is placed directly when the move is proven, not interpolated in two halves.
+    private static boolean placedDirectly(CultPlayer player, PacketEntity entity) {
+        return entity == BedrockVehicleControl.controlledVehicle(player)
+                || entity == player.compensatedEntities.getSelf().getRiding();
+    }
+
+    /**
+     * Whether the client draws the actor by time-based playback: every mob and other non-player actor up to 26.52
+     * unless Mojang's flighting turns it off, and from 26.60 the actors whose predicted-movement gate is set, such as
+     * arrows, tridents and falling blocks. Minecarts, end crystals and boats lerp. Other non-living actors are counted
+     * as playing back, which can only widen reach.
+     */
+    private static boolean playsBack(GeyserSession session, org.geysermc.geyser.entity.type.Entity translated) {
+        if (translated instanceof org.geysermc.geyser.entity.type.player.AvatarEntity) return false;
+        if (session.protocolVersion() < PLAYBACK_LIMITED_PROTOCOL) return true;
+        return !(translated instanceof org.geysermc.geyser.entity.type.LivingEntity)
+                && !(translated instanceof org.geysermc.geyser.entity.type.BoatEntity)
+                && !(translated instanceof org.geysermc.geyser.entity.type.MinecartEntity)
+                && !(translated instanceof org.geysermc.geyser.entity.type.EnderCrystalEntity);
+    }
+
+    boolean hasPending() {
+        return !pending.isEmpty();
     }
 
     void boundary(CultPlayer player, CultPlayer.BedrockTransaction transaction) {
         if (pending.isEmpty() || transaction == null) return;
-        var batch = java.util.List.copyOf(pending);
-        pending.clear();
+        var batch = pending;
+        pending = new ArrayList<>();
         player.addBedrockTransactionTask(transaction, () -> batch.forEach(Runnable::run));
     }
 

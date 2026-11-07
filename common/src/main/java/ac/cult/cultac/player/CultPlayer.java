@@ -1875,7 +1875,6 @@ public class CultPlayer implements GrimUser {
     /** An estimated server tick boundary: ends this tick and starts the next. Owner thread only. */
     public void onServerTickEnd() {
         onEndOfTickEvent();
-        packetEntityReplication.tickStartTick();
     }
 
     public void onEndOfTickEvent() {

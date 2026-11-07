@@ -460,7 +460,7 @@ public final class PacketPlayerRespawnLifecycleTest {
             PredictionResult tick = mock(PredictionResult.class);
             when(tick.getSimulationContext()).thenReturn(gliding);
             player.compensatedFireworks.onPredictionComplete(new PredictionComplete(tick));
-            player.compensatedFireworks.removalSent(List.of(8), player.lastTransactionSent.get() + 1);
+            player.compensatedFireworks.removalHandled(List.of(8), player.lastTransactionSent.get() + 1);
             ClientboundLogin login = loginPacket(true);
             var loginEvent = sendEvent(player, ClientboundPackets.LOGIN, login);
             int receipt = player.lastTransactionSent.get() + 1;

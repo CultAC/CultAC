@@ -10,7 +10,6 @@ import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.network.PlatformConnection;
 import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.event.PacketSendEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
@@ -25,15 +24,13 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
 import io.netty.channel.embedded.EmbeddedChannel;
-import java.lang.reflect.Field;
 import java.util.UUID;
 import net.kyori.adventure.text.Component;
 import org.junit.jupiter.api.Test;
 
 /**
- * ClientPacketListener#handleEntityPositionSync on a pre-26.3 client from 1.21.2 on snaps a ticking entity to a
- * position more than 64 blocks from where the client shows it, and interpolates a nearer one. A 1.21.1 client gets
- * the sync as a teleport, which ClientPacketListener#handleTeleportEntity always interpolates.
+ * ClientPacketListener#handleEntityPositionSync on a pre-26.3 client snaps a ticking entity to a position more than 64
+ * blocks from where the client shows it, and interpolates a nearer one.
  */
 class LegacyClientPositionSyncSnapTest {
     private static final int ID = 3000;
@@ -114,21 +111,6 @@ class LegacyClientPositionSyncSnapTest {
             PacketEntity entity = syncedFrom(player, new Vec3d(20, 60, 6));
             entity.onMovement(player, true);
             assertTrue(entity.clientPhysicalPosition.y < 59.0D, entity.clientPhysicalPosition.toString());
-        } finally {
-            close(player);
-        }
-    }
-
-    @Test
-    void farSyncInterpolatesBefore1_21_2() throws Exception {
-        CultPlayer player = player();
-        try {
-            Field version = CultPlayer.class.getDeclaredField("resolvedClientVersion");
-            version.setAccessible(true);
-            version.set(player, ClientVersion.V_1_21);
-            PacketEntity entity = syncedFrom(player, new Vec3d(20, 100, 6));
-            entity.onMovement(player, true);
-            assertTrue(entity.clientPhysicalPosition.y < 99.0D, entity.clientPhysicalPosition.toString());
         } finally {
             close(player);
         }

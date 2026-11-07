@@ -269,16 +269,17 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         // if we are currently blocking offsets, then the player is desync'd in a vehicle and needs to be teleported
         // soon
         final PredictionResult completedPrediction = predictionComplete.getPredictionResult();
+        final boolean positionOfSetbackEntity = isPositionOfSetbackEntity();
         if (completedPrediction != null && completedPrediction.getSetBackData() != null) {
-            // Geyser/GFP can teleport to client-derived state, including rejected movement.
-            // Its acknowledgement updates the client model, not the authoritative rollback anchor.
-            if (!completedPrediction.getSetBackData().isBedrockTransportOnly()) {
+            if (positionOfSetbackEntity) {
                 lastKnownGoodPosition =
                         new SetbackPosWithVector(to, afterTickFriction, player.totalFlyingPacketsSent, profileState);
                 lastKnownGoodPosition.setSprintOutcomes(SimulationProcessor.sprintOutcomesAfter(
                         player, predictionComplete.isTeleport() ? null : completedPrediction));
             }
-        } else if ((!player.isBedrockMovement() || profileState != null) && safePositionUnblocked()) {
+        } else if ((!player.isBedrockMovement() || profileState != null)
+                && safePositionUnblocked()
+                && positionOfSetbackEntity) {
             // TODO: When flagging immediately after a setback, we don't give uncertainty or allow inputs. This is too
             // strict.
             // No simulation... we can do that later. We just need to know the valid position.
@@ -301,6 +302,12 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         }
 
         if (requiredSetBack != null) requiredSetBack.tick();
+    }
+
+    private boolean isPositionOfSetbackEntity() {
+        return player.isBedrockMovement()
+                || !isServerPassenger()
+                || player.compensatedEntities.vehicles.serverPlayerVehicle == player.getRidingVehicleId();
     }
 
     private boolean safePositionUnblocked() {
@@ -1113,10 +1120,10 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             return accepted;
         }
 
-        // An acknowledged teleport supersedes earlier transport-only targets.
+        // An acknowledged teleport supersedes earlier Geyser and GFP targets.
         // Cult setbacks remain pending until their own validated response.
         long matchedRevision = matching.getBedrockTransportRevision();
-        pendingTeleports.removeIf(pending -> pending.isBedrockTransportOnly()
+        pendingTeleports.removeIf(pending -> !pending.mayCompleteCultSetback()
                 && pending.getBedrockTransportRevision() >= 0L
                 && pending.getBedrockTransportRevision() < matchedRevision);
 
@@ -1140,7 +1147,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 boolean preceding =
                         pending.getBedrockTransportRevision() >= 0 && pending.getBedrockTransportRevision() <= revision;
                 boolean owned =
-                        setback != null && pending.getTransaction() == transaction && !pending.isBedrockTransportOnly();
+                        setback != null && pending.getTransaction() == transaction && pending.mayCompleteCultSetback();
                 if (!preceding && !owned) return false;
                 if (preceding
                         && pending.getBedrockCoordinateFrame().revision() >= activeBedrockCoordinateFrame.revision()) {
@@ -1174,7 +1181,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         if (requiredSetBack == null || requiredSetBack.isPlugin()) return false;
         return pendingTeleports.stream()
                 .anyMatch(pending -> pending.getBedrockTransportRevision() == revision
-                        && !pending.isBedrockTransportOnly()
+                        && pending.mayCompleteCultSetback()
                         && isRequiredSetbackTeleport(pending));
     }
 
@@ -1229,7 +1236,7 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                 lastKnownGoodPosition = new SetbackPosWithVector(location, Vec3.ZERO, player.totalFlyingPacketsSent);
         }
 
-        if (!teleport.isBedrockTransportOnly()
+        if (teleport.mayCompleteCultSetback()
                 && requiredSetBack != null
                 && requiredSetBack.getTeleportData().getTransaction() == teleport.getTransaction()) {
             blockOffsets = false;
@@ -2091,7 +2098,6 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             TeleportData data = requiredTeleport.copyWithLocation(clamped);
             data.applyBedrockTransportBoundary(clamped, onGround, revision);
             data.setBedrockOperation(operation);
-            data.setBedrockTransportOnly(false);
             applyBedrockOrigin(data, frame, localPacketTarget);
             pendingTeleports.add(data);
             return;
@@ -2101,7 +2107,6 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
         data.setPositionOnly(true);
         data.setBedrockOperation(operation);
         data.setBedrockOnGround(onGround);
-        data.setBedrockTransportOnly(true);
         data.setBedrockTransportRevision(revision);
         applyBedrockOrigin(data, frame, localPacketTarget);
         pendingTeleports.add(data);

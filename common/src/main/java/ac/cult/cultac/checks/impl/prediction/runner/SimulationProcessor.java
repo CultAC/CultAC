@@ -503,11 +503,11 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
 
         this.callPredictionEndListeners(result, teleportCommit);
-        // A transport-only acknowledgement can follow the actual Cult setback
+        // A Geyser or GFP teleport's answer can follow the actual Cult setback
         // before any Bedrock travel. It must not consume that setback's guard.
         if (!this.player.isBedrockMovement()
                 || teleportAcceptData.getSetback() != null
-                || !teleportData.isBedrockTransportOnly()) {
+                || teleportData.mayCompleteCultSetback()) {
             this.lastMovementWasSetback = teleportAcceptData.getSetback() != null
                     && !teleportAcceptData.getSetback().isPlugin();
         }

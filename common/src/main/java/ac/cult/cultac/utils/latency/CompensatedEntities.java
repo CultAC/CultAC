@@ -45,12 +45,8 @@ public class CompensatedEntities {
     public static final Set<String> EXCLUDED_MODIFIER_IDS = Set.of(SPRINTING_MODIFIER_ID, SNOW_MODIFIER_ID);
     private static final String ATTRIBUTE_NAMESPACE = "minecraft:";
     private static final long LOCAL_PLAYER_CLIENT_TICK_ORDER = 0L;
-    private static final int HELD_UPDATES = 4;
-    private static final int HELD_ENTITIES = 256;
     public final EntityMap entityMap = new EntityMap();
     public final Int2ObjectOpenHashMap<TrackerData> serverPositionsMap = new Int2ObjectOpenHashMap<>(40, 0.7f);
-    private final Int2ObjectOpenHashMap<List<HeldAttributes>> pendingAttributes = new Int2ObjectOpenHashMap<>(10, 0.7f);
-    private final Int2ObjectOpenHashMap<List<EquipmentEntry>> pendingEquipment = new Int2ObjectOpenHashMap<>(10, 0.7f);
     public final CompensatedVehicleState vehicles;
     public List<SimpleCollisionBox> fishingRodPulls = new EvictingQueue<>(100); // sanity limit to prevent leaks.
     private long nextClientEntityTickOrder = 1L;
@@ -107,8 +103,6 @@ public class CompensatedEntities {
     /** A replacement ClientLevel cannot retain remote entities or their queued values. */
     public void clearClientLevel() {
         clearEntityMap();
-        pendingAttributes.clear();
-        pendingEquipment.clear();
         fishingRodPulls.clear();
         resetClientTickOrder();
     }
@@ -424,8 +418,6 @@ public class CompensatedEntities {
             for (PacketEntity passenger : removing.passengers) settleIfUntrackedRider(passenger);
         }
         PacketEntity entity = entityMap.remove(entityID);
-        pendingAttributes.remove(entityID);
-        pendingEquipment.remove(entityID);
         if (entity == null) return;
         untrack(entity);
         addOrder.remove(entity);
@@ -627,10 +619,8 @@ public class CompensatedEntities {
 
         PacketEntity entity = player.compensatedEntities.getEntity(entityID);
         boolean entityScaleChanged = false;
-        if (entity == null && entityID != player.entityID) {
-            holdAttributes(entityID, objects, provenAt);
-            return;
-        }
+        // ClientPacketListener#handleUpdateAttributes drops the update for an id the client lacks.
+        if (entity == null && entityID != player.entityID) return;
 
         if (entity != null && entityID != player.entityID) {
             for (AttributeSnapshot snapshot : objects) {
@@ -861,10 +851,10 @@ public class CompensatedEntities {
     }
 
     /** Adds the entity and replays its held attributes; returns the greatest replayed proof, or Integer.MIN_VALUE. */
-    public int addEntity(int entityID, int entityType, Vec3 position, float xRot, float yRot, int data) {
+    public void addEntity(int entityID, int entityType, Vec3 position, float xRot, float yRot, int data) {
         // Dropped items are all server sided and players can't interact with them (except create them!), save the
         // performance
-        if (entityType == EntityTypeIds.ITEM) return Integer.MIN_VALUE;
+        if (entityType == EntityTypeIds.ITEM) return;
 
         PacketEntity packetEntity = createTrackedEntity(entityID, entityType, position, xRot, data);
         packetEntity.setClientPhysicalRotation(xRot, yRot);
@@ -886,23 +876,6 @@ public class CompensatedEntities {
         addOrder.add(packetEntity);
         addOrderMapped = false;
         track(packetEntity);
-        int replayedProof = Integer.MIN_VALUE;
-        List<HeldAttributes> held = pendingAttributes.remove(entityID);
-        if (held != null) {
-            // Each held update keeps its own proof; those already answered retire with the spawn.
-            for (HeldAttributes update : held) {
-                if (update.leastScale() == update.leastScale())
-                    packetEntity.onScale(update.leastScale(), update.provenAt());
-                updateAttributes(entityID, update.values(), update.provenAt());
-                replayedProof = Math.max(replayedProof, update.provenAt());
-            }
-            packetEntity.onSizeHandled(player.lastTransactionReceived.get());
-        }
-        List<EquipmentEntry> pendingEquipmentUpdates = pendingEquipment.remove(entityID);
-        if (pendingEquipmentUpdates != null) {
-            updateEntityEquipment(entityID, pendingEquipmentUpdates);
-        }
-        return replayedProof;
     }
 
     private PacketEntity createTrackedEntity(int entityID, int entityType, Vec3 position, float xRot, int data) {
@@ -1000,31 +973,8 @@ public class CompensatedEntities {
 
     public void updateEntityEquipment(int entityID, List<EquipmentEntry> slots) {
         PacketEntity entity = getEntity(entityID);
-        if (entity == null) {
-            List<EquipmentEntry> merged = new ArrayList<>();
-            List<EquipmentEntry> existing = pendingEquipment.remove(entityID);
-            if (existing != null) {
-                merged.addAll(existing);
-            }
-            for (EquipmentEntry slot : slots) {
-                int existingIndex = -1;
-                for (int i = 0; i < merged.size(); i++) {
-                    if (merged.get(i).slot() == slot.slot()) {
-                        existingIndex = i;
-                        break;
-                    }
-                }
-                EquipmentEntry copiedSlot =
-                        new EquipmentEntry(slot.slot(), slot.item().copy());
-                if (existingIndex >= 0) {
-                    merged.set(existingIndex, copiedSlot);
-                } else {
-                    merged.add(copiedSlot);
-                }
-            }
-            pendingEquipment.put(entityID, merged);
-            return;
-        }
+        // ClientPacketListener#handleSetEquipment drops the update for an id the client lacks.
+        if (entity == null) return;
 
         boolean controlled = vehicles.canClientAuthoritativelyMoveVisibleRoot(entity);
         for (EquipmentEntry slot : slots) {
@@ -1437,56 +1387,6 @@ public class CompensatedEntities {
             if (passenger.getRiding() == entity && isTicking(passenger)) tickEntityTree(passenger, tick);
         }
     }
-
-    /** The number of attribute updates held for entityID until it is added. */
-    public int heldAttributeUpdates(int entityID) {
-        List<HeldAttributes> held = pendingAttributes.get(entityID);
-        return held == null ? 0 : held.size();
-    }
-
-    private void holdAttributes(int entityID, List<AttributeSnapshot> values, int provenAt) {
-        List<HeldAttributes> held = pendingAttributes.get(entityID);
-        if (held == null) {
-            // A tracked spawn's attributes always hold; the client drops those for an id it lacks, so untracked ids
-            // beyond the bound go unheld.
-            if (pendingAttributes.size() >= HELD_ENTITIES && !serverPositionsMap.containsKey(entityID)) return;
-            pendingAttributes.put(entityID, held = new ArrayList<>(HELD_UPDATES));
-        }
-        if (held.size() == HELD_UPDATES) {
-            HeldAttributes oldest = held.remove(0);
-            held.set(0, merge(oldest, held.get(0)));
-        }
-        held.add(new HeldAttributes(List.copyOf(values), provenAt, Float.NaN));
-    }
-
-    // The later values win, the earlier's scale stays an alternative, and the later proof proves both.
-    private HeldAttributes merge(HeldAttributes earlier, HeldAttributes later) {
-        Map<String, AttributeSnapshot> values = new LinkedHashMap<>();
-        for (AttributeSnapshot snapshot : earlier.values()) values.put(snapshot.attribute(), snapshot);
-        for (AttributeSnapshot snapshot : later.values()) values.put(snapshot.attribute(), snapshot);
-        float leastScale = least(least(earlier.leastScale(), heldScale(earlier.values())), later.leastScale());
-        return new HeldAttributes(
-                List.copyOf(values.values()), Math.max(earlier.provenAt(), later.provenAt()), leastScale);
-    }
-
-    private float heldScale(List<AttributeSnapshot> values) {
-        float scale = Float.NaN;
-        for (AttributeSnapshot snapshot : values) {
-            if (matchesAttribute(snapshot, "scale")) scale = (float) calculateAttribute(snapshot, 0.0625, 16.0);
-        }
-        return scale;
-    }
-
-    // The lesser of two scales, NaN standing for none.
-    private static float least(float a, float b) {
-        return b < a || a != a ? b : a;
-    }
-
-    /**
-     * Attributes for an entity not yet added, which the client has applied once it answers provenAt; leastScale is
-     * a smaller scale merged earlier updates set, or NaN.
-     */
-    private record HeldAttributes(List<AttributeSnapshot> values, int provenAt, float leastScale) {}
 
     /**
      * The tracked entities by id; {@code mutations} advances on every put and clear, and on every remove of a present

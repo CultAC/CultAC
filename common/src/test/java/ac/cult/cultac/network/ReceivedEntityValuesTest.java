@@ -69,7 +69,7 @@ class ReceivedEntityValuesTest {
     }
 
     @Test
-    void receivedEquipmentKeepsWireSlotOrderAndPendingSaddleBeforeSpawn() throws Exception {
+    void receivedEquipmentKeepsWireSlotOrder() throws Exception {
         try (var fixture = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
             var data = ProtocolData.load(ProtocolVersion.V26_3);
             var codec = new CodecFixture(ProtocolRuntime.create(data, OfflineCultTestBootstrap.catalog()));
@@ -87,8 +87,11 @@ class ReceivedEntityValuesTest {
                 assertEquals(EquipmentSlot.HEAD, packet.slots().get(0).slot());
                 assertEquals(EquipmentSlot.SADDLE, packet.slots().get(1).slot());
                 var entities = fixture.player.compensatedEntities;
+                // ClientPacketListener#handleSetEquipment drops equipment for an id the client lacks.
                 entities.updateEntityEquipment(42, packet.slots());
                 entities.addEntity(42, EntityTypeIds.HORSE, Vec3.ZERO, 0, 0, 0);
+                assertFalse(((PacketEntityHorse) entities.getEntity(42)).hasSaddle);
+                entities.updateEntityEquipment(42, packet.slots());
                 assertTrue(((PacketEntityHorse) entities.getEntity(42)).hasSaddle);
             } finally {
                 bytes.release();

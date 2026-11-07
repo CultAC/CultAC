@@ -1,12 +1,9 @@
 package ac.cult.cultac.checks.impl.combat;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
-import ac.cult.cultac.events.packets.PacketEntityReplication;
 import ac.cult.cultac.network.PlatformConnection;
 import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -20,84 +17,16 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveEntity;
 import ac.cult.cultac.protocol.value.EntityDelta;
 import ac.cult.cultac.protocol.value.Vec3d;
-import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.latency.LatencyUtils;
 import ac.cult.cultac.utils.math.Vec3;
 import io.netty.channel.embedded.EmbeddedChannel;
-import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
 import net.kyori.adventure.text.Component;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
-/**
- * A remote player's relative move on a legacy client without the reach bundle delimiter: the transaction-bound movement
- * applies once at its transaction and settles once at the next, also when one acknowledgement reaches both, and the
- * FairReach move applies once, at whichever of its transaction or its deadline comes first.
- */
+/** A remote player's FairReach move applies once, at whichever of its transaction or its deadline comes first. */
 class EntityMoveSchedulingTest {
     private static final int TARGET = 3000;
-
-    @Test
-    void aTransactionBoundMoveAppliesAtItsTransactionAndSettlesAtTheNext() {
-        CultPlayer player = trackingPlayer();
-        try {
-            world(player);
-            RecordingLatencyUtils latency = new RecordingLatencyUtils(player);
-            player.latencyUtils = latency;
-            moveAndAcknowledge(player, move(4096));
-            PacketEntity target = player.compensatedEntities.getEntity(TARGET);
-            latency.clear();
-
-            int first = foreignPing(player);
-            send(player, move(-4096));
-            assertEquals(List.of(first), latency.paired, "one movement task for both transactions");
-            assertEquals(List.of(), latency.runs, "nothing runs before the client answers");
-            assertNull(target.oldPacketLocation, "the earlier move settled");
-
-            acknowledge(player, first);
-            assertEquals(List.of("apply@" + first), latency.runs);
-            assertNotNull(target.oldPacketLocation, "applying keeps the position before the move possible");
-
-            acknowledge(player, first + 1);
-            assertEquals(List.of("apply@" + first, "settle@" + (first + 1)), latency.runs);
-            assertNull(target.oldPacketLocation, "settling drops the position before the move");
-
-            acknowledge(player, first + 2);
-            assertEquals(List.of("apply@" + first, "settle@" + (first + 1)), latency.runs, "neither half runs again");
-        } finally {
-            close(player);
-        }
-    }
-
-    @Test
-    void oneAcknowledgementPastBothTransactionsAppliesThenSettlesTheMoveOnce() {
-        CultPlayer player = trackingPlayer();
-        try {
-            world(player);
-            RecordingLatencyUtils latency = new RecordingLatencyUtils(player);
-            player.latencyUtils = latency;
-            moveAndAcknowledge(player, move(4096));
-            PacketEntity target = player.compensatedEntities.getEntity(TARGET);
-            latency.clear();
-
-            int first = foreignPing(player);
-            send(player, move(-4096));
-            assertEquals(List.of(first), latency.paired, "one movement task for both transactions");
-
-            acknowledge(player, first + 1);
-            assertEquals(List.of("apply@" + (first + 1), "settle@" + (first + 1)), latency.runs);
-            assertNull(target.oldPacketLocation, "settling drops the position before the move");
-
-            acknowledge(player, first + 2);
-            assertEquals(
-                    List.of("apply@" + (first + 1), "settle@" + (first + 1)), latency.runs, "neither half runs again");
-        } finally {
-            close(player);
-        }
-    }
 
     @Test
     void aFairReachMoveAppliesOnceAtItsTransactionOrItsDeadline() {
@@ -108,22 +37,25 @@ class EntityMoveSchedulingTest {
             moveAndAcknowledge(player, move(4096));
             FairReach.FairReachEntity target = fairReach.targetPlayers.get(TARGET);
 
-            int first = foreignPing(player);
+            foreignPing(player);
             send(player, move(-4096));
-            acknowledge(player, first);
+            // FairReach applies a move at the first ping sent after it.
+            int applies = player.lastTransactionSent.get() + 1;
+            acknowledge(player, applies - 1);
             target.lerpTicks = 0;
-            acknowledge(player, first + 1);
+            acknowledge(player, applies);
             assertEquals(3, target.lerpTicks, "the acknowledged transaction applies the move");
             target.lerpTicks = 0;
             channel.runScheduledPendingTasks();
             assertEquals(0, target.lerpTicks, "the deadline does not apply an applied move again");
 
-            int next = foreignPing(player);
+            foreignPing(player);
             send(player, move(4096));
+            int next = player.lastTransactionSent.get() + 1;
             channel.runScheduledPendingTasks();
             assertEquals(3, target.lerpTicks, "the deadline applies an unacknowledged move");
             target.lerpTicks = 0;
-            acknowledge(player, next + 1);
+            acknowledge(player, next);
             assertEquals(0, target.lerpTicks, "the transaction does not apply an applied move again");
         } finally {
             close(player);
@@ -140,14 +72,6 @@ class EntityMoveSchedulingTest {
         fairReach.onAddEntity(
                 null, player, new ClientboundAddEntity(TARGET, "minecraft:player", new Vec3d(0, 64, 0), 0, 0, 0));
         player.packetEntityReplication.addEntity(TARGET, EntityTypeIds.PLAYER, new Vec3(0, 64, 0), 0, 0, 0, -1);
-        // reach-use-bundle-delimiter: false proves each move with the transactions around it.
-        try {
-            Field delimiter = PacketEntityReplication.class.getDeclaredField("useReachBundleDelimiter");
-            delimiter.setAccessible(true);
-            delimiter.setBoolean(player.packetEntityReplication, false);
-        } catch (ReflectiveOperationException e) {
-            throw new AssertionError(e);
-        }
         return fairReach;
     }
 
@@ -178,38 +102,6 @@ class EntityMoveSchedulingTest {
     private static ClientboundMoveEntity move(int dx) {
         return new ClientboundMoveEntity(
                 TARGET, new EntityDelta.Linear((short) dx, (short) 0, (short) 0), 0.0F, 0.0F, true, true, false);
-    }
-
-    /** Records paired registrations and, for each half, the transaction the client had answered when it ran. */
-    private static final class RecordingLatencyUtils extends LatencyUtils {
-        private final CultPlayer player;
-        private final List<Integer> paired = new ArrayList<>();
-        private final List<String> runs = new ArrayList<>();
-
-        private RecordingLatencyUtils(CultPlayer player) {
-            super(player);
-            this.player = player;
-        }
-
-        @Override
-        public void addRealTimeTaskWithNextTransaction(int transaction, Runnable runnable, Runnable next) {
-            paired.add(transaction);
-            super.addRealTimeTaskWithNextTransaction(
-                    transaction,
-                    () -> {
-                        runs.add("apply@" + player.lastTransactionReceived.get());
-                        runnable.run();
-                    },
-                    () -> {
-                        runs.add("settle@" + player.lastTransactionReceived.get());
-                        next.run();
-                    });
-        }
-
-        private void clear() {
-            paired.clear();
-            runs.clear();
-        }
     }
 
     private static CultPlayer trackingPlayer() {

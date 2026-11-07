@@ -232,7 +232,7 @@ public final class OfflineBedrockReplayEventsTest {
             long revision = player.getSetbackTeleportUtil().addImmediateBedrockTransportTeleport(target, false);
 
             assertTrue(player.getSetbackTeleportUtil().hasPendingPlayerPositionTeleport());
-            assertTrue(player.getSetbackTeleportUtil().pendingTeleports.peek().isBedrockTransportOnly());
+            assertFalse(player.getSetbackTeleportUtil().pendingTeleports.peek().mayCompleteCultSetback());
             assertNull(player.getSetbackTeleportUtil().getRequiredSetBack());
             assertSame(rollbackBefore, player.getSetbackTeleportUtil().lastKnownGoodPosition);
             var accepted = player.getSetbackTeleportUtil().acknowledgeBedrockTeleportFrame(target);

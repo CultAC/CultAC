@@ -35,32 +35,32 @@ class InterpolationTraceTest {
 
     @Test
     void legacyTrace() throws Exception {
-        assertEquals(5620083610586646067L, trace(ClientVersion.V_1_21_4, 11L));
+        assertEquals(-8501209483949441089L, trace(ClientVersion.V_1_21_4, 11L));
     }
 
     @Test
     void oldClientTrace() throws Exception {
-        assertEquals(-5065448244413512068L, trace(ClientVersion.V_1_8, 12L));
+        assertEquals(-4720208069051859407L, trace(ClientVersion.V_1_8, 12L));
     }
 
     @Test
     void steppedTrace() throws Exception {
-        assertEquals(6838824111621502297L, trace(ClientVersion.V_26_3, 13L));
+        assertEquals(-1665524363524392373L, trace(ClientVersion.V_26_3, 13L));
     }
 
     @Test
     void riddenLegacyTrace() throws Exception {
-        assertEquals(-3547115442063892592L, riddenTrace(ClientVersion.V_1_21_4, 21L));
+        assertEquals(8811208074619702405L, riddenTrace(ClientVersion.V_1_21_4, 21L));
     }
 
     @Test
     void riddenOldClientTrace() throws Exception {
-        assertEquals(-3608380696295158219L, riddenTrace(ClientVersion.V_1_8, 22L));
+        assertEquals(6935798295405509554L, riddenTrace(ClientVersion.V_1_8, 22L));
     }
 
     @Test
     void riddenSteppedTrace() throws Exception {
-        assertEquals(-3388677769822989325L, riddenTrace(ClientVersion.V_26_3, 23L));
+        assertEquals(-8599620155218446878L, riddenTrace(ClientVersion.V_26_3, 23L));
     }
 
     private static long trace(ClientVersion version, long seed) throws Exception {
@@ -146,19 +146,21 @@ class InterpolationTraceTest {
             double dy = random.nextInt(5) == 0 ? (random.nextInt(9) - 4) / 16.0 : 0.0;
             double dz = (random.nextInt(65) - 32) / 64.0;
             switch (random.nextInt(12)) {
-                case 0, 1 -> entity.onFirstTransaction(true, random.nextInt(6) != 0, dx, dy, dz, yaw, pitch, player);
+                case 0, 1 ->
+                    entity.onBundleFirstTransaction(true, random.nextInt(6) != 0, dx, dy, dz, yaw, pitch, player);
                 case 2 -> entity.onBundleFirstTransaction(true, true, dx, dy, dz, yaw, pitch, player);
                 case 3 ->
-                    entity.onBundledPositionSyncTransaction(
+                    entity.onBundleTransaction(
+                            false,
+                            true,
                             entity.desyncClientPos.x + dx,
                             entity.desyncClientPos.y + dy,
                             entity.desyncClientPos.z + dz,
                             yaw,
                             pitch,
                             player);
-                case 4 -> entity.onPositionPath(path(entity, dx, dy, dz), true, yaw, pitch, player, false);
-                case 5 ->
-                    entity.onPositionPath(path(entity, dx, dy, dz), random.nextBoolean(), yaw, pitch, player, true);
+                case 4 -> entity.onPositionPath(path(entity, dx, dy, dz), true, yaw, pitch, player);
+                case 5 -> entity.onPositionPath(path(entity, dx, dy, dz), random.nextBoolean(), yaw, pitch, player);
                 case 6, 7 -> entity.onSecondTransaction();
                 case 8 -> {
                     entity.isBaby = !entity.isBaby;

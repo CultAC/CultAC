@@ -89,10 +89,6 @@ cult:
     max-freeze-time-ms: 5000
 
   networking:
-    # Folosește limitele grupurilor de pachete pentru sincronizarea urmăririi entităților
-    # la verificările razei de atac, pe clienții care acceptă gruparea.
-    reach-use-bundle-delimiter: true
-
     # Înlocuiește sănătatea transmisă a altor entități vii cu 1 punct de sănătate.
     # Păstrează sănătatea observatorului, a entității pe care o călărește și a entităților moarte.
     # Observatorii cu cult.showhealth primesc valorile reale de sănătate.
