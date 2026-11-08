@@ -41,10 +41,20 @@ public class Phase extends Check implements PostPredictionListener {
     SimpleCollisionBox oldBox = null;
     // Read only within one checkMovement call; never stored.
     private final SimpleCollisionBox newBoxScratch = new SimpleCollisionBox();
+    // The ride-tick seat oldBox last started from or a teleport replaced; each seat is a fresh Vec3.
+    private Vec3 seatTaken;
 
     private void handleMovePlayer(ServerboundMovePlayer packet) {
         // Geyser projections must neither check movement nor replace auth-input history.
         if (player.isBedrockMovement()) return;
+        // Entity#positionRider seats a rider with setPos and client-side stopRiding leaves it there, so the first
+        // move off a vehicle starts on the seat the last ride tick gave it, whatever blocks that seat overlaps.
+        // An accepted teleport moves the client off that seat.
+        Vec3 seat = player.compensatedEntities.lastRideTickSeat();
+        boolean teleport = player.packetStateData.lastPacketWasTeleport;
+        boolean riding = player.inVehicle();
+        if (seat != null && seat != seatTaken && !teleport && !riding) oldBox = boxAt(seat, 1.8f, false);
+        if (teleport || !riding) seatTaken = seat;
         ServerboundMovePlayer flying = packet;
         if (!flying.hasPosition()) return;
 
