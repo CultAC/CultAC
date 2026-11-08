@@ -50,6 +50,7 @@ import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityPolarBear;
+import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
@@ -1068,6 +1069,115 @@ class InteractionVisibilityTest {
                         eye.add(look.scale(4.5)),
                         (state, pos) ->
                                 NativeBlockCollisionHelper.getSelectionShape(player, state, pos.x(), pos.y(), pos.z()));
+    }
+
+    /** A recorded pit around (8973, 63, 58), shifted by (-8968, 0, -56), without its two obsidian blocks. */
+    private static final String[] SEALED_PIT = {
+        "4 62 1 brown_concrete_powder",
+        "5 62 1 brown_concrete_powder",
+        "6 62 1 coarse_dirt",
+        "4 62 2 stone",
+        "5 62 2 moss_block",
+        "6 62 2 moss_block",
+        "4 62 3 stone",
+        "5 62 3 stone",
+        "6 62 3 tuff",
+        "4 63 1 oak_planks",
+        "5 63 1 oak_planks",
+        "4 63 2 stone",
+        "6 63 2 oak_planks",
+        "4 63 3 stone",
+        "5 63 3 stone",
+        "6 63 3 stone",
+        "4 64 2 stone",
+        "4 64 3 stone",
+        "5 64 3 stone",
+        "6 64 3 stone",
+        "4 65 1 oak_planks",
+        "5 65 1 oak_planks",
+        "6 65 1 oak_planks",
+        "4 65 2 stone",
+        "6 65 2 oak_planks",
+        "4 65 3 stone",
+        "5 65 3 stone",
+        "6 65 3 stone",
+        "4 66 1 oak_planks",
+        "4 66 2 stone",
+        "5 66 2 oak_planks",
+        "4 66 3 stone",
+        "5 66 3 stone"
+    };
+    private static final BlockPos SEALED = new BlockPos(5, 63, 2);
+
+    private static Setup sealedPit() throws Exception {
+        var setup = new Setup();
+        setup.block(0, 64, 2, "air");
+        for (String row : SEALED_PIT) {
+            String[] cell = row.split(" ");
+            setup.block(Integer.parseInt(cell[0]), Integer.parseInt(cell[1]), Integer.parseInt(cell[2]), cell[3]);
+        }
+        var player = setup.fixture.player;
+        player.x = 5.33506848904;
+        player.y = 63;
+        player.z = 2.30000001192093;
+        return setup;
+    }
+
+    private static double digSealedSouthFace(Setup setup) {
+        var breaking = setup.check(BreakVisibility.class);
+        var dig = new ServerboundPlayerAction(PlayerAction.START_DESTROY_BLOCK, SEALED, Direction.SOUTH, 162);
+        breaking.onDig(
+                new PacketReceiveEvent<>(setup.fixture.user, ConnectionPhase.PLAY, ServerboundPackets.PLAYER_ACTION, dig),
+                setup.fixture.player,
+                dig);
+        return breaking.violations;
+    }
+
+    @Test
+    void aCrawlerSealedInsideABlockDigsItFromTheCrawlingEye() throws Exception {
+        try (var setup = sealedPit()) {
+            var player = setup.fixture.player;
+            setup.block(5, 64, 2, "obsidian");
+            player.refreshPlayerPose();
+            assertEquals(Pose.SWIMMING, player.pose);
+            setup.block(5, 63, 2, "obsidian");
+            player.refreshPlayerPose();
+            assertEquals(0, digSealedSouthFace(setup));
+            assertEquals(Pose.SWIMMING, player.pose, "Player#updatePlayerPose keeps the pose the swimming box cannot fit");
+        }
+    }
+
+    @Test
+    void aStanderSealedInsideABlockCannotDigItFromTheCrawlingEye() throws Exception {
+        try (var setup = sealedPit()) {
+            var player = setup.fixture.player;
+            player.refreshPlayerPose();
+            assertEquals(Pose.STANDING, player.pose);
+            setup.block(5, 64, 2, "obsidian");
+            setup.block(5, 63, 2, "obsidian");
+            player.refreshPlayerPose();
+            assertEquals(Pose.STANDING, player.pose);
+            assertEquals(1, digSealedSouthFace(setup));
+        }
+    }
+
+    /** A recorded dig, shifted by (-8936, 0, -6012): a sneaking stander inside obsidian under a cobweb. */
+    @Test
+    void aStanderInsideABlockKeepsStandingWhenItSneaks() throws Exception {
+        try (var setup = new Setup()) {
+            var player = setup.fixture.player;
+            player.x = 4.394485835717;
+            player.y = 64.41712560508334;
+            player.z = 3.348848973558;
+            player.refreshPlayerPose();
+            assertEquals(Pose.STANDING, player.pose);
+            setup.block(4, 65, 3, "obsidian");
+            setup.block(4, 66, 3, "cobweb");
+            player.isSneaking = true;
+            player.refreshPlayerPose();
+            assertEquals(Pose.STANDING, player.pose, "Player#updatePlayerPose keeps the pose the swimming box cannot fit");
+            assertTrue(player.boundingBox.maxY > 66, "the standing box reaches the cobweb the client was stuck in");
+        }
     }
 
     private static int state(String key) {
