@@ -17,11 +17,12 @@ package ac.cult.cultac.checks.impl.combat;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.CultAPI;
-import ac.cult.cultac.bedrock.prediction.integration.BedrockProfileState;
-import ac.cult.cultac.bedrock.prediction.state.BedrockCameraWaterState;
 import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
+import ac.cult.cultac.checks.impl.visibility.BedrockAttackMobVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockAttackPlayerVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockAttackVisibility;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.network.CultPacketHandler;
@@ -37,6 +38,8 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
+import ac.cult.cultac.utils.visibility.BedrockEye;
+import ac.cult.cultac.utils.visibility.BedrockPickBlocks;
 import ac.cult.cultac.utils.visibility.ClientVisibility;
 import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 import java.util.*;
@@ -241,6 +244,15 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
                 ? isEnforced(entity) && isKnownInvalidOnBedrock(pick, getReachBox(entity), reach)
                 : isKnownInvalid(entity, reach);
 
+        // A Bedrock client's attack through blocks is judged at the point its pick entered the target, as it arrives.
+        if (pick != null && isEnforced(entity) && lerpsEveryTarget()) {
+            boolean avatar = entity.type == EntityTypeIds.PLAYER;
+            Class<? extends BedrockAttackVisibility> owner =
+                    avatar ? BedrockAttackPlayerVisibility.class : BedrockAttackMobVisibility.class;
+            String detail = avatar ? "" : "type=" + EntityTypeUtil.getKey(entity.type);
+            if (player.checkManager.getCheck(owner).dropsAttack(hit, hitPrecision, detail)) return true;
+        }
+
         if ((shouldModifyPackets() && cancelImpossibleHits && knownInvalid)
                 || (tooManyAttacks && !CultAPI.INSTANCE.getConfigManager().isObserveOnly())) {
             debug(() -> {
@@ -291,26 +303,8 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
                 bedrockEyes());
     }
 
-    // The client's eye heights above its feet at its last two ticks, as the movement engine's camera
-    // (BedrockCameraWaterState) carries them into its next tick. Without that state, or for a scaled player, whose
-    // camera the engine does not model, any eye height the player may have.
-    private List<BedrockAttackPick.Eye> bedrockEyes() {
-        List<BedrockAttackPick.Eye> eyes = new ArrayList<>(EYE_HEIGHTS.length);
-        if (player.getScale() == 1.0F) {
-            var carry = player.checkManager.getSimulationProcessor().getCurrentPredictionCarry();
-            for (BedrockProfileState.Entry entry : BedrockProfileState.profileEntries(carry)) {
-                BedrockCameraWaterState camera = entry.state().cameraWater();
-                var eye = new BedrockAttackPick.Eye(
-                        BedrockCameraWaterState.STANDING_EYE_HEIGHT - camera.previousOffset(),
-                        BedrockCameraWaterState.STANDING_EYE_HEIGHT - camera.currentOffset());
-                if (!eyes.contains(eye)) eyes.add(eye);
-            }
-            if (!eyes.isEmpty()) return eyes;
-        }
-        for (double height : EYE_HEIGHTS) {
-            eyes.add(new BedrockAttackPick.Eye(height * player.getScale(), height * player.getScale()));
-        }
-        return eyes;
+    private List<BedrockEye> bedrockEyes() {
+        return BedrockEye.of(player).eyes();
     }
 
     // The shortest ray the input mode may have used.
@@ -499,10 +493,12 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         StringBuilder context = new StringBuilder();
         PacketEntity self = player.compensatedEntities.getSelf();
         if (self.getRiding() != null) {
-            context.append(" vehicle=").append(EntityTypeUtil.getKey(self.getRiding().type).getPath());
+            context.append(" vehicle=")
+                    .append(EntityTypeUtil.getKey(self.getRiding().type).getPath());
         }
         if (target.getRiding() != null) {
-            context.append(" target-vehicle=").append(EntityTypeUtil.getKey(target.getRiding().type).getPath());
+            context.append(" target-vehicle=")
+                    .append(EntityTypeUtil.getKey(target.getRiding().type).getPath());
         }
         appendScale(context, " scale=", self.scale);
         appendScale(context, " target-scale=", target.scale);

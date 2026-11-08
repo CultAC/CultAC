@@ -75,6 +75,10 @@ import ac.cult.cultac.checks.impl.sprint.*;
 import ac.cult.cultac.checks.impl.vehicle.*;
 import ac.cult.cultac.checks.impl.visibility.AttackMobVisibility;
 import ac.cult.cultac.checks.impl.visibility.AttackPlayerVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockAttackMobVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockAttackPlayerVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockBreakVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockPlaceVisibility;
 import ac.cult.cultac.checks.impl.visibility.BreakVisibility;
 import ac.cult.cultac.checks.impl.visibility.InteractEntityVisibility;
 import ac.cult.cultac.checks.impl.visibility.PlaceVisibility;
@@ -309,6 +313,10 @@ public class CheckManager {
                 new EntityHitboxes(player),
                 new BedrockPlayerHitboxes(player),
                 new BedrockEntityHitboxes(player),
+                new BedrockAttackPlayerVisibility(player),
+                new BedrockAttackMobVisibility(player),
+                new BedrockPlaceVisibility(player),
+                new BedrockBreakVisibility(player),
                 new FairReach(player, visibility),
                 player.packetEntityReplication,
                 new PacketChangeGameState(player),
@@ -937,12 +945,14 @@ public class CheckManager {
 
     /**
      * A Bedrock client tick's end, when the Geyser bridge has handled its PlayerAuthInput. As at a Java tick end, the
-     * reach checks first measure the attacks sent since the last one, then remote actors take their lerp step.
+     * reach checks first measure the attacks sent since the last one, then the block uses the client's tick made are
+     * judged from the path through this tick, then remote actors take their lerp step.
      */
     public void endBedrockClientTick() {
         player.packetStateData.localPlayerTickedSinceSpawn = true;
         getListener(BedrockPlayerReach.class).endClientTick();
         getListener(BedrockEntityReach.class).endClientTick();
+        getListener(BedrockPlaceVisibility.class).endClientTick();
         getListener(PacketEntityReplication.class).tickBedrockClient();
     }
 

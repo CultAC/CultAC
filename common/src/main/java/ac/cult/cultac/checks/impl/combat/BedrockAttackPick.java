@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.combat;
 
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.visibility.BedrockEye;
 import java.util.List;
 
 /**
@@ -21,9 +22,7 @@ record BedrockAttackPick(
         float pitch,
         boolean screenPick,
         double rayLength,
-        List<Eye> eyes) {
-    /** An eye height above the feet at the client's last tick, {@code before}, and at its latest, {@code now}. */
-    record Eye(double before, double now) {}
+        List<BedrockEye> eyes) {
 
     // The angle precision of a view direction, with room for the float hit point.
     private static final double ANGLE_PRECISION = 0.01;
@@ -48,7 +47,7 @@ record BedrockAttackPick(
     /** The least distance from an eye on the path to {@code point}. */
     double reach(Vec3 point) {
         double least = Double.POSITIVE_INFINITY;
-        for (Eye eye : eyes) least = Math.min(least, distanceToPath(eye, point));
+        for (BedrockEye eye : eyes) least = Math.min(least, distanceToPath(eye, point));
         return least;
     }
 
@@ -59,7 +58,7 @@ record BedrockAttackPick(
      * within a tick can look past both; it may run up to the larger of the two neighbouring ticks' turns past them.
      */
     boolean looksAtHit(float nextYaw, float nextPitch, SimpleCollisionBox box) {
-        for (Eye eye : eyes) {
+        for (BedrockEye eye : eyes) {
             if (pathMeets(eye, box)) return true;
         }
         double turnYaw = wrap(nextYaw - yaw);
@@ -70,7 +69,7 @@ record BedrockAttackPick(
             yawRoom += SCREEN_YAW;
             pitchRoom = 180.0;
         }
-        for (Eye eye : eyes) {
+        for (BedrockEye eye : eyes) {
             if (looksAtHit(eye, turnYaw, turnPitch, yawRoom, pitchRoom)) return true;
         }
         return false;
@@ -83,10 +82,10 @@ record BedrockAttackPick(
      * path through the hit crosses {@code raw}; or when such a ray, from eyes sampled along the path, meets no block.
      */
     boolean keptPastBlocks(SimpleCollisionBox grown, SimpleCollisionBox raw, BlockedRay blocks) {
-        for (Eye eye : eyes) {
+        for (BedrockEye eye : eyes) {
             if (pathMeets(eye, grown) || crossesPastHit(eye, raw)) return true;
         }
-        for (Eye eye : eyes) {
+        for (BedrockEye eye : eyes) {
             Vec3 start = start(eye);
             Vec3 path = path(eye);
             double step = path.length() / BLOCK_SAMPLES;
@@ -111,7 +110,7 @@ record BedrockAttackPick(
     // Whether the ray from an eye on the path through the hit crosses box past the hit: some hit + u (hit - (start +
     // s path)), u >= 0 and s in [0, 1], lies in it. With v = u s that is linear in u and v, so the region is a convex
     // polygon; it is not empty iff two of its edge lines meet at a point of it.
-    private boolean crossesPastHit(Eye eye, SimpleCollisionBox box) {
+    private boolean crossesPastHit(BedrockEye eye, SimpleCollisionBox box) {
         Vec3 start = start(eye);
         Vec3 path = path(eye);
         double[] h = {hit.x, hit.y, hit.z};
@@ -149,7 +148,7 @@ record BedrockAttackPick(
         return false;
     }
 
-    private boolean looksAtHit(Eye eye, double turnYaw, double turnPitch, double yawRoom, double pitchRoom) {
+    private boolean looksAtHit(BedrockEye eye, double turnYaw, double turnPitch, double yawRoom, double pitchRoom) {
         double nearest = distanceToPath(eye, hit);
         if (nearest < 1.0E-6) return true; // The pick starts inside the box.
         Vec3 start = start(eye);
@@ -229,7 +228,7 @@ record BedrockAttackPick(
     }
 
     // Whether the eye path passes through the box.
-    private boolean pathMeets(Eye eye, SimpleCollisionBox box) {
+    private boolean pathMeets(BedrockEye eye, SimpleCollisionBox box) {
         Vec3 start = start(eye);
         Vec3 delta = path(eye);
         double[] from = {start.x, start.y, start.z};
@@ -252,16 +251,16 @@ record BedrockAttackPick(
     }
 
     // Where the eye path starts, at the client's last tick.
-    private Vec3 start(Eye eye) {
+    private Vec3 start(BedrockEye eye) {
         return new Vec3(last.x, last.y + eye.before(), last.z);
     }
 
     // The eye path from its start to the client's latest tick.
-    private Vec3 path(Eye eye) {
+    private Vec3 path(BedrockEye eye) {
         return new Vec3(now.x - last.x, now.y + eye.now() - (last.y + eye.before()), now.z - last.z);
     }
 
-    private double distanceToPath(Eye eye, Vec3 point) {
+    private double distanceToPath(BedrockEye eye, Vec3 point) {
         Vec3 start = start(eye);
         Vec3 path = path(eye);
         double pathX = path.x;

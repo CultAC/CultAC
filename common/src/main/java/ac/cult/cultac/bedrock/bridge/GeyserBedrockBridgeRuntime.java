@@ -1187,8 +1187,20 @@ public final class GeyserBedrockBridgeRuntime {
                     () -> GeyserVehicleInput.translateRejectedMovement(connection, player, packet),
                     resolved -> {
                         if (packet.getInputData().contains(PlayerAuthInputData.PERFORM_BLOCK_ACTIONS)) {
+                            // A dropped action broke or cracked the block only on the client.
                             player.bedrockState.blockBreakActions.apply(
-                                    player, resolved.getCoordinateFrame(), packet.getPlayerActions());
+                                    player,
+                                    resolved.getCoordinateFrame(),
+                                    resolved.getPosition(),
+                                    packet.getPlayerActions(),
+                                    local -> {
+                                        org.geysermc.geyser.util.BlockUtils.sendBedrockStopBlockBreak(
+                                                connection, local.toFloat());
+                                        org.geysermc.geyser.util.BlockUtils.restoreCorrectBlock(
+                                                connection,
+                                                local,
+                                                connection.getPlayerInventory().getHeldItemSlot());
+                                    });
                         }
                     });
             // Recovery must run even when the pending teleport rejects movement before Geyser's translator.

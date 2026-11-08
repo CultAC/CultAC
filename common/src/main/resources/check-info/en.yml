@@ -44,6 +44,12 @@ checks:
   AutoClickerLimit:
     summary: "Clicked too fast"
     details: "Their clicking was too fast for normal play. Autoclickers and click macros do this, including the macro tools that come with some gaming mice."
+  bAttackMobVisibility:
+    summary: "Attacked a mob through blocks on Bedrock Edition"
+    details: "Blocks between you and a mob stop your hits. KillAura and other cheats on a modified Bedrock client attack through walls anyway."
+  bAttackPlayerVisibility:
+    summary: "Attacked a player through blocks on Bedrock Edition"
+    details: "Blocks between you and another player stop your hits. KillAura and other cheats on a modified Bedrock client attack through walls anyway."
   bEntityHitboxes:
     summary: "Hit a mob without aiming at it on Bedrock Edition"
     details: "Your crosshair has to be on a mob to hit it. Hitbox cheats on a modified Bedrock client make the target's hitbox bigger so it's easier to hit, and KillAura can hit without aiming at all."
@@ -261,6 +267,12 @@ checks:
   AirLiquidPlace:
     summary: "Placed a block against air or liquid"
     details: "To place a block, you have to click on another block. AirPlace and some Scaffold cheats place blocks against empty air, water or lava instead."
+  bBreakVisibility:
+    summary: "Broke a block they couldn't see on Bedrock Edition"
+    details: "You can only mine a block you can actually see. Nuker and other block-breaking cheats on a modified Bedrock client mine through walls."
+  bPlaceVisibility:
+    summary: "Placed or used a block they couldn't see on Bedrock Edition"
+    details: "You can only click a block you can actually see. Scaffold and other cheats on a modified Bedrock client can place blocks, or use chests and buttons, through walls."
   BreakVisibility:
     summary: "Broke a block they couldn't see"
     details: "You can only mine a block side you can actually see. Nuker and other block-breaking cheats mine through walls or on sides hidden behind other blocks."

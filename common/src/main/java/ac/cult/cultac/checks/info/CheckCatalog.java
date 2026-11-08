@@ -199,6 +199,10 @@ import ac.cult.cultac.checks.impl.vehicle.VehicleF;
 import ac.cult.cultac.checks.impl.vehicle.VehicleGround;
 import ac.cult.cultac.checks.impl.visibility.AttackMobVisibility;
 import ac.cult.cultac.checks.impl.visibility.AttackPlayerVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockAttackMobVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockAttackPlayerVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockBreakVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockPlaceVisibility;
 import ac.cult.cultac.checks.impl.visibility.BreakVisibility;
 import ac.cult.cultac.checks.impl.visibility.InteractEntityVisibility;
 import ac.cult.cultac.checks.impl.visibility.PlaceVisibility;
@@ -231,6 +235,8 @@ public final class CheckCatalog {
             check(AttackMobVisibility.class, COMBAT),
             check(AttackPlayerVisibility.class, COMBAT),
             check(AutoclickerLimit.INFO, COMBAT),
+            check(BedrockAttackMobVisibility.class, COMBAT),
+            check(BedrockAttackPlayerVisibility.class, COMBAT),
             check(BedrockEntityHitboxes.class, COMBAT),
             check(BedrockEntityReach.INFO, COMBAT),
             check(BedrockPlayerHitboxes.class, COMBAT),
@@ -302,6 +308,8 @@ public final class CheckCatalog {
             check(VehicleOffset.INFO, VEHICLES),
             check(AirLiquidBreak.class, BUILDING),
             check(AirLiquidPlace.class, BUILDING),
+            check(BedrockBreakVisibility.class, BUILDING),
+            check(BedrockPlaceVisibility.class, BUILDING),
             check(BreakVisibility.class, BUILDING),
             check(DuplicateRotPlace.class, BUILDING),
             check(FabricatedPlace.class, BUILDING),

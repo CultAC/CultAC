@@ -34,6 +34,7 @@ import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.longs.LongSets;
 import java.util.*;
@@ -77,6 +78,10 @@ public class CompensatedWorld {
     private final Long2IntOpenHashMap recentClientCollisionChanges = new Long2IntOpenHashMap();
     private final Long2IntOpenHashMap recentClientFluidChanges = new Long2IntOpenHashMap();
     private final Long2ByteOpenHashMap recentClientFluidChangeKinds = new Long2ByteOpenHashMap();
+    // Blocks a Bedrock client's own predictions wrote that no server update has replaced since. Its predictions are
+    // written straight into this world, and the client may not hold them: Geyser can refuse a use and restore the
+    // block on the client without anything reaching this world.
+    private final LongOpenHashSet bedrockClientWrites = new LongOpenHashSet();
     private final Map<PendingReinternSection, PendingReinternState> pendingReinternSections = new LinkedHashMap<>();
     /** One tick end's reintern candidates, empty outside processPendingReinterns; owned by the packet thread. */
     private final List<PendingReinternCandidate> reinternCandidates = new ArrayList<>();
@@ -719,7 +724,21 @@ public class CompensatedWorld {
     public void handleServerBlockUpdate(int x, int y, int z, int state, int transaction) {
         // Geyser forwards it, but a Bedrock BlockSource#setBlock refuses a Y outside its dimension's heights.
         if (player.isBedrockMovement() && !clientHoldsBlockAt(y)) return;
+        bedrockClientWrites.remove(BlockPos.asLong(x, y, z));
         updateBlock(x, y, z, state);
+    }
+
+    /** Whether a Bedrock client's own prediction wrote this block and no server update has replaced it since. */
+    public boolean isBedrockClientWritten(int x, int y, int z) {
+        return bedrockClientWrites.contains(BlockPos.asLong(x, y, z));
+    }
+
+    private void forgetBedrockClientWrites(int chunkX, int chunkZ) {
+        if (bedrockClientWrites.isEmpty()) return;
+        bedrockClientWrites.removeIf((long position) -> {
+            BlockPos pos = BlockPos.of(position);
+            return pos.getX() >> 4 == chunkX && pos.getZ() >> 4 == chunkZ;
+        });
     }
 
     /** Whether the client's current level can hold a block at {@code y}. */
@@ -1154,6 +1173,7 @@ public class CompensatedWorld {
                 selectionOriginalBlockEntities.put(asVector.asLong(), clientBlockEntities.stored(asVector));
         }
 
+        if (isCurrentlyPredicting && player.isBedrockMovement()) bedrockClientWrites.add(asVector.asLong());
         if (isCurrentlyPredicting && !player.isBedrockMovement()) {
             if (prediction == null) {
                 boolean isPlayerTryingToDisableCult =
@@ -1964,6 +1984,7 @@ public class CompensatedWorld {
                 geysers.replaceChunk(chunkX, chunkZ, geyserTickers);
                 pistons.forgetChunk(chunkX, chunkZ);
                 clientBlockEntities.forgetChunk(chunkX, chunkZ);
+                forgetBedrockClientWrites(chunkX, chunkZ);
                 for (var entity : chunk.blockEntities) applyClientBlockEntityData(dimension, entity);
             }
             if (terrainListener != null) terrainListener.columnLoaded(chunkX, chunkZ);
@@ -2172,6 +2193,7 @@ public class CompensatedWorld {
                 geysers.removeChunk(chunkX, chunkZ);
                 pistons.forgetChunk(chunkX, chunkZ);
                 clientBlockEntities.forgetChunk(chunkX, chunkZ);
+                forgetBedrockClientWrites(chunkX, chunkZ);
             }
             if (removed != null && terrainListener != null) terrainListener.columnUnloaded(chunkX, chunkZ);
         });
@@ -2306,6 +2328,7 @@ public class CompensatedWorld {
                 geysers.removeChunk(chunkX, chunkZ);
                 pistons.forgetChunk(chunkX, chunkZ);
                 clientBlockEntities.forgetChunk(chunkX, chunkZ);
+                forgetBedrockClientWrites(chunkX, chunkZ);
             }
             iterator.remove();
             chunkEpoch++;
@@ -2332,6 +2355,7 @@ public class CompensatedWorld {
         pendingReinternSections.clear();
         geysers.clear();
         clientBlockEntities.clear();
+        bedrockClientWrites.clear();
         if (cleared != null) {
             for (long position : cleared)
                 listener.columnUnloaded(chunkXFromPosition(position), chunkZFromPosition(position));
