@@ -749,7 +749,7 @@ class InteractionVisibilityTest {
     }
 
     @Test
-    void aBedrockTouchClientPicksAtAScreenPointWithinItsView() throws Exception {
+    void aBedrockTouchClientPicksAnywhereAroundIt() throws Exception {
         try (var setup = new Setup()) {
             var entities = setup.check(BedrockEntityReach.class);
             var hitboxes = setup.check(BedrockEntityHitboxes.class);
@@ -769,12 +769,12 @@ class InteractionVisibilityTest {
 
             entities.onBedrockAttack(43, new Vec3(behind.x, eye, behind.z), 1.0E-5);
             bedrockTick(player, 0, TOUCH);
-            assertEquals(1, hitboxes.violations, "no screen point lies behind the camera");
+            assertEquals(0, hitboxes.violations, "a touch picks behind the look");
 
             bedrockTick(player, 0, MOUSE);
             entities.onBedrockAttack(42, new Vec3(aside.x, eye, aside.z), 1.0E-5);
             bedrockTick(player, 0, MOUSE);
-            assertEquals(2, hitboxes.violations, "a mouse picks along the view");
+            assertEquals(1, hitboxes.violations, "a mouse picks along the view");
             assertEquals(0, entities.violations);
         }
     }

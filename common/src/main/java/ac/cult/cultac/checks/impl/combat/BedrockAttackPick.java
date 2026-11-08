@@ -27,8 +27,6 @@ record BedrockAttackPick(
 
     // The angle precision of a view direction, with room for the float hit point.
     private static final double ANGLE_PRECISION = 0.01;
-    // Touch and motion controllers pick at a screen point within the camera's view (Boar's bound).
-    private static final double SCREEN_YAW = 110.0;
     // The view to the hit point is followed along the eye path in pieces of at most this many degrees.
     private static final double PIECE_DEGREES = 0.5;
     private static final int MAX_PIECES = 512;
@@ -57,8 +55,10 @@ record BedrockAttackPick(
      * {@link #yaw}/{@link #pitch} toward {@code nextYaw}/{@code nextPitch}, or along any view from inside the box,
      * where the pick hits at the eye. The view turns every frame and the ticks only sample it, so one that turns back
      * within a tick can look past both; it may run up to the larger of the two neighbouring ticks' turns past them.
+     * Cult does not judge the look of a touch or motion controller pick.
      */
     boolean looksAtHit(float nextYaw, float nextPitch, SimpleCollisionBox box) {
+        if (screenPick) return true;
         for (BedrockEye eye : eyes) {
             if (pathMeets(eye, box)) return true;
         }
@@ -66,10 +66,6 @@ record BedrockAttackPick(
         double turnPitch = nextPitch - pitch;
         double yawRoom = Math.max(Math.abs(wrap(yaw - yawBefore)), Math.abs(turnYaw)) + ANGLE_PRECISION;
         double pitchRoom = Math.max(Math.abs(pitch - pitchBefore), Math.abs(turnPitch)) + ANGLE_PRECISION;
-        if (screenPick) {
-            yawRoom += SCREEN_YAW;
-            pitchRoom = 180.0;
-        }
         for (BedrockEye eye : eyes) {
             if (looksAtHit(eye, turnYaw, turnPitch, yawRoom, pitchRoom)) return true;
         }
