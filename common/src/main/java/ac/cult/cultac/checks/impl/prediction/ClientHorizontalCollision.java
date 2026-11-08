@@ -39,16 +39,38 @@ public final class ClientHorizontalCollision {
 
     private ClientHorizontalCollision() {}
 
-    /** TRUE only when every key input consistent with the accepted move ends in a hard collision. */
+    /**
+     * TRUE only when every key input consistent with the accepted move ends in a hard collision, from the starting
+     * velocity of the selected reality and of every other judgeable zero-flag reality, any of which the client may
+     * have moved from. A tick-skip start is not one: a tick end proves LocalPlayer#tick ran each unsent tick.
+     */
     public static DesyncStatus hard(PredictionResult result) {
+        DesyncStatus verdict = hardFrom(result);
+        List<PredictionResult> realities = result.getRealities();
+        for (int i = 0, size = realities == null ? 0 : realities.size(); i < size; i++) {
+            if (verdict == DesyncStatus.FALSE) return verdict;
+            PredictionResult reality = realities.get(i);
+            if (reality == result || reality.getFlagSeverity() != 0.0 || !judgeable(reality)) continue;
+            DesyncStatus other = hardFrom(reality);
+            if (other != verdict) verdict = other == DesyncStatus.FALSE ? other : DesyncStatus.UNKNOWN;
+        }
+        return verdict;
+    }
+
+    private static boolean judgeable(PredictionResult result) {
         SimulationContext context = result.getSimulationContext();
-        if (context == null
-                || context.getVehicle() != null
-                || result.getValidMovements() == null
-                || result.getCollideAxisData() == null
-                || result.getInitialStartingVel().isTickSkip()) return DesyncStatus.UNKNOWN;
+        return context != null
+                && context.getVehicle() == null
+                && result.getValidMovements() != null
+                && result.getCollideAxisData() != null
+                && !result.getInitialStartingVel().isTickSkip()
+                && result.getValidMovements().getClosestTrace() != null;
+    }
+
+    private static DesyncStatus hardFrom(PredictionResult result) {
+        if (!judgeable(result)) return DesyncStatus.UNKNOWN;
+        SimulationContext context = result.getSimulationContext();
         MovementTrace trace = result.getValidMovements().getClosestTrace();
-        if (trace == null) return DesyncStatus.UNKNOWN;
 
         Input input = input(result);
         if (trace.shulkerBoxShove() != null) return shoved(trace.shulkerBoxShove(), input);
@@ -292,11 +314,13 @@ public final class ClientHorizontalCollision {
                 (strafe * cos - forward * sin) / length, (forward * cos + strafe * sin) / length, movementX, movementZ);
     }
 
+    /** The sine table's yaw direction is not of unit length, so the angle divides by both lengths. */
     private static boolean isMinor(double dirX, double dirZ, double movementX, double movementZ) {
+        double inputLengthSquared = dirX * dirX + dirZ * dirZ;
         double movementLengthSquared = movementX * movementX + movementZ * movementZ;
-        if (movementLengthSquared < 1.0E-5F) return false;
+        if (inputLengthSquared < 1.0E-5F || movementLengthSquared < 1.0E-5F) return false;
         double dot = dirX * movementX + dirZ * movementZ;
-        return Math.acos(Math.min(1, dot / Math.sqrt(movementLengthSquared))) < MINOR_ANGLE;
+        return Math.acos(Math.min(1, dot / Math.sqrt(inputLengthSquared * movementLengthSquared))) < MINOR_ANGLE;
     }
 
     /** One horizontal axis of the attempted movement {@code base + input * t} against the reported delta. */
