@@ -1309,6 +1309,16 @@ public class CompensatedEntities {
         }
     }
 
+    /**
+     * Whether a Bedrock actor is held where it entered a chunk the client has not loaded: it stays there through later
+     * moves until the chunk loads, and a remote player placed there leaves only by a teleport.
+     */
+    public boolean isInBedrockLimbo(PacketEntity entity) {
+        if (!entity.clientPhysicalPositionExact) return false;
+        Vec3 position = entity.clientPhysicalPosition;
+        return position != null && !entity.isInLoadedChunk(player.compensatedWorld, position);
+    }
+
     /** ClientLevel root/passenger order and client ticking membership. */
     public boolean isTicking(PacketEntity entity) {
         if (entity.type == EntityTypeIds.PLAYER) return true;

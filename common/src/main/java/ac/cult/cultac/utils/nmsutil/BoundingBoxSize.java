@@ -26,6 +26,9 @@ public class BoundingBoxSize {
     }
 
     public static float getWidth(PacketEntity packetEntity, ClientVersion version, boolean bedrock) {
+        // A Bedrock client sizes an actor's box by the width and height Geyser sent it times its scale, which can
+        // differ from the Java size (a zombie's 1.8 height, a happy ghast's 1.001 scale, a rabbit's 0.55).
+        if (bedrock && packetEntity.hasBedrockSize()) return packetEntity.bedrockWidth * packetEntity.bedrockScale;
         if (bedrock && packetEntity.isBoat()) {
             return (float)
                     (packetEntity.bedrockBoat == null
@@ -284,6 +287,7 @@ public class BoundingBoxSize {
     }
 
     public static float getHeight(PacketEntity packetEntity, ClientVersion version, boolean bedrock) {
+        if (bedrock && packetEntity.hasBedrockSize()) return packetEntity.bedrockHeight * packetEntity.bedrockScale;
         if (bedrock && packetEntity.isBoat()) {
             return (float)
                     (packetEntity.bedrockBoat == null

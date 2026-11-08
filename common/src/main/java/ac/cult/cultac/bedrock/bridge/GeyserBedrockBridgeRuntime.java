@@ -616,14 +616,15 @@ public final class GeyserBedrockBridgeRuntime {
         private final GeyserPoseConfirmations poses = new GeyserPoseConfirmations();
         private final GeyserVehicleAttributes vehicleAttributes = new GeyserVehicleAttributes();
         private final GeyserEntityPositions entityPositions = new GeyserEntityPositions();
-        // Markers per client tick past which no marker is written only to narrow when entity updates are handled.
+        // Markers written per client tick only to narrow when entity updates are handled; the markers that prove
+        // updates are not counted.
         private static final int MARKERS_PER_TICK = 2;
         // A packet carrying entity updates no latency marker has followed yet; the next flush writes one.
         private BedrockPacketWrapper entityUpdateSource;
         // Whether a latency marker was written in this batch with nothing heavy after it: a move written now is
         // handled right after the client answers it, unless its packet budget runs out in between.
         private boolean freshMarker;
-        // Latency markers written since the client tick markerTick was processed.
+        // Narrowing markers written since the client tick markerTick was processed.
         private long markerTick = -1;
         private int markersInTick;
         private final GeyserEntityAttributes entityAttributes = new GeyserEntityAttributes();
@@ -760,6 +761,7 @@ public final class GeyserBedrockBridgeRuntime {
                                     .getPlayerInventoryHolder()
                                     .translateRequests(java.util.List.of(authInput.getItemStackRequest()));
                         }
+                        player.checkManager.endBedrockClientTick();
                         return;
                     }
                     poses.begin(connection, authInput);
@@ -767,6 +769,7 @@ public final class GeyserBedrockBridgeRuntime {
                     submitMove(player, move);
                 } else if (packet instanceof InventoryTransactionPacket transaction) {
                     if (!GeyserItemUse.allow(connection, player, transaction)) return;
+                    if (GeyserEntityInteractions.dropsAttack(connection, player, transaction)) return;
                     submitInventoryTransaction(player, transaction);
                 } else if (packet instanceof PlayerActionPacket action) {
                     submitPlayerAction(player, action);
@@ -782,6 +785,7 @@ public final class GeyserBedrockBridgeRuntime {
                     GeyserVehicleInput.observe(connection, player, input);
                     player.actionManager.endClientTick();
                     player.endCountedClientTick();
+                    player.checkManager.endBedrockClientTick();
                 }
             });
         }
@@ -1033,7 +1037,7 @@ public final class GeyserBedrockBridgeRuntime {
 
         /**
          * Whether a marker that only narrows when entity updates are handled may be written: fewer than
-         * {@link #MARKERS_PER_TICK} markers went out since the last client tick was processed. The marker that
+         * {@link #MARKERS_PER_TICK} such markers went out since the last client tick was processed. The marker that
          * proves updates is written regardless.
          */
         private boolean mayNarrowWithMarker() {
@@ -1101,7 +1105,6 @@ public final class GeyserBedrockBridgeRuntime {
                                 0, BedrockSubClients.sender(source), BedrockSubClients.target(source), marker, null),
                         context.voidPromise());
                 freshMarker = true;
-                countMarker();
             });
         }
 
@@ -1563,6 +1566,7 @@ public final class GeyserBedrockBridgeRuntime {
                 if ((owner.entityPositions.hasPending() || owner.entityAttributes.hasPending())
                         && owner.mayNarrowWithMarker()) {
                     owner.writeLatencyBoundary(context, wrapper, player -> {});
+                    owner.countMarker();
                 }
                 owner.freshMarker = false;
             }
@@ -1771,6 +1775,7 @@ public final class GeyserBedrockBridgeRuntime {
                     && owner.mayNarrowWithMarker()) {
                 // The pre-wave marker: in this move's batch, right before its wave.
                 owner.writeLatencyBoundary(context, wrapper, player -> {});
+                owner.countMarker();
             }
             if (observedPlayer != null)
                 owner.entityPositions.capture(
@@ -1826,7 +1831,6 @@ public final class GeyserBedrockBridgeRuntime {
                     }
                     context.write(message, promise);
                     owner.freshMarker = true;
-                    owner.countMarker();
                     return receipt;
                 });
                 return;

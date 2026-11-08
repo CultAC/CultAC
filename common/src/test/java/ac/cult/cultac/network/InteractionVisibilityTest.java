@@ -18,8 +18,15 @@ import ac.cult.blocksim.entity.PaintingSize;
 import ac.cult.blocksim.interaction.BlockHit;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.MovementPlatform;
+import ac.cult.cultac.bedrock.player.BedrockPlayerState;
+import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
+import ac.cult.cultac.bedrock.protocol.BedrockMoveFrame;
+import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsH;
+import ac.cult.cultac.checks.impl.combat.BedrockEntityHitboxes;
+import ac.cult.cultac.checks.impl.combat.BedrockEntityReach;
+import ac.cult.cultac.checks.impl.combat.BedrockPlayerReach;
 import ac.cult.cultac.checks.impl.combat.EntityReach;
 import ac.cult.cultac.checks.impl.combat.PlayerReach;
 import ac.cult.cultac.checks.impl.visibility.AttackMobVisibility;
@@ -545,8 +552,282 @@ class InteractionVisibilityTest {
             assertTrue(reach.enforcesReach(boat), "A Java client's boat is left to reach");
             assertTrue(reach.measuresBeyondReach(boat));
             setup.fixture.player.movementPlatform = MovementPlatform.BEDROCK;
-            assertFalse(reach.enforcesReach(boat), "Reach does not enforce a Bedrock client's boat");
+            assertFalse(
+                    setup.check(BedrockEntityReach.class).enforcesReach(boat),
+                    "Reach does not enforce a Bedrock client's boat");
         }
+    }
+
+    @Test
+    void aBedrockClientsTargetsAreJudgedOnTheBoxGrownByItsPickMargin() throws Exception {
+        try (var setup = new Setup()) {
+            var entities = setup.check(BedrockEntityReach.class);
+            var players = setup.check(BedrockPlayerReach.class);
+            var java = setup.check(EntityReach.class);
+            var player = setup.fixture.player;
+            player.movementPlatform = MovementPlatform.BEDROCK;
+            player.bedrockState = new BedrockPlayerState(player.playerUUID);
+            player.compensatedEntities.addEntity(42, EntityTypeIds.ZOMBIE, new Vec3(.5, 64, 2.5), 0, 0, 0);
+            player.compensatedEntities.addEntity(43, EntityTypeIds.PLAYER, new Vec3(2.5, 64, 2.5), 0, 0, 0);
+            var zombie = player.compensatedEntities.getEntity(42);
+            var remote = player.compensatedEntities.getEntity(43);
+
+            bedrockProtocol(player, 2193);
+            assertTrue(players.enforcesReach(remote), "every version lerps remote players");
+            bedrockProtocol(player, BedrockProtocolVersion.V1_26_60.protocol());
+            assertTrue(entities.enforcesReach(zombie), "1.26.60 lerps mobs");
+            assertFalse(java.enforcesReach(zombie), "a Bedrock client's attacks flag BedrockEntityReach");
+
+            SimpleCollisionBox shown = zombie.getPossibleMovementCollisionBoxes();
+            SimpleCollisionBox picked = entities.getReachBox(zombie);
+            assertEquals(shown.minX - 0.1, picked.minX, 1.0E-9);
+            assertEquals(shown.minY - 0.1, picked.minY, 1.0E-9);
+            assertEquals(shown.minZ - 0.1, picked.minZ, 1.0E-9);
+            assertEquals(shown.maxX + 0.1, picked.maxX, 1.0E-9);
+            assertEquals(shown.maxY + 0.1, picked.maxY, 1.0E-9);
+            assertEquals(shown.maxZ + 0.1, picked.maxZ, 1.0E-9);
+        }
+    }
+
+    @Test
+    void aBedrockClientsActorIsSizedByTheDataItReceived() throws Exception {
+        try (var setup = new Setup()) {
+            var entities = setup.check(BedrockEntityReach.class);
+            var player = setup.fixture.player;
+            player.movementPlatform = MovementPlatform.BEDROCK;
+            player.bedrockState = new BedrockPlayerState(player.playerUUID);
+            bedrockProtocol(player, BedrockProtocolVersion.V1_26_60.protocol());
+            player.compensatedEntities.addEntity(42, EntityTypeIds.OAK_BOAT, new Vec3(.5, 64, 2.5), 0, 0, 0);
+            var boat = player.compensatedEntities.getEntity(42);
+
+            boat.setBedrockSize(1.6F, 0.6F, 1.0F);
+            boat.refreshDimensions(player);
+            SimpleCollisionBox picked = entities.getReachBox(boat);
+            assertEquals(1.6F + 0.2, picked.maxX - picked.minX, 1.0E-6);
+            assertEquals(1.6F + 0.2, picked.maxZ - picked.minZ, 1.0E-6);
+            assertEquals(0.6F + 0.2, picked.maxY - picked.minY, 1.0E-6);
+
+            boat.setBedrockSize(null, null, 2.0F);
+            boat.refreshDimensions(player);
+            picked = entities.getReachBox(boat);
+            assertEquals(3.2F + 0.2, picked.maxX - picked.minX, 1.0E-6);
+            assertEquals(1.2F + 0.2, picked.maxY - picked.minY, 1.0E-6);
+        }
+    }
+
+    @Test
+    void aBedrockClientPicksFromInsideABoxWhateverItsView() throws Exception {
+        try (var setup = new Setup()) {
+            var entities = setup.check(BedrockEntityReach.class);
+            var hitboxes = setup.check(BedrockEntityHitboxes.class);
+            var player = bedrockAttacker(setup);
+            // A zombie's box holds the client's eye, where its pick reports the hit.
+            player.compensatedEntities.addEntity(
+                    42, EntityTypeIds.ZOMBIE, new Vec3(player.x + 0.2, player.y, player.z), 0, 0, 0);
+            Vec3 eye = new Vec3(player.x, player.y + 1.62001, player.z);
+
+            bedrockTick(player, 120);
+            bedrockTick(player, 120);
+            entities.onBedrockAttack(42, eye, 1.0E-5);
+            bedrockTick(player, 120);
+            assertEquals(0, hitboxes.violations);
+            assertEquals(0, entities.violations);
+        }
+    }
+
+    @Test
+    void aBedrockClientPicksARavagerOnItsFixedSubBox() throws Exception {
+        try (var setup = new Setup()) {
+            var entities = setup.check(BedrockEntityReach.class);
+            var player = bedrockAttacker(setup);
+            player.compensatedEntities.addEntity(42, EntityTypeIds.RAVAGER, new Vec3(.5, 64, 2.5), 0, 0, 0);
+            var ravager = player.compensatedEntities.getEntity(42);
+
+            for (float scale : new float[] {1.0F, 1.5F, 0.6F}) {
+                ravager.setBedrockSize(1.2F, 1.9F, scale);
+                ravager.refreshDimensions(player);
+                SimpleCollisionBox picked = entities.getReachBox(ravager);
+                assertEquals(1.95 + 0.2, picked.maxX - picked.minX, 1.0E-6, "scale " + scale);
+                assertEquals(1.95 + 0.2, picked.maxZ - picked.minZ, 1.0E-6, "scale " + scale);
+                assertEquals(64 - 0.1, picked.minY, 1.0E-6, "scale " + scale);
+                assertEquals(64 + 2.2 + 0.1, picked.maxY, 1.0E-6, "scale " + scale);
+            }
+        }
+    }
+
+    @Test
+    void aBedrockClientsAttackRangeIsItsPickRange() throws Exception {
+        try (var setup = new Setup()) {
+            var entities = setup.check(BedrockEntityReach.class);
+            var hitboxes = setup.check(BedrockEntityHitboxes.class);
+            var player = bedrockAttacker(setup);
+            // Each zombie's box grown by the pick margin starts 2.85 and 2.95 blocks in front of the eye.
+            player.compensatedEntities.addEntity(
+                    42, EntityTypeIds.ZOMBIE, new Vec3(player.x, player.y, player.z + 3.25), 0, 0, 0);
+            player.compensatedEntities.addEntity(
+                    43, EntityTypeIds.ZOMBIE, new Vec3(player.x, player.y, player.z + 3.35), 0, 0, 0);
+            double eye = player.y + 1.62;
+
+            entities.onBedrockAttack(42, new Vec3(player.x, eye, player.z + 2.85), 1.0E-5);
+            bedrockTick(player, 0);
+            assertEquals(0, entities.violations);
+            entities.onBedrockAttack(43, new Vec3(player.x, eye, player.z + 2.95), 1.0E-5);
+            bedrockTick(player, 0);
+            assertEquals(1, entities.violations);
+            player.gamemode = GameMode.CREATIVE;
+            entities.onBedrockAttack(43, new Vec3(player.x, eye, player.z + 2.95), 1.0E-5);
+            bedrockTick(player, 0);
+            assertEquals(1, entities.violations);
+            assertEquals(0, hitboxes.violations);
+        }
+    }
+
+    @Test
+    void aBedrockClientsHitLiesOnTheTargetAlongAViewItTurnedTo() throws Exception {
+        try (var setup = new Setup()) {
+            var entities = setup.check(BedrockEntityReach.class);
+            var hitboxes = setup.check(BedrockEntityHitboxes.class);
+            var player = bedrockAttacker(setup);
+            player.compensatedEntities.addEntity(
+                    42, EntityTypeIds.ZOMBIE, new Vec3(player.x, player.y, player.z + 2.5), 0, 0, 0);
+            // Where a view along +z from the eye enters the zombie's box grown by the pick margin.
+            Vec3 front = new Vec3(player.x, player.y + 1.62, player.z + 2.1);
+
+            entities.onBedrockAttack(42, front, 1.0E-5);
+            bedrockTick(player, 0);
+            assertEquals(0, hitboxes.violations, "the view met the hit");
+
+            entities.onBedrockAttack(42, new Vec3(front.x + 0.5, front.y, front.z), 1.0E-5);
+            bedrockTick(player, 0);
+            assertEquals(1, hitboxes.violations, "the hit lies off the box");
+
+            bedrockTick(player, 60);
+            bedrockTick(player, 60);
+            entities.onBedrockAttack(42, front, 1.0E-5);
+            bedrockTick(player, 60);
+            assertEquals(2, hitboxes.violations, "every view the client had looked away");
+
+            entities.onBedrockAttack(42, front, 1.0E-5);
+            bedrockTick(player, -60);
+            assertEquals(2, hitboxes.violations, "the view turned across the hit that tick");
+            assertEquals(0, entities.violations);
+        }
+    }
+
+    @Test
+    void aBedrockTouchClientPicksAtAScreenPointWithinItsView() throws Exception {
+        try (var setup = new Setup()) {
+            var entities = setup.check(BedrockEntityReach.class);
+            var hitboxes = setup.check(BedrockEntityHitboxes.class);
+            var player = bedrockAttacker(setup);
+            bedrockTick(player, 0, TOUCH);
+            double eye = player.y + 1.62;
+            // One zombie 60 degrees to the side of the view and one behind it, each 2.3 blocks from the eye.
+            double side = Math.toRadians(60);
+            Vec3 aside = new Vec3(player.x - Math.sin(side) * 2.3, player.y, player.z + Math.cos(side) * 2.3);
+            Vec3 behind = new Vec3(player.x, player.y, player.z - 2.3);
+            player.compensatedEntities.addEntity(42, EntityTypeIds.ZOMBIE, aside, 0, 0, 0);
+            player.compensatedEntities.addEntity(43, EntityTypeIds.ZOMBIE, behind, 0, 0, 0);
+
+            entities.onBedrockAttack(42, new Vec3(aside.x, eye, aside.z), 1.0E-5);
+            bedrockTick(player, 0, TOUCH);
+            assertEquals(0, hitboxes.violations, "a touch picks at a screen point off the view");
+
+            entities.onBedrockAttack(43, new Vec3(behind.x, eye, behind.z), 1.0E-5);
+            bedrockTick(player, 0, TOUCH);
+            assertEquals(1, hitboxes.violations, "no screen point lies behind the camera");
+
+            bedrockTick(player, 0, MOUSE);
+            entities.onBedrockAttack(42, new Vec3(aside.x, eye, aside.z), 1.0E-5);
+            bedrockTick(player, 0, MOUSE);
+            assertEquals(2, hitboxes.violations, "a mouse picks along the view");
+            assertEquals(0, entities.violations);
+        }
+    }
+
+    @Test
+    void aBedrockClientKeepsAHitInThePickMarginOnlyWhenItsRayMeetsNoBlock() throws Exception {
+        try (var setup = new Setup()) {
+            var entities = setup.check(BedrockEntityReach.class);
+            var hitboxes = setup.check(BedrockEntityHitboxes.class);
+            setup.fixture.player.x = .5;
+            setup.fixture.player.y = 64;
+            setup.fixture.player.z = -1.5;
+            var player = bedrockAttacker(setup);
+            player.compensatedEntities.addEntity(
+                    42, EntityTypeIds.ZOMBIE, new Vec3(player.x, player.y, player.z + 2.5), 0, 0, 0);
+            // Where views 0.35 and 0.25 to the side of the zombie's centre enter its box grown by the pick margin,
+            // 0.15 above its feet; only the second crosses its box without the margin.
+            Vec3 margin = new Vec3(player.x + 0.35, player.y + 0.15, player.z + 2.1);
+            Vec3 crossing = new Vec3(player.x + 0.25, player.y + 0.15, player.z + 2.1);
+
+            bedrockAttackAt(player, entities, margin);
+            assertEquals(0, hitboxes.violations, "the view met no block");
+
+            // A floor every view toward the hits meets, from any eye height, within the pick ray.
+            for (int x = -1; x <= 2; x++) {
+                for (int z = -2; z <= 4; z++) setup.block(x, 63, z, "stone");
+            }
+            bedrockAttackAt(player, entities, crossing);
+            assertEquals(0, hitboxes.violations, "the view crossed the zombie's box before the floor");
+            bedrockAttackAt(player, entities, margin);
+            assertEquals(1, hitboxes.violations, "the client keeps the floor its view met");
+            assertEquals(0, entities.violations);
+        }
+    }
+
+    // A tick turned toward hit from the standing eye, then an attack reporting it and the tick that ends with that
+    // view.
+    private static void bedrockAttackAt(CultPlayer player, BedrockEntityReach entities, Vec3 hit) {
+        double x = hit.x - player.x;
+        double y = hit.y - (player.y + 1.62);
+        double z = hit.z - player.z;
+        float yaw = (float) Math.toDegrees(Math.atan2(-x, z));
+        float pitch = (float) Math.toDegrees(Math.atan2(-y, Math.sqrt(x * x + z * z)));
+        bedrockTick(player, yaw, pitch, MOUSE);
+        bedrockTick(player, yaw, pitch, MOUSE);
+        entities.onBedrockAttack(42, hit, 1.0E-5);
+        bedrockTick(player, yaw, pitch, MOUSE);
+    }
+
+    // A survival Bedrock client on 1.26.60 standing at the setup's position, looking along +z.
+    private static CultPlayer bedrockAttacker(Setup setup) {
+        CultPlayer player = setup.fixture.player;
+        player.movementPlatform = MovementPlatform.BEDROCK;
+        player.bedrockState = new BedrockPlayerState(player.playerUUID);
+        player.lastX = player.x;
+        player.lastY = player.y;
+        player.lastZ = player.z;
+        bedrockTick(player, 0);
+        bedrockTick(player, 0);
+        return player;
+    }
+
+    // PlayerAuthInput input modes.
+    private static final int MOUSE = 1;
+    private static final int TOUCH = 2;
+
+    // A Bedrock client tick that ends with the client turned to yaw, level.
+    private static void bedrockTick(CultPlayer player, float yaw) {
+        bedrockTick(player, yaw, MOUSE);
+    }
+
+    private static void bedrockTick(CultPlayer player, float yaw, int inputMode) {
+        bedrockTick(player, yaw, 0, inputMode);
+    }
+
+    private static void bedrockTick(CultPlayer player, float yaw, float pitch, int inputMode) {
+        player.bedrockState.offerAuthInputFrame(BedrockAuthInputFrame.builder(player.playerUUID)
+                .protocolVersion(BedrockProtocolVersion.V1_26_60.protocol())
+                .inputMode(inputMode)
+                .rotation(yaw, pitch, yaw)
+                .build());
+        player.checkManager.endBedrockClientTick();
+    }
+
+    private static void bedrockProtocol(CultPlayer player, int protocol) {
+        player.bedrockState.setLastMoveFrame(new BedrockMoveFrame(
+                player.playerUUID, new BedrockProtocolVersion(protocol), 0, new Vec3(.5, 64, -1.5), 0, 0, 0));
     }
 
     @Test

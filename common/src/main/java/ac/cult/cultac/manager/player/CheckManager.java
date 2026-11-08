@@ -19,6 +19,10 @@ import ac.cult.cultac.checks.impl.cloud.CloudCombat;
 import ac.cult.cultac.checks.impl.cloud.CloudCombatExperimental;
 import ac.cult.cultac.checks.impl.cloud.CloudExploit;
 import ac.cult.cultac.checks.impl.cloud.CloudExploitExperimental;
+import ac.cult.cultac.checks.impl.combat.BedrockEntityHitboxes;
+import ac.cult.cultac.checks.impl.combat.BedrockEntityReach;
+import ac.cult.cultac.checks.impl.combat.BedrockPlayerHitboxes;
+import ac.cult.cultac.checks.impl.combat.BedrockPlayerReach;
 import ac.cult.cultac.checks.impl.combat.EntityHitboxes;
 import ac.cult.cultac.checks.impl.combat.EntityReach;
 import ac.cult.cultac.checks.impl.combat.FairReach;
@@ -293,6 +297,8 @@ public class CheckManager {
                 player.pluginChannelManager,
                 new PlayerReach(player, visibility),
                 new EntityReach(player, visibility),
+                new BedrockPlayerReach(player, visibility),
+                new BedrockEntityReach(player, visibility),
                 visibility,
                 new PlaceVisibility(player, visibility),
                 new BreakVisibility(player, visibility),
@@ -301,6 +307,8 @@ public class CheckManager {
                 new InteractEntityVisibility(player, visibility),
                 new PlayerHitboxes(player),
                 new EntityHitboxes(player),
+                new BedrockPlayerHitboxes(player),
+                new BedrockEntityHitboxes(player),
                 new FairReach(player, visibility),
                 player.packetEntityReplication,
                 new PacketChangeGameState(player),
@@ -610,6 +618,8 @@ public class CheckManager {
         registerReceive(registrations, packetChecks.get(PluginChannelManager.class));
         registerReceive(registrations, packetChecks.get(PlayerReach.class));
         registerReceive(registrations, packetChecks.get(EntityReach.class));
+        registerReceive(registrations, packetChecks.get(BedrockPlayerReach.class));
+        registerReceive(registrations, packetChecks.get(BedrockEntityReach.class));
         registerReceive(registrations, packetChecks.get(FairReach.class));
         registerReceive(registrations, packetChecks.get(BadPacketsWindow.class));
         registerReceive(registrations, packetChecks.get(CompensatedInventory.class));
@@ -653,6 +663,8 @@ public class CheckManager {
         registerTickEnd(packetChecks.get(ActionManager.class));
         registerTickEnd(packetChecks.get(PlayerReach.class));
         registerTickEnd(packetChecks.get(EntityReach.class));
+        registerTickEnd(packetChecks.get(BedrockPlayerReach.class));
+        registerTickEnd(packetChecks.get(BedrockEntityReach.class));
         registerTickEnd(packetChecks.get(ClientVisibilityProcessor.class));
         registerTickEnd(vehicleCheck.get(VehiclePredictionRunner.class));
         // MCP-Reborn Minecraft#tick computes the attack hit result before
@@ -921,6 +933,17 @@ public class CheckManager {
                 processor.reload();
             }
         }
+    }
+
+    /**
+     * A Bedrock client tick's end, when the Geyser bridge has handled its PlayerAuthInput. As at a Java tick end, the
+     * reach checks first measure the attacks sent since the last one, then remote actors take their lerp step.
+     */
+    public void endBedrockClientTick() {
+        player.packetStateData.localPlayerTickedSinceSpawn = true;
+        getListener(BedrockPlayerReach.class).endClientTick();
+        getListener(BedrockEntityReach.class).endClientTick();
+        getListener(PacketEntityReplication.class).tickBedrockClient();
     }
 
     @SuppressWarnings("unchecked")

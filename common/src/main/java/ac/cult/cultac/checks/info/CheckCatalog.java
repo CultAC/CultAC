@@ -70,6 +70,10 @@ import ac.cult.cultac.checks.impl.cloud.CloudCombat;
 import ac.cult.cultac.checks.impl.cloud.CloudCombatExperimental;
 import ac.cult.cultac.checks.impl.cloud.CloudExploit;
 import ac.cult.cultac.checks.impl.cloud.CloudExploitExperimental;
+import ac.cult.cultac.checks.impl.combat.BedrockEntityHitboxes;
+import ac.cult.cultac.checks.impl.combat.BedrockEntityReach;
+import ac.cult.cultac.checks.impl.combat.BedrockPlayerHitboxes;
+import ac.cult.cultac.checks.impl.combat.BedrockPlayerReach;
 import ac.cult.cultac.checks.impl.combat.EntityHitboxes;
 import ac.cult.cultac.checks.impl.combat.EntityReach;
 import ac.cult.cultac.checks.impl.combat.FairReach;
@@ -227,6 +231,10 @@ public final class CheckCatalog {
             check(AttackMobVisibility.class, COMBAT),
             check(AttackPlayerVisibility.class, COMBAT),
             check(AutoclickerLimit.INFO, COMBAT),
+            check(BedrockEntityHitboxes.class, COMBAT),
+            check(BedrockEntityReach.INFO, COMBAT),
+            check(BedrockPlayerHitboxes.class, COMBAT),
+            check(BedrockPlayerReach.INFO, COMBAT),
             check(EntityHitboxes.class, COMBAT),
             check(EntityReach.INFO, COMBAT),
             check(FairReach.INFO, COMBAT),
@@ -423,7 +431,7 @@ public final class CheckCatalog {
                 info.getName(),
                 Check.configName(info.getName(), info.getConfigName()),
                 info.getAltName(),
-                false,
+                info.isExperimental(),
                 category);
     }
 

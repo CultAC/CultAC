@@ -1,24 +1,24 @@
 package ac.cult.cultac.bedrock.bridge;
 
-import ac.cult.cultac.bedrock.prediction.integration.BedrockEntityPlayback;
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
-import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import org.cloudburstmc.math.vector.Vector3f;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataMap;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
 import org.cloudburstmc.protocol.bedrock.packet.*;
 import org.geysermc.geyser.session.GeyserSession;
 
 /** Reads final entity transforms; the shared entity tracker remains their only consumer. */
 final class GeyserEntityPositions {
-    // Bedrock 1.26.60: only projectiles and physics actors play back.
-    private static final int PLAYBACK_LIMITED_PROTOCOL = 2225;
     // Partial packets refer to the last written position, which may not be acknowledged yet.
     private final Map<Long, Position> written = new HashMap<>();
     // Updates written since the last latency marker; the next marker proves them.
@@ -32,7 +32,7 @@ final class GeyserEntityPositions {
                 || packet instanceof MovePlayerPacket;
     }
 
-    /** Whether {@code packet} moves an actor other than the player, whose client lerps or plays it back. */
+    /** Whether {@code packet} moves an actor other than the player. */
     static boolean movesOtherActor(BedrockPacket packet, long playerRuntimeId) {
         long runtimeId;
         if (packet instanceof MoveEntityAbsolutePacket move) runtimeId = move.getRuntimeEntityId();
@@ -50,6 +50,7 @@ final class GeyserEntityPositions {
         Vector3f motion = null;
         boolean forceLocal = false;
         boolean forceCompletion = false;
+        Size spawnSize = null;
         if (packet instanceof SetEntityMotionPacket move) {
             Position previous = written.get(move.getRuntimeEntityId());
             if (previous != null) {
@@ -64,6 +65,20 @@ final class GeyserEntityPositions {
                             && entity.bedrockRuntimeId == id
                             && !player.compensatedEntities.vehicles.applyClientboundVehicleVelocity(entity, velocity))
                         entity.deltaMovement = velocity;
+                }));
+            }
+            return;
+        }
+        if (packet instanceof SetEntityDataPacket data) {
+            Size size = Size.read(data.getMetadata());
+            Position previous = written.get(data.getRuntimeEntityId());
+            if (size != null && previous != null && (size.sized() || isBat(player, previous.javaId()))) {
+                long id = data.getRuntimeEntityId();
+                pending.add(() -> player.latencyUtils.addRealTimeTask(previous.creationTransaction(), () -> {
+                    PacketEntity entity = player.compensatedEntities.getEntity(previous.javaId());
+                    if (entity == null || entity.bedrockRuntimeId != id) return;
+                    size.apply(entity);
+                    if (size.sized()) entity.refreshDimensions(player);
                 }));
             }
             return;
@@ -88,6 +103,7 @@ final class GeyserEntityPositions {
             teleport = true;
             spawn = true;
             motion = add.getMotion();
+            spawnSize = Size.read(add.getMetadata());
         } else if (packet instanceof AddPlayerPacket add) {
             runtimeId = add.getRuntimeEntityId();
             position = add.getPosition();
@@ -97,6 +113,7 @@ final class GeyserEntityPositions {
             teleport = true;
             spawn = true;
             motion = add.getMotion();
+            spawnSize = Size.read(add.getMetadata());
         } else if (packet instanceof MoveEntityAbsolutePacket move) {
             runtimeId = move.getRuntimeEntityId();
             position = move.getPosition();
@@ -146,13 +163,11 @@ final class GeyserEntityPositions {
         int creationTransaction = tracker.getLastTransactionHung();
         Vec3 world = coordinates.toWorld(new Vec3(position.getX(), position.getY(), position.getZ()));
         written.put(runtimeId, new Position(javaId, creationTransaction, world, yaw, pitch));
-        float offset = translated.getOffset();
+        Size size = spawnSize;
+        float offset = clientOffset(translated);
         Vec3 feet = coordinates.toWorld(new Vec3(position.getX(), position.getY() - offset, position.getZ()));
         Vec3 spawnVelocity = motion == null ? null : new Vec3(motion.getX(), motion.getY(), motion.getZ());
         boolean moveLocal = forceLocal;
-        BedrockEntityPlayback.Window playback = playback(session, translated);
-        // The client cannot read the move's datagram before it is sent, after the ticks processed so far.
-        var sample = new BedrockEntityPlayback.Sample(feet, player.compensatedEntities.clientTicks());
         boolean[] begun = new boolean[1];
         if (!spawn) {
             // The client may handle the move once it has answered the marker written before it.
@@ -164,8 +179,8 @@ final class GeyserEntityPositions {
                             return;
                         begun[0] = true;
                         entity.bedrockPositionOffset = offset;
-                        entity.beginBedrockMove(player, feet, yaw - boatYaw(entity), pitch, moveLocal, teleport);
-                        if (entity.bedrockPlayback != null) entity.bedrockPlayback.begin(sample);
+                        entity.beginBedrockMove(
+                                player, feet, yaw - boatYaw(entity), pitch, moveLocal, teleport, ground);
                     }));
         }
         // The marker written after the move proves the client handled it.
@@ -173,6 +188,7 @@ final class GeyserEntityPositions {
             PacketEntity entity = player.compensatedEntities.getEntity(javaId);
             if (entity == null || !spawn && entity.bedrockRuntimeId != runtimeId) return;
             if (spawn) entity.bedrockRuntimeId = runtimeId;
+            if (size != null) size.apply(entity);
             if (spawnVelocity != null) entity.deltaMovement = spawnVelocity;
             if (entity == BedrockVehicleControl.controlledVehicle(player) && !spawn && !moveLocal) return;
             boolean ridden = entity == player.compensatedEntities.getSelf().getRiding();
@@ -195,23 +211,9 @@ final class GeyserEntityPositions {
                 // A move that did not begin, such as one for the player's own ride or one sent with the spawn, applies
                 // whole at its proof.
                 if (!begun[0]) {
-                    entity.beginBedrockMove(player, feet, yaw - boatYaw(entity), pitch, moveLocal, teleport);
-                    if (entity.bedrockPlayback != null) entity.bedrockPlayback.begin(sample);
+                    entity.beginBedrockMove(player, feet, yaw - boatYaw(entity), pitch, moveLocal, teleport, ground);
                 }
                 entity.onSecondTransaction();
-                if (entity.bedrockPlayback != null) {
-                    entity.bedrockPlayback.settle(sample, player.compensatedEntities.clientTicks());
-                }
-            }
-            if (spawn) {
-                entity.bedrockPlayback = playback == null
-                        ? null
-                        : new BedrockEntityPlayback(
-                                feet,
-                                playback,
-                                player.compensatedEntities.clientTicks(),
-                                BoundingBoxSize.getWidth(player, entity),
-                                BoundingBoxSize.getHeight(player, entity));
             }
             if (moveLocal && entity.bedrockPrediction != null) {
                 ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState.rebase(
@@ -229,25 +231,6 @@ final class GeyserEntityPositions {
     private static boolean placedDirectly(CultPlayer player, PacketEntity entity) {
         return entity == BedrockVehicleControl.controlledVehicle(player)
                 || entity == player.compensatedEntities.getSelf().getRiding();
-    }
-
-    /**
-     * How the client may play the actor back by time instead of lerping it; null when it only lerps it. Players never
-     * play back. Up to 26.52 every other actor may, mobs only while Mojang's flighting leaves it on. From 26.60 only
-     * actors whose predicted-movement gate is set do, such as arrows, tridents and falling blocks; living actors,
-     * boats, minecarts and end crystals lerp, and every other actor is counted as possibly playing back.
-     */
-    private static BedrockEntityPlayback.Window playback(
-            GeyserSession session, org.geysermc.geyser.entity.type.Entity translated) {
-        if (translated instanceof org.geysermc.geyser.entity.type.player.AvatarEntity) return null;
-        boolean lerpsFrom2660 = translated instanceof org.geysermc.geyser.entity.type.LivingEntity
-                || translated instanceof org.geysermc.geyser.entity.type.BoatEntity
-                || translated instanceof org.geysermc.geyser.entity.type.MinecartEntity
-                || translated instanceof org.geysermc.geyser.entity.type.EnderCrystalEntity;
-        if (session.protocolVersion() >= PLAYBACK_LIMITED_PROTOCOL) {
-            return lerpsFrom2660 ? null : BedrockEntityPlayback.Window.MOB_OR_PROJECTILE;
-        }
-        return lerpsFrom2660 ? BedrockEntityPlayback.Window.MOB : BedrockEntityPlayback.Window.MOB_OR_PROJECTILE;
     }
 
     boolean hasPending() {
@@ -271,4 +254,46 @@ final class GeyserEntityPositions {
     }
 
     private record Position(int javaId, int creationTransaction, Vec3 world, float yaw, float pitch) {}
+
+    /** The box size data in an actor's entity data; null when it carries none. */
+    private static boolean isBat(CultPlayer player, int javaId) {
+        var tracker = player.compensatedEntities.getTrackedEntity(javaId);
+        return tracker != null && tracker.getEntityType() == EntityTypeIds.BAT;
+    }
+
+    // How far below the packet position Cult places the actor's feet. Geyser 2.12 AvatarEntity#getOffset writes a
+    // player sleeping in a bed 0.2 above its feet; a remote player's feet still lie its eye offset below the packet
+    // position.
+    private static float clientOffset(org.geysermc.geyser.entity.type.Entity translated) {
+        if (translated instanceof org.geysermc.geyser.entity.type.player.AvatarEntity
+                && translated.getFlag(EntityFlag.SLEEPING)
+                && translated.getOffset() == SLEEPING_PLAYER_OFFSET) return PLAYER_OFFSET;
+        return translated.getOffset();
+    }
+
+    private static final float SLEEPING_PLAYER_OFFSET = 0.2F;
+    private static final float PLAYER_OFFSET = 1.62001F;
+
+    // The actor data that shapes where the client shows the actor: its size, and the RESTING flag a bat hangs by.
+    private record Size(Float width, Float height, Float scale, Boolean resting) {
+        static Size read(EntityDataMap data) {
+            if (data == null) return null;
+            Float width = data.get(EntityDataTypes.WIDTH);
+            Float height = data.get(EntityDataTypes.HEIGHT);
+            Float scale = data.get(EntityDataTypes.SCALE);
+            Boolean resting = data.get(EntityDataTypes.FLAGS) == null ? null : data.getFlag(EntityFlag.RESTING);
+            return width == null && height == null && scale == null && resting == null
+                    ? null
+                    : new Size(width, height, scale, resting);
+        }
+
+        boolean sized() {
+            return width != null || height != null || scale != null;
+        }
+
+        void apply(PacketEntity entity) {
+            entity.setBedrockSize(width, height, scale);
+            if (resting != null) entity.setBedrockResting(resting);
+        }
+    }
 }

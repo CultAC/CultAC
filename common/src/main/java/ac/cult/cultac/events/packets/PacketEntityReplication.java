@@ -372,6 +372,12 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         transformTick++;
     }
 
+    /** A Bedrock client tick's lerp step for every remote actor, taken when its PlayerAuthInput is handled. */
+    public void tickBedrockClient() {
+        tickEntityInterpolationAtClientTickEnd();
+        transformTick++;
+    }
+
     private void recountPushersAfterPlayer() {
         if (player.isBedrockMovement()) return;
         PredictionResult lastPrediction =
@@ -391,6 +397,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             if (entity == velocityVehicle && player.compensatedEntities.vehicles.isLocallyTickedVelocityRoot(entity)) {
                 return;
             }
+            if (player.isBedrockMovement() && player.compensatedEntities.isInBedrockLimbo(entity)) return;
             entity.onMovement(player, tickingReliably);
         };
         if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)) {

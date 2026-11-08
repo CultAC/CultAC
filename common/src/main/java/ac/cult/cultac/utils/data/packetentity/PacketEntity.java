@@ -17,7 +17,6 @@ package ac.cult.cultac.utils.data.packetentity;
 
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
-import ac.cult.cultac.bedrock.prediction.integration.BedrockEntityPlayback;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.network.packet.EntityPositionPath;
 import ac.cult.cultac.network.packet.PacketCodecUtil;
@@ -40,6 +39,7 @@ import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.function.DoubleUnaryOperator;
 import lombok.Getter;
 import org.jetbrains.annotations.Nullable;
 
@@ -53,10 +53,22 @@ public class PacketEntity {
     // Final Bedrock wire attributes, retained even before this actor is locally controlled.
     public ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes bedrockAttributes =
             ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes.EMPTY;
-    // Where the client may show the actor if it plays it back by time; null if it only lerps it.
-    public BedrockEntityPlayback bedrockPlayback;
     // How far above the feet the actor's Bedrock packet position is: the eye height for a player.
     public float bedrockPositionOffset;
+    // Whether the last move a Bedrock client handled for this actor set onGround.
+    private boolean bedrockMoveOnGround;
+    // Whether the Bedrock client has the RESTING flag for this actor.
+    private boolean bedrockResting;
+    // After a Bedrock lerp step the y the next step starts from may differ from the shown box's (see
+    // bedrockStoredFeet). That y, in the client's frame on the packet position, while the actor is still shown at
+    // bedrockBaseFrom.
+    private Vec3 bedrockBaseFrom;
+    private float bedrockBaseY;
+    // The box size and scale Geyser last sent this actor (WIDTH, HEIGHT, SCALE) that the client has applied: a Bedrock
+    // client's actor box is width and height times scale, a player's following its pose. NaN until known.
+    public float bedrockWidth = Float.NaN;
+    public float bedrockHeight = Float.NaN;
+    public float bedrockScale = 1.0F;
     public ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState bedrockPrediction;
     public ac.cult.cultac.bedrock.prediction.state.BedrockBoatProperties bedrockBoat;
     public Vec3 desyncClientPos;
@@ -199,6 +211,18 @@ public class PacketEntity {
         return happyGhast;
     }
 
+    /** Whether the client's box for this actor is sized by the data Geyser sent it. */
+    public boolean hasBedrockSize() {
+        return !Float.isNaN(bedrockWidth) && !Float.isNaN(bedrockHeight);
+    }
+
+    /** Size data a Bedrock client has applied; each null keeps the value before it. */
+    public void setBedrockSize(@Nullable Float width, @Nullable Float height, @Nullable Float scale) {
+        if (width != null) bedrockWidth = width;
+        if (height != null) bedrockHeight = height;
+        if (scale != null) bedrockScale = scale;
+    }
+
     /** The type test a push or collision with the player applies before any position or riding test. */
     public boolean mayPushOrCollide() {
         boolean hardCollidingEntity = boat || minecart || type == EntityTypeIds.STRIDER || happyGhast;
@@ -309,22 +333,38 @@ public class PacketEntity {
     }
 
     /**
-     * A Bedrock client may handle a move to {@code feet} from now on, and has once {@link #onSecondTransaction} runs. It
-     * lerps there over three ticks; a forced local move places the actor. A player's client has no predicted movement
-     * component, so it places a remote player at a teleport at least half a block from where it shows it, or into a
-     * chunk it has not loaded. Moves sent in one flush begin together, so the position before the first stays possible
-     * until they are settled.
+     * Cult takes a Bedrock move to {@code feet} as handled from now on, and certainly once {@link #onSecondTransaction}
+     * runs: a lerp over three ticks from where the actor is shown, restarting the count even toward the same target. A
+     * forced local move places the actor, and so does a remote player's teleport at least half a block from where it is
+     * shown, or a move into a chunk the client has not loaded. Moves sent in one flush begin together, so the position
+     * before the first stays possible until they are settled.
      */
     public void beginBedrockMove(
-            CultPlayer player, Vec3 feet, float yaw, float pitch, boolean forcedLocal, boolean teleport) {
+            CultPlayer player,
+            Vec3 feet,
+            float yaw,
+            float pitch,
+            boolean forcedLocal,
+            boolean teleport,
+            boolean onGround) {
         desyncClientPos = feet;
-        if (matchesActiveInterpolationTarget(feet.x, feet.y, feet.z, yaw, pitch)) return;
+        bedrockMoveOnGround = onGround;
         SimpleCollisionBox start = interpolationStartingLocation(player, interpolationStart());
-        SimpleCollisionBox target = forcedLocal || teleport && isAvatar() ? packetPositionBox(player) : null;
-        boolean placed = forcedLocal;
-        if (!forcedLocal && teleport && isAvatar()) {
-            if (!player.compensatedWorld.isChunkLoaded(CultMath.floor(feet.x) >> 4, CultMath.floor(feet.z) >> 4)
-                    || nearestFeetDistanceSqr(start, target) >= BEDROCK_SNAP_DISTANCE_SQUARED) {
+        if (clientPhysicalPositionExact && bedrockBaseFrom != null && clientPhysicalPosition == bedrockBaseFrom) {
+            // The lerp starts from its start position, which a raised step left above the box still shown.
+            double rise = (bedrockBaseY - bedrockPositionOffset) - clientPhysicalPosition.y;
+            start = start.copy();
+            start.minY += rise;
+            start.maxY += rise;
+        }
+        // A remote player moved into a chunk the client has not loaded is placed there, whatever the move's mode.
+        boolean unloadedTarget = isAvatar()
+                && !player.compensatedWorld.isChunkLoaded(CultMath.floor(feet.x) >> 4, CultMath.floor(feet.z) >> 4);
+        SimpleCollisionBox target =
+                forcedLocal || unloadedTarget || teleport && isAvatar() ? packetPositionBox(player) : null;
+        boolean placed = forcedLocal || unloadedTarget;
+        if (!placed && teleport && isAvatar()) {
+            if (nearestFeetDistanceSqr(start, target) >= BEDROCK_SNAP_DISTANCE_SQUARED) {
                 placed = true;
             } else if (farthestFeetDistanceSqr(start, target) >= BEDROCK_SNAP_DISTANCE_SQUARED) {
                 // Snapped or lerping: a lerp from the union passes through both.
@@ -332,16 +372,23 @@ public class PacketEntity {
             }
         }
         if (placed) {
-            // The client sets the position: the actor is at the target from the tick it handles the move.
+            // The move places the actor: it is at the target from the tick the client handles the move, and a later
+            // move lerps from there. Geyser follows a remote player's teleport with the same position as a normal move.
             ReachInterpolationData snapped = new ReachInterpolationData(target);
             snapped.setCurrentAndTargetRotation(yaw, pitch);
             replaceInterpolation(snapped, true);
+            clientPhysicalPosition = feet;
+            clientPhysicalPositionExact = true;
+            setClientPhysicalRotation(yaw, pitch);
             return;
         }
+        DoubleUnaryOperator storedFeet = newPacketLocation == null ? null : newPacketLocation.bedrockStoredFeet();
         replaceInterpolation(
                 nextInterpolation(
                         player, start, feet.x, feet.y, feet.z, clientPhysicalYaw, clientPhysicalPitch, yaw, pitch),
                 true);
+        // The new lerp starts from the position the last step left for it.
+        newPacketLocation.dueBedrockStoredFeet(storedFeet);
     }
 
     // Per axis, the feet of a box from shown, the same size as target, lie between these offsets from target's feet.
@@ -845,12 +892,6 @@ public class PacketEntity {
 
     // If the old and new packet location are split, we need to combine bounding boxes
     public void onMovement(CultPlayer player, boolean tickingReliably) {
-        if (bedrockPlayback != null) {
-            bedrockPlayback.tick(
-                    player.compensatedEntities.clientTicks(),
-                    BoundingBoxSize.getWidth(player, this),
-                    BoundingBoxSize.getHeight(player, this));
-        }
         ReachInterpolationData interpolation = newPacketLocation;
         Vec3 physicalBefore = clientPhysicalPosition;
         boolean idleProbe = false;
@@ -873,7 +914,12 @@ public class PacketEntity {
 
         // Handle uncertainty of second transaction spanning over multiple ticks
         if (oldPacketLocation != null) {
+            if (player.isBedrockMovement()) oldPacketLocation.rebaseBedrock(BoundingBoxSize.getHeight(player, this));
             oldPacketLocation.tickMovement(true, tickingReliably);
+            if (player.isBedrockMovement()) {
+                oldPacketLocation.dueBedrockStoredFeet(
+                        bedrockStoredFeet(player, oldPacketLocation.bedrockStepsLeft() > 0));
+            }
             widenStartingLocationByOldLocation();
         }
         if (idleProbe
@@ -889,13 +935,40 @@ public class PacketEntity {
 
     private void stepInterpolation(CultPlayer player, boolean tickingReliably) {
         carryInterpolationTargetByLocalPhysics(player);
+        if (player.isBedrockMovement()) newPacketLocation.rebaseBedrock(BoundingBoxSize.getHeight(player, this));
         SimpleCollisionBox exactAfterClientTick = exactInterpolatedLocationAfterClientTick(player);
+        boolean keptShown =
+                player.isBedrockMovement() && exactAfterClientTick != null && landsOnStoredBase(exactAfterClientTick);
+        if (keptShown) {
+            // The step left the start position where it was, so the actor keeps showing the box it showed.
+            exactAfterClientTick = GetBoundingBox.getBoundingBoxFromPosAndSize(
+                    exactAfterClientTickBox,
+                    clientPhysicalPosition.x,
+                    clientPhysicalPosition.y,
+                    clientPhysicalPosition.z,
+                    BoundingBoxSize.getWidth(player, this),
+                    BoundingBoxSize.getHeight(player, this));
+            exactAfterClientTickPosition = clientPhysicalPosition;
+        }
+        int bedrockStepsBefore = player.isBedrockMovement()
+                        && exactAfterClientTick != null
+                        && newPacketLocation.hasExactMovementLocationAfterClientTick()
+                ? newPacketLocation.remainingLerpSteps()
+                : 0;
+        // A Bedrock lerp that already ended takes no step: the actor keeps the box, and the start position, the last
+        // step left it, until the next move.
+        boolean bedrockFinished =
+                player.isBedrockMovement() && oldPacketLocation == null && newPacketLocation.bedrockStepsLeft() == 0;
         float exactYawAfterClientTick = exactYawAfterClientTick();
         float exactPitchAfterClientTick = exactPitchAfterClientTick();
         boolean exactRotationAfterClientTick = exactRotationAfterClientTick();
         boolean rotationMayStep = oldPacketLocation != null || newPacketLocation.hasActiveInterpolationTarget();
         newPacketLocation.tickMovement(oldPacketLocation == null, tickingReliably);
-        alignExactInterpolatedLocation(exactAfterClientTick);
+        if (player.isBedrockMovement()) {
+            newPacketLocation.dueBedrockStoredFeet(bedrockStoredFeet(player, newPacketLocation.bedrockStepsLeft() > 0));
+        }
+        if (!bedrockFinished) alignExactInterpolatedLocation(exactAfterClientTick);
+        if (keptShown) newPacketLocation.holdBedrockShownLocation(exactAfterClientTick);
         if (exactRotationAfterClientTick) {
             newPacketLocation.setExactRotation(exactYawAfterClientTick, exactPitchAfterClientTick);
             clientPhysicalYaw = exactYawAfterClientTick;
@@ -904,14 +977,21 @@ public class PacketEntity {
         } else if (rotationMayStep) {
             clientPhysicalYawCurrent = false;
         }
-        if (exactAfterClientTickPosition != null) {
+        if (bedrockFinished) {
+            return;
+        } else if (exactAfterClientTickPosition != null) {
             clientPhysicalPosition = exactAfterClientTickPosition;
             clientPhysicalPositionExact = true;
+            // With no position change the start position, and the base held for it, stay as they were.
+            if (player.isBedrockMovement() && !keptShown) storeBedrockBase(player, bedrockStepsBefore > 1);
         } else if (exactAfterClientTick != null) {
             clientPhysicalPosition = positionFromCollisionBox(exactAfterClientTick, clientPhysicalPosition);
             clientPhysicalPositionExact = true;
+            if (player.isBedrockMovement()) storeBedrockBase(player, bedrockStepsBefore > 1);
         } else {
             clientPhysicalPositionExact = false;
+            // Which start position the next lerp has is no longer known.
+            bedrockBaseFrom = null;
         }
     }
 
@@ -1102,10 +1182,65 @@ public class PacketEntity {
         Vec3 to = frame.toLocal(newPacketLocation.targetFeet());
         int steps = newPacketLocation.remainingLerpSteps();
         float offset = bedrockPositionOffset;
+        float fromY = clientPhysicalPosition == bedrockBaseFrom ? bedrockBaseY : (float) (from.y + offset);
         float x = bedrockLerp(steps, (float) from.x, (float) to.x);
-        float y = bedrockLerp(steps, (float) (from.y + offset), (float) (to.y + offset));
+        float y = bedrockLerp(steps, fromY, (float) (to.y + offset));
         float z = bedrockLerp(steps, (float) from.z, (float) to.z);
         return frame.toWorld(new Vec3(x, (double) y - offset, z));
+    }
+
+    // Whether a step from a changed start position landed on it: the shown actor has not moved across, and the step's
+    // packet y is the start one.
+    private boolean landsOnStoredBase(SimpleCollisionBox step) {
+        if (clientPhysicalPosition == null || clientPhysicalPosition != bedrockBaseFrom) return false;
+        Vec3 feet = positionFromCollisionBox(step, clientPhysicalPosition);
+        return (float) feet.x == (float) clientPhysicalPosition.x
+                && (float) feet.z == (float) clientPhysicalPosition.z
+                && (float) (feet.y + bedrockPositionOffset) == bedrockBaseY;
+    }
+
+    // The start y after a step that leaves steps when stepsLeft, applied to where the step left the actor.
+    private void storeBedrockBase(CultPlayer player, boolean stepsLeft) {
+        bedrockBaseFrom = null;
+        DoubleUnaryOperator storedFeet = bedrockStoredFeet(player, stepsLeft);
+        if (storedFeet == null) return;
+        double feet = clientPhysicalPosition.y;
+        double stored = storedFeet.applyAsDouble(feet);
+        if (stored == feet) return;
+        bedrockBaseFrom = clientPhysicalPosition;
+        bedrockBaseY = (float) (stored + bedrockPositionOffset);
+    }
+
+    /**
+     * Where a Bedrock actor's next lerp step starts from in y, after a step that leaves steps when stepsLeft; null when
+     * it starts from the step's. Each change is monotone.
+     * <ul>
+     *   <li>For an actor whose last move set onGround, minecarts aside, while steps are left: y rises to the next whole
+     *       number when floor(y + 0.01f) passes it.
+     *   <li>A resting bat hangs from the block above each tick: floor(y) + 1 - its height.
+     * </ul>
+     */
+    private @Nullable DoubleUnaryOperator bedrockStoredFeet(CultPlayer player, boolean stepsLeft) {
+        boolean lift = stepsLeft && bedrockMoveOnGround && !isMinecart();
+        boolean hang = bedrockResting && type == EntityTypeIds.BAT;
+        if (!lift && !hang) return null;
+        float offset = bedrockPositionOffset;
+        float height = BoundingBoxSize.getHeight(player, this);
+        return feet -> {
+            float y = (float) (feet + offset);
+            if (lift) {
+                int raised = (int) Math.floor(y + 0.01F);
+                if (raised != (int) Math.floor(y)) y = raised;
+            }
+            if (hang) y = (float) Math.floor(y) + 1.0F - height;
+            float stored = y;
+            return stored == (float) (feet + offset) ? feet : stored - (double) offset;
+        };
+    }
+
+    /** The RESTING flag a Bedrock client applied for this actor. */
+    public void setBedrockResting(boolean resting) {
+        bedrockResting = resting;
     }
 
     private static float bedrockLerp(int steps, float from, float to) {
@@ -1328,7 +1463,6 @@ public class PacketEntity {
         float height = BoundingBoxSize.getHeight(player, this);
         newPacketLocation.resize(width, height);
         if (oldPacketLocation != null) oldPacketLocation.resize(width, height);
-        if (bedrockPlayback != null) bedrockPlayback.resize(width, height);
         if (passengerPhysicalBox != null) {
             Vec3 feet = positionFromCollisionBox(passengerPhysicalBox);
             passengerPhysicalBox = GetBoundingBox.getBoundingBoxFromPosAndSize(feet.x, feet.y, feet.z, width, height);
@@ -1351,16 +1485,6 @@ public class PacketEntity {
             ReachInterpolationData.combineCollisionBox(
                     oldPacketLocation.getPossibleLocationCombined(scratch), out, out);
         }
-        if (bedrockPlayback != null) {
-            SimpleCollisionBox played = bedrockPlayback.box();
-            out.set(
-                    Math.min(out.minX, played.minX - ReachInterpolationData.REACH_PACKET_POSITION_UNCERTAINTY),
-                    Math.min(out.minY, played.minY - ReachInterpolationData.REACH_PACKET_POSITION_UNCERTAINTY),
-                    Math.min(out.minZ, played.minZ - ReachInterpolationData.REACH_PACKET_POSITION_UNCERTAINTY),
-                    Math.max(out.maxX, played.maxX + ReachInterpolationData.REACH_PACKET_POSITION_UNCERTAINTY),
-                    Math.max(out.maxY, played.maxY + ReachInterpolationData.REACH_PACKET_POSITION_UNCERTAINTY),
-                    Math.max(out.maxZ, played.maxZ + ReachInterpolationData.REACH_PACKET_POSITION_UNCERTAINTY));
-        }
         return out;
     }
 
@@ -1380,7 +1504,6 @@ public class PacketEntity {
             ReachInterpolationData.combineCollisionBox(
                     oldPacketLocation.getPossibleMovementLocationCombined(scratch), out, out);
         }
-        if (bedrockPlayback != null) ReachInterpolationData.combineCollisionBox(bedrockPlayback.box(), out, out);
         return out;
     }
 
@@ -1407,7 +1530,6 @@ public class PacketEntity {
             candidates.addAll(oldPacketLocation.getPossibleMovementLocations());
         }
         candidates.addAll(newPacketLocation.getPossibleMovementLocations());
-        if (bedrockPlayback != null) candidates.add(bedrockPlayback.box().copy());
         return candidates;
     }
 
@@ -1416,7 +1538,7 @@ public class PacketEntity {
         if (passengerPhysicalBox != null && riding != null) return 1;
         int count = newPacketLocation.possibleMovementLocationCount();
         if (oldPacketLocation != null) count += oldPacketLocation.possibleMovementLocationCount();
-        return bedrockPlayback == null ? count : count + 1;
+        return count;
     }
 
     /** Writes the {@code index}th of {@link #getPossibleMovementCollisionBoxCandidates()} into {@code out}. */
@@ -1426,9 +1548,6 @@ public class PacketEntity {
             int old = oldPacketLocation.possibleMovementLocationCount();
             if (index < old) return oldPacketLocation.possibleMovementLocation(index, out);
             index -= old;
-        }
-        if (bedrockPlayback != null && index == newPacketLocation.possibleMovementLocationCount()) {
-            return out.set(bedrockPlayback.box());
         }
         return newPacketLocation.possibleMovementLocation(index, out);
     }
@@ -1458,9 +1577,7 @@ public class PacketEntity {
         }
 
         List<SimpleCollisionBox> locations = newPacketLocation.getPossibleMovementLocations();
-        if (locations.size() != 1) return null;
-        SimpleCollisionBox location = locations.getFirst();
-        return bedrockPlayback == null || bedrockPlayback.isOnlyAt(location) ? location : null;
+        return locations.size() == 1 ? locations.getFirst() : null;
     }
 
     public long getClientTickOrder() {

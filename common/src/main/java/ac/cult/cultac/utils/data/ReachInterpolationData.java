@@ -31,7 +31,9 @@ import ac.cult.cultac.utils.nmsutil.RootVehicleInterpolationCollision;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.DoubleUnaryOperator;
 import java.util.function.UnaryOperator;
+import org.jetbrains.annotations.Nullable;
 
 // You may not copy the check unless you are licensed under GPL
 public class ReachInterpolationData {
@@ -69,6 +71,8 @@ public class ReachInterpolationData {
     // The exact box an interpolating entity holds at heldStep, answered for that step; others use startingLocation.
     private SimpleCollisionBox heldLocation;
     private int heldStep = -1;
+    // Where a Bedrock actor's next lerp step starts from in y; see dueBedrockStoredFeet.
+    private DoubleUnaryOperator bedrockStoredFeet;
     private final boolean reachesUsePacketPositionUncertainty;
     // Reach judges a Java snapshot without the margin until a queue fold or an uncertain receipt clears this.
     private boolean positionExact;
@@ -108,6 +112,7 @@ public class ReachInterpolationData {
         this.positionExact = other.positionExact;
         if (other.heldStep >= 0) this.heldLocation = other.heldLocation.copy();
         this.heldStep = other.heldStep;
+        this.bedrockStoredFeet = other.bedrockStoredFeet;
     }
 
     public ReachInterpolationData copy() {
@@ -1187,6 +1192,66 @@ public class ReachInterpolationData {
         ReachInterpolationData copy = new ReachInterpolationData(this);
         copy.tickMovement(incrementLowBound, tickingReliably);
         return copy;
+    }
+
+    /**
+     * After a Bedrock lerp step: the y the next step starts from, while the shown box keeps the step's; null when it
+     * starts from the step's. Monotone, so a range of feet maps to its mapped ends.
+     */
+    public void dueBedrockStoredFeet(@Nullable DoubleUnaryOperator storedFeet) {
+        bedrockStoredFeet = interpolationQueue == null ? storedFeet : null;
+    }
+
+    public @Nullable DoubleUnaryOperator bedrockStoredFeet() {
+        return bedrockStoredFeet;
+    }
+
+    /**
+     * A Bedrock actor whose step left the position its next lerp starts from where it was keeps showing {@code shown},
+     * even at the step that ends the lerp.
+     */
+    public void holdBedrockShownLocation(SimpleCollisionBox shown) {
+        if (interpolationQueue != null || interpolationStepsLowBound != interpolationStepsHighBound) return;
+        if (heldLocation == null) heldLocation = new SimpleCollisionBox();
+        heldLocation.set(shown);
+        heldStep = interpolationStepsLowBound;
+        boundsValid = false;
+        settled = false;
+    }
+
+    /** The steps left after the last one, when the step count is exact; else -1. */
+    public int bedrockStepsLeft() {
+        if (interpolationQueue != null || interpolationStepsLowBound != interpolationStepsHighBound) return -1;
+        return getInterpolationSteps() - interpolationStepsLowBound;
+    }
+
+    /**
+     * Before a Bedrock actor's next lerp step: restarts the remaining steps from the box the last step left, its feet
+     * where {@link #dueBedrockStoredFeet} said. True when that moved them.
+     */
+    public boolean rebaseBedrock(double height) {
+        DoubleUnaryOperator storedFeet = bedrockStoredFeet;
+        if (storedFeet == null) return false;
+        int remaining = bedrockStepsLeft();
+        // A finished lerp takes no step; its start feet wait for the next move.
+        if (remaining <= 0) return false;
+        bedrockStoredFeet = null;
+        SimpleCollisionBox current = movementLocationAtStep(interpolationStepsLowBound, new SimpleCollisionBox());
+        double lowFeet = current.minY;
+        double highFeet = current.maxY - height;
+        double storedLow = storedFeet.applyAsDouble(lowFeet);
+        double storedHigh = storedFeet.applyAsDouble(highFeet);
+        if (storedLow == lowFeet && storedHigh == highFeet) return false;
+        startingLocation = current;
+        startingLocation.minY = storedLow;
+        startingLocation.maxY = storedHigh + height;
+        interpolationSteps = remaining;
+        interpolationStepsLowBound = 0;
+        interpolationStepsHighBound = 0;
+        heldStep = -1;
+        boundsValid = false;
+        settled = false;
+        return true;
     }
 
     public void tickMovement(boolean incrementLowBound, boolean tickingReliably) {

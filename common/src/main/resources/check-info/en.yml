@@ -44,6 +44,18 @@ checks:
   AutoClickerLimit:
     summary: "Clicked too fast"
     details: "Their clicking was too fast for normal play. Autoclickers and click macros do this, including the macro tools that come with some gaming mice."
+  bEntityHitboxes:
+    summary: "Hit a mob without aiming at it on Bedrock Edition"
+    details: "Your crosshair has to be on a mob to hit it. Hitbox cheats on a modified Bedrock client make the target's hitbox bigger so it's easier to hit, and KillAura can hit without aiming at all."
+  bEntityReach:
+    summary: "Hit a mob from too far away on Bedrock Edition"
+    details: "You can only hit a mob that's close enough. Reach cheats on a modified Bedrock client let the player hit from farther away."
+  bPlayerHitboxes:
+    summary: "Hit a player without aiming at them on Bedrock Edition"
+    details: "Your crosshair has to be on a player to hit them. Hitbox cheats on a modified Bedrock client make other players' hitboxes bigger so they're easier to hit, and KillAura can hit without aiming at all."
+  bPlayerReach:
+    summary: "Hit a player from too far away on Bedrock Edition"
+    details: "You can only hit a player who's close enough. Reach cheats on a modified Bedrock client let the player hit from farther than anyone else can."
   EntityHitboxes:
     summary: "Hit a mob without aiming at it"
     details: "Your crosshair has to be on a mob to hit it. Hitbox cheats make the target's hitbox bigger so it's easier to hit, and KillAura can hit without aiming at all."
