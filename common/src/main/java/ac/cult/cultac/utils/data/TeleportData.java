@@ -76,6 +76,13 @@ public class TeleportData {
     @Setter
     Boolean bedrockOnGround;
 
+    /**
+     * The onGround this teleport's client bundle leaves the player with, through ClientPacketListener#handleTeleportEntity
+     * on the player itself; null when the bundle sets none.
+     */
+    @Setter
+    Boolean sentOnGround;
+
     @Setter
     long bedrockTransportRevision;
 
@@ -126,6 +133,7 @@ public class TeleportData {
         copy.sentWhileVehicle = sentWhileVehicle;
         copy.sentDuringVehicleDismount = sentDuringVehicleDismount;
         copy.bedrockOnGround = bedrockOnGround;
+        copy.sentOnGround = sentOnGround;
         copy.bedrockTransportRevision = bedrockTransportRevision;
         copy.bedrockOperation = bedrockOperation;
         return copy;

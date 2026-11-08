@@ -23,9 +23,6 @@ public class SetBackData {
     // The onGround a Java player correction leaves the player with: its tick's own landing, else the safe ground.
     // Null keeps the carried one.
     DesyncStatus groundAfter;
-    // The correction's bundle set the client's onGround to groundAfter, then TRUE or FALSE, through
-    // ClientPacketListener#handleTeleportEntity on the player itself.
-    boolean groundSent;
     PredictionSetbackState profileState;
     boolean isComplete = false;
     // TODO: Rethink when we block movements for teleports, perhaps after 10 ticks or 5 blocks?

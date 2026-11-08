@@ -69,7 +69,6 @@ import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.HeadRotation;
 import ac.cult.cultac.utils.data.LastInstance;
 import ac.cult.cultac.utils.data.MainSupportingBlockData;
-import ac.cult.cultac.utils.data.SetBackData;
 import ac.cult.cultac.utils.data.StuckSpeedData;
 import ac.cult.cultac.utils.data.TeleportAcceptData;
 import ac.cult.cultac.utils.data.TeleportData;
@@ -509,13 +508,16 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
 
         this.callPredictionEndListeners(result, teleportCommit);
-        SetBackData correction = teleportAcceptData.getSetback();
-        if (correction != null && correction.isGroundSent()) {
+        Boolean sentOnGround = teleportData.getSentOnGround();
+        if (sentOnGround != null && !this.player.compensatedEntities.getSelf().inVehicle()) {
             // The correction's bundle ends with two ClientPacketListener#handleTeleportEntity calls on the player. The
             // hop away clears the supporting block; the hop back's Entity#setOnGround runs
             // Entity#checkSupportingBlock(onGround, null) at this position. The client's next tick starts from
-            // exactly that ground and supporting block, not from the movement the correction rejected.
-            boolean onGround = correction.getGroundAfter() == DesyncStatus.TRUE;
+            // exactly that ground and supporting block, not from the movement the correction rejected. A later
+            // server teleport may have replaced the correction as the required one, but its player_position leaves
+            // the ground alone, so the ground comes from the teleport answered here. A passenger's lastOnGround is
+            // its vehicle's, which the bundle does not touch.
+            boolean onGround = sentOnGround;
             this.lastOnGround = DesyncStatus.fromBoolean(onGround);
             this.supportAfterCorrection = this.worldStageBuilder.findMainSupportingBlockPos(
                     this.player,

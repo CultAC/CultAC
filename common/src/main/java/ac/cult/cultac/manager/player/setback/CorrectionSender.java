@@ -209,15 +209,18 @@ public class CorrectionSender {
                 // one (PositionMoveRotation#calculateAbsolute) in the handler that answers it. A Java correction
                 // carries its velocity there, so the client cannot accept the position without the velocity.
                 Vec3 delta = data.getVelocity() == null ? Vec3.ZERO : data.getVelocity();
+                // The client takes the ground only where this correction's tick or safe position proves it.
+                boolean onGround = data.getGroundAfter() == DesyncStatus.TRUE;
                 // Track the correction before sending; its outbound packet is silenced below.
                 if (!player.isBedrockMovement()) {
-                    javaTeleports.addSentTeleport(
+                    data.setGroundAfter(DesyncStatus.fromBoolean(onGround));
+                    javaTeleports.addSentCorrection(
                             position,
                             delta,
                             data.getTeleportData().getTransaction(),
                             new RelativeFlag(0b11000),
-                            false,
-                            teleportId);
+                            teleportId,
+                            onGround);
                     corrections.correctionSent(data.getTeleportData().getTransaction());
                 }
                 // Receive the player's position packet to make setbacks appear smooth for other players (and to stop
@@ -236,10 +239,6 @@ public class CorrectionSender {
                             data.isExpectedOnGround(),
                             data.getTeleportData().getTransaction());
                 } else {
-                    // The client takes the ground only where this correction's tick or safe position proves it.
-                    boolean onGround = data.getGroundAfter() == DesyncStatus.TRUE;
-                    data.setGroundAfter(DesyncStatus.fromBoolean(onGround));
-                    data.setGroundSent(true);
                     sendPlayerSetbackPackets(
                             teleportId,
                             position,

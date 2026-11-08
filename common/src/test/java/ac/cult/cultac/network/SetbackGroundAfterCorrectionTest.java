@@ -6,6 +6,7 @@ import static ac.cult.cultac.network.JavaTickFixture.exact;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
@@ -14,7 +15,9 @@ import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
+import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.platform.api.world.PlatformWorld;
+import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
@@ -52,6 +55,8 @@ class SetbackGroundAfterCorrectionTest {
     private static final Vec3 AGAINST_THE_WALL = new Vec3(1.6999, FLOOR_Y, 0.5);
     private static final Vec3 STANDING = new Vec3(0.5, FLOOR_Y, 0.5);
     private static final Vec3 ON_THE_ICE = new Vec3(6.5, FLOOR_Y, 0.5);
+    private static final Vec3 ACROSS_THE_FLOOR = new Vec3(4.5, FLOOR_Y, 0.5);
+    private static final int SERVER_TELEPORT = 77;
     private static final Vec3 GROUNDED = new Vec3(0, -0.0784000015258789, 0);
     private static final ServerboundPlayerInput NONE =
             new ServerboundPlayerInput(false, false, false, false, false, false, false);
@@ -100,12 +105,65 @@ class SetbackGroundAfterCorrectionTest {
             assertFalse(correction.isExpectedOnGround(), "the correction tick at the apex cannot land");
             assertSetsGround(f, written(f), correction, false);
 
-            acceptCorrection(f, correction);
+            accept(f, correction);
             assertFalse(teleports.isPendingSetback());
             assertEquals(
                     DesyncStatus.FALSE,
                     f.player.checkManager.getSimulationProcessor().getLastOnGround(),
                     "the rejected floor claim's ground outlived the correction");
+        }
+    }
+
+    /**
+     * A server teleport sent before the client answers the correction replaces the setback the client must accept, but
+     * not the ground the correction's bundle set. The client handles that bundle, then the server's player_position,
+     * which ClientPacketListener#handleMovePlayer applies without touching onGround, so it stays in the air even on the
+     * floor.
+     */
+    @Test
+    void aServerTeleportBeforeTheAnswerKeepsTheCorrectionsGround() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            Mockito.when(f.fixture.user.getPlayer().getWorld()).thenReturn(Mockito.mock(PlatformWorld.class));
+            settle(f, STANDING);
+
+            // An ordinary jump up to its apex.
+            f.input(JUMPING);
+            Vec3 at = STANDING;
+            double motion = JUMP;
+            for (int tick = 0; tick < 6; tick++) {
+                at = at.add(0, motion, 0);
+                PredictionResult rising = f.tick(at, false);
+                assertTrue(exact(rising), "jump tick " + tick + ": " + describe(rising));
+                motion = (motion - GRAVITY) * VERTICAL_DRAG;
+                if (tick == 0) f.input(NONE);
+            }
+            SetbackTeleportUtil teleports = f.player.getSetbackTeleportUtil();
+            written(f);
+
+            // A glide start without a glider, then a floor position claiming ground.
+            f.command(PlayerCommandAction.START_FLYING_WITH_ELYTRA);
+            assertTrue(teleports.isPendingSetback(), "the glide start without a glider was not set back");
+            f.move(STANDING, true);
+            f.tickEnd();
+            SetBackData correction = teleports.getRequiredSetBack();
+            assertSetsGround(f, written(f), correction, false);
+            assertEquals(
+                    DesyncStatus.TRUE,
+                    f.player.checkManager.getSimulationProcessor().getLastOnGround(),
+                    "the rejected floor claim left no ground for the correction to replace");
+
+            // The server teleports the player onto the floor before the correction's answer arrives.
+            serverTeleport(f, SERVER_TELEPORT, ACROSS_THE_FLOOR);
+            SetBackData server = teleports.getRequiredSetBack();
+            assertNotSame(correction, server, "the server teleport did not replace the required correction");
+
+            accept(f, correction);
+            accept(f, server);
+            assertFalse(teleports.javaTeleports().hasPendingPlayerPositionTeleport());
+            assertEquals(
+                    DesyncStatus.FALSE,
+                    f.player.checkManager.getSimulationProcessor().getLastOnGround(),
+                    "the server teleport discarded the ground the correction's bundle set");
         }
     }
 
@@ -136,7 +194,7 @@ class SetbackGroundAfterCorrectionTest {
             assertEquals(STANDING.z, target.z);
             assertSetsGround(f, written(f), correction, true);
 
-            acceptCorrection(f, correction);
+            accept(f, correction);
             assertEquals(
                     DesyncStatus.TRUE,
                     f.player.checkManager.getSimulationProcessor().getLastOnGround());
@@ -229,15 +287,24 @@ class SetbackGroundAfterCorrectionTest {
         return written;
     }
 
-    /** The client handles the correction: it answers the correction's ping and accepts its exact target. */
-    private static void acceptCorrection(JavaTickFixture f, SetBackData correction) {
-        var teleport = correction.getTeleportData();
+    /** The server's absolute player_position {@code id} to {@code target}, sent but not yet answered. */
+    private static void serverTeleport(JavaTickFixture f, int id, Vec3 target) {
+        var packet = new ClientboundPlayerPosition(id, JavaTickFixture.vec3d(target), Vec3d.ZERO, 0, 0, Set.of());
+        var event = new PacketSendEvent<>(
+                f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.PLAYER_POSITION, packet, false);
+        new PacketServerTeleport().onPlayerPosition(event, f.player, packet);
+        event.getTasksAfterSend().forEach(Runnable::run);
+    }
+
+    /** The client handles the teleport {@code setback}: it answers the teleport's ping and accepts its exact target. */
+    private static void accept(JavaTickFixture f, SetBackData setback) {
+        var teleport = setback.getTeleportData();
         f.pongThrough(teleport.getTransaction());
         var at = teleport.getLocation();
         var packet = new ServerboundAcceptTeleportation(
                 teleport.getTeleportId(), JavaTickFixture.vec3d(at), f.player.xRot, f.player.yRot);
         var event = f.event(ServerboundPackets.ACCEPT_TELEPORTATION, packet);
         new PacketServerTeleport().onAcceptTeleportation(event, f.player, packet);
-        assertFalse(event.isCancelled(), "the correction's acceptance was rejected");
+        assertFalse(event.isCancelled(), "the teleport's acceptance was rejected");
     }
 }

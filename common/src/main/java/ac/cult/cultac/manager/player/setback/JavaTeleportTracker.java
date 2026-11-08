@@ -312,8 +312,46 @@ public final class JavaTeleportTracker {
             float sourcePitch,
             float finalYaw,
             float finalPitch) {
+        addSentTeleport(
+                position,
+                deltaMovement,
+                transaction,
+                flags,
+                plugin,
+                teleportId,
+                sourceYaw,
+                sourcePitch,
+                finalYaw,
+                finalPitch,
+                null);
+    }
+
+    /**
+     * Cult's own player correction, whose bundle leaves the client's onGround at {@code onGround}. The ground stays with
+     * the queued teleport, so the correction's answer applies it even after a later teleport replaced the correction as
+     * the required one.
+     */
+    public void addSentCorrection(
+            Vec3 position, Vec3 deltaMovement, int transaction, RelativeFlag flags, int teleportId, boolean onGround) {
+        addSentTeleport(
+                position, deltaMovement, transaction, flags, false, teleportId, 0.0F, 0.0F, 0.0F, 0.0F, onGround);
+    }
+
+    private void addSentTeleport(
+            Vec3 position,
+            Vec3 deltaMovement,
+            int transaction,
+            RelativeFlag flags,
+            boolean plugin,
+            int teleportId,
+            float sourceYaw,
+            float sourcePitch,
+            float finalYaw,
+            float finalPitch,
+            Boolean sentOnGround) {
         TeleportData data = new TeleportData(
                 position, flags, deltaMovement, transaction, teleportId, sourceYaw, sourcePitch, finalYaw, finalPitch);
+        data.setSentOnGround(sentOnGround);
         data.setSentWhileVehicle(player.compensatedEntities.vehicles.serverPlayerVehicle != null
                 || player.compensatedEntities.getSelf().inVehicle());
         data.setSentDuringVehicleDismount(player.compensatedEntities.vehicles.hasPendingServerDismount());
