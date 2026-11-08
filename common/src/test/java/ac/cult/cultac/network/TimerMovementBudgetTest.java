@@ -51,12 +51,14 @@ class TimerMovementBudgetTest {
     /**
      * LocalPlayer#tick sends a tick's movement before Minecraft#tick sends its tick end, so TimerA charges the tick at
      * that movement. A tick within budget is charged once; a tick over budget is rejected before prediction runs its
-     * movement, set back, and its tick end is not charged again.
+     * movement, set back, and its tick end neither charges again nor ends a tick.
      */
     @Test
     void timerChargesATickAtItsMovement() throws Exception {
         try (var f = new JavaTickFixture()) {
             f.place(GROUND, new Vec3(0, FIRST_FALL, 0));
+            // The client has the chunk: a setback in a chunk it may not have loaded does not block movement.
+            f.pongThrough(f.player.sendTrailingTransaction());
             f.tick(GROUND, true);
             TimerCheck timer = f.player.checkManager.getCheck(TimerCheck.class);
             timer.setEnabled(true);
@@ -79,8 +81,16 @@ class TimerMovementBudgetTest {
             assertTrue(f.player.getSetbackTeleportUtil().isPendingSetback(), "the rejected movement was not set back");
             assertEquals(1, timer.violations);
             assertEquals(ahead, timerBalance(timer), "the rejected tick was not refunded");
-            assertFalse(tickEnd(f).isCancelled(), "the rejected movement's tick end was charged again");
+            long acceptedTick = f.player.packetStateData.acceptedClientTick;
+            assertTrue(tickEnd(f).isCancelled(), "the rejected movement's tick end ended a tick");
+            assertEquals(acceptedTick, f.player.packetStateData.acceptedClientTick, "the rejected tick advanced");
+            assertEquals(ahead, timerBalance(timer), "the rejected movement's tick end was charged");
             assertEquals(1, timer.violations);
+
+            // The next tick starts fresh: its first movement charges it rather than counting as a second movement.
+            Field moves = AbstractTimerCheck.class.getDeclaredField("movePacketsSinceLastClientTickEnd");
+            moves.setAccessible(true);
+            assertEquals(0, moves.getInt(timer));
         }
     }
 

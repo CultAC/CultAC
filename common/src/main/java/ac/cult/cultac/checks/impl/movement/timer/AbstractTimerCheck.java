@@ -24,6 +24,8 @@ public abstract class AbstractTimerCheck extends Check implements CheckListener 
 
     boolean hasGottenMovementAfterTransaction = false;
     private int movePacketsSinceLastClientTickEnd = 0;
+    // Whether this tick's first movement, which charges the tick, was rejected and refunded.
+    private boolean clientTickMovementRejected = false;
 
     // Proof for this timer check
     // https://i.imgur.com/Hk2Wb6c.png
@@ -68,6 +70,7 @@ public abstract class AbstractTimerCheck extends Check implements CheckListener 
         lastMovementPlayerClock = now;
         hasGottenMovementAfterTransaction = false;
         movePacketsSinceLastClientTickEnd = 0;
+        clientTickMovementRejected = false;
     }
 
     protected void recordModernMovePlayerPacket(PacketReceiveEvent event, boolean countClientTickMovement) {
@@ -89,9 +92,8 @@ public abstract class AbstractTimerCheck extends Check implements CheckListener 
         // end, after that movement went through. A rejected movement is set
         // back at once: prediction never ran it, so the client would otherwise
         // stand a tick ahead of the simulation.
-        boolean rejected = ++movePacketsSinceLastClientTickEnd > 1
-                ? flag()
-                : prepareTimerEvent(false, true) && doCheckForPacketDecision(null);
+        boolean firstMovement = ++movePacketsSinceLastClientTickEnd == 1;
+        boolean rejected = firstMovement ? prepareTimerEvent(false, true) && doCheckForPacketDecision(null) : flag();
         if (rejected) {
             player.getSetbackTeleportUtil().executeNonSimulatingSetback();
             if (player.shouldEnforceMovementSetbacks()
@@ -99,11 +101,26 @@ public abstract class AbstractTimerCheck extends Check implements CheckListener 
                 event.setCancelled(true);
             }
         }
+        if (firstMovement) clientTickMovementRejected = rejected && event.isCancelled();
+    }
+
+    /**
+     * Ends a tick whose charging movement was rejected. That movement's charge was refunded and prediction never ran
+     * it, so the tick was never charged: its tick end must not advance the client clock, attack strength, item use or
+     * vehicle cooldowns. Cancelling it ends no tick, like a tick end the timer rejects. Returns whether it did.
+     */
+    protected final boolean endRejectedClientTick(PacketReceiveEvent event) {
+        if (!usesClientTickEndBoundary() || !clientTickMovementRejected) return false;
+        clientTickMovementRejected = false;
+        movePacketsSinceLastClientTickEnd = 0;
+        if (shouldModifyPackets()) event.setCancelled(true);
+        return true;
     }
 
     protected void recordModernClientTickEndPacket() {
         if (!usesClientTickEndBoundary()) return;
         movePacketsSinceLastClientTickEnd = 0;
+        clientTickMovementRejected = false;
     }
 
     protected void recordTimerEvent(
@@ -169,7 +186,8 @@ public abstract class AbstractTimerCheck extends Check implements CheckListener 
 
     protected boolean shouldCountClientTickEndForTimer() {
         // Minecraft#tick sends tick-end after the tick's movement packets. A
-        // tick that sent movement was already charged by its first movement.
+        // tick that sent movement was already charged by its first movement;
+        // one whose first movement was rejected ends at endRejectedClientTick.
         return usesClientTickEndBoundary() && movePacketsSinceLastClientTickEnd == 0;
     }
 
