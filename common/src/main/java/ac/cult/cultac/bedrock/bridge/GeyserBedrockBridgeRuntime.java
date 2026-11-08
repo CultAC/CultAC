@@ -1787,13 +1787,17 @@ public final class GeyserBedrockBridgeRuntime {
                 owner.teleportRecovery.clear();
             }
             if (observedPlayer != null
-                    && !owner.freshMarker
                     && GeyserEntityPositions.movesOtherActor(
-                            packet, owner.connection.getPlayerEntity().geyserId())
-                    && owner.mayNarrowWithMarker()) {
-                // The pre-wave marker: in this move's batch, right before its wave.
-                owner.writeLatencyBoundary(context, wrapper, player -> {});
-                owner.countMarker();
+                            packet, owner.connection.getPlayerEntity().geyserId())) {
+                if (owner.entityPositions.movesActorAgain(packet)) {
+                    // The actor's earlier move needs a marker after it, written regardless like the one that ends the
+                    // batch, or both moves would begin together though the client may tick between them.
+                    owner.writeLatencyBoundary(context, wrapper, player -> {});
+                } else if (!owner.freshMarker && owner.mayNarrowWithMarker()) {
+                    // The pre-wave marker: in this move's batch, right before its wave.
+                    owner.writeLatencyBoundary(context, wrapper, player -> {});
+                    owner.countMarker();
+                }
             }
             if (observedPlayer != null)
                 owner.entityPositions.capture(

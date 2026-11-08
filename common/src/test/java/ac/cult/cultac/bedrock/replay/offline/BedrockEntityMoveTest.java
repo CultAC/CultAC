@@ -93,7 +93,7 @@ class BedrockEntityMoveTest {
     }
 
     @Test
-    void movesSentInOneFlushKeepThePositionBeforeTheFirst() {
+    void movesThatBeginTogetherKeepThePositionBeforeTheFirst() {
         withPlayer(player -> {
             PacketEntity entity = spawn(player, EntityTypeIds.ZOMBIE, ID);
             move(player, entity, 3, false);

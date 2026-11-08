@@ -7,6 +7,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
@@ -23,6 +24,9 @@ final class GeyserEntityPositions {
     private final Map<Long, Position> written = new HashMap<>();
     // Updates written since the last latency marker; the next marker proves them.
     private ArrayList<Runnable> pending = new ArrayList<>();
+    // Actors with a move written since the last latency marker: that move begins when the client answers the marker
+    // before it.
+    private final LongOpenHashSet movedSinceMarker = new LongOpenHashSet();
 
     static boolean hasPosition(BedrockPacket packet) {
         return packet instanceof AddEntityPacket
@@ -40,6 +44,20 @@ final class GeyserEntityPositions {
         else if (packet instanceof MovePlayerPacket move) runtimeId = move.getRuntimeEntityId();
         else return false;
         return runtimeId != playerRuntimeId;
+    }
+
+    /**
+     * Whether {@code packet} moves an actor that already has a move written since the last latency marker. Both moves
+     * would begin at that marker's answer, but the client may tick between handling them, so the move written first
+     * needs a marker after it to prove it before the next one begins.
+     */
+    boolean movesActorAgain(BedrockPacket packet) {
+        if (movedSinceMarker.isEmpty()) return false;
+        if (packet instanceof MoveEntityAbsolutePacket move)
+            return movedSinceMarker.contains(move.getRuntimeEntityId());
+        if (packet instanceof MoveEntityDeltaPacket move) return movedSinceMarker.contains(move.getRuntimeEntityId());
+        if (packet instanceof MovePlayerPacket move) return movedSinceMarker.contains(move.getRuntimeEntityId());
+        return false;
     }
 
     void capture(GeyserSession session, CultPlayer player, BedrockPacket packet, BedrockCoordinateFrame coordinates) {
@@ -170,6 +188,7 @@ final class GeyserEntityPositions {
         boolean moveLocal = forceLocal;
         boolean[] begun = new boolean[1];
         if (!spawn) {
+            movedSinceMarker.add(runtimeId);
             // The client may handle the move once it has answered the marker written before it.
             player.addBedrockTransactionTask(
                     player.getLastClientboundBedrockTransaction(),
@@ -238,7 +257,9 @@ final class GeyserEntityPositions {
     }
 
     void boundary(CultPlayer player, CultPlayer.BedrockTransaction transaction) {
-        if (pending.isEmpty() || transaction == null) return;
+        if (transaction == null) return;
+        movedSinceMarker.clear();
+        if (pending.isEmpty()) return;
         var batch = pending;
         pending = new ArrayList<>();
         player.addBedrockTransactionTask(transaction, () -> batch.forEach(Runnable::run));
@@ -247,6 +268,7 @@ final class GeyserEntityPositions {
     void clear() {
         written.clear();
         pending.clear();
+        movedSinceMarker.clear();
     }
 
     private static float byteAngle(float angle) {

@@ -336,8 +336,9 @@ public class PacketEntity {
      * Cult takes a Bedrock move to {@code feet} as handled from now on, and certainly once {@link #onSecondTransaction}
      * runs: a lerp over three ticks from where the actor is shown, restarting the count even toward the same target. A
      * forced local move places the actor, and so does a remote player's teleport at least half a block from where it is
-     * shown, or a move into a chunk the client has not loaded. Moves sent in one flush begin together, so the position
-     * before the first stays possible until they are settled.
+     * shown, or a move into a chunk the client has not loaded. The bridge writes a marker between two moves of one
+     * actor, so the earlier is settled before the later begins; should two still begin together, the position before
+     * the first stays possible until they are settled.
      */
     public void beginBedrockMove(
             CultPlayer player,
