@@ -17,6 +17,7 @@ package ac.cult.cultac.checks.impl.combat;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.bedrock.prediction.state.BedrockCameraWaterState;
 import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
@@ -399,15 +400,17 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         }
     }
 
-    // Shows /cult debug reach listeners the reach measured above beside the one the client claims, from the eye it
-    // reports with the attack to the hit it reports. calc is red when it exceeds the claim by more than
-    // REACH_DEBUG_TOLERANCE, green otherwise, and gray when the client claimed no eye or hit. The hover holds the
-    // points.
+    // Shows /cult debug reach listeners the reach measured above beside the one the client claims, from its eye to the
+    // hit it reports. The client reports its position at the standing eye height whatever its pose, so its eye is that
+    // point lowered to the eye height the client had at that tick, of those it may have had the one nearest the
+    // measured reach. calc is red when it exceeds the claim by more than REACH_DEBUG_TOLERANCE, green otherwise, and
+    // gray when the client claimed no eye or hit. The hover holds the points.
     private void relayReach(QueuedAttack attack, double distance, double max) {
         player.checkManager.getDebugHandler().relayReach(() -> {
             BedrockAttackPick pick = attack.pick();
-            Vec3 eye = attack.claimedEye();
+            Vec3 reported = attack.claimedEye();
             Vec3 hit = pick.hit();
+            Vec3 eye = reported == null || hit == null ? reported : claimedEye(pick, reported, distance);
             String claimed = "none";
             String difference = "";
             NamedTextColor calcColor = NamedTextColor.GRAY;
@@ -417,7 +420,8 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
                 difference = String.format(Locale.ROOT, " diff=%+.5f", distance - claimedReach);
                 calcColor = distance - claimedReach > REACH_DEBUG_TOLERANCE ? NamedTextColor.RED : NamedTextColor.GREEN;
             }
-            String details = "claimed eye " + debugPoint(eye) + "\nclaimed hit " + debugPoint(hit) + "\nfeet path "
+            String details = "claimed eye " + debugPoint(eye) + "\nreported eye " + debugPoint(reported)
+                    + "\nclaimed hit " + debugPoint(hit) + "\nfeet path "
                     + debugPoint(pick.last()) + " -> " + debugPoint(pick.now());
             return Component.text(EntityTypeUtil.getKey(attack.type()).getPath() + " calc=", NamedTextColor.GRAY)
                     .append(Component.text(String.format(Locale.ROOT, "%.5f", distance), calcColor))
@@ -430,6 +434,22 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
                             NamedTextColor.GRAY))
                     .hoverEvent(HoverEvent.showText(Component.text(details, NamedTextColor.GRAY)));
         });
+    }
+
+    // The reported eye lowered from the standing eye height to the eye height the client may have had at its latest
+    // tick that puts it nearest the measured reach.
+    static Vec3 claimedEye(BedrockAttackPick pick, Vec3 reported, double distance) {
+        Vec3 best = reported;
+        double nearest = Double.POSITIVE_INFINITY;
+        for (BedrockEye candidate : pick.eyes()) {
+            Vec3 eye = reported.add(0, candidate.now() - BedrockCameraWaterState.STANDING_EYE_HEIGHT, 0);
+            double off = Math.abs(eye.distanceTo(pick.hit()) - distance);
+            if (off < nearest) {
+                nearest = off;
+                best = eye;
+            }
+        }
+        return best;
     }
 
     private static String debugPoint(Vec3 point) {
