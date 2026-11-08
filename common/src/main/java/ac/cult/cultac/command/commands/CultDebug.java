@@ -53,6 +53,14 @@ public class CultDebug implements BuildableCommand {
 
         commandManager.command(cultCommand
                 .literal("debug")
+                .literal("reach", Description.of("Toggle Bedrock attack reach: Cult's against the client's claimed"))
+                .permission("cult.debug")
+                .optional("target", arguments.singlePlayerSelectorParser())
+                .meta(NetworkPlayerArguments.LOCAL, true)
+                .handler(this::handleDebugReach));
+
+        commandManager.command(cultCommand
+                .literal("debug")
                 .literal("places", Description.of("Toggle processed block-state changes for you or a player"))
                 .permission("cult.debug")
                 .optional("target", arguments.singlePlayerSelectorParser())
@@ -174,6 +182,25 @@ public class CultDebug implements BuildableCommand {
         sender.sendMessage(Component.text(
                 (enabled ? "Enabled" : "Disabled") + " rewind debugging for " + target.getName()
                         + (enabled ? ": c=client, s=server, o=c-s" : ""),
+                NamedTextColor.GRAY));
+    }
+
+    private void handleDebugReach(@NotNull CommandContext<Sender> context) {
+        Sender sender = context.sender();
+        PlayerSelector selector = context.getOrDefault("target", null);
+        CultPlayer target = parseTarget(sender, selector == null ? null : selector.getSinglePlayer());
+        if (target == null) return;
+        if (!target.isBedrockMovement()) {
+            sender.sendMessage(Component.text("Reach debugging requires a Bedrock player.", NamedTextColor.RED));
+            return;
+        }
+        boolean enabled = target.checkManager.getDebugHandler().toggleReachListener(sender);
+        sender.sendMessage(Component.text(
+                (enabled ? "Enabled" : "Disabled") + " reach debugging for " + target.getName()
+                        + (enabled
+                                ? ": calc=Cult's reach from the eye path, claimed=client's eye to its hit;"
+                                        + " hover a line for the points"
+                                : ""),
                 NamedTextColor.GRAY));
     }
 

@@ -26,6 +26,7 @@ import net.kyori.adventure.text.Component;
 public class DebugHandler extends CultProcessor implements PostPredictionListener {
     private final Map<UUID, Sender> rewindListeners = new ConcurrentHashMap<>();
     private final Map<UUID, Sender> itemSlowListeners = new ConcurrentHashMap<>();
+    private final Map<UUID, Sender> reachListeners = new ConcurrentHashMap<>();
 
     public boolean toggleItemSlowListener(Sender sender) {
         if (itemSlowListeners.remove(sender.getUniqueId()) != null) return false;
@@ -43,6 +44,20 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
         if (!hasItemSlowListeners()) return;
         var message = Component.text("[itemslow] " + player.getName() + " ").append(details.get());
         itemSlowListeners.values().forEach(sender -> sender.sendMessage(message));
+    }
+
+    public boolean toggleReachListener(Sender sender) {
+        if (reachListeners.remove(sender.getUniqueId()) != null) return false;
+        reachListeners.put(sender.getUniqueId(), sender);
+        return true;
+    }
+
+    public void relayReach(Supplier<Component> details) {
+        if (reachListeners.isEmpty()) return;
+        removeInvalidListeners(reachListeners);
+        if (reachListeners.isEmpty()) return;
+        var message = Component.text("[reach] " + player.getName() + " ").append(details.get());
+        reachListeners.values().forEach(sender -> sender.sendMessage(message));
     }
 
     public boolean toggleRewindListener(Sender sender) {

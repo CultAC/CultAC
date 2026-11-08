@@ -86,6 +86,8 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
     private static final double BEDROCK_MOUSE_RAY = 5.7F;
     private static final double BEDROCK_GAMEPAD_RAY = 5.6F;
     private static final double BEDROCK_OTHER_RAY = 12.0F;
+    // How far /cult debug reach lets the measured reach exceed the client's claimed reach before showing it red.
+    private static final double REACH_DEBUG_TOLERANCE = 0.001;
     private final ClientVisibilityProcessor visibility;
     // The looks measureBest tries, three components each.
     private final double[] looks = new double[15];
@@ -375,7 +377,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         double distance = pick.reach(bedrockTarget(pick, box));
         double max = attack.reach().maxClosestDistance();
         boolean tooFar = attack.enforced() && distance - threshold > max;
-        relayReach(attack, distance, max, tooFar);
+        relayReach(attack, distance, max);
         if (!attack.enforced()) return;
         String type = attack.type() == EntityTypeIds.PLAYER
                 ? ""
@@ -403,25 +405,27 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
     }
 
     // Shows /cult debug reach listeners the reach measured above beside the one the client claims, from the eye it
-    // reports with the attack to the hit it reports. The hover holds the points.
-    private void relayReach(QueuedAttack attack, double distance, double max, boolean tooFar) {
+    // reports with the attack to the hit it reports. calc is red when it exceeds the claim by more than
+    // REACH_DEBUG_TOLERANCE, green otherwise, and gray when the client claimed no eye or hit. The hover holds the
+    // points.
+    private void relayReach(QueuedAttack attack, double distance, double max) {
         player.checkManager.getDebugHandler().relayReach(() -> {
             BedrockAttackPick pick = attack.pick();
             Vec3 eye = attack.claimedEye();
             Vec3 hit = pick.hit();
             String claimed = "none";
             String difference = "";
+            NamedTextColor calcColor = NamedTextColor.GRAY;
             if (eye != null && hit != null) {
                 double claimedReach = eye.distanceTo(hit);
                 claimed = String.format(Locale.ROOT, "%.5f", claimedReach);
                 difference = String.format(Locale.ROOT, " diff=%+.5f", distance - claimedReach);
+                calcColor = distance - claimedReach > REACH_DEBUG_TOLERANCE ? NamedTextColor.RED : NamedTextColor.GREEN;
             }
             String details = "claimed eye " + debugPoint(eye) + "\nclaimed hit " + debugPoint(hit) + "\nfeet path "
                     + debugPoint(pick.last()) + " -> " + debugPoint(pick.now());
             return Component.text(EntityTypeUtil.getKey(attack.type()).getPath() + " calc=", NamedTextColor.GRAY)
-                    .append(Component.text(
-                            String.format(Locale.ROOT, "%.5f", distance),
-                            tooFar ? NamedTextColor.RED : NamedTextColor.GREEN))
+                    .append(Component.text(String.format(Locale.ROOT, "%.5f", distance), calcColor))
                     .append(Component.text(" claimed=", NamedTextColor.GRAY))
                     .append(Component.text(claimed, NamedTextColor.WHITE))
                     .append(Component.text(
