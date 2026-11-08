@@ -27,7 +27,7 @@ public class PhaseTeleportTest {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = mock(CultPlayer.class);
         when(player.isBedrockMovement()).thenReturn(bedrock);
-        when(player.getScale()).thenReturn(1.0F);
+        player.dimensionScale = 1.0F;
         player.isInBed = true;
         player.x = -100;
         player.y = 64;

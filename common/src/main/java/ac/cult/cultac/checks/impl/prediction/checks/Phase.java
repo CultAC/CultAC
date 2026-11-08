@@ -43,6 +43,8 @@ public class Phase extends Check implements PostPredictionListener {
     private final SimpleCollisionBox newBoxScratch = new SimpleCollisionBox();
     // The ride-tick seat oldBox last started from or a teleport replaced; each seat is a fresh Vec3.
     private Vec3 seatTaken;
+    // LivingEntity#tick refreshes a scale attribute's dimensions after travel; the prediction travels with the box.
+    float travelScale = Float.NaN;
 
     private void handleMovePlayer(ServerboundMovePlayer packet) {
         // Geyser projections must neither check movement nor replace auth-input history.
@@ -66,6 +68,9 @@ public class Phase extends Check implements PostPredictionListener {
     public void onPredictionComplete(PredictionComplete complete) {
         var result = complete.getPredictionResult();
         if (result == null) return;
+        if (!player.isBedrockMovement() && result.getSimulationContext() != null) {
+            travelScale = result.getSimulationContext().getScale();
+        }
         if (result.isTeleport()) {
             if (result.getSetBackData() != null) {
                 oldBox = boxAt(result.getSetBackData().getLocation(), 1.8f, player.isBedrockMovement());
@@ -152,7 +157,9 @@ public class Phase extends Check implements PostPredictionListener {
     }
 
     private SimpleCollisionBox boxAt(SimpleCollisionBox out, Vec3 location, float height, boolean bedrock) {
-        float scale = player.isBedrockMovement() ? 1.0f : player.getScale();
+        float scale = player.isBedrockMovement()
+                ? 1.0f
+                : Float.isNaN(travelScale) ? player.dimensionScale : travelScale;
         SimpleCollisionBox box = GetBoundingBox.getBoundingBoxFromPosAndSize(
                 out, location.x, location.y, location.z, 0.6f * scale, height * scale);
         return bedrock ? box.expand(-BEDROCK_PENETRATION_INSET) : box;
