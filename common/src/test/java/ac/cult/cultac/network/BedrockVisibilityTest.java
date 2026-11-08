@@ -10,7 +10,9 @@ import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.combat.BedrockEntityReach;
+import ac.cult.cultac.checks.impl.combat.BedrockPlayerReach;
 import ac.cult.cultac.checks.impl.visibility.BedrockAttackMobVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockAttackPlayerVisibility;
 import ac.cult.cultac.checks.impl.visibility.BedrockBreakVisibility;
 import ac.cult.cultac.checks.impl.visibility.BedrockPlaceVisibility;
 import ac.cult.cultac.player.CultPlayer;
@@ -29,6 +31,8 @@ import org.junit.jupiter.api.Test;
  * margin at z 0.35, and a wall, when built, fills x -1 to 2 and y 64 to 66 at z -1.
  */
 class BedrockVisibilityTest {
+    // 1.26.40.
+    private static final int OLDER_CLIENT = 2168;
     private static final Vec3 ZOMBIE_HIT = new Vec3(0.5, 65, 0.35);
     private static final Vec3 LOW_ZOMBIE_HIT = new Vec3(0.5, 64.6, 0.35);
     private static final BlockPos TARGET = new BlockPos(0, 64, 2);
@@ -47,6 +51,29 @@ class BedrockVisibilityTest {
             setup.wall("stone");
             reach.onBedrockAttack(42, ZOMBIE_HIT, 1.0E-5);
             assertEquals(1, visibility.violations, "the wall hides the zombie from every eye the client may have");
+        }
+    }
+
+    @Test
+    void anOlderClientsAttackThroughAWallIsJudgedOnPlayers() throws Exception {
+        try (var setup = new Setup(OLDER_CLIENT)) {
+            var mob = setup.check(BedrockAttackMobVisibility.class);
+            var avatar = setup.check(BedrockAttackPlayerVisibility.class);
+            var mobReach = setup.check(BedrockEntityReach.class);
+            var playerReach = setup.check(BedrockPlayerReach.class);
+            setup.zombie();
+            setup.avatar();
+
+            mobReach.onBedrockAttack(42, ZOMBIE_HIT, 1.0E-5);
+            playerReach.onBedrockAttack(43, ZOMBIE_HIT, 1.0E-5);
+            assertEquals(0, mob.violations, "nothing stands between the client and the zombie");
+            assertEquals(0, avatar.violations, "nothing stands between the client and the player");
+
+            setup.wall("stone");
+            mobReach.onBedrockAttack(42, ZOMBIE_HIT, 1.0E-5);
+            playerReach.onBedrockAttack(43, ZOMBIE_HIT, 1.0E-5);
+            assertEquals(0, mob.violations, "no box test holds an older client's point on a mob");
+            assertEquals(1, avatar.violations, "the wall hides the player from every eye the client may have");
         }
     }
 
@@ -205,8 +232,14 @@ class BedrockVisibilityTest {
     private static final class Setup implements AutoCloseable {
         final RecordConsumerServices services = new RecordConsumerServices();
         final RecordReceiveFixture fixture = new RecordReceiveFixture(ProtocolVersion.V26_3);
+        final int protocol;
 
         Setup() throws Exception {
+            this(BedrockProtocolVersion.V1_26_60.protocol());
+        }
+
+        Setup(int protocol) throws Exception {
+            this.protocol = protocol;
             var player = fixture.player;
             player.gamemode = GameMode.SURVIVAL;
             player.x = .5;
@@ -245,7 +278,7 @@ class BedrockVisibilityTest {
         void tick() {
             var player = fixture.player;
             player.bedrockState.offerAuthInputFrame(BedrockAuthInputFrame.builder(player.playerUUID)
-                    .protocolVersion(BedrockProtocolVersion.V1_26_60.protocol())
+                    .protocolVersion(protocol)
                     .inputMode(1)
                     .rotation(0, 0, 0)
                     .build());
@@ -254,6 +287,10 @@ class BedrockVisibilityTest {
 
         void zombie() {
             fixture.player.compensatedEntities.addEntity(42, EntityTypeIds.ZOMBIE, new Vec3(0.5, 64, 0.75), 0, 0, 0);
+        }
+
+        void avatar() {
+            fixture.player.compensatedEntities.addEntity(43, EntityTypeIds.PLAYER, new Vec3(0.5, 64, 0.75), 0, 0, 0);
         }
 
         void wall(String block) {

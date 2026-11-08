@@ -244,8 +244,9 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
                 ? isEnforced(entity) && isKnownInvalidOnBedrock(pick, getReachBox(entity), reach)
                 : isKnownInvalid(entity, reach);
 
-        // A Bedrock client's attack through blocks is judged at the point its pick entered the target, as it arrives.
-        if (pick != null && isEnforced(entity) && lerpsEveryTarget()) {
+        // A Bedrock client's attack through blocks is judged at the point its pick entered the target, as it arrives,
+        // on the targets whose box the hitbox checks hold that point to.
+        if (pick != null && isEnforced(entity)) {
             boolean avatar = entity.type == EntityTypeIds.PLAYER;
             Class<? extends BedrockAttackVisibility> owner =
                     avatar ? BedrockAttackPlayerVisibility.class : BedrockAttackMobVisibility.class;
