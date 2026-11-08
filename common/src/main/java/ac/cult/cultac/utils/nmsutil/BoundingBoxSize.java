@@ -143,6 +143,12 @@ public class BoundingBoxSize {
 
     private static Vec3 getDefaultPassengerAttachmentPoint(
             PacketEntity vehicle, CultPlayer player, int passengerIndex) {
+        if (vehicle instanceof PacketEntityInteraction interaction
+                && !player.isBedrockMovement()
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11)) {
+            // Interaction#getDimensions: EntityDimensions.scalable(width, height), whose passenger point is at height.
+            return new Vec3(0.0D, interaction.actionHeight, 0.0D);
+        }
         int index = Math.max(passengerIndex, 0);
         float vehicleYaw = getAttachmentYaw(vehicle, player);
         Vec3 passengerAttachment = nativeVector(baseDimensions(vehicle)

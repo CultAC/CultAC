@@ -21,7 +21,9 @@ import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityPositionSync;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveEntities;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundUpdateAttributes;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
+import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.value.EntityPose;
 import ac.cult.cultac.protocol.value.PositionPath;
 import ac.cult.cultac.protocol.value.Vec3d;
@@ -53,6 +55,18 @@ class JavaEntityPushTest {
     private static final Vec3 STEPPING_FROM = TOUCHING.add(0, 0, 0.4);
     /** Three interpolation steps of -0.4 each. */
     private static final double STEPPING_DZ = -1.2;
+
+    /**
+     * A recorded interaction at (593.6777343125403, 61.675, 1176.112483456511) less the player's
+     * (593.5222185027443, 62.92159999847412, 1175.578128188504).
+     */
+    private static final Vec3 INTERACTION_FROM_CONTACT =
+            new Vec3(593.6777343125403 - 593.5222185027443, 61.675 - 62.92159999847412, 1176.112483456511 - 1175.578128188504);
+    /** The update_attributes scale of the slime riding that interaction. */
+    private static final double INTERACTION_SLIME_SCALE = 1.2254902194528017;
+    /** Entity#push on the player from the slime at {@link #INTERACTION_FROM_CONTACT}. */
+    private static final double INTERACTION_PUSH_X = -push(INTERACTION_FROM_CONTACT.x, INTERACTION_FROM_CONTACT.z);
+    private static final double INTERACTION_PUSH_Z = -push(INTERACTION_FROM_CONTACT.z, INTERACTION_FROM_CONTACT.x);
 
     private static final RelativeFlag ALL_DELTAS =
             keep(RelativeFlag.DELTA_X, RelativeFlag.DELTA_Y, RelativeFlag.DELTA_Z, RelativeFlag.ROTATE_DELTA);
@@ -543,6 +557,35 @@ class JavaEntityPushTest {
         }
     }
 
+    /**
+     * Interaction#getDimensions is EntityDimensions.scalable(width, height), whose default passenger attachment sits
+     * at the height: a slime seated on a 0.7 tall interaction pushes from 0.7 above the interaction's feet.
+     */
+    @Test
+    void aLivingRiderOfAnInteractionPushesFromItsHeight() throws Exception {
+        try (var f = falling()) {
+            seatScaledSlimeOnInteraction(f, 0.7F);
+
+            assertExact(f.tick(CONTACT, false));
+            PredictionResult pushed = f.tick(CONTACT.add(INTERACTION_PUSH_X, SECOND_FALL, INTERACTION_PUSH_Z), false);
+            assertEquals(1, pushed.getSimulationContext().getWorldData().getNumPushing());
+            assertExact(pushed);
+        }
+    }
+
+    /** A zero height interaction seats the slime at its feet, below the player's box: the same move is not explained. */
+    @Test
+    void aLivingRiderOfAFlatInteractionDoesNotReachThePlayer() throws Exception {
+        try (var f = falling()) {
+            seatScaledSlimeOnInteraction(f, 0.0F);
+
+            assertExact(f.tick(CONTACT, false));
+            PredictionResult pushed = f.tick(CONTACT.add(INTERACTION_PUSH_X, SECOND_FALL, INTERACTION_PUSH_Z), false);
+            assertEquals(0, pushed.getSimulationContext().getWorldData().getNumPushing());
+            assertFalse(exact(pushed), describe(pushed));
+        }
+    }
+
     /** Avatar#POSES: a swimming player is 0.6 tall, so its hat sits 0.6 above its feet. */
     @Test
     void aLivingRiderOfASwimmingPlayerPushesFromItsLoweredSeat() throws Exception {
@@ -721,6 +764,12 @@ class JavaEntityPushTest {
         return dx / root * Math.min(1.0, 1.0 / root) * 0.05F;
     }
 
+    /** Entity#push's impulse along an axis {@code d} away, {@code other} away on the other horizontal axis. */
+    private static double push(double d, double other) {
+        double root = Math.sqrt(Math.max(Math.abs(d), Math.abs(other)));
+        return d / root * Math.min(1.0, 1.0 / root) * 0.05F;
+    }
+
     private static final int TICKS_LOADING = 3;
     private static final Vec3 LOADING = new Vec3(0.5, FLOOR_Y, 0.5);
     private static final Vec3 LOADING_OTHER = new Vec3(0.94, FLOOR_Y, 0.5);
@@ -748,6 +797,29 @@ class JavaEntityPushTest {
     private static void seatSlime(JavaTickFixture f, PacketEntity vehicle) {
         f.player.compensatedEntities.addEntity(RIDER, EntityTypeIds.SLIME, AWAY, 0, 0, 0);
         f.player.compensatedEntities.entityMap.get(RIDER).mount(vehicle);
+    }
+
+    /**
+     * An interaction {@code height} tall at {@link #INTERACTION_FROM_CONTACT} from {@link #CONTACT}, carrying a slime of
+     * scale {@link #INTERACTION_SLIME_SCALE} that spawns far from the player.
+     */
+    private static void seatScaledSlimeOnInteraction(JavaTickFixture f, float height) {
+        var entities = f.player.compensatedEntities;
+        entities.addEntity(100, EntityTypeIds.INTERACTION, CONTACT.add(INTERACTION_FROM_CONTACT), 0, 0, 0);
+        entities.updateEntityMetadata(
+                100,
+                List.of(
+                        new EntityMetadata.Entry(8, 0.7F, ByteBuffer.allocate(0)),
+                        new EntityMetadata.Entry(9, height, ByteBuffer.allocate(0))));
+        entities.addEntity(RIDER, EntityTypeIds.SLIME, AWAY, 0, 0, 0);
+        var scale = new ClientboundUpdateAttributes(
+                RIDER, List.of(new AttributeSnapshot("minecraft:scale", INTERACTION_SLIME_SCALE, List.of())));
+        var event = new PacketSendEvent<>(
+                f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.UPDATE_ATTRIBUTES, scale, false);
+        f.player.packetEntityReplication.onUpdateAttributes(event, f.player, scale);
+        event.tasksAfter().forEach(Runnable::run);
+        f.pongThrough(f.player.lastTransactionSent.get());
+        entities.entityMap.get(RIDER).mount(entities.entityMap.get(100));
     }
 
     /** A set_passengers putting zombie 100 on the player, its ping answered or not. */
