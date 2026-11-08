@@ -64,6 +64,9 @@ public class BoundingBoxSize {
         if (version.isOlderThan(ClientVersion.V_26_1) && path.equals("rabbit")) {
             return 0.4F;
         }
+        if (version.isOlderThan(ClientVersion.V_26_1) && packetEntity.type == EntityTypeIds.BEE) {
+            return 0.7F;
+        }
         float exactWidth = baseDimensions(packetEntity).width();
         return Float.isNaN(exactWidth) ? 0.6f : exactWidth;
     }
@@ -151,6 +154,14 @@ public class BoundingBoxSize {
         }
         int index = Math.max(passengerIndex, 0);
         float vehicleYaw = getAttachmentYaw(vehicle, player);
+        ClientVersion version = player.getClientVersion();
+        float legacyHeight = legacyHeight(vehicle, version);
+        if (!player.isBedrockMovement()
+                && version.isNewerThanOrEquals(ClientVersion.V_1_20_5)
+                && !Float.isNaN(legacyHeight)) {
+            // EntityAttachment.PASSENGER falls back to the type's height; neither type sets a passenger point.
+            return new Vec3(0.0D, legacyHeight * vehicle.scale, 0.0D);
+        }
         Vec3 passengerAttachment = nativeVector(baseDimensions(vehicle)
                 .passengerAttachment(
                         index,
@@ -326,9 +337,9 @@ public class BoundingBoxSize {
             }
         }
 
-        String path = EntityTypeUtil.getKey(packetEntity.type).getPath();
-        if (version.isOlderThan(ClientVersion.V_26_1) && path.equals("rabbit")) {
-            return 0.5F;
+        float legacyHeight = legacyHeight(packetEntity, version);
+        if (!Float.isNaN(legacyHeight)) {
+            return legacyHeight;
         }
         float exactHeight = baseDimensions(packetEntity).height();
         if (!bedrock && packetEntity instanceof PacketEntityPolarBear bear && bear.standAnimation() > 0)
@@ -468,6 +479,13 @@ public class BoundingBoxSize {
                     "piglin_brute" -> 0.99F;
             default -> null;
         };
+    }
+
+    /** The 1.21.11 EntityType height of a type 26.x EntityTypes resized, or NaN. */
+    private static float legacyHeight(PacketEntity entity, ClientVersion version) {
+        if (version.isNewerThanOrEquals(ClientVersion.V_26_1)) return Float.NaN;
+        if (entity.type == EntityTypeIds.BEE) return 0.6F;
+        return EntityTypeUtil.isType(entity.type, "rabbit") ? 0.5F : Float.NaN;
     }
 
     private static EntityTypes.Type baseDimensions(PacketEntity packetEntity) {
