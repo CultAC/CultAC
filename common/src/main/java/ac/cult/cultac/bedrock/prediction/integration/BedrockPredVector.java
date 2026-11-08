@@ -96,12 +96,15 @@ final class BedrockPredVector extends PredVector {
     public PredVector stepCandidate(Vec3 end) {
         Vec3d previous = movementResult.previousState().physicalFeetPosition();
         Vec3d sourceMove = movementResult.rawPredictedPhysicalFeetPosition().subtract(previous);
-        Vec3d requestedDelta = new Vec3d(end.x, sourceMove.y(), end.z);
+        // The step sweeps this candidate's own movement, the point of its input extents nearest the target,
+        // and its collided X/Z stand: StepTransform runs after CollisionModifier, so nothing clips them later.
+        double radius = horizontalInputRadius();
+        Vec3d requestedDelta = new Vec3d(
+                Math.clamp(end.x, sourceMove.x() - radius, sourceMove.x() + radius),
+                sourceMove.y(),
+                Math.clamp(end.z, sourceMove.z() - radius, sourceMove.z() + radius));
         return BedrockSimulation.stepCandidate(movementResult, requestedDelta)
-                .map(position -> stepVector(new Vec3d(
-                        movementResult.rawPredictedPhysicalFeetPosition().x(),
-                        position.y(),
-                        movementResult.rawPredictedPhysicalFeetPosition().z())))
+                .map(this::stepVector)
                 .orElse(null);
     }
 
