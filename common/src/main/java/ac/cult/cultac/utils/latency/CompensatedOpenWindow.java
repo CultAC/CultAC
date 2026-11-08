@@ -4,6 +4,7 @@ import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.inventory.inventory.MenuType;
 import java.util.HashSet;
@@ -18,6 +19,9 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
     private final Set<@Nullable Window> possibleOpenWindows = new HashSet<>(2);
     private long openPlayerInventoryTransaction = Long.MIN_VALUE;
     private long closeTransaction = Long.MIN_VALUE;
+    // An acknowledged open_sign_editor whose editor has not yet sent its sign_update.
+    private boolean signEditorOpen;
+    private int signEditorTransaction;
 
     @Getter
     private int ticksOpen;
@@ -57,6 +61,8 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
         });
         player.latencyUtils.addRealTimeTask(before.transaction(), () -> possibleOpenWindows.add(window));
         player.latencyUtils.addRealTimeTask(after.transaction(), () -> {
+            // A vanilla editor sends its sign_update between these proofs when this window replaces it.
+            if (signEditorTransaction < before.transaction()) signEditorOpen = false;
             closeBefore(before.transaction(), window != null);
             if (window != null) player.serverOpenedInventoryThisTick = true;
         });
@@ -74,6 +80,27 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
                 : window == null ? shouldCloseEmpty : window.transaction < transaction);
     }
 
+    /**
+     * ClientPacketListener#handleOpenSignEditor sets the sign's edit screen in place of any container screen, whose
+     * AbstractContainerScreen#removed sends no container_close; AbstractSignEditScreen#removed sends the sign_update
+     * when the editor leaves the screen.
+     */
+    public void onServerSignEditor(PacketSendEvent<?> event) {
+        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_21_11)) return;
+        CultPlayer.TrackedTransaction proof = player.appendTrailingProofTransaction(event);
+        if (proof == null) return;
+        player.latencyUtils.addRealTimeTask(proof.transaction(), () -> {
+            signEditorOpen = true;
+            signEditorTransaction = proof.transaction();
+        });
+    }
+
+    public void onClientSignUpdate() {
+        if (!signEditorOpen) return;
+        signEditorOpen = false;
+        onClientOpenOrCloseWindow(false);
+    }
+
     public void maybeClose() {
         possibleOpenWindows.add(null);
         closeTransaction = player.lastTransactionReceived.get();
@@ -86,6 +113,7 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
                 || window == PLAYER_INVENTORY && openPlayerInventoryTransaction == transaction
                 || window.transaction < transaction);
         possibleOpenWindows.add(null);
+        signEditorOpen = false;
         onClose();
     }
 

@@ -31,6 +31,7 @@ import ac.cult.cultac.utils.data.KnownInput;
 import ac.cult.cultac.utils.data.SprintingState;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntitySelf;
+import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.FlightToggle;
 
@@ -178,6 +179,7 @@ public class PacketPlayerRespawn {
                     player.boatData.clearInput();
                     player.onGround = player.lastOnGround = false;
                     player.isSneaking = false;
+                    player.pose = Pose.STANDING;
                     player.packetStateData.respawnShiftPending = false;
                     player.isGliding = false;
                     player.isInBed = false;
@@ -390,6 +392,7 @@ public class PacketPlayerRespawn {
             player.isSprinting = !player.isBedrockMovement() && player.sprintState.flag();
             player.vehicleData.camelSprintingState = SprintingState.STOPPED;
             badPacketsF.lastSprinting = player.isSprinting;
+            if (!keepEntityData) player.pose = Pose.STANDING;
             player.refreshPlayerPose();
             // LocalPlayer#isShiftKeyDown reads the fresh KeyboardInput's Input.EMPTY until the first aiStep.
             player.isSneaking = false;

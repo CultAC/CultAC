@@ -1169,7 +1169,7 @@ public class CultPlayer implements GrimUser {
         // swimming box, then falls back from the desired pose to crouching and finally
         // to swimming based on exact collision tests at the current position.
         if (!canPlayerFitWithinBlocksAndEntitiesWhen(Pose.SWIMMING, x, y, z)) {
-            return desiredPose;
+            return isBedrockMovement() ? desiredPose : pose;
         }
 
         if (gamemode == GameMode.SPECTATOR

@@ -9,6 +9,7 @@ import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.PistonPushes;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.math.CultMath;
@@ -263,7 +264,44 @@ public final class VelocityCandidates {
     /** Whether Entity#collide changed the accepted move's vertical movement, {@code delta.y != movement.y}. */
     private static boolean clippedVertically(PredictionResult result) {
         MovementTrace trace = result.getValidMovements().getClosestTrace();
-        return tracesVerticalClip(result, trace) && trace.position().y != trace.preCollisionMovement().y;
+        return tracesVerticalClip(result, trace)
+                && trace.position().y != trace.preCollisionMovement().y
+                && (!exactPoseRise(result) || !shortensRise(trace) || meetsCeiling(result, trace));
+    }
+
+    /**
+     * Whether a 1.21.11 client's rise is decided by its own pose box: Entity#collide resolves Y first
+     * (Direction#axisStepOrder) from Entity#getBoundingBox, the box Player#updatePlayerPose left last tick, unless a
+     * shulker box shove moved that box first or a stepping move changes Y on its own.
+     */
+    private static boolean exactPoseRise(PredictionResult result) {
+        CultPlayer player = result.getPlayer();
+        SimulationContext context = result.getSimulationContext();
+        PistonPushes pushes = context.getWorldData().getPistonPushes();
+        return player.getClientVersion() == ClientVersion.V_1_21_11
+                && context.getVehicle() == null
+                && (pushes == null || pushes.getShulkerBoxShoveResult() == null)
+                && !result.getValidMovements().isCanStep();
+    }
+
+    /** Whether {@code trace}'s accepted rise is one Entity#collide can leave: it never lengthens a move. */
+    private static boolean shortensRise(MovementTrace trace) {
+        return trace.position().y < trace.preCollisionMovement().y;
+    }
+
+    /**
+     * Whether a block or a possible entity box stops the pose box within {@code trace}'s accepted rise. Entity#collide
+     * resolves Y first from the start box and clips a rise onto a collider's bottom; the accepted rise is the reported
+     * one, which can sit up to the collision epsilon past that bottom.
+     */
+    private static boolean meetsCeiling(PredictionResult result, MovementTrace trace) {
+        CultPlayer player = result.getPlayer();
+        SimpleCollisionBox start = result.getSimulationContext().getFromActualPose().copy();
+        double rise = trace.position().y + SimpleCollisionBox.COLLISION_EPSILON;
+        return Collisions.collideWithAdditionalCollisionBoxes(
+                                player, start, 0.0D, rise, 0.0D, player.entityCollisionBoxes())
+                        .y
+                != rise;
     }
 
     /**
