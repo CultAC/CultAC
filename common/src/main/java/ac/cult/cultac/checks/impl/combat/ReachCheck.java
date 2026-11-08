@@ -178,8 +178,16 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         return judgesBedrock() && attack(entityId, hit, hitPrecision, claimedEye);
     }
 
-    /** Queues an attack for this client tick's end; true when the attack must be dropped. */
+    /**
+     * Queues an attack for this client tick's end; true when the attack must be dropped. An experimental check still
+     * measures the attacks of a player with experimental checks off, but drops none of them.
+     */
     private boolean attack(int entityId, Vec3 hit, double hitPrecision, Vec3 claimedEye) {
+        return queueAttack(entityId, hit, hitPrecision, claimedEye)
+                && (!isExperimental() || player.isExperimentalChecks());
+    }
+
+    private boolean queueAttack(int entityId, Vec3 hit, double hitPrecision, Vec3 claimedEye) {
         if (player.isDisabled()) return false;
         int index = attacks++;
         PacketEntity entity = player.compensatedEntities.entityMap.get(entityId);

@@ -725,6 +725,30 @@ class InteractionVisibilityTest {
     }
 
     @Test
+    void anExperimentalBedrockReachCheckDropsAnImpossibleHitOnlyWithExperimentalChecksOn() throws Exception {
+        try (var setup = new Setup()) {
+            var players = setup.check(BedrockPlayerReach.class);
+            var player = bedrockAttacker(setup);
+            player.compensatedEntities.addEntity(
+                    43, EntityTypeIds.PLAYER, new Vec3(player.x, player.y, player.z + 2.5), 0, 0, 0);
+            // Where a view along +z from the eye enters the player's box grown by the pick margin, and a hit off it.
+            Vec3 front = new Vec3(player.x, player.y + 1.62, player.z + 2.1);
+            Vec3 offBox = new Vec3(front.x + 0.5, front.y, front.z);
+            assertTrue(players.isExperimental());
+
+            player.setExperimentalChecks(true);
+            assertFalse(players.onBedrockAttack(43, front, 1.0E-5), "the hit lies on the box");
+            bedrockTick(player, 0);
+            assertTrue(players.onBedrockAttack(43, offBox, 1.0E-5), "the hit lies off the box");
+            bedrockTick(player, 0);
+
+            player.setExperimentalChecks(false);
+            assertFalse(players.onBedrockAttack(43, offBox, 1.0E-5), "experimental checks are off");
+            bedrockTick(player, 0);
+        }
+    }
+
+    @Test
     void aBedrockTouchClientPicksAtAScreenPointWithinItsView() throws Exception {
         try (var setup = new Setup()) {
             var entities = setup.check(BedrockEntityReach.class);
