@@ -3,10 +3,12 @@ package ac.cult.cultac.bedrock.bridge;
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.BlockProps;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
@@ -16,11 +18,18 @@ import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import io.netty.channel.embedded.EmbeddedChannel;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.function.Consumer;
 import org.cloudburstmc.math.vector.Vector3f;
 import org.cloudburstmc.math.vector.Vector3i;
+import org.cloudburstmc.nbt.NbtMap;
 import org.cloudburstmc.protocol.bedrock.data.inventory.transaction.InventoryTransactionType;
 import org.cloudburstmc.protocol.bedrock.packet.InventoryTransactionPacket;
+import org.cloudburstmc.protocol.bedrock.packet.UpdateBlockPacket;
+import org.geysermc.geyser.registry.type.GeyserBedrockBlock;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.session.cache.WorldCache;
 import org.junit.AfterClass;
@@ -194,6 +203,54 @@ public class GeyserItemUseTest {
                         .equals(item));
                 assertSame(staleBox, h.player.boundingBox);
             }
+        }
+    }
+
+    @Test
+    public void placementGeyserRestoresLeavesNoBlockOnceTheClientHasTheRestore() throws Exception {
+        try (var h = new Harness()) {
+            // A held use that predicted success, with its click point 1.15 blocks from the clicked block's centre:
+            // Geyser's BedrockInventoryTransactionTranslator restores air and never asks Java. The server's block stays
+            // air, so no Java update follows; only the restore, bracketed around Geyser's translation, clears it.
+            var wall = new BlockPos(5011, 200, 4996);
+            h.seed(wall);
+            h.player.getInventory().inventory.getSlot(36).set(OfflineCultTestBootstrap.item("minecraft:stone", 64));
+            h.position(5010.5, 200, 4997.69557);
+            var click = useOn(wall, 4);
+            click.setClickPosition(Vector3f.from(0f, 1.1946716f, 1.6517868f));
+            var placed = new BlockPos(5010, 200, 4996);
+            GeyserItemUse.observe(h.session, h.player, click, 0);
+            assertEquals(
+                    "minecraft:stone",
+                    DataTables.defaults()
+                            .registry()
+                            .block(h.player.compensatedWorld.getBlockStateIdAt(placed))
+                            .key());
+            assertTrue(h.player.compensatedWorld.isBedrockClientWritten(placed.getX(), placed.getY(), placed.getZ()));
+
+            var corrections = new GeyserBlockUpdates();
+            List<Consumer<CultPlayer>> receipts = new ArrayList<>();
+            Map<Integer, Integer> palette = Map.of(99, BlockIds.AIR.defaultState());
+            corrections.begin();
+            for (int layer = 0; layer < 2; layer++) {
+                var restore = new UpdateBlockPacket();
+                restore.setBlockPosition(Vector3i.from(placed.getX(), placed.getY(), placed.getZ()));
+                restore.setDataLayer(layer);
+                restore.setDefinition(new GeyserBedrockBlock(99, NbtMap.EMPTY));
+                corrections.capture(restore, BedrockCoordinateFrame.IDENTITY, palette);
+            }
+            corrections.end(h.player, receipts::add);
+            // The client keeps its own block until it has applied the restore.
+            assertEquals(
+                    "minecraft:stone",
+                    DataTables.defaults()
+                            .registry()
+                            .block(h.player.compensatedWorld.getBlockStateIdAt(placed))
+                            .key());
+            assertEquals(1, receipts.size());
+            receipts.removeFirst().accept(h.player);
+            assertEquals(BlockIds.AIR.defaultState(), h.player.compensatedWorld.getBlockStateIdAt(placed));
+            assertFalse(h.player.compensatedWorld.isBedrockClientWritten(placed.getX(), placed.getY(), placed.getZ()));
         }
     }
 

@@ -774,10 +774,9 @@ public final class GeyserBedrockBridgeRuntime {
                 } else if (packet instanceof PlayerActionPacket action) {
                     submitPlayerAction(player, action);
                 }
-                var adapter = GFP_ADAPTERS.get(connection);
-                if (adapter != null && packet instanceof PlayerAuthInputPacket) {
-                    adapter.withTeleportRetry(() -> delegate.handlePacket(packet));
-                } else delegate.handlePacket(packet);
+                if (GeyserBlockAckTranslator.mayRestoreBlocks(packet)) {
+                    GeyserBlockAckTranslator.bracket(connection, () -> handleInGeyser(packet));
+                } else handleInGeyser(packet);
                 if (packet instanceof InventoryTransactionPacket transaction) {
                     GeyserItemUse.observe(connection, player, transaction, sequence);
                 } else if (packet instanceof PlayerAuthInputPacket input) {
@@ -788,6 +787,13 @@ public final class GeyserBedrockBridgeRuntime {
                     player.checkManager.endBedrockClientTick();
                 }
             });
+        }
+
+        private void handleInGeyser(BedrockPacket packet) {
+            var adapter = GFP_ADAPTERS.get(connection);
+            if (adapter != null && packet instanceof PlayerAuthInputPacket) {
+                adapter.withTeleportRetry(() -> delegate.handlePacket(packet));
+            } else delegate.handlePacket(packet);
         }
 
         private void logPacket(String direction, BedrockPacket packet) {
