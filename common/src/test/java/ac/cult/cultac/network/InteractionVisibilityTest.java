@@ -19,6 +19,13 @@ import ac.cult.blocksim.interaction.BlockHit;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
+import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockNextTickStates;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockProfileState;
+import ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags;
+import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
+import ac.cult.cultac.bedrock.prediction.state.BedrockCameraWaterState;
+import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMoveFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
@@ -29,6 +36,7 @@ import ac.cult.cultac.checks.impl.combat.BedrockEntityReach;
 import ac.cult.cultac.checks.impl.combat.BedrockPlayerReach;
 import ac.cult.cultac.checks.impl.combat.EntityReach;
 import ac.cult.cultac.checks.impl.combat.PlayerReach;
+import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.checks.impl.visibility.AttackMobVisibility;
 import ac.cult.cultac.checks.impl.visibility.AttackPlayerVisibility;
 import ac.cult.cultac.checks.impl.visibility.BreakVisibility;
@@ -65,6 +73,7 @@ import ac.cult.cultac.utils.visibility.ClientVisibility;
 import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 import ac.grim.grimac.api.config.ConfigManager;
 import ac.grim.grimac.api.event.events.FlagEvent;
+import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -776,11 +785,66 @@ class InteractionVisibilityTest {
         }
     }
 
+    @Test
+    void aBedrockClientPicksFromTheEyeItsCameraEasedTo() throws Exception {
+        try (var setup = new Setup()) {
+            var entities = setup.check(BedrockEntityReach.class);
+            var hitboxes = setup.check(BedrockEntityHitboxes.class);
+            var player = bedrockAttacker(setup);
+            // The zombie's box grown by the pick margin starts 2.85 blocks in front of the client.
+            player.compensatedEntities.addEntity(
+                    42, EntityTypeIds.ZOMBIE, new Vec3(player.x, player.y, player.z + 3.25), 0, 0, 0);
+            double standing = 1.62001;
+            double sneaking = standing - 0.35;
+
+            carryCamera(player, 0.35F, 0.35F);
+            bedrockAttackAt(player, entities, new Vec3(player.x, player.y + sneaking, player.z + 2.85), sneaking);
+            assertEquals(0, hitboxes.violations, "a sneaking client picks from its lowered eye");
+            bedrockAttackAt(player, entities, new Vec3(player.x, player.y + standing, player.z + 2.85), standing);
+            assertEquals(1, hitboxes.violations, "a level view from the lowered eye does not meet the standing hit");
+
+            // Halfway through easing down from standing, the eye lies between the two heights.
+            carryCamera(player, 0.175F, 0.0F);
+            double easing = standing - 0.1;
+            bedrockAttackAt(player, entities, new Vec3(player.x, player.y + easing, player.z + 2.85), easing);
+            assertEquals(1, hitboxes.violations, "the eye passed this height as its camera eased");
+            bedrockAttackAt(player, entities, new Vec3(player.x, player.y + sneaking, player.z + 2.85), sneaking);
+            assertEquals(2, hitboxes.violations, "the eye had not yet eased down to sneaking height");
+            assertEquals(0, entities.violations);
+
+            // A standing client measures its reach from its standing eye only.
+            carryCamera(player, 0.0F, 0.0F);
+            bedrockAttackAt(player, entities, new Vec3(player.x, player.y + 0.4, player.z + 2.85), standing);
+            assertEquals(1, entities.violations, "the low hit lies beyond range from the standing eye");
+        }
+    }
+
+    // The movement engine's carried state for the client's next tick, with its camera offset now and a tick before.
+    private static void carryCamera(CultPlayer player, float current, float previous) throws Exception {
+        var state = BedrockMovementState.fromPhysicalFeet(
+                        new ac.cult.cultac.bedrock.prediction.geometry.Vec3d(player.x, player.y, player.z),
+                        ac.cult.cultac.bedrock.prediction.geometry.Vec3d.ZERO,
+                        BedrockInputFrame.idle(11L),
+                        BedrockCollisionFlags.ON_GROUND)
+                .withCameraWater(new BedrockCameraWaterState(current, previous, false, false));
+        Field carry = SimulationProcessor.class.getDeclaredField("profileCarry");
+        carry.setAccessible(true);
+        carry.set(
+                player.checkManager.getSimulationProcessor(),
+                new BedrockNextTickStates(
+                        List.of(new BedrockProfileState.Entry(state, BedrockMobJumpComponentState.DEFAULT))));
+    }
+
     // A tick turned toward hit from the standing eye, then an attack reporting it and the tick that ends with that
     // view.
     private static void bedrockAttackAt(CultPlayer player, BedrockEntityReach entities, Vec3 hit) {
+        bedrockAttackAt(player, entities, hit, 1.62);
+    }
+
+    // The same from an eye this high above the feet.
+    private static void bedrockAttackAt(CultPlayer player, BedrockEntityReach entities, Vec3 hit, double eye) {
         double x = hit.x - player.x;
-        double y = hit.y - (player.y + 1.62);
+        double y = hit.y - (player.y + eye);
         double z = hit.z - player.z;
         float yaw = (float) Math.toDegrees(Math.atan2(-x, z));
         float pitch = (float) Math.toDegrees(Math.atan2(-y, Math.sqrt(x * x + z * z)));

@@ -2,12 +2,13 @@ package ac.cult.cultac.checks.impl.combat;
 
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.List;
 
 /**
- * Where a Bedrock client's attack came from, as Cult models it: an eye on the path between its last two tick positions,
- * the same fraction along it as its view lies between the rotation it last sent and the one it sends with its next
- * tick. It reports where the pick entered the target's box. Its pick ray is {@code rayLength} long; {@code standingEye}
- * is its eye height when its camera stood settled at the standing height, else NaN.
+ * Where a Bedrock client's attack came from, as Cult models it: an eye on the path from one of its {@code eyes}' {@code
+ * before} height above its last tick position to its {@code now} height above its latest, the same fraction along both,
+ * and a view between the rotation it last sent and the one it sends with its next tick. It reports where the pick
+ * entered the target's box. Its pick ray is {@code rayLength} long.
  */
 record BedrockAttackPick(
         Vec3 last,
@@ -20,7 +21,10 @@ record BedrockAttackPick(
         float pitch,
         boolean screenPick,
         double rayLength,
-        double standingEye) {
+        List<Eye> eyes) {
+    /** An eye height above the feet at the client's last tick, {@code before}, and at its latest, {@code now}. */
+    record Eye(double before, double now) {}
+
     // The angle precision of a view direction, with room for the float hit point.
     private static final double ANGLE_PRECISION = 0.01;
     // Touch and motion controllers pick at a screen point within the camera's view (Boar's bound).
@@ -41,22 +45,21 @@ record BedrockAttackPick(
         boolean blocked(Vec3 from, Vec3 to, double edge);
     }
 
-    /** The least distance from an eye on the path, {@code eyes} above the feet, to {@code point}. */
-    double reach(double[] eyes, Vec3 point) {
+    /** The least distance from an eye on the path to {@code point}. */
+    double reach(Vec3 point) {
         double least = Double.POSITIVE_INFINITY;
-        for (double eye : eyes) least = Math.min(least, distanceToPath(eye, point));
+        for (Eye eye : eyes) least = Math.min(least, distanceToPath(eye, point));
         return least;
     }
 
     /**
-     * Whether an eye on the path, {@code eyes} above the feet, could have looked at the hit point on {@code box} from
-     * its frame: along a view from {@link #yaw}/{@link #pitch} toward {@code nextYaw}/{@code nextPitch}, or along any
-     * view from inside the box, where the pick hits at the eye. The view turns every frame and the ticks only sample
-     * it, so one that turns back within a tick can look past both; it may run up to the larger of the two neighbouring
-     * ticks' turns past them.
+     * Whether an eye on the path could have looked at the hit point on {@code box} from its frame: along a view from
+     * {@link #yaw}/{@link #pitch} toward {@code nextYaw}/{@code nextPitch}, or along any view from inside the box,
+     * where the pick hits at the eye. The view turns every frame and the ticks only sample it, so one that turns back
+     * within a tick can look past both; it may run up to the larger of the two neighbouring ticks' turns past them.
      */
-    boolean looksAtHit(double[] eyes, float nextYaw, float nextPitch, SimpleCollisionBox box) {
-        for (double eye : eyes) {
+    boolean looksAtHit(float nextYaw, float nextPitch, SimpleCollisionBox box) {
+        for (Eye eye : eyes) {
             if (pathMeets(eye, box)) return true;
         }
         double turnYaw = wrap(nextYaw - yaw);
@@ -67,7 +70,7 @@ record BedrockAttackPick(
             yawRoom += SCREEN_YAW;
             pitchRoom = 180.0;
         }
-        for (double eye : eyes) {
+        for (Eye eye : eyes) {
             if (looksAtHit(eye, turnYaw, turnPitch, yawRoom, pitchRoom)) return true;
         }
         return false;
@@ -78,21 +81,18 @@ record BedrockAttackPick(
      * when its ray meets no block within {@code rayLength}, or crosses the box without the margin, {@code raw}, before
      * the block. True when the eye path meets {@code grown}, where the hit is the eye; when a ray from an eye on the
      * path through the hit crosses {@code raw}; or when such a ray, from eyes sampled along the path, meets no block.
-     * The eye is {@link #standingEye} when known, else any of {@code possibleEyes}.
      */
-    boolean keptPastBlocks(double[] possibleEyes, SimpleCollisionBox grown, SimpleCollisionBox raw, BlockedRay blocks) {
-        double[] eyes = Double.isNaN(standingEye) ? possibleEyes : new double[] {standingEye};
-        for (double eye : eyes) {
+    boolean keptPastBlocks(SimpleCollisionBox grown, SimpleCollisionBox raw, BlockedRay blocks) {
+        for (Eye eye : eyes) {
             if (pathMeets(eye, grown) || crossesPastHit(eye, raw)) return true;
         }
-        double pathX = now.x - last.x;
-        double pathY = now.y - last.y;
-        double pathZ = now.z - last.z;
-        double step = Math.sqrt(pathX * pathX + pathY * pathY + pathZ * pathZ) / BLOCK_SAMPLES;
-        for (double eye : eyes) {
+        for (Eye eye : eyes) {
+            Vec3 start = start(eye);
+            Vec3 path = path(eye);
+            double step = path.length() / BLOCK_SAMPLES;
             for (int i = 0; i <= BLOCK_SAMPLES; i++) {
                 double along = (double) i / BLOCK_SAMPLES;
-                Vec3 from = new Vec3(last.x + pathX * along, last.y + eye + pathY * along, last.z + pathZ * along);
+                Vec3 from = new Vec3(start.x + path.x * along, start.y + path.y * along, start.z + path.z * along);
                 double x = hit.x - from.x;
                 double y = hit.y - from.y;
                 double z = hit.z - from.z;
@@ -108,13 +108,15 @@ record BedrockAttackPick(
         return false;
     }
 
-    // Whether the ray from an eye on the path, eye above the feet, through the hit crosses box past the hit: some
-    // hit + u (hit - (start + s path)), u >= 0 and s in [0, 1], lies in it. With v = u s that is linear in u and v,
-    // so the region is a convex polygon; it is not empty iff two of its edge lines meet at a point of it.
-    private boolean crossesPastHit(double eye, SimpleCollisionBox box) {
+    // Whether the ray from an eye on the path through the hit crosses box past the hit: some hit + u (hit - (start +
+    // s path)), u >= 0 and s in [0, 1], lies in it. With v = u s that is linear in u and v, so the region is a convex
+    // polygon; it is not empty iff two of its edge lines meet at a point of it.
+    private boolean crossesPastHit(Eye eye, SimpleCollisionBox box) {
+        Vec3 start = start(eye);
+        Vec3 path = path(eye);
         double[] h = {hit.x, hit.y, hit.z};
-        double[] a = {hit.x - last.x, hit.y - (last.y + eye), hit.z - last.z};
-        double[] d = {now.x - last.x, now.y - last.y, now.z - last.z};
+        double[] a = {hit.x - start.x, hit.y - start.y, hit.z - start.z};
+        double[] d = {path.x, path.y, path.z};
         double e = RAW_BOX_PRECISION + hitPrecision;
         double[] min = {box.minX - e, box.minY - e, box.minZ - e};
         double[] max = {box.maxX + e, box.maxY + e, box.maxZ + e};
@@ -147,24 +149,23 @@ record BedrockAttackPick(
         return false;
     }
 
-    private boolean looksAtHit(double eye, double turnYaw, double turnPitch, double yawRoom, double pitchRoom) {
+    private boolean looksAtHit(Eye eye, double turnYaw, double turnPitch, double yawRoom, double pitchRoom) {
         double nearest = distanceToPath(eye, hit);
         if (nearest < 1.0E-6) return true; // The pick starts inside the box.
-        double pathX = now.x - last.x;
-        double pathY = now.y - last.y;
-        double pathZ = now.z - last.z;
-        double path = Math.sqrt(pathX * pathX + pathY * pathY + pathZ * pathZ);
+        Vec3 start = start(eye);
+        Vec3 path = path(eye);
         // The view to the hit turns fastest where the path passes nearest it.
-        int pieces = (int) Math.min(MAX_PIECES, Math.max(1, Math.ceil(Math.toDegrees(path / nearest) / PIECE_DEGREES)));
+        int pieces = (int) Math.min(
+                MAX_PIECES, Math.max(1, Math.ceil(Math.toDegrees(path.length() / nearest) / PIECE_DEGREES)));
 
         double[] yaws = new double[pieces + 1];
         double[] pitches = new double[pieces + 1];
         double steepest = 0;
         for (int i = 0; i <= pieces; i++) {
             double along = (double) i / pieces;
-            double x = hit.x - (last.x + pathX * along);
-            double y = hit.y - (last.y + eye + pathY * along);
-            double z = hit.z - (last.z + pathZ * along);
+            double x = hit.x - (start.x + path.x * along);
+            double y = hit.y - (start.y + path.y * along);
+            double z = hit.z - (start.z + path.z * along);
             double flat = Math.sqrt(x * x + z * z);
             double viewYaw = Math.toDegrees(Math.atan2(-x, z));
             yaws[i] = i == 0 ? wrap(viewYaw - yaw) : yaws[i - 1] + wrap(viewYaw - yaws[i - 1] - yaw);
@@ -227,10 +228,12 @@ record BedrockAttackPick(
                 && Math.abs(y + s * dy - b * turnY) <= 1 + e;
     }
 
-    // Whether the eye path, eye above the feet, passes through the box.
-    private boolean pathMeets(double eye, SimpleCollisionBox box) {
-        double[] from = {last.x, last.y + eye, last.z};
-        double[] path = {now.x - last.x, now.y - last.y, now.z - last.z};
+    // Whether the eye path passes through the box.
+    private boolean pathMeets(Eye eye, SimpleCollisionBox box) {
+        Vec3 start = start(eye);
+        Vec3 delta = path(eye);
+        double[] from = {start.x, start.y, start.z};
+        double[] path = {delta.x, delta.y, delta.z};
         double[] min = {box.minX, box.minY, box.minZ};
         double[] max = {box.maxX, box.maxY, box.maxZ};
         double enter = 0, exit = 1;
@@ -248,13 +251,25 @@ record BedrockAttackPick(
         return true;
     }
 
-    private double distanceToPath(double eye, Vec3 point) {
-        double pathX = now.x - last.x;
-        double pathY = now.y - last.y;
-        double pathZ = now.z - last.z;
-        double x = point.x - last.x;
-        double y = point.y - (last.y + eye);
-        double z = point.z - last.z;
+    // Where the eye path starts, at the client's last tick.
+    private Vec3 start(Eye eye) {
+        return new Vec3(last.x, last.y + eye.before(), last.z);
+    }
+
+    // The eye path from its start to the client's latest tick.
+    private Vec3 path(Eye eye) {
+        return new Vec3(now.x - last.x, now.y + eye.now() - (last.y + eye.before()), now.z - last.z);
+    }
+
+    private double distanceToPath(Eye eye, Vec3 point) {
+        Vec3 start = start(eye);
+        Vec3 path = path(eye);
+        double pathX = path.x;
+        double pathY = path.y;
+        double pathZ = path.z;
+        double x = point.x - start.x;
+        double y = point.y - start.y;
+        double z = point.z - start.z;
         double length = pathX * pathX + pathY * pathY + pathZ * pathZ;
         double along = length == 0 ? 0 : Math.max(0, Math.min(1, (x * pathX + y * pathY + z * pathZ) / length));
         x -= pathX * along;

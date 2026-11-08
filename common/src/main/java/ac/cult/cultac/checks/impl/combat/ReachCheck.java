@@ -17,7 +17,7 @@ package ac.cult.cultac.checks.impl.combat;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.CultAPI;
-import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockProfileState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockCameraWaterState;
 import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
 import ac.cult.cultac.checks.Check;
@@ -86,8 +86,6 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
     private static final double BEDROCK_MOUSE_RAY = 5.7F;
     private static final double BEDROCK_GAMEPAD_RAY = 5.6F;
     private static final double BEDROCK_OTHER_RAY = 12.0F;
-    // How far below the standing eye height an eye may be and still count as standing.
-    private static final double BEDROCK_SETTLED_CAMERA = 1.0E-4;
     private final ClientVisibilityProcessor visibility;
     // The looks measureBest tries, three components each.
     private final double[] looks = new double[15];
@@ -288,19 +286,29 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
                 tickPitch,
                 inputMode == BEDROCK_TOUCH || inputMode == BEDROCK_MOTION_CONTROLLER,
                 bedrockRayLength(inputMode),
-                bedrockStandingEye());
+                bedrockEyes());
     }
 
-    // The client's eye height when the movement engine's camera for its last tick stood settled at the standing
-    // height, as it does unless the client sneaked, crawled, swam or glided in the last few ticks; NaN otherwise.
-    private double bedrockStandingEye() {
-        var prediction = player.checkManager.getSimulationProcessor().getLastPrediction();
-        var bedrock = prediction == null ? null : prediction.getProfileResult(BedrockPredictionResult.class);
-        if (bedrock == null || bedrock.nextTickBaseState() == null) return Double.NaN;
-        BedrockCameraWaterState camera = bedrock.nextTickBaseState().cameraWater();
-        if (Math.abs(camera.currentOffset()) > BEDROCK_SETTLED_CAMERA
-                || Math.abs(camera.previousOffset()) > BEDROCK_SETTLED_CAMERA) return Double.NaN;
-        return BedrockCameraWaterState.STANDING_EYE_HEIGHT * player.getScale();
+    // The client's eye heights above its feet at its last two ticks, as the movement engine's camera
+    // (BedrockCameraWaterState) carries them into its next tick. Without that state, or for a scaled player, whose
+    // camera the engine does not model, any eye height the player may have.
+    private List<BedrockAttackPick.Eye> bedrockEyes() {
+        List<BedrockAttackPick.Eye> eyes = new ArrayList<>(EYE_HEIGHTS.length);
+        if (player.getScale() == 1.0F) {
+            var carry = player.checkManager.getSimulationProcessor().getCurrentPredictionCarry();
+            for (BedrockProfileState.Entry entry : BedrockProfileState.profileEntries(carry)) {
+                BedrockCameraWaterState camera = entry.state().cameraWater();
+                var eye = new BedrockAttackPick.Eye(
+                        BedrockCameraWaterState.STANDING_EYE_HEIGHT - camera.previousOffset(),
+                        BedrockCameraWaterState.STANDING_EYE_HEIGHT - camera.currentOffset());
+                if (!eyes.contains(eye)) eyes.add(eye);
+            }
+            if (!eyes.isEmpty()) return eyes;
+        }
+        for (double height : EYE_HEIGHTS) {
+            eyes.add(new BedrockAttackPick.Eye(height * player.getScale(), height * player.getScale()));
+        }
+        return eyes;
     }
 
     // The shortest ray the input mode may have used.
@@ -316,8 +324,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         List<MeasuredAttack> measured = new ArrayList<>(measuredAttacks.size());
         for (QueuedAttack attack : measuredAttacks) {
             if (attack.pick() != null) {
-                bestDistance = attack.pick()
-                        .reach(bedrockEyes(), bedrockTarget(attack.pick(), measuredBox(attack.targetBox())));
+                bestDistance = attack.pick().reach(bedrockTarget(attack.pick(), measuredBox(attack.targetBox())));
             } else {
                 measureBest(attack.targetBox(), attack.targetSize(), attack.fromCandidates(), attack.reach(), false);
             }
@@ -356,8 +363,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
     // when it arrives, as neither needs the look its next tick sends.
     private boolean isKnownInvalidOnBedrock(BedrockAttackPick pick, SimpleCollisionBox reachBox, AttackReach reach) {
         SimpleCollisionBox box = measuredBox(reachBox);
-        return pick.reach(bedrockEyes(), bedrockTarget(pick, box)) - threshold > reach.maxClosestDistance()
-                || !hitOnBox(pick, box);
+        return pick.reach(bedrockTarget(pick, box)) - threshold > reach.maxClosestDistance() || !hitOnBox(pick, box);
     }
 
     // BedrockPlayerReach and BedrockEntityReach flag an attack whose hit lies beyond the client's range from every eye
@@ -366,8 +372,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
     private void judgeBedrock(QueuedAttack attack) {
         BedrockAttackPick pick = attack.pick();
         SimpleCollisionBox box = measuredBox(attack.targetBox());
-        double[] eyes = bedrockEyes();
-        double distance = pick.reach(eyes, bedrockTarget(pick, box));
+        double distance = pick.reach(bedrockTarget(pick, box));
         double max = attack.reach().maxClosestDistance();
         boolean tooFar = attack.enforced() && distance - threshold > max;
         relayReach(attack, distance, max, tooFar);
@@ -381,15 +386,15 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         String missed;
         if (!hitOnBox(pick, box)) {
             missed = "hit off box";
-        } else if (!pick.looksAtHit(eyes, nextYaw, nextPitch, box)) {
+        } else if (!pick.looksAtHit(nextYaw, nextPitch, box)) {
             missed = "look off hit";
         } else if (keepsMarginHitsPastBlocks()) {
             missed = null;
         } else {
             SimpleCollisionBox raw = box.copy();
             raw.expand(-BEDROCK_PICK_MARGIN);
-            boolean kept = pick.keptPastBlocks(
-                    eyes, box, raw, (from, to, edge) -> BedrockPickBlocks.blocks(player, from, to, edge));
+            boolean kept =
+                    pick.keptPastBlocks(box, raw, (from, to, edge) -> BedrockPickBlocks.blocks(player, from, to, edge));
             missed = kept ? null : "hit in pick margin";
         }
         if (missed != null) {
@@ -430,13 +435,6 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
 
     private static String debugPoint(Vec3 point) {
         return point == null ? "none" : String.format(Locale.ROOT, "(%.5f, %.5f, %.5f)", point.x, point.y, point.z);
-    }
-
-    private double[] bedrockEyes() {
-        double scale = player.getScale();
-        double[] eyes = new double[EYE_HEIGHTS.length];
-        for (int i = 0; i < eyes.length; i++) eyes[i] = EYE_HEIGHTS[i] * scale;
-        return eyes;
     }
 
     // The point of the box nearest the reported hit, or nearest the client's position when it reported none.
