@@ -86,10 +86,11 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
     private static final int BEDROCK_MOTION_CONTROLLER = 4;
     private static final int BEDROCK_MOUSE = 1;
     private static final int BEDROCK_GAMEPAD = 3;
-    // The length of a Bedrock client's pick ray by input mode.
+    // The length of a Bedrock client's pick ray by input mode; other modes reach farther in creative.
     private static final double BEDROCK_MOUSE_RAY = 5.7F;
     private static final double BEDROCK_GAMEPAD_RAY = 5.6F;
-    private static final double BEDROCK_OTHER_RAY = 12.0F;
+    private static final double BEDROCK_OTHER_RAY = 6.7F;
+    private static final double BEDROCK_CREATIVE_RAY = 12.0F;
     // How far /cult debug reach lets the measured reach exceed the client's claimed reach before showing it red.
     private static final double REACH_DEBUG_TOLERANCE = 0.001;
     private final ClientVisibilityProcessor visibility;
@@ -309,10 +310,13 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         return BedrockEye.of(player).eyes();
     }
 
-    // The shortest ray the input mode may have used.
-    private static double bedrockRayLength(int inputMode) {
+    // How far along its pick ray the input mode's block pick meets a block that drops a hit in the pick margin: the
+    // shortest ray it may have used, and none for a touch screen, which keeps such a hit whatever lies along its ray.
+    private double bedrockRayLength(int inputMode) {
+        if (inputMode == BEDROCK_TOUCH) return 0;
         if (inputMode == BEDROCK_MOUSE) return BEDROCK_MOUSE_RAY;
-        if (inputMode == BEDROCK_TOUCH || inputMode == BEDROCK_MOTION_CONTROLLER) return BEDROCK_OTHER_RAY;
+        if (inputMode == BEDROCK_MOTION_CONTROLLER)
+            return player.gamemode == GameMode.CREATIVE ? BEDROCK_CREATIVE_RAY : BEDROCK_OTHER_RAY;
         return BEDROCK_GAMEPAD_RAY;
     }
 

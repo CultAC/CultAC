@@ -787,6 +787,44 @@ class InteractionVisibilityTest {
     }
 
     @Test
+    void aBedrockTouchClientKeepsAHitInThePickMarginWhateverBlocksLieAlongItsRay() throws Exception {
+        try (var setup = new Setup()) {
+            var entities = setup.check(BedrockEntityReach.class);
+            var hitboxes = setup.check(BedrockEntityHitboxes.class);
+            setup.fixture.player.x = .5;
+            setup.fixture.player.y = 64;
+            setup.fixture.player.z = -1.5;
+            var player = bedrockAttacker(setup);
+            player.compensatedEntities.addEntity(
+                    42, EntityTypeIds.ZOMBIE, new Vec3(player.x, player.y, player.z + 2.5), 0, 0, 0);
+            // Where a ray 0.35 to the side of the zombie's centre enters its box grown by the pick margin, at eye
+            // height; it never crosses the box without the margin, and meets a wall 3.5 blocks ahead.
+            Vec3 margin = new Vec3(player.x + 0.35, player.y + 1.62, player.z + 2.1);
+            wall(setup, 2);
+
+            touchAttackAt(player, entities, margin);
+            assertEquals(0, hitboxes.violations, "a touch screen keeps the hit past the wall");
+            bedrockAttackAt(player, entities, margin);
+            assertEquals(1, hitboxes.violations, "a mouse keeps the wall its view met");
+            assertEquals(0, entities.violations);
+        }
+    }
+
+    private static void wall(Setup setup, int z) {
+        for (int x = 0; x <= 3; x++) {
+            for (int y = 63; y <= 69; y++) setup.block(x, y, z, "stone");
+        }
+    }
+
+    // Two touch ticks, an attack reporting hit, and the tick that ends it, all with a level view along +z.
+    private static void touchAttackAt(CultPlayer player, BedrockEntityReach entities, Vec3 hit) {
+        bedrockTick(player, 0, TOUCH);
+        bedrockTick(player, 0, TOUCH);
+        entities.onBedrockAttack(42, hit, 1.0E-5);
+        bedrockTick(player, 0, TOUCH);
+    }
+
+    @Test
     void aBedrockClientPicksFromTheEyeItsCameraEasedTo() throws Exception {
         try (var setup = new Setup()) {
             var entities = setup.check(BedrockEntityReach.class);
@@ -1452,6 +1490,7 @@ class InteractionVisibilityTest {
         "4 66 3 stone",
         "5 66 3 stone"
     };
+
     private static final BlockPos SEALED = new BlockPos(5, 63, 2);
 
     private static Setup sealedPit() throws Exception {

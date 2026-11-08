@@ -9,7 +9,8 @@ import java.util.List;
  * Where a Bedrock client's attack came from, as Cult models it: an eye on the path from one of its {@code eyes}' {@code
  * before} height above its last tick position to its {@code now} height above its latest, the same fraction along both,
  * and a view between the rotation it last sent and the one it sends with its next tick. It reports where the pick
- * entered the target's box. Its pick ray is {@code rayLength} long.
+ * entered the target's box. Blocks within {@code rayLength} along its pick ray may drop a hit in the pick margin; none
+ * do when it is 0.
  */
 record BedrockAttackPick(
         Vec3 last,
@@ -79,9 +80,11 @@ record BedrockAttackPick(
      * Whether this hit on the box grown by the pick margin, {@code grown}, counts. A hit only in the margin counts only
      * when its ray meets no block within {@code rayLength}, or crosses the box without the margin, {@code raw}, before
      * the block. True when the eye path meets {@code grown}, where the hit is the eye; when a ray from an eye on the
-     * path through the hit crosses {@code raw}; or when such a ray, from eyes sampled along the path, meets no block.
+     * path through the hit crosses {@code raw}; or when such a ray, from eyes sampled along the path, meets no block,
+     * as none does when {@code rayLength} is 0.
      */
     boolean keptPastBlocks(SimpleCollisionBox grown, SimpleCollisionBox raw, BlockedRay blocks) {
+        if (rayLength <= 0) return true;
         for (BedrockEye eye : eyes) {
             if (pathMeets(eye, grown) || crossesPastHit(eye, raw)) return true;
         }
