@@ -1148,6 +1148,7 @@ public class CompensatedWorld {
     }
 
     private void tickRecentClientCollisionChanges() {
+        if (recentClientCollisionChanges.isEmpty()) return;
         var iterator = recentClientCollisionChanges.long2IntEntrySet().fastIterator();
         while (iterator.hasNext()) {
             var entry = iterator.next();
@@ -1158,6 +1159,7 @@ public class CompensatedWorld {
     }
 
     private void tickRecentClientFluidChanges() {
+        if (recentClientFluidChanges.isEmpty()) return;
         var iterator = recentClientFluidChanges.long2IntEntrySet().fastIterator();
         while (iterator.hasNext()) {
             var entry = iterator.next();
@@ -1465,7 +1467,8 @@ public class CompensatedWorld {
         } else {
             // Transaction path: drop entries the client has provably seen.
             pistons.removeSentBefore(transactionId);
-            openShulkerBoxes.removeIf(box -> box.isClosing() && box.lastTransactionSent < transactionId);
+            if (!openShulkerBoxes.isEmpty())
+                openShulkerBoxes.removeIf(box -> box.isClosing() && box.lastTransactionSent < transactionId);
         }
         pruneOrphanedShulkerBoxes();
     }
@@ -1474,11 +1477,12 @@ public class CompensatedWorld {
         tickRecentClientCollisionChanges();
         tickRecentClientFluidChanges();
         pistons.tickClientTickEnd();
-        openShulkerBoxes.removeIf(ShulkerData::tickIfGuaranteedFinished);
+        if (!openShulkerBoxes.isEmpty()) openShulkerBoxes.removeIf(ShulkerData::tickIfGuaranteedFinished);
     }
 
     // Drop shulker boxes whose backing block or entity no longer exists.
     private void pruneOrphanedShulkerBoxes() {
+        if (openShulkerBoxes.isEmpty()) return;
         openShulkerBoxes.removeIf(box -> box.blockPos != null
                 ? !ClientBlockProperties.isShulkerBox(player.compensatedWorld.getBlockStateIdAt(box.blockPos))
                 : !player.compensatedEntities.entityMap.containsValue(box.entity));
@@ -1533,8 +1537,10 @@ public class CompensatedWorld {
      */
     private List<CompensatedBlockEntities.ShulkerShove> shulkerBoxShoves() {
         if (player.isBedrockMovement()) return List.of();
+        boolean next = pistons.reportsAfterBlockEntities(), runsNormally = clientRunsNormally();
+        if (!clientBlockEntities.mayShove(next, runsNormally)) return List.of();
         List<CompensatedBlockEntities.ShulkerShove> shoves = new ArrayList<>(1);
-        clientBlockEntities.shulkerShoves(pistons.reportsAfterBlockEntities(), clientRunsNormally(), shoves);
+        clientBlockEntities.shulkerShoves(next, runsNormally, shoves);
         return shoves;
     }
 

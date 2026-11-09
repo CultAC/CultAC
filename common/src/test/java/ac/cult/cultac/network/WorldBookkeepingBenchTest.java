@@ -4,11 +4,13 @@ import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.InteractionRegistries;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.utils.data.ShulkerData;
 import ac.cult.cultac.utils.latency.CompensatedBlockEntities;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedChunk;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedSection;
 import com.sun.management.ThreadMXBean;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.lang.invoke.MethodHandles;
@@ -156,6 +158,54 @@ class WorldBookkeepingBenchTest {
         long now = System.nanoTime();
         for (CachedSection section : sections) section.setLastMutatedNanos(now);
         known.set(world, false);
+    }
+
+    /**
+     * The client tick end's world state pass and the two shulker shove list builds of a movement packet, with no
+     * recent change, open shulker box or block entity. The removed-work body adds back what the empty guards skip.
+     */
+    @Test
+    void idleTicks() throws Exception {
+        try (var services = new RecordConsumerServices();
+                var fixture = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            var world = fixture.player.compensatedWorld;
+            var collisions = (Long2IntOpenHashMap) WorldBookkeepingTest.field(world, "recentClientCollisionChanges");
+            var fluids = (Long2IntOpenHashMap) WorldBookkeepingTest.field(world, "recentClientFluidChanges");
+            var entities = (CompensatedBlockEntities) WorldBookkeepingTest.field(world, "clientBlockEntities");
+            var bodies = new LinkedHashMap<String, LongUnaryOperator>();
+            bodies.put("idle-ticks removed-work", units -> {
+                long seen = 0;
+                for (long unit = 0; unit < units; unit++) {
+                    world.removeInvalidPistonLikeStuff();
+                    for (var iterator = collisions.long2IntEntrySet().fastIterator(); iterator.hasNext(); ) seen++;
+                    for (var iterator = fluids.long2IntEntrySet().fastIterator(); iterator.hasNext(); ) seen++;
+                    world.openShulkerBoxes.removeIf(ShulkerData::tickIfGuaranteedFinished);
+                    world.openShulkerBoxes.removeIf(box -> box.blockPos == null && world.isChunkLoaded(0, 0));
+                    for (int read = 0; read < 2; read++) {
+                        List<CompensatedBlockEntities.ShulkerShove> list = new ArrayList<>(1);
+                        entities.shulkerShoves(true, true, list);
+                        seen += list.size();
+                    }
+                }
+                return seen;
+            });
+            bodies.put("idle-ticks guarded", units -> {
+                long seen = 0;
+                for (long unit = 0; unit < units; unit++) {
+                    world.removeInvalidPistonLikeStuff();
+                    for (int read = 0; read < 2; read++) {
+                        List<CompensatedBlockEntities.ShulkerShove> list = List.of();
+                        if (entities.mayShove(true, true)) {
+                            list = new ArrayList<>(1);
+                            entities.shulkerShoves(true, true, list);
+                        }
+                        seen += list.size();
+                    }
+                }
+                return seen;
+            });
+            interleaved(1, bodies);
+        }
     }
 
     /**

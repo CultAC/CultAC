@@ -182,6 +182,11 @@ public final class CompensatedBlockEntities {
         lastTickShoves.clear();
     }
 
+    /** When false, {@link #shulkerShoves} adds nothing for the same arguments. */
+    public boolean mayShove(boolean next, boolean runsNormally) {
+        return next ? runsNormally && ticking != null && !ticking.isEmpty() : !lastTickShoves.isEmpty();
+    }
+
     /**
      * Adds the ShulkerBoxBlockEntity#moveCollidedEntities calls of the client tick that ended last, or with
      * {@code next} those of the client tick that runs next, whose block entities tick when {@code runsNormally}.
