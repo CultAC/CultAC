@@ -335,6 +335,7 @@ public class CompensatedWorld {
         public static final java.util.concurrent.atomic.AtomicLong mutableCopyCounter =
                 new java.util.concurrent.atomic.AtomicLong(0);
         private static final long[] COUNT_WEIGHTS = countWeights();
+        private static final String CANONICAL_AIR_WRITE = "The canonical air section is never written";
 
         private final PalettedSection states;
         private int nonEmptyBlockCount;
@@ -350,7 +351,7 @@ public class CompensatedWorld {
         }
 
         public CachedSection(PalettedSection states, boolean shared) {
-            this.states = states;
+            this.states = states.owned();
             this.shared = shared;
             this.lastMutatedNanos = System.nanoTime();
             recalcCounts();
@@ -358,14 +359,21 @@ public class CompensatedWorld {
 
         /**
          * A received section with the counts its chunk packet carried, which the client's LevelChunkSection.read keeps
-         * without recounting. Wires before 26.1 carry no fluid count: a negative {@code fluidCount} is counted here.
+         * without recounting. Wires before 26.1 carry no fluid count: a negative {@code fluidCount} is counted here. Air
+         * without blocks or fluid by those counts gives the canonical air section every pool interns it to: it is
+         * {@link #isShared}, and {@link #setStateId} and {@link #setLastMutatedNanos} on it throw, so a writer replaces
+         * it first.
          */
         public static CachedSection received(PalettedSection states, int nonEmptyBlockCount, int fluidCount) {
+            CachedSection air = SectionPool.canonicalAir();
+            if (nonEmptyBlockCount == 0
+                    && (fluidCount < 0 ? air.fluidCount : fluidCount) <= 0
+                    && states.sameSingle(air.states)) return air;
             return new CachedSection(states, nonEmptyBlockCount, fluidCount);
         }
 
         private CachedSection(PalettedSection states, int nonEmptyBlockCount, int fluidCount) {
-            this.states = states;
+            this.states = states.owned();
             this.lastMutatedNanos = System.nanoTime();
             if (fluidCount < 0) recalcCounts();
             else this.fluidCount = fluidCount;
@@ -427,6 +435,7 @@ public class CompensatedWorld {
         }
 
         public int setStateId(int index, int state) {
+            if (this == SectionPool.canonicalAir()) throw new IllegalStateException(CANONICAL_AIR_WRITE);
             int replacement = stateIdOrAir(state);
             int previous = states.getAndSet(index & 4095, replacement);
             decrementCounts(previous);
@@ -453,6 +462,7 @@ public class CompensatedWorld {
         }
 
         public void setLastMutatedNanos(long nanos) {
+            if (this == SectionPool.canonicalAir()) throw new IllegalStateException(CANONICAL_AIR_WRITE);
             this.lastMutatedNanos = nanos;
         }
 
@@ -502,13 +512,17 @@ public class CompensatedWorld {
             }
             nonEmptyBlockCount = 0;
             fluidCount = 0;
-            states.forEachCountWithin(DataTables.defaults().registry().stateCount(), (state, count) -> {
-                var facts = facts(state);
-                if (!facts.has(ac.cult.blocksim.data.StateFacts.AIR)) {
-                    nonEmptyBlockCount += count;
-                    if (!facts.fluid().equals("minecraft:empty")) fluidCount += count;
-                }
-            });
+            int lone = states.loneEntry();
+            if (lone >= 0) addCounts(lone, states.size());
+            else states.forEachCountWithin(DataTables.defaults().registry().stateCount(), this::addCounts);
+        }
+
+        private void addCounts(int state, int count) {
+            var facts = facts(state);
+            if (!facts.has(ac.cult.blocksim.data.StateFacts.AIR)) {
+                nonEmptyBlockCount += count;
+                if (!facts.fluid().equals("minecraft:empty")) fluidCount += count;
+            }
         }
 
         private void decrementCounts(int state) {
