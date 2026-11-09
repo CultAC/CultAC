@@ -2,11 +2,14 @@ package ac.cult.cultac.network;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.environment.ClientWorldDefaults;
 import ac.cult.blocksim.environment.DimensionData;
+import ac.cult.cultac.network.packet.RegistryData;
 import ac.cult.cultac.network.packet.RegistryTags;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.WireValueDecoder.RegistryEntry;
+import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.latency.ClientWorldRegistries;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -68,6 +71,51 @@ class RegistryMemoTest {
             }
         }
         assertTrue(hits > 50 && builds - failures > 300, hits + " hits of " + builds + ", failed " + failures);
+    }
+
+    @Test
+    void simulatorTagsMatchTheMap() throws Exception {
+        var state = new ClientComponentRegistries();
+        var defaults = DataTables.defaults();
+        var versions = List.of(ProtocolVersion.V26_3, ProtocolVersion.V1_21_11);
+        var random = new Random(23);
+        int hits = 0, queries = 0, failures = 0;
+        for (int step = 0; step < 1000; step++) {
+            switch (random.nextInt(8)) {
+                case 0 -> state.appendTags(new RegistryTags(Map.of(
+                        "minecraft:worldgen/biome",
+                        new RegistryTags.Payload(Map.of("test:received", List.of(random.nextInt(4)))))));
+                case 1 -> state.appendTags(new RegistryTags(Map.of(
+                        random.nextBoolean() ? "minecraft:block" : "minecraft:worldgen/biome",
+                        RegistryTags.Payload.EMPTY)));
+                case 2 -> {
+                    if (random.nextInt(3) == 0) {
+                        state.beginConfiguration();
+                        state.appendConfigurationRegistryData(new RegistryData(
+                                "minecraft:worldgen/biome", List.of(new RegistryEntry("minecraft:plains", null))));
+                        state.publish(
+                                state.stageConfiguration(
+                                        ProtocolVersion.V26_3, ProtocolVersion.V26_3, ProtocolVersion.V26_3, null),
+                                ProtocolVersion.V26_3);
+                    } else if (random.nextInt(4) == 0) state.fallback();
+                }
+                default -> {
+                    var source = versions.get(random.nextInt(versions.size()));
+                    var client = random.nextInt(4) == 0 ? versions.get(random.nextInt(versions.size())) : source;
+                    var last = field(state, "lastSimulatorTags");
+                    var memo = outcome(() -> state.blockSimulatorTags(source, client, defaults));
+                    if (memo == last) hits++;
+                    setField(state, "lastSimulatorTags", null);
+                    var map = outcome(() -> state.blockSimulatorTags(source, client, defaults));
+                    queries++;
+                    if (map instanceof String failure) {
+                        assertEquals(failure, memo, step + " " + source + " " + client);
+                        failures++;
+                    } else assertSame(map, memo, step + " " + source + " " + client);
+                }
+            }
+        }
+        assertTrue(hits > 50 && queries - failures > 150, hits + " hits of " + queries + ", failed " + failures);
     }
 
     private static Object outcome(Callable<Object> lookup) {

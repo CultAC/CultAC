@@ -3,11 +3,16 @@ package ac.cult.cultac.network;
 import static ac.cult.cultac.network.WorldBookkeepingBenchTest.interleaved;
 import static ac.cult.cultac.network.WorldBookkeepingBenchTest.line;
 
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.environment.EnvironmentData;
+import ac.cult.cultac.network.packet.RegistryTags;
+import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.latency.ClientWorldRegistries;
 import com.google.gson.JsonObject;
 import com.sun.management.ThreadMXBean;
 import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.lang.management.ManagementFactory;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -64,8 +69,45 @@ class RegistryMemoBenchTest {
         interleaved(1, bodies);
     }
 
+    /** One block simulation's tag overlay lookup on the same connection. */
+    @Test
+    void simulatorTags() throws Exception {
+        var state = new ClientComponentRegistries();
+        state.appendTags(new RegistryTags(Map.of(
+                "minecraft:worldgen/biome", new RegistryTags.Payload(Map.of("test:received", List.of(1))))));
+        var defaults = DataTables.defaults();
+        VarHandle last = MethodHandles.privateLookupIn(ClientComponentRegistries.class, MethodHandles.lookup())
+                .findVarHandle(ClientComponentRegistries.class, "lastSimulatorTags", overlayType());
+        long calls = 50_000_000, start = System.nanoTime();
+        for (long call = 0; call < calls; call++) {
+            last.set(state, null);
+            WorldBookkeepingBenchTest.sink +=
+                    state.blockSimulatorTags(ProtocolVersion.V26_3, ProtocolVersion.V26_3, defaults).hashCode();
+        }
+        line("simulator-tags map wall ps/call " + (System.nanoTime() - start) * 1000 / calls);
+        var bodies = new LinkedHashMap<String, LongUnaryOperator>();
+        bodies.put("simulator-tags map", units -> {
+            long seen = 0;
+            for (long unit = 0; unit < units; unit++) {
+                last.set(state, null);
+                seen += state.blockSimulatorTags(ProtocolVersion.V26_3, ProtocolVersion.V26_3, defaults).hashCode();
+            }
+            return seen;
+        });
+        bodies.put("simulator-tags memo", units -> {
+            long seen = 0;
+            for (long unit = 0; unit < units; unit++)
+                seen += state.blockSimulatorTags(ProtocolVersion.V26_3, ProtocolVersion.V26_3, defaults).hashCode();
+            return seen;
+        });
+        interleaved(1, bodies);
+    }
+
     private static Class<?> lastType() throws Exception {
         return ClientWorldRegistries.class.getDeclaredField("lastEnvironment").getType();
     }
 
+    private static Class<?> overlayType() throws Exception {
+        return ClientComponentRegistries.class.getDeclaredField("lastSimulatorTags").getType();
+    }
 }
