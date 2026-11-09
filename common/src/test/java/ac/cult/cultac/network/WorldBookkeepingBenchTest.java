@@ -7,14 +7,19 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.latency.CompensatedBlockEntities;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedChunk;
+import ac.cult.cultac.utils.latency.CompensatedWorld.CachedSection;
 import com.sun.management.ThreadMXBean;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
+import java.lang.invoke.VarHandle;
 import java.lang.management.ManagementFactory;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -95,6 +100,62 @@ class WorldBookkeepingBenchTest {
             });
             interleaved(queries, bodies);
         }
+    }
+
+    /**
+     * The client tick end's reintern pass with 24 sections written within the last five seconds, none stable yet. The
+     * scan body clears the bound first, so every pass walks the pending sections as each did before the bound.
+     */
+    @Test
+    void reinternPasses() throws Exception {
+        try (var services = new RecordConsumerServices();
+                var fixture = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            var world = fixture.player.compensatedWorld;
+            int stone = DataTables.defaults().registry().block("minecraft:stone").defaultState();
+            for (int x = 0; x < 3; x++) for (int z = 0; z < 2; z++) world.ensureValidationChunkLoaded(x, z);
+            for (int x = 0; x < 3; x++)
+                for (int z = 0; z < 2; z++)
+                    for (int y = 0; y < 64; y += 16) world.applyBlockChangeRawDANGER(x * 16, y, z * 16, stone);
+            var pending = (Map<?, ?>) WorldBookkeepingTest.field(world, "pendingReinternSections");
+            line("reinterns pending " + pending.size());
+            var pass = MethodHandles.privateLookupIn(CompensatedWorld.class, MethodHandles.lookup())
+                    .findVirtual(CompensatedWorld.class, "processPendingReinterns", MethodType.methodType(void.class));
+            var known = MethodHandles.privateLookupIn(CompensatedWorld.class, MethodHandles.lookup())
+                    .findVarHandle(CompensatedWorld.class, "earliestPendingMutatedKnown", boolean.class);
+            var sections = new ArrayList<CachedSection>();
+            for (Object state : pending.values()) sections.add((CachedSection) WorldBookkeepingTest.field(state, "section"));
+            var bodies = new LinkedHashMap<String, LongUnaryOperator>();
+            bodies.put("reinterns scan", units -> {
+                try {
+                    refresh(sections, known, world);
+                    for (long unit = 0; unit < units; unit++) {
+                        known.set(world, false);
+                        pass.invokeExact(world);
+                    }
+                } catch (Throwable e) {
+                    throw new IllegalStateException(e);
+                }
+                return pending.size();
+            });
+            bodies.put("reinterns bound", units -> {
+                try {
+                    refresh(sections, known, world);
+                    for (long unit = 0; unit < units; unit++) pass.invokeExact(world);
+                } catch (Throwable e) {
+                    throw new IllegalStateException(e);
+                }
+                return pending.size();
+            });
+            interleaved(1, bodies);
+            if (pending.size() != 24) throw new IllegalStateException("a section went stable: " + pending.size());
+        }
+    }
+
+    /** Every pending write lands now, so none goes stable within a rep; the next pass sets the bound afresh. */
+    private static void refresh(List<CachedSection> sections, VarHandle known, CompensatedWorld world) {
+        long now = System.nanoTime();
+        for (CachedSection section : sections) section.setLastMutatedNanos(now);
+        known.set(world, false);
     }
 
     /**
