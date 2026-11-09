@@ -43,21 +43,31 @@ class WorldBookkeepingBenchTest {
 
     /**
      * Per simulated tick: a 3x3x3 block scan around a walking player (one lookup per block, as getBlockStateIdAt
-     * does), 20 entity column checks within 40 blocks, and the heightmap column under the player.
+     * does), 20 entity column checks within 40 blocks, and the heightmap column under the player. The warm runs use
+     * one world; the cold run walks 24 worlds of 21x21 columns a tick at a time, as an event loop serves its players.
      */
     @Test
     void columnLookups() throws Exception {
-        try (var services = new RecordConsumerServices();
-                var fixture = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
-            var world = fixture.player.compensatedWorld;
-            for (int x = -6; x <= 6; x++) for (int z = -6; z <= 6; z++) world.ensureValidationChunkLoaded(x, z);
-            Long2ObjectMap<CachedChunk> chunks = WorldBookkeepingTest.chunks(world);
+        int worldCount = 24;
+        var fixtures = new ArrayList<RecordReceiveFixture>();
+        try (var services = new RecordConsumerServices()) {
+            var worlds = new CompensatedWorld[worldCount];
+            List<Long2ObjectMap<CachedChunk>> maps = new ArrayList<>();
+            for (int w = 0; w < worldCount; w++) {
+                var fixture = new RecordReceiveFixture(ProtocolVersion.V26_3);
+                fixtures.add(fixture);
+                worlds[w] = fixture.player.compensatedWorld;
+                for (int x = -10; x <= 10; x++)
+                    for (int z = -10; z <= 10; z++) worlds[w].ensureValidationChunkLoaded(x, z);
+                maps.add(WorldBookkeepingTest.chunks(worlds[w]));
+            }
             var random = new Random(11);
-            int ticks = 2000, perTick = 27 + 20 + 1;
-            int[] xs = new int[ticks * perTick], zs = new int[ticks * perTick];
-            boolean[] loadedOnly = new boolean[ticks * perTick];
+            int ticks = 2000, scans = 27 + 1, entities = 20;
+            int[] scanX = new int[ticks * scans], scanZ = new int[ticks * scans];
+            int[] blockX = new int[ticks * scans], blockY = new int[ticks * scans], blockZ = new int[ticks * scans];
+            int[] entityX = new int[ticks * entities], entityZ = new int[ticks * entities];
             double px = 0, pz = 0;
-            int n = 0;
+            int s = 0, e = 0;
             for (int tick = 0; tick < ticks; tick++) {
                 px += random.nextGaussian() * 0.3;
                 pz += random.nextGaussian() * 0.3;
@@ -65,42 +75,99 @@ class WorldBookkeepingBenchTest {
                 for (int dx = -1; dx <= 1; dx++)
                     for (int dy = 0; dy < 3; dy++)
                         for (int dz = -1; dz <= 1; dz++) {
-                            xs[n] = (bx + dx) >> 4;
-                            zs[n++] = (bz + dz) >> 4;
+                            blockX[s] = bx + dx;
+                            blockY[s] = 64 + dy;
+                            blockZ[s] = bz + dz;
+                            scanX[s] = (bx + dx) >> 4;
+                            scanZ[s++] = (bz + dz) >> 4;
                         }
+                blockX[s] = bx;
+                blockY[s] = 63;
+                blockZ[s] = bz;
+                scanX[s] = bx >> 4;
+                scanZ[s++] = bz >> 4;
                 for (int entity = 0; entity < 20; entity++) {
-                    xs[n] = (bx + random.nextInt(81) - 40) >> 4;
-                    zs[n] = (bz + random.nextInt(81) - 40) >> 4;
-                    loadedOnly[n++] = true;
+                    entityX[e] = (bx + random.nextInt(81) - 40) >> 4;
+                    entityZ[e++] = (bz + random.nextInt(81) - 40) >> 4;
                 }
-                xs[n] = bx >> 4;
-                zs[n++] = bz >> 4;
             }
-            int queries = n;
             int repeats = 0;
-            for (int i = 1; i < queries; i++) if (xs[i] == xs[i - 1] && zs[i] == zs[i - 1]) repeats++;
-            line("column-lookups consecutive-repeat " + (repeats * 100 / queries) + "%");
+            for (int i = 1; i < s; i++) if (scanX[i] == scanX[i - 1] && scanZ[i] == scanZ[i - 1]) repeats++;
+            line("column-lookups scan consecutive-repeat " + (repeats * 100 / s) + "%");
+            var world = worlds[0];
+            var chunks = maps.get(0);
             var bodies = new LinkedHashMap<String, LongUnaryOperator>();
-            bodies.put("column-lookups map", units -> {
+            bodies.put("column-scan map", units -> {
                 long seen = 0;
                 for (long unit = 0; unit < units; unit++)
-                    for (int i = 0; i < queries; i++) {
-                        long position = CompensatedWorld.chunkPositionToLong(xs[i], zs[i]);
-                        if (loadedOnly[i]) seen += chunks.containsKey(position) ? 1 : 0;
-                        else seen += chunks.get(position) == null ? 0 : 1;
-                    }
+                    for (int i = 0; i < scanX.length; i++)
+                        seen += chunks.get(CompensatedWorld.chunkPositionToLong(scanX[i], scanZ[i])) == null ? 0 : 1;
                 return seen;
             });
-            bodies.put("column-lookups world", units -> {
+            bodies.put("column-scan world", units -> {
                 long seen = 0;
                 for (long unit = 0; unit < units; unit++)
-                    for (int i = 0; i < queries; i++) {
-                        if (loadedOnly[i]) seen += world.isChunkLoaded(xs[i], zs[i]) ? 1 : 0;
-                        else seen += world.getChunk(xs[i], zs[i]) == null ? 0 : 1;
-                    }
+                    for (int i = 0; i < scanX.length; i++) seen += world.getChunk(scanX[i], scanZ[i]) == null ? 0 : 1;
                 return seen;
             });
-            interleaved(queries, bodies);
+            interleaved(s, bodies);
+            bodies.clear();
+            bodies.put("block-scan world", units -> {
+                long seen = 0;
+                for (long unit = 0; unit < units; unit++)
+                    for (int i = 0; i < blockX.length; i++)
+                        seen += world.getBlockStateIdAt(blockX[i], blockY[i], blockZ[i]);
+                return seen;
+            });
+            bodies.put("block-scan peek", units -> {
+                long seen = 0;
+                for (long unit = 0; unit < units; unit++)
+                    for (int i = 0; i < blockX.length; i++)
+                        seen += world.peekBlockStateIdAt(blockX[i], blockY[i], blockZ[i]);
+                return seen;
+            });
+            interleaved(s, bodies);
+            bodies.clear();
+            bodies.put("column-entities map", units -> {
+                long seen = 0;
+                for (long unit = 0; unit < units; unit++)
+                    for (int i = 0; i < entityX.length; i++)
+                        seen += chunks.containsKey(CompensatedWorld.chunkPositionToLong(entityX[i], entityZ[i])) ? 1 : 0;
+                return seen;
+            });
+            bodies.put("column-entities world", units -> {
+                long seen = 0;
+                for (long unit = 0; unit < units; unit++)
+                    for (int i = 0; i < entityX.length; i++) seen += world.isChunkLoaded(entityX[i], entityZ[i]) ? 1 : 0;
+                return seen;
+            });
+            interleaved(e, bodies);
+            bodies.clear();
+            bodies.put("column-cold map", units -> {
+                long seen = 0;
+                for (long unit = 0; unit < units; unit++)
+                    for (int tick = 0; tick < ticks; tick++)
+                        for (int w = 0; w < worldCount; w++) {
+                            var map = maps.get(w);
+                            for (int i = tick * scans; i < tick * scans + scans; i++)
+                                seen += map.get(CompensatedWorld.chunkPositionToLong(scanX[i], scanZ[i])) == null ? 0 : 1;
+                        }
+                return seen;
+            });
+            bodies.put("column-cold world", units -> {
+                long seen = 0;
+                for (long unit = 0; unit < units; unit++)
+                    for (int tick = 0; tick < ticks; tick++)
+                        for (int w = 0; w < worldCount; w++) {
+                            var each = worlds[w];
+                            for (int i = tick * scans; i < tick * scans + scans; i++)
+                                seen += each.getChunk(scanX[i], scanZ[i]) == null ? 0 : 1;
+                        }
+                return seen;
+            });
+            interleaved(s * worldCount, bodies);
+        } finally {
+            for (var fixture : fixtures) fixture.close();
         }
     }
 
