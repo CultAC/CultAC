@@ -1633,12 +1633,12 @@ public class CultPlayer implements GrimUser {
         return new PacketWorld() {
             @Override
             public int getBlockStateId(int x, int y, int z) {
-                return world.getBlockStateIdAt(x, y, z);
+                return world.peekBlockStateIdAt(x, y, z);
             }
 
             @Override
             public boolean isChunkLoaded(int chunkX, int chunkZ) {
-                return world.isChunkLoaded(chunkX, chunkZ);
+                return world.peekChunkLoaded(chunkX, chunkZ);
             }
         };
     }

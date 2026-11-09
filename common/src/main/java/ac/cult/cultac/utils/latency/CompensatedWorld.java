@@ -60,6 +60,10 @@ public class CompensatedWorld {
     private final LongSet chunkPositions;
     // Changes whenever a chunk is added to or removed from chunks; every write to chunks bumps it.
     private long chunkEpoch;
+    // The last getChunk answer, null included; valid while chunkEpoch equals lastChunkEpoch.
+    private long lastChunkPosition;
+    private CachedChunk lastChunk;
+    private long lastChunkEpoch = -1;
     private final Long2ObjectOpenHashMap<String> chunkDimensions = new Long2ObjectOpenHashMap<>();
     // Packet locations for blocks
     public Set<ShulkerData> openShulkerBoxes = new HashSet<>();
@@ -851,7 +855,7 @@ public class CompensatedWorld {
         int sectionCount = lastClientboundDimension.sectionCount();
         sectionPoolLeases.retain(visibleDimension, chunkX, chunkZ, sectionCount);
         chunks.put(chunkPosition, new CachedChunk(new CachedSection[sectionCount], player.lastTransactionSent.get()));
-        chunkEpoch++;
+        chunksChanged();
         chunkDimensions.put(chunkPosition, visibleDimension);
     }
 
@@ -1696,12 +1700,22 @@ public class CompensatedWorld {
     }
 
     public int getBlockStateIdAt(int x, int y, int z) {
+        return blockStateIdAt(x, y, z, true);
+    }
+
+    /** getBlockStateIdAt for readers that may run off the connection owner: it never reads or keeps the last column. */
+    public int peekBlockStateIdAt(int x, int y, int z) {
+        return blockStateIdAt(x, y, z, false);
+    }
+
+    private int blockStateIdAt(int x, int y, int z, boolean ownerRead) {
         if (readingSelectionSnapshot) {
             long position = new BlockPos(x, y, z).asLong();
             if (selectionOriginalStates.containsKey(position)) return selectionOriginalStates.get(position);
         }
         try {
-            CachedChunk column = getChunk(x >> 4, z >> 4);
+            CachedChunk column =
+                    ownerRead ? getChunk(x >> 4, z >> 4) : chunks.get(chunkPositionToLong(x >> 4, z >> 4));
 
             y -= minHeight;
             if (column == null || y < 0 || (y >> 4) >= column.sectionCount()) return 0;
@@ -1754,7 +1768,12 @@ public class CompensatedWorld {
 
     public CachedChunk getChunk(int chunkX, int chunkZ) {
         long chunkPosition = chunkPositionToLong(chunkX, chunkZ);
-        return chunks.get(chunkPosition);
+        if (chunkPosition == lastChunkPosition && chunkEpoch == lastChunkEpoch) return lastChunk;
+        CachedChunk chunk = chunks.get(chunkPosition);
+        lastChunkPosition = chunkPosition;
+        lastChunk = chunk;
+        lastChunkEpoch = chunkEpoch;
+        return chunk;
     }
 
     /** Whether the client has applied the column at the chunk position and no load or unload of it is in flight. */
@@ -1767,12 +1786,24 @@ public class CompensatedWorld {
 
     public boolean isChunkLoaded(int chunkX, int chunkZ) {
         long chunkPosition = chunkPositionToLong(chunkX, chunkZ);
+        if (lastChunk != null && chunkPosition == lastChunkPosition && chunkEpoch == lastChunkEpoch) return true;
         return chunks.containsKey(chunkPosition);
+    }
+
+    /** isChunkLoaded for readers that may run off the connection owner: it never reads the last column. */
+    public boolean peekChunkLoaded(int chunkX, int chunkZ) {
+        return chunks.containsKey(chunkPositionToLong(chunkX, chunkZ));
     }
 
     public void putChunk(int chunkX, int chunkZ, CachedChunk chunk) {
         chunks.put(chunkPositionToLong(chunkX, chunkZ), chunk);
+        chunksChanged();
+    }
+
+    /** Every write to chunks calls this before anything reads chunks again. */
+    private void chunksChanged() {
         chunkEpoch++;
+        lastChunk = null;
     }
 
     /** The positions of the received chunks, read-only, in the map's iteration order. */
@@ -1969,7 +2000,7 @@ public class CompensatedWorld {
             internChunkSections(chunk, dimension, chunkX, chunkZ);
             removePendingReinternSections(chunkX, chunkZ);
             previous = chunks.put(chunkPosition, chunk);
-            chunkEpoch++;
+            chunksChanged();
             previousDimension = chunkDimensions.put(chunkPosition, dimension);
             if (previous != null) {
                 String releaseDimension = previousDimension == null ? dimension : previousDimension;
@@ -2180,7 +2211,7 @@ public class CompensatedWorld {
             }
 
             CachedChunk removed = chunks.remove(chunkPosition);
-            chunkEpoch++;
+            chunksChanged();
             chunkDimensions.remove(chunkPosition);
             removePendingReinternSections(chunkX, chunkZ);
             if (removed != null) {
@@ -2331,7 +2362,7 @@ public class CompensatedWorld {
                 forgetBedrockClientWrites(chunkX, chunkZ);
             }
             iterator.remove();
-            chunkEpoch++;
+            chunksChanged();
             if (terrainListener != null) terrainListener.columnUnloaded(chunkX, chunkZ);
         }
     }
@@ -2350,7 +2381,7 @@ public class CompensatedWorld {
         }
         sectionPoolLeases.clear();
         chunks.clear();
-        chunkEpoch++;
+        chunksChanged();
         chunkDimensions.clear();
         pendingReinternSections.clear();
         geysers.clear();
