@@ -43,7 +43,10 @@ public class PacketPlayerAttack {
     @CultPacketHandler
     public void onSwing(PacketReceiveEvent<ServerboundSwing> event, CultPlayer player, ServerboundSwing packet) {
         // Minecraft#startAttack resets on a miss before its main-hand swing (26.3: punch).
-        if (packet.hand() == Hand.MAIN_HAND) player.attackStrength.onPossibleReset();
+        // ClientPacketListener#handleAnimate's LocalPlayer#swing leaves the attack strength ticker as it is.
+        if (packet.hand() == Hand.MAIN_HAND && !player.serverSwingEcho.isEcho()) {
+            player.attackStrength.onPossibleReset();
+        }
     }
 
     @CultPacketHandler

@@ -57,7 +57,7 @@ public class NegativeTimerCheck extends AbstractTimerCheck implements PostPredic
     }
 
     private void recordNegativeMovePlayerPacket(final PacketReceiveEvent event, ServerboundMovePlayer packet) {
-        recordTimerEvent(event, false, shouldCountMovePlayerForTimer());
+        recordTimerEvent(event, false, shouldCountMovePlayerForTimer(event.answersTeleport()));
         handleMovePlayer(packet);
         clampTimerBalanceToDrift();
     }
@@ -131,8 +131,8 @@ public class NegativeTimerCheck extends AbstractTimerCheck implements PostPredic
     }
 
     @Override
-    protected boolean shouldCountMovePlayerForTimer() {
-        return super.shouldCountMovePlayerForTimer() && player.gamemode != GameMode.SPECTATOR;
+    protected boolean shouldCountMovePlayerForTimer(boolean teleport) {
+        return super.shouldCountMovePlayerForTimer(teleport) && player.gamemode != GameMode.SPECTATOR;
     }
 
     @Override

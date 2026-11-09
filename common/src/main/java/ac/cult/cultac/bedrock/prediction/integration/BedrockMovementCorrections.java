@@ -179,7 +179,7 @@ public final class BedrockMovementCorrections {
         processedTicks++;
         var state = BedrockProfileState.previousState(commit.carry());
         if (state == null) return;
-        if (player.getSetbackTeleportUtil().hasPendingBedrockTransportTeleport()) return;
+        if (player.getSetbackTeleportUtil().bedrockTeleports().hasPendingBedrockTransportTeleport()) return;
         double positionLimit = CultAPI.INSTANCE.getConfigManager().getBedrockMovementPositionFlagThreshold();
         double velocityLimit = CultAPI.INSTANCE.getConfigManager().getBedrockMovementVelocityFlagThreshold();
         boolean converged = result != null
@@ -201,7 +201,9 @@ public final class BedrockMovementCorrections {
                 && pending != null
                 && pending.received
                 && frame.getClientTick() > pending.correction.tick()
-                && player.getSetbackTeleportUtil().completeBedrockMovementCorrection(pending.correction)) {
+                && player.getSetbackTeleportUtil()
+                        .vehicleTeleports()
+                        .completeBedrockMovementCorrection(pending.correction)) {
             pending = null;
         }
         if (frame.getClientTick() == 0

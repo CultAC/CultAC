@@ -19,7 +19,11 @@ import java.util.function.Consumer;
 import org.cloudburstmc.math.vector.Vector3i;
 import org.cloudburstmc.nbt.NbtMap;
 import org.cloudburstmc.protocol.bedrock.data.BlockChangeEntry;
+import org.cloudburstmc.protocol.bedrock.data.inventory.transaction.InventoryTransactionType;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
+import org.cloudburstmc.protocol.bedrock.packet.InventoryTransactionPacket;
+import org.cloudburstmc.protocol.bedrock.packet.MovePlayerPacket;
+import org.cloudburstmc.protocol.bedrock.packet.PlayerAuthInputPacket;
 import org.cloudburstmc.protocol.bedrock.packet.UpdateBlockPacket;
 import org.cloudburstmc.protocol.bedrock.packet.UpdateSubChunkBlocksPacket;
 import org.geysermc.geyser.registry.type.GeyserBedrockBlock;
@@ -152,6 +156,22 @@ public class GeyserBlockUpdatesTest {
         assertTrue(h.receipts.isEmpty());
         h.end();
         assertEquals(1, h.receipts.size());
+    }
+
+    @Test
+    public void bracketsTheClientPacketsGeyserMayAnswerWithARestore() {
+        assertTrue(GeyserBlockAckTranslator.mayRestoreBlocks(new PlayerAuthInputPacket()));
+        assertTrue(GeyserBlockAckTranslator.mayRestoreBlocks(use(InventoryTransactionType.ITEM_USE, 0)));
+        assertFalse(GeyserBlockAckTranslator.mayRestoreBlocks(use(InventoryTransactionType.ITEM_USE, 1)));
+        assertFalse(GeyserBlockAckTranslator.mayRestoreBlocks(use(InventoryTransactionType.ITEM_RELEASE, 0)));
+        assertFalse(GeyserBlockAckTranslator.mayRestoreBlocks(new MovePlayerPacket()));
+    }
+
+    private static InventoryTransactionPacket use(InventoryTransactionType type, int action) {
+        var packet = new InventoryTransactionPacket();
+        packet.setTransactionType(type);
+        packet.setActionType(action);
+        return packet;
     }
 
     private static GeyserBedrockBlock definition(int id) {

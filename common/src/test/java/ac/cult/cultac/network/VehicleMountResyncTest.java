@@ -12,6 +12,7 @@ import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.protocol.ConnectionPhase;
@@ -160,7 +161,7 @@ class VehicleMountResyncTest {
      */
     private static PredictionResult paddleTick(JavaTickFixture f, Vec3 to) {
         var paddle = new ServerboundPaddleBoat(true, true);
-        f.listener.onPaddleBoat(f.event(ServerboundPackets.PADDLE_BOAT, paddle), f.player, paddle);
+        CheckManagerListener.receiveGeneric(f.event(ServerboundPackets.PADDLE_BOAT, paddle), f.player);
         var rot = new ServerboundMovePlayer(0, 0, 0, BOAT_YAW, 90, false, false, false, true);
         f.listener.onMovePlayer(f.event(ServerboundPackets.MOVE_PLAYER, rot), f.player, rot);
         f.moveVehicle(to, BOAT_YAW, 0, true);

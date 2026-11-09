@@ -29,6 +29,8 @@ public class MultiActionsE extends Check implements CheckListener {
 
     @CultPacketHandler
     public void onSwing(PacketReceiveEvent<ServerboundSwing> event, CultPlayer player, ServerboundSwing packet) {
+        // A swing sent while handling a self animate leaves the drop's and use's own swings pending.
+        if (player.serverSwingEcho.isEcho()) return;
         // A drop exempts only the one swing that follows it.
         boolean droppedBeforeSwing = dropping;
         dropping = false;

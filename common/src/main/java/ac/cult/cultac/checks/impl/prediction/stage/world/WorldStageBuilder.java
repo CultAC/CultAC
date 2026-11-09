@@ -47,6 +47,7 @@ import java.util.Set;
 import java.util.function.IntPredicate;
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import org.jetbrains.annotations.Nullable;
 
 public class WorldStageBuilder {
     // Temporary Bedrock push-out approximation, inset on every face.
@@ -180,7 +181,7 @@ public class WorldStageBuilder {
 
         MainSupportingBlockData mainSupportingBlockData = findMainSupportingBlockPos(
                 player,
-                lastPrediction == null ? null : lastPrediction.getSimulationContext(),
+                player.checkManager.getSimulationProcessor().lastTickSupport(lastPrediction),
                 deltaX,
                 deltaZ,
                 simulationContext.getToMaxPose(),
@@ -1205,9 +1206,13 @@ public class WorldStageBuilder {
         return fishingRodPulls;
     }
 
+    /**
+     * Entity#checkSupportingBlock. {@code lastSupport} is the supporting block the move started with, whose
+     * onGroundNoBlocks stops the search behind the movement; null when there is none.
+     */
     public MainSupportingBlockData findMainSupportingBlockPos(
             CultPlayer player,
-            SimulationContext lastContext,
+            @Nullable MainSupportingBlockData lastSupport,
             double lastMovementX,
             double lastMovementZ,
             SimpleCollisionBox maxPose,
@@ -1220,12 +1225,7 @@ public class WorldStageBuilder {
                 maxPose.minX, maxPose.minY - 1.0E-6D, maxPose.minZ, maxPose.maxX, maxPose.minY, maxPose.maxZ);
 
         BlockPos supportingBlock = findSupportingBlock(player, slightlyBelowPlayer);
-        if (supportingBlock == null
-                && (lastContext != null
-                        && !lastContext
-                                .getWorldData()
-                                .getMainSupportingBlockPos()
-                                .lastOnGroundAndNoBlock())) {
+        if (supportingBlock == null && lastSupport != null && !lastSupport.lastOnGroundAndNoBlock()) {
             SimpleCollisionBox aabb2 = slightlyBelowPlayer.offset(-lastMovementX, 0.0D, -lastMovementZ);
             return new MainSupportingBlockData(findSupportingBlock(player, aabb2), true);
         }

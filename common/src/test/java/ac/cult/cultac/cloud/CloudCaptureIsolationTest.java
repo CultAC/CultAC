@@ -18,6 +18,7 @@ import ac.cult.cultac.cloud.intake.v3.IntakeMessage;
 import ac.cult.cultac.cloud.intake.v3.Record;
 import ac.cult.cultac.cloud.intake.v3.Verdict;
 import ac.cult.cultac.cloud.wire.IntakeWire;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.platform.api.world.PlatformWorld;
 import ac.cult.cultac.player.CultPlayer;
@@ -218,7 +219,7 @@ class CloudCaptureIsolationTest {
         player.y = 64;
         player.z = -1.5;
         player.registryState = new ClientComponentRegistries();
-        player.getSetbackTeleportUtil().hasFullyLoaded = true;
+        SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
         var world = player.compensatedWorld;
         var dimension = player.getWorldRegistries().dimension("minecraft:overworld");
         world.setLastClientboundDimension("minecraft:overworld", dimension.dimension());

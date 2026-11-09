@@ -28,6 +28,14 @@ public class TeleportData {
         return bedrockOperation == null ? BedrockTeleportProvenance.GEYSER : bedrockOperation.provenance();
     }
 
+    /**
+     * Whether this teleport's answer can complete a Cult setback: any Java teleport, and on Bedrock only Cult's own
+     * emission. A teleport Geyser or GFP emitted never answers Cult's setback.
+     */
+    public boolean mayCompleteCultSetback() {
+        return bedrockTransportRevision < 0L || getBedrockProvenance() == BedrockTeleportProvenance.CULT_SETBACK;
+    }
+
     Vec3 location;
     RelativeFlag flags;
     Vec3 deltaMovement;
@@ -68,8 +76,12 @@ public class TeleportData {
     @Setter
     Boolean bedrockOnGround;
 
+    /**
+     * The onGround this teleport's client bundle leaves the player with, through ClientPacketListener#handleTeleportEntity
+     * on the player itself; null when the bundle sets none.
+     */
     @Setter
-    boolean bedrockTransportOnly;
+    Boolean sentOnGround;
 
     @Setter
     long bedrockTransportRevision;
@@ -102,7 +114,6 @@ public class TeleportData {
         this.sentWhileVehicle = false;
         this.sentDuringVehicleDismount = false;
         this.bedrockOnGround = null;
-        this.bedrockTransportOnly = false;
         this.bedrockTransportRevision = -1L;
     }
 
@@ -122,7 +133,7 @@ public class TeleportData {
         copy.sentWhileVehicle = sentWhileVehicle;
         copy.sentDuringVehicleDismount = sentDuringVehicleDismount;
         copy.bedrockOnGround = bedrockOnGround;
-        copy.bedrockTransportOnly = bedrockTransportOnly;
+        copy.sentOnGround = sentOnGround;
         copy.bedrockTransportRevision = bedrockTransportRevision;
         copy.bedrockOperation = bedrockOperation;
         return copy;

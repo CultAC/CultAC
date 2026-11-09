@@ -57,8 +57,10 @@ class EntityTransformRecordingTest {
     @Test
     void teleportReadsPositionAndBothAnglesFromOneActiveInterpolationTarget() throws Exception {
         try (var f = fixture()) {
+            // The target below is set without a packet, so the spawn must have been handled in an earlier tick.
+            f.player.packetEntityReplication.onPlayerTickEnd(null);
             var entity = f.player.compensatedEntities.getEntity(ENTITY);
-            entity.onFirstTransaction(false, true, 20, 70, 30, true, 80, 40, f.player);
+            entity.onBundleFirstTransaction(false, true, 20, 70, 30, true, 80, 40, f.player);
             assertTrue(entity.newPacketLocation.hasActiveInterpolationTarget());
             assertEquals(
                     1.0, entity.clientPhysicalPosition.x, "the source must be the target, not the physical position");
@@ -76,6 +78,18 @@ class EntityTransformRecordingTest {
             move(f.player, 0, false, true, 50, 60);
             teleport(f.player, new Vec3d(0.25, 0.5, -0.75), 5, -7);
             assertTransform(f.player, 2.25, 64.5, 1.25, 55, 53);
+        }
+    }
+
+    @Test
+    void aRespawnInTheSameTickStartsFromItsSpawnTransform() throws Exception {
+        try (var f = fixture()) {
+            move(f.player, 4096, true, true, 30, 40);
+            // The old entity's removal and the respawn are sent before the client proves either.
+            f.player.compensatedEntities.serverPositionsMap.remove(ENTITY);
+            f.player.packetEntityReplication.addEntity(ENTITY, EntityTypeIds.ZOMBIE, new Vec3(5, 70, 6), 15, 25, 0, -1);
+            teleport(f.player, new Vec3d(0.25, 0.5, -0.75), 5, -7);
+            assertTransform(f.player, 5.25, 70.5, 5.25, 20, 18);
         }
     }
 

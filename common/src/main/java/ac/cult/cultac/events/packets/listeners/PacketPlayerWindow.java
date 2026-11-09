@@ -5,6 +5,7 @@ import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundContainerClose;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMountScreenOpen;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundOpenScreen;
@@ -44,6 +45,16 @@ public class PacketPlayerWindow {
             PacketReceiveEvent<ServerboundContainerClose> event, CultPlayer player, ServerboundContainerClose packet) {
         if (player.isBedrockMovement()) handleInventory(player, false);
         else player.openWindow.onClientOpenOrCloseWindow(false);
+    }
+
+    @CultPacketHandler("clientbound.open_sign_editor")
+    public void onOpenSignEditor(PacketSendEvent<Opaque> event, CultPlayer player, Opaque packet) {
+        if (!player.isBedrockMovement()) player.openWindow.onServerSignEditor(event);
+    }
+
+    @CultPacketHandler("serverbound.sign_update")
+    public void onSignUpdate(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
+        if (!player.isBedrockMovement() && !event.isCancelled()) player.openWindow.onClientSignUpdate();
     }
 
     @CultPacketHandler

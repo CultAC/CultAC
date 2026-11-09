@@ -628,6 +628,52 @@ class DismountRideStateTest {
         }
     }
 
+    /**
+     * A bee mounts the 1.21.11 player for one ride tick, then remove_entities ends the
+     * ride and the player's next move keeps the bee's Y. 1.21.11 EntityType#BEE is 0.7 by 0.6, so Entity#positionRider
+     * seats the rider at the bee's 0.6 passenger point less Avatar's 0.6 vehicle attachment; 26.2 EntityTypes#BEE is
+     * 0.55 by 0.5.
+     */
+    @ParameterizedTest
+    @MethodSource("beeSeats")
+    void aRemovedBeeLeavesItsRiderAtTheVersionsSeat(ClientVersion version, double passengerAttachment)
+            throws Exception {
+        try (var f = fixture(version)) {
+            Vec3 bee = SEAT.add(0, 3, 0);
+            f.place(SEAT, Vec3.ZERO);
+            PredictionResult standing = f.tick(SEAT, true);
+            assertTrue(exact(standing), describe(standing));
+            mount(f, bee, EntityTypeIds.BEE);
+            f.rideTick();
+            dismount(f, true);
+            PredictionResult first = f.tick(bee.add(0, passengerAttachment - 0.6, 0), false);
+            assertTrue(exact(first), describe(first));
+        }
+    }
+
+    /** A 1.21.11 rider leaving the bee above or below Entity#positionRider's seat still flags VerticalOffset. */
+    @ParameterizedTest
+    @ValueSource(doubles = {0.1, -0.1, 0.01})
+    void aMoveOffTheBeeSeatStillFlags(double off) throws Exception {
+        try (var f = fixture(ClientVersion.V_1_21_11)) {
+            Vec3 bee = SEAT.add(0, 3, 0);
+            f.place(SEAT, Vec3.ZERO);
+            PredictionResult standing = f.tick(SEAT, true);
+            assertTrue(exact(standing), describe(standing));
+            mount(f, bee, EntityTypeIds.BEE);
+            f.rideTick();
+            dismount(f, true);
+            PredictionResult first = f.tick(bee.add(0, off, 0), false);
+            assertTrue(describe(first).contains("VerticalOffset"), describe(first));
+        }
+    }
+
+    static Stream<Arguments> beeSeats() {
+        return Stream.of(
+                Arguments.of(ClientVersion.V_1_21_11, (double) 0.6F),
+                Arguments.of(ClientVersion.V_26_2, (double) 0.5F));
+    }
+
     private static void mountPhantom(JavaTickFixture f, Vec3 phantom, int size) {
         f.place(SEAT, Vec3.ZERO);
         PredictionResult standing = f.tick(SEAT, true);

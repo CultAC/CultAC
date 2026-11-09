@@ -208,7 +208,7 @@ class JavaSprintModifierGroundTest {
                 assertTrue(exact(result), "tick " + tick + ": " + describe(result));
                 velocity = new Vec3(delta.x * FRICTION, 0.0, delta.z * FRICTION);
             }
-            var anchor = f.player.getSetbackTeleportUtil().lastKnownGoodPosition;
+            var anchor = f.player.getSetbackTeleportUtil().safePosition();
             assertNotNull(anchor);
             assertNotNull(anchor.getSprintOutcomes());
             Vec3 anchorPosition = position;

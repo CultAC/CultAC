@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ProtocolVersion;
@@ -138,7 +139,7 @@ class JavaGlideStopTest {
         player.gamemode = GameMode.SURVIVAL;
         player.isGliding = true;
         player.refreshPlayerPose();
-        player.getSetbackTeleportUtil().hasFullyLoaded = true;
+        SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
         player.checkManager.getSimulationProcessor().handleRespawn();
         position(player, start);
     }

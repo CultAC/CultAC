@@ -31,10 +31,11 @@ class ObserveOnlySwitchTest {
                 assertEquals(5, check.violations, "no switch, no reset");
 
                 var setbacks = f.player.getSetbackTeleportUtil();
-                setbacks.setPendingServerMove(new ServerboundMovePlayer(0, 64, 0, 0, 0, true, false, true, false));
+                setbacks.sender()
+                        .setPendingServerMove(new ServerboundMovePlayer(0, 64, 0, 0, 0, true, false, true, false));
                 field.setBoolean(manager, true);
                 f.player.reload();
-                assertNull(setbacks.takePendingServerMove());
+                assertNull(setbacks.sender().takePendingServerMove());
                 assertEquals(5, check.violations, "observe-only keeps counting");
 
                 field.setBoolean(manager, false);

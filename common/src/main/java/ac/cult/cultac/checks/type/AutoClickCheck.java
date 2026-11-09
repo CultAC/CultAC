@@ -114,6 +114,8 @@ public abstract class AutoClickCheck extends Check implements CheckListener, Cli
 
     @CultPacketHandler
     public void onSwing(PacketReceiveEvent<ServerboundSwing> event, CultPlayer player, ServerboundSwing packet) {
+        // ClientPacketListener#handleAnimate's swing is not a click.
+        if (player.serverSwingEcho.isEcho()) return;
         handleSwing();
     }
 

@@ -97,8 +97,7 @@ class EntityTrackingParityTest {
                     PacketEntity entity = entities.getEntity(10 + random.nextInt(types.length));
                     SimpleCollisionBox start = box(player, entity, random);
                     Vec3 target = feet(box(player, entity, random));
-                    var data = new ReachInterpolationData(
-                            player, start, target.x, target.y, target.z, random.nextBoolean(), entity);
+                    var data = new ReachInterpolationData(player, start, target.x, target.y, target.z, entity);
                     String where = version + " " + entity.type + " run " + run;
                     checkKeptBounds(data, where);
                     for (int op = 0; op < 40; op++) {

@@ -25,6 +25,7 @@ class TimerMovementBudgetTest {
     private static final Vec3 AIR = new Vec3(.5, 70, .5);
     private static final Vec3 GROUND = new Vec3(.5, JavaTickFixture.FLOOR_Y, .5);
     private static final double ONE_MOVEMENT = 45e6;
+    private static final long ONE_CLIENT_TICK = 50_000_000L;
     /** LivingEntity#travelInAir: (0 - 0.08) * 0.98F after a tick at rest. */
     private static final double FIRST_FALL = -0.0784000015258789;
 
@@ -33,18 +34,63 @@ class TimerMovementBudgetTest {
         try (var f = new JavaTickFixture()) {
             TimerCheck timer = f.player.checkManager.getCheck(TimerCheck.class);
             timer.setEnabled(true);
-            JavaTickFixture.setField(AbstractTimerCheck.class, timer, "timerBalanceRealTime",
-                    System.nanoTime() + 1_000_000_000L);
+            JavaTickFixture.setField(
+                    AbstractTimerCheck.class, timer, "timerBalanceRealTime", System.nanoTime() + 1_000_000_000L);
             var previous = f.player.checkManager.getSimulationProcessor().getLastPrediction();
             long acceptedTick = f.player.packetStateData.acceptedClientTick;
 
-            var event = f.event(ServerboundPackets.CLIENT_TICK_END,
-                    ServerboundPackets.CLIENT_TICK_END.opaqueValue());
+            var event = f.event(ServerboundPackets.CLIENT_TICK_END, ServerboundPackets.CLIENT_TICK_END.opaqueValue());
             f.listener.processClientTickEndReceive(event, f.player);
 
             assertTrue(event.isCancelled());
             assertTrue(f.player.packetStateData.acceptedClientTick == acceptedTick);
             assertTrue(f.player.checkManager.getSimulationProcessor().getLastPrediction() == previous);
+        }
+    }
+
+    /**
+     * LocalPlayer#tick sends a tick's movement before Minecraft#tick sends its tick end, so TimerA charges the tick at
+     * that movement. A tick within budget is charged once; a tick over budget is rejected before prediction runs its
+     * movement, set back, and its tick end neither charges again nor ends a tick.
+     */
+    @Test
+    void timerChargesATickAtItsMovement() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.place(GROUND, new Vec3(0, FIRST_FALL, 0));
+            // The client has the chunk: a setback in a chunk it may not have loaded does not block movement.
+            f.pongThrough(f.player.sendTrailingTransaction());
+            f.tick(GROUND, true);
+            TimerCheck timer = f.player.checkManager.getCheck(TimerCheck.class);
+            timer.setEnabled(true);
+
+            // Within budget, above the drift floor: the movement charges the tick and its tick end does not.
+            long within = System.nanoTime() - 100_000_000L;
+            JavaTickFixture.setField(AbstractTimerCheck.class, timer, "timerBalanceRealTime", within);
+            assertFalse(f.move(GROUND, true).isCancelled());
+            assertEquals(within + ONE_CLIENT_TICK, timerBalance(timer), "the movement did not charge the tick");
+            assertFalse(tickEnd(f).isCancelled());
+            assertEquals(within + ONE_CLIENT_TICK, timerBalance(timer), "the charged tick's end charged again");
+
+            // Over budget: the movement is rejected before prediction and refunded; its tick end passes uncharged.
+            long ahead = System.nanoTime() + 1_000_000_000L;
+            JavaTickFixture.setField(AbstractTimerCheck.class, timer, "timerBalanceRealTime", ahead);
+            var previous = f.player.checkManager.getSimulationProcessor().getLastPrediction();
+            var rejected = f.move(GROUND.add(.1, 0, 0), true);
+            assertTrue(rejected.isCancelled(), "the over-budget movement went through");
+            assertTrue(f.player.checkManager.getSimulationProcessor().getLastPrediction() == previous);
+            assertTrue(f.player.getSetbackTeleportUtil().isPendingSetback(), "the rejected movement was not set back");
+            assertEquals(1, timer.violations);
+            assertEquals(ahead, timerBalance(timer), "the rejected tick was not refunded");
+            long acceptedTick = f.player.packetStateData.acceptedClientTick;
+            assertTrue(tickEnd(f).isCancelled(), "the rejected movement's tick end ended a tick");
+            assertEquals(acceptedTick, f.player.packetStateData.acceptedClientTick, "the rejected tick advanced");
+            assertEquals(ahead, timerBalance(timer), "the rejected movement's tick end was charged");
+            assertEquals(1, timer.violations);
+
+            // The next tick starts fresh: its first movement charges it rather than counting as a second movement.
+            Field moves = AbstractTimerCheck.class.getDeclaredField("movePacketsSinceLastClientTickEnd");
+            moves.setAccessible(true);
+            assertEquals(0, moves.getInt(timer));
         }
     }
 
@@ -156,6 +202,12 @@ class TimerMovementBudgetTest {
         var event = f.event(ServerboundPackets.MOVE_VEHICLE, move);
         f.listener.onMoveVehicle(event, f.player, move);
         return event;
+    }
+
+    private static long timerBalance(TimerCheck timer) throws Exception {
+        Field field = AbstractTimerCheck.class.getDeclaredField("timerBalanceRealTime");
+        field.setAccessible(true);
+        return field.getLong(timer);
     }
 
     private static double balance(DumbTimer dumb) throws Exception {

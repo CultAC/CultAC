@@ -50,7 +50,6 @@ import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldStageBuilder;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.checks.type.PositionListener;
-import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -70,7 +69,6 @@ import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.HeadRotation;
 import ac.cult.cultac.utils.data.LastInstance;
 import ac.cult.cultac.utils.data.MainSupportingBlockData;
-import ac.cult.cultac.utils.data.SetbackPosWithVector;
 import ac.cult.cultac.utils.data.StuckSpeedData;
 import ac.cult.cultac.utils.data.TeleportAcceptData;
 import ac.cult.cultac.utils.data.TeleportData;
@@ -117,6 +115,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     boolean couldPotentiallyTickSkip = false;
     Set<Vec3> validPlayerStartingVels = new HashSet<>();
     PredictionResult lastPrediction = null;
+    /** The supporting block an accepted correction set after {@link #lastPrediction}; null when none did. */
+    private MainSupportingBlockData supportAfterCorrection;
     /** The committed tick's LivingEntity#checkAutoSpinAttack certainly hit, so the next tick starts from the rebound. */
     private boolean certainSpinHit;
 
@@ -170,12 +170,20 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     /** Entity#checkSupportingBlock after a move of {@code movement} that ended with the box {@code box}. */
     public MainSupportingBlockData mainSupportingBlockAfter(SimpleCollisionBox box, Vec3 movement, boolean onGround) {
         return this.worldStageBuilder.findMainSupportingBlockPos(
-                player,
-                this.lastPrediction == null ? null : this.lastPrediction.getSimulationContext(),
-                movement.x,
-                movement.z,
-                box,
-                onGround);
+                player, this.lastTickSupport(this.lastPrediction), movement.x, movement.z, box, onGround);
+    }
+
+    /**
+     * The supporting block a tick after {@code lastPrediction} starts with: the one a correction accepted since the
+     * player's last committed tick set, else the one that tick ended with. Null without either.
+     */
+    public @Nullable MainSupportingBlockData lastTickSupport(@Nullable PredictionResult lastPrediction) {
+        if (this.supportAfterCorrection != null && lastPrediction == this.lastPrediction) {
+            return this.supportAfterCorrection;
+        }
+        return lastPrediction == null
+                ? null
+                : lastPrediction.getSimulationContext().getWorldData().getMainSupportingBlockPos();
     }
 
     public StepCollisionMemo getStepCollisionMemo() {
@@ -321,16 +329,12 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                         || this.player.compensatedEntities.vehicles.hasClientPlayerPassengerState());
     }
 
-    private boolean isPacketHandlerRotationTeleport(ServerboundMovePlayer packet) {
-        return packet.rotationOnly() && this.player.packetStateData.lastPacketWasTeleport;
-    }
-
     public void onPlayerTickEnd(PacketReceiveEvent event) {
         if (!this.player.isBedrockMovement()) {
             if (!this.player.compensatedEntities.vehicles.hasClientPlayerPassengerState()
                     && !this.player.packetStateData.hasPassengerRotationThisClientTick()) {
                 if (!this.player.packetStateData.receivedMovementThisClientTick) {
-                    if (CheckManagerListener.localPlayerTicked(this.player)) {
+                    if (this.player.localPlayerTicks()) {
                         Vec3 from = new Vec3(this.player.x, this.player.y, this.player.z);
                         this.player.checkManager.getExplosionHandler().beforeNoPositionTravel(from);
                         PredictionResult result =
@@ -373,11 +377,12 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         this.player.checkManager.getExplosionHandler().afterLocalTravel();
     }
 
-    private void handleMovePlayer(ServerboundMovePlayer packet) {
+    private void handleMovePlayer(ServerboundMovePlayer packet, boolean teleport) {
         if (!this.player.isBedrockMovement()) {
             ServerboundMovePlayer flying = packet;
             if (!flying.hasPosition()) {
-                if (!this.isPacketHandlerRotationTeleport(packet)) {
+                // A rotation-only packet answering a teleport came from the packet handler, not LocalPlayer#tick.
+                if (!teleport) {
                     if (!this.isPassengerRotationOnlyTick(packet)) {
                         this.player.onGround = flying.onGround();
                         Vec3 from = new Vec3(this.player.x, this.player.y, this.player.z);
@@ -421,7 +426,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     @CultPacketHandler
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
-        this.handleMovePlayer(packet);
+        this.handleMovePlayer(packet, event.answersTeleport());
     }
 
     public void onPositionUpdate(PositionUpdate positionUpdate) {
@@ -503,11 +508,30 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
 
         this.callPredictionEndListeners(result, teleportCommit);
-        // A transport-only acknowledgement can follow the actual Cult setback
+        Boolean sentOnGround = teleportData.getSentOnGround();
+        if (sentOnGround != null && !this.player.compensatedEntities.getSelf().inVehicle()) {
+            // The correction's bundle ends with two ClientPacketListener#handleTeleportEntity calls on the player. The
+            // hop away clears the supporting block; the hop back's Entity#setOnGround runs
+            // Entity#checkSupportingBlock(onGround, null) at this position. The client's next tick starts from
+            // exactly that ground and supporting block, not from the movement the correction rejected. A later
+            // server teleport may have replaced the correction as the required one, but its player_position leaves
+            // the ground alone, so the ground comes from the teleport answered here. A passenger's lastOnGround is
+            // its vehicle's, which the bundle does not touch.
+            boolean onGround = sentOnGround;
+            this.lastOnGround = DesyncStatus.fromBoolean(onGround);
+            this.supportAfterCorrection = this.worldStageBuilder.findMainSupportingBlockPos(
+                    this.player,
+                    null,
+                    0.0D,
+                    0.0D,
+                    GetBoundingBox.getPlayerBoundingBox(this.player, position.x, position.y, position.z),
+                    onGround);
+        }
+        // A Geyser or GFP teleport's answer can follow the actual Cult setback
         // before any Bedrock travel. It must not consume that setback's guard.
         if (!this.player.isBedrockMovement()
                 || teleportAcceptData.getSetback() != null
-                || !teleportData.isBedrockTransportOnly()) {
+                || teleportData.mayCompleteCultSetback()) {
             this.lastMovementWasSetback = teleportAcceptData.getSetback() != null
                     && !teleportAcceptData.getSetback().isPlugin();
         }
@@ -550,10 +574,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     }
 
     public PredictionResult onVehiclePositionUpdate(VehiclePositionUpdate positionUpdate) {
-        if (positionUpdate.getTeleportAcceptData().isTeleport()) {
-            this.handleTeleport(positionUpdate.getTeleportAcceptData());
-            return null;
-        }
         this.player.checkManager.getExplosionHandler().beforeLocalTravel(positionUpdate.getFrom());
 
         if (!this.player.isBedrockMovement() && !positionUpdate.isHasOnGround()) {
@@ -796,7 +816,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         if (result != null
                 && (!this.player.isBedrockMovement()
                         || this.bedrockTeleport != null
-                        || !this.player.getSetbackTeleportUtil().mustAcknowledgeBedrockTransportTeleport())) {
+                        || !this.player
+                                .getSetbackTeleportUtil()
+                                .bedrockTeleports()
+                                .mustAcknowledgeBedrockTransportTeleport())) {
             var simulated = BedrockProfileState.previousState(this.profileCarry);
             if (simulated != null) currentPosition = BedrockVectorAdapter.toJava(simulated.physicalFeetPosition());
             boolean canonicalGround = canonicalBedrockGround(result, onGround);
@@ -815,7 +838,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     private PredictionResult simulateBedrockTick(
             Vec3 observed, Vec3 start, float yaw, float pitch, BedrockAuthInputFrame frame, MovementProfile profile) {
         boolean pendingTeleport = this.bedrockTeleport == null
-                && this.player.getSetbackTeleportUtil().mustAcknowledgeBedrockTransportTeleport();
+                && this.player.getSetbackTeleportUtil().bedrockTeleports().mustAcknowledgeBedrockTransportTeleport();
         PredictionResult result = this.getPredictionResult(
                 this.player,
                 this.validPlayerStartingVels,
@@ -856,7 +879,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
         this.callPredictionEndListeners(result, commit);
         PredictionCommit reconciledCommit = this.bedrockTeleport == null
-                        && this.player.getSetbackTeleportUtil().mustAcknowledgeBedrockTransportTeleport()
+                        && this.player
+                                .getSetbackTeleportUtil()
+                                .bedrockTeleports()
+                                .mustAcknowledgeBedrockTransportTeleport()
                 ? commit
                 : BedrockMovementEngine.INSTANCE.reconcileCommittedPosition(
                         commit,
@@ -981,7 +1007,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
 
         if (length > 400.0) {
-            if (this.player.getSetbackTeleportUtil().hasFullyLoaded) {
+            if (this.player.getSetbackTeleportUtil().hasFullyLoaded()) {
                 Check crashCheck = (Check) this.player.checkManager.getListener(CrashF.class);
                 crashCheck.flag("len " + diff.length());
             }
@@ -1010,7 +1036,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             if (desync) {
                 SetbackTeleportUtil setbackUtil = this.player.getSetbackTeleportUtil();
                 if (setbackUtil.isPendingSetback()) {
-                    setbackUtil.blockOffsets = true;
+                    setbackUtil.blockOffsetsUntilSetbackAccepted();
                 }
 
                 setbackUtil.executeForceResync("sim desync");
@@ -1038,9 +1064,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                             .getConfigManager()
                             .getConfig()
                             .getBooleanElse("exploit.allow-sprint-jumping-when-using-elytra", true)) {
-                SetbackPosWithVector lastKnownGoodPosition = this.player.getSetbackTeleportUtil().lastKnownGoodPosition;
-                lastKnownGoodPosition.setVector(
-                        lastKnownGoodPosition.getVector().multiply(new Vec3(0.546, 1.0, 0.546)));
+                this.player.getSetbackTeleportUtil().scaleSafeVelocity(new Vec3(0.546, 1.0, 0.546));
                 this.player.getSetbackTeleportUtil().executeNonSimulatingSetback();
             }
 
@@ -1066,7 +1090,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         if (result.isExempt() || result.getFlagSeverity() <= 0.0) return;
         this.dumpRecentFlagsWhenDebugging(result);
         if (!CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
-            this.player.getSetbackTeleportUtil().resyncWorld();
+            this.player.getSetbackTeleportUtil().sender().resyncWorld();
         }
         boolean bedrockMovementFlag = this.player.isBedrockMovement() && result.hasFlag(BedrockMovement.class);
         boolean identifierShown = this.player.shouldEnforceMovementSetbacks()
@@ -1116,7 +1140,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         if (preparedCommit == null
                 || !this.player.isBedrockMovement()
                 || this.bedrockTeleport != null
-                || !this.player.getSetbackTeleportUtil().mustAcknowledgeBedrockTransportTeleport()) {
+                || !this.player.getSetbackTeleportUtil().bedrockTeleports().mustAcknowledgeBedrockTransportTeleport()) {
             if (!this.player.isBedrockMovement() || BedrockSetbackJumpGuard.advancesTravel(result)) {
                 this.lastMovementWasSetback = false;
             }
@@ -1131,6 +1155,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 this.player.isGliding = false;
             }
             this.lastPrediction = result;
+            this.supportAfterCorrection = null;
             this.carriedPush = CarriedPush.IDENTITY;
             this.rideTicksSinceLastPrediction = false;
             this.pushesWhileLoadingLevel = null;
@@ -1203,8 +1228,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     private void commitSprintOutcomes(PredictionResult result) {
         ClientSprintState state = this.player.sprintState;
         SetbackTeleportUtil setbacks = this.player.getSetbackTeleportUtil();
-        if (setbacks.isPendingSetback() && setbacks.lastKnownGoodPosition != null) {
-            state.restore(setbacks.lastKnownGoodPosition.getSprintOutcomes());
+        if (setbacks.isPendingSetback() && setbacks.safePosition() != null) {
+            state.restore(setbacks.safePosition().getSprintOutcomes());
             state.settleReset();
             return;
         }
@@ -1553,7 +1578,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             return true;
         }
 
-        if (this.player.getSetbackTeleportUtil().blockOffsets) {
+        if (this.player.getSetbackTeleportUtil().isBlockingOffsets()) {
             SetbackTeleportUtil setbackUtil = this.player.getSetbackTeleportUtil();
             boolean awaitingSetback = setbackUtil.isPendingSetback();
             if (!awaitingSetback) {
@@ -2411,6 +2436,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                         && Float.floatToRawIntBits(player.boatData.vehicleForward) == 0
                 ? Vec3.ZERO
                 : new Vec3(player.boatData.vehicleHoriz, 0.0, player.boatData.vehicleForward);
+        MainSupportingBlockData lastTickSupport = this.lastTickSupport(lastPrediction);
         SimulationContext context = new SimulationContext(
                 start,
                 end,
@@ -2439,9 +2465,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 vehicleInputs,
                 player.packetStateData.clientMovementInputKnown,
                 player.packetStateData.clientMovementInput,
-                lastPrediction == null
-                        ? new MainSupportingBlockData(null, false)
-                        : lastPrediction.getSimulationContext().getWorldData().getMainSupportingBlockPos(),
+                lastTickSupport == null ? new MainSupportingBlockData(null, false) : lastTickSupport,
                 player.pose,
                 player.dimensionScale);
         if (player.usesModernJavaItemUse()) {

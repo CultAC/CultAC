@@ -33,6 +33,8 @@ public class NoSwingBreak extends Check implements BlockBreakListener {
 
     @CultPacketHandler
     public void onSwing(PacketReceiveEvent<ServerboundSwing> event, CultPlayer player, ServerboundSwing packet) {
+        // Minecraft#startAttack and #continueAttack swing after every destroy action they send.
+        if (player.serverSwingEcho.isEcho()) return;
         sentAnimation = true;
     }
 
@@ -40,7 +42,7 @@ public class NoSwingBreak extends Check implements BlockBreakListener {
     @CultPacketHandler
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
-        if (!player.packetStateData.lastPacketWasTeleport) {
+        if (!event.answersTeleport()) {
             onTickPacket();
         }
     }

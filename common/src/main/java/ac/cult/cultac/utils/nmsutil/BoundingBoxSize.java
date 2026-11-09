@@ -26,6 +26,9 @@ public class BoundingBoxSize {
     }
 
     public static float getWidth(PacketEntity packetEntity, ClientVersion version, boolean bedrock) {
+        // A Bedrock client sizes an actor's box by the width and height Geyser sent it times its scale, which can
+        // differ from the Java size (a zombie's 1.8 height, a happy ghast's 1.001 scale, a rabbit's 0.55).
+        if (bedrock && packetEntity.hasBedrockSize()) return packetEntity.bedrockWidth * packetEntity.bedrockScale;
         if (bedrock && packetEntity.isBoat()) {
             return (float)
                     (packetEntity.bedrockBoat == null
@@ -63,6 +66,9 @@ public class BoundingBoxSize {
         String path = EntityTypeUtil.getKey(packetEntity.type).getPath();
         if (version.isOlderThan(ClientVersion.V_26_1) && path.equals("rabbit")) {
             return 0.4F;
+        }
+        if (version.isOlderThan(ClientVersion.V_26_1) && packetEntity.type == EntityTypeIds.BEE) {
+            return 0.7F;
         }
         float exactWidth = baseDimensions(packetEntity).width();
         return Float.isNaN(exactWidth) ? 0.6f : exactWidth;
@@ -143,8 +149,22 @@ public class BoundingBoxSize {
 
     private static Vec3 getDefaultPassengerAttachmentPoint(
             PacketEntity vehicle, CultPlayer player, int passengerIndex) {
+        if (vehicle instanceof PacketEntityInteraction interaction
+                && !player.isBedrockMovement()
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11)) {
+            // Interaction#getDimensions: EntityDimensions.scalable(width, height), whose passenger point is at height.
+            return new Vec3(0.0D, interaction.actionHeight, 0.0D);
+        }
         int index = Math.max(passengerIndex, 0);
         float vehicleYaw = getAttachmentYaw(vehicle, player);
+        ClientVersion version = player.getClientVersion();
+        float legacyHeight = legacyHeight(vehicle, version);
+        if (!player.isBedrockMovement()
+                && version.isNewerThanOrEquals(ClientVersion.V_1_20_5)
+                && !Float.isNaN(legacyHeight)) {
+            // EntityAttachment.PASSENGER falls back to the type's height; neither type sets a passenger point.
+            return new Vec3(0.0D, legacyHeight * vehicle.scale, 0.0D);
+        }
         Vec3 passengerAttachment = nativeVector(baseDimensions(vehicle)
                 .passengerAttachment(
                         index,
@@ -284,6 +304,7 @@ public class BoundingBoxSize {
     }
 
     public static float getHeight(PacketEntity packetEntity, ClientVersion version, boolean bedrock) {
+        if (bedrock && packetEntity.hasBedrockSize()) return packetEntity.bedrockHeight * packetEntity.bedrockScale;
         if (bedrock && packetEntity.isBoat()) {
             return (float)
                     (packetEntity.bedrockBoat == null
@@ -320,9 +341,9 @@ public class BoundingBoxSize {
             }
         }
 
-        String path = EntityTypeUtil.getKey(packetEntity.type).getPath();
-        if (version.isOlderThan(ClientVersion.V_26_1) && path.equals("rabbit")) {
-            return 0.5F;
+        float legacyHeight = legacyHeight(packetEntity, version);
+        if (!Float.isNaN(legacyHeight)) {
+            return legacyHeight;
         }
         float exactHeight = baseDimensions(packetEntity).height();
         if (!bedrock && packetEntity instanceof PacketEntityPolarBear bear && bear.standAnimation() > 0)
@@ -462,6 +483,13 @@ public class BoundingBoxSize {
                     "piglin_brute" -> 0.99F;
             default -> null;
         };
+    }
+
+    /** The 1.21.11 EntityType height of a type 26.x EntityTypes resized, or NaN. */
+    private static float legacyHeight(PacketEntity entity, ClientVersion version) {
+        if (version.isNewerThanOrEquals(ClientVersion.V_26_1)) return Float.NaN;
+        if (entity.type == EntityTypeIds.BEE) return 0.6F;
+        return EntityTypeUtil.isType(entity.type, "rabbit") ? 0.5F : Float.NaN;
     }
 
     private static EntityTypes.Type baseDimensions(PacketEntity packetEntity) {

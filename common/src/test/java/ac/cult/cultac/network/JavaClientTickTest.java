@@ -130,7 +130,7 @@ class JavaClientTickTest {
             // Only DumbTimer#onPositionUpdate's long-teleport branch moves this past the construction time.
             assertTrue(lastLongTeleport.getDouble(dumbTimer) >= beforeTeleport);
             assertEquals(
-                    far, f.player.getSetbackTeleportUtil().lastKnownGoodPosition.getPos());
+                    far, f.player.getSetbackTeleportUtil().safePosition().getPos());
             assertEquals(far.x, f.player.x, 0);
             assertEquals(far.z, f.player.packetStateData.clientSidePosition.z, 0);
         }

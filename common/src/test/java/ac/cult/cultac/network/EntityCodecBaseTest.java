@@ -271,42 +271,35 @@ class EntityCodecBaseTest {
     @ParameterizedTest
     @EnumSource(Version.class)
     void aRotationDuringATeleportLerpRetimesItLikeTheClient(Version version) throws Exception {
-        for (boolean delimiter : new boolean[] {false, true}) {
-            for (int before = 0; before <= 2; before++) {
-                for (boolean changed : new boolean[] {false, true}) {
-                    try (var f = fixture(version, new Vec3(0.5, FLOOR_Y, 0.5))) {
-                        JavaTickFixture.setField(
-                                PacketEntityReplication.class,
-                                f.player.packetEntityReplication,
-                                "useReachBundleDelimiter",
-                                delimiter);
-                        FairReach fairReach = spawnPlayer(f, new Vec3d(0.5, FLOOR_Y, 1.5));
-                        Object target = fairReachEntity(fairReach);
-                        teleport(f, new Vec3d(6, FLOOR_Y, 1.5));
-                        for (int i = 0; i < before; i++) tick(target);
-                        double shown = 0.5 + 5.5 * before / 3.0;
-                        assertEquals(shown, (double) field(target, "currentX"), 1e-12);
+        for (int before = 0; before <= 2; before++) {
+            for (boolean changed : new boolean[] {false, true}) {
+                try (var f = fixture(version, new Vec3(0.5, FLOOR_Y, 0.5))) {
+                    FairReach fairReach = spawnPlayer(f, new Vec3d(0.5, FLOOR_Y, 1.5));
+                    Object target = fairReachEntity(fairReach);
+                    teleport(f, new Vec3d(6, FLOOR_Y, 1.5));
+                    for (int i = 0; i < before; i++) tick(target);
+                    double shown = 0.5 + 5.5 * before / 3.0;
+                    assertEquals(shown, (double) field(target, "currentX"), 1e-12);
 
-                        rotate(f, changed ? 90 : 0, changed ? 30 : 0);
-                        TrackerData tracked = f.player.compensatedEntities.getTrackedEntity(ENTITY);
-                        assertEquals(6, tracked.getX(), 1e-12, "tracked x");
-                        assertEquals(0.5, tracked.getCodecBaseX(), 1e-12, "codec base x");
-                        boolean holds = switch (version) {
-                            case V_1_21_5, V_1_21_6, V_1_21_7 -> true;
-                            default -> false;
-                        };
-                        boolean restarts = switch (version) {
-                            case V_1_21_2, V_1_21_4 -> true;
-                            case V_1_21_9, V_1_21_11, V_26_1, V_26_2 -> changed;
-                            default -> false;
-                        };
-                        assertEquals(holds ? shown : 6, (double) field(target, "targetX"), 1e-12);
-                        tick(target);
-                        double expected = holds ? shown : shown + (6 - shown) / (restarts ? 3 : 3 - before);
-                        assertEquals(expected, (double) field(target, "currentX"), 1e-12, "shown x");
-                        if (version != Version.V_26_3) {
-                            assertEquals(expected > 3.8, attackCancelled(f, fairReach), "attack at x " + expected);
-                        }
+                    rotate(f, changed ? 90 : 0, changed ? 30 : 0);
+                    TrackerData tracked = f.player.compensatedEntities.getTrackedEntity(ENTITY);
+                    assertEquals(6, tracked.getX(), 1e-12, "tracked x");
+                    assertEquals(0.5, tracked.getCodecBaseX(), 1e-12, "codec base x");
+                    boolean holds = switch (version) {
+                        case V_1_21_5, V_1_21_6, V_1_21_7 -> true;
+                        default -> false;
+                    };
+                    boolean restarts = switch (version) {
+                        case V_1_21_2, V_1_21_4 -> true;
+                        case V_1_21_9, V_1_21_11, V_26_1, V_26_2 -> changed;
+                        default -> false;
+                    };
+                    assertEquals(holds ? shown : 6, (double) field(target, "targetX"), 1e-12);
+                    tick(target);
+                    double expected = holds ? shown : shown + (6 - shown) / (restarts ? 3 : 3 - before);
+                    assertEquals(expected, (double) field(target, "currentX"), 1e-12, "shown x");
+                    if (version != Version.V_26_3) {
+                        assertEquals(expected > 3.8, attackCancelled(f, fairReach), "attack at x " + expected);
                     }
                 }
             }

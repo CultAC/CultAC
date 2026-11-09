@@ -63,7 +63,7 @@ class ReachPositionMarginTest {
         when(player.isBedrockMovement()).thenReturn(bedrock);
         player.packetStateData = new PacketStateData();
         PacketEntity entity = new PacketEntity(EntityTypeIds.ZOMBIE, 1);
-        return new ReachInterpolationData(player, START, 0, 0, 0, 0, 0, 0, 0, false, entity, false);
+        return new ReachInterpolationData(player, START, 0, 0, 0, 0, 0, 0, 0, entity);
     }
 
     private static void assertMargin(double margin, ReachInterpolationData data) {

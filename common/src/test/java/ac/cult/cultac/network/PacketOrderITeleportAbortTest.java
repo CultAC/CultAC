@@ -4,6 +4,7 @@ import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import ac.cult.cultac.checks.impl.packetorder.PacketOrderI;
+import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
@@ -55,7 +56,7 @@ class PacketOrderITeleportAbortTest {
             action(f, PlayerAction.ABORT_DESTROY_BLOCK, DUG);
             var interact =
                     new ServerboundInteract(BOAT, InteractAction.INTERACT, Hand.MAIN_HAND, Optional.empty(), false);
-            f.listener.onInteract(f.event(ServerboundPackets.INTERACT, interact), f.player, interact);
+            CheckManagerListener.receiveGeneric(f.event(ServerboundPackets.INTERACT, interact), f.player);
             assertEquals(0, check.getViolations());
         }
     }
@@ -78,7 +79,7 @@ class PacketOrderITeleportAbortTest {
         try (var f = new JavaTickFixture()) {
             PacketOrderI check = digThenTeleport(f);
             var pong = new ServerboundPong(f.player.lastTransactionReceived.get());
-            f.listener.onPong(f.event(ServerboundPackets.PONG, pong), f.player, pong);
+            CheckManagerListener.receiveGeneric(f.event(ServerboundPackets.PONG, pong), f.player);
             action(f, PlayerAction.ABORT_DESTROY_BLOCK, DUG);
             use(f, Hand.MAIN_HAND);
             assertEquals(1, check.getViolations());
@@ -115,6 +116,7 @@ class PacketOrderITeleportAbortTest {
             int transaction = f.player.sendTrailingTransaction();
             f.player
                     .getSetbackTeleportUtil()
+                    .javaTeleports()
                     .addSentTeleport(STAND, transaction, new RelativeFlag(0), false, TELEPORT_ID);
             f.pongThrough(transaction);
             use(f, Hand.MAIN_HAND);
@@ -149,7 +151,10 @@ class PacketOrderITeleportAbortTest {
         action(f, PlayerAction.START_DESTROY_BLOCK, DUG);
         f.tick(STAND, true);
         int transaction = f.player.sendTrailingTransaction();
-        f.player.getSetbackTeleportUtil().addSentTeleport(STAND, transaction, new RelativeFlag(0), false, TELEPORT_ID);
+        f.player
+                .getSetbackTeleportUtil()
+                .javaTeleports()
+                .addSentTeleport(STAND, transaction, new RelativeFlag(0), false, TELEPORT_ID);
         f.pongThrough(transaction);
         accept(f, id, position);
         assertEquals(0, check.getViolations());

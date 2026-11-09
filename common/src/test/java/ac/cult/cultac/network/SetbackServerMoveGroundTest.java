@@ -82,7 +82,7 @@ class SetbackServerMoveGroundTest {
     }
 
     private static ServerboundMovePlayer serverMove(JavaTickFixture f) {
-        ServerboundMovePlayer move = f.player.getSetbackTeleportUtil().takePendingServerMove();
+        ServerboundMovePlayer move = f.player.getSetbackTeleportUtil().sender().takePendingServerMove();
         assertNotNull(move, "the setback forwarded no move");
         return move;
     }

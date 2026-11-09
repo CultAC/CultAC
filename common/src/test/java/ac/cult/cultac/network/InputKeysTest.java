@@ -917,8 +917,7 @@ class InputKeysTest {
      * answered and so may be at either position. A shulker over the head overlaps both the crouching and the standing
      * box, so in no world does LocalPlayer#aiStep crouch the player.
      */
-    private static double moveOnceWithoutShiftBesideAShulker(
-            JavaTickFixture f, Vec3 at, boolean moving, double accel) {
+    private static double moveOnceWithoutShiftBesideAShulker(JavaTickFixture f, Vec3 at, boolean moving, double accel) {
         f.place(new Vec3(0.5, FLOOR_Y, -2.5), GROUNDED);
         f.player.xRot = 0;
         f.input(NONE);
@@ -929,7 +928,7 @@ class InputKeysTest {
             f.player
                     .compensatedEntities
                     .getEntity(100)
-                    .onFirstTransaction(true, true, SHULKER_OVER_THE_HEAD.x - at.x, 0, 0, f.player);
+                    .onBundleFirstTransaction(true, true, SHULKER_OVER_THE_HEAD.x - at.x, 0, 0, f.player);
         }
         f.input(FORWARD);
         f.tick(new Vec3(0.5, FLOOR_Y, -2.5 + accel), true);

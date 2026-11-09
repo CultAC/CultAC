@@ -49,7 +49,7 @@ public class ResyncWorldUtil {
                 || !world.isChunkLoaded(maxBlockX >> 4, minBlockZ >> 4)
                 || !world.isChunkLoaded(maxBlockX >> 4, maxBlockZ >> 4)) return;
 
-        if (!player.getSetbackTeleportUtil().hasFullyLoaded) return;
+        if (!player.getSetbackTeleportUtil().hasFullyLoaded()) return;
         int minBlockY = Math.max(world.getMinHeight(), mY);
         int maxBlockY = Math.min(world.getMaxHeight() - 1, mxY);
         List<BlockPos> positions = new ArrayList<>();

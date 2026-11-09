@@ -11,7 +11,7 @@ import ac.cult.cultac.checks.impl.movement.timer.TickTimer;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
-import ac.cult.cultac.manager.player.SetbackTeleportUtil;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -27,6 +27,7 @@ import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.data.SetBackData;
+import ac.cult.cultac.utils.data.SetbackPosWithVector;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
@@ -48,7 +49,7 @@ class JavaSetbackPacketOrderingTest {
                     PacketListenerPriority.NORMAL,
                     new PacketServerTeleport()::onAcceptTeleportation));
             var teleports = setup.player.getSetbackTeleportUtil();
-            teleports.addSentTeleport(new Vec3(10.5, 64, 10.5), 20, new RelativeFlag(0), true, 7);
+            teleports.javaTeleports().addSentTeleport(new Vec3(10.5, 64, 10.5), 20, new RelativeFlag(0), true, 7);
             setup.player.lastTransactionReceived.set(20);
 
             var ack = setup.fixture.id(ServerboundPackets.ACCEPT_TELEPORTATION, "accept_teleportation");
@@ -63,7 +64,7 @@ class JavaSetbackPacketOrderingTest {
                 // The teleport stays pending until its proof transaction, then the next position releases it.
                 assertFalse(teleports.pendingTeleports.isEmpty());
                 setup.player.lastTransactionReceived.set(21);
-                teleports.checkTeleportQueue(.5, 64, .5);
+                teleports.javaTeleports().checkTeleportQueue(.5, 64, .5);
                 assertTrue(teleports.pendingTeleports.isEmpty());
                 assertFalse(teleports.isPendingSetback());
             } else {
@@ -80,7 +81,7 @@ class JavaSetbackPacketOrderingTest {
         try (var setup = new Setup(version)) {
             var teleports = setup.player.getSetbackTeleportUtil();
             var target = new Vec3(2, 64, 2);
-            teleports.addSentTeleport(target, 20, new RelativeFlag(0), false, 1);
+            teleports.javaTeleports().addSentTeleport(target, 20, new RelativeFlag(0), false, 1);
             // The immediate echo precedes the teleport's trailing proof transaction.
             setup.player.lastTransactionReceived.set(20);
             assertTrue(teleports.isPendingSetback());
@@ -114,7 +115,7 @@ class JavaSetbackPacketOrderingTest {
             int burst = 65;
             // Each X += 1 teleport follows its own leading ping; all are sent before the client answers the first.
             for (int id = 1; id <= burst; id++) {
-                teleports.addSentTeleport(new Vec3(1, 64, .5), 20 + 2 * id, RelativeFlag.X, true, id);
+                teleports.javaTeleports().addSentTeleport(new Vec3(1, 64, .5), 20 + 2 * id, RelativeFlag.X, true, id);
             }
 
             for (int id = 1; id <= burst; id++) {
@@ -138,7 +139,7 @@ class JavaSetbackPacketOrderingTest {
                 }
                 assertEquals(burst - id, teleports.pendingTeleports.size(), "teleport " + id);
                 assertEquals(x, setup.player.x, 1.0E-12, "teleport " + id);
-                assertFalse(teleports.hasWithheldJavaTeleport(), "teleport " + id);
+                assertFalse(teleports.javaTeleports().hasWithheldJavaTeleport(), "teleport " + id);
             }
             assertTrue(teleports.pendingTeleports.isEmpty());
         }
@@ -151,12 +152,12 @@ class JavaSetbackPacketOrderingTest {
     void aTeleportProcessedWithoutItsResponseIsWithheld(ProtocolVersion version) throws Exception {
         try (var setup = new Setup(version)) {
             var teleports = setup.player.getSetbackTeleportUtil();
-            teleports.addSentTeleport(new Vec3(2, 64, 2), 20, new RelativeFlag(0), true, 1);
-            teleports.addSentTeleport(new Vec3(3, 64, 3), 22, new RelativeFlag(0), true, 2);
+            teleports.javaTeleports().addSentTeleport(new Vec3(2, 64, 2), 20, new RelativeFlag(0), true, 1);
+            teleports.javaTeleports().addSentTeleport(new Vec3(3, 64, 3), 22, new RelativeFlag(0), true, 2);
             // handleMovePlayer answers before the client handles the trailing ping, so until that pong it may be
             // in flight.
             setup.player.lastTransactionReceived.set(20);
-            assertFalse(teleports.hasWithheldJavaTeleport());
+            assertFalse(teleports.javaTeleports().hasWithheldJavaTeleport());
             // From 26.3 a wrong position is still an answer; checkTeleportQueue judges it.
             var ack = new ServerboundAcceptTeleportation(
                     1, version == ProtocolVersion.V26_2 ? null : new Vec3d(9, 64, 9), 0, 0);
@@ -165,10 +166,10 @@ class JavaSetbackPacketOrderingTest {
             new PacketServerTeleport().onAcceptTeleportation(event, setup.player, ack);
             if (version == ProtocolVersion.V26_2) setup.posRot(2);
             setup.player.lastTransactionReceived.set(22);
-            assertFalse(teleports.hasWithheldJavaTeleport());
+            assertFalse(teleports.javaTeleports().hasWithheldJavaTeleport());
 
             setup.player.lastTransactionReceived.set(23);
-            assertTrue(teleports.hasWithheldJavaTeleport());
+            assertTrue(teleports.javaTeleports().hasWithheldJavaTeleport());
         }
     }
 
@@ -178,18 +179,20 @@ class JavaSetbackPacketOrderingTest {
             var teleports = setup.player.getSetbackTeleportUtil();
             int pending = 128;
             for (int id = 1; id <= pending; id++) {
-                teleports.addSentTeleport(new Vec3(2, 64, 2), 20 + 2 * id, new RelativeFlag(0), true, id);
+                teleports
+                        .javaTeleports()
+                        .addSentTeleport(new Vec3(2, 64, 2), 20 + 2 * id, new RelativeFlag(0), true, id);
             }
             setup.player.lastTransactionReceived.set(22);
             var ack = new ServerboundAcceptTeleportation(1, null, 0, 0);
             var event = new PacketReceiveEvent<>(
                     setup.fixture.user, ConnectionPhase.PLAY, ServerboundPackets.ACCEPT_TELEPORTATION, ack);
             new PacketServerTeleport().onAcceptTeleportation(event, setup.player, ack);
-            assertFalse(teleports.hasWithheldJavaTeleport());
+            assertFalse(teleports.javaTeleports().hasWithheldJavaTeleport());
 
             // handleMovePlayer sends the PosRot right after the ID, before the client handles the trailing ping.
             setup.player.lastTransactionReceived.set(23);
-            assertTrue(teleports.hasWithheldJavaTeleport());
+            assertTrue(teleports.javaTeleports().hasWithheldJavaTeleport());
             assertEquals(pending, teleports.pendingTeleports.size());
         }
     }
@@ -315,8 +318,8 @@ class JavaSetbackPacketOrderingTest {
                 }
             }
             var teleports = player.getSetbackTeleportUtil();
-            teleports.hasFullyLoaded = true;
-            teleports.updateSafeVehiclePosition(new Vec3(.5, 64, .5));
+            SetbackFixtures.setLoaded(teleports, true);
+            SetbackFixtures.seedSafePosition(teleports, new SetbackPosWithVector(new Vec3(.5, 64, .5), Vec3.ZERO));
             player.checkManager.getSimulationProcessor().seedStartingVelocity(new Vec3(0, -.0784000015258789, 0));
             // These synchronous fixtures exercise packet ordering, not wall-clock pacing.
             setField(
@@ -334,7 +337,7 @@ class JavaSetbackPacketOrderingTest {
         void pendingSetback() throws Exception {
             var data = new SetBackData(
                     new TeleportData(new Vec3(2, 64, 2), new RelativeFlag(0), 20, 1), 0, 0, Vec3.ZERO, false, false);
-            setField(SetbackTeleportUtil.class, player.getSetbackTeleportUtil(), "requiredSetBack", data);
+            SetbackFixtures.requireCorrection(player.getSetbackTeleportUtil(), data);
             assertTrue(player.getSetbackTeleportUtil().shouldBlockMovement());
         }
 

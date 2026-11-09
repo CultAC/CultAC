@@ -58,10 +58,11 @@ public final class BedrockFrameProcessor {
             BedrockAuthInputFrame original,
             BedrockPredictionTrigger trigger,
             java.util.function.Consumer<BedrockAuthInputFrame> localBlockActions) {
-        BedrockAuthInputFrame frame = player.getSetbackTeleportUtil().resolveBedrockCoordinates(original);
+        BedrockAuthInputFrame frame =
+                player.getSetbackTeleportUtil().bedrockTeleports().resolveBedrockCoordinates(original);
         if (frame == null) return null;
         var processor = player.checkManager.getSimulationProcessor();
-        var teleport = player.getSetbackTeleportUtil().acknowledgeBedrockTeleportFrame(frame);
+        var teleport = player.getSetbackTeleportUtil().bedrockTeleports().acknowledgeBedrockTeleportFrame(frame);
         if (teleport.isTeleport()) {
             processor.applyAcceptedBedrockTeleport(teleport);
             player.packetStateData.bedrockTranslatedMovement.markTeleportFrame();
@@ -71,7 +72,8 @@ public final class BedrockFrameProcessor {
                 && player.canFly) player.isFlying = true;
         if (frame.hasRawInputFlag(org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData.STOP_FLYING))
             player.isFlying = false;
-        if (!teleport.isTeleport() && player.getSetbackTeleportUtil().mustAcknowledgeBedrockTransportTeleport()) {
+        if (!teleport.isTeleport()
+                && player.getSetbackTeleportUtil().bedrockTeleports().mustAcknowledgeBedrockTransportTeleport()) {
             processor.processBedrockAuthInputFrame(frame, trigger);
             return null;
         }

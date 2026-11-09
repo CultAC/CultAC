@@ -167,6 +167,29 @@ class ProtocolRuntimeTest {
         }
     }
 
+    /** A rewritten acceptance keeps the wire format: the ID alone before 26.3, the position and rotation in 26.3. */
+    @Test
+    void acceptTeleportationWritesTheFormatItReads() {
+        var position = new ac.cult.cultac.protocol.value.Vec3d(-0.0, 63.5875, 0.6286785847839);
+        for (ProtocolVersion version : List.of(ProtocolVersion.V1_21_3, ProtocolVersion.V26_2, ProtocolVersion.V26_3)) {
+            CodecFixture connection = new CodecFixture(ProtocolRuntime.create(ProtocolData.load(version)));
+            connection.phase(ConnectionPhase.PLAY);
+            boolean carriesPosition = version == ProtocolVersion.V26_3;
+            var source = new ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation(
+                    61, carriesPosition ? position : null, carriesPosition ? -171.08188F : 0, carriesPosition ? 4 : 0);
+            ByteBuf bytes = Unpooled.buffer();
+            try {
+                connection.write(ServerboundPackets.ACCEPT_TELEPORTATION, source, bytes);
+                int id = Wire.readVarInt(bytes);
+                // The read rejects a payload it does not consume entirely.
+                assertEquals(
+                        source, connection.read(ServerboundPackets.ACCEPT_TELEPORTATION, id, bytes), version.name());
+            } finally {
+                bytes.release();
+            }
+        }
+    }
+
     @Test
     void absentNamesStayUnsupportedWhileDuplicateTypesOrMissingEnumMappingsFail() {
         ProtocolData data = ProtocolData.load(ProtocolVersion.V26_2);

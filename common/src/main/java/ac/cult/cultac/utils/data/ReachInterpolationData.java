@@ -31,11 +31,13 @@ import ac.cult.cultac.utils.nmsutil.RootVehicleInterpolationCollision;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.DoubleUnaryOperator;
 import java.util.function.UnaryOperator;
+import org.jetbrains.annotations.Nullable;
 
 // You may not copy the check unless you are licensed under GPL
 public class ReachInterpolationData {
-    private static final double REACH_PACKET_POSITION_UNCERTAINTY = 0.03125D;
+    public static final double REACH_PACKET_POSITION_UNCERTAINTY = 0.03125D;
     /** A start extent within this of the new size is that size; the size change rounds by less. */
     private static final double SIZE_EPSILON = 1.0E-7D;
     /** Queue length past which the two oldest steps fold into one. */
@@ -69,6 +71,8 @@ public class ReachInterpolationData {
     // The exact box an interpolating entity holds at heldStep, answered for that step; others use startingLocation.
     private SimpleCollisionBox heldLocation;
     private int heldStep = -1;
+    // Where a Bedrock actor's next lerp step starts from in y; see dueBedrockStoredFeet.
+    private DoubleUnaryOperator bedrockStoredFeet;
     private final boolean reachesUsePacketPositionUncertainty;
     // Reach judges a Java snapshot without the margin until a queue fold or an uncertain receipt clears this.
     private boolean positionExact;
@@ -108,6 +112,7 @@ public class ReachInterpolationData {
         this.positionExact = other.positionExact;
         if (other.heldStep >= 0) this.heldLocation = other.heldLocation.copy();
         this.heldStep = other.heldStep;
+        this.bedrockStoredFeet = other.bedrockStoredFeet;
     }
 
     public ReachInterpolationData copy() {
@@ -115,25 +120,7 @@ public class ReachInterpolationData {
     }
 
     public ReachInterpolationData(
-            CultPlayer player,
-            SimpleCollisionBox startingLocation,
-            double x,
-            double y,
-            double z,
-            boolean isPointNine,
-            PacketEntity entity) {
-        this(player, startingLocation, x, y, z, isPointNine, entity, true);
-    }
-
-    public ReachInterpolationData(
-            CultPlayer player,
-            SimpleCollisionBox startingLocation,
-            double x,
-            double y,
-            double z,
-            boolean isPointNine,
-            PacketEntity entity,
-            boolean uncertainInitialSteps) {
+            CultPlayer player, SimpleCollisionBox startingLocation, double x, double y, double z, PacketEntity entity) {
         this(
                 player,
                 startingLocation,
@@ -144,9 +131,7 @@ public class ReachInterpolationData {
                 entity.clientPhysicalPitch,
                 entity.clientPhysicalYaw,
                 entity.clientPhysicalPitch,
-                isPointNine,
-                entity,
-                uncertainInitialSteps);
+                entity);
     }
 
     public ReachInterpolationData(
@@ -159,22 +144,8 @@ public class ReachInterpolationData {
             float currentPitch,
             float targetYaw,
             float targetPitch,
-            boolean isPointNine,
-            PacketEntity entity,
-            boolean uncertainInitialSteps) {
-        this(
-                startingLocation.copy(),
-                player,
-                x,
-                y,
-                z,
-                currentYaw,
-                currentPitch,
-                targetYaw,
-                targetPitch,
-                isPointNine,
-                entity,
-                uncertainInitialSteps);
+            PacketEntity entity) {
+        this(startingLocation.copy(), player, x, y, z, currentYaw, currentPitch, targetYaw, targetPitch, entity);
     }
 
     /** The constructor without its defensive copy: the result owns {@code startingLocation}. */
@@ -188,22 +159,9 @@ public class ReachInterpolationData {
             float currentPitch,
             float targetYaw,
             float targetPitch,
-            boolean isPointNine,
-            PacketEntity entity,
-            boolean uncertainInitialSteps) {
+            PacketEntity entity) {
         return new ReachInterpolationData(
-                startingLocation,
-                player,
-                x,
-                y,
-                z,
-                currentYaw,
-                currentPitch,
-                targetYaw,
-                targetPitch,
-                isPointNine,
-                entity,
-                uncertainInitialSteps);
+                startingLocation, player, x, y, z, currentYaw, currentPitch, targetYaw, targetPitch, entity);
     }
 
     private ReachInterpolationData(
@@ -216,9 +174,7 @@ public class ReachInterpolationData {
             float currentPitch,
             float targetYaw,
             float targetPitch,
-            boolean isPointNine,
-            PacketEntity entity,
-            boolean uncertainInitialSteps) {
+            PacketEntity entity) {
         this.reachesUsePacketPositionUncertainty = true;
         start(
                 startingLocation,
@@ -231,9 +187,7 @@ public class ReachInterpolationData {
                 currentPitch,
                 targetYaw,
                 targetPitch,
-                isPointNine,
-                entity,
-                uncertainInitialSteps);
+                entity);
     }
 
     /**
@@ -250,9 +204,7 @@ public class ReachInterpolationData {
             float currentPitch,
             float targetYaw,
             float targetPitch,
-            boolean isPointNine,
-            PacketEntity entity,
-            boolean uncertainInitialSteps) {
+            PacketEntity entity) {
         if (!reachesUsePacketPositionUncertainty) return false;
         interpolationQueue = null;
         steppedCurrent = null;
@@ -286,9 +238,7 @@ public class ReachInterpolationData {
                 currentPitch,
                 targetYaw,
                 targetPitch,
-                isPointNine,
-                entity,
-                uncertainInitialSteps);
+                entity);
         return true;
     }
 
@@ -303,9 +253,7 @@ public class ReachInterpolationData {
             float currentPitch,
             float targetYaw,
             float targetPitch,
-            boolean isPointNine,
-            PacketEntity entity,
-            boolean uncertainInitialSteps) {
+            PacketEntity entity) {
         this.startingLocation = startingLocation;
         this.heldStep = -1;
         this.targetLocation = GetBoundingBox.getBoundingBoxFromPosAndSize(
@@ -342,8 +290,6 @@ public class ReachInterpolationData {
                 interpolationSteps = 3;
             }
         }
-        if (interpolationQueue == null && isPointNine && uncertainInitialSteps)
-            interpolationStepsHighBound = getInterpolationSteps();
     }
 
     /** Whether this follows the 26.3 client's InterpolationHandler, which Entity#commonTick runs for every entity. */
@@ -609,6 +555,9 @@ public class ReachInterpolationData {
     }
 
     private static int vanillaInterpolationStepsFor(CultPlayer player, PacketEntity entity) {
+        // A Bedrock client lerps every actor over 3 ticks. From 26.51 the move's own tick count can raise that, which
+        // Geyser never sets.
+        if (player.isBedrockMovement()) return 3;
         if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11)) {
             // ExperienceOrb's handler takes the default 3 steps.
             if (entity.type == EntityTypeIds.EXPERIENCE_ORB) return 3;
@@ -814,6 +763,24 @@ public class ReachInterpolationData {
     }
 
     /**
+     * Whether the location after the next client tick is a single position: the interpolation starts from one, not from
+     * the union of several possible ones, or that tick lands on the target.
+     */
+    public boolean hasOnePositionAfterClientTick() {
+        return interpolationQueue != null
+                || interpolationStepsLowBound + 1 >= getInterpolationSteps()
+                || Math.abs((startingLocation.maxX - startingLocation.minX)
+                                        - (targetLocation.maxX - targetLocation.minX))
+                                <= SIZE_EPSILON
+                        && Math.abs((startingLocation.maxY - startingLocation.minY)
+                                        - (targetLocation.maxY - targetLocation.minY))
+                                <= SIZE_EPSILON
+                        && Math.abs((startingLocation.maxZ - startingLocation.minZ)
+                                        - (targetLocation.maxZ - targetLocation.minZ))
+                                <= SIZE_EPSILON;
+    }
+
+    /**
      * Writes into {@code out} the location {@link #copyAdvancedForClientTick copyAdvancedForClientTick(true, true)}
      * would report. Call only when {@link #hasExactMovementLocationAfterClientTick()}.
      */
@@ -889,6 +856,16 @@ public class ReachInterpolationData {
 
     public SimpleCollisionBox getTargetLocation() {
         return targetLocation.copy();
+    }
+
+    /** The feet position the target was built from, while only offsets moved it since; else {@link #targetPosition()}. */
+    public Vec3 targetFeet() {
+        return targetFeetKnown ? new Vec3(targetFeetX, targetFeetY, targetFeetZ) : targetPosition();
+    }
+
+    /** The lerp steps left to the target, the last landing on it. Call only when the step is exact. */
+    public int remainingLerpSteps() {
+        return getInterpolationSteps() - interpolationStepsLowBound;
     }
 
     /** The feet position of the target location, as computed from {@link #getTargetLocation()}. */
@@ -1215,6 +1192,66 @@ public class ReachInterpolationData {
         ReachInterpolationData copy = new ReachInterpolationData(this);
         copy.tickMovement(incrementLowBound, tickingReliably);
         return copy;
+    }
+
+    /**
+     * After a Bedrock lerp step: the y the next step starts from, while the shown box keeps the step's; null when it
+     * starts from the step's. Monotone, so a range of feet maps to its mapped ends.
+     */
+    public void dueBedrockStoredFeet(@Nullable DoubleUnaryOperator storedFeet) {
+        bedrockStoredFeet = interpolationQueue == null ? storedFeet : null;
+    }
+
+    public @Nullable DoubleUnaryOperator bedrockStoredFeet() {
+        return bedrockStoredFeet;
+    }
+
+    /**
+     * A Bedrock actor whose step left the position its next lerp starts from where it was keeps showing {@code shown},
+     * even at the step that ends the lerp.
+     */
+    public void holdBedrockShownLocation(SimpleCollisionBox shown) {
+        if (interpolationQueue != null || interpolationStepsLowBound != interpolationStepsHighBound) return;
+        if (heldLocation == null) heldLocation = new SimpleCollisionBox();
+        heldLocation.set(shown);
+        heldStep = interpolationStepsLowBound;
+        boundsValid = false;
+        settled = false;
+    }
+
+    /** The steps left after the last one, when the step count is exact; else -1. */
+    public int bedrockStepsLeft() {
+        if (interpolationQueue != null || interpolationStepsLowBound != interpolationStepsHighBound) return -1;
+        return getInterpolationSteps() - interpolationStepsLowBound;
+    }
+
+    /**
+     * Before a Bedrock actor's next lerp step: restarts the remaining steps from the box the last step left, its feet
+     * where {@link #dueBedrockStoredFeet} said. True when that moved them.
+     */
+    public boolean rebaseBedrock(double height) {
+        DoubleUnaryOperator storedFeet = bedrockStoredFeet;
+        if (storedFeet == null) return false;
+        int remaining = bedrockStepsLeft();
+        // A finished lerp takes no step; its start feet wait for the next move.
+        if (remaining <= 0) return false;
+        bedrockStoredFeet = null;
+        SimpleCollisionBox current = movementLocationAtStep(interpolationStepsLowBound, new SimpleCollisionBox());
+        double lowFeet = current.minY;
+        double highFeet = current.maxY - height;
+        double storedLow = storedFeet.applyAsDouble(lowFeet);
+        double storedHigh = storedFeet.applyAsDouble(highFeet);
+        if (storedLow == lowFeet && storedHigh == highFeet) return false;
+        startingLocation = current;
+        startingLocation.minY = storedLow;
+        startingLocation.maxY = storedHigh + height;
+        interpolationSteps = remaining;
+        interpolationStepsLowBound = 0;
+        interpolationStepsHighBound = 0;
+        heldStep = -1;
+        boundsValid = false;
+        settled = false;
+        return true;
     }
 
     public void tickMovement(boolean incrementLowBound, boolean tickingReliably) {

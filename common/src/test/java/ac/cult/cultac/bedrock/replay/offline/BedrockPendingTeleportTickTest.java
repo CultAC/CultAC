@@ -43,7 +43,7 @@ public class BedrockPendingTeleportTickTest {
             var teleports = player.getSetbackTeleportUtil();
             var ping = new InboundTransactionAcceptanceTest.DeferredJavaPing(player, () -> {
                 assertNotNull(player.compensatedWorld.getChunk(0, 0));
-                assertTrue(teleports.mustAcknowledgeBedrockTransportTeleport());
+                assertTrue(teleports.bedrockTeleports().mustAcknowledgeBedrockTransportTeleport());
                 assertEquals(player.lastTransactionSent.get(), player.lastTransactionReceived.get());
             });
             int transaction = ping.transaction.transaction();
@@ -62,8 +62,10 @@ public class BedrockPendingTeleportTickTest {
                                         .block("minecraft:stone")
                                         .defaultState());
             });
-            teleports.addImmediateBedrockTransportTeleport(
-                    ground, true, BedrockCoordinateFrame.IDENTITY, null, null, transaction);
+            teleports
+                    .bedrockTeleports()
+                    .addImmediateBedrockTransportTeleport(
+                            ground, true, BedrockCoordinateFrame.IDENTITY, null, null, transaction);
             assertNull(player.compensatedWorld.getChunk(0, 0));
             assertEquals(0, player.lastTransactionReceived.get());
             ping.reply(ping.packet.getTimestamp());
@@ -86,7 +88,7 @@ public class BedrockPendingTeleportTickTest {
             // Keep the original Pong in transit. The next native auth must already see
             // acknowledged world/metadata and perform the actor tick which clears HasTeleported.
             assertNotNull(process(player, startupFrame(player, 1, ground, 0, true)));
-            assertFalse(teleports.mustAcknowledgeBedrockTransportTeleport());
+            assertFalse(teleports.bedrockTeleports().mustAcknowledgeBedrockTransportTeleport());
             assertEquals(1, entry(player).state().simulationTick());
             assertFalse(entry(player).state().hasTeleported());
             assertNotNull(entry(player).state().acknowledgedPlayerDimensions());
@@ -152,13 +154,15 @@ public class BedrockPendingTeleportTickTest {
             var launchCommit = player.checkManager.getSimulationProcessor().getCurrentPredictionCommit();
             long simulationTick = entry(player).state().simulationTick();
             var teleports = player.getSetbackTeleportUtil();
-            teleports.addSentTeleport(ground, 10, new RelativeFlag(0), false, 1);
+            teleports.javaTeleports().addSentTeleport(ground, 10, new RelativeFlag(0), false, 1);
             teleports.pendingTeleports.removeIf(pending -> pending.getBedrockTransportRevision() < 0);
             var operation = new BedrockTeleportOperation(1, BedrockTeleportProvenance.CULT_SETBACK, 10);
-            teleports.addImmediateBedrockTransportTeleport(
-                    ground, true, BedrockCoordinateFrame.IDENTITY, null, operation, 10);
+            teleports
+                    .bedrockTeleports()
+                    .addImmediateBedrockTransportTeleport(
+                            ground, true, BedrockCoordinateFrame.IDENTITY, null, operation, 10);
             player.lastTransactionReceived.set(100);
-            assertTrue(teleports.mustAcknowledgeBedrockTransportTeleport());
+            assertTrue(teleports.bedrockTeleports().mustAcknowledgeBedrockTransportTeleport());
             // Exercise a teleport becoming pending after prediction but before commit.
             // The launch's complete actor state must survive, not just its timers.
             commitWithPendingTeleport(player, beforeLaunch, launchCommit);
@@ -182,14 +186,14 @@ public class BedrockPendingTeleportTickTest {
                 assertEquals(acceptedY, player.y, 0);
                 assertTrue(entry(player).state().physicalFeetPosition().y() < 108);
                 assertSame(required, teleports.getRequiredSetBack());
-                assertTrue(teleports.mustAcknowledgeBedrockTransportTeleport());
+                assertTrue(teleports.bedrockTeleports().mustAcknowledgeBedrockTransportTeleport());
                 assertNull(process(player, input)); // duplicate ticks never advance twice
                 assertEquals(cooldown, entry(player).mobJumpComponent().jumpCooldownTicks());
             }
             assertEquals(0, player.checkManager.getListener(BedrockMovement.class).violations, 0);
             if (releaseJump) return;
             assertNotNull(process(player, frame(player, 640, ground, 0, true, true)));
-            assertFalse(teleports.mustAcknowledgeBedrockTransportTeleport());
+            assertFalse(teleports.bedrockTeleports().mustAcknowledgeBedrockTransportTeleport());
             assertEquals(5, entry(player).mobJumpComponent().jumpCooldownTicks());
             for (int tick = 641; tick < 645; tick++) {
                 assertNotNull(process(player, frame(player, tick, ground, -0.0784, true, false)));

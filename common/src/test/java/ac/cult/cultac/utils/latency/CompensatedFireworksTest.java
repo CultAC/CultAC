@@ -38,9 +38,9 @@ class CompensatedFireworksTest {
     void destroyedEntitiesQueueOnlyTrackedRockets() throws Exception {
         CompensatedFireworks fireworks = fireworks(player(ATTACHED_AT));
         attach(fireworks, 7);
-        for (int entityId = 100; entityId < 100_000; entityId++) fireworks.removalSent(List.of(entityId), 9);
-        fireworks.removalSent(List.of(7), 9);
-        fireworks.removalSent(List.of(7), 10);
+        for (int entityId = 100; entityId < 100_000; entityId++) fireworks.removalHandled(List.of(entityId), 9);
+        fireworks.removalHandled(List.of(7), 9);
+        fireworks.removalHandled(List.of(7), 10);
 
         assertEquals(1, fireworks.rockets.size());
         assertEquals(9, fireworks.rockets.get(7).removedAt);
@@ -67,7 +67,7 @@ class CompensatedFireworksTest {
         CultPlayer player = player(ATTACHED_AT);
         CompensatedFireworks fireworks = fireworks(player);
         attach(fireworks, 7, 8);
-        fireworks.removalSent(List.of(7), 9);
+        fireworks.removalHandled(List.of(7), 9);
         fireworks.onPredictionComplete(glidingTick());
         assertEquals(2, fireworks.getMaxFireworksAppliedPossible());
         assertEquals(1, fireworks.getCertainFireworksApplied());
@@ -186,7 +186,7 @@ class CompensatedFireworksTest {
         CompensatedFireworks fireworks = fireworks(player);
         attach(fireworks, 7);
         fireworks.onPredictionComplete(glidingTick());
-        fireworks.removalSent(List.of(7), ATTACHED_AT + 1);
+        fireworks.removalHandled(List.of(7), ATTACHED_AT + 1);
         fireworks.attachmentChanged(7, OptionalInt.of(SELF), ATTACHED_AT + 2);
         player.lastTransactionReceived.set(ATTACHED_AT + 1);
         fireworks.onPredictionComplete(glidingTick());
