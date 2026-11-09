@@ -89,6 +89,9 @@ public class CompensatedWorld {
     private final Map<PendingReinternSection, PendingReinternState> pendingReinternSections = new LinkedHashMap<>();
     /** One tick end's reintern candidates, empty outside processPendingReinterns; owned by the packet thread. */
     private final List<PendingReinternCandidate> reinternCandidates = new ArrayList<>();
+    // While known, no pending section was written before this: none is stable earlier than it plus the delay.
+    private long earliestPendingMutatedNanos;
+    private boolean earliestPendingMutatedKnown;
 
     private final SectionPoolLeaseTracker sectionPoolLeases = new SectionPoolLeaseTracker();
     // 1.17 with datapacks, and 1.18, have negative world offset values
@@ -1315,6 +1318,9 @@ public class CompensatedWorld {
         if (pendingReinternSections.isEmpty()) return;
 
         long now = System.nanoTime();
+        if (earliestPendingMutatedKnown && now - earliestPendingMutatedNanos < SectionPool.STABILITY_DELAY_NANOS)
+            return;
+        earliestPendingMutatedKnown = false;
         CachedSection oldest = null;
         Iterator<Map.Entry<PendingReinternSection, PendingReinternState>> iterator =
                 pendingReinternSections.entrySet().iterator();
@@ -1337,7 +1343,12 @@ public class CompensatedWorld {
             if (oldest == null || section.getLastMutatedNanos() < oldest.getLastMutatedNanos()) oldest = section;
         }
         // Candidates run oldest write first and stop at the first unstable one.
-        if (oldest == null || !SectionPool.isStableForReintern(oldest, now)) return;
+        if (oldest == null) return;
+        if (!SectionPool.isStableForReintern(oldest, now)) {
+            earliestPendingMutatedNanos = oldest.getLastMutatedNanos();
+            earliestPendingMutatedKnown = true;
+            return;
+        }
 
         SectionPool.ComparisonBudget comparisonBudget = SectionPool.ComparisonBudget.limited(
                 MAX_REINTERN_CONTENT_COMPARISONS_PER_TICK,
@@ -1382,6 +1393,8 @@ public class CompensatedWorld {
     }
 
     private void queuePendingReintern(int chunkX, int sectionIndex, int chunkZ, CachedSection section) {
+        if (earliestPendingMutatedKnown && section.getLastMutatedNanos() - earliestPendingMutatedNanos < 0)
+            earliestPendingMutatedNanos = section.getLastMutatedNanos();
         var key = new PendingReinternSection(chunkX, sectionIndex, chunkZ);
         var pending = pendingReinternSections.get(key);
         if (pending == null) pendingReinternSections.put(key, new PendingReinternState(section, 0));
@@ -1409,6 +1422,7 @@ public class CompensatedWorld {
     }
 
     private void removePendingReinternSections(int chunkX, int chunkZ) {
+        if (pendingReinternSections.isEmpty()) return;
         pendingReinternSections.keySet().removeIf(key -> key.chunkX == chunkX && key.chunkZ == chunkZ);
     }
 

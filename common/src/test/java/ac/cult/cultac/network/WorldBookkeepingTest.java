@@ -176,6 +176,77 @@ class WorldBookkeepingTest {
         }
     }
 
+    @Test
+    void theReinternBoundNeverPassesAPendingWrite() throws Exception {
+        try (var services = new RecordConsumerServices();
+                var fixture = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            var player = fixture.player;
+            var world = player.compensatedWorld;
+            int stone = ac.cult.blocksim.data.DataTables.defaults()
+                    .registry()
+                    .block("minecraft:stone")
+                    .defaultState();
+            for (int x = 0; x < 3; x++) world.ensureValidationChunkLoaded(x, 0);
+            var pending = (java.util.Map<?, ?>) field(world, "pendingReinternSections");
+            var random = new Random(7);
+            int bounded = 0;
+            for (int step = 0; step < 3000; step++) {
+                switch (random.nextInt(6)) {
+                    case 0, 1, 2 -> world.applyBlockChangeRawDANGER(
+                            random.nextInt(48), random.nextInt(64), random.nextInt(16), random.nextBoolean() ? stone : 0);
+                    case 3 -> processPendingReinterns(world);
+                    case 4 -> {
+                        int transaction = player.lastTransactionReceived.get() + 1;
+                        int x = random.nextInt(3);
+                        if (random.nextBoolean()) world.removeChunkLater(world.getVisibleDimension(), x, 0, transaction);
+                        else world.addToCache(
+                                new CachedChunk(new CachedSection[world.getLastClientboundSectionCount()], transaction),
+                                world.getVisibleDimension(), transaction, x, 0, List.of());
+                        player.latencyUtils.handleNettySyncTransaction(transaction);
+                        world.ensureValidationChunkLoaded(x, 0);
+                    }
+                    default -> processPendingReinterns(world);
+                }
+                if (!(boolean) field(world, "earliestPendingMutatedKnown")) continue;
+                bounded++;
+                long earliest = (long) field(world, "earliestPendingMutatedNanos");
+                for (Object state : pending.values()) {
+                    var section = (CachedSection) field(state, "section");
+                    assertTrue(section.getLastMutatedNanos() - earliest >= 0, "bound passes a pending write");
+                }
+            }
+            assertTrue(bounded > 100, "bound never set: " + bounded);
+        }
+    }
+
+    @Test
+    void theReinternScanRunsOnceTheBoundIsReached() throws Exception {
+        try (var services = new RecordConsumerServices();
+                var fixture = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            var world = fixture.player.compensatedWorld;
+            int stone = ac.cult.blocksim.data.DataTables.defaults()
+                    .registry()
+                    .block("minecraft:stone")
+                    .defaultState();
+            world.ensureValidationChunkLoaded(5, 5);
+            world.applyBlockChangeRawDANGER(80, 2, 80, stone);
+            var pending = (java.util.Map<?, ?>) field(world, "pendingReinternSections");
+            processPendingReinterns(world);
+            assertTrue((boolean) field(world, "earliestPendingMutatedKnown"));
+            assertEquals(1, pending.size());
+            // Five seconds later for the pending write and the bound alike.
+            var section = (CachedSection) field(pending.values().iterator().next(), "section");
+            long shift = 6_000_000_000L;
+            section.setLastMutatedNanos(section.getLastMutatedNanos() - shift);
+            var bound = CompensatedWorld.class.getDeclaredField("earliestPendingMutatedNanos");
+            bound.setAccessible(true);
+            bound.setLong(world, bound.getLong(world) - shift);
+            processPendingReinterns(world);
+            assertTrue(pending.isEmpty());
+            assertEquals(stone, world.getBlockStateIdAt(80, 2, 80));
+        }
+    }
+
     private static void assertColumn(CompensatedWorld world, Long2ObjectMap<CachedChunk> chunks, int x, int z) {
         long position = CompensatedWorld.chunkPositionToLong(x, z);
         assertSame(chunks.get(position), world.getChunk(x, z), x + "," + z);
@@ -185,6 +256,12 @@ class WorldBookkeepingTest {
     @SuppressWarnings("unchecked")
     static Long2ObjectMap<CachedChunk> chunks(CompensatedWorld world) throws Exception {
         return (Long2ObjectMap<CachedChunk>) field(world, "chunks");
+    }
+
+    private static void processPendingReinterns(CompensatedWorld world) throws Exception {
+        var method = CompensatedWorld.class.getDeclaredMethod("processPendingReinterns");
+        method.setAccessible(true);
+        method.invoke(world);
     }
 
     static Object field(Object owner, String name) throws Exception {
