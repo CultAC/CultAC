@@ -1,10 +1,15 @@
 package ac.cult.cultac.network;
 
+import ac.cult.blocksim.data.DataTables;
+import ac.cult.blocksim.data.InteractionRegistries;
 import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.utils.latency.CompensatedBlockEntities;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedChunk;
 import com.sun.management.ThreadMXBean;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.lang.management.ManagementFactory;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -90,6 +95,40 @@ class WorldBookkeepingBenchTest {
             });
             interleaved(queries, bodies);
         }
+    }
+
+    /**
+     * A 13-column unload edge as the player crosses a chunk border, with 300 block entities stored in the 7x7 columns
+     * around the player: every unloaded column holds none.
+     */
+    @Test
+    void blockEntityForgets() throws Exception {
+        int chest = DataTables.defaults().registry().block("minecraft:chest").defaultState();
+        var entities = new CompensatedBlockEntities(InteractionRegistries::defaults);
+        var random = new Random(5);
+        for (int i = 0; i < 300; i++)
+            entities.snapshot(
+                    new BlockPos(random.nextInt(112) - 56, random.nextInt(128) - 64, random.nextInt(112) - 56), chest);
+        var entries = (Long2ObjectOpenHashMap<?>) WorldBookkeepingTest.field(entities, "entries");
+        int edge = 13;
+        var bodies = new LinkedHashMap<String, LongUnaryOperator>();
+        bodies.put("block-entity-forgets scan", units -> {
+            long seen = 0;
+            for (long unit = 0; unit < units; unit++)
+                for (int z = -6; z <= 6; z++) {
+                    var iterator = entries.long2ObjectEntrySet().fastIterator();
+                    while (iterator.hasNext()) {
+                        long key = iterator.next().getLongKey();
+                        if (((int) (key >> 38) >> 4) == 7 && ((int) (key << 26 >> 38) >> 4) == z) seen++;
+                    }
+                }
+            return seen;
+        });
+        bodies.put("block-entity-forgets counted", units -> {
+            for (long unit = 0; unit < units; unit++) for (int z = -6; z <= 6; z++) entities.forgetChunk(7, z);
+            return entries.size();
+        });
+        interleaved(edge, bodies);
     }
 
     /** Each body sized to at least 1 s of thread CPU per rep, their reps alternating so host load falls on all alike. */
