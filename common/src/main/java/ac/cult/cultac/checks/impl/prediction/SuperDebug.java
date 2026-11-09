@@ -191,7 +191,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
     }
 
     /**
-     * The tick's prediction state, read here on the packet thread, and its block grid, which the diagnostics thread
+     * The tick's prediction state, recorded here on the packet thread, and its block grid, which the diagnostics thread
      * prints. Nothing of the prediction or of this listener changes.
      */
     private void capture(
@@ -204,18 +204,18 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         long start = System.nanoTime();
         try {
             long seq = watch.pendingSeq();
-            String state = null;
+            DebugText state = null;
             BlockGrid grid = null;
             if (result.getSimulationContext() != null) {
                 DebugText.Builder sb = newText();
                 appendState(sb, result, lastResult);
                 appendTail(sb, result, lastResult);
                 sized(sb);
-                state = sb.toString();
+                state = sb.toText();
                 grid = BlockGrid.around(player);
             }
             double offset = result.getValidMovements() != null ? result.getOffset() : Double.NaN;
-            watch.capture(seq, offset, trace(closest, target, exempt, false), state, grid, start);
+            watch.captureText(seq, offset, trace(closest, target, exempt, false), state, grid, start);
         } catch (RuntimeException failure) {
             watch.failed(failure);
         }
