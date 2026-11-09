@@ -333,7 +333,11 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         if (!this.player.isBedrockMovement()) {
             if (!this.player.compensatedEntities.vehicles.hasClientPlayerPassengerState()
                     && !this.player.packetStateData.hasPassengerRotationThisClientTick()) {
-                if (!this.player.packetStateData.receivedMovementThisClientTick) {
+                // LocalPlayer#tickDeath removes the player at deathTime 20: that tick skips aiStep, later ones skip
+                // LocalPlayer#tick, until login or respawn.
+                if (!this.player.packetStateData.receivedMovementThisClientTick
+                        && !this.player.packetStateData.localPlayerRemoved
+                        && !this.player.localPlayerRemovedThisTick()) {
                     if (this.player.localPlayerTicks()) {
                         Vec3 from = new Vec3(this.player.x, this.player.y, this.player.z);
                         this.player.checkManager.getExplosionHandler().beforeNoPositionTravel(from);

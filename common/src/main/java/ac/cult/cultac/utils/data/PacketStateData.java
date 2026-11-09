@@ -41,6 +41,10 @@ public class PacketStateData {
     // A tick end of a client tick that ran LocalPlayer#tick came since the last login or respawn. Java attacks before
     // it are cancelled: ServerGamePacketListenerImpl#hasClientLoaded drops them on vanilla.
     public boolean localPlayerTickedSinceSpawn = true;
+    // LocalPlayer#deathTime, which LocalPlayer#tickDeath advances each tick the player is dead; deathTime 20 removes
+    // the player, and ClientLevel#tickEntities skips it until login or respawn creates a new one.
+    public int localPlayerDeathTime;
+    public boolean localPlayerRemoved;
     public int lastSlotSelected;
     // Packet-ordered mirror of LocalPlayer's active item state.  Checks must not
     // read Bukkit's server-thread active item because the attack/use ordering is
