@@ -57,6 +57,12 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
 
     private int lastNumbers = 512;
 
+    /** Scratch for {@link #appendNearbyEntityBoxes}; a text records a box's bounds as it is appended. */
+    private final SimpleCollisionBox queryScratch = new SimpleCollisionBox();
+
+    private final SimpleCollisionBox entityBox = new SimpleCollisionBox();
+    private final SimpleCollisionBox entityScratch = new SimpleCollisionBox();
+
     public SuperDebug(CultPlayer player) {
         super(player);
     }
@@ -649,13 +655,13 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
     }
 
     private void appendNearbyEntityBoxes(DebugText.Builder sb, PredictionResult result) {
-        SimpleCollisionBox queryBox = player.boundingBox.copy().expand(3.0);
+        SimpleCollisionBox queryBox = queryScratch.set(player.boundingBox).expand(3.0);
         PacketEntity movingEntity = result.getSimulationContext().getVehicle();
 
         sb.append("\nNearby packet entity boxes:\n");
         for (PacketEntity entity : player.compensatedEntities.entityMap.values()) {
             if (player.compensatedEntities.isUntrackedRider(entity)) continue;
-            SimpleCollisionBox box = entity.getPossibleCollisionBoxes();
+            SimpleCollisionBox box = entity.getPossibleCollisionBoxes(entityBox, entityScratch);
             if (!box.isCollided(queryBox)) {
                 continue;
             }
