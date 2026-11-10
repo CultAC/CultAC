@@ -156,7 +156,6 @@ public final class BedrockVelocitySystems {
                 facts.effectState(),
                 facts.standingSurfaceState(),
                 facts.climb(),
-                facts.inPowderSnow(),
                 control.sprintSpeedInput(),
                 moveInputScale,
                 true);

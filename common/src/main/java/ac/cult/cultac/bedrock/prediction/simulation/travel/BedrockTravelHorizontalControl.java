@@ -87,7 +87,6 @@ public final class BedrockTravelHorizontalControl {
             BedrockEffectState effectState,
             StandingSurfaceState standingSurfaceState,
             BedrockClimbState climb,
-            boolean inPowderSnow,
             boolean sprintSpeedInput,
             float moveInputScale,
             boolean onGroundTravel) {
@@ -102,7 +101,7 @@ public final class BedrockTravelHorizontalControl {
                 false);
         float control = current.isHorse() && preparedSpeed.dryAirTravelSpeed()
                 ? 1.0F
-                : normalTravelControl(standingSurfaceState, climb, onGroundTravel, inPowderSnow, preparedSpeed);
+                : normalTravelControl(standingSurfaceState, climb, onGroundTravel, preparedSpeed);
         double horizontalInputLimit = scaledInputLimit(
                 preparedSpeed.inputRadiusSpeed() * control,
                 moveInputScale,
@@ -116,7 +115,6 @@ public final class BedrockTravelHorizontalControl {
             StandingSurfaceState standingSurfaceState,
             BedrockClimbState climb,
             boolean onGroundTravel,
-            boolean inPowderSnow,
             BedrockHorizontalSpeedControl.PreparedSpeed preparedSpeed) {
         double standingBlockFriction = standingSurfaceState.blockFriction();
         double standingGroundFriction = standingBlockFriction * AIR_FRICTION;
@@ -130,11 +128,10 @@ public final class BedrockTravelHorizontalControl {
                                         preparedSpeed.soulSpeedEnchantFlagPresent(),
                                         standingGroundControl,
                                         standingGroundFriction)
-                                : inPowderSnow && onGroundTravel
+                                // Powder snow around the actor leaves the block under its feet in control.
+                                : climb.climbable().horizontalControl()
                                         ? GROUND_CONTROL
-                                        : climb.climbable().horizontalControl()
-                                                ? GROUND_CONTROL
-                                                : onGroundTravel ? standingGroundControl : AIR_CONTROL);
+                                        : onGroundTravel ? standingGroundControl : AIR_CONTROL);
     }
 
     private static double groundOrAirFriction(StandingSurfaceState standingSurfaceState, boolean onGroundTravel) {
