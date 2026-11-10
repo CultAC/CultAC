@@ -1,5 +1,6 @@
 package ac.cult.cultac.utils.collisions;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.bedrock.prediction.api.BedrockCollisionShapeQuery;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionOverrideCatalog;
@@ -92,9 +93,10 @@ public final class BedrockClientBlockShapeMappings {
                 entries.put(javaStateId, new Entry(null, true, clientComputedMovement));
                 continue;
             }
-            if (clientComputedMovement) {
+            // A moving piston takes the engine world's model as well, never Java's moving-piston shape.
+            if (clientComputedMovement || BlockIds.is(javaStateId, BlockIds.MOVING_PISTON)) {
                 CollisionBox movement = bedrockMovement(catalog, javaStateId, BedrockCollisionShapeQuery.NONE);
-                entries.put(javaStateId, new Entry(movement, false, true));
+                entries.put(javaStateId, new Entry(movement, false, clientComputedMovement));
                 continue;
             }
             Optional<CollisionBox> movement = override.map(shape -> fromLocalBoxes(shape.boxes()))

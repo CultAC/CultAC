@@ -13,6 +13,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetBorderCenter;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetBorderLerpSize;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetBorderSize;
 import ac.cult.cultac.utils.math.CultMath;
+import java.util.function.IntConsumer;
 
 public class PacketWorldBorder extends CultProcessor implements CheckListener, ClientTickEndListener {
     double centerX;
@@ -46,7 +47,7 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
             }
             // MovingBorderExtent#getCollisionShape uses getMin/Max(0.0F): the previous world-tick size, until
             // the extent becomes static. Minecraft#tick moves entities before ClientLevel#tick updates the border.
-            long collisionTicks = player.isBedrockMovement() ? lerpElapsedTicks : Math.max(0L, lerpElapsedTicks - 1L);
+            long collisionTicks = Math.max(0L, lerpElapsedTicks - 1L);
             double progress = Math.min(1.0D, (double) collisionTicks / (double) lerpDurationTicks);
             return CultMath.lerp(progress, oldDiameter, newDiameter);
         }
@@ -70,9 +71,8 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
     @Override
     public void onPlayerTickEnd(PacketReceiveEvent event) {
         // ClientLevel#tick advances the border only while world ticks run.
-        if (player.isBedrockMovement()
-                || player.packetStateData.serverTicksFrozen
-                        && player.packetStateData.serverFrozenTickStepsRemaining == 0) return;
+        if (player.packetStateData.serverTicksFrozen && player.packetStateData.serverFrozenTickStepsRemaining == 0)
+            return;
         if (tickBasedLerp && lerpElapsedTicks < lerpDurationTicks) {
             lerpElapsedTicks++;
             if (lerpElapsedTicks >= lerpDurationTicks) {
@@ -85,22 +85,23 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
     @CultPacketHandler
     public void onInitializeBorder(
             PacketSendEvent<ClientboundInitializeBorder> event, CultPlayer player, ClientboundInitializeBorder packet) {
-        int transaction = proof(event);
-        setCenter(transaction, packet.centerX(), packet.centerZ());
-        setLerp(transaction, packet.oldSize(), packet.newSize(), packet.lerpTime());
-        setAbsoluteMaxSize(transaction, packet.absoluteMaxSize());
+        atProof(event, transaction -> {
+            setCenter(transaction, packet.centerX(), packet.centerZ());
+            setLerp(transaction, packet.oldSize(), packet.newSize(), packet.lerpTime());
+            setAbsoluteMaxSize(transaction, packet.absoluteMaxSize());
+        });
     }
 
     @CultPacketHandler
     public void onSetBorderCenter(
             PacketSendEvent<ClientboundSetBorderCenter> event, CultPlayer player, ClientboundSetBorderCenter packet) {
-        setCenter(proof(event), packet.centerX(), packet.centerZ());
+        atProof(event, transaction -> setCenter(transaction, packet.centerX(), packet.centerZ()));
     }
 
     @CultPacketHandler
     public void onSetBorderSize(
             PacketSendEvent<ClientboundSetBorderSize> event, CultPlayer player, ClientboundSetBorderSize packet) {
-        setSize(proof(event), packet.size());
+        atProof(event, transaction -> setSize(transaction, packet.size()));
     }
 
     @CultPacketHandler
@@ -108,16 +109,19 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
             PacketSendEvent<ClientboundSetBorderLerpSize> event,
             CultPlayer player,
             ClientboundSetBorderLerpSize packet) {
-        setLerp(proof(event), packet.oldSize(), packet.newSize(), packet.lerpTime());
+        atProof(event, transaction -> setLerp(transaction, packet.oldSize(), packet.newSize(), packet.lerpTime()));
     }
 
     /**
-     * The flush ping that proves a border packet: ClientPacketListener applies it in the flush bundle's task, as it
-     * does an entity or block update, so the pong puts it after the client tick before it and before the next.
+     * Applies a border packet at the flush ping that proves it: ClientPacketListener applies it in the flush bundle's
+     * task, as it does an entity or block update, so the pong puts it after the client tick before it and before the
+     * next. A Bedrock client never has this border, which Geyser keeps to itself and marks with its own actors, so
+     * for a Bedrock player the packet changes nothing and the border stays the initial one.
      */
-    private int proof(PacketSendEvent<?> event) {
+    private void atProof(PacketSendEvent<?> event, IntConsumer change) {
+        if (player.isBedrockMovement()) return;
         int transaction = player.appendFlushProofTransaction(event);
-        return transaction > 0 ? transaction : player.lastTransactionSent.get();
+        change.accept(transaction > 0 ? transaction : player.lastTransactionSent.get());
     }
 
     private void setCenter(int transaction, double x, double z) {
@@ -152,8 +156,7 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
                 this.lerpElapsedTicks = 0L;
             } else {
                 this.startTime = System.currentTimeMillis();
-                this.endTime = this.startTime
-                        + (player.isBedrockMovement() ? Math.max(0L, length) * 50L : Math.max(0L, clientLength));
+                this.endTime = this.startTime + Math.max(0L, clientLength);
             }
         });
     }

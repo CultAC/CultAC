@@ -113,14 +113,16 @@ public class Phase extends Check implements PostPredictionListener {
             return;
         }
 
-        // A prediction already left the box its travel started with. Without one, Entity#refreshDimensions has
-        // resized the last checked box in place: compare against that resized history, including after shrinking.
-        boolean predicted = !bedrock && !Float.isNaN(travelled);
-        if (!bedrock && !predicted && oldBox != null) {
+        // A prediction already left the box its travel started with. Without one, the client has resized the last
+        // checked box in place, Entity#refreshDimensions on Java and a received scale on Bedrock: compare against
+        // that resized history, including after shrinking.
+        boolean predicted = !Float.isNaN(travelled);
+        if (!predicted && oldBox != null) {
+            double feetY = bedrock ? oldBox.minY + BEDROCK_PENETRATION_INSET : oldBox.minY;
             oldBox = boxAt(
-                    new Vec3((oldBox.minX + oldBox.maxX) / 2.0, oldBox.minY, (oldBox.minZ + oldBox.maxZ) / 2.0),
+                    new Vec3((oldBox.minX + oldBox.maxX) / 2.0, feetY, (oldBox.minZ + oldBox.maxZ) / 2.0),
                     1.8f,
-                    false);
+                    bedrock);
         }
         SimpleCollisionBox newBox = predicted
                 ? boxAt(newBoxScratch, location, 0.6f, false, travelled)
@@ -184,7 +186,7 @@ public class Phase extends Check implements PostPredictionListener {
     }
 
     private SimpleCollisionBox boxAt(SimpleCollisionBox out, Vec3 location, float height, boolean bedrock) {
-        return boxAt(out, location, height, bedrock, player.isBedrockMovement() ? 1.0f : player.dimensionScale);
+        return boxAt(out, location, height, bedrock, player.dimensionScale);
     }
 
     private SimpleCollisionBox boxAt(
