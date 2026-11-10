@@ -158,6 +158,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     private final CollisionModifier collisionProbe = new CollisionModifier();
     private final NextTickVelocityDeriver.Scratch velocityScratch = new NextTickVelocityDeriver.Scratch();
     private final StepCollisionMemo stepCollisionMemo = new StepCollisionMemo();
+    private final SimpleCollisionBox changedBlockScratch = new SimpleCollisionBox();
+    private final SimpleCollisionBox changedBlockReachScratch = new SimpleCollisionBox();
 
     public SimulationProcessor(CultPlayer playerData) {
         super(playerData);
@@ -2569,8 +2571,9 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             if (!this.player.compensatedEntities.getSelf().inVehicle()) {
                 SimulationContext context = this.lastPrediction.getSimulationContext();
                 if (context != null) {
-                    SimpleCollisionBox blockCollisionBox = new SimpleCollisionBox(pos);
-                    SimpleCollisionBox playerMaxExtent = context.getToMaximumExtent();
+                    SimpleCollisionBox blockCollisionBox = changedBlockScratch.set(
+                            pos.getX(), pos.getY(), pos.getZ(), pos.getX() + 1, pos.getY() + 1, pos.getZ() + 1);
+                    SimpleCollisionBox playerMaxExtent = context.getToMaximumExtent(changedBlockReachScratch);
                     playerMaxExtent.expand(1.0);
                     if (blockCollisionBox.isIntersected(playerMaxExtent)) {
                         if (ClientFluidQueries.modelFluid(to)

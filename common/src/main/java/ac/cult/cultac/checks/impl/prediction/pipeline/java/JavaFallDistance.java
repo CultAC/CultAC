@@ -110,20 +110,35 @@ public final class JavaFallDistance {
     }
 
     private static boolean touchesWater(CultPlayer player, SimulationContext context, Vec3 end) {
-        return touchesWater(player, context.getToActualPose().copy().offset(end.subtract(context.getEnd())));
+        Vec3 to = context.getEnd();
+        var box = context.getToActualPose().offset(end.x - to.x, end.y - to.y, end.z - to.z);
+        return touchesWater(player, box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ);
     }
 
     /** Entity#updateFluidHeightAndDoFluidPushing for water: whether {@code box} touches it. */
     public static boolean touchesWater(CultPlayer player, SimpleCollisionBox entityBox) {
-        var box = entityBox.copy().expand(-0.001);
-        for (int x = (int) Math.floor(box.minX); x < Math.ceil(box.maxX); x++)
-            for (int y = (int) Math.floor(box.minY); y < Math.ceil(box.maxY); y++)
-                for (int z = (int) Math.floor(box.minZ); z < Math.ceil(box.maxZ); z++) {
-                    BlockPos pos = new BlockPos(x, y, z);
-                    var fluid = ClientFluidQueries.fluidAt(player.compensatedWorld, pos);
+        return touchesWater(
+                player, entityBox.minX, entityBox.minY, entityBox.minZ, entityBox.maxX, entityBox.maxY, entityBox.maxZ);
+    }
+
+    /** The entity box's bounds deflated by 0.001, unsorted, as SimpleCollisionBox#expand(-0.001) leaves them. */
+    private static boolean touchesWater(
+            CultPlayer player, double minX, double minY, double minZ, double maxX, double maxY, double maxZ) {
+        double inset = -0.001;
+        double lowX = minX - inset, lowY = minY - inset, lowZ = minZ - inset;
+        double highX = maxX + inset, highY = maxY + inset, highZ = maxZ + inset;
+        var world = player.compensatedWorld;
+        for (int x = (int) Math.floor(lowX); x < Math.ceil(highX); x++)
+            for (int y = (int) Math.floor(lowY); y < Math.ceil(highY); y++)
+                for (int z = (int) Math.floor(lowZ); z < Math.ceil(highZ); z++) {
+                    var fluid = ClientFluidQueries.modelFluid(world.getBlockStateIdAt(x, y, z));
                     if (FluidTags.WATER.test(fluid)
-                            && pos.getY() + ClientFluidQueries.height(player.compensatedWorld, pos, fluid) >= box.minY)
-                        return true;
+                            && y
+                                            + (fluid.isEmpty()
+                                                    ? 0.0F
+                                                    : fluid.height(ClientFluidQueries.modelFluid(
+                                                            world.getBlockStateIdAt(x, y + 1, z))))
+                                    >= lowY) return true;
                 }
         return false;
     }
