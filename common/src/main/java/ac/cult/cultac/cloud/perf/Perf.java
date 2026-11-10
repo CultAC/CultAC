@@ -23,6 +23,11 @@ public final class Perf {
     private static final long ROOM_WAIT_MILLIS = 50;
     /** How long one part may wait for room before the profile ends {@code FAILED}: the service's grace for a profile. */
     static final long STALL_NANOS = TimeUnit.SECONDS.toNanos(120);
+    private static final long HOUR_NANOS = TimeUnit.HOURS.toNanos(1);
+    /** {@code cloud.perf-max-minutes-per-hour} when unset. */
+    public static final int DEFAULT_MAX_MINUTES_PER_HOUR = 45;
+
+    private static volatile long maxNanosPerHour = TimeUnit.MINUTES.toNanos(DEFAULT_MAX_MINUTES_PER_HOUR);
 
     private static final LogThrottle FAILURES = new LogThrottle();
 
@@ -62,6 +67,11 @@ public final class Perf {
     private Job job;
     /** The accepted recording the perf thread has not taken yet. */
     private Job waiting;
+    /** When the current hour of recording time began, in {@link #nanos}; valid while {@link #hourStarted}. */
+    private long hourStart;
+    private boolean hourStarted;
+    /** Recording time spent in the current hour. */
+    private long hourUsed;
 
     private Thread thread;
 
@@ -107,7 +117,11 @@ public final class Perf {
         upload.rate(uploadBytesPerSecond(limits));
     }
 
-    /** The service's {@code PerfStart} on the socket of {@code generation}: records {@code seconds}, or refuses at once. */
+    /**
+     * The service's {@code PerfStart} on the socket of {@code generation}: records {@code seconds}, or refuses at once.
+     * It is busy while a recording runs and once {@code cloud.perf-max-minutes-per-hour} of recording time is spent in
+     * the hour.
+     */
     public synchronized void start(long generation, UUID profile, int seconds) {
         if (closed || generation != this.generation) return;
         if (limits == null || !limits.getEnabled()) {
@@ -115,6 +129,16 @@ public final class Perf {
             return;
         }
         if (job != null) {
+            refuse(profile, PerfOutcome.PERF_OUTCOME_BUSY, "busy");
+            return;
+        }
+        long now = nanos.getAsLong();
+        if (!hourStarted || now - hourStart >= HOUR_NANOS) {
+            hourStarted = true;
+            hourStart = now;
+            hourUsed = 0;
+        }
+        if (hourUsed >= maxNanosPerHour) {
             refuse(profile, PerfOutcome.PERF_OUTCOME_BUSY, "busy");
             return;
         }
@@ -222,8 +246,21 @@ public final class Perf {
         if (job == done) job = null;
     }
 
+    /** Sets {@code cloud.perf-max-minutes-per-hour}, at least one, from the next start on. */
+    public static void maxMinutesPerHour(int minutes) {
+        maxNanosPerHour = TimeUnit.MINUTES.toNanos(Math.max(1, minutes));
+    }
+
+    /** A recording that began at {@code started} returned at {@code ended}. */
+    private synchronized void recorded(long started, long ended) {
+        hourUsed += Math.max(0, ended - started);
+    }
+
     private void record(Job job) throws GaveUp {
-        switch (recorder.record(job.settings, () -> job.cancelled)) {
+        long started = nanos.getAsLong();
+        PerfRecorder.Result result = recorder.record(job.settings, () -> job.cancelled);
+        recorded(started, nanos.getAsLong());
+        switch (result) {
             case PerfRecorder.Result.Done done -> send(job, done.zstdProfile(), done.reason());
             case PerfRecorder.Result.Skipped skipped ->
                 offer(

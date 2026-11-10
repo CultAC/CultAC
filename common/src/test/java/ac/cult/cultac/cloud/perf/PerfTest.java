@@ -368,6 +368,50 @@ class PerfTest {
         perf.close();
     }
 
+    @Test
+    void aStartRightAfterARecordingEndsIsAccepted() throws Exception {
+        AtomicLong clock = new AtomicLong();
+        DiagUpload upload = new DiagUpload();
+        Perf perf = new Perf(upload, (settings, cancelled) -> new PerfRecorder.Result.Done(new byte[10]), clock::get);
+        perf.connected(1, ON);
+
+        perf.start(1, UUID.randomUUID(), 60);
+        assertEquals(PerfOutcome.PERF_OUTCOME_OK, drain(upload, 1).getLast().getOutcome());
+        clock.incrementAndGet();
+        perf.start(1, UUID.randomUUID(), 60);
+        assertEquals(PerfOutcome.PERF_OUTCOME_OK, drain(upload, 1).getLast().getOutcome());
+        perf.close();
+    }
+
+    @Test
+    void recordingTimePastTheHourlyMostIsBusyUntilTheHourEnds() throws Exception {
+        Perf.maxMinutesPerHour(Perf.DEFAULT_MAX_MINUTES_PER_HOUR);
+        AtomicLong clock = new AtomicLong();
+        long minute = TimeUnit.MINUTES.toNanos(1);
+        DiagUpload upload = new DiagUpload();
+        Perf perf = new Perf(
+                upload,
+                (settings, cancelled) -> {
+                    clock.addAndGet(25 * minute);
+                    return new PerfRecorder.Result.Done(new byte[10]);
+                },
+                clock::get);
+        perf.connected(1, ON);
+
+        perf.start(1, UUID.randomUUID(), 60);
+        assertEquals(PerfOutcome.PERF_OUTCOME_OK, drain(upload, 1).getLast().getOutcome());
+        clock.addAndGet(minute);
+        perf.start(1, UUID.randomUUID(), 60);
+        assertEquals(PerfOutcome.PERF_OUTCOME_OK, drain(upload, 1).getLast().getOutcome());
+        clock.addAndGet(minute);
+        perf.start(1, UUID.randomUUID(), 60);
+        assertEquals(PerfOutcome.PERF_OUTCOME_BUSY, drain(upload, 1).getLast().getOutcome());
+        clock.set(60 * minute);
+        perf.start(1, UUID.randomUUID(), 60);
+        assertEquals(PerfOutcome.PERF_OUTCOME_OK, drain(upload, 1).getLast().getOutcome());
+        perf.close();
+    }
+
     /** Parts the upload hands the socket of {@code generation}, until a last part or a quiet second after one. */
     private List<PerfPart> drain(DiagUpload upload, long generation) throws Exception {
         List<PerfPart> parts = new ArrayList<>();

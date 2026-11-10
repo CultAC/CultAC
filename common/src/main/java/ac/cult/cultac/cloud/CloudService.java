@@ -10,6 +10,7 @@ import ac.cult.cultac.cloud.findings.Finding;
 import ac.cult.cultac.cloud.findings.FindingsLog;
 import ac.cult.cultac.cloud.flags.CloudFlags;
 import ac.cult.cultac.cloud.labels.LabelClient;
+import ac.cult.cultac.cloud.perf.Perf;
 import ac.cult.cultac.cloud.transport.CloudConnection;
 import ac.cult.cultac.cloud.transport.CloudConnections;
 import ac.cult.cultac.cloud.wire.IntakeWire;
@@ -94,6 +95,8 @@ public final class CloudService {
         CONNECTIONS.configure(settings);
         LabelClient.refreshCatalogWhile(settings.enabled());
         String ownId = CloudServerIds.own(settings.serverIdTemplate(), settings.proxyId(), proxy);
+        Perf.maxMinutesPerHour(
+                config.getIntElse("cloud.perf-max-minutes-per-hour", Perf.DEFAULT_MAX_MINUTES_PER_HOUR));
         StaffBans.maxPerMinute(config.getIntElse("cloud.staff-ban.max-per-minute", StaffBans.DEFAULT_MAX_PER_MINUTE));
         StaffBans.configure(settings, StaffBans.Commands.read(config), ownId, proxy);
         CloudFlags.configure(settings, ownId);
