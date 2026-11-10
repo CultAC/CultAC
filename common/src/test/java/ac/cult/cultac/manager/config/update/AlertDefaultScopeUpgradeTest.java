@@ -37,7 +37,7 @@ class AlertDefaultScopeUpgradeTest {
         try (var source = CultConfigSpecs.class.getResourceAsStream("/config/" + language + ".yml")) {
             assertNotNull(source);
             Map<String, Object> data = new Yaml().load(source);
-            assertEquals(18, data.get("config-version"));
+            assertEquals(19, data.get("config-version"));
             assertEquals("server", alerts(data).get("default-scope"));
         }
     }
@@ -50,7 +50,7 @@ class AlertDefaultScopeUpgradeTest {
                 .update(file.toFile(), CultConfigSpecs.mainConfig())
                 .migrated);
         Map<String, Object> data = new Yaml().load(Files.readString(file));
-        assertEquals(18, data.get("config-version"));
+        assertEquals(19, data.get("config-version"));
         return data;
     }
 

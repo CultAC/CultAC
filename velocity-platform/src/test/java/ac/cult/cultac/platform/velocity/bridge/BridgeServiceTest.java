@@ -20,11 +20,18 @@ import ac.cult.cultac.bridge.protocol.BridgeMessage.Result;
 import ac.cult.cultac.bridge.protocol.BridgeMessage.World;
 import ac.cult.cultac.bridge.protocol.BridgeProtocol;
 import ac.cult.cultac.bridge.protocol.ServerCapability;
+import ac.cult.cultac.network.PacketDispatcher;
+import ac.cult.cultac.network.codec.ClientPacketCodecs;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.player.User;
+import ac.cult.cultac.protocol.ProtocolRuntime;
+import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.protocol.data.ProtocolData;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundCustomPayload;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomPayload;
+import ac.grim.grimac.api.config.ConfigManager;
+import com.velocitypowered.api.event.player.ServerPostConnectEvent;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
@@ -431,6 +438,103 @@ class BridgeServiceTest {
         PacketSendEvent<?> event = mock(PacketSendEvent.class);
         when(event.getUser()).thenReturn(user);
         return event;
+    }
+
+    @Test
+    void switchedOffBridgeOpensNoSessionAndWritesNothingOnAServerConnect() throws Exception {
+        var channel = channel();
+        var log = new CopyOnWriteArrayList<String>();
+        var proxy = mock(ProxyServer.class);
+        service.close();
+        service = new BridgeService(
+                proxy, new Object(), player -> channel, ignored -> null, recording(log), 1000, 1000, System::nanoTime);
+        var config = bridgeConfig(false, "a-long-random-bridge-secret");
+        assertFalse(service.start(dispatcher(), config));
+        verify(config, never()).getStringElse(eq("bridge.secret"), anyString());
+        verifyNoInteractions(proxy);
+        assertEquals(List.of("CultAC companion bridge off by configuration (bridge.enabled: false)"), log);
+
+        var frames = new LinkedBlockingQueue<BridgeMessage>();
+        var player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(playerId);
+        var server = backendConnection(player, "lobby", frames);
+        when(player.getCurrentServer()).thenReturn(Optional.of(server));
+        var connect = mock(ServerPostConnectEvent.class);
+        when(connect.getPlayer()).thenReturn(player);
+        service.onServerPostConnect(connect);
+        service.adopted(player);
+        service.rejoinedWorld(sendEvent());
+        assertNull(loop.submit(() -> service.open(
+                                playerId, server, new VelocityBackend(server, channel, s -> true, null)))
+                .get(5, TimeUnit.SECONDS));
+
+        assertNull(frames.poll(3 * BridgeService.REOPEN_POLL_MILLIS, TimeUnit.MILLISECONDS));
+        verify(server, never()).sendPluginMessage(any(ChannelIdentifier.class), any(byte[].class));
+        assertNull(service.current(playerId));
+    }
+
+    @Test
+    void bridgeStartsAsBeforeWithTheSwitchOnOrAbsent() {
+        for (Boolean enabled : new Boolean[] {null, true}) {
+            assertStartLogs(
+                    enabled,
+                    "",
+                    "CultAC companion bridge disabled: no Velocity forwarding secret and no bridge.secret set");
+            assertStartLogs(
+                    enabled,
+                    "a-long-random-bridge-secret",
+                    "CultAC companion bridge disabled: unsupported Velocity backend connection internals");
+        }
+    }
+
+    private void assertStartLogs(Boolean enabled, String secret, String expected) {
+        var log = new CopyOnWriteArrayList<String>();
+        var started = new BridgeService(
+                mock(ProxyServer.class),
+                new Object(),
+                player -> channel(),
+                ignored -> null,
+                recording(log),
+                1000,
+                1000,
+                System::nanoTime);
+        var config = bridgeConfig(enabled, secret);
+        assertFalse(started.start(dispatcher(), config));
+        verify(config).getStringElse(eq("bridge.secret"), anyString());
+        assertEquals(List.of(expected), log, String.valueOf(enabled));
+        started.close();
+    }
+
+    /** {@code enabled} null leaves {@code bridge.enabled} out of the config. */
+    private static ConfigManager bridgeConfig(Boolean enabled, String secret) {
+        var config = mock(ConfigManager.class);
+        when(config.getBooleanElse(eq("bridge.enabled"), anyBoolean()))
+                .thenAnswer(invocation -> enabled == null ? invocation.getArgument(1) : enabled);
+        when(config.getStringElse(eq("bridge.secret"), anyString())).thenReturn(secret);
+        return config;
+    }
+
+    private static PacketDispatcher dispatcher() {
+        return new PacketDispatcher(ProtocolRuntime.create(
+                ProtocolData.load(ProtocolVersion.V26_3), ClientPacketCodecs.connectionCatalog(), 32767));
+    }
+
+    private static Logger recording(List<String> messages) {
+        Logger logger = Logger.getAnonymousLogger();
+        logger.setUseParentHandlers(false);
+        logger.addHandler(new Handler() {
+            @Override
+            public void publish(LogRecord record) {
+                messages.add(record.getMessage());
+            }
+
+            @Override
+            public void flush() {}
+
+            @Override
+            public void close() {}
+        });
+        return logger;
     }
 
     @Test

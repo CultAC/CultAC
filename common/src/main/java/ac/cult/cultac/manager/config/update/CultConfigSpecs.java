@@ -103,9 +103,11 @@ public final class CultConfigSpecs {
      * Every step reads the user's file as it was, so a v15 config takes the v16 step inside the v17 one.
      *
      * <p>v17 → v18: adds {@code alerts.default-scope}; default rewriting adds the key.
+     *
+     * <p>v18 → v19: adds {@code bridge.enabled}; default rewriting adds the key.
      */
     public static @NotNull ConfigUpdater.Spec mainConfig() {
-        return ConfigUpdater.Spec.builder("/config/", 18, ConfigUpdater.ConfigFlavor.V2)
+        return ConfigUpdater.Spec.builder("/config/", 19, ConfigUpdater.ConfigFlavor.V2)
                 .migration(10, ctx -> {
                     String typeRaw = ctx.input().getString("history.database.type");
                     String type = typeRaw == null ? null : typeRaw.trim().toUpperCase(Locale.ROOT);
