@@ -24,9 +24,6 @@ final class GeyserEntityPositions {
     private final Map<Long, Position> written = new HashMap<>();
     // Updates written since the last latency marker; the next marker proves them.
     private ArrayList<Runnable> pending = new ArrayList<>();
-    // Actors with a move written since the last latency marker: that move begins when the client answers the marker
-    // before it.
-    private final LongOpenHashSet movedSinceMarker = new LongOpenHashSet();
     // Actors whose last written flags carry COLLIDABLE: only their flag updates can clear it.
     private final LongOpenHashSet collidable = new LongOpenHashSet();
 
@@ -36,30 +33,6 @@ final class GeyserEntityPositions {
                 || packet instanceof MoveEntityAbsolutePacket
                 || packet instanceof MoveEntityDeltaPacket
                 || packet instanceof MovePlayerPacket;
-    }
-
-    /** Whether {@code packet} moves an actor other than the player. */
-    static boolean movesOtherActor(BedrockPacket packet, long playerRuntimeId) {
-        long runtimeId;
-        if (packet instanceof MoveEntityAbsolutePacket move) runtimeId = move.getRuntimeEntityId();
-        else if (packet instanceof MoveEntityDeltaPacket move) runtimeId = move.getRuntimeEntityId();
-        else if (packet instanceof MovePlayerPacket move) runtimeId = move.getRuntimeEntityId();
-        else return false;
-        return runtimeId != playerRuntimeId;
-    }
-
-    /**
-     * Whether {@code packet} moves an actor that already has a move written since the last latency marker. Both moves
-     * would begin at that marker's answer, but the client may tick between handling them, so the move written first
-     * needs a marker after it to prove it before the next one begins.
-     */
-    boolean movesActorAgain(BedrockPacket packet) {
-        if (movedSinceMarker.isEmpty()) return false;
-        if (packet instanceof MoveEntityAbsolutePacket move)
-            return movedSinceMarker.contains(move.getRuntimeEntityId());
-        if (packet instanceof MoveEntityDeltaPacket move) return movedSinceMarker.contains(move.getRuntimeEntityId());
-        if (packet instanceof MovePlayerPacket move) return movedSinceMarker.contains(move.getRuntimeEntityId());
-        return false;
     }
 
     void capture(GeyserSession session, CultPlayer player, BedrockPacket packet, BedrockCoordinateFrame coordinates) {
@@ -194,23 +167,7 @@ final class GeyserEntityPositions {
         Vec3 feet = coordinates.toWorld(new Vec3(position.getX(), position.getY() - offset, position.getZ()));
         Vec3 spawnVelocity = motion == null ? null : new Vec3(motion.getX(), motion.getY(), motion.getZ());
         boolean moveLocal = forceLocal;
-        boolean[] begun = new boolean[1];
-        if (!spawn) {
-            movedSinceMarker.add(runtimeId);
-            // The client may handle the move once it has answered the marker written before it.
-            player.addBedrockTransactionTask(
-                    player.getLastClientboundBedrockTransaction(),
-                    () -> player.latencyUtils.addRealTimeTask(creationTransaction, () -> {
-                        PacketEntity entity = player.compensatedEntities.getEntity(javaId);
-                        if (entity == null || entity.bedrockRuntimeId != runtimeId || placedDirectly(player, entity))
-                            return;
-                        begun[0] = true;
-                        entity.bedrockPositionOffset = offset;
-                        entity.beginBedrockMove(
-                                player, feet, yaw - boatYaw(entity), pitch, moveLocal, teleport, ground);
-                    }));
-        }
-        // The marker written after the move proves the client handled it.
+        // The marker written after the move proves the client handled it, and the move takes effect whole there.
         pending.add(() -> player.latencyUtils.addRealTimeTask(creationTransaction, () -> {
             PacketEntity entity = player.compensatedEntities.getEntity(javaId);
             if (entity == null || !spawn && entity.bedrockRuntimeId != runtimeId) return;
@@ -235,12 +192,7 @@ final class GeyserEntityPositions {
                         yaw - boatYaw(entity),
                         pitch);
             } else {
-                // A move that did not begin, such as one for the player's own ride or one sent with the spawn, applies
-                // whole at its proof.
-                if (!begun[0]) {
-                    entity.beginBedrockMove(player, feet, yaw - boatYaw(entity), pitch, moveLocal, teleport, ground);
-                }
-                entity.onSecondTransaction();
+                entity.handleBedrockMove(player, feet, yaw - boatYaw(entity), pitch, moveLocal, teleport, ground);
             }
             if (moveLocal && entity.bedrockPrediction != null) {
                 ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState.rebase(
@@ -266,7 +218,6 @@ final class GeyserEntityPositions {
 
     void boundary(CultPlayer player, CultPlayer.BedrockTransaction transaction) {
         if (transaction == null) return;
-        movedSinceMarker.clear();
         if (pending.isEmpty()) return;
         var batch = pending;
         pending = new ArrayList<>();
@@ -276,7 +227,6 @@ final class GeyserEntityPositions {
     void clear() {
         written.clear();
         pending.clear();
-        movedSinceMarker.clear();
         collidable.clear();
     }
 

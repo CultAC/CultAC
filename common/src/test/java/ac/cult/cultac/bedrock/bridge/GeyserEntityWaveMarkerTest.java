@@ -35,50 +35,65 @@ import org.junit.Test;
 import org.mockito.Mockito;
 
 /**
- * A move of another actor follows a latency marker in its own batch, with no heavy packet in between, so the client
- * normally answers the marker and handles the move before the same tick. Markers written only for that take at most two
- * a client tick; a second move of one actor gets a marker after the first regardless.
+ * The latency marker that ends a batch of moves of other actors proves them, and the client takes each move whole when
+ * it answers it. Before data that can use up the client's packet budget a marker proves the moves written so far; such
+ * markers take at most two a client tick.
  */
 public final class GeyserEntityWaveMarkerTest {
     private static final long PLAYER = 123L;
 
     @Test
-    public void aWaveOfMovesOpensWithAMarkerInItsBatch() throws Exception {
+    public void aBatchOfMovesEndsWithTheMarkerThatProvesThem() throws Exception {
         try (Transport transport = new Transport()) {
+            transport.track(456L, 900);
+            transport.track(457L, 901);
             transport.write(move(456L));
             transport.write(move(457L));
-            assertEquals(List.of("marker", "move 456", "move 457"), transport.flush());
-            // The marker before belongs to the batch already sent.
-            transport.write(move(456L));
-            assertEquals(List.of("marker", "move 456"), transport.flush());
+            assertEquals(List.of("move 456", "move 457", "marker"), transport.flush());
         }
     }
 
     @Test
-    public void heavyDataEndsTheWaveSoTheNextMoveOpensAnother() throws Exception {
+    public void heavyDataGetsAMarkerAfterTheMovesBeforeIt() throws Exception {
         try (Transport transport = new Transport()) {
+            transport.track(456L, 900);
+            transport.track(457L, 901);
             transport.write(move(456L));
             transport.write(chunk());
             transport.write(move(457L));
-            assertEquals(List.of("marker", "move 456", "chunk", "marker", "move 457"), transport.flush());
+            assertEquals(List.of("move 456", "marker", "chunk", "move 457", "marker"), transport.flush());
         }
     }
 
     @Test
-    public void aTickTakesAtMostTwoMarkersOnlyToNarrowWaves() throws Exception {
+    public void aTickTakesAtMostTwoMarkersBeforeHeavyData() throws Exception {
         try (Transport transport = new Transport()) {
+            for (int i = 0; i < 4; i++) transport.track(456L + i, 900 + i);
             transport.write(move(456L));
             transport.write(chunk());
             transport.write(move(457L));
             transport.write(chunk());
             transport.write(move(458L));
+            transport.write(chunk());
+            transport.write(move(459L));
             assertEquals(
-                    List.of("marker", "move 456", "chunk", "marker", "move 457", "chunk", "move 458"),
+                    List.of(
+                            "move 456",
+                            "marker",
+                            "chunk",
+                            "move 457",
+                            "marker",
+                            "chunk",
+                            "move 458",
+                            "chunk",
+                            "move 459",
+                            "marker"),
                     transport.flush());
             // The next client tick may narrow again.
             transport.player.compensatedEntities.onClientTick();
             transport.write(move(456L));
-            assertEquals(List.of("marker", "move 456"), transport.flush());
+            transport.write(chunk());
+            assertEquals(List.of("move 456", "marker", "chunk"), transport.flush());
         }
     }
 
@@ -91,56 +106,40 @@ public final class GeyserEntityWaveMarkerTest {
     }
 
     @Test
-    public void aSecondMoveOfOneActorInAWaveGetsAMarkerBeforeIt() throws Exception {
+    public void twoMovesOfOneActorProvenByOneMarkerAreHandledTogether() throws Exception {
         try (Transport transport = new Transport()) {
-            transport.track(456L, 900);
+            PacketEntity zombie = transport.track(456L, 900);
             transport.write(move(456L, 3));
-            transport.write(move(457L));
             transport.write(move(456L, -3));
-            // The last marker proves the second move.
-            assertEquals(List.of("marker", "move 456", "move 457", "marker", "move 456", "marker"), transport.flush());
+            assertEquals(List.of("move 456", "move 456", "marker"), transport.flush());
+
+            CultPlayer player = transport.player;
+            assertTrue(player.addTransactionResponse(transport.markers.get(0)));
+            zombie.onMovement(player, true);
+            // One step from 0 toward -3: the move to 3 was replaced before any tick.
+            assertSpans(player, zombie, -1.0D, -1.0D);
         }
     }
 
     @Test
-    public void aClientThatTicksBetweenTwoMovesOfOneActorMayStillShowTheFirst() throws Exception {
+    public void aMoveProvenBeforeHeavyDataStepsFromTheTickItsMarkerIsAnswered() throws Exception {
         try (Transport transport = new Transport()) {
             PacketEntity zombie = transport.track(456L, 900);
-            // Another actor's waves use up the tick's narrowing markers.
-            transport.write(move(457L));
-            transport.write(chunk());
-            transport.write(move(457L));
-            transport.write(chunk());
             // The zombie at x=0 is sent to 3 and back to -3, with data between that can use up the client's packet
-            // budget, so the client may tick between handling the two moves.
+            // budget.
             transport.write(move(456L, 3));
             transport.write(chunk());
             transport.write(move(456L, -3));
-            assertEquals(
-                    List.of(
-                            "marker",
-                            "move 457",
-                            "chunk",
-                            "marker",
-                            "move 457",
-                            "chunk",
-                            "move 456",
-                            "chunk",
-                            "marker",
-                            "move 456",
-                            "marker"),
-                    transport.flush());
+            assertEquals(List.of("move 456", "marker", "chunk", "move 456", "marker"), transport.flush());
 
             CultPlayer player = transport.player;
-            // The client handles the move to 3 and answers the marker after it, then ticks.
-            for (int i = 0; i < 3; i++) assertTrue(player.addTransactionResponse(transport.markers.get(i)));
+            assertTrue(player.addTransactionResponse(transport.markers.get(0)));
             zombie.onMovement(player, true);
-            // It handled the move to -3 before the tick, or not yet and shows the zombie a third of the way to 3.
-            assertSpans(player, zombie, -1.0D, 1.0D);
-            assertTrue(player.addTransactionResponse(transport.markers.get(3)));
+            assertSpans(player, zombie, 1.0D, 1.0D);
+            assertTrue(player.addTransactionResponse(transport.markers.get(1)));
             zombie.onMovement(player, true);
-            // Two steps toward -3 from 0, or one from 1.
-            assertSpans(player, zombie, -2.0D, -1.0D / 3.0D);
+            // A third of the way from 1 to -3.
+            assertSpans(player, zombie, -1.0D / 3.0D, -1.0D / 3.0D);
         }
     }
 

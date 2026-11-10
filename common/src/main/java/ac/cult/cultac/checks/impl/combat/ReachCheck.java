@@ -612,8 +612,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
     }
 
     private SimpleCollisionBox getTargetBox(PacketEntity reachEntity) {
-        // For a Bedrock client Cult models float positions and the range of positions a pending move spans; the
-        // packet-position margin covers neither.
+        // For a Bedrock client Cult models the one float position the client shows, so no packet-position margin.
         SimpleCollisionBox movementBox = reachEntity.toBoundingBox(
                 player,
                 player.isBedrockMovement()

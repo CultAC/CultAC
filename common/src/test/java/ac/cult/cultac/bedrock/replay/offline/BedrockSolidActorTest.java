@@ -10,6 +10,7 @@ import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
@@ -58,8 +59,7 @@ public class BedrockSolidActorTest {
     public void theMoveMeetsTheBoxTheLastLerpStepLeft() {
         withBoat(OVERLAPPING + 0.3, true, player -> {
             PacketEntity boat = player.compensatedEntities.getEntity(BOAT);
-            boat.beginBedrockMove(player, new Vec3(OVERLAPPING, 120.0, Z), 0, 0, false, false, true);
-            boat.onSecondTransaction();
+            boat.handleBedrockMove(player, new Vec3(OVERLAPPING, 120.0, Z), 0, 0, false, false, true);
             // The boat still stands 0.25 clear of the player in this tick's move, and steps 0.1 closer after it.
             assertEquals(X, clientTick(player, 100, X, VERTICAL).x(), 0);
             assertEquals(X, clientTick(player, 101, X, VERTICAL).x(), 0);
@@ -67,6 +67,26 @@ public class BedrockSolidActorTest {
             // The third step put its side 0.05 inside the player.
             assertEquals(X - 0.05, clientTick(player, 103, X - 0.05, VERTICAL | HORIZONTAL).x(), 1.0E-5);
             assertEquals(0, player.checkManager.getListener(BedrockMovement.class).violations, 0);
+        });
+    }
+
+    /** A boat moved 0.3 further on each of five ticks takes one step of the newest move's three every tick. */
+    @Test
+    public void aBoatMovedEveryTickStepsTowardsTheNewestMove() {
+        withBoat(60.0, true, player -> {
+            PacketEntity boat = player.compensatedEntities.getEntity(BOAT);
+            double[] shown = {60.0, 60.1, 60.26667, 60.47778, 60.71852, 60.97902, 61.23951, 61.5, 61.5};
+            for (int tick = 0; tick < shown.length; tick++) {
+                if (tick < 5) {
+                    boat.handleBedrockMove(player, new Vec3(60.3 + 0.3 * tick, 120.0, Z), 0, 0, false, true, false);
+                }
+                SimpleCollisionBox box = boat.bedrockShownBox(player, new SimpleCollisionBox());
+                assertEquals("tick " + tick, shown[tick], (box.minX + box.maxX) / 2, 2.0E-5);
+                assertEquals("tick " + tick, 1.6, box.maxX - box.minX, 1.0E-6);
+                assertNull(boat.oldPacketLocation);
+                assertTrue(boat.clientPhysicalPositionExact);
+                player.checkManager.endBedrockClientTick();
+            }
         });
     }
 

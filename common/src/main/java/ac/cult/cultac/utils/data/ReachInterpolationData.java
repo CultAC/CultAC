@@ -803,24 +803,6 @@ public class ReachInterpolationData {
     }
 
     /**
-     * Whether the location after the next client tick is a single position: the interpolation starts from one, not from
-     * the union of several possible ones, or that tick lands on the target.
-     */
-    public boolean hasOnePositionAfterClientTick() {
-        return interpolationQueue != null
-                || interpolationStepsLowBound + 1 >= getInterpolationSteps()
-                || Math.abs((startingLocation.maxX - startingLocation.minX)
-                                        - (targetLocation.maxX - targetLocation.minX))
-                                <= SIZE_EPSILON
-                        && Math.abs((startingLocation.maxY - startingLocation.minY)
-                                        - (targetLocation.maxY - targetLocation.minY))
-                                <= SIZE_EPSILON
-                        && Math.abs((startingLocation.maxZ - startingLocation.minZ)
-                                        - (targetLocation.maxZ - targetLocation.minZ))
-                                <= SIZE_EPSILON;
-    }
-
-    /**
      * Writes into {@code out} the location {@link #copyAdvancedForClientTick copyAdvancedForClientTick(true)}
      * would report. Call only when {@link #hasExactMovementLocationAfterClientTick()}.
      */
