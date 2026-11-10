@@ -188,6 +188,18 @@ public record BedrockMovementState(
         return withMotion(motion.withPosition(position, displacementSquared, lastPhysicalDisplacement()));
     }
 
+    /**
+     * Places the actor where the engine decided it is, which need not be where its own sweep ended. The collision
+     * box is the actor's real extent and the next sweep starts from it, so it moves by the same displacement.
+     */
+    public BedrockMovementState withRelocatedPosition(Vec3d feet, double displacementSquared) {
+        Vec3d position =
+                BedrockPositionTranslator.normalizePhysicalFeetPosition(feet, coordinateFrame(), packetYOffset());
+        return withMotion(motion.withPosition(position, displacementSquared, lastPhysicalDisplacement())
+                .withCollisionBox(BedrockActorBox.move(
+                        collisionBox(), position.subtract(physicalFeetPosition()), coordinateFrame())));
+    }
+
     public BedrockMovementState withExternalDisplacement(Vec3d movement) {
         Vec3d position = BedrockPositionTranslator.normalizePhysicalFeetPosition(
                 physicalFeetPosition().add(movement), coordinateFrame(), packetYOffset());

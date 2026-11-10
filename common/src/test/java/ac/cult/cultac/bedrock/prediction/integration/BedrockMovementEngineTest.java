@@ -152,6 +152,25 @@ public final class BedrockMovementEngineTest {
         assertEquals(Vec3d.ZERO, result.velocity());
     }
 
+    @Test
+    public void positionReconciliationMovesTheCollisionBoxWithThePosition() {
+        BedrockMovementState committed =
+                state(new Vec3d(10.0D, 64.0D, 20.0D), new Vec3d(0.1D, -0.0784D, 0.0D), BedrockCollisionFlags.ON_GROUND);
+
+        // The claim is 0.25 ahead on X; one step closes 0.125 of it.
+        PredictionCommit reconciled = BedrockMovementEngine.INSTANCE.reconcileCommittedPosition(
+                commit(committed), new Vec3(10.25D, 64.0D, 20.0D), 0.125D);
+        BedrockMovementState state =
+                ((BedrockNextTickStates) reconciled.carry()).profileEntries().getFirst().state();
+
+        assertEquals(10.125D, state.physicalFeetPosition().x(), 0.0D);
+        assertEquals(committed.collisionBox().minX() + 0.125D, state.collisionBox().minX(), 1.0E-6D);
+        assertEquals(committed.collisionBox().maxX() + 0.125D, state.collisionBox().maxX(), 1.0E-6D);
+        assertEquals(committed.collisionBox().minZ(), state.collisionBox().minZ(), 0.0D);
+        assertEquals(committed.collisionBox().minY(), state.collisionBox().minY(), 0.0D);
+        assertEquals(committed.velocity(), state.velocity());
+    }
+
     private static PredictionCommit commit(BedrockMovementState... states) {
         List<BedrockProfileState.Entry> entries = java.util.Arrays.stream(states)
                 .map(state -> new BedrockProfileState.Entry(state, BedrockMobJumpComponentState.DEFAULT))

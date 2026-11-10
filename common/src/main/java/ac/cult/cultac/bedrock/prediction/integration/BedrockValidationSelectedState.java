@@ -35,7 +35,7 @@ final class BedrockValidationSelectedState {
         return movementResult
                 .predictedState()
                 .withExternalDisplacement(selection.externalDisplacement())
-                .withObservedPosition(position, displacementSquared(selection, position));
+                .withRelocatedPosition(position, displacementSquared(selection, position));
     }
 
     static Vec3d nextTickBasePosition(BedrockValidationSelection selection) {
