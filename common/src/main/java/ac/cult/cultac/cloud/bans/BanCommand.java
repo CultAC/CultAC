@@ -46,7 +46,7 @@ public final class BanCommand {
     /** A word that starts {@code name=}, which a {@code key=value} command reads as another option. */
     private static final Pattern KEY_WORD = Pattern.compile("(?:^|\\s)[A-Za-z_][A-Za-z0-9_-]*=");
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
-    /** A word ban plugins read as a ban's length or server scope, such as {@code 7d}, {@code 1h30m} or {@code server:lobby}. */
+    /** A first word in the form of a length or scope, such as {@code 7d}, {@code 1h30m} or {@code server:lobby}. */
     private static final Pattern LENGTH_WORD = Pattern.compile(
             "(?i)(\\d+(s|secs?|seconds?|m|mins?|minutes?|h|hrs?|hours?|d|days?|w|wks?|weeks?|mo|mons?|months?|y|yrs?|years?))+"
                     + "|server:.*");
