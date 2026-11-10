@@ -66,6 +66,7 @@ import java.util.concurrent.locks.LockSupport;
 import java.util.function.BooleanSupplier;
 import java.util.function.DoubleSupplier;
 import java.util.function.LongSupplier;
+import java.util.regex.Pattern;
 import org.yaml.snakeyaml.Yaml;
 
 /**
@@ -190,6 +191,7 @@ public final class CloudConnection {
             List.of("network", "nats", "token"));
 
     private static final String SECRET_MARKER = "<secret>";
+    private static final Pattern IPV4 = Pattern.compile("\\d{1,3}(\\.\\d{1,3}){3}");
 
     private final URI connect;
     private final String apiKey;
@@ -991,7 +993,8 @@ public final class CloudConnection {
 
     /**
      * Whether the socket URL connect answered may be sent the key: {@code wss}, or {@code ws} to a loopback host when the
-     * connect itself went over {@code http} to a loopback host, with a host and no user info.
+     * connect itself went over {@code http} to a loopback host, with no user info and a host that is
+     * {@linkplain #sameSite connect's own or under it}.
      */
     static boolean answerAllowed(URI connect, String answer) {
         URI socket;
@@ -1001,6 +1004,7 @@ public final class CloudConnection {
             return false;
         }
         if (socket.getScheme() == null || socket.getHost() == null || socket.getRawUserInfo() != null) return false;
+        if (!sameSite(connect.getHost(), socket.getHost())) return false;
         return switch (socket.getScheme().toLowerCase(Locale.ROOT)) {
             case "wss" -> true;
             case "ws" ->
@@ -1009,6 +1013,25 @@ public final class CloudConnection {
                         && CloudSettings.loopback(socket.getHost());
             default -> false;
         };
+    }
+
+    /**
+     * Whether {@code socket} is {@code connect} or a subdomain of it, hosts as {@link URI#getHost} gives them, ignoring
+     * case and a trailing dot. An IP literal matches only itself, and loopback hosts match each other.
+     */
+    static boolean sameSite(String connect, String socket) {
+        if (connect == null || socket == null) return false;
+        if (CloudSettings.loopback(connect) && CloudSettings.loopback(socket)) return true;
+        String own = hostName(connect);
+        String named = hostName(socket);
+        if (own.isEmpty()) return false;
+        if (named.equals(own)) return true;
+        return !own.startsWith("[") && !IPV4.matcher(own).matches() && named.endsWith("." + own);
+    }
+
+    private static String hostName(String host) {
+        String lower = host.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".") ? lower.substring(0, lower.length() - 1) : lower;
     }
 
     /** A URL the service names, for a log line: only its scheme, host and port, since its path may echo the key. */
