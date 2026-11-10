@@ -27,9 +27,12 @@ import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
+import it.unimi.dsi.fastutil.ints.Int2ObjectFunction;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.util.*;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
+import java.util.function.IntFunction;
 import org.jetbrains.annotations.Nullable;
 
 public class CompensatedEntities {
@@ -125,61 +128,69 @@ public class CompensatedEntities {
 
     /** The entities passing {@link PacketEntity#mayPushOrCollide()}, in entityMap iteration order. Read only. */
     public List<PacketEntity> pushOrCollideCandidates() {
+        if (entityMap.viewCount(EntityMap.PUSH_OR_COLLIDE) <= 0) return pushOrCollideCandidates = List.of();
         refreshTypeViews();
         return pushOrCollideCandidates;
     }
 
     /** The boats, in entityMap iteration order. Read only. */
     public List<PacketEntity> boats() {
+        if (entityMap.viewCount(EntityMap.BOATS) <= 0) return boats = List.of();
         refreshTypeViews();
         return boats;
     }
 
     /** The camels, in entityMap iteration order. Read only. */
     public List<PacketEntityCamel> camels() {
+        if (entityMap.viewCount(EntityMap.CAMELS) <= 0) return camels = List.of();
         refreshTypeViews();
         return camels;
     }
 
     /** The boats, shulkers and happy ghasts, in entityMap iteration order. Read only. */
     public List<PacketEntity> poseCollisionCandidates() {
+        if (entityMap.viewCount(EntityMap.POSE_COLLISION) <= 0) return poseCollisionCandidates = List.of();
         refreshTypeViews();
         return poseCollisionCandidates;
     }
 
     /** The boats, shulkers and {@link PacketEntityHappyGhast}s, in entityMap iteration order. Read only. */
     public List<PacketEntity> unknownCollisionCandidates() {
+        if (entityMap.viewCount(EntityMap.UNKNOWN_COLLISION) <= 0) return unknownCollisionCandidates = List.of();
         refreshTypeViews();
         return unknownCollisionCandidates;
     }
 
+    // Builds only the views with a nonzero count; the getters return List.of() for the others.
     private void refreshTypeViews() {
         if (typeViewsAt == entityMap.mutations) return;
-        List<PacketEntity> pushOrCollide = presized(pushOrCollideCandidates);
-        List<PacketEntity> boatList = presized(boats);
-        List<PacketEntityCamel> camelList = new ArrayList<>(camels.size());
-        List<PacketEntity> pose = presized(poseCollisionCandidates);
-        List<PacketEntity> unknown = presized(unknownCollisionCandidates);
+        ArrayList<PacketEntity> pushOrCollide = presized(EntityMap.PUSH_OR_COLLIDE);
+        ArrayList<PacketEntity> boatList = presized(EntityMap.BOATS);
+        int camelCount = entityMap.viewCount(EntityMap.CAMELS);
+        ArrayList<PacketEntityCamel> camelList = camelCount <= 0 ? null : new ArrayList<>(camelCount);
+        ArrayList<PacketEntity> pose = presized(EntityMap.POSE_COLLISION);
+        ArrayList<PacketEntity> unknown = presized(EntityMap.UNKNOWN_COLLISION);
         for (PacketEntity entity : entityMap.values()) {
-            if (entity.mayPushOrCollide()) pushOrCollide.add(entity);
+            if (pushOrCollide != null && entity.mayPushOrCollide()) pushOrCollide.add(entity);
             boolean boat = entity.isBoat();
             boolean shulker = entity.type == EntityTypeIds.SHULKER;
-            if (boat) boatList.add(entity);
-            if (entity instanceof PacketEntityCamel camel) camelList.add(camel);
-            if (boat || shulker || entity.isHappyGhast()) pose.add(entity);
-            if (boat || shulker || entity instanceof PacketEntityHappyGhast) unknown.add(entity);
+            if (boatList != null && boat) boatList.add(entity);
+            if (camelList != null && entity instanceof PacketEntityCamel camel) camelList.add(camel);
+            if (pose != null && (boat || shulker || entity.isHappyGhast())) pose.add(entity);
+            if (unknown != null && (boat || shulker || entity instanceof PacketEntityHappyGhast)) unknown.add(entity);
         }
-        pushOrCollideCandidates = pushOrCollide;
-        boats = boatList;
-        camels = camelList;
-        poseCollisionCandidates = pose;
-        unknownCollisionCandidates = unknown;
+        pushOrCollideCandidates = pushOrCollide == null ? List.of() : pushOrCollide;
+        boats = boatList == null ? List.of() : boatList;
+        camels = camelList == null ? List.of() : camelList;
+        poseCollisionCandidates = pose == null ? List.of() : pose;
+        unknownCollisionCandidates = unknown == null ? List.of() : unknown;
         typeViewsAt = entityMap.mutations;
     }
 
-    private List<PacketEntity> presized(List<PacketEntity> previous) {
-        if (previous.isEmpty() || entityMap.isEmpty()) return new ArrayList<>();
-        return new ArrayList<>(Math.max(10, previous.size() + 1));
+    @Nullable
+    private ArrayList<PacketEntity> presized(int view) {
+        int count = entityMap.viewCount(view);
+        return count <= 0 ? null : new ArrayList<>(count);
     }
 
     private void track(PacketEntity entity) {
@@ -1390,26 +1401,62 @@ public class CompensatedEntities {
 
     /**
      * The tracked entities by id; {@code mutations} advances on every put and clear, and on every remove of a present
-     * key: removing an absent key leaves the arrays untouched.
+     * key: removing an absent key leaves the arrays untouched. Put, remove and clear also keep the number of values
+     * each type view accepts; they are the supported mutators, and the other map mutators throw.
      */
     public static final class EntityMap extends Int2ObjectOpenHashMap<PacketEntity> {
+        static final int PUSH_OR_COLLIDE = 0;
+        static final int BOATS = 1;
+        static final int CAMELS = 2;
+        static final int POSE_COLLISION = 3;
+        static final int UNKNOWN_COLLISION = 4;
+
         private int mutations;
+        private final int[] viewCounts = new int[5];
 
         public EntityMap() {
             super(40, 0.7f);
         }
 
+        // Every input is fixed at construction, so an entity's mask never changes while it is mapped.
+        static int viewMask(PacketEntity entity) {
+            int mask = entity.mayPushOrCollide() ? 1 << PUSH_OR_COLLIDE : 0;
+            boolean boat = entity.isBoat();
+            boolean shulker = entity.type == EntityTypeIds.SHULKER;
+            if (boat) mask |= 1 << BOATS;
+            if (entity instanceof PacketEntityCamel) mask |= 1 << CAMELS;
+            if (boat || shulker || entity.isHappyGhast()) mask |= 1 << POSE_COLLISION;
+            if (boat || shulker || entity instanceof PacketEntityHappyGhast) mask |= 1 << UNKNOWN_COLLISION;
+            return mask;
+        }
+
+        int viewCount(int view) {
+            return viewCounts[view];
+        }
+
+        private void count(@Nullable PacketEntity entity, int delta) {
+            if (entity == null) return;
+            int mask = viewMask(entity);
+            for (int view = 0; mask != 0; view++, mask >>>= 1) if ((mask & 1) != 0) viewCounts[view] += delta;
+        }
+
         @Override
         public PacketEntity put(int key, PacketEntity value) {
             mutations++;
-            return super.put(key, value);
+            PacketEntity replaced = super.put(key, value);
+            count(replaced, -1);
+            count(value, 1);
+            return replaced;
         }
 
         @Override
         public PacketEntity remove(int key) {
             int before = size();
             PacketEntity removed = super.remove(key);
-            if (size() != before) mutations++;
+            if (size() != before) {
+                mutations++;
+                count(removed, -1);
+            }
             return removed;
         }
 
@@ -1417,6 +1464,62 @@ public class CompensatedEntities {
         public void clear() {
             mutations++;
             super.clear();
+            Arrays.fill(viewCounts, 0);
+        }
+
+        @Override
+        public PacketEntity putIfAbsent(int key, PacketEntity value) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public boolean remove(int key, Object value) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public boolean replace(int key, PacketEntity oldValue, PacketEntity value) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public PacketEntity replace(int key, PacketEntity value) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public PacketEntity computeIfAbsent(int key, IntFunction<? extends PacketEntity> mapping) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public PacketEntity computeIfAbsent(int key, Int2ObjectFunction<? extends PacketEntity> mapping) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public PacketEntity computeIfPresent(
+                int key, BiFunction<? super Integer, ? super PacketEntity, ? extends PacketEntity> remapping) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public PacketEntity compute(
+                int key, BiFunction<? super Integer, ? super PacketEntity, ? extends PacketEntity> remapping) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public PacketEntity merge(
+                int key,
+                PacketEntity value,
+                BiFunction<? super PacketEntity, ? super PacketEntity, ? extends PacketEntity> remapping) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void replaceAll(BiFunction<? super Integer, ? super PacketEntity, ? extends PacketEntity> function) {
+            throw new UnsupportedOperationException();
         }
     }
 
