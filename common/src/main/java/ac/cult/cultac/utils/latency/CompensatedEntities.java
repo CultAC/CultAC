@@ -5,6 +5,7 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsM;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.network.packet.EntityMetadata;
+import ac.cult.cultac.network.packet.InventoryPackets;
 import ac.cult.cultac.network.packet.InventoryPackets.EquipmentEntry;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -1021,12 +1022,13 @@ public class CompensatedEntities {
         if (entity == null) return;
 
         boolean controlled = vehicles.canClientAuthoritativelyMoveVisibleRoot(entity);
-        for (EquipmentEntry slot : slots) {
-            updateSelfEquipment(entityID, slot.slot(), slot.item());
+        for (int index = 0; index < slots.size(); index++) {
+            EquipmentSlot slot = InventoryPackets.Equipment.slot(slots, index);
+            if (entityID == player.entityID) updateSelfEquipment(entityID, slot, slots.get(index).item());
 
-            if (slot.slot() == EquipmentSlot.SADDLE) {
-                entity.saddleItem = slot.item();
-                boolean hasSaddle = !slot.item().isEmpty();
+            if (slot == EquipmentSlot.SADDLE) {
+                entity.saddleItem = slots.get(index).item();
+                boolean hasSaddle = !entity.saddleItem.isEmpty();
                 if (entity instanceof PacketEntityRideable rideable) {
                     rideable.hasSaddle = hasSaddle;
                 }
@@ -1036,8 +1038,8 @@ public class CompensatedEntities {
                 if (entity instanceof PacketEntityNautilus nautilus) {
                     nautilus.hasSaddle = hasSaddle;
                 }
-            } else if (slot.slot() == EquipmentSlot.BODY && entity instanceof PacketEntityHappyGhast happyGhast) {
-                happyGhast.hasBodyArmor = !slot.item().isEmpty();
+            } else if (slot == EquipmentSlot.BODY && entity instanceof PacketEntityHappyGhast happyGhast) {
+                happyGhast.hasBodyArmor = !slots.get(index).item().isEmpty();
             }
         }
         vehicles.markSaddleControlSwitch(entity, controlled);

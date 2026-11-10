@@ -29,6 +29,8 @@ public final class ModelItemValues {
     private final ItemStackCache cache;
     private final Supplier<?> generation;
     private final CachedStacks cached;
+    private final LaterStacks later;
+    private int count;
 
     public ModelItemValues(
             WireValueDecoder decoder,
@@ -54,6 +56,7 @@ public final class ModelItemValues {
         this.cache = cache;
         this.generation = cache == null ? null : Objects.requireNonNull(generation);
         this.cached = cache == null ? null : new CachedStacks();
+        this.later = cache == null ? null : new LaterStacks();
     }
 
     public SimItemStack item(ByteBuf input, boolean creative) {
@@ -67,6 +70,43 @@ public final class ModelItemValues {
         return decoder.item(version, input, registries, ModelNbtFactory.INSTANCE, cached);
     }
 
+    /** Whether {@link #sentLater} defers any conversion. */
+    boolean convertsLater() {
+        return cache != null && !cache.observing();
+    }
+
+    /**
+     * As {@link #sentItem}, throwing what it throws and leaving the held stacks as it does; the stack is converted when
+     * first read, and every read returns that stack. Only while {@link #convertsLater}.
+     */
+    Supplier<SimItemStack> sentLater(ByteBuf input) {
+        cache.bind(decoder, version, items, generation.get());
+        return decoder.item(version, input, registries, ModelNbtFactory.INSTANCE, later);
+    }
+
+    /** The slot of the held stack {@code input} continues with, consumed, its count in {@code count}; -1 if none. */
+    private int held(ByteBuf input) {
+        int start = input.readerIndex(), count = 0, index = start, next;
+        do {
+            if (index == input.writerIndex() || index - start == 5) return -1;
+            next = input.getUnsignedByte(index);
+            count |= (next & 0x7f) << ((index++ - start) * 7);
+        } while ((next & 0x80) != 0);
+        if (count <= 0) return -1;
+        int slot = cache.find(input, index);
+        if (slot < 0) return -1;
+        input.readerIndex(index + cache.length(slot));
+        this.count = count;
+        return slot;
+    }
+
+    /** Where the key of a stack decoded from {@code start} begins: after its leading count. */
+    private static int keyStart(ByteBuf input, int start) {
+        int index = start;
+        while ((input.getUnsignedByte(index++) & 0x80) != 0) {}
+        return index;
+    }
+
     /**
      * Held stacks are keyed by the bytes after the leading count, which reaches a decoded stack only as its count, so
      * one held stack serves every positive count. The structure checks read no byte past a stack they accept, so input
@@ -75,24 +115,14 @@ public final class ModelItemValues {
     private final class CachedStacks implements WireValueDecoder.ItemReuse<NbtValue, SimItemStack> {
         @Override
         public SimItemStack reuse(ByteBuf input) {
-            int start = input.readerIndex(), count = 0, index = start, next;
-            do {
-                if (index == input.writerIndex() || index - start == 5) return null;
-                next = input.getUnsignedByte(index);
-                count |= (next & 0x7f) << ((index++ - start) * 7);
-            } while ((next & 0x80) != 0);
-            if (count <= 0) return null;
-            int slot = cache.find(input, index);
-            if (slot < 0) return null;
-            input.readerIndex(index + cache.length(slot));
-            return cache.stack(slot).copyWithCount(count);
+            int slot = held(input);
+            return slot < 0 ? null : cache.stack(slot).copyWithCount(count);
         }
 
         @Override
         public SimItemStack decoded(WireValueDecoder.DecodedItem<NbtValue> value, ByteBuf input, int start, int end) {
             var stack = item(value);
-            int index = start;
-            while ((input.getUnsignedByte(index++) & 0x80) != 0) {}
+            int index = keyStart(input, start);
             // Bundle contents memoize their weight and are never shared between received stacks.
             if (input.readerIndex() == end
                     && end - index <= ItemStackCache.MAX_BYTES
@@ -102,6 +132,139 @@ public final class ModelItemValues {
                 cache.put(input, index, end, stack.copy(), size);
             }
             return stack;
+        }
+    }
+
+    /**
+     * As {@link CachedStacks}, holding the same keys at the same moments with the same sizes. A stack that {@link
+     * Pending#defers} is held and handed out unconverted; its item key resolves now, so every failure stays here.
+     */
+    private final class LaterStacks implements WireValueDecoder.ItemReuse<NbtValue, Supplier<SimItemStack>> {
+        @Override
+        public Supplier<SimItemStack> reuse(ByteBuf input) {
+            int slot = held(input);
+            if (slot < 0) return null;
+            Object held = cache.held(slot);
+            return new Counted(
+                    held instanceof Pending pending ? pending.copy() : new Pending((SimItemStack) held), count);
+        }
+
+        @Override
+        public Supplier<SimItemStack> decoded(
+                WireValueDecoder.DecodedItem<NbtValue> value, ByteBuf input, int start, int end) {
+            if (!Pending.defers(value)) return new Pending(cached.decoded(value, input, start, end));
+            String key = key(value.id());
+            items.item(key);
+            int index = keyStart(input, start);
+            // A deferred stack has no bundle contents and a positive count.
+            if (input.readerIndex() == end
+                    && end - index <= ItemStackCache.MAX_BYTES
+                    && !key.equals("minecraft:air")) {
+                int size = ItemStackCache.retained(end - index, value.components(), value.componentLayouts());
+                cache.put(input, index, end, new Pending(items, key, value), size);
+            }
+            return new Pending(items, key, value);
+        }
+    }
+
+    /**
+     * A sent stack, converted on its first read by the one thread reading it. Converting reads only the decoded value,
+     * its resolved item key and an item registry whose answers never change.
+     */
+    static final class Pending implements Supplier<SimItemStack> {
+        private static final int DEPTH = 64;
+
+        private final ItemRegistry items;
+        private final String key;
+        private WireValueDecoder.DecodedItem<NbtValue> value;
+        private SimItemStack stack;
+
+        Pending(ItemRegistry items, String key, WireValueDecoder.DecodedItem<NbtValue> value) {
+            this.items = items;
+            this.key = key;
+            this.value = value;
+        }
+
+        Pending(SimItemStack stack) {
+            this(null, null, null);
+            this.stack = stack;
+        }
+
+        /** A copy for another reader, unconverted while this one is. */
+        Pending copy() {
+            return stack != null ? new Pending(stack) : new Pending(items, key, value);
+        }
+
+        @Override
+        public SimItemStack get() {
+            var converted = stack;
+            if (converted == null) {
+                converted = stack = ModelItemValues.stack(items, key, value.count(), patch(value), value.wirePatch());
+                value = null;
+            }
+            return converted;
+        }
+
+        /**
+         * Whether converting {@code value} after its item key resolved can neither throw nor read more than itself: a
+         * positive count, compound components with no bundle contents, block predicates or tooltip display, layouts
+         * without signed zeros, and trees whose depth leaves the recursive conversion far from any stack limit.
+         */
+        static boolean defers(WireValueDecoder.DecodedItem<NbtValue> value) {
+            if (value.count() <= 0 || !(value.components() instanceof NbtValue.Compound components)) return false;
+            for (String key : components.values().keySet()) {
+                switch (key) {
+                    case "minecraft:bundle_contents",
+                            "minecraft:can_break",
+                            "minecraft:can_place_on",
+                            "minecraft:tooltip_display" -> {
+                        return false;
+                    }
+                    default -> {}
+                }
+            }
+            NbtValue layouts = value.componentLayouts();
+            if (layouts != null) {
+                if (!(layouts instanceof NbtValue.Compound compound)) return false;
+                for (NbtValue layout : compound.values().values())
+                    if (layout instanceof NbtValue.Compound fields && fields.values().containsKey("negative_zero"))
+                        return false;
+                if (!total(layouts, 0)) return false;
+            }
+            return total(components, 0);
+        }
+
+        /** Whether {@code value} holds no null leaf and nests at most {@link #DEPTH} below {@code depth}. */
+        private static boolean total(NbtValue value, int depth) {
+            if (depth > DEPTH) return false;
+            if (value instanceof NbtValue.Numeric numeric) return numeric.value() != null;
+            if (value instanceof NbtValue.Text text) return text.value() != null;
+            if (value instanceof NbtValue.PrimitiveArray) return true;
+            if (value instanceof NbtValue.Compound compound) {
+                for (NbtValue child : compound.values().values()) if (!total(child, depth + 1)) return false;
+                return true;
+            }
+            for (NbtValue child : ((NbtValue.Sequence) value).values()) if (!total(child, depth + 1)) return false;
+            return true;
+        }
+    }
+
+    /** A held stack at another positive count, copied on its first read. */
+    private static final class Counted implements Supplier<SimItemStack> {
+        private final Pending held;
+        private final int count;
+        private SimItemStack stack;
+
+        Counted(Pending held, int count) {
+            this.held = held;
+            this.count = count;
+        }
+
+        @Override
+        public SimItemStack get() {
+            var copy = stack;
+            if (copy == null) copy = stack = held.get().copyWithCount(count);
+            return copy;
         }
     }
 
@@ -210,11 +373,23 @@ public final class ModelItemValues {
 
     private SimItemStack stack(int id, int count, ComponentPatch patch, WireValueDecoder.ComponentEncoding wirePatch) {
         if (count <= 0) return items.empty();
-        String key = registries.preserveIdentifiers()
+        return stack(items, key(id), count, patch, wirePatch);
+    }
+
+    private String key(int id) {
+        return registries.preserveIdentifiers()
                 ? registries.name("minecraft:item", id)
                 : ModelRegistryData.load(ProtocolVersion.V26_3)
                         .registry("minecraft:item")
                         .name(mappings.item(id));
+    }
+
+    private static SimItemStack stack(
+            ItemRegistry items,
+            String key,
+            int count,
+            ComponentPatch patch,
+            WireValueDecoder.ComponentEncoding wirePatch) {
         var stack = items.stack(key, count, patch);
         if (wirePatch != null) stack.wirePatch(encoding(wirePatch));
         return stack;
