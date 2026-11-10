@@ -37,7 +37,10 @@ public final class BedrockVelocitySystems {
                     frame.input().previousState().physicalFeetPosition(),
                     facts.movementDimensions());
             velocity = BedrockAerialMovement.glideVelocity(
-                    velocity, frame.input().inputFrame(), frame.input().glideBoost());
+                    velocity,
+                    frame.input().inputFrame(),
+                    frame.input().glideBoost(),
+                    facts.effectState().slowFalling());
             return plan(frame, velocity, new BedrockTravelHorizontalControl.Step(0.0D, 1.0D), false);
         }
 

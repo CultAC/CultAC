@@ -13,7 +13,6 @@ public final class BedrockAerialMovement {
     private static final double AIR_VERTICAL_DRAG = 0.98D;
     private static final double LEVITATION_ACCELERATION_PER_LEVEL = 0.01D;
     private static final double LEVITATION_VERTICAL_DRAG = 0.8D;
-    private static final float GLIDE_GRAVITY = 0.08F;
     private static final float GLIDE_LIFT_SCALE = 0.1F;
     private static final float GLIDE_PITCH_HORIZONTAL_SCALE = 0.04F;
     private static final float GLIDE_PITCH_VERTICAL_SCALE = 3.2F;
@@ -27,8 +26,8 @@ public final class BedrockAerialMovement {
 
     private BedrockAerialMovement() {}
 
-    public static double airGravity(Vec3d startingVelocity, boolean slowFalling) {
-        return slowFalling && startingVelocity.y() < 0.0D ? SLOW_FALLING_AIR_GRAVITY : AIR_GRAVITY;
+    public static double airGravity(Vec3d velocity, boolean slowFalling) {
+        return slowFalling && velocity.y() < 0.0D ? SLOW_FALLING_AIR_GRAVITY : AIR_GRAVITY;
     }
 
     public static double airDraggedVelocity(double verticalVelocity, double gravity) {
@@ -48,6 +47,14 @@ public final class BedrockAerialMovement {
     }
 
     public static Vec3d glideVelocity(Vec3d currentVelocity, BedrockInputFrame frame, boolean boost) {
+        return glideVelocity(currentVelocity, frame, boost, false);
+    }
+
+    public static Vec3d glideVelocity(
+            Vec3d currentVelocity, BedrockInputFrame frame, boolean boost, boolean slowFalling) {
+        // Captures show the reduced gravity for a slow-falling glide that is descending; a rising one was
+        // not captured and is given the same rule as air travel.
+        float gravity = (float) airGravity(currentVelocity, slowFalling);
         float pitchRadians = frame.pitch() * BedrockMath.DEGREES_TO_RADIANS;
         float viewPitchRadians = frame.pitch() * -BedrockMath.DEGREES_TO_RADIANS;
         float viewYawRadians = frame.yaw() * -BedrockMath.DEGREES_TO_RADIANS - BedrockMath.PI;
@@ -63,7 +70,7 @@ public final class BedrockAerialMovement {
         float glideFactor = Math.min(viewLength / 0.4F, 1.0F) * cosPitch * cosPitch;
 
         float velocityX = (float) currentVelocity.x();
-        float velocityY = (float) currentVelocity.y() + (glideFactor * 0.75F - 1.0F) * GLIDE_GRAVITY;
+        float velocityY = (float) currentVelocity.y() + (glideFactor * 0.75F - 1.0F) * gravity;
         float velocityZ = (float) currentVelocity.z();
         if (horizontalViewLength > 0.0F && velocityY < 0.0F) {
             float lift = glideFactor * velocityY * -GLIDE_LIFT_SCALE;

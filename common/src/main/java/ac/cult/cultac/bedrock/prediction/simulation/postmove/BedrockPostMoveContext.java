@@ -185,7 +185,8 @@ record BedrockPostMoveContext(BedrockTravelPlan plan, BedrockMoveRequest moveReq
     }
 
     BedrockPostMoveFrame applyLevitation(BedrockPostMoveFrame frame) {
-        if (postMoveVelocityEffectsSuppressed() || !gravityAndVerticalDragApplies(frame)) {
+        // A glide move skips gravity and drag, but the client still levitates its result.
+        if (!gravityAndVerticalDragApplies(frame)) {
             return frame;
         }
         return frame.withVelocity(

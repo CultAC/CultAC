@@ -29,8 +29,9 @@ final class BedrockPostMoveVerticalEffects {
         }
         return new Vec3d(
                 velocity.x(),
+                // The client levitates the velocity its move and collisions left, not the one the tick began with.
                 BedrockAerialMovement.levitationVelocityBeforeVerticalDrag(
-                        input.startingVelocity().y(), input.effectState().levitationLevel()),
+                        velocity.y(), input.effectState().levitationLevel()),
                 velocity.z());
     }
 
@@ -134,11 +135,12 @@ final class BedrockPostMoveVerticalEffects {
     }
 
     private static Vec3d airGravity(BedrockPostMoveContext input, Vec3d velocity) {
+        // Slow falling is chosen from the velocity after the move: a player standing on the ground has
+        // none left and takes full gravity.
         return new Vec3d(
                 velocity.x(),
                 (float) velocity.y()
-                        - (float) BedrockAerialMovement.airGravity(
-                                input.startingVelocity(), input.effectState().slowFalling()),
+                        - (float) BedrockAerialMovement.airGravity(velocity, input.effectState().slowFalling()),
                 velocity.z());
     }
 
