@@ -23,7 +23,7 @@ record BedrockMobJumpInput(
         return new BedrockMobJumpInput(
                 jumping,
                 autoSurfaceSwim(liquidJumpContact, swimmingAfterActions),
-                swimTransition(input, swimming, liquidJumpContact),
+                swimTransition(swimming),
                 scaffoldingOrAscendableBlock(input, climb),
                 climb.climbable().ascending() || frameFacts.rawPowderSnowAtFeetAscendable(),
                 nonSwimmerSwimUp(liquidJumpContact),
@@ -45,17 +45,14 @@ record BedrockMobJumpInput(
                         frameFacts.swimming().swimAmount());
     }
 
+    // Held jump is withheld while the swimmer's head is out of water or the swim
+    // pose is still blending, in any medium.
     private static boolean autoSurfaceSwim(BedrockLiquidJumpContact liquidJumpContact, boolean swimmingAfterActions) {
-        return liquidJumpContact.waterSwimUpApplies() && swimmingAfterActions && !liquidJumpContact.waterHeadInWater();
+        return swimmingAfterActions && !liquidJumpContact.waterHeadInWater();
     }
 
-    private static boolean swimTransition(
-            BedrockTravelInput input,
-            BedrockSwimmingMovement.SwimmingState swimming,
-            BedrockLiquidJumpContact liquidJumpContact) {
-        return liquidJumpContact.waterSwimUpApplies()
-                && swimming.swimAmount() > 0.0D
-                && swimming.swimAmount() < FULL_SWIM_AMOUNT;
+    private static boolean swimTransition(BedrockSwimmingMovement.SwimmingState swimming) {
+        return swimming.swimAmount() > 0.0D && swimming.swimAmount() < FULL_SWIM_AMOUNT;
     }
 
     private static boolean scaffoldingOrAscendableBlock(BedrockTravelInput input, BedrockClimbState climb) {
