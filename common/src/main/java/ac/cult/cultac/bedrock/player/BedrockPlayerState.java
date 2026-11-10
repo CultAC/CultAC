@@ -32,6 +32,8 @@ public final class BedrockPlayerState {
             new ac.cult.cultac.bedrock.bridge.GeyserWorldView();
     // Accessed under the CultPlayer transaction lock.
     public ac.cult.cultac.player.CultPlayer.BedrockTransaction lastClientboundTransaction;
+    // The vehicle the client predicted on its last tick; null after a tick it predicted none.
+    public ac.cult.cultac.utils.data.packetentity.PacketEntity predictedVehicle;
     private final UUID playerUuid;
 
     private BedrockProtocolVersion protocolVersion = BedrockProtocolVersion.UNKNOWN;
@@ -93,6 +95,7 @@ public final class BedrockPlayerState {
     public void recordActorCreation(long runtimeEntityId) {
         collisionDefinition = null;
         movementCorrections.clear();
+        predictedVehicle = null;
         lastMovementTick = -1;
         movementEffects.clear();
         clientActors.clear();

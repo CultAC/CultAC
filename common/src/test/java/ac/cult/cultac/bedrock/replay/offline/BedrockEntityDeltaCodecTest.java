@@ -74,6 +74,8 @@ public class BedrockEntityDeltaCodecTest {
             flush(type, positions, player);
             player.compensatedEntities.vehicles.setServerVehicle(71, new int[] {player.entityID}, 0);
             player.compensatedEntities.vehicles.applyVehiclePassengers(71, new int[] {player.entityID});
+            // The client already predicts the horse.
+            player.bedrockState.predictedVehicle = horse;
             for (boolean local : new boolean[] {false, true}) {
                 var packet = new MoveEntityDeltaPacket();
                 packet.setRuntimeEntityId(171);

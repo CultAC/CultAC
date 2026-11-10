@@ -1414,7 +1414,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 player.mountYaw = mounted.clientPhysicalYaw;
             }
             if (resyncState != null) {
-                applyVehicleProtocolResync(transaction, resyncState);
+                applyVehicleProtocolResync(resyncState);
             }
         });
     }
@@ -1489,11 +1489,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     }
 
     private void queueVehicleProtocolResync(int transaction, VehicleMountResyncState resyncState) {
-        if (isBedrockVehicleResync(resyncState.vehicleId())) {
-            player.getSetbackTeleportUtil()
-                    .vehicleTeleports()
-                    .addBedrockVehicleTeleport(resyncState.vehicleId(), transaction, resyncState.position());
-        } else {
+        // A Bedrock client predicts the vehicle from where it shows it, so its mount only records the safe position.
+        if (!isBedrockVehicleResync(resyncState.vehicleId())) {
             // ClientPacketListener#handleMoveVehicle answers each packet, the snap nudge first.
             if (resyncState.snapNudge() != null) {
                 player.getSetbackTeleportUtil()
@@ -1518,20 +1515,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                         vehicleId, transaction, new Vec3(tracked.getX(), tracked.getY(), tracked.getZ()));
     }
 
-    private void applyVehicleProtocolResync(int transaction, VehicleMountResyncState resyncState) {
-        if (isBedrockVehicleResync(resyncState.vehicleId())) {
-            player.getSetbackTeleportUtil()
-                    .sender()
-                    .sendBedrockMovementCorrection(
-                            resyncState.vehicleId(),
-                            resyncState.position(),
-                            resyncState.velocity(),
-                            resyncState.yaw(),
-                            resyncState.pitch(),
-                            Boolean.TRUE.equals(resyncState.onGround()),
-                            transaction);
-            return;
-        }
+    private void applyVehicleProtocolResync(VehicleMountResyncState resyncState) {
+        if (isBedrockVehicleResync(resyncState.vehicleId())) return;
         player.compensatedEntities.vehicles.applyAcceptedVehicleTeleportEntityState(
                 resyncState.vehicleId(),
                 resyncState.position(),

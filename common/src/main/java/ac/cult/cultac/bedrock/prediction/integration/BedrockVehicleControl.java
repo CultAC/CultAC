@@ -23,6 +23,12 @@ public final class BedrockVehicleControl {
                 : null;
     }
 
+    /** The controlled vehicle once the client predicts it, from its first tick in it: it ignores its moves. */
+    public static PacketEntity predictedVehicle(CultPlayer player) {
+        var vehicle = controlledVehicle(player);
+        return vehicle != null && vehicle == player.bedrockState.predictedVehicle ? vehicle : null;
+    }
+
     public static boolean isSupported(PacketEntity entity) {
         return entity != null
                 && (entity instanceof PacketEntityHorse && BedrockHorseProperties.supports(entity.type)

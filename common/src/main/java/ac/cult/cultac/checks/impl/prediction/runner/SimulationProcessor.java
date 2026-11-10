@@ -1071,6 +1071,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             return null;
         }
         var vehicle = BedrockVehicleControl.controlledVehicle(this.player);
+        if (!frame.hasRawInputFlag(PlayerAuthInputData.IN_CLIENT_PREDICTED_IN_VEHICLE))
+            this.player.bedrockState.predictedVehicle = null;
         this.player.bedrockState.tickRidingJump(frame, vehicle instanceof PacketEntityHorse);
         if (vehicle != null) {
             if (!BedrockVehicleControl.matches(frame, vehicle)) {
@@ -1111,6 +1113,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         DesyncStatus riderGround = this.lastOnGround;
         boolean riderOnGround = this.player.onGround;
         PredictionResult vehicleResult = null;
+        if (this.player.bedrockState.predictedVehicle != vehicle) {
+            this.player.bedrockState.predictedVehicle = vehicle;
+            BedrockVehiclePredictionState.beginClientPrediction(this.player, vehicle);
+        }
         try {
             var previous = vehicle.bedrockPrediction;
             this.applyProfileCommit(

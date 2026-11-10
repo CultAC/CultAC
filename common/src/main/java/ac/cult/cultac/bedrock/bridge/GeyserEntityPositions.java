@@ -174,7 +174,7 @@ final class GeyserEntityPositions {
             if (spawn) entity.bedrockRuntimeId = runtimeId;
             if (size != null) size.apply(entity);
             if (spawnVelocity != null) entity.deltaMovement = spawnVelocity;
-            if (entity == BedrockVehicleControl.controlledVehicle(player) && !spawn && !moveLocal) return;
+            if (entity == BedrockVehicleControl.predictedVehicle(player) && !spawn && !moveLocal) return;
             boolean ridden = entity == player.compensatedEntities.getSelf().getRiding();
             if (!spawn && (teleport || moveLocal) && ridden) {
                 player.checkManager
@@ -206,10 +206,11 @@ final class GeyserEntityPositions {
         return entity.isBoat() ? 90.0F : 0.0F;
     }
 
-    // The player's own ride is placed directly when the move is proven, not interpolated in two halves.
+    // A ride the client does not predict is placed directly by a teleport. One it is about to predict still lerps
+    // until its first predicted tick, as a remote actor.
     private static boolean placedDirectly(CultPlayer player, PacketEntity entity) {
-        return entity == BedrockVehicleControl.controlledVehicle(player)
-                || entity == player.compensatedEntities.getSelf().getRiding();
+        return entity == player.compensatedEntities.getSelf().getRiding()
+                && entity != BedrockVehicleControl.controlledVehicle(player);
     }
 
     boolean hasPending() {

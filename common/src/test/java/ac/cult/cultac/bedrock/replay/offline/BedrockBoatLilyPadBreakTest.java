@@ -152,6 +152,8 @@ public final class BedrockBoatLilyPadBreakTest {
                 BOAT, new int[] {player.entityID}, player.lastTransactionSent.get());
         player.compensatedEntities.vehicles.applyVehiclePassengers(BOAT, new int[] {player.entityID});
         player.bedrockState.movementCorrections.clear();
+        // The client is mid-ride: it already predicts the boat.
+        player.bedrockState.predictedVehicle = boat;
         assertSame(boat, BedrockVehicleControl.controlledVehicle(player));
         return boat;
     }

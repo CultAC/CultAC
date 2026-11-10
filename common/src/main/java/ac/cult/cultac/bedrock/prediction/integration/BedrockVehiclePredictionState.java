@@ -46,6 +46,16 @@ public record BedrockVehiclePredictionState(PredictionCommit commit, PredictionR
         commitTransform(vehicle, vehicle.bedrockPrediction.commit().carry());
     }
 
+    /**
+     * The client's first tick predicting {@code vehicle}: the actor first takes the lerp step it takes as a remote
+     * actor, toward the moves the client handled before that tick, and the prediction starts there with no velocity.
+     */
+    public static void beginClientPrediction(CultPlayer player, PacketEntity vehicle) {
+        vehicle.onMovement(player, true);
+        vehicle.deltaMovement = Vec3.ZERO;
+        applyVelocity(vehicle, Vec3.ZERO);
+    }
+
     public static void applyVelocity(PacketEntity vehicle, Vec3 velocity) {
         if (vehicle.bedrockPrediction == null) return;
         var entries = BedrockProfileState.profileEntries(
