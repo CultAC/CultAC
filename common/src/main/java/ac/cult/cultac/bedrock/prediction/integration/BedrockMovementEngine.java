@@ -16,6 +16,7 @@ import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation.Candidate;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockActorDimensions;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
+import ac.cult.cultac.bedrock.prediction.simulation.postmove.BedrockBoatLilyPads;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
 import ac.cult.cultac.checks.impl.prediction.AuthoredMovementFrame;
@@ -307,6 +308,7 @@ public final class BedrockMovementEngine implements MovementEngine {
                 : (BedrockPredictionResult) result.getProfileResult(BedrockPredictionResult.class);
         if (bedrockResult != null && bedrockResult.nextTickBaseState() != null) {
             var movement = bedrockResult.movementResult();
+            if (movement.previousState().isBoat() && player != null) breakLilyPads(player, movement);
             var state = bedrockResult.nextTickBaseState();
             var frame = result.getSimulationContext().getBedrockInput();
             List<Entry> entries = BedrockForwardTick.finish(movement, state).stream()
@@ -340,6 +342,16 @@ public final class BedrockMovementEngine implements MovementEngine {
         }
 
         return new PredictionCommit(null, Set.of());
+    }
+
+    /** The lily pads the committed boat move reached are gone from the client's world from its next tick. */
+    private static void breakLilyPads(CultPlayer player, BedrockMovementResult movement) {
+        for (var pad : BedrockBoatLilyPads.reached(
+                movement.movementContext().worldState().blockCollisionWorld(),
+                movement.previousState().playerDimensions(),
+                movement.predictedPosition())) {
+            player.compensatedWorld.handleBedrockClientBlockBreak(pad.x(), pad.y(), pad.z());
+        }
     }
 
     /** Applies the configured, bounded position reconciliation after this frame has been validated. */

@@ -16,10 +16,18 @@ public final class BedrockPostMoveSystems {
         if (plan.frame().boat() != null) {
             frame = context.applyBlockMovementSlowdownClear(frame);
             frame = context.resolvePostMoveFluidContext(frame, blockMove.position());
-            var velocity = ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockBoatMovement.afterMove(
+            // Lily pads slow the boat before its gravity and buoyancy.
+            var velocity = BedrockBoatLilyPads.slow(
+                    frame.velocity(),
+                    BedrockBoatLilyPads.reached(
+                                    plan.frame().frameFacts().blockCollisionWorld(),
+                                    plan.frame().frameFacts().movementDimensions(),
+                                    blockMove.position())
+                            .size());
+            velocity = ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockBoatMovement.afterMove(
                     plan.frame().input().previousState(),
                             plan.frame().frameFacts().blockCollisionWorld(),
-                    blockMove.position(), frame.velocity());
+                    blockMove.position(), velocity);
             velocity = BedrockBoatInsideMovement.apply(
                     frame.postMoveContext(),
                     velocity,

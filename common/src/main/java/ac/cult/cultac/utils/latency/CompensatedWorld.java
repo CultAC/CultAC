@@ -723,6 +723,16 @@ public class CompensatedWorld {
         updateBlock(pos.getX(), pos.getY(), pos.getZ(), state);
     }
 
+    /**
+     * The Bedrock client broke the block here itself, which no packet reports. It holds air until the server sends
+     * the block or its chunk again.
+     */
+    public void handleBedrockClientBlockBreak(int x, int y, int z) {
+        BlockPos pos = new BlockPos(x, y, z);
+        bedrockClientOnlyBlocks.broken(pos.asLong(), getServerBlockStateIdAt(pos));
+        updateBlock(x, y, z, ac.cult.blocksim.data.BlockIds.AIR.defaultState());
+    }
+
     /** Whether a Bedrock client's own prediction wrote this block and no server update has replaced it since. */
     public boolean isBedrockClientWritten(int x, int y, int z) {
         return bedrockClientWrites.contains(BlockPos.asLong(x, y, z));
