@@ -63,7 +63,7 @@ class BoatWaterEntryTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(x, WATER_Y - 1, z), BlockIds.STONE.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         Vec3 seat = at(63.0);
         f.place(seat, Vec3.ZERO);
         f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, seat, 0, 0, 0);

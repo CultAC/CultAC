@@ -331,7 +331,7 @@ class JavaCamelPoseTest {
     }
 
     private static void expireBlockChangeUncertainty(JavaTickFixture f) {
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     /** A saddled camel that sat down long enough ago to have finished its 40-tick sitting transition. */

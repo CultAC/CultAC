@@ -3,7 +3,6 @@ package ac.cult.cultac.checks.impl.prediction;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionDebug;
-import ac.cult.cultac.bedrock.prediction.integration.ExternalMovementUncertainty;
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassAfterTravel;
@@ -15,7 +14,6 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
-import ac.cult.cultac.utils.data.PistonData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.debug.DebugText;
 import ac.cult.cultac.utils.latency.ClientBlockEntityPass;
@@ -373,7 +371,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
             appendStuckSpeedDebug(sb, "Last stuck-speed sources", lastResult.getSimulationContext());
         }
 
-        appendExternalMovementDetails(sb, result, lastResult);
+        if (!player.isBedrockMovement()) appendBlockEntityPassDetails(sb, result);
 
         sb.append("\n\n");
         sb.append("Alternative results (diagnostic candidates; final effective flags are below): \n");
@@ -412,18 +410,9 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         }
 
         sb.append("\n\npistons: \n");
-        if (player.isBedrockMovement()) {
-            for (PistonData piston : player.compensatedWorld.pistons.activePistons()) {
-                for (SimpleCollisionBox box : piston.getBoxes()) {
-                    sb.append(box);
-                    sb.append(", ");
-                }
-            }
-        } else {
-            for (ClientBlockEntityPass.Mover mover :
-                    player.compensatedWorld.nextBlockEntityPass().movers()) {
-                sb.append(mover).append(", ");
-            }
+        for (ClientBlockEntityPass.Mover mover :
+                player.compensatedWorld.nextBlockEntityPass().movers()) {
+            sb.append(mover).append(", ");
         }
 
         sb.append("\n\n");
@@ -605,61 +594,6 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
             }
         }
         vectors.add(candidate);
-    }
-
-    private void appendExternalMovementDetails(
-            DebugText.Builder sb, PredictionResult result, PredictionResult lastResult) {
-        if (!player.isBedrockMovement()) {
-            appendBlockEntityPassDetails(sb, result);
-            return;
-        }
-        ExternalMovementUncertainty.Snapshot snapshot = ExternalMovementUncertainty.capture(result, lastResult);
-        Vec3 positionOnlyDelta = result.getPositionOnlyDelta();
-        if (!snapshot.hasExternalMove() && positionOnlyDelta.lengthSqr() <= 1.0E-14) {
-            return;
-        }
-
-        sb.append("\n\n======= external movement uncertainty =======\n\n");
-        sb.append("Target-space max abs external delta: ")
-                .append(ExternalMovementUncertainty.formatVector(snapshot.maxAbsTargetDelta()))
-                .append('\n');
-        sb.append("Client/raw max abs position-only delta: ")
-                .append(ExternalMovementUncertainty.formatVector(snapshot.maxAbsClientPositionOnlyDelta()))
-                .append('\n');
-        sb.append("Closest trace position-only delta: ")
-                .append(ExternalMovementUncertainty.formatVector(positionOnlyDelta))
-                .append('\n');
-
-        if (snapshot.hasExternalMove()) {
-            SimpleCollisionBox allowedTarget =
-                    snapshot.combinedTargetEnvelopeCopy().offset(result.getInitialStartingVel());
-            sb.append("Allowed target-space movement envelope around starting velocity: ")
-                    .append(ExternalMovementUncertainty.formatBox(allowedTarget))
-                    .append('\n');
-        }
-
-        sb.append("Combined target-space external envelope: ")
-                .append(ExternalMovementUncertainty.formatBox(snapshot.combinedTargetEnvelope()))
-                .append('\n');
-        sb.append("Combined client/raw position-only envelope: ")
-                .append(ExternalMovementUncertainty.formatBox(snapshot.combinedClientPositionOnlyEnvelope()))
-                .append('\n');
-        sb.append("Last tick piston target-space envelope: ")
-                .append(ExternalMovementUncertainty.formatBox(snapshot.lastPistonTargetEnvelope()))
-                .append('\n');
-        sb.append("Last tick shulker target-space envelope: ")
-                .append(ExternalMovementUncertainty.formatBox(snapshot.lastShulkerTargetEnvelope()))
-                .append('\n');
-        sb.append("This tick piston target-space envelope: ")
-                .append(ExternalMovementUncertainty.formatBox(snapshot.currentPistonTargetEnvelope()))
-                .append('\n');
-        sb.append("This tick shulker target-space envelope: ")
-                .append(ExternalMovementUncertainty.formatBox(snapshot.currentShulkerTargetEnvelope()))
-                .append('\n');
-        sb.append("Last stuck-speed multiplier: ")
-                .append(ExternalMovementUncertainty.formatVector(
-                        result.getSimulationContext().getLastStuckSpeed()))
-                .append('\n');
     }
 
     /** The block-entity pass the Java prediction replayed after its travel, from 26.3. */

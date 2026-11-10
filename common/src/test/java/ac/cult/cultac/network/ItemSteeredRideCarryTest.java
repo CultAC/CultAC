@@ -48,7 +48,7 @@ class ItemSteeredRideCarryTest {
                         f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y, z), water);
                     }
                 }
-                for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+                for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
                 Vec3 at = new Vec3(0.5, FLOOR_Y, 0.5);
                 f.place(at.add(0, 1, 0), Vec3.ZERO);
                 send(

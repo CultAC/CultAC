@@ -208,9 +208,9 @@ class JavaProtocol773PistonTest {
             f.player.compensatedWorld.updateBlock(base, piston);
             f.player.compensatedWorld.updateBlock(
                     new BlockPos(0, FLOOR_Y + 1, 0), BLOCKS.block("minecraft:cobweb").defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             assertTrue(exact(f.tick(start, true)));
-            f.player.compensatedWorld.pistons.handleBlockEvent(base, BLOCKS.blockIndex(piston), 0, 5, 0);
+            f.player.compensatedWorld.pistons.handleBlockEvent(base, 0, 5);
             assertTrue(exact(f.tick(start, true)));
 
             // Entity#move(PISTON) leaves onGround false; the next travel has no Y to collide.
@@ -245,10 +245,10 @@ class JavaProtocol773PistonTest {
         f.player.compensatedWorld.updateBlock(
                 new BlockPos(1, FLOOR_Y, z),
                 BLOCKS.block("minecraft:sweet_berry_bush").defaultState());
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         Vec3 start = new Vec3(0.7, FLOOR_Y, z + 0.5);
         assertTrue(exact(f.tick(start, true)));
-        f.player.compensatedWorld.pistons.handleBlockEvent(base, BLOCKS.blockIndex(piston), 0, 5, 0);
+        f.player.compensatedWorld.pistons.handleBlockEvent(base, 0, 5);
         assertTrue(exact(f.tick(start, true)));
         Vec3 first = new Vec3(0.5 + (double) (0.6F / 2) + 0.01, FLOOR_Y, z + 0.5);
         assertTrue(exact(f.tick(first, true)));

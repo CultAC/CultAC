@@ -126,7 +126,7 @@ class JavaFluidCurrentLoadedVersionsTest {
             world.updateBlock(water, BlockIds.WATER.defaultState());
             world.updateBlock(water.west().below(), BlockIds.WATER.defaultState());
             // This test isolates the loaded-neighbor rule after the collision-change window expires.
-            for (int tick = 0; tick < 3; tick++) world.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) world.removeInvalidPistonLikeStuff();
             var at = new Vec3(x + .5, 64, 8.5);
             f.place(at, new Vec3(0, -.0784000015258789, 0));
             f.input(new ServerboundPlayerInput(false, false, false, false, false, false, false));

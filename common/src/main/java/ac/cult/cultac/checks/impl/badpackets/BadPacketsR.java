@@ -27,7 +27,6 @@ public class BadPacketsR extends Check implements CheckListener {
     private int positions = 0;
     private long clock = 0;
     private long lastTransTime;
-    private int oldTransId = 0;
     private long windowTickNanos = ItemUseBurst.periodNanos(20F, false);
 
     public BadPacketsR(final CultPlayer player) {
@@ -60,11 +59,9 @@ public class BadPacketsR extends Check implements CheckListener {
                 reward();
             }
 
-            player.compensatedWorld.removeInvalidPistonLikeStuff(oldTransId);
             positions = 0;
             clock = player.getPlayerClockAtLeast();
             lastTransTime = System.currentTimeMillis();
-            oldTransId = player.lastTransactionSent.get();
         }
     }
 

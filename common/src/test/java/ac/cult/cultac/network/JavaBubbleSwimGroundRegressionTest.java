@@ -40,7 +40,7 @@ class JavaBubbleSwimGroundRegressionTest {
             var feet = new BlockPos(0, FLOOR_Y, 0);
             for (int y = FLOOR_Y; y <= FLOOR_Y + 1; y++)
                 f.player.compensatedWorld.updateBlock(new BlockPos(0, y, 0), BlockIds.WATER.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 at = new Vec3(0.5, FLOOR_Y, 0.5);
             f.place(at, new Vec3(0, -0.005, 0));
             f.input(new ServerboundPlayerInput(false, false, false, false, false, false, false));
@@ -81,7 +81,7 @@ class JavaBubbleSwimGroundRegressionTest {
             JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
             for (int y = FLOOR_Y; y <= FLOOR_Y + 2; y++)
                 f.player.compensatedWorld.updateBlock(new BlockPos(0, y, 0), BlockIds.WATER.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 start = new Vec3(0.5, FLOOR_Y + 0.25, 0.5);
             f.place(start, new Vec3(0, 0.0415, 0));
             f.input(new ServerboundPlayerInput(false, false, false, false, jump, true, false));
@@ -112,7 +112,7 @@ class JavaBubbleSwimGroundRegressionTest {
                             .registry()
                             .block("minecraft:magma_block")
                             .defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 start = new Vec3(0.498559542041, FLOOR_Y, 0.21009841780166);
             f.player.pose = Pose.SWIMMING;
             f.player.swimState.onServerFlag(true);

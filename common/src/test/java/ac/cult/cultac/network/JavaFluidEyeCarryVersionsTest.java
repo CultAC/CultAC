@@ -94,7 +94,7 @@ class JavaFluidEyeCarryVersionsTest {
             Vec3 start = new Vec3(8.5, 72, 8.5);
             f.place(start, Vec3.ZERO);
             f.input(NONE);
-            f.player.compensatedWorld.pistons.handleBlockEvent(base, blocks.blockIndex(piston), 0, 1, 0);
+            f.player.compensatedWorld.pistons.handleBlockEvent(base, 0, 1);
             Vec3 report = version.isNewerThanOrEquals(ClientVersion.V_26_3) ? start.add(0, .51, 0) : start;
             var moved = f.tick(report, false);
             assertTrue(exact(moved), describe(moved));
@@ -231,7 +231,7 @@ class JavaFluidEyeCarryVersionsTest {
     }
 
     private static void settle(JavaTickFixture f) {
-        for (int i = 0; i < 3; i++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int i = 0; i < 3; i++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     private static boolean modern(ClientVersion version) {

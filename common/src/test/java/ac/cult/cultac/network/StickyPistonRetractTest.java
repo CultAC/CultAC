@@ -52,7 +52,7 @@ class StickyPistonRetractTest {
     private static void extend(JavaTickFixture f) {
         f.player.compensatedWorld.updateBlock(PISTON, STICKY);
         f.player.compensatedWorld.updateBlock(HEAD, SLIME);
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         blockEvent(f, 0);
     }
 

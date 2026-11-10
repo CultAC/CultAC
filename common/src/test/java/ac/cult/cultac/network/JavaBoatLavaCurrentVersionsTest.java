@@ -64,7 +64,7 @@ class JavaBoatLavaCurrentVersionsTest {
                 int lava = registry.with(BlockIds.LAVA.defaultState(), "level", Integer.toString(x + 3));
                 for (int z = -3; z <= 3; z++) f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y, z), lava);
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             f.place(START, Vec3.ZERO);
             f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, START, 0, 0, 0);
             var boat = f.player.compensatedEntities.getEntity(BOAT);

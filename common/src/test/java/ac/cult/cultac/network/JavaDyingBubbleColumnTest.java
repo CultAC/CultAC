@@ -109,7 +109,7 @@ class JavaDyingBubbleColumnTest {
         for (int y = FLOOR_Y; y <= TOP; y++) f.player.compensatedWorld.updateBlock(new BlockPos(0, y, 0), column);
         for (int y = TOP + 1; y <= TOP + 3; y++)
             f.player.compensatedWorld.updateBlock(new BlockPos(0, y, 0), BlockIds.WATER.defaultState());
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         Vec3 at = new Vec3(0.5, FLOOR_Y + 3, 0.5);
         f.place(at, Vec3.ZERO);
         f.player.onGround = f.player.lastOnGround = false;

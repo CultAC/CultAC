@@ -365,7 +365,7 @@ class VehiclePassengerChecksTest {
     private static JavaTickFixture sleepingIn(int head, double y) throws Exception {
         var f = new JavaTickFixture();
         f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 0), head);
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         Vec3 bed = new Vec3(SEAT.x, y, SEAT.z);
         f.place(bed, Vec3.ZERO);
         f.player.isInBed = true;

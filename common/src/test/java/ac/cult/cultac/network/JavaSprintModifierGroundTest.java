@@ -119,7 +119,7 @@ class JavaSprintModifierGroundTest {
                     f.player.compensatedWorld.updateBlock(new BlockPos(x, y, 1), BlockIds.STONE.defaultState());
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             position = startSprint(f, 0.0F, CHARGE_TICKS);
             holdQuadrupledModifier(f);
             attack(f);
@@ -286,7 +286,7 @@ class JavaSprintModifierGroundTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(i, y, 1), BlockIds.STONE.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         position = startSprint(f, INTO_CORNER, CHARGE_TICKS);
         holdQuadrupledModifier(f);
         attack(f);

@@ -33,7 +33,7 @@ class KnockbackJumpUnderCeilingTest {
                     f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y + 2, z), BlockIds.STONE.defaultState());
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             f.place(START, Vec3.ZERO);
             f.input(JUMP);
             f.pongThrough(f.velocity(KNOCKBACK));

@@ -46,7 +46,7 @@ class JavaRiddenLongTeleportTest {
                     f.player.compensatedWorld.updateBlock(
                             new BlockPos(x, FLOOR_Y - 1, z), BlockIds.STONE.defaultState());
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
 
             f.place(BOAT_AT, Vec3.ZERO);
             f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, BOAT_AT, 0, 0, 0);

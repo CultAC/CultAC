@@ -316,7 +316,7 @@ class DismountRideTickVelocityTest {
                             y == FLOOR_Y + 2 && z == 0 ? trapdoor : BlockIds.STONE.defaultState());
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             // The seat's feet sit at 65.5, in the upper water cell; the isFree box starts above the water.
             Vec3 stand = new Vec3(1.69, FLOOR_Y + 0.125, 0.5);
             f.place(new Vec3(stand.x, FLOOR_Y, stand.z), Vec3.ZERO);
@@ -338,7 +338,7 @@ class DismountRideTickVelocityTest {
                     }
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             // LivingEntity#travelInWater: the 0.8 drag of a zero delta, then the fluid gravity of 0.08 / 16.
             double carried = version.isNewerThanOrEquals(ClientVersion.V_26_3) ? -0.005 : 0.3F;
             PredictionResult move = f.tick(position(f).add(0, carried, 0), false);
@@ -443,7 +443,7 @@ class DismountRideTickVelocityTest {
                         BlockIds.WATER.defaultState(), "level", Integer.toString(Math.max(1, Math.min(7, x + 4))));
                 for (int z = -8; z <= 8; z++) f.player.compensatedWorld.updateBlock(new BlockPos(x, layer, z), water);
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             // The first press arms Player#jumpTriggerTime; the second toggles before travel.
             f.input(JUMP);
             f.rideTick();

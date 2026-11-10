@@ -70,7 +70,7 @@ class JavaBedWakeMovementTest {
                     for (int z = -2; z <= 1; z++)
                         f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y + 2, z), stone);
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
 
             Vec3 standUp = new Vec3(-0.5, FLOOR_Y, 0.5);
             f.place(standUp, Vec3.ZERO);
@@ -166,7 +166,7 @@ class JavaBedWakeMovementTest {
             var registry = DataTables.defaults().registry();
             int bed = registry.with(registry.block("minecraft:straw_bed").defaultState(), "facing", "south");
             f.player.compensatedWorld.updateBlock(HEAD, registry.with(bed, "part", "head"));
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
 
             Vec3 position = new Vec3(-0.5, FLOOR_Y, 0.5);
             f.place(position, Vec3.ZERO);
@@ -325,7 +325,7 @@ class JavaBedWakeMovementTest {
         int bed = registry.with(registry.block(block).defaultState(), "facing", "south");
         f.player.compensatedWorld.updateBlock(HEAD, registry.with(bed, "part", "head"));
         f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, -1), bed);
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     private static void sleepTick(JavaTickFixture f, Vec3 at, boolean onGround) {

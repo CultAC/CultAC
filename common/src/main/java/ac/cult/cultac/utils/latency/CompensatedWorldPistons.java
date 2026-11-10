@@ -1,6 +1,5 @@
 package ac.cult.cultac.utils.latency;
 
-import ac.cult.blocksim.data.BlockFamilies;
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.BlockProps;
 import ac.cult.blocksim.data.BlockRegistry;
@@ -8,39 +7,28 @@ import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.StateFacts;
 import ac.cult.blocksim.engine.shapes.Shapes;
 import ac.cult.blocksim.engine.shapes.VoxelShape;
-import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.network.packet.WorldPackets;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
-import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
-import ac.cult.cultac.utils.data.PistonData;
-import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
 import it.unimi.dsi.fastutil.longs.Long2FloatOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 public final class CompensatedWorldPistons {
     private static final int AIR_STATE = BlockIds.AIR.defaultState();
     private static final BlockRegistry REGISTRY = DataTables.defaults().registry();
-    private static final double MAX_PISTON_MOVEMENT_PER_TICK = 0.51D;
-    private static final double PISTON_PROGRESS_PER_CLIENT_TICK = 0.5D;
-    private static final double PISTON_ENTITY_PUSH_EPSILON = 0.01D;
     private static final ReplayScope NO_REPLAY = new ReplayScope(null, null, null, null, null, null);
     private static final java.util.Comparator<MovingPistonState> TICKER_ORDER =
             java.util.Comparator.comparingLong(state -> state.tickerOrder);
 
     private final CultPlayer player;
     private final CompensatedWorld world;
-    private final Set<PistonData> activePistons = new HashSet<>();
     private final Long2ObjectOpenHashMap<MovingPistonState> movingPistonStates = new Long2ObjectOpenHashMap<>();
     // A ClientBlockEntityPass replay's piston progress and NOCLIP direction; null outside a replay.
     private Long2FloatOpenHashMap replayProgress;
@@ -57,11 +45,7 @@ public final class CompensatedWorldPistons {
         this.world = world;
     }
 
-    public Set<PistonData> activePistons() {
-        return activePistons;
-    }
-
-    public void handleBlockEvent(BlockPos pos, int blockId, int triggerType, int triggerData, int transaction) {
+    public void handleBlockEvent(BlockPos pos, int triggerType, int triggerData) {
         if (triggerType != 0 && triggerType != 1 && triggerType != 2) {
             return;
         }
@@ -72,31 +56,15 @@ public final class CompensatedWorldPistons {
         if (!isPistonBlock(pistonState) || !BlockProps.FACING.has(pistonState)) {
             // Level#blockEvent dispatches through the block currently at this position. A piston
             // named by the packet cannot create a mover when that block is air, stone or MOVING_PISTON.
-            if (!player.isBedrockMovement()) return;
-            if (blockId < 0
-                    || blockId >= REGISTRY.blocks().size()
-                    || !isPistonBlock(REGISTRY.blocks().get(blockId).defaultState())) {
-                return;
-            }
-
-            // Preserve Bedrock's existing packet-state fallback. Java above uses the current block,
-            // matching Level#blockEvent rather than reconstructing a piston from the packet's block ID.
-            pistonState = REGISTRY.blocks().get(blockId).defaultState();
-            if (BlockProps.FACING.has(pistonState)) {
-                pistonState = BlockProps.FACING.with(pistonState, eventDirection.get3DDataValue());
-            }
-            if (BlockProps.EXTENDED.has(pistonState)) {
-                pistonState = BlockProps.EXTENDED.with(pistonState, triggerType != 0);
-            }
+            return;
         }
         Direction direction = Direction.from3DDataValue(BlockProps.FACING.value(pistonState));
 
         boolean extending = triggerType == 0;
         boolean sticky = BlockIds.is(pistonState, BlockIds.STICKY_PISTON);
-        PistonStructure structure;
         if (extending) {
             // MCP-Reborn PistonBaseBlock#moveBlocks resolves an extension before it writes anything.
-            structure = resolvePistonStructure(pos, direction, true);
+            PistonStructure structure = resolvePistonStructure(pos, direction, true);
             if (!structure.resolved()) {
                 return;
             }
@@ -108,67 +76,7 @@ public final class CompensatedWorldPistons {
                 level.setBlock(pos, BlockProps.EXTENDED.with(base, true), 67);
             }
         } else {
-            structure = applyClientPistonRetraction(
-                    ClientPistonLevel.of(world), pos, direction, sticky, triggerType, triggerData);
-        }
-
-        List<SimpleCollisionBox> boxes = new ArrayList<>();
-        List<BlockPos> movingPositions = new ArrayList<>();
-        boolean hasSlimeBlock = structure.slime();
-
-        Direction movementDirection = extending ? direction : direction.getOpposite();
-
-        List<SimpleCollisionBox> retractingSourceFixBoxes = Collections.emptyList();
-        if (!extending) {
-            addTrackedMovingPistonMovementBoxes(pos, boxes, movingPositions);
-            retractingSourceFixBoxes = retractingSourceFixBoxes(pos, direction);
-        }
-
-        if (structure.resolved()) {
-            for (BlockPos pushed : structure.toPush()) {
-                BlockPos movingPos = pushed.relative(movementDirection);
-                addTrackedMovingPistonMovementBoxes(movingPos, boxes, movingPositions);
-
-                if (!movingPistonStates.containsKey(movingPos.asLong())) {
-                    SimpleCollisionBox pushedBox = blockBox(pushed);
-                    if (extending) {
-                        boxes.add(pushedBox);
-                        boxes.add(blockBox(pushed.relative(direction)));
-                    } else {
-                        boxes.add(pushedBox.expandToCoordinate(
-                                movementDirection.getModX(), movementDirection.getModY(), movementDirection.getModZ()));
-                    }
-                }
-            }
-
-            if (extending) {
-                BlockPos headPos = pos.relative(direction);
-                addTrackedMovingPistonMovementBoxes(headPos, boxes, movingPositions);
-                if (!movingPistonStates.containsKey(headPos.asLong())) {
-                    boxes.add(blockBox(headPos));
-                }
-            }
-        }
-
-        // The Bedrock engine's push envelope reads these; Java movement replays the moving pistons themselves.
-        if (player.isBedrockMovement()
-                && (!boxes.isEmpty() || !movingPositions.isEmpty() || !retractingSourceFixBoxes.isEmpty())) {
-            // MCP-Reborn ClientPacketListener#handleBlockEvent runs Level#blockEvent
-            // on the client thread. PistonBaseBlock#triggerEvent creates
-            // PistonMovingBlockEntity instances immediately. On 1.21.5+,
-            // ServerboundClientTickEndPacket proves when Level#tickBlockEntities
-            // has run after LocalPlayer#sendPosition, so the shove boxes are captured
-            // after tick-end and applied to the following movement packet.
-            boolean phaseWithClientTickEnd = usesClientTickEndPistonPhase();
-            activePistons.add(new PistonData(
-                    direction,
-                    movingPositions,
-                    phaseWithClientTickEnd ? Collections.emptyList() : boxes,
-                    retractingSourceFixBoxes,
-                    transaction,
-                    extending,
-                    hasSlimeBlock,
-                    phaseWithClientTickEnd));
+            applyClientPistonRetraction(ClientPistonLevel.of(world), pos, direction, sticky, triggerType, triggerData);
         }
     }
 
@@ -176,7 +84,7 @@ public final class CompensatedWorldPistons {
      * MCP-Reborn PistonBaseBlock#triggerEvent's retraction as the client runs it, in its order; returns what it pulled,
      * or an unresolved structure.
      */
-    private PistonStructure applyClientPistonRetraction(
+    private void applyClientPistonRetraction(
             ClientPistonLevel level,
             BlockPos pos,
             Direction direction,
@@ -202,7 +110,7 @@ public final class CompensatedWorldPistons {
 
         if (!sticky) {
             level.removeBlock(headPos);
-            return PistonStructure.unresolved();
+            return;
         }
         BlockPos pullPos = pos.relative(direction, 2);
         int pullState = level.stateAt(pullPos);
@@ -213,18 +121,17 @@ public final class CompensatedWorldPistons {
                 && pulling.extending) {
             // A block two ahead still extending this way is finalTicked in place instead of pulled.
             finalTickMovingPiston(level, pullPos);
-            return PistonStructure.unresolved();
+            return;
         }
         if (triggerType != 1 || !canStickyPistonPull(pullState, pullPos, direction)) {
             level.removeBlock(headPos);
-            return PistonStructure.unresolved();
+            return;
         }
 
         // PistonBaseBlock#moveBlocks removes the head before it resolves what the piston pulls.
         if (BlockIds.is(level.stateAt(headPos), BlockIds.PISTON_HEAD)) level.setBlock(headPos, AIR_STATE, 276);
         PistonStructure structure = resolvePistonStructure(pos, direction, false);
         if (structure.resolved()) applyClientPistonMoveBlocks(level, pos, direction, false, structure);
-        return structure;
     }
 
     /**
@@ -332,7 +239,7 @@ public final class CompensatedWorldPistons {
     }
 
     void receiveBlockEntityData(WorldPackets.BlockEntityUpdate packet) {
-        if (player.isBedrockMovement() || !packet.type().equals("minecraft:piston") || packet.tag() == null) return;
+        if (!packet.type().equals("minecraft:piston") || packet.tag() == null) return;
         var state = movingPistonStates.get(packet.position().asLong());
         // MovingPistonBlock.newBlockEntity returns null. Updates and chunk tags
         // cannot create one; ClientPacketListener only loads an existing entity.
@@ -344,23 +251,6 @@ public final class CompensatedWorldPistons {
         state.source = fields.source();
         state.progress = fields.progress();
         // Vanilla loadAdditional does not reset deathTicks.
-    }
-
-    public void addDynamicBlockCollisionUncertaintyBoxes(SimpleCollisionBox queryBox, List<SimpleCollisionBox> boxes) {
-        // Java's tick boundary fixes each moving block's progress. Travel collides with that exact shape,
-        // then JavaBlockEntityPass replays its shove; a whole-stroke envelope invents extra collisions and
-        // can zero the carried velocity even while the player is moving away from the piston.
-        if (!player.isBedrockMovement()) return;
-        if (movingPistonStates.isEmpty()) return;
-        for (long key : movingPistonStates.keySet()) {
-            BlockPos pos = BlockPos.of(key);
-            MovingPistonState movingPiston = movingPistonStates.get(key);
-            for (SimpleCollisionBox box : movingPiston.getCollisionUncertaintyBoxes(world, pos)) {
-                if (box.isIntersected(queryBox)) {
-                    boxes.add(box);
-                }
-            }
-        }
     }
 
     void handleBlockStateApplied(BlockPos pos, int state) {
@@ -378,153 +268,12 @@ public final class CompensatedWorldPistons {
                 .removeIf(state -> state.pos().getX() >> 4 == x && state.pos().getZ() >> 4 == z);
     }
 
-    void removeSentBefore(int transactionId) {
-        activePistons.removeIf(data -> data.getTransaction() < transactionId);
-    }
-
     void tickClientTickEnd() {
-        captureClientTickPistonMovement();
-        activePistons.removeIf(PistonData::tickIfGuaranteedFinished);
         tickMovingPistonStates();
     }
 
     void clear() {
-        activePistons.clear();
         movingPistonStates.clear();
-    }
-
-    /** Whether no piston can push the player, so every push this pass is the empty box. */
-    boolean hasNoPushSources() {
-        return activePistons.isEmpty();
-    }
-
-    SimpleCollisionBox createPistonQueryBox(SimulationContext context) {
-        SimpleCollisionBox playerBox = context.getFromMaximumExtent();
-        if (!usesClientTickEndPistonPhase()) {
-            playerBox.union(context.getToMaximumExtent());
-            playerBox.expand(0.2);
-        }
-        return playerBox;
-    }
-
-    /** The Bedrock engine's piston push envelope around {@code playerBox}, which this widens as pushes reach it. */
-    SimpleCollisionBox tickPlayerInPistonPushingArea(SimpleCollisionBox playerBox) {
-        SimpleCollisionBox pistonPushes = new SimpleCollisionBox();
-        for (PistonData data : activePistons) {
-            if (!data.canAffectMovement()) continue;
-            Direction direction = data.getMovementDirection();
-            double movementAmount = 0.0D;
-            for (SimpleCollisionBox box : data.boxes) {
-                if (playerBox.isIntersected(box)) {
-                    movementAmount = Math.max(movementAmount, movementNeededToExit(box, direction, playerBox));
-                }
-            }
-
-            boolean movementIntersects = movementAmount > 0.0D;
-            boolean sourceFixIntersects =
-                    !data.retractingSourceFixBoxes.isEmpty() && intersectsAny(playerBox, data.retractingSourceFixBoxes);
-            if (!movementIntersects && !sourceFixIntersects) continue;
-
-            if (movementIntersects) {
-                double shove = Math.min(movementAmount, PISTON_PROGRESS_PER_CLIENT_TICK) + PISTON_ENTITY_PUSH_EPSILON;
-                shove = Math.min(shove, MAX_PISTON_MOVEMENT_PER_TICK);
-                playerBox.expand(
-                        Math.abs(direction.getModX()) * shove,
-                        Math.abs(direction.getModY()) * shove,
-                        Math.abs(direction.getModZ()) * shove);
-                // MCP-Reborn PistonMovingBlockEntity#moveCollidedEntities computes
-                // getMovement(...) against the swept piston area, adds 0.01, and
-                // Entity#limitPistonMovement caps the total axis delta to +/-0.51.
-                unionSignedAxis(pistonPushes, direction, shove);
-            }
-
-            if (sourceFixIntersects) {
-                Direction sourceFixDirection = direction.getOppositeFace();
-                playerBox.expand(
-                        Math.abs(sourceFixDirection.getModX()),
-                        Math.abs(sourceFixDirection.getModY()),
-                        Math.abs(sourceFixDirection.getModZ()));
-                unionSignedAxis(pistonPushes, sourceFixDirection, MAX_PISTON_MOVEMENT_PER_TICK);
-            }
-        }
-        return pistonPushes;
-    }
-
-    private static void unionSignedAxis(SimpleCollisionBox box, Direction direction, double limit) {
-        if (direction.getModX() != 0) {
-            box.unionX(direction.getModX() * limit);
-        }
-        if (direction.getModY() != 0) {
-            box.unionY(direction.getModY() * limit);
-        }
-        if (direction.getModZ() != 0) {
-            box.unionZ(direction.getModZ() * limit);
-        }
-    }
-
-    private static double movementNeededToExit(
-            SimpleCollisionBox area, Direction direction, SimpleCollisionBox entityBox) {
-        return switch (direction) {
-            case EAST -> area.maxX - entityBox.minX;
-            case WEST -> entityBox.maxX - area.minX;
-            case UP -> area.maxY - entityBox.minY;
-            case DOWN -> entityBox.maxY - area.minY;
-            case SOUTH -> area.maxZ - entityBox.minZ;
-            case NORTH -> entityBox.maxZ - area.minZ;
-            default -> 0.0D;
-        };
-    }
-
-    private static boolean intersectsAny(SimpleCollisionBox playerBox, List<SimpleCollisionBox> boxes) {
-        for (SimpleCollisionBox box : boxes) {
-            if (playerBox.isIntersected(box)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean usesClientTickEndPistonPhase() {
-        // 1.21.2/1.21.3 ClientLevel#tickEntities ticks block entities after
-        // LocalPlayer#tick sends movement, then Minecraft#tick sends tick-end.
-        // Their next movement therefore reports the same completed piston sweep
-        // as 1.21.5+. Preserve the existing Bedrock phase selection.
-        return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5) || !player.isBedrockMovement();
-    }
-
-    private static List<SimpleCollisionBox> retractingSourceFixBoxes(BlockPos sourcePos, Direction pistonDirection) {
-        // MCP-Reborn PistonBaseBlock#triggerEvent creates a retracting source
-        // PistonMovingBlockEntity, and PistonMovingBlockEntity#moveCollidedEntities
-        // calls fixEntityWithinPistonBase only after the source head has collided.
-        // That fix tests the source base block and moves the entity in the
-        // piston-facing direction, opposite the normal retract movement.
-        return Collections.singletonList(blockBox(sourcePos)
-                .expandToCoordinate(
-                        pistonDirection.getStepX() * MAX_PISTON_MOVEMENT_PER_TICK,
-                        pistonDirection.getStepY() * MAX_PISTON_MOVEMENT_PER_TICK,
-                        pistonDirection.getStepZ() * MAX_PISTON_MOVEMENT_PER_TICK));
-    }
-
-    private void addTrackedMovingPistonMovementBoxes(
-            BlockPos movingPos, List<SimpleCollisionBox> boxes, List<BlockPos> movingPositions) {
-        MovingPistonState movingPiston = movingPistonStates.get(movingPos.asLong());
-        if (movingPiston != null) {
-            movingPositions.add(movingPos.immutable());
-            boxes.addAll(movingPiston.getAllMovementCollisionBoxes(world, movingPos));
-        }
-    }
-
-    private List<SimpleCollisionBox> collectCurrentMovingPistonMovementBoxes(List<BlockPos> movingPositions) {
-        List<SimpleCollisionBox> boxes = new ArrayList<>();
-        for (BlockPos movingPos : movingPositions) {
-            MovingPistonState movingPiston = movingPistonStates.get(movingPos.asLong());
-            if (movingPiston == null) {
-                continue;
-            }
-
-            boxes.addAll(movingPiston.getCurrentMovementCollisionBoxes(world, movingPos));
-        }
-        return boxes;
     }
 
     /**
@@ -565,14 +314,6 @@ public final class CompensatedWorldPistons {
         return state.progress() >= 1.0F && state.deathTicks >= 5 && ticks(state);
     }
 
-    private void captureClientTickPistonMovement() {
-        for (PistonData data : activePistons) {
-            if (data.shouldCaptureMovementOnClientTickEnd()) {
-                data.setBoxes(collectCurrentMovingPistonMovementBoxes(data.getMovingPositions()));
-            }
-        }
-    }
-
     private PistonStructure resolvePistonStructure(BlockPos pistonPos, Direction pistonDirection, boolean extending) {
         List<BlockPos> toPush = new ArrayList<>();
         List<BlockPos> toDestroy = new ArrayList<>(0);
@@ -584,7 +325,7 @@ public final class CompensatedWorldPistons {
         if (!isPistonPushable(startState, startPos, pushDirection, false, pistonDirection)) {
             if (extending && REGISTRY.facts(startState).pushReaction() == StateFacts.PushReaction.POPPED) {
                 toDestroy.add(startPos);
-                return new PistonStructure(true, toPush, toDestroy, false);
+                return new PistonStructure(true, toPush, toDestroy);
             }
             return PistonStructure.unresolved();
         }
@@ -616,9 +357,7 @@ public final class CompensatedWorldPistons {
             }
         }
 
-        boolean slime = false;
-        for (BlockPos pushed : toPush) slime |= BlockIds.is(world.getBlockStateIdAt(pushed), BlockIds.SLIME_BLOCK);
-        return new PistonStructure(true, toPush, toDestroy, slime);
+        return new PistonStructure(true, toPush, toDestroy);
     }
 
     private boolean addPistonBlockLine(
@@ -841,18 +580,10 @@ public final class CompensatedWorldPistons {
         return isStickyPistonBlock(state1) || isStickyPistonBlock(state2);
     }
 
-    private static SimpleCollisionBox blockBox(BlockPos pos) {
-        return new SimpleCollisionBox(
-                pos.getX(), pos.getY(), pos.getZ(), pos.getX() + 1, pos.getY() + 1, pos.getZ() + 1, true);
-    }
-
-    /**
-     * PistonStructureResolver#getToPush and #getToDestroy, in their resolution order, and whether a pushed block is a
-     * slime block.
-     */
-    private record PistonStructure(boolean resolved, List<BlockPos> toPush, List<BlockPos> toDestroy, boolean slime) {
+    /** PistonStructureResolver#getToPush and #getToDestroy, in their resolution order. */
+    private record PistonStructure(boolean resolved, List<BlockPos> toPush, List<BlockPos> toDestroy) {
         private static PistonStructure unresolved() {
-            return new PistonStructure(false, Collections.emptyList(), Collections.emptyList(), false);
+            return new PistonStructure(false, Collections.emptyList(), Collections.emptyList());
         }
     }
 
@@ -1096,123 +827,6 @@ public final class CompensatedWorldPistons {
 
         private float progress() {
             return progress;
-        }
-
-        private float extendedProgress(float progress) {
-            return extending ? progress - 1.0F : 1.0F - progress;
-        }
-
-        private Direction movementDirection() {
-            return extending ? direction : direction.getOpposite();
-        }
-
-        private List<SimpleCollisionBox> getAllMovementCollisionBoxes(CompensatedWorld level, BlockPos pos) {
-            List<SimpleCollisionBox> boxes = new ArrayList<>();
-            addMovementCollisionBoxes(level, pos, 0.0F, 0.5D, boxes);
-            addMovementCollisionBoxes(level, pos, 0.5F, 0.5D, boxes);
-            return boxes;
-        }
-
-        private List<SimpleCollisionBox> getCurrentMovementCollisionBoxes(CompensatedWorld level, BlockPos pos) {
-            List<SimpleCollisionBox> boxes = new ArrayList<>();
-            float progress = progress();
-            if (progress < 1.0F) {
-                // MCP-Reborn PistonMovingBlockEntity#tick calls
-                // moveCollidedEntities with progress + 0.5 before storing that
-                // progress. At ServerboundClientTickEndPacket, Cult has just
-                // observed the end of that client tick, so this one sweep is the
-                // only shove that can appear in the next movement packet.
-                addMovementCollisionBoxes(level, pos, progress, 0.5D, boxes);
-            }
-            return boxes;
-        }
-
-        private List<SimpleCollisionBox> getCollisionUncertaintyBoxes(CompensatedWorld level, BlockPos pos) {
-            List<SimpleCollisionBox> boxes = new ArrayList<>();
-            if (!extending && source && BlockFamilies.PISTON_BASE.test(movedState)) {
-                for (SimpleCollisionBox box : NativeBlockCollisionHelper.toBoxes(
-                        level.geometry().collision(BlockProps.EXTENDED.with(movedState, true), pos))) {
-                    boxes.add(box.move(pos.getX(), pos.getY(), pos.getZ()));
-                }
-            }
-
-            addCollisionShapeSweep(level, pos, 0.0F, boxes);
-            if (source) {
-                addCollisionShapeSweep(level, pos, 0.5F, boxes);
-            }
-            return boxes;
-        }
-
-        private void addCollisionShapeSweep(
-                CompensatedWorld level, BlockPos pos, float shapeProgress, List<SimpleCollisionBox> boxes) {
-            VoxelShape shape = level.geometry().collision(getCollisionRelatedBlockState(shapeProgress), pos);
-            if (shape.isEmpty()) {
-                return;
-            }
-
-            for (SimpleCollisionBox localBox : NativeBlockCollisionHelper.toBoxes(shape)) {
-                SimpleCollisionBox start = moveByPositionAndProgress(pos, localBox, 0.0F);
-                SimpleCollisionBox end = moveByPositionAndProgress(pos, localBox, 1.0F);
-                boxes.add(start.union(end));
-            }
-        }
-
-        private void addMovementCollisionBoxes(
-                CompensatedWorld level,
-                BlockPos pos,
-                float progress,
-                double deltaProgress,
-                List<SimpleCollisionBox> boxes) {
-            int collisionState = getCollisionRelatedBlockState(progress);
-            VoxelShape shape = level.geometry().collision(collisionState, pos);
-            if (shape.isEmpty()) {
-                return;
-            }
-
-            Direction movementDirection = movementDirection();
-            for (SimpleCollisionBox localBox : NativeBlockCollisionHelper.toBoxes(shape)) {
-                SimpleCollisionBox movedBox = moveByPositionAndProgress(pos, localBox, progress);
-                boxes.add(getMovementArea(movedBox, movementDirection, deltaProgress));
-            }
-        }
-
-        private int getCollisionRelatedBlockState(float progress) {
-            if (!extending && source && BlockFamilies.PISTON_BASE.test(movedState)) {
-                return BlockProps.FACING.with(
-                        BlockProps.PISTON_TYPE.with(
-                                BlockProps.SHORT.with(BlockIds.PISTON_HEAD.defaultState(), progress > 0.25F),
-                                BlockIds.is(movedState, BlockIds.STICKY_PISTON) ? 1 : 0),
-                        BlockProps.FACING.value(movedState));
-            }
-            return movedState;
-        }
-
-        private SimpleCollisionBox moveByPositionAndProgress(BlockPos pos, SimpleCollisionBox box, float progress) {
-            float extendedProgress = extendedProgress(progress);
-            return box.move(
-                    pos.getX() + direction.getStepX() * extendedProgress,
-                    pos.getY() + direction.getStepY() * extendedProgress,
-                    pos.getZ() + direction.getStepZ() * extendedProgress);
-        }
-
-        private static SimpleCollisionBox getMovementArea(SimpleCollisionBox box, Direction direction, double amount) {
-            double step = amount * direction.getAxisDirection().getStep();
-            double min = Math.min(step, 0.0D);
-            double max = Math.max(step, 0.0D);
-            return switch (direction) {
-                case WEST ->
-                    SimpleCollisionBox.between(box.minX + min, box.minY, box.minZ, box.minX + max, box.maxY, box.maxZ);
-                case EAST ->
-                    SimpleCollisionBox.between(box.maxX + min, box.minY, box.minZ, box.maxX + max, box.maxY, box.maxZ);
-                case DOWN ->
-                    SimpleCollisionBox.between(box.minX, box.minY + min, box.minZ, box.maxX, box.minY + max, box.maxZ);
-                case UP ->
-                    SimpleCollisionBox.between(box.minX, box.maxY + min, box.minZ, box.maxX, box.maxY + max, box.maxZ);
-                case NORTH ->
-                    SimpleCollisionBox.between(box.minX, box.minY, box.minZ + min, box.maxX, box.maxY, box.minZ + max);
-                case SOUTH ->
-                    SimpleCollisionBox.between(box.minX, box.minY, box.maxZ + min, box.maxX, box.maxY, box.maxZ + max);
-            };
         }
 
         /** PistonMovingBlockEntity#getCollisionShape with {@code noClip} as PistonMovingBlockEntity#NOCLIP. */

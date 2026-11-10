@@ -51,7 +51,7 @@ class JavaBubbleColumnGlideTest {
             setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
             int column = BlockProps.DRAG.with(BlockIds.BUBBLE_COLUMN.defaultState(), false);
             f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 0), column);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             f.player
                     .getInventory()
                     .inventory

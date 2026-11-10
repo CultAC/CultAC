@@ -66,7 +66,7 @@ class JavaPassengerBoatStatusTest {
                                 new BlockPos(x, FLOOR_Y + 1, z), BlockIds.WATER.defaultState());
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             f.place(STANDING, new Vec3(0, FALL, 0));
             PredictionResult standing = f.tick(STANDING, true);
             assertTrue(exact(standing), describe(standing));

@@ -69,7 +69,7 @@ class JavaFluidHopClearanceVersionsTest {
                 ((PacketEntityHappyGhast) f.player.compensatedEntities.getEntity(100)).staysStill =
                         kind.equals("touching_still_ghast");
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             f.place(new Vec3(0.69, FLOOR_Y + 0.5, 0.5), new Vec3(0.05, 0.14, 0));
             f.input(new ServerboundPlayerInput(false, false, false, false, false, false, false));
             var moved = f.tick(new Vec3(1 - (double) (0.6F / 2), FLOOR_Y + 0.5 + 0.14, 0.5), false);

@@ -35,7 +35,7 @@ class SetbackStuckSpeedTest {
             int cobweb =
                     DataTables.defaults().registry().block("minecraft:cobweb").defaultState();
             f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 0), cobweb);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             f.place(STANDING, GROUNDED);
             f.playerPosition(STANDING, Vec3.ZERO, Set.of());
             f.pongThrough(f.player.sendTrailingTransaction());

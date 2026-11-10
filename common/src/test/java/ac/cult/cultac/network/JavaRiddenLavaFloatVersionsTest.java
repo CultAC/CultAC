@@ -53,7 +53,7 @@ class JavaRiddenLavaFloatVersionsTest {
                 for (int x = 2; x <= 4; x++)
                     f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y, z), BlockIds.WATER.defaultState());
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             // The 1.3965-wide box reaches x 1.89825 in the lava, then past x 2.19 into the water.
             Vec3 start = new Vec3(1.2, FLOOR_Y, 0.5);
             f.player.compensatedEntities.addEntity(HORSE, EntityTypeIds.HORSE, start, 0, 0, 0);

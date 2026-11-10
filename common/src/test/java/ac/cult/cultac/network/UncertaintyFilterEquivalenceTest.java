@@ -18,7 +18,6 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.BubbleColumnData;
-import ac.cult.cultac.utils.data.PistonPushes;
 import ac.cult.cultac.utils.data.StuckEdgeData;
 import ac.cult.cultac.utils.data.StuckSpeedData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
@@ -163,15 +162,12 @@ class UncertaintyFilterEquivalenceTest {
             Variant.of(Owner.WORLD, "mightBeInBlock", () -> true),
             Variant.of(Owner.WORLD, "climbingAtStart", () -> DesyncStatus.TRUE),
             Variant.of(Owner.WORLD, "sneak", () -> new StuckEdgeData(true, false, false, true, false)),
-            Variant.of(Owner.WORLD, "pistonPushes", () -> new PistonPushes(box(), box(), new SimpleCollisionBox())),
             Variant.of(Owner.LAST_WORLD, "climbing", () -> DesyncStatus.TRUE),
             Variant.of(Owner.LAST_WORLD, "onBlock", () -> SLIME_STATE),
             Variant.of(Owner.LAST_WORLD, "onBlock", () -> BED_STATE),
             Variant.of(Owner.LAST_WORLD, "honeySlide", () -> DesyncStatus.TRUE),
             Variant.of(Owner.LAST_WORLD, "bubbleColumn", () -> new BubbleColumnData(1, 1, 1, 1)),
             Variant.of(Owner.LAST_WORLD, "stuckSpeed", UncertaintyFilterEquivalenceTest::cobweb),
-            Variant.of(
-                    Owner.LAST_WORLD, "pistonPushes", () -> new PistonPushes(box(), box(), new SimpleCollisionBox())),
             Variant.of(Owner.LAST_WORLD, "sneak", () -> new StuckEdgeData(false, true, true, false, true)),
             Variant.of(Owner.CONTEXT, "riptideLevel", () -> 3),
             Variant.of(Owner.CONTEXT, "withheldPosition", () -> true),

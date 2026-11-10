@@ -3,11 +3,7 @@ package ac.cult.cultac.network;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ac.cult.blocksim.data.BlockIds;
-import ac.cult.blocksim.entity.EntityTypeIds;
-import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
-import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.events.packets.PacketChangeGameState;
 import ac.cult.cultac.events.packets.PacketPlayerAbilities;
 import ac.cult.cultac.events.packets.listeners.PlayerInfoListener;
@@ -18,7 +14,6 @@ import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.*;
 import ac.cult.cultac.protocol.value.*;
-import ac.cult.cultac.utils.data.packetentity.PacketEntityHook;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.*;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -94,7 +89,7 @@ class JavaPlayerInfoSpectatorResetTest {
                 f.player.compensatedWorld.ensureValidationChunkLoaded(x>>4, z>>4);
                 f.player.compensatedWorld.updateBlock(new BlockPos(x,87,z), BlockIds.STONE.defaultState());
             }
-            for (int i=0;i<3;i++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int i=0;i<3;i++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             f.place(at, new Vec3(0,FALL,0));
             exact(f.tick(at,true)); // Native tick20: attempted Y=FALL, landed; delta still FALL.
             assertTrue(f.player.checkManager.getSimulationProcessor().getValidPlayerStartingVels().stream()

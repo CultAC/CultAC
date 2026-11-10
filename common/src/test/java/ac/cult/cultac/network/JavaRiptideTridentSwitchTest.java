@@ -182,7 +182,7 @@ class JavaRiptideTridentSwitchTest {
     /** Uses {@code hand} for {@code ticks} client ticks in the shallows with {@code hotbar} in the first slots. */
     static void charge(JavaTickFixture f, int ticks, Hand hand, SimItemStack... hotbar) {
         f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 0), BlockIds.WATER.defaultState());
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         var storage = f.player.getInventory().inventory.getInventoryStorage();
         for (int slot = 0; slot < hotbar.length; slot++) storage.setItem(Inventory.HOTBAR_OFFSET + slot, hotbar[slot]);
         f.place(SHALLOWS, SETTLED);

@@ -149,12 +149,12 @@ class JavaFluidEyeRetagVersionsTest {
             int piston = blocks.with(BlockIds.PISTON.defaultState(), "facing", "up");
             f.player.compensatedWorld.updateBlock(base, piston);
             f.player.compensatedWorld.updateBlock(contact, fluid);
-            for (int i = 0; i < 3; i++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int i = 0; i < 3; i++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             waterTags(f, List.of());
             Vec3 start = new Vec3(8.5, 72, 8.5);
             f.place(start, Vec3.ZERO);
             f.input(NONE);
-            f.player.compensatedWorld.pistons.handleBlockEvent(base, blocks.blockIndex(piston), 0, 1, 0);
+            f.player.compensatedWorld.pistons.handleBlockEvent(base, 0, 1);
             Vec3 report = version.isNewerThanOrEquals(ClientVersion.V_26_3) ? start.add(0, .51, 0) : start;
             var moved = f.tick(report, false);
             assertTrue(exact(moved), describe(moved));
@@ -189,7 +189,7 @@ class JavaFluidEyeRetagVersionsTest {
         JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
         f.player.compensatedWorld.updateBlock(new BlockPos(0, 64, 0), fluid);
         f.player.compensatedWorld.updateBlock(new BlockPos(0, 65, 0), fluid);
-        for (int i = 0; i < 3; i++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int i = 0; i < 3; i++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.place(AT, Vec3.ZERO);
         f.input(NONE);
         return f;

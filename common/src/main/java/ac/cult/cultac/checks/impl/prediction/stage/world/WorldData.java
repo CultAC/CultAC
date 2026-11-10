@@ -76,7 +76,6 @@ public class WorldData implements DebugText.Recordable {
 
     StuckEdgeData sneak;
     BubbleColumnData bubbleColumn;
-    PistonPushes pistonPushes;
 
     @Setter
     StuckSpeedData stuckSpeed;
@@ -147,7 +146,6 @@ public class WorldData implements DebugText.Recordable {
             int onBlock,
             StuckEdgeData sneak,
             BubbleColumnData bubbleColumn,
-            PistonPushes pistonPushes,
             StuckSpeedData stuckSpeed,
             DesyncStatus honeySlide,
             DesyncStatus onHoneyBlock,
@@ -182,7 +180,6 @@ public class WorldData implements DebugText.Recordable {
         this.onBlock = onBlock;
         this.sneak = sneak;
         this.bubbleColumn = bubbleColumn;
-        this.pistonPushes = pistonPushes;
         this.stuckSpeed = stuckSpeed;
         this.honeySlide = honeySlide;
         this.onHoneyBlock = onHoneyBlock;
@@ -226,7 +223,6 @@ public class WorldData implements DebugText.Recordable {
         sb.append(", onBlock=").append(onBlock);
         sb.append(", sneak=").append(sneak);
         sb.append(", bubbleColumn=").append(bubbleColumn);
-        sb.append(", pistonPushes=").append(pistonPushes);
         sb.append(", stuckSpeed=").append(stuckSpeed);
         sb.append(", honeySlide=").append(honeySlide);
         sb.append(", onHoneyBlock=").append(onHoneyBlock);
@@ -273,7 +269,6 @@ public class WorldData implements DebugText.Recordable {
                 onBlock,
                 sneak,
                 bubbleColumn,
-                pistonPushes,
                 stuckSpeed,
                 honeySlide,
                 onHoneyBlock,

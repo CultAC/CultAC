@@ -55,7 +55,7 @@ import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 public final class BedrockMovementEngine implements MovementEngine {
     public static final BedrockMovementEngine INSTANCE = new BedrockMovementEngine();
     public static final List<UncertaintyHandler> UNCERTAINTY_HANDLERS =
-            List.of(new PistonShulkerPush(), new CollisionModifier(false), new StepTransform());
+            List.of(new CollisionModifier(false), new StepTransform());
     private final BedrockMovementInputFactory inputFactory = new BedrockMovementInputFactory();
 
     private BedrockMovementEngine() {}

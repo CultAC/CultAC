@@ -64,57 +64,6 @@ public final class OfflineBedrockReplayEventsTest {
     }
 
     @Test
-    public void pistonAndSlimePistonEventsEnterCompensatedPistonState() throws Exception {
-        OfflineCultTestBootstrap.installConfig();
-        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
-        try {
-            OfflineBedrockReplayEvents.apply(player, json("""
-                    {"type":"set_block","position":{"x":1,"y":82,"z":0},"block":"minecraft:slime_block"}
-                    """));
-            OfflineBedrockReplayEvents.apply(player, json("""
-                    {"type":"piston","position":{"x":0,"y":82,"z":0},"block":"minecraft:piston[facing=east,extended=false]","triggerType":0,"direction":"east"}
-                    """));
-
-            assertFalse(player.compensatedWorld.pistons.activePistons().isEmpty());
-            assertTrue(
-                    player.compensatedWorld.pistons.activePistons().iterator().next().hasSlimeBlock);
-        } finally {
-            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
-        }
-    }
-
-    @Test
-    public void bedrockPistonMovementAdvancesAtClientTickEnd() throws Exception {
-        OfflineCultTestBootstrap.installConfig();
-        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
-        try {
-            OfflineBedrockReplayEvents.apply(player, json("""
-                    {"type":"set_block","position":{"x":1,"y":82,"z":0},"block":"minecraft:slime_block"}
-                    """));
-            OfflineBedrockReplayEvents.apply(player, json("""
-                    {"type":"piston","position":{"x":0,"y":82,"z":0},"block":"minecraft:piston[facing=east,extended=false]","triggerType":0,"direction":"east"}
-                    """));
-
-            var piston =
-                    player.compensatedWorld.pistons.activePistons().iterator().next();
-            assertFalse(piston.canAffectMovement());
-
-            player.compensatedWorld.onClientTickEnd();
-            assertTrue(piston.canAffectMovement());
-
-            // Piston animation advances from the client's explicit tick
-            // boundary, independently of Geyser's server-authored velocity.
-            player.compensatedWorld.onClientTickEnd();
-            assertTrue(player.compensatedWorld.pistons.activePistons().contains(piston));
-
-            player.compensatedWorld.onClientTickEnd();
-            assertFalse(player.compensatedWorld.pistons.activePistons().contains(piston));
-        } finally {
-            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
-        }
-    }
-
-    @Test
     public void bedrockTransportCorrectionUsesNormalTeleportQueueAndCommit() throws Exception {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
@@ -371,9 +320,6 @@ public final class OfflineBedrockReplayEventsTest {
             OfflineBedrockReplayEvents.apply(player, json("""
                     {"type":"add_entity","entityId":103,"entityType":"minecraft:shulker","position":{"x":6.0,"y":82.0,"z":0.0}}
                     """));
-            OfflineBedrockReplayEvents.apply(player, json("""
-                    {"type":"shulker_block","position":{"x":7,"y":82,"z":0},"open":true}
-                    """));
 
             PacketEntity boat = player.compensatedEntities.getEntity(101);
             PacketEntity happyGhast = player.compensatedEntities.getEntity(102);
@@ -384,7 +330,6 @@ public final class OfflineBedrockReplayEventsTest {
             assertTrue(boat.isBoat());
             assertSame(EntityTypeIds.HAPPY_GHAST, happyGhast.type);
             assertSame(EntityTypeIds.SHULKER, shulker.type);
-            assertFalse(player.compensatedWorld.openShulkerBoxes.isEmpty());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }

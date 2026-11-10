@@ -45,7 +45,7 @@ class JavaStriderPassiveFloatTest {
                         f.player.compensatedWorld.updateBlock(new BlockPos(x, y, z), BlockIds.LAVA.defaultState());
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(0.5, FLOOR_Y + 0.75D, 0.5);
             f.place(position, Vec3.ZERO);
             f.player.compensatedEntities.addEntity(STRIDER, EntityTypeIds.STRIDER, position, 0, 0, 0);
@@ -100,7 +100,7 @@ class JavaStriderPassiveFloatTest {
                 for (int z = -3; z <= 3; z++)
                     f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y, z), BlockIds.LAVA.defaultState());
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             // Above the lava, sinking; the controlled tick ends above the block's 0.5 column with air above it.
             Vec3 position = new Vec3(0.5, FLOOR_Y + 0.95D, 0.5);
             f.place(position, Vec3.ZERO);

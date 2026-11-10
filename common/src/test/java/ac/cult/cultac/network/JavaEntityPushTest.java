@@ -1302,7 +1302,7 @@ class JavaEntityPushTest {
         f.player.compensatedWorld.updateBlock(base, piston);
         f.player.compensatedWorld.updateBlock(
                 base.relative(Direction.EAST), blocks.block("minecraft:stone").defaultState());
-        f.player.compensatedWorld.pistons.handleBlockEvent(base, blocks.blockIndex(piston), 0, 5, 0);
+        f.player.compensatedWorld.pistons.handleBlockEvent(base, 0, 5);
     }
 
     /** LivingEntity#handleEntityEvent(3): the mob is dying, and stays in the level until the server removes it. */

@@ -140,7 +140,7 @@ class CreativeFlightTest {
             f.place(HOVER, velocity);
             f.player.compensatedWorld.updateBlock(
                     BlockPos.containing(HOVER.x + 1, HOVER.y, HOVER.z), BlockIds.STONE.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             f.input(NONE);
             PredictionResult result = f.tick(HOVER.add(velocity), false);
             assertTrue(result.isExempt());
@@ -1602,7 +1602,7 @@ class CreativeFlightTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y - 1, z), BlockIds.STONE.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     /** A RESPAWN into {@code mode} in the same level, answered through its pings. */
@@ -1713,7 +1713,7 @@ class CreativeFlightTest {
 
     private static void block(JavaTickFixture f, int x, int y, int z, int state) {
         f.player.compensatedWorld.updateBlock(new BlockPos(x, y, z), state);
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     /**

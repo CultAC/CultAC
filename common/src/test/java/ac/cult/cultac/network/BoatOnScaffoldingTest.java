@@ -68,7 +68,7 @@ class BoatOnScaffoldingTest {
                     }
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 rest = new Vec3(198.38559160222653 - 196, FLOOR_Y, 208.45896332963355 - 206);
             f.place(rest, Vec3.ZERO);
             f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, rest, 0, -4.922943F, 0);
@@ -103,7 +103,7 @@ class BoatOnScaffoldingTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y - 1, z), scaffolding);
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.place(SEAT, Vec3.ZERO);
         f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, SEAT, 0, 0, 0);
         f.setPassengers(BOAT, List.of(f.player.entityID));

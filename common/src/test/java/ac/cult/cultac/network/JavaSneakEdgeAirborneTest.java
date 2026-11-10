@@ -115,7 +115,7 @@ class JavaSneakEdgeAirborneTest {
         f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 0), registry.with(wall, "up", "true"));
         int eastWest = registry.with(registry.with(registry.with(wall, "up", "false"), "east", "low"), "west", "low");
         f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y + 3, 1), eastWest);
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     private static void assertExactTick(JavaTickFixture f, Vec3 position, boolean onGround) {
@@ -138,7 +138,7 @@ class JavaSneakEdgeAirborneTest {
         f.player.compensatedWorld.updateBlock(
                 new BlockPos(0, FLOOR_Y - 1, 0), registry.with(stairs, "shape", "outer_left"));
         f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y - 2, -1), stairs);
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     private static void assertExact(JavaTickFixture f, float pitch, double x, double y, double z, boolean onGround) {

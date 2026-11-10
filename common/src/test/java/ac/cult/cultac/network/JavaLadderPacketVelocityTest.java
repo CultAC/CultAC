@@ -67,7 +67,7 @@ class JavaLadderPacketVelocityTest {
         for (int y = FLOOR_Y; y <= FLOOR_Y + 6; y++) {
             f.player.compensatedWorld.updateBlock(new BlockPos(0, y, 0), BlockIds.LADDER.defaultState());
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.player.yRot = 0;
         f.place(START, new Vec3(0, CLIMB, 0));
         f.input(FORWARD);

@@ -1,7 +1,6 @@
 package ac.cult.cultac.checks.impl.prediction;
 
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionDebug;
-import ac.cult.cultac.bedrock.prediction.integration.ExternalMovementUncertainty;
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CollisionModifier;
@@ -137,8 +136,8 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
         String color =
                 debugView.missingObservation() ? "\u00a77" : pickColor(offset, positionsTooUncertain, fullyExempt);
         String labelColor = positionsTooUncertain ? "\u00a77" : fullyExempt ? "\u00a79" : "\u00a7f";
-        String external = formatExternalMovementDebug(
-                result, lastResult, externalUncertaintyColor(positionsTooUncertain, fullyExempt));
+        String external =
+                formatExternalMovementDebug(result, externalUncertaintyColor(positionsTooUncertain, fullyExempt));
 
         // This is pointless debug unless an external movement uncertainty is active.
         if (!debugView.missingObservation() && target.lengthSqr() == 0 && offset == 0 && external == null) return;
@@ -322,36 +321,16 @@ public class DebugHandler extends CultProcessor implements PostPredictionListene
                 .toList();
     }
 
-    private String formatExternalMovementDebug(PredictionResult result, PredictionResult lastResult, String color) {
-        ExternalMovementUncertainty.Snapshot snapshot = ExternalMovementUncertainty.capture(result, lastResult);
+    /** The part of the closest move that changed the position without becoming velocity. */
+    private String formatExternalMovementDebug(PredictionResult result, String color) {
         Vec3 positionOnlyDelta = result.getPositionOnlyDelta();
-        if (!snapshot.hasExternalMove() && positionOnlyDelta.lengthSqr() <= 1.0E-14) {
+        if (positionOnlyDelta.lengthSqr() <= 1.0E-14) {
             return null;
         }
-
-        StringBuilder builder = new StringBuilder(color + "ext:");
-        boolean appended = false;
-        if (snapshot.hasExternalMove()) {
-            appended = appendPart(builder, appended, "t  " + formatBracketedVector(snapshot.maxAbsTargetDelta()));
-            appended = appendPart(
-                    builder, appended, "r " + formatBracketedVector(snapshot.maxAbsClientPositionOnlyDelta()));
-        }
-        if (positionOnlyDelta.lengthSqr() > 1.0E-14) {
-            appended = appendPart(builder, appended, "c " + formatBracketedVector(positionOnlyDelta));
-        }
-        return builder.toString();
-    }
-
-    private boolean appendPart(StringBuilder builder, boolean appended, String part) {
-        if (appended) {
-            builder.append(" |");
-        }
-        builder.append(' ').append(part);
-        return true;
-    }
-
-    private String formatBracketedVector(Vec3 vector) {
-        return "[" + ExternalMovementUncertainty.formatVector(vector) + "]";
+        return color + "ext: c ["
+                + NumFormatter.formatNumberStandard(positionOnlyDelta.x).trim() + " "
+                + NumFormatter.formatNumberStandard(positionOnlyDelta.y).trim() + " "
+                + NumFormatter.formatNumberStandard(positionOnlyDelta.z).trim() + "]";
     }
 
     private boolean positionsTooUncertainToCheck(boolean inVehicle) {

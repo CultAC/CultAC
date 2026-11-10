@@ -81,7 +81,7 @@ class JavaPassengerLavaCallbackVersionsTest {
             int lava = registry.with(BlockIds.LAVA.defaultState(), "level", Integer.toString(x + 3));
             for (int z = -3; z <= 3; z++) f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y, z), lava);
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.place(SEAT, Vec3.ZERO);
         f.player.compensatedEntities.addEntity(
                 MINECART, EntityTypes.defaults().byKey("minecraft:minecart").id(), cart, 0, 0, 0);

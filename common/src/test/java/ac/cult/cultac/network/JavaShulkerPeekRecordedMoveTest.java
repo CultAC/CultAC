@@ -48,7 +48,7 @@ class JavaShulkerPeekRecordedMoveTest {
         try (var f = new JavaTickFixture()) {
             JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
             f.player.compensatedWorld.updateBlock(WEB, BlockIds.COBWEB.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             f.player.compensatedEntities.addEntity(SHULKER, EntityTypeIds.SHULKER, SHULKER_AT, 0, 0, 0);
             var shulker = f.player.compensatedEntities.getEntity(SHULKER);
             shulker.onScale(SIZE, 0);

@@ -74,7 +74,7 @@ class SprintEResidualWallTest {
             stone(f, x, FLOOR_Y, 1);
             stone(f, x, FLOOR_Y + 1, 1);
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.player.setExperimentalChecks(true);
         SprintE sprintE = f.player.checkManager.getCheck(SprintE.class);
         sprintE.violations = 0;

@@ -53,7 +53,7 @@ class JavaBoatGravityVersionsTest {
                     for (int y = FLOOR_Y + 6; y <= FLOOR_Y + 11; y++)
                         for (int z = -2; z <= 2; z++)
                             f.player.compensatedWorld.updateBlock(new BlockPos(x, y, z), BlockIds.WATER.defaultState());
-                for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+                for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             }
             f.place(START, Vec3.ZERO);
             f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, START, 0, 0, 0);

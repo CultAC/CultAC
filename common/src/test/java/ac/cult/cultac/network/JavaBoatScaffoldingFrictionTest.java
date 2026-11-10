@@ -76,7 +76,7 @@ class JavaBoatScaffoldingFrictionTest {
         for (int x = -2; x <= 2; x++) {
             for (int z = -3; z <= -1; z++) f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y, z), state);
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     /** One client tick: the rider's Rot, the boat's move and the tick end. */

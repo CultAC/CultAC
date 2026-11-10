@@ -165,7 +165,7 @@ class JavaFireworkGlideTest {
             Vec3 first = glide(f, CARRIED);
             assertExact(f.tick(FROM.add(first), false));
             fillWater(f);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 water = boost(f, first);
             PredictionResult result = f.tick(FROM.add(first).add(water), false);
             assertTrue(result.getSimulationContext().getWorldData().isInLiquid());

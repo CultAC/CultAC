@@ -32,7 +32,7 @@ class JavaPowderSnowInsideShapeVersionsTest {
         try (var f = new JavaTickFixture()) {
             JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
             f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 0), BlockIds.POWDER_SNOW.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(0.5, FLOOR_Y + 3.86, 0.5);
             double velocity = -0.2;
             f.place(position, new Vec3(0, velocity, 0));

@@ -43,7 +43,7 @@ class SelfSharedFlagsPoseTest {
                     player.compensatedWorld.updateBlock(new BlockPos(x, 65, z), topSlab);
                 }
             }
-            for (int tick = 0; tick < 3; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff();
             assertEquals(Pose.STANDING, player.pose);
 
             sendSharedFlags(player, (byte) 0);
@@ -68,7 +68,7 @@ class SelfSharedFlagsPoseTest {
             f.player.entityID = 7;
             f.player.compensatedWorld.updateBlock(
                     new BlockPos(0, JavaTickFixture.FLOOR_Y + 7, 0), BlockIds.STONE.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             var air = new Vec3(0.5, JavaTickFixture.FLOOR_Y + 2, 0.5);
             f.place(air, Vec3.ZERO);
             f.input(new ServerboundPlayerInput(false, false, false, false, false, false, false));

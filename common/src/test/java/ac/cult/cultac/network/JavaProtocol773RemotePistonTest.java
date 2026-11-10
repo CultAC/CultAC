@@ -138,7 +138,7 @@ class JavaProtocol773RemotePistonTest {
         f.player.compensatedWorld.updateBlock(
                 new BlockPos(1, FLOOR_Y, 0),
                 BLOCKS.block("minecraft:sweet_berry_bush").defaultState());
-        for (int i = 0; i < 3; i++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int i = 0; i < 3; i++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.player.packetEntityReplication.addEntity(
                 100,
                 EntityTypeIds.ZOMBIE,
@@ -149,7 +149,7 @@ class JavaProtocol773RemotePistonTest {
                 f.player.lastTransactionReceived.get());
         PacketEntity actor = f.player.compensatedEntities.getEntity(100);
         f.tick(park, true);
-        f.player.compensatedWorld.pistons.handleBlockEvent(base, BLOCKS.blockIndex(piston), 0, 5, 0);
+        f.player.compensatedWorld.pistons.handleBlockEvent(base, 0, 5);
         f.tick(park, true);
         double first = 0.5 + (double) (0.6F / 2) + 0.01;
         assertEquals(first, actor.clientPhysicalPosition.x, 1e-12);

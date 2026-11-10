@@ -105,7 +105,7 @@ class JavaRiptideGlideStartTest {
         for (int y = 0; y < depth; y++) {
             f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y + y, 0), fluid.defaultState());
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     private static void elytra(JavaTickFixture f) {

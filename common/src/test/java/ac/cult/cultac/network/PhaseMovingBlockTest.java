@@ -34,7 +34,7 @@ class PhaseMovingBlockTest {
             // A static block beside the slime's path.
             BlockPos stone = new BlockPos(4, FLOOR_Y + 2, 3);
             f.player.compensatedWorld.updateBlock(stone, BlockIds.STONE.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             var packet = new ClientboundBlockEvent(piston, 0, 1, REGISTRY.blockIndex(sticky));
             var event = new PacketSendEvent<>(
                     f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.BLOCK_EVENT, packet, false);

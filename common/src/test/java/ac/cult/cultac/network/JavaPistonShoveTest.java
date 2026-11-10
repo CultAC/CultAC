@@ -3,7 +3,6 @@ package ac.cult.cultac.network;
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockRegistry;
@@ -58,7 +57,7 @@ class JavaPistonShoveTest {
             int upPiston = piston("up");
             f.player.compensatedWorld.updateBlock(west, westPiston);
             f.player.compensatedWorld.updateBlock(up, upPiston);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
 
             Vec3 against = recorded(205.69999998807907, 62.0, 230.59313981649407);
             f.place(against, new Vec3(0, -0.0784000015258789, 0));
@@ -98,7 +97,7 @@ class JavaPistonShoveTest {
             int head = REGISTRY.with(REGISTRY.block("minecraft:piston_head").defaultState(), "facing", "west");
             f.player.compensatedWorld.updateBlock(base, extended);
             f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 0), head);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
 
             f.player.xRot = -142.30359F;
             f.player.yRot = 43.59375F;
@@ -151,7 +150,7 @@ class JavaPistonShoveTest {
             int trapdoor = REGISTRY.block("minecraft:spruce_trapdoor").defaultState();
             f.player.compensatedWorld.updateBlock(new BlockPos(-4, FLOOR_Y + 1, 0), trapdoor);
             f.player.compensatedWorld.updateBlock(new BlockPos(-3, FLOOR_Y + 1, 0), trapdoor);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
 
             Vec3 crawling = recorded(201.94999998807907, 62.0, 230.69754209922607);
             f.player.xRot = -155.74643F;
@@ -204,7 +203,7 @@ class JavaPistonShoveTest {
             BlockPos base = new BlockPos(1, FLOOR_Y + 1, 0);
             int westPiston = piston("west");
             f.player.compensatedWorld.updateBlock(base, westPiston);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
 
             Vec3 position = new Vec3(0.5, FLOOR_Y + 1, 0.5);
             f.place(position, new Vec3(0, -0.0784000015258789, 0));

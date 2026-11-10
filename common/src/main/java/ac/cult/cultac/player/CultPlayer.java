@@ -656,8 +656,6 @@ public class CultPlayer implements GrimUser {
         }
     }
 
-    private long lastCheckedFlying = 0;
-
     // Players can get 0 ping by repeatedly sending invalid transaction packets, but that will only hurt them
     // The design is allowing players to miss transaction packets, which shouldn't be possible
     // But if some error made a client miss a packet, then it won't hurt them too bad.
@@ -690,8 +688,6 @@ public class CultPlayer implements GrimUser {
             packetTracker.setIntervalPackets(packetTracker.getIntervalPackets() - 1);
         }
 
-        pruneStalePistonStateWhenIdle();
-
         // A transaction response marks a new tick boundary for latency-compensated tasks
         latencyUtils.handleNettySyncTransaction(lastTransactionReceived.get());
         return acknowledged != null;
@@ -719,16 +715,6 @@ public class CultPlayer implements GrimUser {
             }
         } while (current.id() != id);
         return current;
-    }
-
-    private void pruneStalePistonStateWhenIdle() {
-        long now = System.currentTimeMillis();
-        // When flying packets stop for 2s, the cleanup they normally trigger never runs
-        if (now - lastCheckedFlying <= 2000 || now - actionManager.lastFlyingPacketTime <= 2000) {
-            return;
-        }
-        lastCheckedFlying = now;
-        compensatedWorld.removeInvalidPistonLikeStuff(lastTransactionReceived.get());
     }
 
     public float getMaxUpStep() {

@@ -314,7 +314,7 @@ class GhostFrictionTest {
         world.startPredicting();
         for (BlockPos pos : floor()) world.updateBlock(pos, PACKED_ICE);
         world.stopPredicting(world.clientPredictionSequence());
-        for (int tick = 0; tick < 3; tick++) world.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) world.removeInvalidPistonLikeStuff();
     }
 
     /** The server's block updates for the placement, then its block-changed ack, both still unread by the client. */

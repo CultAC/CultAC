@@ -33,7 +33,7 @@ class JavaBoatPistonCollisionOrderTest {
             BlockPos base = new BlockPos(2, FLOOR_Y, 0);
             f.player.compensatedWorld.updateBlock(base, baseState);
             f.player.compensatedWorld.updateBlock(new BlockPos(1, FLOOR_Y, 0), head);
-            f.player.compensatedWorld.pistons.handleBlockEvent(base, registry.blockIndex(baseState), 1, 4, 0);
+            f.player.compensatedWorld.pistons.handleBlockEvent(base, 1, 4);
 
             Vec3 pushed = new Vec3(1.6799999880791, FLOOR_Y, travel.z);
             var result = f.tick(pushed, false);

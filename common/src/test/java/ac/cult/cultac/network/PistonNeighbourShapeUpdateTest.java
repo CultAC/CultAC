@@ -127,7 +127,7 @@ class PistonNeighbourShapeUpdateTest {
 
     private static void settle(JavaTickFixture f) {
         // Let the block-change timing uncertainty expire at client tick boundaries.
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     private static void blockEvent(JavaTickFixture f, int action) {

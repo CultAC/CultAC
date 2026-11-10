@@ -154,7 +154,7 @@ class JavaFluidDragVersionsTest {
 
     /** Lets the block-change timing uncertainty expire at client tick boundaries. */
     private static void settle(JavaTickFixture f) {
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     /** The next tick starts from exactly {@code expected}, to rounding. */

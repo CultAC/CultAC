@@ -16,7 +16,6 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
-import ac.cult.cultac.utils.data.ShulkerData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.math.VanillaMath;
 import ac.cult.cultac.utils.math.Vec3;
@@ -120,25 +119,6 @@ class JavaShulkerEntityCollisionTest {
         }
     }
 
-    /**
-     * Closing from DATA_PEEK_ID 100 to 30 takes fourteen Shulker#updatePeekAmount steps; each move's box reaches the
-     * larger of the peeks before and after that tick's step.
-     */
-    @Test
-    void aShulkerClosingToAPeekAnimatesEachStep() throws Exception {
-        try (var f = legacyFixture()) {
-            shulker(f);
-            peek(f, 100);
-            ticks(f, 20);
-            peek(f, 30);
-            assertTop(f, FLOOR_Y + 2);
-            ticks(f, 13);
-            assertTop(f, FLOOR_Y + 1 + physicalPeek(0.35F));
-            ticks(f, 1);
-            assertTrue(f.player.compensatedWorld.openShulkerBoxes.isEmpty(), "the lid rests at the peek");
-        }
-    }
-
     /** Shulker#sanitizeScale caps the scale at 3, so a scale 5 shulker's closed box is three blocks tall. */
     @Test
     void aShulkerScaledPastThreeIsThreeBlocksTall() throws Exception {
@@ -151,71 +131,6 @@ class JavaShulkerEntityCollisionTest {
 
             stand(f, FLOOR_Y + 5);
             PredictionResult hover = f.tick(at(FLOOR_Y + 5), true);
-            assertFalse(exact(hover), describe(hover));
-        }
-    }
-
-    /** A scale 3 shulker opening from DATA_PEEK_ID 0 to 100 grows its box by three times each step's peek. */
-    @Test
-    void aScaledShulkerOpensOneStepAtATime() throws Exception {
-        try (var f = legacyFixture()) {
-            shulker(f);
-            scale(f, 3.0F);
-            peek(f, 100);
-            ticks(f, 1);
-            assertTop(f, FLOOR_Y + 3 + 3 * physicalPeek(0.1F));
-
-            stand(f, FLOOR_Y + 4.5);
-            PredictionResult hover = f.tick(at(FLOOR_Y + 4.5), true);
-            assertFalse(exact(hover), describe(hover));
-        }
-    }
-
-    /** Shulker#onPeekAmountChange pushes only while Shulker#getPhysicalPeek grows: opening, never closing. */
-    @Test
-    void onlyAnOpeningShulkerPushes() throws Exception {
-        try (var f = legacyFixture()) {
-            shulker(f);
-            peek(f, 30);
-            ticks(f, 6);
-            peek(f, 100);
-            assertTrue(f.player.compensatedWorld.openShulkerBoxes.stream().anyMatch(ShulkerData::canPushEntities));
-            ticksToRest(f);
-            peek(f, 30);
-            assertFalse(f.player.compensatedWorld.openShulkerBoxes.isEmpty());
-            assertTrue(f.player.compensatedWorld.openShulkerBoxes.stream().noneMatch(ShulkerData::canPushEntities));
-        }
-    }
-
-    /** Shulker#getRawPeekAmount reads DATA_PEEK_ID as a signed byte. */
-    @Test
-    void aNegativePeekRaisesTheBox() throws Exception {
-        try (var f = legacyFixture()) {
-            shulker(f);
-            peek(f, -56);
-            assertEquals(13, ticksToRest(f));
-            stand(f, FLOOR_Y + 1 + physicalPeek(-0.56F));
-            PredictionResult still = f.tick(at(FLOOR_Y + 1 + physicalPeek(-0.56F)), true);
-            assertTrue(exact(still), describe(still));
-        }
-    }
-
-    /** ClientLevel#tickEntities skips a shulker TickRateManager#isEntityFrozen reports, so its peek holds. */
-    @Test
-    void aFrozenShulkerHoldsItsPeek() throws Exception {
-        try (var f = legacyFixture()) {
-            shulker(f);
-            peek(f, 100);
-            ticks(f, 2);
-            f.player.packetStateData.serverTicksFrozen = true;
-            ticks(f, 30);
-            double lid = FLOOR_Y + 1 + physicalPeek(0.1F);
-            assertTop(f, lid);
-            stand(f, lid);
-            PredictionResult still = f.tick(at(lid), true);
-            assertTrue(exact(still), describe(still));
-            stand(f, FLOOR_Y + 2);
-            PredictionResult hover = f.tick(at(FLOOR_Y + 2), true);
             assertFalse(exact(hover), describe(hover));
         }
     }
@@ -241,95 +156,12 @@ class JavaShulkerEntityCollisionTest {
         }
     }
 
-    /**
-     * Mth#clamp in Shulker#updatePeekAmount returns its maximum when the minimum exceeds it. A step that grows
-     * Shulker#getPhysicalPeek may push in the move after it, so an opening animates one tick past its last step.
-     */
-    @Test
-    void peekStepsFollowMthClamp() throws Exception {
-        try (var f = legacyFixture()) {
-            shulker(f);
-            peek(f, 100);
-            assertEquals(21, ticksToRest(f));
-            peek(f, 30);
-            assertEquals(14, ticksToRest(f));
-            peek(f, 127);
-            assertEquals(20, ticksToRest(f));
-            // 1.27F clamps to 1.0F, then rises by 0.05F steps to 1.1F.
-            peek(f, 110);
-            assertEquals(4, ticksToRest(f));
-        }
-    }
-
-    /**
-     * Below zero, Shulker#updatePeekAmount's rise clamps to 0.0F: one tick toward DATA_PEEK_ID -30 moves -0.56F to
-     * 0.0F, and DATA_PEEK_ID -100 then takes twenty steps, each one growing Shulker#getPhysicalPeek.
-     */
-    @Test
-    void aPeekRetargetedMidAnimationStepsFromWhereItIs() throws Exception {
-        try (var f = legacyFixture()) {
-            shulker(f);
-            peek(f, -56);
-            ticksToRest(f);
-            peek(f, -30);
-            ticks(f, 1);
-            assertTop(f, FLOOR_Y + 1 + physicalPeek(-0.05F));
-            peek(f, -100);
-            ticks(f, 15);
-            assertTrue(f.player.compensatedWorld.openShulkerBoxes.stream().anyMatch(ShulkerData::canPushEntities));
-            assertEquals(6, ticksToRest(f));
-            stand(f, FLOOR_Y + 2);
-            PredictionResult still = f.tick(at(FLOOR_Y + 2), true);
-            assertTrue(exact(still), describe(still));
-        }
-    }
-
-    /** A shulker closing toward any peek below the one it holds never grows Shulker#getPhysicalPeek. */
-    @Test
-    void aShulkerRetargetedWhileClosingNeverPushes() throws Exception {
-        try (var f = legacyFixture()) {
-            shulker(f);
-            peek(f, 100);
-            ticksToRest(f);
-            peek(f, 0);
-            ticks(f, 4);
-            peek(f, 30);
-            assertNoPushUntilRest(f);
-
-            peek(f, 0);
-            ticksToRest(f);
-            peek(f, 100);
-            ticks(f, 10);
-            peek(f, 30);
-            ticks(f, 1);
-            assertNoPushUntilRest(f);
-        }
-    }
-
-    /** Until the client answers the ping after DATA_PEEK_ID, it may not have handled it, nor started stepping. */
-    @Test
-    void anUnansweredPeekKeepsTheShulkerAnimating() throws Exception {
-        try (var f = legacyFixture()) {
-            shulker(f);
-            int proof = sendPeek(f, 100);
-            ticks(f, 25);
-            assertTop(f, FLOOR_Y + 2);
-            assertTrue(f.player.compensatedWorld.openShulkerBoxes.stream().anyMatch(ShulkerData::canPushEntities));
-            f.pongThrough(proof);
-            assertEquals(21, ticksToRest(f));
-        }
-    }
-
     /** The shulker's scale attribute, handled by the client. */
     private static void scale(JavaTickFixture f, float scale) {
         var shulker = f.player.compensatedEntities.getEntity(SHULKER);
         shulker.onScale(scale, 0);
         shulker.onSizeHandled(0);
         shulker.refreshDimensions(f.player);
-    }
-
-    private static SimpleCollisionBox box(double y) {
-        return new SimpleCollisionBox(0.4, y, 0.4, 0.6, y + 0.1, 0.6);
     }
 
     private static JavaTickFixture legacyFixture() throws Exception {
@@ -362,31 +194,7 @@ class JavaShulkerEntityCollisionTest {
     }
 
     private static void ticks(JavaTickFixture f, int ticks) {
-        for (int tick = 0; tick < ticks; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
-    }
-
-    /** The client ticks until the shulker's box rests and no push is left to show. */
-    private static int ticksToRest(JavaTickFixture f) {
-        int ticks = 0;
-        while (!f.player.compensatedWorld.openShulkerBoxes.isEmpty() && ticks < 100) {
-            ticks(f, 1);
-            ticks++;
-        }
-        return ticks;
-    }
-
-    private static void assertNoPushUntilRest(JavaTickFixture f) {
-        for (int tick = 0; !f.player.compensatedWorld.openShulkerBoxes.isEmpty(); tick++) {
-            assertTrue(tick < 100, "the lid rests");
-            assertTrue(f.player.compensatedWorld.openShulkerBoxes.stream().noneMatch(ShulkerData::canPushEntities));
-            ticks(f, 1);
-        }
-    }
-
-    /** The animating shulker's box reaches {@code top} in the next move, and no higher. */
-    private static void assertTop(JavaTickFixture f, double top) {
-        assertTrue(f.player.compensatedWorld.hasOpenShulkerCollision(box(top - 0.09)), "the box reaches " + top);
-        assertFalse(f.player.compensatedWorld.hasOpenShulkerCollision(box(top + 0.001)), "the box stops at " + top);
+        for (int tick = 0; tick < ticks; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     // Shulker#getPhysicalPeek on a 1.21.4 client.

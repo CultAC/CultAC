@@ -5,7 +5,6 @@ import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.input.BedrockTickInput;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockMovementInputFactory.Input;
-import ac.cult.cultac.bedrock.prediction.integration.ExternalMovementUncertainty.Snapshot;
 import ac.cult.cultac.bedrock.prediction.model.AttributeState;
 import ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags;
 import ac.cult.cultac.bedrock.prediction.model.BedrockEffectState;
@@ -39,7 +38,6 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.CollideAxisData.CollideResult;
-import ac.cult.cultac.utils.data.PistonPushes;
 import ac.cult.cultac.utils.latency.CompensatedFireworks;
 import ac.cult.cultac.utils.math.Vec3;
 import java.lang.reflect.Field;
@@ -57,7 +55,7 @@ public final class BedrockUncertaintyPipelineTest {
         List<Class<? extends UncertaintyHandler>> classes = BedrockMovementEngine.UNCERTAINTY_HANDLERS.stream()
                 .<Class<? extends UncertaintyHandler>>map(UncertaintyHandler::getClass)
                 .toList();
-        Assert.assertEquals(List.of(PistonShulkerPush.class, CollisionModifier.class, StepTransform.class), classes);
+        Assert.assertEquals(List.of(CollisionModifier.class, StepTransform.class), classes);
         Assert.assertThrows(
                 UnsupportedOperationException.class,
                 () -> BedrockMovementEngine.UNCERTAINTY_HANDLERS.add(new InsideBlock()));
@@ -111,7 +109,7 @@ public final class BedrockUncertaintyPipelineTest {
                 new Vec3(0.0, 0.1, 0.0));
         CultPlayer player = playerWithFireworks();
         BedrockUncertaintyPipelineTest.TestContext test =
-                context(Vec3.ZERO, false, noPushes(), new Vec3(1.0, 1.0, 1.0));
+                context(Vec3.ZERO, false, new Vec3(1.0, 1.0, 1.0));
         PredictionResult result = result(start, test.context(), Vec3.ZERO, neutralCollisions());
         ValidMovements valid = BedrockMovementEngine.INSTANCE.createValidMovements(start, player, result, false);
         MovementTrace trace = valid.transformTraceTowards(Vec3.ZERO, null);
@@ -132,54 +130,12 @@ public final class BedrockUncertaintyPipelineTest {
     }
 
     @Test
-    public void pistonCombinesCurrentAndPreviousEnvelopesAndScalesPositionOnlyMetadata() {
-        PredVector start = new PredVector(Vec3.ZERO);
-        BedrockUncertaintyPipelineTest.TestContext current = context(
-                new Vec3(0.15, 0.0, 0.0),
-                false,
-                pushes(pointEnvelope(0.2), new SimpleCollisionBox()),
-                new Vec3(0.5, 1.0, 1.0));
-        BedrockUncertaintyPipelineTest.TestContext previous = context(
-                Vec3.ZERO, false, pushes(pointEnvelope(-0.1), new SimpleCollisionBox()), new Vec3(1.0, 1.0, 1.0));
-        PredictionResult result = result(start, current.context(), current.target(), neutralCollisions());
-        PredictionResult last = result(start, previous.context(), Vec3.ZERO, neutralCollisions());
-        CultPlayer player = bedrockPlayer();
-        ValidMovements valid = new ValidMovements(start, player, result, false, List.of());
-        Snapshot snapshot = ExternalMovementUncertainty.capture(current.context(), last);
-        Assert.assertEquals(-0.1, snapshot.combinedTargetEnvelope().minX, 0.0);
-        Assert.assertEquals(0.2, snapshot.combinedTargetEnvelope().maxX, 0.0);
-        MovementTrace trace = new PistonShulkerPush()
-                .handleMovementTrace(
-                        player, valid, result, current.context(), last, MovementTrace.start(start), current.target());
-        Assert.assertEquals(0.0, trace.position().x, 0.0);
-        Assert.assertEquals(0.15, trace.collisionBaseOffset().x, 0.0);
-        Assert.assertEquals(0.075, trace.positionOnlyDelta().x, 0.0);
-    }
-
-    @Test
-    public void collisionReappliesPistonBaseInOneLineageOperation() {
-        PredVector start = new PredVector(Vec3.ZERO);
-        BedrockUncertaintyPipelineTest.TestContext test = context(
-                new Vec3(0.2, 0.0, 0.0),
-                false,
-                pushes(pointEnvelope(0.2), new SimpleCollisionBox()),
-                new Vec3(1.0, 1.0, 1.0));
-        PredictionResult result = result(start, test.context(), test.target(), neutralCollisions());
-        ValidMovements valid = new ValidMovements(
-                start, bedrockPlayer(), result, false, List.of(new PistonShulkerPush(), new CollisionModifier()));
-        MovementTrace trace = valid.transformTraceTowards(test.target(), null);
-        Vec3 beforeReapplication = trace.position().vectorBeforeFirstReason("external movement collision base");
-        Assert.assertEquals(trace.collisionBaseOffset().x, trace.position().x - beforeReapplication.x, 0.0);
-        Assert.assertEquals(0.2, trace.positionOnlyDelta().x, 0.0);
-    }
-
-    @Test
     public void collisionClipsOrdinaryVerticalMovementWithoutBedrockVerticalProjection() {
         PredVector start = new PredVector(new Vec3(0.0, -0.2, 0.0));
         CollideAxisData collision = neutralCollisions();
         collision.setYNeg(new CollideResult(true, -0.1));
         BedrockUncertaintyPipelineTest.TestContext test =
-                context(new Vec3(0.0, -0.1, 0.0), false, noPushes(), UNIT_SCALE);
+                context(new Vec3(0.0, -0.1, 0.0), false, UNIT_SCALE);
         PredictionResult result = result(start, test.context(), test.target(), collision);
         ValidMovements valid = new ValidMovements(start, null, result, false, List.of(new CollisionModifier()));
         PredVector transformed =
@@ -193,7 +149,7 @@ public final class BedrockUncertaintyPipelineTest {
         PredVector exact = new BedrockUncertaintyPipelineTest.BedrockTestVector(new Vec3(0.02, 0.5, 0.01), null);
         PredVector start = new BedrockUncertaintyPipelineTest.BedrockTestVector(Vec3.ZERO, exact);
         BedrockUncertaintyPipelineTest.TestContext test =
-                context(new Vec3(0.02, 0.5, 0.01), false, noPushes(), UNIT_SCALE);
+                context(new Vec3(0.02, 0.5, 0.01), false, UNIT_SCALE);
         PredictionResult result = result(start, test.context(), test.target(), neutralCollisions());
         ValidMovements valid = new ValidMovements(start, bedrockPlayer(), result, true, List.of(new StepTransform()));
         Assert.assertSame(
@@ -211,7 +167,7 @@ public final class BedrockUncertaintyPipelineTest {
     public void bedrockUnknownStepFallbackRisesFromThePacketStartAfterAPistonPush() {
         PredVector start = new BedrockUncertaintyPipelineTest.BedrockTestVector(Vec3.ZERO, null);
         BedrockUncertaintyPipelineTest.TestContext test =
-                context(new Vec3(0.02, 0.9, 0.01), false, noPushes(), UNIT_SCALE);
+                context(new Vec3(0.02, 0.9, 0.01), false, UNIT_SCALE);
         CollideAxisData unknown = neutralCollisions();
         unknown.setUnknown(List.of(new SimpleCollisionBox(0.0, 0.0, 0.0, 1.0, 1.0, 1.0)));
         PredictionResult result = result(start, test.context(), test.target(), unknown);
@@ -229,8 +185,8 @@ public final class BedrockUncertaintyPipelineTest {
     public void insideBlockIsGatedHorizontalAndLeavesVerticalUnchanged() {
         PredVector start = new PredVector(new Vec3(0.03, -0.08, -0.02));
         InsideBlock handler = new InsideBlock();
-        BedrockUncertaintyPipelineTest.TestContext inactiveContext = context(Vec3.ZERO, false, noPushes(), UNIT_SCALE);
-        BedrockUncertaintyPipelineTest.TestContext activeContext = context(Vec3.ZERO, true, noPushes(), UNIT_SCALE);
+        BedrockUncertaintyPipelineTest.TestContext inactiveContext = context(Vec3.ZERO, false, UNIT_SCALE);
+        BedrockUncertaintyPipelineTest.TestContext activeContext = context(Vec3.ZERO, true, UNIT_SCALE);
         Assert.assertSame(
                 start,
                 handler.handleUncertainty(
@@ -332,10 +288,9 @@ public final class BedrockUncertaintyPipelineTest {
     }
 
     private static BedrockUncertaintyPipelineTest.TestContext context(
-            Vec3 target, boolean mightBeInBlock, PistonPushes pushes, Vec3 stuckSpeed) {
+            Vec3 target, boolean mightBeInBlock, Vec3 stuckSpeed) {
         WorldData world = (WorldData) Mockito.mock(WorldData.class);
         Mockito.when(world.isMightBeInBlock()).thenReturn(mightBeInBlock);
-        Mockito.when(world.getPistonPushes()).thenReturn(pushes);
         SimulationContext context = (SimulationContext) Mockito.mock(SimulationContext.class);
         Mockito.when(context.getWorldData()).thenReturn(world);
         Mockito.when(context.getTarget()).thenReturn(target);
@@ -359,19 +314,6 @@ public final class BedrockUncertaintyPipelineTest {
                 new CollideResult(false, 0.0),
                 new CollideResult(false, 0.0),
                 List.of());
-    }
-
-    private static PistonPushes noPushes() {
-        return pushes(new SimpleCollisionBox(), new SimpleCollisionBox());
-    }
-
-    private static PistonPushes pushes(SimpleCollisionBox piston, SimpleCollisionBox shulker) {
-        return new PistonPushes(
-                piston.isEmpty() ? shulker.copy() : piston.copy().union(shulker), piston, shulker);
-    }
-
-    private static SimpleCollisionBox pointEnvelope(double x) {
-        return new SimpleCollisionBox(x, 0.0, 0.0, x, 1.0E-9, 0.0);
     }
 
     private static final class BedrockTestVector extends PredVector {

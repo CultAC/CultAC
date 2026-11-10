@@ -69,7 +69,7 @@ class JavaRiptideStuckReleaseTest {
     private static JavaTickFixture settledIn(BlockDefinition block) throws Exception {
         var f = new JavaTickFixture();
         f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 0), block.defaultState());
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.place(START, new Vec3(0, FALLING, 0));
         f.input(NONE);
         assertExact(f.tick(START, true));

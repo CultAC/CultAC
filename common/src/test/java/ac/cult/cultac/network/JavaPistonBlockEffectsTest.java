@@ -40,7 +40,7 @@ class JavaPistonBlockEffectsTest {
         try (var f = new JavaTickFixture()) {
             JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
             f.player.compensatedWorld.updateBlock(new BlockPos(1, FLOOR_Y + 1, 0), BlockIds.POWDER_SNOW.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(0.5, FLOOR_Y, 0.5);
             f.place(position, Vec3.ZERO);
             f.input(new ServerboundPlayerInput(false, false, false, false, false, false, false));
@@ -79,7 +79,7 @@ class JavaPistonBlockEffectsTest {
             f.player.compensatedWorld.updateBlock(
                     new BlockPos(1, FLOOR_Y, 0),
                     REGISTRY.block("minecraft:honey_block").defaultState());
-            for (int i = 0; i < 3; i++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int i = 0; i < 3; i++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(0.7, FLOOR_Y + 0.5, 0.5);
             f.place(position, Vec3.ZERO);
             f.input(new ServerboundPlayerInput(false, false, false, false, false, false, false));
@@ -129,7 +129,7 @@ class JavaPistonBlockEffectsTest {
             f.player.compensatedWorld.updateBlock(
                     new BlockPos(0, FLOOR_Y, 1),
                     REGISTRY.block("minecraft:sweet_berry_bush").defaultState());
-            for (int i = 0; i < 3; i++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int i = 0; i < 3; i++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(0.5, FLOOR_Y, 2.31);
             f.place(position, VELOCITY);
             f.input(new ServerboundPlayerInput(false, false, false, false, false, false, false));

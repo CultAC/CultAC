@@ -200,7 +200,7 @@ class JavaReleaseGapRegressionTest {
             var at = new BlockPos(8, 72, 8);
             f.player.compensatedWorld.updateBlock(at, BlockIds.WATER.defaultState());
             f.player.compensatedWorld.updateBlock(at.east().below(), BlockIds.WATER.defaultState());
-            for (int i = 0; i < 3; i++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int i = 0; i < 3; i++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 start = new Vec3(8.5, 72, 8.5), velocity = new Vec3(.1, 0, 0);
             f.place(start, velocity);
             f.input(NONE);

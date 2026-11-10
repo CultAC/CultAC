@@ -30,7 +30,7 @@ class PistonBlockEntityCollisionTest {
             int piston = registry.with(registry.block("minecraft:piston").defaultState(), "facing", "east");
             var base = new BlockPos(3, 64, 4);
             world.updateBlock(base, piston);
-            world.pistons.handleBlockEvent(base, registry.blockIndex(piston), 0, 5, 1);
+            world.pistons.handleBlockEvent(base, 0, 5);
             assertEquals(
                     "minecraft:moving_piston",
                     registry.block(world.getBlockStateIdAt(pos)).key());

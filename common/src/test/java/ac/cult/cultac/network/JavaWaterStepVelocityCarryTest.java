@@ -36,7 +36,7 @@ class JavaWaterStepVelocityCarryTest {
                     f.player.compensatedWorld.updateBlock(new BlockPos(x, 64, z), z == 2 ? flowing : water);
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             f.place(new Vec3(0.5, 63.5, 2.163017392658693), new Vec3(0, -0.005, 0.09937754411139528));
             f.player.onGround = f.player.lastOnGround = true;
             f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.TRUE);

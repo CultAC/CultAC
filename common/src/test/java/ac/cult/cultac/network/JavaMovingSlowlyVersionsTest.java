@@ -42,7 +42,7 @@ class JavaMovingSlowlyVersionsTest {
                 var blocks = DataTables.defaults().registry();
                 int topSlab = blocks.with(blocks.block("minecraft:stone_slab").defaultState(), "type", "top");
                 f.player.compensatedWorld.updateBlock(new BlockPos(0, 65, 0), topSlab);
-                for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+                for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             }
             // An exact input-time frame: the pose left last tick, the completed baseTick fluid/swim
             // state, abilities and the preceding keys that aiStep reads before Input.tick.

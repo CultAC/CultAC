@@ -53,7 +53,7 @@ class JavaGlidePistonWaterPrecisionTest {
                 for (int y = FLOOR_Y - 1; y <= FLOOR_Y + 2; y++)
                     for (int z : new int[] {-1, 1})
                         f.player.compensatedWorld.updateBlock(new BlockPos(x, y, z), BlockIds.GLASS.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             f.player
                     .getInventory()
                     .inventory

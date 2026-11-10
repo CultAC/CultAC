@@ -158,7 +158,7 @@ class JavaFlushShapeCollisionTest {
 
     private static void set(JavaTickFixture f, int x, int y, int z, int state) {
         f.player.compensatedWorld.updateBlock(new BlockPos(x, y, z), state);
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     /** Mth#sin's table entry from 1.21.11 on. */

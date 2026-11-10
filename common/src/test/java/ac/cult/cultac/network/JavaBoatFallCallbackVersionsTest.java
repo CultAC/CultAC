@@ -73,7 +73,7 @@ class JavaBoatFallCallbackVersionsTest {
             mount(f, version, start);
             if (!waterTagged) clearWaterTag(f);
             f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y + 8, 0), BlockIds.WATER.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             var first = f.rideTick(start.add(0, -0.04, 0), false);
             assertTrue(exact(first), describe(first));
             var second = f.rideTick(start.add(0, -0.04 - 0.08, 0), false);
@@ -106,7 +106,7 @@ class JavaBoatFallCallbackVersionsTest {
             if (!waterTagged) clearWaterTag(f);
             f.player.compensatedEntities.getEntity(BOAT).hasGravity = false;
             f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y + 8, 0), BlockIds.WATER.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             var travel = f.rideTick(start, false);
             assertTrue(exact(travel), describe(travel));
             var initial =
@@ -150,7 +150,7 @@ class JavaBoatFallCallbackVersionsTest {
             Vec3 start = FLOOR.add(0, 8, 0);
             mount(f, version, start);
             f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y + 8, 0), BlockIds.COBWEB.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             var first = f.rideTick(start.add(0, -0.04, 0), false);
             assertTrue(exact(first), describe(first));
             var second = f.rideTick(start.add(0, -0.04 + (-0.04 - 0.04) * (double) 0.05F, 0), false);
@@ -170,7 +170,7 @@ class JavaBoatFallCallbackVersionsTest {
             mountOnFloor(f, version);
             // The boat's side touches web without occupying the piston's destination.
             f.player.compensatedWorld.updateBlock(new BlockPos(1, FLOOR_Y, 0), BlockIds.COBWEB.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             var contact = f.rideTick(FLOOR, true);
             assertTrue(exact(contact), describe(contact));
             isolateSlime(f);
@@ -294,7 +294,7 @@ class JavaBoatFallCallbackVersionsTest {
                         ? new BlockPos(pos.getX(), pos.getY() + 1, pos.getZ())
                         : new BlockPos(pos.getX(), pos.getY(), pos.getZ() - 1),
                 REGISTRY.block("minecraft:" + moved).defaultState());
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         var packet = new ClientboundBlockEvent(pos, 0, face, REGISTRY.blockIndex(piston));
         var event = new PacketSendEvent<>(
                 f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.BLOCK_EVENT, packet, false);

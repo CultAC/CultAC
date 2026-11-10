@@ -66,7 +66,7 @@ class JavaDrivenBoatPassengerStatusTest {
                     }
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 standingAt = new Vec3(3.5, FLOOR_Y, -0.5);
             f.place(standingAt, new Vec3(0, FALL, 0));
             PredictionResult standing = f.tick(standingAt, true);

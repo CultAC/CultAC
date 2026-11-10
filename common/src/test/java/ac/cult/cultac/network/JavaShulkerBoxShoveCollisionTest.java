@@ -564,7 +564,7 @@ class JavaShulkerBoxShoveCollisionTest {
                             new BlockPos(piston.getX() + 1, piston.getY(), piston.getZ()),
                             REGISTRY.block("minecraft:stone").defaultState());
                 }
-                for (int i = 0; i < 3; i++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+                for (int i = 0; i < 3; i++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
                 stepper.x = startX;
                 stepper.y = startY;
                 stepper.velocityY = startVelocityY;

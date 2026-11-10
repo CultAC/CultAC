@@ -108,7 +108,7 @@ class StepProofMemoEquivalenceTest {
             int floor = JavaTickFixture.FLOOR_Y;
             player.compensatedWorld.updateBlock(new BlockPos(0, floor - 1, 0), BlockIds.POWDER_SNOW.defaultState());
             player.compensatedWorld.updateBlock(new BlockPos(1, floor, 0), BlockIds.STONE.defaultState());
-            for (int tick = 0; tick < 3; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff();
 
             SimpleCollisionBox onSnow = GetBoundingBox.getBoundingBoxFromPosAndSize(0.5, floor, 0.5, 0.6F, 1.8F);
             SimpleCollisionBox inSnow = GetBoundingBox.getBoundingBoxFromPosAndSize(0.5, floor - 0.05, 0.5, 0.6F, 1.8F);

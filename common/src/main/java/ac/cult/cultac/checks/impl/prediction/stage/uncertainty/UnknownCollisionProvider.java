@@ -28,7 +28,6 @@ public final class UnknownCollisionProvider {
                     context.getVehicle() == null ? player.compensatedEntities.getSelf() : context.getVehicle();
             boxes.addAll(EntityPositionWorlds.colliders(player, actor, playerPos, queryBox));
         }
-        addDynamicBlockUnknownCollisions(player, context, queryBox, boxes);
     }
 
     /**
@@ -105,17 +104,5 @@ public final class UnknownCollisionProvider {
     private static void addIntersecting(
             List<SimpleCollisionBox> boxes, SimpleCollisionBox box, SimpleCollisionBox queryBox) {
         if (box.isIntersected(queryBox)) boxes.add(box.copy());
-    }
-
-    public static void addDynamicBlockUnknownCollisions(
-            CultPlayer player,
-            SimulationContext context,
-            SimpleCollisionBox queryBox,
-            List<SimpleCollisionBox> unknown) {
-        if (!player.isBedrockMovement() || context.getVehicle() != null) {
-            return;
-        }
-
-        player.compensatedWorld.addDynamicBlockCollisionUncertaintyBoxes(queryBox, unknown);
     }
 }

@@ -89,7 +89,7 @@ class JavaRiddenPowderSnowFrostTest {
                             new BlockPos(x, FLOOR_Y, z), BlockIds.POWDER_SNOW.defaultState());
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             f.place(START, Vec3.ZERO);
             f.player.compensatedEntities.addEntity(HORSE, EntityTypeIds.HORSE, START, 0, 0, 0);
             PacketEntityHorse horse = (PacketEntityHorse) f.player.compensatedEntities.getEntity(HORSE);

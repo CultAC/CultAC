@@ -172,7 +172,7 @@ class RiddenHorseBounceSuppressionTest {
 
     /** A saddled horse at {@code start} with the player riding it. */
     private static PacketEntityHorse mount(JavaTickFixture f, Vec3 start, boolean onGround) {
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.player.compensatedEntities.addEntity(HORSE, EntityTypeIds.HORSE, start, 0, 0, 0);
         PacketEntityHorse horse = (PacketEntityHorse) f.player.compensatedEntities.getEntity(HORSE);
         horse.hasSaddle = true;

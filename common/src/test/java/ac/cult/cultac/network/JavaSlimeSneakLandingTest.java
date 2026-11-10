@@ -64,7 +64,7 @@ class JavaSlimeSneakLandingTest {
                         new BlockPos(x, FLOOR_Y + 2, z), BlockIds.SLIME_BLOCK.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
 
         // The fall from the ceiling: the last airborne move through LivingEntity#travel's air friction and gravity.
         Vec3 fall = LANDING_FROM.subtract(recorded(269.6156299346299, 62.200000047683716, 150.5597078138167));

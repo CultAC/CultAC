@@ -37,7 +37,7 @@ class JavaSneakEdgeCarryVersionsTest {
                     f.player.compensatedWorld.updateBlock(new BlockPos(x, 63, z), BlockIds.AIR.defaultState());
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(0.5, 64, 1.299999);
             double velocity = 0.05;
             f.place(position, new Vec3(0, -0.0784000015258789, velocity));

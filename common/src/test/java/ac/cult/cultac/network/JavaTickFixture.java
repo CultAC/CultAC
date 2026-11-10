@@ -115,7 +115,7 @@ final class JavaTickFixture implements AutoCloseable {
             }
         }
         // Let the block-change timing uncertainty expire at client tick boundaries.
-        for (int tick = 0; tick < 3; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff();
         SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
         resetTimerBalances();
     }
@@ -307,7 +307,7 @@ final class JavaTickFixture implements AutoCloseable {
                 }
             }
         }
-        for (int tick = 0; tick < 3; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     void tickEnd() {

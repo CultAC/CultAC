@@ -92,7 +92,7 @@ class RotationBreakTickStartTest {
                     dig.target().getY() + dy,
                     dig.target().getZ() + dz);
             f.player.compensatedWorld.updateBlock(target, BlockIds.STONE.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
 
             Vec3 start = dig.tickStart().add(dx, dy, dz);
             f.place(start, Vec3.ZERO);

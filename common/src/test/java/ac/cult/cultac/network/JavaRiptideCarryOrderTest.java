@@ -49,7 +49,7 @@ class JavaRiptideCarryOrderTest {
             Vec3 start = new Vec3(.5, 80.2, .5);
             for (int y = 80; y <= 82; y++)
                 f.player.compensatedWorld.updateBlock(new BlockPos(0, y, 0), BlockIds.WATER.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 target = new Vec3(-2.5, 79, .5);
             f.addRemotePlayer(71, target, GameMode.SURVIVAL);
             f.place(start, new Vec3(-3, -.005, 0));

@@ -48,7 +48,7 @@ class JavaPowderSnowClimbVersionsTest {
                     .getInventoryStorage()
                     .setItem(Inventory.SLOT_BOOTS, new SimItemStack(ItemTypes.LEATHER_BOOTS, 1, Components.EMPTY));
             f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y + 1, 0), BlockIds.POWDER_SNOW.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 start = new Vec3(0.5, FLOOR_Y, 0.5);
             // Land with the ordinary carried gravity. A zero-Y Entity#move clears onGround,
             // so it cannot supply the grounded jump the following tick exercises.
@@ -101,7 +101,7 @@ class JavaPowderSnowClimbVersionsTest {
                     .getInventoryStorage()
                     .setItem(Inventory.SLOT_BOOTS, new SimItemStack(ItemTypes.LEATHER_BOOTS, 1, Components.EMPTY));
             f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 0), BlockIds.POWDER_SNOW.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 start = new Vec3(0.5, FLOOR_Y, 0.5);
             f.place(start, Vec3.ZERO);
             f.input(new ServerboundPlayerInput(false, false, false, false, true, false, false));

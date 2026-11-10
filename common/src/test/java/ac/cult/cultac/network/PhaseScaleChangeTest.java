@@ -32,7 +32,7 @@ class PhaseScaleChangeTest {
                 for (int z = -1; z <= 1; z++)
                     f.player.compensatedWorld.updateBlock(new BlockPos(2, y, z), BlockIds.STONE.defaultState());
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Phase phase = f.player.checkManager.getCheck(Phase.class);
 
             // At scale 2 the 1.2 wide box reaches x = 2.1, 0.1 into the wall.

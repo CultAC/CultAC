@@ -287,7 +287,7 @@ class JavaBoatRiddenInMinecartTest {
                     slime ? BlockIds.SLIME_BLOCK.defaultState() : BlockIds.STONE.defaultState());
             if (slime)
                 f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y - 1, 1), BlockIds.AIR.defaultState());
-            for (int i = 0; i < 3; i++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int i = 0; i < 3; i++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             blockEvent(f, base, 0, 2, piston);
             f.rideTick();
             PacketEntity boat = f.player.compensatedEntities.getEntity(BOAT);
@@ -456,7 +456,7 @@ class JavaBoatRiddenInMinecartTest {
                 for (int y = FLOOR_Y + 8; y <= FLOOR_Y + 9; y++)
                     for (int z = -1; z <= 1; z++)
                         f.player.compensatedWorld.updateBlock(new BlockPos(x, y, z), fluid.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 cart = new Vec3(3.5, FLOOR_Y + 3.75, .5);
             f.player.compensatedEntities.addEntity(MINECART, minecart(), cart, 0, 0, 0);
             f.setPassengers(MINECART, List.of(BOAT));
@@ -473,7 +473,7 @@ class JavaBoatRiddenInMinecartTest {
                 for (int z = -1; z <= 1; z++)
                     f.player.compensatedWorld.updateBlock(
                             new BlockPos(x, FLOOR_Y + 3, z), BlockIds.POWDER_SNOW.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             eject(f);
             assertExact(f.rideTick(seat.add(0, -.08, 0), false));
         }

@@ -84,7 +84,7 @@ class SneakEdgeVelocityTest {
     void releasingShiftOnIceReleasesTheVelocityTheEdgeHid() throws Exception {
         try (var f = new JavaTickFixture()) {
             f.player.compensatedWorld.updateBlock(new BlockPos(8, FLOOR_Y - 1, 0), PACKED_ICE);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             f.place(new Vec3(EDGE_X, FLOOR_Y, 0.5), new Vec3(0, -0.0784000015258789, 0));
             f.input(SNEAK);
             assertExact(-1, f.tick(new Vec3(EDGE_X, FLOOR_Y, 0.5), true));
@@ -107,7 +107,7 @@ class SneakEdgeVelocityTest {
             for (int x = -8; x <= 8; x++) {
                 f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y - 1, 8), PACKED_ICE);
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 input = VelocityTransformer.getExactControllerModifiedInputStatic(new Vec3(1, 0, 1), 0.3F)
                     .scale(ICE_SPEED);
             double x = 0.5;

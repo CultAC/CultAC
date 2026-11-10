@@ -55,7 +55,7 @@ class JavaBoatSoulSandTest {
                             new BlockPos(x, FLOOR_Y - 1, z), BlockIds.SOUL_SAND.defaultState());
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 rest = REST.add(SHIFT);
             f.place(rest, Vec3.ZERO);
             f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, rest, YAW, 0, 0);

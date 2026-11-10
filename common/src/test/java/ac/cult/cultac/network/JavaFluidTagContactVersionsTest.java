@@ -43,7 +43,7 @@ class JavaFluidTagContactVersionsTest {
             String release, ClientVersion version, ClientFluidTagOrder order) throws Exception {
         try (var f = overlapping(version, order)) {
             f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 0), BlockIds.WATER.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(0.5, FLOOR_Y + 2, 0.5);
             f.place(position, new Vec3(0, -0.6, 0));
             f.input(NONE);

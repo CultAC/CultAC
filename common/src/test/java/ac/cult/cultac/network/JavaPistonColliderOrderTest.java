@@ -46,7 +46,7 @@ class JavaPistonColliderOrderTest {
                 world.updateBlock(base, piston);
                 world.updateBlock(base.relative(Direction.EAST), BlockIds.STONE.defaultState());
             }
-            for (int tick = 0; tick < 3; tick++) world.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) world.removeInvalidPistonLikeStuff();
             // The boat's west face is 0.25 east of the player, beyond AbstractBoat's 0.2 push reach, but inside the
             // 0.31 the second piston's first stroke shoves the player; it spans both rows.
             double boatWest = 0.5 + HALF_WIDTH + 0.25;

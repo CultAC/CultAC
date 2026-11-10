@@ -137,7 +137,7 @@ class JavaRiptideSpinAttackTest {
             for (int y = FLOOR_Y + 1; y <= FLOOR_Y + 2; y++) {
                 f.player.compensatedWorld.updateBlock(new BlockPos(-3, y, 0), BlockIds.STONE.defaultState());
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             f.player.compensatedEntities.addEntity(
                     72, EntityTypeIds.EXPERIENCE_ORB, new Vec3(-4.0, START.y, START.z), 0, 0, 0);
             f.player.riptideSpinAttackTicks = 10;
@@ -172,7 +172,7 @@ class JavaRiptideSpinAttackTest {
             for (int y = FLOOR_Y; y <= FLOOR_Y + 1; y++) {
                 f.player.compensatedWorld.updateBlock(new BlockPos(-3, y, 0), BlockIds.STONE.defaultState());
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             f.player.compensatedEntities.addEntity(
                     72, EntityTypeIds.EXPERIENCE_ORB, new Vec3(-4.0, FLOOR_Y, 0.5), 0, 0, 0);
             f.player.riptideSpinAttackTicks = 10;
@@ -391,7 +391,7 @@ class JavaRiptideSpinAttackTest {
                 for (int y = FLOOR_Y; y <= FLOOR_Y + 1; y++)
                     f.player.compensatedWorld.updateBlock(new BlockPos(x, y, 1), BlockIds.STONE.defaultState());
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             // The front of the boat's 1.375 wide box touches the wall at z = 1.
             Vec3 boat = new Vec3(0.5, FLOOR_Y, 1 - 0.6875);
             f.place(boat, Vec3.ZERO);
@@ -490,7 +490,7 @@ class JavaRiptideSpinAttackTest {
      */
     private static Vec3 releaseOnTheGround(JavaTickFixture f, float pitch) {
         f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 0), BlockIds.WATER.defaultState());
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         SimItemStack trident = OfflineCultTestBootstrap.item("minecraft:trident");
         trident.setComponent("minecraft:enchantments", CanonicalSnbt.parse("{'minecraft:riptide':3}"));
         f.player.getInventory().inventory.getInventoryStorage().setItem(Inventory.HOTBAR_OFFSET, trident);

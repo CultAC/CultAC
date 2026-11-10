@@ -176,7 +176,7 @@ class JavaLastMoveGroundCorrectionTest {
     }
 
     private static void expireBlockChanges(JavaTickFixture f) {
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     private static void blockEvent(JavaTickFixture f, BlockPos pos, int state, int action, int parameter) {

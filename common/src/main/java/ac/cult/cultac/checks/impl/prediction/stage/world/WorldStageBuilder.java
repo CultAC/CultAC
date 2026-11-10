@@ -193,12 +193,7 @@ public class WorldStageBuilder {
         // If the player isn't in water, then they aren't in a bubble column
         final BubbleColumnData bubble = computeBubbleColumns(player, to, simulationContext);
 
-        // Java movement replays the client's block-entity passes themselves (JavaBlockEntityPass); the push
-        // envelope is the Bedrock engine's PistonShulkerPush input.
-        PistonPushes push = player.isBedrockMovement()
-                ? player.compensatedWorld.tickPlayerInPistonPushingArea(simulationContext)
-                : PistonPushes.NONE;
-        StuckSpeedData stuckSpeedData = calculateStuckSpeed(player, simulationContext, push);
+        StuckSpeedData stuckSpeedData = calculateStuckSpeed(player, simulationContext);
 
         // Entity#baseTick samples the eye at the movement start, at the pose Player#updatePlayerPose left last tick.
         int eyeContact = eyeFluidContact(player, simulationContext, player.pose, extentBox);
@@ -258,8 +253,6 @@ public class WorldStageBuilder {
         if (simulationContext.isRiptideReleaseCertain()) {
             // Entity#move of TridentItem#releaseUsing's upward lift leaves onGround false before LivingEntity#aiStep.
             desyncLastOnGround = DesyncStatus.FALSE;
-        } else if (!push.getPush().isEmpty()) {
-            desyncLastOnGround = DesyncStatus.UNKNOWN;
         }
         if (simulationContext.getVehicle() != null
                 && !desyncLastOnGround.determineOptimistically()
@@ -306,7 +299,6 @@ public class WorldStageBuilder {
                 onBlock,
                 stuckEdgeData,
                 bubble,
-                push,
                 stuckSpeedData,
                 honeySlide,
                 onHoney,
@@ -1128,7 +1120,7 @@ public class WorldStageBuilder {
         return DesyncStatus.fromBooleans(hasSmall, hasLarge);
     }
 
-    public StuckSpeedData calculateStuckSpeed(CultPlayer player, SimulationContext context, PistonPushes push) {
+    public StuckSpeedData calculateStuckSpeed(CultPlayer player, SimulationContext context) {
         // Preserve the existing extent approximation. A vehicle uses its full body;
         // player minimum/maximum extents account for pose and movement-threshold uncertainty.
         boolean inVehicle = context.getVehicle() != null;
@@ -1146,15 +1138,6 @@ public class WorldStageBuilder {
                         context.getFromMaximumExtent(sweepFromBox),
                         context.getToMaximumExtent(sweepToBox),
                         powderSnowCanApply);
-
-        boolean hasPistonPush = push != null
-                && push.getPistonPush() != null
-                && !push.getPistonPush().isEmpty();
-        if (hasPistonPush) {
-            // A piston shove the Bedrock envelope allows may consume the stuck speed before the next move, so the
-            // speed this move's blocks set is optional rather than required for the next packet.
-            return new StuckSpeedData(null, firstKnownStuckSpeed(required, optional));
-        }
 
         // This two-result representation does not cover every intermediate-box outcome.
         if (optional != null && optional.equals(required)) optional = null;

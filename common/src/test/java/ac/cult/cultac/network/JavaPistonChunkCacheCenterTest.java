@@ -49,7 +49,7 @@ class JavaPistonChunkCacheCenterTest {
             int piston = REGISTRY.with(REGISTRY.block("minecraft:piston").defaultState(), "facing", "east");
             world.updateBlock(PISTON, piston);
             world.updateBlock(new BlockPos(-2, FLOOR_Y, 0), BlockIds.STONE.defaultState());
-            for (int tick = 0; tick < 3; tick++) world.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) world.removeInvalidPistonLikeStuff();
 
             // The second stroke's area reaches x = 0, past the player's west face: it moves that depth plus 0.01.
             Vec3 position = new Vec3(0.25, FLOOR_Y, 0.5);
@@ -79,7 +79,7 @@ class JavaPistonChunkCacheCenterTest {
                     BlockIds.is(world.getBlockStateIdAt(MOVING), BlockIds.MOVING_PISTON),
                     "the moving block is visible again");
             // Five death ticks later PistonMovingBlockEntity#tick settles the stone where the stroke left it.
-            for (int tick = 0; tick < 8; tick++) world.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 8; tick++) world.removeInvalidPistonLikeStuff();
             assertTrue(BlockIds.is(world.getBlockStateIdAt(MOVING), BlockIds.STONE));
         }
     }
@@ -97,11 +97,11 @@ class JavaPistonChunkCacheCenterTest {
             int piston = REGISTRY.with(REGISTRY.block("minecraft:piston").defaultState(), "facing", "east");
             world.updateBlock(PISTON, piston);
             world.updateBlock(new BlockPos(-2, FLOOR_Y, 0), BlockIds.STONE.defaultState());
-            for (int tick = 0; tick < 3; tick++) world.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) world.removeInvalidPistonLikeStuff();
 
             JavaPistonSlimeLaunchTest.blockEvent(f, PISTON, 0, Direction.EAST.get3DDataValue(), piston);
             world.clientChunkCacheCenter(5, 0);
-            world.removeInvalidPistonLikeStuff(0);
+            world.removeInvalidPistonLikeStuff();
             assertEquals(2, pistons(world.nextBlockEntityPass()), "the hidden stone and head still tick");
 
             world.clientChunkCacheCenter(0, 0);

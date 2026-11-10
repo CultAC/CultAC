@@ -97,7 +97,7 @@ class JavaAttackSlowWaterCurrentTest {
         var water = new BlockPos(4, FLOOR_Y, 8);
         world.updateBlock(water, BlockIds.WATER.defaultState());
         world.updateBlock(water.west().below(), BlockIds.WATER.defaultState());
-        for (int tick = 0; tick < 3; tick++) world.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) world.removeInvalidPistonLikeStuff();
         var attributes = new ClientboundUpdateAttributes(
                 f.player.entityID, List.of(new AttributeSnapshot("minecraft:attack_knockback", 1.0, List.of())));
         var event = new PacketSendEvent<>(

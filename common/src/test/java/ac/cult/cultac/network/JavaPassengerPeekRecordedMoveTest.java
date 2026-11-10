@@ -76,7 +76,7 @@ class JavaPassengerPeekRecordedMoveTest {
             f.input(NONE);
             f.player.compensatedWorld.updateBlock(WALL, BlockIds.STONE.defaultState());
             f.player.compensatedWorld.updateBlock(WEB, BlockIds.COBWEB.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 standing = new Vec3(0.5, FLOOR_Y, 0.5);
             f.place(standing, new Vec3(0, FALL, 0));
             PredictionResult stand = f.tick(standing, true);

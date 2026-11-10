@@ -79,7 +79,7 @@ class SetbackGroundAfterCorrectionTest {
                     .defaultState();
             f.player.compensatedWorld.updateBlock(new BlockPos(2, FLOOR_Y, 0), BlockIds.STONE.defaultState());
             f.player.compensatedWorld.updateBlock(new BlockPos(2, FLOOR_Y + 1, 0), slab);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             settle(f, AGAINST_THE_WALL);
 
             // An ordinary jump up to its apex.
@@ -177,7 +177,7 @@ class SetbackGroundAfterCorrectionTest {
             Mockito.when(f.fixture.user.getPlayer().getWorld()).thenReturn(Mockito.mock(PlatformWorld.class));
             int ice = DataTables.defaults().registry().block("minecraft:ice").defaultState();
             f.player.compensatedWorld.updateBlock(new BlockPos(6, FLOOR_Y - 1, 0), ice);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             settle(f, STANDING);
             SetbackTeleportUtil teleports = f.player.getSetbackTeleportUtil();
             written(f);

@@ -57,7 +57,7 @@ class JavaStepLandingGroundClaimTest {
         f.player.compensatedWorld.updateBlock(
                 new BlockPos(0, FLOOR_Y, 1),
                 registry.with(registry.block("minecraft:stone_slab").defaultState(), "type", "bottom"));
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.place(START, FALL);
         return f;
     }

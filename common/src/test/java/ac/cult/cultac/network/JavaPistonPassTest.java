@@ -30,13 +30,11 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
-import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.ClientKeyInput;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
-import java.util.ArrayList;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -104,7 +102,7 @@ class JavaPistonPassTest {
             f.player.compensatedWorld.updateBlock(
                     new BlockPos(0, FLOOR_Y, -1),
                     REGISTRY.block("minecraft:stone").defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(0.5, FLOOR_Y, HALF_WIDTH);
             f.place(position, new Vec3(0, -FALL, 0));
             f.input(NONE);
@@ -146,25 +144,6 @@ class JavaPistonPassTest {
             var prediction = f.tick(new Vec3(0.5, FLOOR_Y, shove(position.z, 0.5)), false);
             assertExact(prediction);
             assertEquals(count, prediction.getSimulationContext().getWorldData().getNumCollidingTickingAfterPlayer());
-        }
-    }
-
-    @Test
-    void aJavaPistonDoesNotAlsoSupplyAnUnknownWholeStrokeCollider() throws Exception {
-        try (var f = new JavaTickFixture()) {
-            int piston = pistonWithStone(f);
-            blockEvent(f, piston);
-            var unknown = new ArrayList<SimpleCollisionBox>();
-            f.player.compensatedWorld.addDynamicBlockCollisionUncertaintyBoxes(
-                    new SimpleCollisionBox(-1, FLOOR_Y, -1, 2, FLOOR_Y + 2, 4), unknown);
-            assertTrue(unknown.isEmpty(), "the exact piston pass must not retain the old collision envelope");
-            assertTrue(
-                    !f.player
-                            .compensatedWorld
-                            .pistons
-                            .getMovingPistonCollisionShape(new BlockPos(0, FLOOR_Y, 0))
-                            .isEmpty(),
-                    "the moving stone still has its exact collision shape");
         }
     }
 
@@ -318,7 +297,7 @@ class JavaPistonPassTest {
             var pistonPos = new BlockPos(2, FLOOR_Y + 1, 0);
             int piston = REGISTRY.with(REGISTRY.block("minecraft:piston").defaultState(), "facing", "west");
             f.player.compensatedWorld.updateBlock(pistonPos, piston);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(1.1981003640706, FLOOR_Y, 0.06060181972858);
             Vec3 velocity = new Vec3(0.06330233064157442, -FALL, -0.09863093471995575);
             f.player.xRot = 32.49F;
@@ -350,7 +329,7 @@ class JavaPistonPassTest {
             var pistonPos = new BlockPos(2, FLOOR_Y + 1, -1);
             int piston = REGISTRY.with(REGISTRY.block("minecraft:piston").defaultState(), "facing", "west");
             f.player.compensatedWorld.updateBlock(pistonPos, piston);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(1.1822398992313, FLOOR_Y, -0.39388586126794);
             f.player.xRot = 32.49F;
             f.place(position, new Vec3(0, -FALL, 0));
@@ -360,7 +339,7 @@ class JavaPistonPassTest {
             Vec3 input = ClientMoveInput.of(f, BACK, 1.0F, 0.1F, 32.49F);
             blockEvent(f, pistonPos, piston, 4);
             // The piston is already halfway extended when this travel reaches its moving head.
-            f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 reported = new Vec3(1.0 - HALF_WIDTH - 0.01, FLOOR_Y, position.z + input.z * (double) 0.9F);
             PredictionResult pushed = f.tick(reported, false);
             assertExact(pushed);
@@ -411,7 +390,7 @@ class JavaPistonPassTest {
             f.player.compensatedWorld.updateBlock(
                     new BlockPos(0, FLOOR_Y + 1, 1),
                     REGISTRY.block("minecraft:stone").defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(0.69, FLOOR_Y + 0.5, 0.4);
             f.place(position, new Vec3(0.08, -FALL, 0));
             f.input(NONE);
@@ -460,7 +439,7 @@ class JavaPistonPassTest {
         try (var f = new JavaTickFixture()) {
             int head = REGISTRY.with(REGISTRY.block("minecraft:piston_head").defaultState(), "facing", "east");
             f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 0), head);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(0.9, FLOOR_Y, 0.5);
             f.player.pose = gliding ? Pose.STANDING : Pose.FALL_FLYING;
             f.player.isGliding = gliding;
@@ -481,7 +460,7 @@ class JavaPistonPassTest {
                 int topSlab =
                         REGISTRY.with(REGISTRY.block("minecraft:stone_slab").defaultState(), "type", "top");
                 f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y + 1, 0), topSlab);
-                for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+                for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             }
             Vec3 position = new Vec3(0.5, FLOOR_Y, 0.5);
             f.place(position, new Vec3(0, -FALL, 0));
@@ -515,7 +494,7 @@ class JavaPistonPassTest {
             f.player.compensatedWorld.updateBlock(
                     new BlockPos(-1, FLOOR_Y, 0),
                     REGISTRY.block("minecraft:stone").defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(0.1, FLOOR_Y + 0.42, 0.5);
             Vec3 velocity = new Vec3(-0.02873925409756608, 0.33319999363422365, 0.04513493385677914);
             f.player.xRot = 32.49F;
@@ -540,7 +519,7 @@ class JavaPistonPassTest {
             var pistonPos = new BlockPos(0, FLOOR_Y - 2, 0);
             int piston = REGISTRY.with(REGISTRY.block("minecraft:piston").defaultState(), "facing", "up");
             f.player.compensatedWorld.updateBlock(pistonPos, piston);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(0.5, FLOOR_Y, 0.5);
             f.place(position, new Vec3(0, -FALL, 0));
             f.input(NONE);
@@ -567,7 +546,7 @@ class JavaPistonPassTest {
         f.player.compensatedWorld.updateBlock(PISTON, piston);
         f.player.compensatedWorld.updateBlock(
                 new BlockPos(0, FLOOR_Y, 1), REGISTRY.block("minecraft:stone").defaultState());
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         return piston;
     }
 

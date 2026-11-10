@@ -67,7 +67,7 @@ class JavaPistonSlimeLaunchTest {
             f.player.compensatedWorld.updateBlock(
                     new BlockPos(0, FLOOR_Y + 1, 1),
                     REGISTRY.block("minecraft:slime_block").defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
 
             Vec3 position = new Vec3(0.5, FLOOR_Y, 0.2);
             double velocity = 0.1;
@@ -130,7 +130,7 @@ class JavaPistonSlimeLaunchTest {
             f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y + 1, 0), head);
             f.player.compensatedWorld.updateBlock(
                     new BlockPos(0, FLOOR_Y + 2, 0), REGISTRY.block("minecraft:stone").defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
 
             Vec3 position = new Vec3(1.0 + PLAYER_HALF_WIDTH, FLOOR_Y, 0.5);
             f.place(position, new Vec3(0, -FALL, 0));

@@ -47,7 +47,7 @@ class JavaRemotePistonTest {
             f.player.compensatedWorld.updateBlock(
                     new BlockPos(0, FLOOR_Y - 2, -1),
                     BLOCKS.block("minecraft:stone").defaultState());
-            f.player.compensatedWorld.pistons.handleBlockEvent(base, BLOCKS.blockIndex(piston), 0, 3, 0);
+            f.player.compensatedWorld.pistons.handleBlockEvent(base, 0, 3);
 
             f.tickEnd();
 
@@ -84,7 +84,7 @@ class JavaRemotePistonTest {
             int piston = BLOCKS.with(BLOCKS.block("minecraft:piston").defaultState(), "facing", "east");
             BlockPos base = new BlockPos(-2, FLOOR_Y, 0);
             f.player.compensatedWorld.updateBlock(base, piston);
-            f.player.compensatedWorld.pistons.handleBlockEvent(base, BLOCKS.blockIndex(piston), 0, 5, 0);
+            f.player.compensatedWorld.pistons.handleBlockEvent(base, 0, 5);
 
             f.tick(start.add(0, 0.2, 0), false);
 

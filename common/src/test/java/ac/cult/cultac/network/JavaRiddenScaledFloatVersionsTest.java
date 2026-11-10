@@ -43,7 +43,7 @@ class JavaRiddenScaledFloatVersionsTest {
             for (int x = -2; x <= 2; x++)
                 for (int z = -2; z <= 2; z++)
                     f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y, z), BlockIds.WATER.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             // A source's surface is at 8/9: the 0.16-tall box sits 0.188889 deep.
             Vec3 start = new Vec3(0.5, FLOOR_Y + 0.7, 0.5);
             f.player.compensatedEntities.addEntity(HORSE, EntityTypeIds.HORSE, start, 0, 0, 0);

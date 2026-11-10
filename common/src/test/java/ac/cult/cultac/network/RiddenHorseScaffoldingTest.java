@@ -65,7 +65,7 @@ class RiddenHorseScaffoldingTest {
 
     /** A saddled horse grounded at {@link #START} with the player riding it. */
     private static PacketEntityHorse mount(JavaTickFixture f) {
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.player.compensatedEntities.addEntity(HORSE, EntityTypeIds.HORSE, START, 0, 0, 0);
         PacketEntityHorse horse = (PacketEntityHorse) f.player.compensatedEntities.getEntity(HORSE);
         horse.hasSaddle = true;

@@ -151,7 +151,7 @@ class JavaRiddenClimbTest {
     /** Seats the player on a saddled nautilus at {@code seat} holding forward, the nautilus moving at {@code motion}. */
     private static void mount(JavaTickFixture f, Vec3 seat, float yaw, float pitch, Vec3 motion)
             throws Exception {
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.player.xRot = f.player.lastTickXRot = yaw;
         f.player.yRot = f.player.lastTickYRot = pitch;
         f.place(seat.add(0, 1, 0), Vec3.ZERO);

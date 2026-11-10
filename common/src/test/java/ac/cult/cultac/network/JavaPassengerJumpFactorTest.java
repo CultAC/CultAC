@@ -66,7 +66,7 @@ class JavaPassengerJumpFactorTest {
         var registry = DataTables.defaults().registry();
         int slab = registry.with(registry.block("minecraft:stone_slab").defaultState(), "type", "bottom");
         f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 0), slab);
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.input(NONE);
         return f;
     }

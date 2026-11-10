@@ -53,7 +53,7 @@ class JavaPigPassiveCurrentTest {
                 for (int z = -8; z <= 8; z++)
                     f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y, z), water);
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(0.5, FLOOR_Y, 0.5);
             f.place(position, Vec3.ZERO);
             f.player.xRot = 0.0F;

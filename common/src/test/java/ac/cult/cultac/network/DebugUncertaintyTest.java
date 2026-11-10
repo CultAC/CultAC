@@ -198,7 +198,7 @@ class DebugUncertaintyTest {
                     f.player.compensatedWorld.updateBlock(
                             new ac.cult.cultac.protocol.value.BlockPos(x, JavaTickFixture.FLOOR_Y - 1, z),
                             ac.cult.blocksim.data.BlockIds.SLIME_BLOCK.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 start = new Vec3(0.5, JavaTickFixture.FLOOR_Y + 0.2, 0.5);
             f.place(start, new Vec3(0, -0.5, 0));
             f.input(new ServerboundPlayerInput(false, false, false, false, false, false, false));
@@ -331,7 +331,7 @@ class DebugUncertaintyTest {
             f.player.compensatedWorld.updateBlock(
                     new ac.cult.cultac.protocol.value.BlockPos(-1, JavaTickFixture.FLOOR_Y, 1),
                     ac.cult.blocksim.data.BlockIds.STONE.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             SimulationContext context = mock(SimulationContext.class);
             when(context.getFromActualPose())
                     .thenReturn(new ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox(

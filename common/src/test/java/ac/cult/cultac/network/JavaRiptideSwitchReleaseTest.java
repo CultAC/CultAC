@@ -113,7 +113,7 @@ class JavaRiptideSwitchReleaseTest {
     /** {@code first} in hotbar slot 0, selected, and {@code second} in slot 1, standing in water at SHALLOWS. */
     private static void inShallows(JavaTickFixture f, SimItemStack first, SimItemStack second) {
         f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, 0), BlockIds.WATER.defaultState());
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         standAt(f, SETTLED, first, second);
     }
 

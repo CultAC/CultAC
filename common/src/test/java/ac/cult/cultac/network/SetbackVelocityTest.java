@@ -90,7 +90,7 @@ class SetbackVelocityTest {
                 f.player.compensatedWorld.updateBlock(
                         new BlockPos(1, JavaTickFixture.FLOOR_Y + y, 0), BlockIds.STONE.defaultState());
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             f.place(new Vec3(.6, JavaTickFixture.FLOOR_Y, .5), new Vec3(.2, -0.0784000015258789, 0));
             var result = f.tick(new Vec3(.7, JavaTickFixture.FLOOR_Y, .5), true);
             assertTrue(JavaTickFixture.exact(result), JavaTickFixture.describe(result));
@@ -138,7 +138,7 @@ class SetbackVelocityTest {
                         new BlockPos(x, JavaTickFixture.FLOOR_Y - 1, z), BlockIds.SLIME_BLOCK.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     /** Entity#restituteMovementAfterCollisions for a downward collision that bounces. */

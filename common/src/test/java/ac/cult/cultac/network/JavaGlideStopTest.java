@@ -98,7 +98,7 @@ class JavaGlideStopTest {
                     .with(BlockIds.SCAFFOLDING.defaultState(), "waterlogged", "true");
             player.compensatedWorld.updateBlock(BlockPos.containing(start.x, start.y, start.z), wetScaffold);
             // Let the fixture's block-change timing uncertainty expire at client tick boundaries.
-            for (int tick = 0; tick < 3; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff();
             var runner = player.checkManager.getSimulationProcessor();
             runner.seedStartingVelocity(Vec3.ZERO);
 

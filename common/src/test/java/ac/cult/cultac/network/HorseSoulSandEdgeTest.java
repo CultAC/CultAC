@@ -152,7 +152,7 @@ class HorseSoulSandEdgeTest {
                         new BlockPos(x, FLOOR_Y - 1, z), (underSlow ? slow : BlockIds.STONE).defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     /** Honey under x 252..262, z 158..174 and air west of it. */
@@ -168,7 +168,7 @@ class HorseSoulSandEdgeTest {
                         new BlockPos(x, FLOOR_Y - 1, z), BlockIds.HONEY_BLOCK.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     /**

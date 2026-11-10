@@ -316,7 +316,7 @@ class JavaShulkerLidPushTest {
         try (var f = new JavaTickFixture()) {
             int box = REGISTRY.with(REGISTRY.block("minecraft:shulker_box").defaultState(), "facing", "east");
             f.player.compensatedWorld.updateBlock(BOX, box);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(minX + (double) (0.6F / 2.0F), FLOOR_Y + 0.5, 0.5);
             f.place(position, new Vec3(0, 0, 0));
             f.player.xRot = yaw;
@@ -360,7 +360,7 @@ class JavaShulkerLidPushTest {
         try (var f = new JavaTickFixture()) {
             int box = REGISTRY.with(REGISTRY.block("minecraft:shulker_box").defaultState(), "facing", "east");
             for (int z = -3; z <= 3; z++) f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, z), box);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(1.0 + (double) (0.6F / 2.0F), FLOOR_Y, maxZ - (double) (0.6F / 2.0F));
             f.place(position, new Vec3(0, -FALL, 0));
             f.player.xRot = 45.0F;
@@ -414,7 +414,7 @@ class JavaShulkerLidPushTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(1, FLOOR_Y, 0), west);
                 f.player.compensatedWorld.updateBlock(new BlockPos(2, FLOOR_Y, 0), BlockIds.STONE.defaultState());
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(minX + (double) (0.6F / 2.0F), FLOOR_Y, 0.5);
             f.place(position, new Vec3(0, -FALL, 0));
             f.player.xRot = yaw;
@@ -448,7 +448,7 @@ class JavaShulkerLidPushTest {
             f.player.compensatedWorld.updateBlock(
                     new BlockPos(1, FLOOR_Y, 0),
                     REGISTRY.block("minecraft:stone").defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(1.0 + (double) (0.6F / 2.0F), lidTop(0.0F), 0.5);
             f.place(position, new Vec3(0, -FALL, 0));
             f.player.xRot = WEST;
@@ -496,7 +496,7 @@ class JavaShulkerLidPushTest {
             f.player.compensatedWorld.updateBlock(BOX, box);
             f.player.compensatedWorld.updateBlock(new BlockPos(2, FLOOR_Y, 0), stone);
             f.player.compensatedWorld.updateBlock(new BlockPos(2, FLOOR_Y + 1, 0), stone);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             double halfWidth = (double) (0.6F / 2.0F);
             double x = 1.0 + halfWidth;
             f.place(new Vec3(x, FLOOR_Y, 0.5), new Vec3(0, -FALL, 0));

@@ -152,7 +152,7 @@ class VehicleSupportingBlockTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y - 1, z), BlockIds.AIR.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     /** Stone at y 66 over x -3..3, z -3..3. */
@@ -162,7 +162,7 @@ class VehicleSupportingBlockTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(x, 66, z), BlockIds.STONE.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     /** The vehicle at {@code start} carrying {@code velocity}, ridden with no keys held. */

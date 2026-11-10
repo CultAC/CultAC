@@ -55,8 +55,7 @@ class JavaPistonPacketOrderTest {
             var pos = new BlockPos(3, JavaTickFixture.FLOOR_Y, 3);
             var registry = DataTables.defaults().registry();
             f.player.compensatedWorld.updateBlock(pos, BlockIds.STONE.defaultState());
-            f.player.compensatedWorld.pistons.handleBlockEvent(
-                    pos, registry.blockIndex(BlockIds.STICKY_PISTON.defaultState()), 0, 1, 1);
+            f.player.compensatedWorld.pistons.handleBlockEvent(pos, 0, 1);
             assertEquals(BlockIds.AIR.defaultState(), f.player.compensatedWorld.getBlockStateIdAt(pos.above()));
             assertTrue(f.player.compensatedWorld.nextBlockEntityPass().isEmpty());
         }

@@ -449,7 +449,7 @@ class JavaSprintCornerCollisionTest {
 
     /** Settles the placed blocks and enables SprintE. */
     private static Client client(JavaTickFixture f) {
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.player.setExperimentalChecks(true);
         SprintE sprintE = f.player.checkManager.getCheck(SprintE.class);
         sprintE.violations = 0;

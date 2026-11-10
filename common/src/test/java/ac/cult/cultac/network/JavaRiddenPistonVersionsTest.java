@@ -372,7 +372,7 @@ class JavaRiddenPistonVersionsTest {
         f.player.compensatedWorld.updateBlock(base, piston);
         BlockPos moved = facing.equals("north") ? base.north() : base.south();
         f.player.compensatedWorld.updateBlock(moved, REGISTRY.block(movedBlock).defaultState());
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         return piston;
     }
 

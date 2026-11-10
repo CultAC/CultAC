@@ -561,7 +561,7 @@ class JavaTravelAttributeTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y, z), BlockIds.WATER.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.player.compensatedEntities.addEntity(100, type, new Vec3(0.5, FLOOR_Y, 0.5), 0, 0, 0);
         ((PacketEntityHorse) f.player.compensatedEntities.getEntity(100)).hasSaddle = true;
         var packet = new ClientboundSetPassengers(100, List.of(f.player.entityID));
@@ -684,7 +684,7 @@ class JavaTravelAttributeTest {
                         new BlockPos(x, FLOOR_Y - 1, z), BlockIds.SOUL_SAND.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         standOnSoulSand(f);
         return f;
     }
@@ -705,7 +705,7 @@ class JavaTravelAttributeTest {
                 }
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.place(new Vec3(0.5, FLOOR_Y, 0.5), Vec3.ZERO);
         return f;
     }

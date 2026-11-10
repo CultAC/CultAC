@@ -57,7 +57,7 @@ class JavaPassengerSnapSeatTest {
             f.input(NONE);
             f.player.compensatedWorld.updateBlock(new BlockPos(6, FLOOR_Y + 1, 0), BlockIds.COBWEB.defaultState());
             f.player.compensatedWorld.updateBlock(new BlockPos(6, FLOOR_Y + 2, 0), BlockIds.COBWEB.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 standing = new Vec3(0.5, FLOOR_Y, 0.5);
             f.place(standing, new Vec3(0, FALL, 0));
             PredictionResult stand = f.tick(standing, true);

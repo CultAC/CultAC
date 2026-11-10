@@ -66,7 +66,7 @@ class JavaSneakEdgeFloatFallTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y, z), BlockIds.STONE.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         // LocalPlayer's yaw -90 walks toward +X.
         f.player.xRot = -90.0F;
         f.player.yRot = 0.0F;

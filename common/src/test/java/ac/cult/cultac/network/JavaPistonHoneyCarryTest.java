@@ -99,7 +99,7 @@ class JavaPistonHoneyCarryTest {
             int moving = REGISTRY.with(REGISTRY.block("minecraft:moving_piston").defaultState(), "facing", "east");
             BlockPos below = new BlockPos(0, FLOOR_Y - 1, 0);
             f.player.compensatedWorld.updateBlock(below, settledAtTickEnd ? honey : moving);
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 position = new Vec3(0.5, FLOOR_Y - 0.0625, 0.5);
             f.place(position, Vec3.ZERO);
             f.input(NONE);
@@ -131,7 +131,7 @@ class JavaPistonHoneyCarryTest {
         f.player.compensatedWorld.updateBlock(
                 new BlockPos(0, FLOOR_Y, 1),
                 REGISTRY.block("minecraft:honey_block").defaultState());
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         return piston;
     }
 

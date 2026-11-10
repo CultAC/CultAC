@@ -29,7 +29,7 @@ class JavaPistonIdleCollisionTest {
             f.tick(position, true);
             f.input(new ServerboundPlayerInput(false, false, true, false, false, false, false));
             f.statusTick(true, true);
-            f.player.compensatedWorld.pistons.handleBlockEvent(base, blocks.blockIndex(piston), 1, 4, 0);
+            f.player.compensatedWorld.pistons.handleBlockEvent(base, 1, 4);
             var previous = f.player.checkManager.getSimulationProcessor().getLastPrediction();
             f.tickEnd();
 

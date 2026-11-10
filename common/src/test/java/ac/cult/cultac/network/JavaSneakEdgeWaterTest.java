@@ -262,7 +262,7 @@ class JavaSneakEdgeWaterTest {
                     }
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             float yaw = -90.0F;
             rotate(f, yaw, 20.0F);
             double x = 8.8;
@@ -412,7 +412,7 @@ class JavaSneakEdgeWaterTest {
         }
         f.player.compensatedWorld.updateBlock(new BlockPos(-1, FLOOR_Y, 0), BlockIds.STONE.defaultState());
         f.player.compensatedWorld.updateBlock(new BlockPos(1, FLOOR_Y, 0), BlockIds.STONE.defaultState());
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     private static void assertLedgeExact(JavaTickFixture f, float yaw, float pitch, double x, double y, double z) {
@@ -438,7 +438,7 @@ class JavaSneakEdgeWaterTest {
                 }
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     private static void assertTrenchExact(
@@ -464,7 +464,7 @@ class JavaSneakEdgeWaterTest {
                 }
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     /** Water sources over the floor, which ends at x = 9, and level-1 water over the drop beyond it. */
@@ -474,7 +474,7 @@ class JavaSneakEdgeWaterTest {
             for (int x = -8; x <= 8; x++) water(f, x, FLOOR_Y, z);
             f.player.compensatedWorld.updateBlock(new BlockPos(9, FLOOR_Y, z), flowing);
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     private static void water(JavaTickFixture f, int x, int y, int z) {

@@ -66,7 +66,7 @@ class DismountRemovedControlledVehicleSeatTest {
             JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
             for (int z = -1; z <= 1; z++)
                 f.player.compensatedWorld.updateBlock(new BlockPos(-1, FLOOR_Y, z), BlockIds.STONE.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             f.place(BOAT_AT, Vec3.ZERO);
             f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, BOAT_AT, 0, 0, 0);
             f.setPassengers(BOAT, List.of(f.player.entityID));

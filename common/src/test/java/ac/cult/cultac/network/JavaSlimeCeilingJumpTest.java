@@ -42,7 +42,7 @@ class JavaSlimeCeilingJumpTest {
                             new BlockPos(x, FLOOR_Y + 2, z), BlockIds.STONE.defaultState());
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
 
             Vec3 landingFrom = recorded(269.03072763870426, 62.12160004615784, 149.91959936579076);
             Vec3 landingTo = recorded(268.9837428803694, 62.0, 150.169719739147);

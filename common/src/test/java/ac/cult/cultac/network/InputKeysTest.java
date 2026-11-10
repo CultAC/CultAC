@@ -321,7 +321,7 @@ class InputKeysTest {
     void walkingIntoAWallIsNotFlagged() throws Exception {
         try (var f = new JavaTickFixture()) {
             f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y, -1), BlockIds.STONE.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             // The box's back face touches the wall at z = 0.
             f.place(new Vec3(0.5, FLOOR_Y, 0.3), GROUNDED);
             f.input(NONE);
@@ -339,7 +339,7 @@ class InputKeysTest {
     void walkingAlongAWallsEndWhilePushedIsNotFlagged() throws Exception {
         try (var f = new JavaTickFixture()) {
             f.player.compensatedWorld.updateBlock(new BlockPos(1, FLOOR_Y, -1), BlockIds.STONE.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             // The box's side touches the wall, whose end lies 0.01 into the box's z range.
             Vec3 start = new Vec3(1.0 - 0.3F, FLOOR_Y, 0.29);
             f.place(start, GROUNDED);
@@ -389,7 +389,7 @@ class InputKeysTest {
             f.player.compensatedWorld.updateBlock(
                     new BlockPos(2, FLOOR_Y, 1),
                     registry.block("minecraft:stone").defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             double face = 1.0;
             // Shulker#setPos snaps an unmounted shell to its block; the neighboring block meets that side.
             f.player.compensatedEntities.addEntity(
@@ -416,7 +416,7 @@ class InputKeysTest {
             f.player.compensatedWorld.updateBlock(
                     new BlockPos(1, FLOOR_Y + 1, 0),
                     registry.block("minecraft:cake").defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             // The box's side touches the slab.
             double x = 1.0 - 0.3F;
             f.place(new Vec3(x, FLOOR_Y, 0.5), GROUNDED);
@@ -861,7 +861,7 @@ class InputKeysTest {
         for (int blockX = -5; blockX <= 3; blockX++) {
             f.player.compensatedWorld.updateBlock(new BlockPos(blockX, FLOOR_Y, 0), slab);
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.player.compensatedEntities.addEntity(100, EntityTypeIds.SHULKER, new Vec3(0.5, FLOOR_Y + 2, 0.5), 0, 0, 0);
         double y = FLOOR_Y + 0.5;
         double x = -3.5;

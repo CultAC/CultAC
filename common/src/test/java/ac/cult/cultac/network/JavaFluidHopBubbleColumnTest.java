@@ -34,7 +34,7 @@ class JavaFluidHopBubbleColumnTest {
             // A one-block wall the player drifts into, with free space above it for the hop.
             for (int z = -1; z <= 1; z++)
                 f.player.compensatedWorld.updateBlock(new BlockPos(1, FLOOR_Y, z), BlockIds.STONE.defaultState());
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             f.place(new Vec3(0.69, FLOOR_Y + 0.5, 0.5), new Vec3(0.05, 0, 0));
             f.input(NONE);
 

@@ -52,7 +52,7 @@ class JavaClimbableCarryTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(0, y, 0), ladder);
                 f.player.compensatedWorld.updateBlock(new BlockPos(0, y, 1), BlockIds.STONE.defaultState());
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             f.place(new Vec3(0.5, 64, 0.5), new Vec3(0, FALL, 0));
             f.input(FORWARD);
             Vec3 end = new Vec3(0.5, 64, 0.8125 - (double) (0.6F / 2));
@@ -84,7 +84,7 @@ class JavaClimbableCarryTest {
                     f.player.compensatedWorld.updateBlock(new BlockPos(x, y, 1), BlockIds.STONE.defaultState());
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 start = new Vec3(0.5, FLOOR_Y, 0.8125 - (double) (0.6F / 2));
             f.place(start, new Vec3(0, FALL, 0));
             var keys = new ServerboundPlayerInput(true, false, true, false, false, false, false);
@@ -122,7 +122,7 @@ class JavaClimbableCarryTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(0, y, 0), ladder);
                 f.player.compensatedWorld.updateBlock(new BlockPos(0, y, 1), BlockIds.STONE.defaultState());
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 standing = new Vec3(0.5, FLOOR_Y, 0.5);
             f.place(standing, new Vec3(0, FALL, 0));
             f.player.packetStateData.playerLoadedIntoLevel = true;
@@ -199,7 +199,7 @@ class JavaClimbableCarryTest {
     private static JavaTickFixture onAVine(double startX, ServerboundPlayerInput keys) throws Exception {
         JavaTickFixture f = new JavaTickFixture();
         f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y + 1, 0), BlockIds.VINE.defaultState());
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.player.xRot = YAW;
         f.player.yRot = 0.0F;
         f.place(new Vec3(0.9, FLOOR_Y + 1, 0.5), new Vec3(startX, 0.0, 0.0));

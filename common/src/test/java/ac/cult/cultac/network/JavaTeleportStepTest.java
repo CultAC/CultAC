@@ -201,7 +201,7 @@ class JavaTeleportStepTest {
     }
 
     private static void settleBlocks(JavaTickFixture f) {
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     private static void standFrozen(JavaTickFixture f, Vec3 at, float yaw, float pitch) throws Exception {

@@ -80,7 +80,7 @@ class JavaProtocol773BubbleExitTest {
         f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y - 1, 0), BlockIds.SOUL_SAND.defaultState());
         f.player.compensatedWorld.updateBlock(
                 new BlockPos(0, FLOOR_Y, 0), BLOCKS.with(BlockIds.BUBBLE_COLUMN.defaultState(), "drag", "false"));
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         // The column's surface callback already raised the stored velocity to -0.005 + 0.1.
         f.place(new Vec3(0.5, FLOOR_Y, 0.5), new Vec3(0, RISE[0], 0));
         f.player.onGround = f.player.lastOnGround = false;

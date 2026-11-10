@@ -131,7 +131,7 @@ class OffsetBlockPickTest {
                 DataTables.defaults().registry().block("minecraft:scaffolding").defaultState();
         f.player.compensatedWorld.updateBlock(new BlockPos(0, 64, 0), scaffolding);
         f.player.compensatedWorld.updateBlock(SCAFFOLDING, scaffolding);
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         var storage = f.player.getInventory().inventory.getInventoryStorage();
         storage.setItem(36, OfflineCultTestBootstrap.item("minecraft:scaffolding"));
         storage.setItem(37, OfflineCultTestBootstrap.item("minecraft:dirt"));
@@ -173,7 +173,7 @@ class OffsetBlockPickTest {
                 new BlockPos(0, 64, 0), registry.block("minecraft:bamboo").defaultState());
         world.updateBlock(
                 BAMBOO, registry.with(registry.block("minecraft:bamboo").defaultState(), "leaves", "large"));
-        for (int tick = 0; tick < 3; tick++) world.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) world.removeInvalidPistonLikeStuff();
         f.player.compensatedEntities.updateAttributes(
                 f.player.entityID,
                 List.of(new AttributeSnapshot("minecraft:entity_interaction_range", entityRange, List.of())));

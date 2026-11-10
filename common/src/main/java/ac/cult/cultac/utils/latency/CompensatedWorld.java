@@ -5,7 +5,6 @@ import ac.cult.blocksim.data.FluidTags;
 import ac.cult.blocksim.data.StateFacts;
 import ac.cult.blocksim.engine.BlockEntityData;
 import ac.cult.cultac.checks.impl.movement.GhostBlockMitigator;
-import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.network.packet.WorldPackets.BlockEntityUpdate;
 import ac.cult.cultac.network.packet.WorldPackets.SectionBlocksUpdate;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -14,7 +13,6 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.collisions.ClientBlockShapes;
 import ac.cult.cultac.utils.collisions.ViaClientBlockShapeMappings;
-import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.*;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
@@ -51,7 +49,6 @@ public class CompensatedWorld {
     private long chunkEpoch;
     private final Long2ObjectOpenHashMap<String> chunkDimensions = new Long2ObjectOpenHashMap<>();
     // Packet locations for blocks
-    public Set<ShulkerData> openShulkerBoxes = new HashSet<>();
     public final CompensatedWorldPistons pistons;
     private final CompensatedGeysers geysers = new CompensatedGeysers();
     private final CompensatedBlockEntities clientBlockEntities;
@@ -701,8 +698,12 @@ public class CompensatedWorld {
     }
 
     public void handleServerBlockUpdate(int x, int y, int z, int state, int transaction) {
-        // Geyser forwards it, but a Bedrock BlockSource#setBlock refuses a Y outside its dimension's heights.
-        if (player.isBedrockMovement() && !clientHoldsBlockAt(y)) return;
+        // Geyser forwards it, but a Bedrock BlockSource#setBlock refuses a Y outside its dimension's heights. Geyser
+        // keeps a moving piston's block to itself: the client holds whatever Geyser's own piston updates left there.
+        if (player.isBedrockMovement()
+                && (!clientHoldsBlockAt(y)
+                        || ac.cult.blocksim.data.BlockIds.is(state, ac.cult.blocksim.data.BlockIds.MOVING_PISTON)))
+            return;
         // The client keeps its own block until its translator sends the server's again.
         if (bedrockClientOnlyBlocks.keepsServerUpdate(BlockPos.asLong(x, y, z), state)) return;
         bedrockClientWrites.remove(BlockPos.asLong(x, y, z));
@@ -988,46 +989,6 @@ public class CompensatedWorld {
                 .toList();
     }
 
-    public void addDynamicBlockCollisionUncertaintyBoxes(SimpleCollisionBox queryBox, List<SimpleCollisionBox> boxes) {
-        pistons.addDynamicBlockCollisionUncertaintyBoxes(queryBox, boxes);
-        if (openShulkerBoxes.isEmpty()) return;
-
-        for (ShulkerData data : openShulkerBoxes) {
-            if (!data.isAnimationActive() || ridesUntracked(data)) {
-                continue;
-            }
-
-            SimpleCollisionBox box = openShulkerCollisionBox(data);
-            if (box.isCollided(queryBox)) {
-                boxes.add(box);
-            }
-        }
-    }
-
-    public boolean hasOpenShulkerCollision(SimpleCollisionBox queryBox) {
-        for (ShulkerData data : openShulkerBoxes) {
-            if (data.isAnimationActive()
-                    && !ridesUntracked(data)
-                    && openShulkerCollisionBox(data).isCollided(queryBox)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    // Bedrock still omits remote riders from its entity contacts.
-    private boolean ridesUntracked(ShulkerData data) {
-        return player.isBedrockMovement()
-                && data.entity != null
-                && player.compensatedEntities.isUntrackedRider(data.entity);
-    }
-
-    private SimpleCollisionBox openShulkerCollisionBox(ShulkerData data) {
-        Direction facing = data.getFacing(player);
-        return data.getCollision().copy().expandToCoordinate(facing.getModX(), facing.getModY(), facing.getModZ());
-    }
-
     public int updateBlock(int x, int y, int z, int newState) {
         newState = ViaClientBlockShapeMappings.clientBlockStateId(player, stateIdOrAir(newState));
         BlockPos asVector = new BlockPos(x, y, z);
@@ -1143,8 +1104,9 @@ public class CompensatedWorld {
         }
     }
 
+    /** The end of a client tick: the moving pistons take their step. */
     public void removeInvalidPistonLikeStuff() {
-        removeInvalidPistonLikeStuff(0);
+        pistons.tickClientTickEnd();
     }
 
     public void onClientTickEnd() {
@@ -1418,73 +1380,13 @@ public class CompensatedWorld {
             CachedSection section,
             long lastMutatedNanos) {}
 
-    public void removeInvalidPistonLikeStuff(int transactionId) {
-        if (transactionId == 0) {
-            // End-of-client-tick path: advance time-based state instead of
-            // pruning by transaction watermark.
-            tickClientWorldState();
-        } else {
-            // Transaction path: drop entries the client has provably seen.
-            pistons.removeSentBefore(transactionId);
-            openShulkerBoxes.removeIf(box -> box.isClosing() && box.lastTransactionSent < transactionId);
-        }
-        pruneOrphanedShulkerBoxes();
-    }
-
-    private void tickClientWorldState() {
-        pistons.tickClientTickEnd();
-        openShulkerBoxes.removeIf(ShulkerData::tickIfGuaranteedFinished);
-    }
-
-    // Drop shulker boxes whose backing block or entity no longer exists.
-    private void pruneOrphanedShulkerBoxes() {
-        openShulkerBoxes.removeIf(box -> box.blockPos != null
-                ? !ClientBlockProperties.isShulkerBox(player.compensatedWorld.getBlockStateIdAt(box.blockPos))
-                : !player.compensatedEntities.entityMap.containsValue(box.entity));
-    }
-
     public void clearPistonLikeState() {
         pistons.clear();
         lastBlockEntityPass = ClientBlockEntityPass.EMPTY;
-        openShulkerBoxes.clear();
         if (player.bedrockState != null) {
             player.bedrockState.shulkerBoxLids.clear();
             player.bedrockState.pistonBlocks.clear();
         }
-    }
-
-    /** The Bedrock engine's piston and shulker push envelope for the packet {@code context} predicts. */
-    public PistonPushes tickPlayerInPistonPushingArea(SimulationContext context) {
-        // Occurs on player login
-        if (player.boundingBox == null || openShulkerBoxes.isEmpty() && pistons.hasNoPushSources())
-            return new PistonPushes(new SimpleCollisionBox(), new SimpleCollisionBox(), new SimpleCollisionBox());
-
-        SimpleCollisionBox queryBox = pistons.createPistonQueryBox(context);
-        SimpleCollisionBox pistonPush = pistons.tickPlayerInPistonPushingArea(queryBox);
-        SimpleCollisionBox shulkerPushes = accumulateShulkerPushes(queryBox);
-        return new PistonPushes(pistonPush.copy().union(shulkerPushes), pistonPush, shulkerPushes);
-    }
-
-    // Expands the query box by every colliding open shulker box lid and
-    // accumulates the resulting entity push direction.
-    private SimpleCollisionBox accumulateShulkerPushes(SimpleCollisionBox queryBox) {
-        SimpleCollisionBox shulkerPushes = new SimpleCollisionBox();
-        for (ShulkerData data : openShulkerBoxes) {
-            if (!data.canPushEntities() || ridesUntracked(data)) {
-                continue;
-            }
-
-            Direction pushDirection = data.getFacing(player);
-            if (queryBox.isCollided(openShulkerCollisionBox(data))) {
-                queryBox.expand(
-                        Math.abs(pushDirection.getModX()),
-                        Math.abs(pushDirection.getModY()),
-                        Math.abs(pushDirection.getModZ()));
-                shulkerPushes.expandToCoordinate(
-                        pushDirection.getModX(), pushDirection.getModY(), pushDirection.getModZ());
-            }
-        }
-        return shulkerPushes;
     }
 
     public int getBlockStateIdAt(BlockPos pos) {

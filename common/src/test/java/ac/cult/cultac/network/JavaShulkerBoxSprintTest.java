@@ -331,7 +331,7 @@ class JavaShulkerBoxSprintTest {
 
     /** Puts the placed player on the ground at the test's yaw and enables SprintE, once the blocks are in place. */
     private static SprintE enable(JavaTickFixture f) {
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.player.xRot = YAW;
         f.player.yRot = 0.0F;
         f.player.onGround = f.player.lastOnGround = true;

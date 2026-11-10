@@ -167,7 +167,6 @@ public class BedrockShulkerBoxLidTest {
             blockEvent(player, 1, 0);
             player.checkManager.endBedrockClientTick();
             assertEquals("the last viewer leaving closes it", 0.10F, lids.openness(BOX.asLong()), 1.0E-6F);
-            assertTrue("the lid adds no push envelope", player.compensatedWorld.openShulkerBoxes.isEmpty());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }

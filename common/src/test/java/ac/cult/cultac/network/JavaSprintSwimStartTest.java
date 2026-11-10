@@ -204,7 +204,7 @@ class JavaSprintSwimStartTest {
                             new BlockPos(x, FLOOR_Y + 1, z), BlockIds.STONE.defaultState());
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             sprintG(f);
             float yaw = 0.0F;
             f.player.xRot = yaw;
@@ -449,7 +449,7 @@ class JavaSprintSwimStartTest {
                 }
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         return f;
     }
 
@@ -458,7 +458,7 @@ class JavaSprintSwimStartTest {
         for (int x = -8; x <= 8; x++) {
             for (int z = -8; z <= 8; z++) f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y, z), state);
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
     }
 
     private static SprintG sprintG(JavaTickFixture f) {

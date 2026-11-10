@@ -40,7 +40,7 @@ class JavaRemotePistonColliderOrderTest {
             world.updateBlock(SOUTH_PISTON.relative(Direction.SOUTH), BlockIds.STONE.defaultState());
             world.updateBlock(EAST_PISTON, east);
             world.updateBlock(EAST_PISTON.relative(Direction.EAST), BlockIds.STONE.defaultState());
-            for (int tick = 0; tick < 3; tick++) world.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) world.removeInvalidPistonLikeStuff();
             var entities = f.player.compensatedEntities;
             // X's west face is 0.05 inside the east stone's first stroke; Y lies just north of X's row, ahead of it.
             entities.addEntity(x, EntityTypeIds.OAK_BOAT, new Vec3(0.05 + HALF, FLOOR_Y, 0.5), 0, 0, 0);

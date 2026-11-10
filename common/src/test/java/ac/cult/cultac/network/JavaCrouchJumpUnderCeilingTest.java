@@ -148,7 +148,7 @@ class JavaCrouchJumpUnderCeilingTest {
                             new BlockPos(x, STANDING_FLOOR - 1, z), BlockIds.STONE.defaultState());
                 }
             }
-            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 setback = new Vec3(-834.3350948955106, 62.48687499891035, -734.8960140180537);
             Vec3 floor = new Vec3(STANDING_X, STANDING_FLOOR, STANDING_Z);
             f.place(floor, Vec3.ZERO);
@@ -239,7 +239,7 @@ class JavaCrouchJumpUnderCeilingTest {
                         new BlockPos(x, FLOOR_Y + ceiling, z), BlockIds.STONE.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         Vec3 start = new Vec3(GRID_X, FLOOR_Y, GRID_Z);
         f.place(start, Vec3.ZERO);
         f.input(CROUCH);
@@ -266,7 +266,7 @@ class JavaCrouchJumpUnderCeilingTest {
                         new BlockPos(x, CRAWL_FLOOR + 1, z), BlockIds.STONE.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.player.pose = Pose.SWIMMING;
         f.place(new Vec3(CRAWL_X, CRAWL_FLOOR, CRAWL_Z), Vec3.ZERO);
         f.player.onGround = f.player.lastOnGround = true;
@@ -290,7 +290,7 @@ class JavaCrouchJumpUnderCeilingTest {
                 f.player.compensatedWorld.updateBlock(new BlockPos(x, ceiling, z), BlockIds.STONE.defaultState());
             }
         }
-        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         Vec3 floor = new Vec3(X, FLOOR, Z);
         f.place(floor, Vec3.ZERO);
         f.player.onGround = f.player.lastOnGround = true;

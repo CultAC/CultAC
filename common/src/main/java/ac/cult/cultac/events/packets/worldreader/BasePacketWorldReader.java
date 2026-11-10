@@ -237,8 +237,11 @@ public class BasePacketWorldReader {
         // can put this event behind a later block update expanded in the same output batch.
         player.latencyUtils.addRealTimeTask(transaction, () -> {
             player.compensatedWorld.applyClientBlockEvent(dimension, blockEvent);
+            // Geyser does not forward a piston's block event. It moves the blocks itself with block updates of its
+            // own, which the bridge reads, so for a Bedrock player the event moves nothing.
+            if (player.isBedrockMovement()) return;
             player.compensatedWorld.pistons.handleBlockEvent(
-                    blockPosition, blockEvent.blockId(), blockEvent.action(), blockEvent.parameter(), transaction);
+                    blockPosition, blockEvent.action(), blockEvent.parameter());
         });
     }
 
