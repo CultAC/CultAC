@@ -38,7 +38,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.LongFunction;
 import java.util.function.LongSupplier;
-import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 
@@ -70,7 +69,7 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
     /** Ban ids this instance claimed and results it still owes, across reloads. */
     private static final Handled HANDLED = new Handled(MAX_HANDLED);
     /** Bans claimed this minute, across reloads. */
-    private static final Pace<Object> PACE = new Pace<>(60_000, DEFAULT_MAX_PER_MINUTE, System::currentTimeMillis);
+    private static final Pace<Object> PACE = new Pace<>(60_000, DEFAULT_MAX_PER_MINUTE);
     private static final Kind KIND = new Kind("Staff bans", "bans", "bans", "ban");
 
     /**
@@ -386,22 +385,20 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
      * {@code cloud.staff-ban.max-per-minute} a minute; the rest wait for a later round.
      */
     @Override
-    protected Predicate<Ban> due(JsonObject pending) {
+    protected Function<Ban, Runnable> due(JsonObject pending) {
         long grace = Math.max(DEFAULT_GRACE_SECONDS, number(pending, "graceSeconds", DEFAULT_GRACE_SECONDS));
         return ban -> !commands.of(ban.term()).isEmpty()
-                && (host.online(ban.player()) || clock.getAsLong() >= ban.createdAtMillis() + grace * 1000)
-                && paced();
+                        && (host.online(ban.player()) || clock.getAsLong() >= ban.createdAtMillis() + grace * 1000)
+                ? paced()
+                : null;
     }
 
-    private boolean paced() {
-        if (pace.take(null)) return true;
-        problem("paced", "Staff bans: " + pace.max() + " claimed this minute; the rest run in later rounds");
-        return false;
-    }
-
-    @Override
-    protected void unclaimed(Ban ban) {
-        pace.giveBack(null);
+    private @Nullable Runnable paced() {
+        Runnable unclaimed = pace.take(null);
+        if (unclaimed == null) {
+            problem("paced", "Staff bans: " + pace.max() + " claimed this minute; the rest run in later rounds");
+        }
+        return unclaimed;
     }
 
     @Override

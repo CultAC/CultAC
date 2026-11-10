@@ -25,7 +25,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.LongFunction;
-import java.util.function.Predicate;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -53,7 +52,7 @@ public final class CloudFlags extends LeasedJobs<CloudFlags.Flag> {
     /** The most flags claimed per player and hour. */
     static final int MAX_PER_PLAYER_HOUR = 32;
     /** Flags claimed per player this hour, across reloads. */
-    private static final Pace<UUID> PACE = new Pace<>(3_600_000, MAX_PER_PLAYER_HOUR, System::currentTimeMillis);
+    private static final Pace<UUID> PACE = new Pace<>(3_600_000, MAX_PER_PLAYER_HOUR);
     private static final Kind KIND = new Kind("Cloud flags", "cloud-flags", "flags", "flag");
 
     /** One pending flag: its id, the player and the flag's check name. */
@@ -139,13 +138,8 @@ public final class CloudFlags extends LeasedJobs<CloudFlags.Flag> {
 
     /** The flags whose player is online here, at most {@link #MAX_PER_PLAYER_HOUR} per player an hour. */
     @Override
-    protected Predicate<Flag> due(JsonObject pending) {
-        return flag -> host.online(flag.player()) && pace.take(flag.player());
-    }
-
-    @Override
-    protected void unclaimed(Flag flag) {
-        pace.giveBack(flag.player());
+    protected Function<Flag, Runnable> due(JsonObject pending) {
+        return flag -> host.online(flag.player()) ? pace.take(flag.player()) : null;
     }
 
     @Override

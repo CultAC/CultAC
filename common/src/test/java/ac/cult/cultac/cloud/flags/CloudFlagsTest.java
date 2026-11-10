@@ -39,9 +39,12 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -280,6 +283,38 @@ class CloudFlagsTest {
         }
 
         claimStatus = 200;
+        flags.pollOnce().get(5, TimeUnit.SECONDS);
+        assertEquals(List.of(new Raised(PLAYER, CloudCombat.class)), raised);
+    }
+
+    @Test
+    void aClaimThatIsNotSentLeavesThePlayersCountAndTheFlagAsTheyWere() throws Exception {
+        pace.max(1);
+        online.add(PLAYER);
+        pending(flag(FLAG, PLAYER, "CloudCombat"));
+        AtomicInteger sends = new AtomicInteger();
+        AtomicBoolean rejecting = new AtomicBoolean(true);
+        Executor executor = task -> {
+            if (sends.incrementAndGet() > 1 && rejecting.get()) throw new RejectedExecutionException("full");
+            calls.execute(task);
+        };
+        CloudFlags flags = new CloudFlags(
+                base(),
+                KEY,
+                "arena-1",
+                HttpClient.newHttpClient(),
+                executor,
+                host,
+                generation,
+                handled,
+                pace,
+                seconds -> CompletableFuture.delayedExecutor(seconds * 10, TimeUnit.MILLISECONDS));
+
+        flags.pollOnce().handle((next, error) -> next).get(5, TimeUnit.SECONDS);
+        assertTrue(raised.isEmpty());
+        assertTrue(posts().isEmpty());
+
+        rejecting.set(false);
         flags.pollOnce().get(5, TimeUnit.SECONDS);
         assertEquals(List.of(new Raised(PLAYER, CloudCombat.class)), raised);
     }

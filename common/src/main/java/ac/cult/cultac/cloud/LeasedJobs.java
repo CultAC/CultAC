@@ -24,7 +24,6 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.LongFunction;
 import java.util.function.LongSupplier;
-import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 
@@ -107,17 +106,17 @@ public abstract class LeasedJobs<J> {
 
     protected abstract String id(J job);
 
-    /** Which of this round's jobs are this instance's to claim now, given the pending answer. */
-    protected abstract Predicate<J> due(JsonObject pending);
+    /**
+     * For each of this round's jobs, given the pending answer: null when it is not this instance's to claim now, else
+     * what to run when its claim is not granted.
+     */
+    protected abstract Function<J, Runnable> due(JsonObject pending);
 
     /**
      * Runs a won claim: completes once it {@linkplain #report reported} the result or {@linkplain #release let the
      * job go} unrun.
      */
     protected abstract CompletableFuture<Void> run(J job);
-
-    /** A claim of a job {@link #due} picked that the service did not grant or did not answer. */
-    protected void unclaimed(J job) {}
 
     /** Whether the job a won claim answered with is {@code pending}'s. */
     protected boolean answers(J answered, J pending) {
@@ -193,31 +192,50 @@ public abstract class LeasedJobs<J> {
         }
         long next =
                 Math.clamp(number(pending, "pollSeconds", DEFAULT_POLL_SECONDS), MIN_POLL_SECONDS, MAX_POLL_SECONDS);
-        Predicate<J> due = due(pending);
+        Function<J, Runnable> due = due(pending);
         List<CompletableFuture<Void>> runs = new ArrayList<>();
         JsonElement jobs = pending.get(kind.plural());
         if (jobs != null && jobs.isJsonArray()) {
             for (JsonElement item : jobs.getAsJsonArray()) {
                 if (runs.size() >= MAX_CLAIMS_PER_ROUND) break;
                 J job = item.isJsonObject() ? parse(item.getAsJsonObject()) : null;
+                Runnable[] unclaimed = new Runnable[1];
                 if (job != null
-                        && generation.whileLatest(
-                                chain,
-                                () -> !handled.contains(id(job)) && due.test(job) && handled.add(id(job)))) {
-                    runs.add(claim(job));
+                        && generation.whileLatest(chain, () -> (unclaimed[0] = take(job, due)) != null)) {
+                    runs.add(claim(job, unclaimed[0]));
                 }
             }
         }
         return CompletableFuture.allOf(runs.toArray(CompletableFuture[]::new)).handle((done, error) -> next);
     }
 
-    private CompletableFuture<Void> claim(J job) {
+    /** What {@link #due} gave for {@code job} when it is due and not handled yet; it is handled from here on. */
+    private @Nullable Runnable take(J job, Function<J, Runnable> due) {
+        if (handled.contains(id(job))) return null;
+        Runnable unclaimed = due.apply(job);
+        if (unclaimed == null || handled.add(id(job))) return unclaimed;
+        unclaimed.run();
+        return null;
+    }
+
+    private CompletableFuture<Void> claim(J job, Runnable unclaimed) {
         JsonObject body = new JsonObject();
         body.addProperty("server", serverId);
-        return send(request("/api/v1/" + kind.route() + "/" + id(job) + "/claim")
-                        .POST(HttpRequest.BodyPublishers.ofString(body.toString())))
+        CompletableFuture<LabelClient.Reply> sent;
+        try {
+            sent = send(request("/api/v1/" + kind.route() + "/" + id(job) + "/claim")
+                    .POST(HttpRequest.BodyPublishers.ofString(body.toString())));
+        } catch (RuntimeException unsent) {
+            unclaimed.run();
+            release(job);
+            problem(
+                    "claim unsent",
+                    kind.label() + ": a claim was not sent (" + unsent.getClass().getSimpleName() + ")");
+            return CompletableFuture.completedFuture(null);
+        }
+        return sent
                 .handle((reply, error) -> {
-                    if (error != null || reply.status() != 200) unclaimed(job);
+                    if (error != null || reply.status() != 200) unclaimed.run();
                     if ((error != null || reply.status() != 200) && !generation.latest(chain)) {
                         release(job);
                         return CompletableFuture.<Void>completedFuture(null);
