@@ -40,10 +40,9 @@ import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.FluidTypeFlowing;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.RiptideUtil;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.function.IntPredicate;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -65,6 +64,9 @@ public class WorldStageBuilder {
     private static final List<Direction.Axis> Y_X_Z = List.of(Direction.Axis.Y, Direction.Axis.X, Direction.Axis.Z);
     /** Never written: StuckEdgeData has no mutating caller. */
     private static final StuckEdgeData NOT_ON_EDGE = new StuckEdgeData(false, false, false, false, false);
+    /** Never written: BubbleColumnData has no mutating caller. */
+    private static final BubbleColumnData NO_BUBBLE_COLUMN = new BubbleColumnData(0, 0, 0, 0);
+    private static final IntPredicate IS_BUBBLE_COLUMN = state -> BlockIds.is(state, BlockIds.BUBBLE_COLUMN);
 
     private final SupportScan supportScan = new SupportScan();
     // Box scratch: each holds a box for one query on the owning player's thread and is never stored or returned.
@@ -77,6 +79,13 @@ public class WorldStageBuilder {
     private final SimpleCollisionBox pusherContactBox = new SimpleCollisionBox();
     private final SimpleCollisionBox entityBoundsBox = new SimpleCollisionBox();
     private final SimpleCollisionBox entityScratchBox = new SimpleCollisionBox();
+    // One computeBubbleColumns call's sweep and counts, which bubbleColumnVisitor reads and writes.
+    private final Collisions.StatePredicate bubbleColumnVisitor = this::visitBubbleColumn;
+    private CultPlayer bubblePlayer;
+    private SimpleCollisionBox bubbleFromBox, bubbleToBox;
+    private boolean bubbleLongMove;
+    private @Nullable LongOpenHashSet bubbleVisited;
+    private int bubblePushUpwards, bubblePushDownwards, bubbleAirUpwards, bubbleAirDownwards;
     private int collidingTickingBeforePlayer;
     private int pushingTickingAfterPlayer;
     private int ridersTickingAfterPlayer;
@@ -930,11 +939,9 @@ public class WorldStageBuilder {
     BubbleColumnData computeBubbleColumns(CultPlayer player, Vec3 to, SimulationContext context) {
         Vec3 from = context.getStart();
 
-        int[] pushUpwards = new int[1];
-        int[] pushDownwards = new int[1];
-        int[] airUpwards = new int[1];
-        int[] airDownwards = new int[1];
-        Set<Long> visitedBlocks = new HashSet<>();
+        bubblePlayer = player;
+        bubblePushUpwards = bubblePushDownwards = bubbleAirUpwards = bubbleAirDownwards = 0;
+        bubbleVisited = null;
 
         double movementX = to.x - from.x;
         double movementY = to.y - from.y;
@@ -958,42 +965,19 @@ public class WorldStageBuilder {
                 double nextX = stepX + movementOnAxis * direction.getModX();
                 double nextY = stepY + movementOnAxis * direction.getModY();
                 double nextZ = stepZ + movementOnAxis * direction.getModZ();
-                accumulateBubbleColumns(
-                        player,
-                        context,
-                        stepX,
-                        stepY,
-                        stepZ,
-                        nextX,
-                        nextY,
-                        nextZ,
-                        visitedBlocks,
-                        pushUpwards,
-                        pushDownwards,
-                        airUpwards,
-                        airDownwards);
+                accumulateBubbleColumns(player, context, stepX, stepY, stepZ, nextX, nextY, nextZ);
                 stepX = nextX;
                 stepY = nextY;
                 stepZ = nextZ;
             }
         } else {
-            accumulateBubbleColumns(
-                    player,
-                    context,
-                    from.x,
-                    from.y,
-                    from.z,
-                    to.x,
-                    to.y,
-                    to.z,
-                    visitedBlocks,
-                    pushUpwards,
-                    pushDownwards,
-                    airUpwards,
-                    airDownwards);
+            accumulateBubbleColumns(player, context, from.x, from.y, from.z, to.x, to.y, to.z);
         }
 
-        return new BubbleColumnData(airUpwards[0], pushUpwards[0], airDownwards[0], pushDownwards[0]);
+        if ((bubbleAirUpwards | bubblePushUpwards | bubbleAirDownwards | bubblePushDownwards) == 0) {
+            return NO_BUBBLE_COLUMN;
+        }
+        return new BubbleColumnData(bubbleAirUpwards, bubblePushUpwards, bubbleAirDownwards, bubblePushDownwards);
     }
 
     private static List<Direction.Axis> axisStepOrder(Vec3 movement) {
@@ -1019,47 +1003,52 @@ public class WorldStageBuilder {
             double fromZ,
             double toX,
             double toY,
-            double toZ,
-            Set<Long> visitedBlocks,
-            int[] pushUpwards,
-            int[] pushDownwards,
-            int[] airUpwards,
-            int[] airDownwards) {
+            double toZ) {
         SimpleCollisionBox fromBox = bubbleColumnBoxAt(sweepFromBox, player, context, fromX, fromY, fromZ);
         SimpleCollisionBox toBox = bubbleColumnBoxAt(sweepToBox, player, context, toX, toY, toZ);
         SimpleCollisionBox sweptBox = this.sweptBox.set(fromBox).union(toBox);
         double dx = toX - fromX, dy = toY - fromY, dz = toZ - fromZ;
-        boolean longMove = dx * dx + dy * dy + dz * dz > 0.9999900000002526D * 0.9999900000002526D;
+        bubbleFromBox = fromBox;
+        bubbleToBox = toBox;
+        bubbleLongMove = dx * dx + dy * dy + dz * dz > 0.9999900000002526D * 0.9999900000002526D;
 
-        Collisions.hasState(player, sweptBox, state -> BlockIds.is(state, BlockIds.BUBBLE_COLUMN), (state, pos) -> {
-            if (!BlockIds.is(state, BlockIds.BUBBLE_COLUMN)) {
-                return false;
-            }
+        Collisions.hasState(player, sweptBox, IS_BUBBLE_COLUMN, bubbleColumnVisitor);
+    }
 
-            boolean preciseIntersection = longMove || intersectsBlock(toBox, 1.0E-5F, pos);
-            boolean pathTouches = preciseIntersection
-                    || Collisions.sweptFullBlockEntityInside(fromBox, toBox, pos.getX(), pos.getY(), pos.getZ());
-            if (!pathTouches || !preciseIntersection || !visitedBlocks.add(pos.asLong())) {
-                return false;
-            }
-
-            int blockAbove = player.compensatedWorld.getBlockStateIdAt(pos.getX(), pos.getY() + 1, pos.getZ());
-            boolean isDown = BlockProps.DRAG.has(state) && BlockProps.DRAG.booleanValue(state);
-            boolean airAbove = player.compensatedWorld
-                            .geometry()
-                            .collision(blockAbove, pos)
-                            .isEmpty()
-                    && ac.cult.cultac.utils.nmsutil.ClientFluidQueries.modelFluid(blockAbove)
-                            .isEmpty();
-            if (isDown) {
-                if (airAbove) airDownwards[0]++;
-                else pushDownwards[0]++;
-            } else {
-                if (airAbove) airUpwards[0]++;
-                else pushUpwards[0]++;
-            }
+    private boolean visitBubbleColumn(int state, BlockPos pos) {
+        if (!BlockIds.is(state, BlockIds.BUBBLE_COLUMN)) {
             return false;
-        });
+        }
+
+        boolean preciseIntersection = bubbleLongMove || intersectsBlock(bubbleToBox, 1.0E-5F, pos);
+        boolean pathTouches = preciseIntersection
+                || Collisions.sweptFullBlockEntityInside(
+                        bubbleFromBox, bubbleToBox, pos.getX(), pos.getY(), pos.getZ());
+        if (!pathTouches || !preciseIntersection) {
+            return false;
+        }
+        if (bubbleVisited == null) bubbleVisited = new LongOpenHashSet();
+        if (!bubbleVisited.add(pos.asLong())) {
+            return false;
+        }
+
+        CultPlayer player = bubblePlayer;
+        int blockAbove = player.compensatedWorld.getBlockStateIdAt(pos.getX(), pos.getY() + 1, pos.getZ());
+        boolean isDown = BlockProps.DRAG.has(state) && BlockProps.DRAG.booleanValue(state);
+        boolean airAbove = player.compensatedWorld
+                        .geometry()
+                        .collision(blockAbove, pos)
+                        .isEmpty()
+                && ac.cult.cultac.utils.nmsutil.ClientFluidQueries.modelFluid(blockAbove)
+                        .isEmpty();
+        if (isDown) {
+            if (airAbove) bubbleAirDownwards++;
+            else bubblePushDownwards++;
+        } else {
+            if (airAbove) bubbleAirUpwards++;
+            else bubblePushUpwards++;
+        }
+        return false;
     }
 
     static SimpleCollisionBox bubbleColumnBoxAt(
