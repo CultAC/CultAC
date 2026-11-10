@@ -71,7 +71,8 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
     private Families idleFamilies = new Families();
     private Output idleOutput = new Output();
     private Batch idleBatch = new Batch(false);
-    private PacketSendEvent<?> idleSendEvent;
+    // Released own-route events; a nested expansion takes the second while its parent holds the first.
+    private PacketSendEvent<?> idleSendEvent, spareSendEvent;
     // Emitted frames for reuse, linked through Frame#next; none holds bytes or a promise.
     private Frame spareFrames;
     private int spareFrameCount;
@@ -503,13 +504,20 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                 activeFamilies.addLast(route.type());
                 try {
                     var type = (PacketType<ClientboundPacket>) route.type();
-                    var idleEvent = route.own() ? idleSendEvent : null;
+                    PacketSendEvent<?> idleEvent = null;
+                    if (route.own()) {
+                        idleEvent = idleSendEvent;
+                        if (idleEvent != null) idleSendEvent = null;
+                        else {
+                            idleEvent = spareSendEvent;
+                            spareSendEvent = null;
+                        }
+                    }
                     PacketSendEvent<ClientboundPacket> event;
                     if (idleEvent == null) {
                         event = new PacketSendEvent<>(
                                 connection.user(), phase, type, (ClientboundPacket) value, batch.inside);
                     } else {
-                        idleSendEvent = null;
                         event = idleEvent.restart(
                                 connection.user(), phase, type, (ClientboundPacket) value, batch.inside);
                     }
@@ -1029,7 +1037,8 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
     private void recycle(PacketDispatcher.Route route, PacketSendEvent<?> event) {
         if (!route.own() || !event.tasksAfter().isEmpty()) return;
         event.release();
-        idleSendEvent = event;
+        if (idleSendEvent == null) idleSendEvent = event;
+        else spareSendEvent = event;
     }
 
     /** Keeps a frame that no output, batch or caller holds any more for a later {@link #frame}. */
