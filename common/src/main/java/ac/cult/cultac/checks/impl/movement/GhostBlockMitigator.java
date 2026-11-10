@@ -99,21 +99,27 @@ public class GhostBlockMitigator extends CultProcessor implements PostPrediction
         }
 
         // Remove illegal blocks if they are in unloaded chunks
-        unknownStuff
-                .entrySet()
-                .removeIf(entry -> player.compensatedWorld.getChunk(
-                                entry.getKey().getX() >> 4, entry.getKey().getZ() >> 4)
-                        == null);
-        pseudoPlaces
-                .values()
-                .removeIf(ghost -> player.compensatedWorld.getChunk(
-                                ghost.getPosition().getX() >> 4,
-                                ghost.getPosition().getZ() >> 4)
-                        == null);
-        bucketUseLocations
-                .keySet()
-                .removeIf(location ->
-                        player.compensatedWorld.getChunk(location.getX() >> 4, location.getZ() >> 4) == null);
+        if (!unknownStuff.isEmpty()) {
+            unknownStuff
+                    .entrySet()
+                    .removeIf(entry -> player.compensatedWorld.getChunk(
+                                    entry.getKey().getX() >> 4, entry.getKey().getZ() >> 4)
+                            == null);
+        }
+        if (!pseudoPlaces.isEmpty()) {
+            pseudoPlaces
+                    .values()
+                    .removeIf(ghost -> player.compensatedWorld.getChunk(
+                                    ghost.getPosition().getX() >> 4,
+                                    ghost.getPosition().getZ() >> 4)
+                            == null);
+        }
+        if (!bucketUseLocations.isEmpty()) {
+            bucketUseLocations
+                    .keySet()
+                    .removeIf(location ->
+                            player.compensatedWorld.getChunk(location.getX() >> 4, location.getZ() >> 4) == null);
+        }
     }
 
     /** Forgets every placement; call when the client replaces its level. */

@@ -296,18 +296,21 @@ public final class CompensatedWorldPistons {
         // ClientLevel.unload and LevelChunk.replaceWithPacketData clear live
         // block entities immediately. Completed movement passes keep their
         // existing tick owner; unloading does not undo a previous shove.
+        if (movingPistonStates.isEmpty()) return;
         movingPistonStates
                 .values()
                 .removeIf(state -> state.pos().getX() >> 4 == x && state.pos().getZ() >> 4 == z);
     }
 
     void removeSentBefore(int transactionId) {
-        activePistons.removeIf(data -> data.getTransaction() < transactionId);
+        if (!activePistons.isEmpty()) activePistons.removeIf(data -> data.getTransaction() < transactionId);
     }
 
     void tickClientTickEnd() {
-        captureClientTickPistonMovement();
-        activePistons.removeIf(PistonData::tickIfGuaranteedFinished);
+        if (!activePistons.isEmpty()) {
+            captureClientTickPistonMovement();
+            activePistons.removeIf(PistonData::tickIfGuaranteedFinished);
+        }
         tickMovingPistonStates();
     }
 
@@ -519,6 +522,7 @@ public final class CompensatedWorldPistons {
     }
 
     private void tickMovingPistonStates() {
+        if (movingPistonStates.isEmpty()) return;
         List<MovingPistonState> finished = new ArrayList<>();
         movingPistonStates.long2ObjectEntrySet().removeIf(entry -> {
             MovingPistonState state = entry.getValue();

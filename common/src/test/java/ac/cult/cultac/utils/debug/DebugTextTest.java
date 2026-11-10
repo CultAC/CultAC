@@ -6,6 +6,7 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 import org.junit.jupiter.api.Test;
 
 class DebugTextTest {
@@ -66,5 +67,45 @@ class DebugTextTest {
 
         assertEquals(expected, text.toString());
         assertEquals("appended later", builder.toString());
+    }
+
+    @Test
+    void aVectorPrintsAsItsToString() {
+        double[] edges = {
+            0.0,
+            -0.0,
+            1.0,
+            0.1,
+            -0.30000000000000004,
+            1.0E-7,
+            1.0E7,
+            123456789.0,
+            Double.MIN_VALUE,
+            -Double.MAX_VALUE,
+            Double.MIN_NORMAL,
+            Double.NaN,
+            Double.POSITIVE_INFINITY,
+            Double.NEGATIVE_INFINITY
+        };
+        List<Vec3> vectors = new ArrayList<>();
+        for (double x : edges) vectors.add(new Vec3(x, -x, x / 3));
+        Random random = new Random(11);
+        for (int i = 0; i < 2000; i++) {
+            vectors.add(new Vec3(
+                    Double.longBitsToDouble(random.nextLong()),
+                    random.nextDouble() - 0.5,
+                    (random.nextInt(2_000_001) - 1_000_000) / 1024.0));
+        }
+        StringBuilder expected = new StringBuilder();
+        DebugText.Builder text = new DebugText.Builder();
+        for (Vec3 vector : vectors) {
+            expected.append(vector.toString()).append(';');
+            text.append(vector).append(';');
+        }
+        expected.append(vectors);
+        text.appendAll(vectors);
+
+        assertEquals(expected.toString(), text.toString());
+        assertEquals(expected.toString(), text.toText().toString());
     }
 }

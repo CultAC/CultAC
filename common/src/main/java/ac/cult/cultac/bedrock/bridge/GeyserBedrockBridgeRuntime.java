@@ -616,6 +616,17 @@ public final class GeyserBedrockBridgeRuntime {
         private final GeyserPoseConfirmations poses = new GeyserPoseConfirmations();
         private final GeyserVehicleAttributes vehicleAttributes = new GeyserVehicleAttributes();
         private final GeyserEntityPositions entityPositions = new GeyserEntityPositions();
+        // Markers written per client tick only to narrow when entity updates are handled; the markers that prove
+        // updates are not counted.
+        private static final int MARKERS_PER_TICK = 2;
+        // A packet carrying entity updates no latency marker has followed yet; the next flush writes one.
+        private BedrockPacketWrapper entityUpdateSource;
+        // Whether a latency marker was written in this batch with nothing heavy after it: a move written now is
+        // handled right after the client answers it, unless its packet budget runs out in between.
+        private boolean freshMarker;
+        // Narrowing markers written since the client tick markerTick was processed.
+        private long markerTick = -1;
+        private int markersInTick;
         private final GeyserEntityAttributes entityAttributes = new GeyserEntityAttributes();
         private final GeyserMovementEffectAcks glideBoostAcks = new GeyserMovementEffectAcks();
         private final ac.cult.cultac.bedrock.player.BedrockLoadingScreenState loadingScreen =
@@ -750,6 +761,7 @@ public final class GeyserBedrockBridgeRuntime {
                                     .getPlayerInventoryHolder()
                                     .translateRequests(java.util.List.of(authInput.getItemStackRequest()));
                         }
+                        player.checkManager.endBedrockClientTick();
                         return;
                     }
                     poses.begin(connection, authInput);
@@ -757,27 +769,31 @@ public final class GeyserBedrockBridgeRuntime {
                     submitMove(player, move);
                 } else if (packet instanceof InventoryTransactionPacket transaction) {
                     if (!GeyserItemUse.allow(connection, player, transaction)) return;
+                    if (GeyserEntityInteractions.dropsAttack(connection, player, transaction)) return;
                     submitInventoryTransaction(player, transaction);
                 } else if (packet instanceof PlayerActionPacket action) {
                     submitPlayerAction(player, action);
                 }
-                var adapter = GFP_ADAPTERS.get(connection);
-                if (adapter != null && packet instanceof PlayerAuthInputPacket) {
-                    adapter.withTeleportRetry(() -> delegate.handlePacket(packet));
-                } else delegate.handlePacket(packet);
+                if (GeyserBlockAckTranslator.mayRestoreBlocks(packet)) {
+                    GeyserBlockAckTranslator.bracket(connection, () -> handleInGeyser(packet));
+                } else handleInGeyser(packet);
                 if (packet instanceof InventoryTransactionPacket transaction) {
                     GeyserItemUse.observe(connection, player, transaction, sequence);
                 } else if (packet instanceof PlayerAuthInputPacket input) {
                     poses.confirm(connection, input, sprintBoundary());
                     GeyserVehicleInput.observe(connection, player, input);
                     player.actionManager.endClientTick();
-                    player.packetStateData.acceptedClientTick++;
-                    player.packetStateData.lastClientTickEndTransaction = player.lastTransactionReceived.get();
-                    player.packetStateData.carriedItemChangedThisClientTick = false;
-                    player.packetStateData.carriedItemClaimedThisClientTick = false;
-                    player.serverOpenedInventoryThisTick = false;
+                    player.endCountedClientTick();
+                    player.checkManager.endBedrockClientTick();
                 }
             });
+        }
+
+        private void handleInGeyser(BedrockPacket packet) {
+            var adapter = GFP_ADAPTERS.get(connection);
+            if (adapter != null && packet instanceof PlayerAuthInputPacket) {
+                adapter.withTeleportRetry(() -> delegate.handlePacket(packet));
+            } else delegate.handlePacket(packet);
         }
 
         private void logPacket(String direction, BedrockPacket packet) {
@@ -992,6 +1008,7 @@ public final class GeyserBedrockBridgeRuntime {
             CultPlayer.BedrockTransaction before = player.getLastClientboundBedrockTransaction();
             int proof = before == null ? player.lastTransactionReceived.get() : before.transaction();
             long revision = player.getSetbackTeleportUtil()
+                    .bedrockTeleports()
                     .addImmediateBedrockTransportTeleport(
                             emission.frame().toWorld(physicalFeetPosition),
                             onGround,
@@ -1018,9 +1035,36 @@ public final class GeyserBedrockBridgeRuntime {
                 CultPlayer player, long revision, BedrockOriginDispatch.Emission emission, Vec3 localTarget) {
             if (emission == null) return;
             player.getSetbackTeleportUtil()
+                    .bedrockTeleports()
                     .confirmBedrockOrigin(revision, emission.operation(), emission.frame(), localTarget);
             BedrockPacketLogger logger = packetLogger;
             if (logger != null) logger.originReceipt(connection, revision);
+        }
+
+        /**
+         * Whether a marker that only narrows when entity updates are handled may be written: fewer than
+         * {@link #MARKERS_PER_TICK} such markers went out since the last client tick was processed. The marker that
+         * proves updates is written regardless.
+         */
+        private boolean mayNarrowWithMarker() {
+            CultPlayer player = currentPlayer();
+            if (player == null) return false;
+            long tick = player.compensatedEntities.clientTicks();
+            if (tick != markerTick) {
+                markerTick = tick;
+                markersInTick = 0;
+            }
+            return markersInTick < MARKERS_PER_TICK;
+        }
+
+        private void countMarker() {
+            CultPlayer player = currentPlayer();
+            long tick = player == null ? markerTick : player.compensatedEntities.clientTicks();
+            if (tick != markerTick) {
+                markerTick = tick;
+                markersInTick = 0;
+            }
+            markersInTick++;
         }
 
         private void writeLatencyBoundary(
@@ -1066,6 +1110,7 @@ public final class GeyserBedrockBridgeRuntime {
                         BedrockPacketWrapper.create(
                                 0, BedrockSubClients.sender(source), BedrockSubClients.target(source), marker, null),
                         context.voidPromise());
+                freshMarker = true;
             });
         }
 
@@ -1148,15 +1193,29 @@ public final class GeyserBedrockBridgeRuntime {
                     () -> GeyserVehicleInput.translateRejectedMovement(connection, player, packet),
                     resolved -> {
                         if (packet.getInputData().contains(PlayerAuthInputData.PERFORM_BLOCK_ACTIONS)) {
+                            // A dropped action broke or cracked the block only on the client.
                             player.bedrockState.blockBreakActions.apply(
-                                    player, resolved.getCoordinateFrame(), packet.getPlayerActions());
+                                    player,
+                                    resolved.getCoordinateFrame(),
+                                    resolved.getPosition(),
+                                    packet.getPlayerActions(),
+                                    local -> {
+                                        org.geysermc.geyser.util.BlockUtils.sendBedrockStopBlockBreak(
+                                                connection, local.toFloat());
+                                        org.geysermc.geyser.util.BlockUtils.restoreCorrectBlock(
+                                                connection,
+                                                local,
+                                                connection.getPlayerInventory().getHeldItemSlot());
+                                    });
                         }
                     });
             // Recovery must run even when the pending teleport rejects movement before Geyser's translator.
             var recoveryAdapter = GFP_ADAPTERS.get(connection);
             teleportRecovery.input(
                     player.bedrockState.lastMovementTick(),
-                    player.getSetbackTeleportUtil().isPendingBedrockSetback(teleportRecovery.operation()),
+                    player.getSetbackTeleportUtil()
+                            .bedrockTeleports()
+                            .isPendingBedrockSetback(teleportRecovery.operation()),
                     recoveryAdapter == null ? BedrockCoordinateFrame.IDENTITY : recoveryAdapter.coordinateFrame());
             if (state == null) {
                 var retryAdapter = GFP_ADAPTERS.get(connection);
@@ -1244,6 +1303,7 @@ public final class GeyserBedrockBridgeRuntime {
         private void submitMove(CultPlayer player, MovePlayerPacket packet) {
             if (!installFloatingPoints(connection, true)) return;
             player.bedrockState.setLastMoveFrame(player.getSetbackTeleportUtil()
+                    .bedrockTeleports()
                     .resolveBedrockCoordinates(
                             createMoveFrame(player.playerUUID, connection.protocolVersion(), packet)));
         }
@@ -1338,7 +1398,9 @@ public final class GeyserBedrockBridgeRuntime {
         CultPlayer player = tap.currentPlayer();
         if (player == null
                 || operation.setbackTransaction() == null
-                || !player.getSetbackTeleportUtil().isCurrentBedrockSetback(operation.setbackTransaction())) return;
+                || !player.getSetbackTeleportUtil()
+                        .bedrockTeleports()
+                        .isCurrentBedrockSetback(operation.setbackTransaction())) return;
         var adapter = GFP_ADAPTERS.get(tap.connection);
         var coordinates = adapter == null ? BedrockCoordinateFrame.IDENTITY : adapter.coordinateFrame();
         tap.connection.setUnconfirmedTeleport(null);
@@ -1366,7 +1428,7 @@ public final class GeyserBedrockBridgeRuntime {
             var vehicle = tap.connection.getPlayerEntity().getVehicle();
             if (player == null
                     || !tap.matchesJavaUser(user)
-                    || player.getSetbackTeleportUtil().hasPendingBedrockTransportTeleport()
+                    || player.getSetbackTeleportUtil().bedrockTeleports().hasPendingBedrockTransportTeleport()
                     || player.bedrockState.movementCorrections.generation() != correction.controlGeneration()
                     || correction.vehicle()
                             && (!(isPredictedHorse(vehicle) || vehicle instanceof BoatEntity)
@@ -1480,11 +1542,52 @@ public final class GeyserBedrockBridgeRuntime {
             if (failure[0] != null) throw failure[0];
         }
 
+        /** A flush that carries entity updates ends with the latency marker that proves them, in the same batch. */
+        @Override
+        public void flush(ChannelHandlerContext context) throws Exception {
+            BedrockPacketWrapper source = owner.entityUpdateSource;
+            if (source != null && !owner.detached.get()) {
+                owner.entityUpdateSource = null;
+                if (owner.entityPositions.hasPending() || owner.entityAttributes.hasPending()) {
+                    inModel(owner.currentPlayer(), () -> owner.writeLatencyBoundary(context, source, player -> {}));
+                }
+            }
+            super.flush(context);
+            // The next batch's waves need a marker of their own.
+            owner.freshMarker = false;
+        }
+
+        /**
+         * Packets the client can take long enough to handle that its 1 ms packet budget may run out on them: chunk
+         * data and the large registry and inventory snapshots.
+         */
+        private static boolean isHeavy(BedrockPacket packet) {
+            return packet instanceof org.cloudburstmc.protocol.bedrock.packet.LevelChunkPacket
+                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.SubChunkPacket
+                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.CraftingDataPacket
+                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.CreativeContentPacket
+                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.InventoryContentPacket
+                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.AvailableEntityIdentifiersPacket
+                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.BiomeDefinitionListPacket
+                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.AvailableCommandsPacket
+                    || packet instanceof org.cloudburstmc.protocol.bedrock.packet.StartGamePacket;
+        }
+
         private void writeTapped(
                 ChannelHandlerContext context, Object message, BedrockPacketWrapper wrapper, ChannelPromise promise)
                 throws Exception {
             BedrockPacket packet = wrapper.getPacket();
             owner.initializeActor(owner.currentPlayer());
+            if (isHeavy(packet)) {
+                // A wave ends before data that can use up the client's packet budget, and the next one gets a
+                // marker after it.
+                if ((owner.entityPositions.hasPending() || owner.entityAttributes.hasPending())
+                        && owner.mayNarrowWithMarker()) {
+                    owner.writeLatencyBoundary(context, wrapper, player -> {});
+                    owner.countMarker();
+                }
+                owner.freshMarker = false;
+            }
             boolean normalizedVehicleEffect = false;
             if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.UpdateAttributesPacket attributes) {
                 owner.vehicleAttributes.written(attributes);
@@ -1649,6 +1752,7 @@ public final class GeyserBedrockBridgeRuntime {
                             || ownTeleport.setbackTransaction() == null
                             || !observedPlayer
                                     .getSetbackTeleportUtil()
+                                    .bedrockTeleports()
                                     .isCurrentBedrockSetback(ownTeleport.setbackTransaction()))) {
                 io.netty.util.ReferenceCountUtil.release(message);
                 promise.trySuccess();
@@ -1666,7 +1770,10 @@ public final class GeyserBedrockBridgeRuntime {
                             == owner.connection.getPlayerEntity().geyserId()
                     && link.getEntityLink().getType()
                             != org.cloudburstmc.protocol.bedrock.data.entity.EntityLinkData.Type.REMOVE) {
-                Runnable received = observedPlayer.getSetbackTeleportUtil().captureBedrockVehicleMount();
+                Runnable received = observedPlayer
+                        .getSetbackTeleportUtil()
+                        .bedrockTeleports()
+                        .captureBedrockVehicleMount();
                 context.write(message, promise);
                 owner.writeLatencyBoundary(context, wrapper, player -> received.run());
                 return;
@@ -1679,6 +1786,19 @@ public final class GeyserBedrockBridgeRuntime {
                     || packet instanceof org.cloudburstmc.protocol.bedrock.packet.ChangeDimensionPacket) {
                 owner.teleportRecovery.clear();
             }
+            if (observedPlayer != null
+                    && GeyserEntityPositions.movesOtherActor(
+                            packet, owner.connection.getPlayerEntity().geyserId())) {
+                if (owner.entityPositions.movesActorAgain(packet)) {
+                    // The actor's earlier move needs a marker after it, written regardless like the one that ends the
+                    // batch, or both moves would begin together though the client may tick between them.
+                    owner.writeLatencyBoundary(context, wrapper, player -> {});
+                } else if (!owner.freshMarker && owner.mayNarrowWithMarker()) {
+                    // The pre-wave marker: in this move's batch, right before its wave.
+                    owner.writeLatencyBoundary(context, wrapper, player -> {});
+                    owner.countMarker();
+                }
+            }
             if (observedPlayer != null)
                 owner.entityPositions.capture(
                         owner.connection,
@@ -1689,6 +1809,9 @@ public final class GeyserBedrockBridgeRuntime {
             var replayUpdate = normalizedVehicleEffect ? null : GeyserReplayUpdate.capture(packet);
             if (observedPlayer != null && replayUpdate != null) {
                 owner.entityAttributes.capture(owner.connection, observedPlayer, replayUpdate);
+            }
+            if (owner.entityPositions.hasPending() || owner.entityAttributes.hasPending()) {
+                owner.entityUpdateSource = wrapper;
             }
             if (packet instanceof CorrectPlayerMovePredictionPacket correction) {
                 writeMovementCorrection(context, message, promise, wrapper, correction, emission);
@@ -1729,6 +1852,7 @@ public final class GeyserBedrockBridgeRuntime {
                         }
                     }
                     context.write(message, promise);
+                    owner.freshMarker = true;
                     return receipt;
                 });
                 return;
@@ -1927,7 +2051,9 @@ public final class GeyserBedrockBridgeRuntime {
             boolean isVehicle = packet.getPredictionType() == PredictionType.VEHICLE;
             if (source != null
                     && (player == null
-                            || player.getSetbackTeleportUtil().hasPendingBedrockTransportTeleport()
+                            || player.getSetbackTeleportUtil()
+                                    .bedrockTeleports()
+                                    .hasPendingBedrockTransportTeleport()
                             || source.controlGeneration() != player.bedrockState.movementCorrections.generation()
                             || isVehicle && (vehicle == null || vehicle.geyserId() != source.runtimeId())
                             || !isVehicle && vehicle != null)) {
@@ -2116,7 +2242,7 @@ public final class GeyserBedrockBridgeRuntime {
                     .handleObservedEntityVelocity(
                             observedMotion,
                             player.entityID,
-                            player.getSetbackTeleportUtil().getBedrockTeleportRevision(),
+                            player.getSetbackTeleportUtil().bedrockTeleports().getBedrockTeleportRevision(),
                             before,
                             receipt);
             context.write(message, promise);
@@ -2140,7 +2266,7 @@ public final class GeyserBedrockBridgeRuntime {
                 });
                 context.write(wrapper, promise);
             };
-            if (!player.getSetbackTeleportUtil().isBedrockSetbackTransport(revision)) {
+            if (!player.getSetbackTeleportUtil().bedrockTeleports().isBedrockSetbackTransport(revision)) {
                 if (!player.getSetbackTeleportUtil().isPendingSetback()) owner.teleportRecovery.clear();
                 if (player.bedrockState.lastMovementTick() > 0) {
                     writer.accept(

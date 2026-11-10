@@ -9,6 +9,7 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.TransactionVel;
+import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.VectorUtils;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
@@ -90,6 +91,84 @@ public class PointThree implements UncertaintyHandler {
         }
 
         return start;
+    }
+
+    @Override
+    public void positionInto(
+            double[] xyz,
+            CultPlayer player,
+            ValidMovements valid,
+            PredictionResult result,
+            SimulationContext context,
+            PredictionResult lastResult,
+            PredVector carrier,
+            Vec3 end) {
+        double offsetHorizontal = getOffsetHorizontal(player, carrier, context, lastResult);
+        UncertaintyHelper.circularInto(xyz, end, offsetHorizontal);
+
+        if (carrier.isTickSkip() && player.compensatedEntities.getLevitationAmplifier() != null) {
+            double maxY = 0.05 * (player.compensatedEntities.getLevitationAmplifier() + 1) * 0.2;
+            if (end.y > xyz[1]) {
+                UncertaintyHelper.verticalInto(xyz, end, maxY);
+            }
+        }
+
+        double threshold = player.getMovementThreshold();
+        boolean lastControlVertical = false;
+        boolean lastGravity = false;
+
+        if (lastResult != null) {
+            double multiplier = context.getTargetScalarVert();
+            threshold *= multiplier;
+            lastControlVertical = lastResult.anyRealityControlsVerticalMovement();
+            lastGravity = lastResult.anyRealityDidTickSkipGravity();
+        }
+
+        boolean canVerticalTickSkip = carrier.isTickSkip();
+        boolean controlsVerticalMovement = canVerticalTickSkip && controlsVerticalMovement(player, result);
+        boolean recoveringTickSkip = context.getLastTickSkip().getRaw() == 1;
+        boolean onGroundFuckery = player.checkManager
+                .getSimulationProcessor()
+                .getLastOnGroundSkip()
+                .hasOccurredSince(1);
+
+        if (controlsVerticalMovement) {
+            result.getValidMovements().setControlsVerticalMovement(true);
+        }
+
+        if (canVerticalTickSkip && end.y < xyz[1]) {
+            double minY = xyz[1];
+            double maxY = xyz[1];
+            double gravity = player.compensatedEntities.getEntityInControl().gravity;
+            if (xyz[1] <= 0.0D && context.getEntities().getSlowFallingAmplifier() != null) {
+                gravity = Math.min(gravity, 0.01D);
+            }
+            double verticalDrag = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2)
+                    ? Friction.computeModifiedFriction(
+                            0.98F, (float) player.compensatedEntities.getEntityInControl().airDragModifier)
+                    : 0.98F;
+            double skipped = explosionImpulseY(carrier) + (-gravity - threshold * 2) * verticalDrag;
+            if (skipped < minY) minY = skipped;
+            if (skipped > maxY) maxY = skipped;
+            double x = CultMath.clamp(end.x, xyz[0], xyz[0]);
+            double y = CultMath.clamp(end.y, minY, maxY);
+            double z = CultMath.clamp(end.z, xyz[2], xyz[2]);
+            xyz[0] = x;
+            xyz[1] = y;
+            xyz[2] = z;
+
+            if (!valid.isTestingMaxStartingVelExtents(end)) {
+                result.getValidMovements().setDidTickSkipGravity(true);
+            }
+        } else if (controlsVerticalMovement) {
+            UncertaintyHelper.verticalInto(xyz, end, threshold);
+        } else if (recoveringTickSkip || onGroundFuckery) {
+            if (lastControlVertical || lastGravity || onGroundFuckery) {
+                UncertaintyHelper.verticalInto(xyz, end, threshold);
+            } else if (end.y < xyz[1]) {
+                UncertaintyHelper.verticalInto(xyz, end, threshold);
+            }
+        }
     }
 
     private static double explosionImpulseY(PredVector start) {

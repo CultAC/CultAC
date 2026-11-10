@@ -40,6 +40,11 @@ public final class SectionPool {
 
     SectionPool() {}
 
+    /** The air section every pool interns an empty section without fluid to; shared, so writers replace it first. */
+    static CachedSection canonicalAir() {
+        return CANONICAL_AIR;
+    }
+
     private static CachedSection createCanonicalAir() {
         CachedSection air = CachedSection.createAirSection();
         air.markShared();

@@ -52,6 +52,7 @@ import ac.cult.cultac.utils.data.ClientItemUseState;
 import ac.cult.cultac.utils.data.ClientSprintState;
 import ac.cult.cultac.utils.data.ClientSwimState;
 import ac.cult.cultac.utils.data.PacketStateData;
+import ac.cult.cultac.utils.data.ServerSwingEcho;
 import ac.cult.cultac.utils.data.VehicleData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
@@ -266,6 +267,7 @@ public class CultPlayer implements GrimUser {
     public final ClientSwimState swimState = new ClientSwimState();
     public final ClientAttackStrength attackStrength = new ClientAttackStrength();
     public final ClientCombatAttributes combatAttributes = new ClientCombatAttributes();
+    public final ServerSwingEcho serverSwingEcho = new ServerSwingEcho();
     public final VisibilityDebug visibilityDebug = new VisibilityDebug(this);
     public boolean isFlying;
     public boolean canFly;
@@ -358,6 +360,41 @@ public class CultPlayer implements GrimUser {
         return movementPlatform == MovementPlatform.BEDROCK;
     }
 
+    /**
+     * LocalPlayer#tick runs only once ClientPacketListener#hasClientLoaded, which 1.21.4 introduced, and not after
+     * LocalPlayer#tickDeath removed the player.
+     */
+    public boolean localPlayerTicks() {
+        return !isBedrockMovement()
+                && !packetStateData.localPlayerRemoved
+                && (packetStateData.playerLoadedIntoLevel || getClientVersion().isOlderThan(ClientVersion.V_1_21_4));
+    }
+
+    /** LocalPlayer#tickDeath reaches deathTime 20 in this client tick, whose LivingEntity#tick then skips aiStep. */
+    public boolean localPlayerRemovedThisTick() {
+        return localPlayerTicks()
+                && packetStateData.localPlayerDeathTime == 19
+                && !compensatedEntities.getSelf().actionAlive;
+    }
+
+    /**
+     * Advances LocalPlayer#deathTime for a client tick that ran LocalPlayer#tick, from the health its packets left;
+     * ServerboundClientTickEndPacket marks every client tick from 1.21.2.
+     */
+    public void tickLocalPlayerDeath() {
+        if (compensatedEntities.getSelf().actionAlive || getClientVersion().isOlderThan(ClientVersion.V_1_21_2)) return;
+        if (++packetStateData.localPlayerDeathTime == 20) packetStateData.localPlayerRemoved = true;
+    }
+
+    /** A client tick the model counts ended: a Java tick end, or a Bedrock auth-input frame. */
+    public void endCountedClientTick() {
+        packetStateData.acceptedClientTick++;
+        packetStateData.lastClientTickEndTransaction = lastTransactionReceived.get();
+        packetStateData.carriedItemChangedThisClientTick = false;
+        packetStateData.carriedItemClaimedThisClientTick = false;
+        serverOpenedInventoryThisTick = false;
+    }
+
     public boolean shouldEnforceMovementSetbacks() {
         return movementPlatform == MovementPlatform.JAVA
                 || (bedrockState != null && bedrockState.shouldEnforceSetbacks());
@@ -366,6 +403,8 @@ public class CultPlayer implements GrimUser {
     /** A login or respawn replaced the LocalPlayer, which has not ticked yet. */
     public void onLocalPlayerCreated() {
         packetStateData.localPlayerTickedSinceSpawn = false;
+        packetStateData.localPlayerDeathTime = 0;
+        packetStateData.localPlayerRemoved = false;
         packetStateData.lastSentTickYaw = 0;
         packetStateData.lastSentTickPitch = 0;
         packetStateData.lastSendPositionYaw = 0;
@@ -383,8 +422,8 @@ public class CultPlayer implements GrimUser {
     public void tickHeadYaw() {
         float before = yawBeforeLook;
         yawBeforeLook = xRot;
-        // LocalPlayer#tick, and with it Player#aiStep, only runs once the client has loaded; before 1.21.4, from login.
-        if (!packetStateData.playerLoadedIntoLevel && !getClientVersion().isOlderThan(ClientVersion.V_1_21_4)) return;
+        // Player#aiStep runs in LocalPlayer#tick.
+        if (!localPlayerTicks() || localPlayerRemovedThisTick()) return;
         float boatYawBefore = boatYawBeforeTurn;
         headYaw = xRot;
         unclampedHeadYaw = Float.NaN;
@@ -640,7 +679,7 @@ public class CultPlayer implements GrimUser {
         }
 
         SentTransaction acknowledged = acknowledgeThrough(id);
-        if (!isBedrockMovement() && getSetbackTeleportUtil().hasWithheldJavaTeleport()) {
+        if (!isBedrockMovement() && getSetbackTeleportUtil().javaTeleports().hasWithheldJavaTeleport()) {
             withheld("answered a ping sent after a teleport it did not answer");
         }
 
@@ -860,6 +899,7 @@ public class CultPlayer implements GrimUser {
      * same task and proves the packet without another. Standalone packets instead retain a FIFO trailing proof,
      * without claiming bundle atomicity or application before the next client tick. Protocol transitions cannot
      * carry an old-phase proof. Returns null, writing nothing, when no transaction can be sent.
+     * Calls that share one flush-bundle ping may return the same immutable record.
      */
     @Nullable
     public TrackedTransaction appendTrailingProofTransaction(
@@ -869,10 +909,16 @@ public class CultPlayer implements GrimUser {
                 : event.flushPing();
         if (shared > 0) {
             event.getWritesAfterSend().addAll(packetsBeforeProof);
-            return new TrackedTransaction(shared, null);
+            TrackedTransaction proof = sharedProof;
+            if (proof == null || proof.transaction() != shared)
+                sharedProof = proof = new TrackedTransaction(shared, null);
+            return proof;
         }
         return writeTrailingProofTransaction(event, packetsBeforeProof);
     }
+
+    // The last shared flush-bundle proof handed out; a record, so any thread may return it.
+    private TrackedTransaction sharedProof;
 
     /**
      * Writes a tracked ping of its own directly after the event's packet, for a packet whose client handler sends a
@@ -1152,7 +1198,7 @@ public class CultPlayer implements GrimUser {
         // swimming box, then falls back from the desired pose to crouching and finally
         // to swimming based on exact collision tests at the current position.
         if (!canPlayerFitWithinBlocksAndEntitiesWhen(Pose.SWIMMING, x, y, z)) {
-            return desiredPose;
+            return isBedrockMovement() ? desiredPose : pose;
         }
 
         if (gamemode == GameMode.SPECTATOR
@@ -1485,8 +1531,6 @@ public class CultPlayer implements GrimUser {
     public boolean spoofHealth = false;
     public boolean throwError = false;
     public boolean chunkDebug = false;
-    public boolean debugPlaces = false;
-    public boolean debugBreaks = false;
     public boolean debugNoSlow = false;
     // end config
 
@@ -1506,7 +1550,7 @@ public class CultPlayer implements GrimUser {
         boolean nowObserveOnly = CultAPI.INSTANCE.getConfigManager().isObserveOnly();
         if (nowObserveOnly != observeOnly) {
             observeOnly = nowObserveOnly;
-            if (nowObserveOnly) getSetbackTeleportUtil().observeOnlyStarted();
+            if (nowObserveOnly) getSetbackTeleportUtil().policy().observeOnlyStarted();
             else {
                 // Violations counted while nothing acted would otherwise set back on the next flag.
                 for (AbstractCheck check : getChecks()) {
@@ -1596,12 +1640,12 @@ public class CultPlayer implements GrimUser {
         return new PacketWorld() {
             @Override
             public int getBlockStateId(int x, int y, int z) {
-                return world.getBlockStateIdAt(x, y, z);
+                return world.peekBlockStateIdAt(x, y, z);
             }
 
             @Override
             public boolean isChunkLoaded(int chunkX, int chunkZ) {
-                return world.isChunkLoaded(chunkX, chunkZ);
+                return world.peekChunkLoaded(chunkX, chunkZ);
             }
         };
     }
@@ -1873,7 +1917,6 @@ public class CultPlayer implements GrimUser {
     /** An estimated server tick boundary: ends this tick and starts the next. Owner thread only. */
     public void onServerTickEnd() {
         onEndOfTickEvent();
-        packetEntityReplication.tickStartTick();
     }
 
     public void onEndOfTickEvent() {

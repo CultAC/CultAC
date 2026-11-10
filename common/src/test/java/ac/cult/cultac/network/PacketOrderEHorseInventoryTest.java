@@ -3,6 +3,7 @@ package ac.cult.cultac.network;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import ac.cult.cultac.checks.impl.packetorder.PacketOrderE;
+import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
@@ -40,9 +41,9 @@ class PacketOrderEHorseInventoryTest {
             f.listener.onPlayerCommand(
                     f.event(ServerboundPackets.PLAYER_COMMAND, playerCommand), f.player, playerCommand);
             var slot = new ServerboundSetCarriedItem(1);
-            f.listener.onSetCarriedItem(f.event(ServerboundPackets.SET_CARRIED_ITEM, slot), f.player, slot);
+            CheckManagerListener.receiveGeneric(f.event(ServerboundPackets.SET_CARRIED_ITEM, slot), f.player);
             var swing = new ServerboundSwing(Hand.MAIN_HAND, SwingKind.SWING);
-            f.listener.onSwing(f.event(ServerboundPackets.SWING, swing), f.player, swing);
+            CheckManagerListener.receiveGeneric(f.event(ServerboundPackets.SWING, swing), f.player);
             f.tickEnd();
             return f.player.checkManager.getListener(PacketOrderE.class).getViolations();
         }

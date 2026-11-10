@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.cloud.CloudSettings;
 import ac.cult.cultac.cloud.Generation;
+import ac.cult.cultac.cloud.Pace;
 import ac.cult.cultac.platform.api.CommandOutcome;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -52,6 +53,7 @@ class StaffBansTest {
     private static final UUID OTHER = UUID.fromString("7b2f3c2e-5b4d-4e8f-9a0b-1c2d3e4f5a6c");
     private static final String BAN = "0f0e0d0c-0b0a-4908-8706-050403020100";
     private static final String TIMED = "1f0e0d0c-0b0a-4908-8706-050403020101";
+    private static final String THIRD = "2f0e0d0c-0b0a-4908-8706-050403020102";
     private static final long NOW = Instant.parse("2026-10-27T12:00:00Z").toEpochMilli();
 
     private record Seen(String method, String uri, String authorization, String body) {}
@@ -65,6 +67,7 @@ class StaffBansTest {
     private volatile String claimReply = "{\"leaseSeconds\":60}";
     private final Queue<Integer> resultStatuses = new ConcurrentLinkedQueue<>();
     private volatile Runnable beforePending = () -> {};
+    private volatile long graceSeconds = 15;
 
     private final Set<UUID> online = ConcurrentHashMap.newKeySet();
     private final List<String> dispatched = Collections.synchronizedList(new ArrayList<>());
@@ -77,6 +80,7 @@ class StaffBansTest {
     private final AtomicLong clock = new AtomicLong(NOW);
     private final Generation generation = new Generation();
     private final StaffBans.Handled handled = new StaffBans.Handled(StaffBans.MAX_HANDLED);
+    private final Pace<Object> pace = new Pace<>(60_000, StaffBans.DEFAULT_MAX_PER_MINUTE, clock::get);
 
     private final StaffBans.Host host = new StaffBans.Host() {
         @Override
@@ -134,7 +138,7 @@ class StaffBansTest {
             status = pendingStatus;
             JsonObject answer = new JsonObject();
             answer.addProperty("pollSeconds", 1);
-            answer.addProperty("graceSeconds", 15);
+            answer.addProperty("graceSeconds", graceSeconds);
             answer.add("bans", pending);
             reply = answer.toString();
         } else if (uri.endsWith("/claim")) {
@@ -173,6 +177,7 @@ class StaffBansTest {
                 clock::get,
                 generation,
                 handled,
+                pace,
                 seconds -> CompletableFuture.delayedExecutor(seconds * 10, TimeUnit.MILLISECONDS));
     }
 
@@ -293,6 +298,59 @@ class StaffBansTest {
         clock.set(NOW + 15_000);
         bans.pollOnce().get(5, TimeUnit.SECONDS);
         assertEquals(List.of("ban Notch fly hacks", "tempban Other 1h fly hacks"), dispatched);
+    }
+
+    @Test
+    void anOfflinePlayerWaitsAtLeastTheDefaultGrace() throws Exception {
+        graceSeconds = 0;
+        pending(ban(BAN, PLAYER, null, NOW));
+        StaffBans bans = bans();
+
+        clock.set(NOW + 14_000);
+        bans.pollOnce().get(5, TimeUnit.SECONDS);
+        assertTrue(dispatched.isEmpty());
+
+        clock.set(NOW + 15_000);
+        bans.pollOnce().get(5, TimeUnit.SECONDS);
+        assertEquals(List.of("ban Notch fly hacks"), dispatched);
+    }
+
+    @Test
+    void bansPastTheMinutesMostRunInALaterRound() throws Exception {
+        pace.max(2);
+        online.add(PLAYER);
+        online.add(OTHER);
+        pending(ban(BAN, PLAYER, null, NOW), ban(TIMED, OTHER, 3600L, NOW), ban(THIRD, PLAYER, 60L, NOW));
+        StaffBans bans = bans();
+
+        bans.pollOnce().get(5, TimeUnit.SECONDS);
+        assertEquals(Set.of("ban Notch fly hacks", "tempban Other 1h fly hacks"), Set.copyOf(dispatched));
+
+        clock.set(NOW + 59_000);
+        bans.pollOnce().get(5, TimeUnit.SECONDS);
+        assertEquals(2, dispatched.size());
+
+        clock.set(NOW + 60_000);
+        bans.pollOnce().get(5, TimeUnit.SECONDS);
+        assertEquals("tempban Notch 1m fly hacks", dispatched.get(2));
+    }
+
+    @Test
+    void aClaimTheServiceDoesNotGrantLeavesTheMinutesCountAsItWas() throws Exception {
+        pace.max(1);
+        online.add(PLAYER);
+        pending(ban(BAN, PLAYER, null, NOW));
+        StaffBans bans = bans();
+
+        for (int status : new int[] {409, 503}) {
+            claimStatus = status;
+            bans.pollOnce().get(5, TimeUnit.SECONDS);
+            assertTrue(dispatched.isEmpty());
+        }
+
+        claimStatus = 200;
+        bans.pollOnce().get(5, TimeUnit.SECONDS);
+        assertEquals(List.of("ban Notch fly hacks"), dispatched);
     }
 
     @Test

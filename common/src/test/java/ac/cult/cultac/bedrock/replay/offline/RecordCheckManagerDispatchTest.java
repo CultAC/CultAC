@@ -217,15 +217,14 @@ class RecordCheckManagerDispatchTest {
             f.build();
             f.manager.dispatchReceiveHandlers(new PacketReceiveEvent<>(
                     f.player.user, ConnectionPhase.PLAY, ServerboundPackets.KEEP_ALIVE, new ServerboundKeepAlive(1L)));
-            // SignUpdate bypasses the normal check route but still intervenes in ordering windows.
-            new CheckManagerListener()
-                    .processInterveningReceive(
-                            new PacketReceiveEvent<>(
-                                    f.player.user,
-                                    ConnectionPhase.PLAY,
-                                    ServerboundPackets.SIGN_UPDATE,
-                                    ServerboundPackets.SIGN_UPDATE.opaqueValue()),
-                            f.player);
+            // SignUpdate reaches no check route but still intervenes in ordering windows.
+            CheckManagerListener.receiveGeneric(
+                    new PacketReceiveEvent<>(
+                            f.player.user,
+                            ConnectionPhase.PLAY,
+                            ServerboundPackets.SIGN_UPDATE,
+                            ServerboundPackets.SIGN_UPDATE.opaqueValue()),
+                    f.player);
             assertEquals(List.of(ServerboundPackets.SIGN_UPDATE), seen);
         }
     }

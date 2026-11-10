@@ -1,6 +1,7 @@
 package ac.cult.cultac.manager.player;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.checks.BedrockSupported;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.impl.aim.*;
@@ -19,6 +20,10 @@ import ac.cult.cultac.checks.impl.cloud.CloudCombat;
 import ac.cult.cultac.checks.impl.cloud.CloudCombatExperimental;
 import ac.cult.cultac.checks.impl.cloud.CloudExploit;
 import ac.cult.cultac.checks.impl.cloud.CloudExploitExperimental;
+import ac.cult.cultac.checks.impl.combat.BedrockEntityHitboxes;
+import ac.cult.cultac.checks.impl.combat.BedrockEntityReach;
+import ac.cult.cultac.checks.impl.combat.BedrockPlayerHitboxes;
+import ac.cult.cultac.checks.impl.combat.BedrockPlayerReach;
 import ac.cult.cultac.checks.impl.combat.EntityHitboxes;
 import ac.cult.cultac.checks.impl.combat.EntityReach;
 import ac.cult.cultac.checks.impl.combat.FairReach;
@@ -62,6 +67,7 @@ import ac.cult.cultac.checks.impl.prediction.checks.ItemUseDesync;
 import ac.cult.cultac.checks.impl.prediction.checks.NoSlow;
 import ac.cult.cultac.checks.impl.prediction.checks.Phase;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.*;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAutoJump;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.runner.ExplosionHandler;
 import ac.cult.cultac.checks.impl.prediction.runner.KnockbackHandler;
@@ -71,6 +77,10 @@ import ac.cult.cultac.checks.impl.sprint.*;
 import ac.cult.cultac.checks.impl.vehicle.*;
 import ac.cult.cultac.checks.impl.visibility.AttackMobVisibility;
 import ac.cult.cultac.checks.impl.visibility.AttackPlayerVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockAttackMobVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockAttackPlayerVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockBreakVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockPlaceVisibility;
 import ac.cult.cultac.checks.impl.visibility.BreakVisibility;
 import ac.cult.cultac.checks.impl.visibility.InteractEntityVisibility;
 import ac.cult.cultac.checks.impl.visibility.PlaceVisibility;
@@ -81,7 +91,6 @@ import ac.cult.cultac.network.PacketReceiveHandler;
 import ac.cult.cultac.network.PacketReceiveRoute;
 import ac.cult.cultac.network.PacketRouteBuilder;
 import ac.cult.cultac.network.PacketRouteBuilder.ReceiveStage;
-import ac.cult.cultac.network.PacketSendHandler;
 import ac.cult.cultac.network.PacketSendRoute;
 import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -118,6 +127,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 
 public class CheckManager {
     private static final List<Class<? extends CheckListener>> SEND_DISPATCH_LISTENER_TYPES = List.of(
@@ -161,6 +171,13 @@ public class CheckManager {
     private final Map<Class<?>, CheckListener> listenersByClass;
     private final PacketWorldBorder worldBorder;
     private final SetbackBlocker setbackBlocker;
+    private final NoSlow noSlow;
+    private final JavaAutoJump javaAutoJump;
+    private final NoFallPseudo noFallPseudo;
+    private final InvalidStep invalidStep;
+    private final VerticalOffset verticalOffset;
+    private final Speed speed;
+    private final Strafe strafe;
 
     List<BlockPlace> placesToCheck = new EvictingQueue<>(20);
 
@@ -223,6 +240,11 @@ public class CheckManager {
         listenersByClass = new IdentityHashMap<>(allCheckListeners);
         worldBorder = getListener(PacketWorldBorder.class);
         setbackBlocker = getListener(SetbackBlocker.class);
+        noSlow = getListener(NoSlow.class);
+        javaAutoJump = getListener(JavaAutoJump.class);
+        noFallPseudo = getListener(NoFallPseudo.class);
+        invalidStep = getListener(InvalidStep.class);
+        verticalOffset = getListener(VerticalOffset.class);
 
         List<CheckListener> positionUpdates = new ArrayList<>();
         for (var checks : List.of(prePredictionChecks, positionCheck, packetChecks)) {
@@ -269,6 +291,8 @@ public class CheckManager {
                 processor.reload();
             }
         }
+        speed = getCheck(Speed.class);
+        strafe = getCheck(Strafe.class);
     }
 
     // Keys each listener by its concrete class, preserving list order in the resulting map.
@@ -293,6 +317,8 @@ public class CheckManager {
                 player.pluginChannelManager,
                 new PlayerReach(player, visibility),
                 new EntityReach(player, visibility),
+                new BedrockPlayerReach(player, visibility),
+                new BedrockEntityReach(player, visibility),
                 visibility,
                 new PlaceVisibility(player, visibility),
                 new BreakVisibility(player, visibility),
@@ -301,6 +327,12 @@ public class CheckManager {
                 new InteractEntityVisibility(player, visibility),
                 new PlayerHitboxes(player),
                 new EntityHitboxes(player),
+                new BedrockPlayerHitboxes(player),
+                new BedrockEntityHitboxes(player),
+                new BedrockAttackPlayerVisibility(player),
+                new BedrockAttackMobVisibility(player),
+                new BedrockPlaceVisibility(player),
+                new BedrockBreakVisibility(player),
                 new FairReach(player, visibility),
                 player.packetEntityReplication,
                 new PacketChangeGameState(player),
@@ -595,7 +627,6 @@ public class CheckManager {
         registerPreReceive(registrations, postPredictionCheck.get(ItemUseBurst.class));
         registerPreReceive(registrations, prePredictionChecks.get(DumbTimer.class));
         registerPreReceive(registrations, prePredictionChecks.get(CrashA.class));
-        registerPreReceive(registrations, prePredictionChecks.get(CrashC.class));
         registerPreReceive(registrations, prePredictionChecks.get(CrashI.class));
         registerPreReceive(registrations, prePredictionChecks.get(VehicleTimer.class));
         registerPreReceive(registrations, packetChecks.get(SetbackBlocker.class));
@@ -611,6 +642,8 @@ public class CheckManager {
         registerReceive(registrations, packetChecks.get(PluginChannelManager.class));
         registerReceive(registrations, packetChecks.get(PlayerReach.class));
         registerReceive(registrations, packetChecks.get(EntityReach.class));
+        registerReceive(registrations, packetChecks.get(BedrockPlayerReach.class));
+        registerReceive(registrations, packetChecks.get(BedrockEntityReach.class));
         registerReceive(registrations, packetChecks.get(FairReach.class));
         registerReceive(registrations, packetChecks.get(BadPacketsWindow.class));
         registerReceive(registrations, packetChecks.get(CompensatedInventory.class));
@@ -654,6 +687,8 @@ public class CheckManager {
         registerTickEnd(packetChecks.get(ActionManager.class));
         registerTickEnd(packetChecks.get(PlayerReach.class));
         registerTickEnd(packetChecks.get(EntityReach.class));
+        registerTickEnd(packetChecks.get(BedrockPlayerReach.class));
+        registerTickEnd(packetChecks.get(BedrockEntityReach.class));
         registerTickEnd(packetChecks.get(ClientVisibilityProcessor.class));
         registerTickEnd(vehicleCheck.get(VehiclePredictionRunner.class));
         // MCP-Reborn Minecraft#tick computes the attack hit result before
@@ -726,7 +761,8 @@ public class CheckManager {
         }
         packetRegistrations.receiveListeners.add(listener);
 
-        List<PacketHandlerScanner.ReceiveRegistration> registrations = recordScanner.receiveHandlers(listener);
+        List<PacketHandlerScanner.ReceiveRegistration> registrations =
+                recordScanner.receiveHandlers(listener, dispatchGate(listener));
         if (registrations.isEmpty()) {
             if (!recordScanner.hasReceiveHandlerDeclaration(listener.getClass())) {
                 throw new IllegalStateException("No receive @CultPacketHandler methods on "
@@ -736,13 +772,11 @@ public class CheckManager {
         }
 
         for (PacketHandlerScanner.ReceiveRegistration registration : registrations) {
-            PacketReceiveHandler<Object> handler = (event, player, packet) -> {
-                if (shouldDispatch(listener)) {
-                    registration.handler().handle(event, player, packet);
-                }
-            };
             packetRegistrations.receive.receiveRoute(
-                    registration.packetType(), PacketListenerPriority.NORMAL, handler, ReceiveStage.EARLY);
+                    registration.packetType(),
+                    PacketListenerPriority.NORMAL,
+                    registration.handler(),
+                    ReceiveStage.EARLY);
         }
     }
 
@@ -799,7 +833,8 @@ public class CheckManager {
         }
         registeredListeners.add(listener);
 
-        List<PacketHandlerScanner.ReceiveRegistration> registrations = recordScanner.receiveHandlers(listener);
+        List<PacketHandlerScanner.ReceiveRegistration> registrations =
+                recordScanner.receiveHandlers(listener, dispatchGate(listener));
         if (registrations.isEmpty()) {
             if (!recordScanner.hasReceiveHandlerDeclaration(listener.getClass())) {
                 throw new IllegalStateException("No receive @CultPacketHandler methods on "
@@ -808,13 +843,11 @@ public class CheckManager {
             return;
         }
         for (PacketHandlerScanner.ReceiveRegistration registration : registrations) {
-            PacketReceiveHandler<Object> handler = (event, player, packet) -> {
-                if (shouldDispatch(listener)) {
-                    registration.handler().handle(event, player, packet);
-                }
-            };
             handlers.receiveRoute(
-                    registration.packetType(), PacketListenerPriority.NORMAL, handler, ReceiveStage.ORDINARY);
+                    registration.packetType(),
+                    PacketListenerPriority.NORMAL,
+                    registration.handler(),
+                    ReceiveStage.ORDINARY);
         }
     }
 
@@ -828,7 +861,8 @@ public class CheckManager {
         }
         registeredListeners.add(listener);
 
-        List<PacketHandlerScanner.SendRegistration> registrations = recordScanner.sendHandlers(listener);
+        List<PacketHandlerScanner.SendRegistration> registrations =
+                recordScanner.sendHandlers(listener, dispatchGate(listener));
         if (registrations.isEmpty()) {
             if (!recordScanner.hasSendHandlerDeclaration(listener.getClass())) {
                 throw new IllegalStateException("No send @CultPacketHandler methods on "
@@ -837,12 +871,7 @@ public class CheckManager {
             return;
         }
         for (PacketHandlerScanner.SendRegistration registration : registrations) {
-            PacketSendHandler<Object> handler = (event, player, packet) -> {
-                if (shouldDispatch(listener)) {
-                    registration.handler().handle(event, player, packet);
-                }
-            };
-            handlers.sendRoute(registration.packetType(), PacketListenerPriority.NORMAL, handler);
+            handlers.sendRoute(registration.packetType(), PacketListenerPriority.NORMAL, registration.handler());
         }
     }
 
@@ -899,9 +928,9 @@ public class CheckManager {
         }
     };
 
-    private static Class<?> callbackOwner(Class<?> type, String name, Class<?> parameter) {
+    private static Class<?> callbackOwner(Class<?> type, String name, Class<?>... parameters) {
         try {
-            return type.getMethod(name, parameter).getDeclaringClass();
+            return type.getMethod(name, parameters).getDeclaringClass();
         } catch (NoSuchMethodException exception) {
             throw new IllegalStateException(exception);
         }
@@ -915,6 +944,21 @@ public class CheckManager {
         return shouldRegister(listener);
     }
 
+    /** {@link #shouldDispatch} of {@code listener} as a route gate; null where it is true whatever the player. */
+    private BooleanSupplier dispatchGate(CheckListener listener) {
+        if (!(listener instanceof Check check) || ALWAYS_BEDROCK_SUPPORTED.get(check.getClass())) return null;
+        return () -> shouldDispatch(listener);
+    }
+
+    /** Check's own {@code isBedrockSupported} reads only the class annotation, which a defined class keeps. */
+    private static final ClassValue<Boolean> ALWAYS_BEDROCK_SUPPORTED = new ClassValue<>() {
+        @Override
+        protected Boolean computeValue(Class<?> type) {
+            return callbackOwner(type, "isBedrockSupported") == Check.class
+                    && type.isAnnotationPresent(BedrockSupported.class);
+        }
+    };
+
     public void reload() {
         for (CheckListener value : allCheckListeners.values()) {
             if (value instanceof CultProcessor) {
@@ -922,6 +966,19 @@ public class CheckManager {
                 processor.reload();
             }
         }
+    }
+
+    /**
+     * A Bedrock client tick's end, when the Geyser bridge has handled its PlayerAuthInput. As at a Java tick end, the
+     * reach checks first measure the attacks sent since the last one, then the block uses the client's tick made are
+     * judged from the path through this tick, then remote actors take their lerp step.
+     */
+    public void endBedrockClientTick() {
+        player.packetStateData.localPlayerTickedSinceSpawn = true;
+        getListener(BedrockPlayerReach.class).endClientTick();
+        getListener(BedrockEntityReach.class).endClientTick();
+        getListener(BedrockPlaceVisibility.class).endClientTick();
+        getListener(PacketEntityReplication.class).tickBedrockClient();
     }
 
     @SuppressWarnings("unchecked")
@@ -1153,6 +1210,41 @@ public class CheckManager {
     /** {@code getListener(SetbackBlocker.class)}, read on every Java movement packet. */
     public SetbackBlocker getSetbackBlocker() {
         return setbackBlocker;
+    }
+
+    /** {@code getListener(NoSlow.class)}, read on every Java tick end and prediction. */
+    public NoSlow getNoSlow() {
+        return noSlow;
+    }
+
+    /** {@code getListener(JavaAutoJump.class)}, read on every Java tick end. */
+    public JavaAutoJump getJavaAutoJump() {
+        return javaAutoJump;
+    }
+
+    /** {@code getListener(NoFallPseudo.class)}, read on every prediction. */
+    public NoFallPseudo getNoFallPseudo() {
+        return noFallPseudo;
+    }
+
+    /** {@code getListener(InvalidStep.class)}. */
+    public InvalidStep getInvalidStep() {
+        return invalidStep;
+    }
+
+    /** {@code getListener(VerticalOffset.class)}. */
+    public VerticalOffset getVerticalOffset() {
+        return verticalOffset;
+    }
+
+    /** {@code getCheck(Speed.class)} as construction left it, read on every prediction. */
+    public Speed getSpeed() {
+        return speed;
+    }
+
+    /** {@code getCheck(Strafe.class)} as construction left it, read on every prediction. */
+    public Strafe getStrafe() {
+        return strafe;
     }
 
     private ExplosionHandler explosionHandlerCache;

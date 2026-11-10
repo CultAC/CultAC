@@ -9,8 +9,6 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InputKeys;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoSneakSlow;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.OmniSprint;
-import ac.cult.cultac.checks.impl.prediction.checks.psuedo.Speed;
-import ac.cult.cultac.checks.impl.prediction.checks.psuedo.Strafe;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -36,6 +34,8 @@ public class HorizontalAnalyzer implements EngineCheck {
     public static final double HORIZONTAL_INPUT_UNCERTAINTY = 0.001D;
     // Read only within one handleResult call on the owning player's thread; never stored.
     private final SimpleCollisionBox crawlBox = new SimpleCollisionBox();
+    private final double[] theoreticalInput = new double[2];
+    private final ReportedKeyInput.Scratch keyInputScratch = new ReportedKeyInput.Scratch();
 
     public void handleResult(CultPlayer player, PredictionResult result, PredictionResult lastResult) {
         if (result.getProfileResult(BedrockPredictionResult.class) != null) {
@@ -62,23 +62,28 @@ public class HorizontalAnalyzer implements EngineCheck {
         double horizDiffX = target.x - closestForSpeed.x;
         double horizDiffZ = target.z - closestForSpeed.z;
 
-        Vec3 minimumInputRequired = getBestTheoreticalPlayerInput(
+        getBestTheoreticalPlayerInput(
+                theoreticalInput,
                 horizDiffX,
                 horizDiffZ,
                 result.getSimulationContext().getXRot(),
                 result.getSimulationContext().getVersion()); // player inputs
+        double minimumInputX = theoreticalInput[0];
+        double minimumInputZ = theoreticalInput[1];
 
         // Entity#getInputVector scales the input by the speed, so it moves nothing at speed 0
-        double inputScaledToSpeed = playerSpeed > 0 ? minimumInputRequired.length() / playerSpeed : 0;
+        // Vec3#length of the input, whose y is 0.
+        double inputScaledToSpeed = playerSpeed > 0
+                ? Math.sqrt(minimumInputX * minimumInputX + 0.0D * 0.0D + minimumInputZ * minimumInputZ) / playerSpeed
+                : 0;
 
         // To account for collisions, we need to figure out which way the player was moving to hit the collision
         // If a player was moving in positive X by 2.0 blocks/tick, and hit a block at 1.0 blocks away, they are fine.
-        double absInputX = Math.abs(minimumInputRequired.x);
-        double absInputZ = Math.abs(minimumInputRequired.z);
+        double absInputX = Math.abs(minimumInputX);
+        double absInputZ = Math.abs(minimumInputZ);
 
         boolean wasOnGround = result.getSimulationContext().getLastOnGround().determineOptimistically();
-        Class<? extends Check> pseudoCheck = wasOnGround ? Speed.class : Strafe.class;
-        final Check speedOrStrafe = player.checkManager.getCheck(pseudoCheck);
+        final Check speedOrStrafe = wasOnGround ? player.checkManager.getSpeed() : player.checkManager.getStrafe();
 
         // A player cannot move more than 0.98 "input" in a single direction
         // A player cannot move more than a total of 1 "input" in a single tick
@@ -92,12 +97,12 @@ public class HorizontalAnalyzer implements EngineCheck {
         if (speedFlagAmount > 0.0D) {
             result.addFlag(
                     speedOrStrafe,
-                    () -> NumFormatter.formatNumberStandard(minimumInputRequired.x) + " "
-                            + NumFormatter.formatNumberStandard(minimumInputRequired.z),
+                    () -> NumFormatter.formatNumberStandard(minimumInputX) + " "
+                            + NumFormatter.formatNumberStandard(minimumInputZ),
                     speedFlagAmount);
         }
 
-        double keysOffset = ReportedKeyInput.offset(player, result, lastResult);
+        double keysOffset = ReportedKeyInput.offset(player, result, lastResult, keyInputScratch);
         if (keysOffset > HORIZONTAL_INPUT_UNCERTAINTY) {
             KnownInput keys = player.packetStateData.knownInput;
             result.addFlag(
@@ -170,8 +175,8 @@ public class HorizontalAnalyzer implements EngineCheck {
             if (speedFlagAmount > 0.001) {
                 result.addFlag(
                         player.checkManager.getListener(NoSneakSlow.class),
-                        () -> NumFormatter.formatNumberStandard(minimumInputRequired.x) + " "
-                                + NumFormatter.formatNumberStandard(minimumInputRequired.z),
+                        () -> NumFormatter.formatNumberStandard(minimumInputX) + " "
+                                + NumFormatter.formatNumberStandard(minimumInputZ),
                         speedFlagAmount);
             }
         }
@@ -216,8 +221,8 @@ public class HorizontalAnalyzer implements EngineCheck {
         if (result.getValidMovements()
                 .getCollisionIgnoredMaxStartingVelExtents()
                 .isHorizEmpty()) {
-            double absX = Math.abs(minimumInputRequired.x);
-            double absZ = Math.abs(minimumInputRequired.z);
+            double absX = Math.abs(minimumInputX);
+            double absZ = Math.abs(minimumInputZ);
 
             double distToValid = Math.min(Math.min(Math.abs(absX - absZ), absX), absZ);
             if (distToValid > 0.01) { // More lenient than it must be.
@@ -658,6 +663,48 @@ public class HorizontalAnalyzer implements EngineCheck {
         return correct ? new Vec3(correctX, 0, correctZ) : new Vec3(shitX, 0, shitZ);
     }
 
+    /**
+     * {@link #getBestTheoreticalPlayerInput(double, double, float, ClientVersion)}'s x and z written into {@code out[0]}
+     * and {@code out[1]}.
+     */
+    static void getBestTheoreticalPlayerInput(
+            double[] out, double wantedX, double wantedZ, float f2, ClientVersion version) {
+        float radians = f2 * 0.017453292f;
+        float correctSin = VanillaMath.sin(version, radians);
+        float correctCos = VanillaMath.cos(version, radians);
+        float shitSin = OptifineFastMath.sin(radians);
+        float shitCos = OptifineFastMath.cos(radians);
+        double correctScale = rotationScale(correctSin, correctCos);
+        double shitScale = rotationScale(shitSin, shitCos);
+
+        if (correctScale == 0 || shitScale == 0) {
+            if (correctScale != 0) {
+                invertInputRotation(out, wantedX, wantedZ, correctSin, correctCos, correctScale);
+            } else if (shitScale != 0) {
+                invertInputRotation(out, wantedX, wantedZ, shitSin, shitCos, shitScale);
+            } else {
+                unreachableInput(out, wantedX, wantedZ);
+            }
+            return;
+        }
+
+        double correctX = inputX(wantedX, wantedZ, correctSin, correctCos, correctScale);
+        double correctZ = inputZ(wantedX, wantedZ, correctSin, correctCos, correctScale);
+        double shitX = inputX(wantedX, wantedZ, shitSin, shitCos, shitScale);
+        double shitZ = inputZ(wantedX, wantedZ, shitSin, shitCos, shitScale);
+
+        double correctLength = correctX * correctX + correctZ * correctZ;
+        double shitLength = shitX * shitX + shitZ * shitZ;
+        boolean correct;
+        if (Math.abs(correctLength - shitLength) > 1.0E-3 * Math.max(correctLength, shitLength)) {
+            correct = correctLength < shitLength;
+        } else {
+            correct = distanceToValidInput(correctX, correctZ) < distanceToValidInput(shitX, shitZ);
+        }
+        out[0] = correct ? correctX : shitX;
+        out[1] = correct ? correctZ : shitZ;
+    }
+
     // Entity#getInputVector rotates input by [[cos, -sin], [sin, cos]], a rotation scaled by sin^2 + cos^2.
     // The trig tables only keep that scale at 1 for sane yaws; huge yaws saturate the table index and shrink it
     // towards 0, so dividing it back out is required for the leftover movement to map to the input that caused it.
@@ -669,6 +716,12 @@ public class HorizontalAnalyzer implements EngineCheck {
     private static Vec3 invertInputRotation(double movementX, double movementZ, float sin, float cos, double scale) {
         return new Vec3(
                 inputX(movementX, movementZ, sin, cos, scale), 0, inputZ(movementX, movementZ, sin, cos, scale));
+    }
+
+    private static void invertInputRotation(
+            double[] out, double movementX, double movementZ, float sin, float cos, double scale) {
+        out[0] = inputX(movementX, movementZ, sin, cos, scale);
+        out[1] = inputZ(movementX, movementZ, sin, cos, scale);
     }
 
     private static double inputX(double movementX, double movementZ, float sin, float cos, double scale) {
@@ -684,6 +737,12 @@ public class HorizontalAnalyzer implements EngineCheck {
         if (length == 0) return Vec3.ZERO;
         // Finite so the flag severity stays usable by setbacks
         return new Vec3(movementX / length * Float.MAX_VALUE, 0, movementZ / length * Float.MAX_VALUE);
+    }
+
+    private static void unreachableInput(double[] out, double movementX, double movementZ) {
+        double length = Math.sqrt(movementX * movementX + movementZ * movementZ);
+        out[0] = length == 0 ? Vec3.ZERO.x : movementX / length * Float.MAX_VALUE;
+        out[1] = length == 0 ? Vec3.ZERO.z : movementZ / length * Float.MAX_VALUE;
     }
 
     private static double distanceToValidInput(double inputX, double inputZ) {

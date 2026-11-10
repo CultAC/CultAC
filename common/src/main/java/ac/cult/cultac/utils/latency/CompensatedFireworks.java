@@ -108,7 +108,7 @@ public class CompensatedFireworks extends CultProcessor implements PostPredictio
         }
 
         int received = player.lastTransactionReceived.get();
-        rockets.values().removeIf(rocket -> received >= rocket.removedAt);
+        if (!rockets.isEmpty()) rockets.values().removeIf(rocket -> received >= rocket.removedAt);
 
         SimulationContext context = predictionComplete.getPredictionResult().getSimulationContext();
         boolean fallFlying = context != null && context.isGliding() && !context.stopsFallFlyingAfterTravel();
@@ -248,10 +248,10 @@ public class CompensatedFireworks extends CultProcessor implements PostPredictio
     }
 
     /**
-     * A remove_entities for {@code entityIDs}, which the client has applied once it answers {@code provenAt}. It
-     * runs once the client may have applied it.
+     * A remove_entities for {@code entityIDs}, which the client has applied: it answered {@code provenAt}, the
+     * proof of the remove_entities.
      */
-    public void removalSent(List<Integer> entityIDs, int provenAt) {
+    public void removalHandled(List<Integer> entityIDs, int provenAt) {
         for (int entityID : entityIDs) {
             Rocket rocket = rockets.get(entityID);
             if (rocket != null && rocket.removedAt == NONE) rocket.removedAt = provenAt;

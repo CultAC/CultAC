@@ -15,17 +15,22 @@ import ac.cult.cultac.checks.impl.prediction.OffsetHandler;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InputKeys;
 import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
+import ac.cult.cultac.events.packets.PacketChangeGameState;
 import ac.cult.cultac.events.packets.listeners.PacketSelfMetadataListener;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.platform.api.world.PlatformWorld;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketType;
+import ac.cult.cultac.protocol.packet.ClientboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundGameEvent;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.AttributeModifier;
 import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.GameEventType;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -38,7 +43,9 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 /**
  * LocalPlayer#sendChanges sends the keys KeyboardInput#tick read before the tick's position, and on the ground they add
@@ -58,6 +65,8 @@ class InputKeysTest {
             new ServerboundPlayerInput(false, true, false, false, false, true, false);
     private static final ServerboundPlayerInput SPRINT_FORWARD =
             new ServerboundPlayerInput(true, false, false, false, false, false, true);
+    private static final ServerboundPlayerInput SPRINT_FORWARD_JUMP =
+            new ServerboundPlayerInput(true, false, false, false, true, false, true);
     private static final Vec3 GROUNDED = new Vec3(0, -0.0784000015258789, 0);
     // JavaTickFixture's floor ends at z = -8; a box centred here overhangs it by 0.299.
     private static final double EDGE_Z = -8.299;
@@ -194,6 +203,61 @@ class InputKeysTest {
             assertTrue(f.player.compensatedEntities.getSelf().actionAlive);
             assertTrue(f.tick(position, true).hasFlag(InputKeys.class), "living keys must move the player again");
         }
+    }
+
+    /**
+     * Player#tick clears a spectator's onGround every tick, and LocalPlayer#sendPosition sends nothing while another
+     * entity is the camera, so the first travel after the respawn teleport out of spectator adds the keys in the air.
+     * Bundle 01a1b37b: grounded at seq 2901, spectator 2900-3060, teleport 35 accepted and moved at 3062.
+     */
+    @Test
+    void theFirstMoveAfterSpectatingTravelsInTheAir() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            Vec3 respawn = respawnAfterSpectating(f);
+            Vec3 recorded = new Vec3(-0.012369420508548501, 0, -0.022276171646808507);
+            PredictionResult moved = f.tick(respawn.add(recorded), false);
+            assertExact(moved);
+        }
+    }
+
+    @Test
+    void groundSpeedOnTheFirstMoveAfterSpectatingIsFlagged() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            Vec3 respawn = respawnAfterSpectating(f);
+            Vec3 ground = ClientMoveInput.of(f, SPRINT_FORWARD_JUMP, 1.0F, SPRINTING_SPEED, f.player.xRot);
+            PredictionResult moved = f.tick(respawn.add(ground.x, 0, ground.z), false);
+            assertFalse(exact(moved), describe(moved));
+            assertTrue(moved.hasEffectiveFlags(), describe(moved));
+        }
+    }
+
+    private static Vec3 respawnAfterSpectating(JavaTickFixture f) {
+        Mockito.when(f.fixture.user.getPlayer().getWorld()).thenReturn(Mockito.mock(PlatformWorld.class));
+        Vec3 position = new Vec3(.5, FLOOR_Y, .5);
+        f.place(position, GROUNDED);
+        f.input(NONE);
+        assertExact(f.tick(position, true));
+        gameMode(f, 3);
+        for (int tick = 0; tick < 160; tick++) f.tickEnd();
+        f.input(SPRINT_FORWARD);
+        f.command(PlayerCommandAction.START_SPRINTING);
+        f.tickEnd();
+        gameMode(f, 0);
+        f.input(SPRINT_FORWARD_JUMP);
+        Vec3 respawn = new Vec3(0.062556976562, FLOOR_Y, 0.69858804031);
+        f.playerPosition(respawn, Vec3.ZERO, Set.of());
+        f.player.xRot = 150.96312F;
+        return respawn;
+    }
+
+    /** A CHANGE_GAME_MODE game event, answered through its ping. */
+    private static void gameMode(JavaTickFixture f, int mode) {
+        var packet = new ClientboundGameEvent(GameEventType.CHANGE_GAME_MODE, mode);
+        var event = new PacketSendEvent<>(
+                f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.GAME_EVENT, packet, false);
+        f.player.checkManager.getListener(PacketChangeGameState.class).onGameEvent(event, f.player, packet);
+        event.getTasksAfterSend().forEach(Runnable::run);
+        f.pongThrough(f.player.lastTransactionSent.get());
     }
 
     private static int metadataHealth(JavaTickFixture f, float health) {
@@ -917,8 +981,7 @@ class InputKeysTest {
      * answered and so may be at either position. A shulker over the head overlaps both the crouching and the standing
      * box, so in no world does LocalPlayer#aiStep crouch the player.
      */
-    private static double moveOnceWithoutShiftBesideAShulker(
-            JavaTickFixture f, Vec3 at, boolean moving, double accel) {
+    private static double moveOnceWithoutShiftBesideAShulker(JavaTickFixture f, Vec3 at, boolean moving, double accel) {
         f.place(new Vec3(0.5, FLOOR_Y, -2.5), GROUNDED);
         f.player.xRot = 0;
         f.input(NONE);
@@ -929,7 +992,7 @@ class InputKeysTest {
             f.player
                     .compensatedEntities
                     .getEntity(100)
-                    .onFirstTransaction(true, true, SHULKER_OVER_THE_HEAD.x - at.x, 0, 0, f.player);
+                    .onBundleFirstTransaction(true, true, SHULKER_OVER_THE_HEAD.x - at.x, 0, 0, f.player);
         }
         f.input(FORWARD);
         f.tick(new Vec3(0.5, FLOOR_Y, -2.5 + accel), true);

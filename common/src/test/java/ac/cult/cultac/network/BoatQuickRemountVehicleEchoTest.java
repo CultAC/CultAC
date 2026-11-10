@@ -8,6 +8,7 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsVehicle;
 import ac.cult.cultac.checks.impl.prediction.OffsetHandler;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.VehicleOffset;
+import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.platform.api.world.PlatformWorld;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
@@ -61,7 +62,7 @@ class BoatQuickRemountVehicleEchoTest {
             assertTrue(f.player.inVehicle());
 
             var paddle = new ServerboundPaddleBoat(false, false);
-            f.listener.onPaddleBoat(f.event(ServerboundPackets.PADDLE_BOAT, paddle), f.player, paddle);
+            CheckManagerListener.receiveGeneric(f.event(ServerboundPackets.PADDLE_BOAT, paddle), f.player);
             var rot = new ServerboundMovePlayer(0, 0, 0, BOAT_YAW, 24.087463F, false, false, false, true);
             f.listener.onMovePlayer(f.event(ServerboundPackets.MOVE_PLAYER, rot), f.player, rot);
             f.moveVehicle(BOAT_AT, BOAT_YAW, 0, true);

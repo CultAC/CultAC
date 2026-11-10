@@ -5,6 +5,7 @@ import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -74,6 +75,28 @@ class ZeroTickDismountGroundTest {
             assertEquals(candidates, field(f.player.checkManager.getSimulationProcessor(), "validPlayerStartingVels"));
             assertSame(carry, field(f.player.checkManager.getSimulationProcessor(), "profileCarry"));
             assertFalse(f.player.checkManager.getSimulationProcessor().hasRideTick());
+        }
+    }
+
+    /**
+     * Entity#ejectPassengers and Entity#setRemoved both only call Entity#stopRiding: after a ride tick, whose Player#tick
+     * cleared ground, either way off the vehicle leaves the player on that tick's seat with ground still cleared.
+     */
+    @ParameterizedTest
+    @MethodSource("endings")
+    void aRideTickLeavesThePlayerOnItsSeatWithoutGround(ClientVersion version, boolean removeVehicle) throws Exception {
+        try (var f = new JavaTickFixture();
+                var ignored = observeOnly(true)) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
+            f.place(START, Vec3.ZERO);
+            mount(f, VEHICLE);
+            f.rideTick();
+            Vec3 seat = f.player.compensatedEntities.lastRideTickSeat();
+            assertNotNull(seat);
+            dismount(f, VEHICLE, removeVehicle);
+            assertFalse(f.player.onGround);
+            assertEquals(DesyncStatus.FALSE, field(f.player.checkManager.getSimulationProcessor(), "lastOnGround"));
+            assertEquals(seat, new Vec3(f.player.x, f.player.y, f.player.z));
         }
     }
 
@@ -152,21 +175,6 @@ class ZeroTickDismountGroundTest {
             assertTrue(f.player.checkManager.getSimulationProcessor().hasRideTick());
             dismount(f, VEHICLE, false);
             assertFalse(f.player.onGround);
-        }
-    }
-
-    @Test
-    void aClientWithoutTickEndKeepsTheExistingDismountModel() throws Exception {
-        try (var f = new JavaTickFixture();
-                var ignored = observeOnly(true)) {
-            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_1_21);
-            Vec3 velocity = new Vec3(0.07, -0.0784, 0.09);
-            f.place(START, velocity);
-            f.player.compensatedEntities.getSelf().deltaMovement = velocity;
-            mount(f, VEHICLE);
-            dismount(f, VEHICLE, false);
-            assertFalse(f.player.onGround);
-            assertEquals(Vec3.ZERO, f.player.compensatedEntities.getSelf().deltaMovement);
         }
     }
 

@@ -93,7 +93,7 @@ final class VelocityWorld implements PlatformWorld {
 
     @Override
     public boolean isChunkLoaded(int x, int z) {
-        return isLoaded() && player.observed().compensatedWorld.isChunkLoaded(x, z);
+        return isLoaded() && player.observed().compensatedWorld.peekChunkLoaded(x, z);
     }
 
     @Override
@@ -101,6 +101,6 @@ final class VelocityWorld implements PlatformWorld {
         if (!isLoaded()) {
             throw new IllegalStateException("Client world is unavailable");
         }
-        return player.observed().compensatedWorld.getBlockStateIdAt(x, y, z);
+        return player.observed().compensatedWorld.peekBlockStateIdAt(x, y, z);
     }
 }

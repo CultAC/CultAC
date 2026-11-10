@@ -7,6 +7,7 @@ import ac.cult.cultac.checks.impl.visibility.AttackMobVisibility;
 import ac.cult.cultac.checks.impl.visibility.InteractEntityVisibility;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketPingListener;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.world.PlatformWorld;
@@ -83,7 +84,7 @@ class ResizedInteractionVisibilityTest {
             attackCheck.setEnabled(true);
             player.gamemode = GameMode.SURVIVAL;
             // Loaded and ticked since the teleport, as the clicks in the report are.
-            player.getSetbackTeleportUtil().hasFullyLoaded = true;
+            SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
             player.packetStateData.localPlayerTickedSinceSpawn = true;
             // /tp @s 0.5 -60 0.5 -90 0 onto a superflat floor.
             player.x = .5;

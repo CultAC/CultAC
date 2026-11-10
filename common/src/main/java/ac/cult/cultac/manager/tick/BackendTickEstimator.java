@@ -81,6 +81,11 @@ public final class BackendTickEstimator implements AutoCloseable {
     private AutoCloseable timer;
     private long timerDeadline;
     private boolean closed;
+    private final Runnable onTimer = this::onTimer;
+    private final Runnable onFrozenTimer = () -> {
+        timer = null;
+        if (mode == Mode.TIMER) scheduleTimer(timerDeadline);
+    };
 
     public BackendTickEstimator(Runnable tickEnd, Scheduler scheduler, TickPeriod period) {
         this(tickEnd, scheduler, period, () -> {});
@@ -222,19 +227,14 @@ public final class BackendTickEstimator implements AutoCloseable {
             // Frozen: no ticks run. Re-check after a nominal tick.
             if (!closed) {
                 timerDeadline = now + 50_000_000L;
-                timer = scheduler.schedule(
-                        () -> {
-                            timer = null;
-                            if (mode == Mode.TIMER) scheduleTimer(timerDeadline);
-                        },
-                        50_000_000L);
+                timer = scheduler.schedule(onFrozenTimer, 50_000_000L);
             }
             return;
         }
         long phase = phase(tick);
         long next = now - Math.floorMod(now - phase, tick) + tick;
         timerDeadline = next;
-        timer = scheduler.schedule(this::onTimer, Math.max(0, next - now));
+        timer = scheduler.schedule(onTimer, Math.max(0, next - now));
     }
 
     private void cancelTimer() {

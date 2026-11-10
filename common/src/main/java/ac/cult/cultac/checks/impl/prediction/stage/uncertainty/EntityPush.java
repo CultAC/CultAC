@@ -45,6 +45,41 @@ public class EntityPush implements UncertaintyHandler {
         return handleEntityPush(pushed, end, world.getNumPushing() - carried);
     }
 
+    @Override
+    public void positionInto(
+            double[] xyz,
+            CultPlayer player,
+            ValidMovements valid,
+            PredictionResult result,
+            SimulationContext context,
+            PredictionResult lastContext,
+            PredVector carrier,
+            Vec3 end) {
+        WorldData world = context.getWorldData();
+        SimpleCollisionBox loading = world.getLoadingLevelPushes();
+        if (loading != null) {
+            double x = CultMath.clamp(end.x, xyz[0] + loading.minX, xyz[0] + loading.maxX);
+            double z = CultMath.clamp(end.z, xyz[2] + loading.minZ, xyz[2] + loading.maxZ);
+            xyz[0] = x;
+            xyz[2] = z;
+        }
+        int carried = world.getNumCarriedPushing();
+        CarriedPush carriedPush = world.getCarriedPush();
+        if (carried == 0 || carriedPush.isIdentity() && !carrier.isEntityMotion()) {
+            UncertaintyHelper.circularInto(xyz, end, maxHorizontalImpulse(world.getNumPushing()));
+            return;
+        }
+        if (!carrier.isEntityMotion()) {
+            // CarriedPush#push reads only the start's coordinates.
+            PredVector pushed = carriedPush.push(
+                    carrier.withXYZ(xyz[0], xyz[1], xyz[2], "carried push start"), end, maxHorizontalImpulse(carried));
+            xyz[0] = pushed.x;
+            xyz[1] = pushed.y;
+            xyz[2] = pushed.z;
+        }
+        UncertaintyHelper.circularInto(xyz, end, maxHorizontalImpulse(world.getNumPushing() - carried));
+    }
+
     /**
      * Adds to {@code pushes} the x/z range of Entity#push's impulse on an entity from a pusher whose centre is
      * {@code minDx..maxDx}, {@code minDz..maxDz} from its own. The range includes no push: EntitySelector#pushableBy's

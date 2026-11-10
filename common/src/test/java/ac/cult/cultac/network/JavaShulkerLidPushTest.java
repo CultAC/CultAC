@@ -800,7 +800,10 @@ class JavaShulkerLidPushTest {
     /** A server player_position to {@code location} under {@code flags}, accepted at {@code accepted}. */
     private static void serverTeleport(JavaTickFixture f, Vec3 location, RelativeFlag flags, Vec3 accepted) {
         int transaction = f.player.sendTrailingTransaction();
-        f.player.getSetbackTeleportUtil().addSentTeleport(location, transaction, flags, true, SERVER_TELEPORT);
+        f.player
+                .getSetbackTeleportUtil()
+                .javaTeleports()
+                .addSentTeleport(location, transaction, flags, true, SERVER_TELEPORT);
         f.pongThrough(transaction);
         var packet = new ServerboundAcceptTeleportation(
                 SERVER_TELEPORT, new Vec3d(accepted.x, accepted.y, accepted.z), 0, 0);

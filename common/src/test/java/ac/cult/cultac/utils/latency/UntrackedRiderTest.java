@@ -285,7 +285,6 @@ class UntrackedRiderTest {
 
     private static void step(CultPlayer player, int tick, int mover) {
         var replication = player.packetEntityReplication;
-        replication.tickStartTick();
         PacketSendEvent<?> event = move(player, mover, 4096, 0);
         event.getTasksAfterSend().forEach(Runnable::run);
         ((EmbeddedChannel) player.user.getChannel()).runPendingTasks();

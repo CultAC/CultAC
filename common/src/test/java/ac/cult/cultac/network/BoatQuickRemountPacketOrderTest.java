@@ -13,6 +13,7 @@ import ac.cult.cultac.checks.impl.packetorder.PacketOrderF;
 import ac.cult.cultac.checks.impl.packetorder.PacketOrderH;
 import ac.cult.cultac.checks.impl.prediction.OffsetHandler;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoSneakSlow;
+import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -101,7 +102,7 @@ class BoatQuickRemountPacketOrderTest {
             assertTrue(f.player.inVehicle());
 
             var paddle = new ServerboundPaddleBoat(false, false);
-            f.listener.onPaddleBoat(f.event(ServerboundPackets.PADDLE_BOAT, paddle), f.player, paddle);
+            CheckManagerListener.receiveGeneric(f.event(ServerboundPackets.PADDLE_BOAT, paddle), f.player);
             f.input(new ServerboundPlayerInput(false, false, false, false, false, false, true));
             var rot = new ServerboundMovePlayer(0, 0, 0, 85.59438F, 39.600975F, false, false, false, true);
             f.listener.onMovePlayer(f.event(ServerboundPackets.MOVE_PLAYER, rot), f.player, rot);
@@ -192,9 +193,9 @@ class BoatQuickRemountPacketOrderTest {
 
     private static void interact(JavaTickFixture f, Hand hand, Vec3d target, boolean sneaking) {
         var at = new ServerboundInteract(BOAT, InteractAction.INTERACT_AT, hand, Optional.of(target), sneaking);
-        f.listener.onInteract(f.event(ServerboundPackets.INTERACT, at), f.player, at);
+        CheckManagerListener.receiveGeneric(f.event(ServerboundPackets.INTERACT, at), f.player);
         var interact = new ServerboundInteract(BOAT, InteractAction.INTERACT, hand, Optional.empty(), sneaking);
-        f.listener.onInteract(f.event(ServerboundPackets.INTERACT, interact), f.player, interact);
+        CheckManagerListener.receiveGeneric(f.event(ServerboundPackets.INTERACT, interact), f.player);
     }
 
     private static void command(JavaTickFixture f, PlayerCommandAction action) {

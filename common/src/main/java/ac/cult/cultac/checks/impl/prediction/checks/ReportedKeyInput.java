@@ -34,19 +34,36 @@ public final class ReportedKeyInput {
 
     private ReportedKeyInput() {}
 
+    /** Working space of one owner's {@link #offset} calls, which run on its thread one at a time. */
+    static final class Scratch {
+        private float[] speeds = new float[4];
+        private final float[] slows = new float[2];
+        private final float[] itemUses = new float[3];
+        private double[] inputs = new double[24];
+        private final SimpleCollisionBox standing = new SimpleCollisionBox();
+        private final SimpleCollisionBox pose = new SimpleCollisionBox();
+        private final SimpleCollisionBox firstRest = new SimpleCollisionBox();
+        private final SimpleCollisionBox secondRest = new SimpleCollisionBox();
+        private final SimpleCollisionBox entityBox = new SimpleCollisionBox();
+        private final SimpleCollisionBox entityScratch = new SimpleCollisionBox();
+        private final List<SimpleCollisionBox> unknown = new ArrayList<>();
+    }
+
     /**
      * The horizontal distance between the client's movement and the nearest movement the reported keys produce from
      * this candidate's starting velocity and uncertainties, or 0 when the tick's state does not decide that input.
      */
-    static double offset(CultPlayer player, PredictionResult result, PredictionResult lastResult) {
+    static double offset(CultPlayer player, PredictionResult result, PredictionResult lastResult, Scratch scratch) {
         if (!appliesTo(player, result, lastResult)) return 0.0D;
-        List<Vec3> inputs = travelInputs(player, result, groundSpeeds(player, result));
-        if (inputs == null) return 0.0D;
+        int speeds = groundSpeeds(player, result, scratch);
+        int inputs = travelInputs(player, result, speeds, scratch);
+        if (inputs < 0) return 0.0D;
         SimpleCollisionBox extents = result.getValidMovements().getCollisionIgnoredMaxStartingVelExtents();
         if (extents == null) return 0.0D;
         double best = Double.MAX_VALUE;
-        for (Vec3 input : inputs) {
-            best = Math.min(best, offset(player, result, extents, input));
+        for (int i = 0; i < inputs; i++) {
+            best = Math.min(
+                    best, offset(player, result, extents, scratch.inputs[2 * i], scratch.inputs[2 * i + 1], scratch));
             if (best == 0.0D) return 0.0D;
         }
         return best;
@@ -80,6 +97,23 @@ public final class ReportedKeyInput {
         return speeds;
     }
 
+    /** {@link #groundSpeeds(CultPlayer, PredictionResult)} written into {@code scratch.speeds}; returns their count. */
+    private static int groundSpeeds(CultPlayer player, PredictionResult result, Scratch scratch) {
+        SimulationContext context = result.getSimulationContext();
+        float walk = context.getMoveRelativeSpeed(player, true, false, false);
+        int sprints = 0;
+        float[] sprint = null;
+        if (context.isSprintModifier() && !stopsRunSprinting(player, context)) {
+            sprint = context.getGroundMoveRelativeSpeeds(
+                    player, context.getSprintOutcome(player, result.getInitialStartingVel()));
+            sprints = sprint.length;
+        }
+        if (scratch.speeds.length < sprints + 1) scratch.speeds = new float[sprints + 1];
+        scratch.speeds[0] = walk;
+        if (sprint != null) System.arraycopy(sprint, 0, scratch.speeds, 1, sprints);
+        return sprints + 1;
+    }
+
     /** Player#getFlyingSpeed out of creative flight for each sprint flag the client may hold during the travel. */
     private static float[] flyingSpeeds(CultPlayer player, SimulationContext context) {
         List<Boolean> sprinting = context.getIsSprinting().getStates();
@@ -97,13 +131,15 @@ public final class ReportedKeyInput {
         SimulationContext context = result.getSimulationContext();
         KnownInput keys = player.packetStateData.knownInput;
         ClientItemUseState.Snapshot use = context.getItemUse();
-        float[] slows = slows(player, context);
+        float[] slows = new float[2];
+        int slowCount = slows(player, context, slows);
         // LocalPlayer#modifyInput's item multiplier is the legal one, the required one of a use the client owes, or
         // that of a use it may have started: Minecraft#tick runs handleKeybinds, whose startUseItem precedes the
         // tick's LocalPlayer#aiStep, so a use slows the tick that sends its USE_ITEM.
         float[] itemUses = {use.legalMultiplier(), use.requiredMultiplier(), use.slowestMultiplier()};
-        List<Vec3> inputs = new ArrayList<>(slows.length * speeds.length * itemUses.length);
-        for (float slow : slows) {
+        List<Vec3> inputs = new ArrayList<>(slowCount * speeds.length * itemUses.length);
+        for (int l = 0; l < slowCount; l++) {
+            float slow = slows[l];
             for (int s = 0; s < speeds.length; s++) {
                 float speed = speeds[s];
                 // A repeated speed or multiplier gives the same input as its first occurrence.
@@ -121,25 +157,75 @@ public final class ReportedKeyInput {
     }
 
     /**
+     * {@link #travelInputs(CultPlayer, PredictionResult, float[])} for the first {@code speedCount} of
+     * {@code scratch.speeds}, each input's x and z written in order into {@code scratch.inputs}; returns their count,
+     * or -1 for null.
+     */
+    private static int travelInputs(CultPlayer player, PredictionResult result, int speedCount, Scratch scratch) {
+        SimulationContext context = result.getSimulationContext();
+        KnownInput keys = player.packetStateData.knownInput;
+        ClientItemUseState.Snapshot use = context.getItemUse();
+        float[] slows = scratch.slows;
+        int slowCount = slows(player, context, slows);
+        float[] speeds = scratch.speeds;
+        float[] itemUses = scratch.itemUses;
+        itemUses[0] = use.legalMultiplier();
+        itemUses[1] = use.requiredMultiplier();
+        itemUses[2] = use.slowestMultiplier();
+        // The loop below runs at least once, and ClientKeyInput's pose test is the same for every combination.
+        if (!ClientKeyInput.decidesTravelInput(player, context, scratch.standing)) return -1;
+        if (scratch.inputs.length < 2 * slowCount * speedCount * itemUses.length) {
+            scratch.inputs = new double[2 * slowCount * speedCount * itemUses.length];
+        }
+        int count = 0;
+        for (int l = 0; l < slowCount; l++) {
+            float slow = slows[l];
+            for (int s = 0; s < speedCount; s++) {
+                float speed = speeds[s];
+                if (repeats(speeds, s)) continue;
+                for (int u = 0; u < itemUses.length; u++) {
+                    float itemUse = itemUses[u];
+                    if (repeats(itemUses, u)) continue;
+                    ClientKeyInput.travelInput(scratch.inputs, 2 * count, player, context, keys, itemUse, slow, speed);
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    /**
      * LocalPlayer#modifyInput's slow multipliers: LocalPlayer#isMovingSlowly is LocalPlayer#isCrouching or
      * Entity#isVisuallyCrawling, which out of water is a SWIMMING pose or, through LivingEntity#isVisuallySwimming, a
      * FALL_FLYING pose without fall flying. LocalPlayer#aiStep sets crouching where the crouching pose fits blocks and
      * entities (Player#canPlayerFitWithinBlocksAndEntitiesWhen) and either the previous keys held shift or, for a
-     * player not sleeping, the standing pose does not fit. It returns one multiplier for each outcome the possible entity positions allow.
+     * player not sleeping, the standing pose does not fit. It writes one multiplier into {@code out} for each outcome
+     * the possible entity positions allow and returns their count.
      */
-    private static float[] slows(CultPlayer player, SimulationContext context) {
+    private static int slows(CultPlayer player, SimulationContext context, float[] out) {
         float sneaking = (float) player.compensatedEntities.getSelf().sneakingSpeed.value();
-        if (context.getPose() == Pose.SWIMMING || context.getPose() == Pose.FALL_FLYING) return new float[] {sneaking};
+        if (context.getPose() == Pose.SWIMMING || context.getPose() == Pose.FALL_FLYING) return slows(out, sneaking);
         Vec3 from = context.getStart();
         if (!player.mayPlayerFitWithinBlocksAndEntitiesWhen(Pose.CROUCHING, from.x, from.y, from.z)) {
-            return new float[] {1.0F};
+            return slows(out, 1.0F);
         }
         boolean crouchFits = player.canPlayerFitWithinBlocksAndEntitiesWhen(Pose.CROUCHING, from.x, from.y, from.z);
-        if (context.isLastSneaking()) return crouchFits ? new float[] {sneaking} : new float[] {sneaking, 1.0F};
-        if (player.isInBed || !player.mayFitOnlyCrouchingWhen(from.x, from.y, from.z)) return new float[] {1.0F};
+        if (context.isLastSneaking()) return crouchFits ? slows(out, sneaking) : slows(out, sneaking, 1.0F);
+        if (player.isInBed || !player.mayFitOnlyCrouchingWhen(from.x, from.y, from.z)) return slows(out, 1.0F);
         return crouchFits && !player.mayPlayerFitWithinBlocksAndEntitiesWhen(Pose.STANDING, from.x, from.y, from.z)
-                ? new float[] {sneaking}
-                : new float[] {sneaking, 1.0F};
+                ? slows(out, sneaking)
+                : slows(out, sneaking, 1.0F);
+    }
+
+    private static int slows(float[] out, float only) {
+        out[0] = only;
+        return 1;
+    }
+
+    private static int slows(float[] out, float first, float second) {
+        out[0] = first;
+        out[1] = second;
+        return 2;
     }
 
     private static boolean repeats(float[] values, int index) {
@@ -148,22 +234,28 @@ public final class ReportedKeyInput {
         return false;
     }
 
-    private static double offset(CultPlayer player, PredictionResult result, SimpleCollisionBox extents, Vec3 input) {
+    private static double offset(
+            CultPlayer player,
+            PredictionResult result,
+            SimpleCollisionBox extents,
+            double inputX,
+            double inputZ,
+            Scratch scratch) {
         // From 26.3 the shulker box block shoves move the player after the travel the keys drive.
         ShulkerBoxShoveResult shove = JavaMovementEngine.shulkerBoxShoveAfterTravel(result);
         Vec3 target = shove == null ? result.getTarget() : result.getTarget().subtract(shove.movement());
         // The starting velocity and uncertainties nearest the movement the keys leave unexplained.
-        double startX = CultMath.clamp(target.x - input.x, extents.minX, extents.maxX);
-        double startZ = CultMath.clamp(target.z - input.z, extents.minZ, extents.maxZ);
-        double deltaX = startX + input.x;
-        double deltaZ = startZ + input.z;
+        double startX = CultMath.clamp(target.x - inputX, extents.minX, extents.maxX);
+        double startZ = CultMath.clamp(target.z - inputZ, extents.minZ, extents.maxZ);
+        double deltaX = startX + inputX;
+        double deltaZ = startZ + inputZ;
         double offset = Math.hypot(deltaX - target.x, deltaZ - target.z);
         if (offset <= HorizontalAnalyzer.HORIZONTAL_INPUT_UNCERTAINTY) return offset;
 
         // Entity#collide clips the delta, so an axis that reaches past an obstacle ends on it.
         SimulationContext context = result.getSimulationContext();
         PredVector start = result.getInitialStartingVel();
-        SimpleCollisionBox box = context.getFromActualPose();
+        SimpleCollisionBox box = context.getFromActualPose(scratch.pose);
         // Entity#collide steps from Entity#onGround, which appliesTo requires at the tick's start.
         Vec3 movement = Collisions.collide(player, box, deltaX, start.y, deltaZ, true);
         offset = Math.min(offset, Math.hypot(movement.x - target.x, movement.z - target.z));
@@ -171,8 +263,8 @@ public final class ReportedKeyInput {
 
         // Direction#axisStepOrder moves the longer horizontal axis first, so the nearest delta can slip past an
         // obstacle's end that a longer delta along a clipped axis meets first: such an axis also reaches its farthest.
-        double farX = deltaX > target.x ? extents.maxX + input.x : deltaX < target.x ? extents.minX + input.x : deltaX;
-        double farZ = deltaZ > target.z ? extents.maxZ + input.z : deltaZ < target.z ? extents.minZ + input.z : deltaZ;
+        double farX = deltaX > target.x ? extents.maxX + inputX : deltaX < target.x ? extents.minX + inputX : deltaX;
+        double farZ = deltaZ > target.z ? extents.maxZ + inputZ : deltaZ < target.z ? extents.minZ + inputZ : deltaZ;
         for (int far = 1; far <= 3; far++) {
             double x = (far & 1) != 0 ? farX : deltaX;
             double z = (far & 2) != 0 ? farZ : deltaZ;
@@ -188,15 +280,21 @@ public final class ReportedKeyInput {
         // Entities and changing blocks the engine cannot place exactly may also clip it, but only where the client
         // stopped: an unknown box must lie in the rest of the keys' move along an axis. Direction#axisStepOrder moves
         // the first horizontal axis from the start of the second, and the second from the reported end of the first.
-        double nearX = minAbs(extents.minX + input.x, extents.maxX + input.x);
-        double nearZ = minAbs(extents.minZ + input.z, extents.maxZ + input.z);
-        double farthestX = Math.max(Math.abs(extents.minX + input.x), Math.abs(extents.maxX + input.x));
-        double farthestZ = Math.max(Math.abs(extents.minZ + input.z), Math.abs(extents.maxZ + input.z));
-        List<SimpleCollisionBox> unknown = new ArrayList<>();
-        Vec3 reach = new Vec3(farX, 0, farZ);
-        if (nearX < farthestZ) addUnknownAlongTheRest(player, context, box, target, movement, reach, true, unknown);
-        if (farthestX >= nearZ) addUnknownAlongTheRest(player, context, box, target, movement, reach, false, unknown);
-        if (unknown.isEmpty()) return offset;
+        double nearX = minAbs(extents.minX + inputX, extents.maxX + inputX);
+        double nearZ = minAbs(extents.minZ + inputZ, extents.maxZ + inputZ);
+        double farthestX = Math.max(Math.abs(extents.minX + inputX), Math.abs(extents.maxX + inputX));
+        double farthestZ = Math.max(Math.abs(extents.minZ + inputZ), Math.abs(extents.maxZ + inputZ));
+        List<SimpleCollisionBox> unknown = scratch.unknown;
+        unknown.clear();
+        if (nearX < farthestZ) {
+            addUnknownAlongTheRest(player, context, box, target, movement, farX, farZ, true, unknown, scratch);
+        }
+        if (farthestX >= nearZ) {
+            addUnknownAlongTheRest(player, context, box, target, movement, farX, farZ, false, unknown, scratch);
+        }
+        boolean noUnknown = unknown.isEmpty();
+        unknown.clear();
+        if (noUnknown) return offset;
 
         // Entity#collide collides with each entity at the one position the client holds it.
         SimpleCollisionBox region = box.copy();
@@ -227,27 +325,25 @@ public final class ReportedKeyInput {
             SimpleCollisionBox box,
             Vec3 target,
             Vec3 movement,
-            Vec3 far,
+            double farX,
+            double farZ,
             boolean zFirst,
-            List<SimpleCollisionBox> unknown) {
-        SimpleCollisionBox first = box.copy()
+            List<SimpleCollisionBox> unknown,
+            Scratch scratch) {
+        SimpleCollisionBox first = scratch.firstRest
+                .set(box)
                 .offset(zFirst ? 0 : target.x, target.y, zFirst ? target.z : 0)
                 .expandToCoordinate(zFirst ? 0 : movement.x - target.x, 0, zFirst ? movement.z - target.z : 0)
-                .expandToCoordinate(zFirst ? 0 : far.x - target.x, 0, zFirst ? far.z - target.z : 0);
-        SimpleCollisionBox second = box.copy()
+                .expandToCoordinate(zFirst ? 0 : farX - target.x, 0, zFirst ? farZ - target.z : 0);
+        SimpleCollisionBox second = scratch.secondRest
+                .set(box)
                 .offset(target.x, target.y, target.z)
                 .expandToCoordinate(zFirst ? movement.x - target.x : 0, 0, zFirst ? 0 : movement.z - target.z)
-                .expandToCoordinate(zFirst ? far.x - target.x : 0, 0, zFirst ? 0 : far.z - target.z);
-        for (SimpleCollisionBox rest : List.of(first, second)) {
-            UnknownCollisionProvider.addMovementUnknownCollisions(
-                    player,
-                    context,
-                    context.getStart(),
-                    rest,
-                    unknown,
-                    new SimpleCollisionBox(),
-                    new SimpleCollisionBox());
-        }
+                .expandToCoordinate(zFirst ? farX - target.x : 0, 0, zFirst ? 0 : farZ - target.z);
+        UnknownCollisionProvider.addMovementUnknownCollisions(
+                player, context, context.getStart(), first, unknown, scratch.entityBox, scratch.entityScratch);
+        UnknownCollisionProvider.addMovementUnknownCollisions(
+                player, context, context.getStart(), second, unknown, scratch.entityBox, scratch.entityScratch);
     }
 
     private static double minAbs(double low, double high) {

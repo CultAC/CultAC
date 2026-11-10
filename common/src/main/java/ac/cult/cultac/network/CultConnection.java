@@ -8,10 +8,12 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.*;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
+import ac.cult.cultac.runtime.RuntimeEnvironment;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
 import io.netty.util.concurrent.EventExecutor;
+import java.lang.reflect.Method;
 import java.nio.channels.ClosedChannelException;
 import java.util.ArrayList;
 import java.util.List;
@@ -28,6 +30,8 @@ public final class CultConnection implements CodecState, FrameLease.Source {
 
     private final Channel channel;
     private final PlatformConnection platform;
+    /** The platform keeps {@link PlatformConnection#runInModel}'s default, which runs the task on the caller. */
+    private final boolean modelRunsInline;
     boolean loginNotified;
     private volatile boolean disconnected;
     /** Preparation reached a final outcome without an inspected user: excluded, refused or failed open. */
@@ -147,6 +151,7 @@ public final class CultConnection implements CodecState, FrameLease.Source {
             PacketDispatcher dispatcher,
             Function<Channel, PacketOwner> resolver) {
         this.platform = platform;
+        modelRunsInline = runsModelInline(platform);
         this.channel = Objects.requireNonNull(channel);
         this.dispatcher = Objects.requireNonNull(dispatcher);
         var version = platform == null ? null : platform.getObservedProtocol();
@@ -333,6 +338,21 @@ public final class CultConnection implements CodecState, FrameLease.Source {
         else platform.runInModel(task);
     }
 
+    /** {@code task} itself where {@link #runInModel} would only run it. */
+    private Runnable inModel(Runnable task) {
+        return modelRunsInline && task != null ? task : () -> runInModel(task);
+    }
+
+    private static boolean runsModelInline(PlatformConnection platform) {
+        if (platform == null) return true;
+        try {
+            Method runInModel = platform.getClass().getMethod("runInModel", Runnable.class);
+            return runInModel.getDeclaringClass() == PlatformConnection.class;
+        } catch (NoSuchMethodException unreachable) {
+            return false;
+        }
+    }
+
     public void execute(Runnable task) {
         var host = ac.cult.cultac.runtime.RuntimeEnvironment.host();
         if (host == null) {
@@ -340,7 +360,7 @@ public final class CultConnection implements CodecState, FrameLease.Source {
             else owner.execute(() -> runInModel(task));
             return;
         }
-        var accepted = host.resources().once(() -> runInModel(task));
+        var accepted = host.resources().once(inModel(task));
         try {
             if (owner.inEventLoop()) accepted.run();
             else owner.execute(accepted);
@@ -355,7 +375,9 @@ public final class CultConnection implements CodecState, FrameLease.Source {
     }
 
     public void executeLater(Runnable task) {
-        Runnable accepted = ac.cult.cultac.runtime.RuntimeEnvironment.once(() -> runInModel(task));
+        var host = RuntimeEnvironment.host();
+        Runnable accepted =
+                host == null ? () -> runInModel(task) : host.resources().once(inModel(task));
         try {
             owner.execute(accepted);
         } catch (RuntimeException | Error failure) {

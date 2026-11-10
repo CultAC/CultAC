@@ -40,7 +40,7 @@ public class BadPacketsV extends Check implements CheckListener {
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
         // isTickPacket: movement packets count unless they answered a teleport. Neither the pre-26.3 PosRot
         // echo nor the 26.3 acceptance writes LocalPlayer#xLast, so the next tick is judged against the old cache.
-        if (player.packetStateData.lastPacketWasTeleport) return;
+        if (event.answersTeleport()) return;
 
         if (packet.hasPosition()) {
             int positionAtLeastEveryNTicks = 19;

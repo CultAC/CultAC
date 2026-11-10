@@ -266,6 +266,8 @@ cloud:
   # Якщо true, надсилає в сервіс прийому вибірки стеків CPU та виділення пам'яті цього сервера: короткі профілі на
   # його запит, записані поза головним потоком. За замовчуванням вимкнено; CULTAC_CLOUD_PERF (true/1/yes, false/0/no) має пріоритет, якщо заданий.
   perf: false
+  # The most minutes of perf recording a socket runs an hour.
+  perf-max-minutes-per-hour: 45
   # Якщо true, сокети вивантаження також передають UUID, ім'я та роль у порталі (viewer, moderator або admin)
   # гравців із дозволами cult.portal.viewer, .moderator або .admin, а також збережену роль синхронізованих гравців, які
   # офлайн, коли сервіс прийому про це запитує, — щоб хмарний портал показував їх в організації цього сервера, поки
@@ -292,6 +294,8 @@ cloud:
     # Порожнє значення: тимчасові бани виконує command, якщо він містить %duration% або %seconds%, інакше цей сервер
     # їх ніколи не бере.
     temp-command: ""
+    # The most panel bans this server claims a minute; the rest run in the minutes after.
+    max-per-minute: 300
 
 # Дозволяє командам модераторів, автодоповненню та сповіщенням працювати на всіх ваших проксі й серверах.
 # Інструкція з налаштування: docs/network.md у вихідному коді CultAC. Зміни застосовуються через /cult reload.

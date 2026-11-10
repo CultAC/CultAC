@@ -85,10 +85,6 @@ cult:
     max-freeze-time-ms: 5000
 
   networking:
-    # 对于支持数据包捆绑的客户端，使用捆绑包边界同步实体跟踪，
-    # 供攻击距离检测使用。
-    reach-use-bundle-delimiter: true
-
     # 将发送给玩家的其他存活实体生命值替换为 1 点生命值。
     # 保留接收者自身、当前坐骑以及死亡实体的真实生命值。
     # 拥有 cult.showhealth 权限的接收者会收到真实生命值。

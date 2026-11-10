@@ -73,7 +73,7 @@ class SetbackOutsidePlayTest {
             player.getSetbackTeleportUtil().executeForceResync("phase");
 
             assertNull(player.getSetbackTeleportUtil().getRequiredSetBack());
-            assertFalse(player.getSetbackTeleportUtil().blockOffsets, "no teleport is tracked to release it");
+            assertFalse(player.getSetbackTeleportUtil().isBlockingOffsets(), "no teleport is tracked to release it");
         });
     }
 
@@ -81,12 +81,12 @@ class SetbackOutsidePlayTest {
     void leavingTheLevelReleasesAResyncBlock() {
         withPlayer(player -> {
             player.getSetbackTeleportUtil().executeForceResync("phase");
-            assertTrue(player.getSetbackTeleportUtil().blockOffsets);
+            assertTrue(player.getSetbackTeleportUtil().isBlockingOffsets());
 
             player.user.getCultConnection().placedClientbound(ClientboundPackets.START_CONFIGURATION);
             new PacketPlayerRespawn().onStartConfiguration(null, player, null);
 
-            assertFalse(player.getSetbackTeleportUtil().blockOffsets);
+            assertFalse(player.getSetbackTeleportUtil().isBlockingOffsets());
         });
     }
 

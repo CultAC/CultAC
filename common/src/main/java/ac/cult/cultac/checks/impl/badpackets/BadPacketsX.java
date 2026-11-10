@@ -82,7 +82,7 @@ public class BadPacketsX extends Check implements PostPredictionListener, Decode
     @CultPacketHandler
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
-        if (!player.cameraEntity.isSelf() || !player.packetStateData.lastPacketWasTeleport) {
+        if (!player.cameraEntity.isSelf() || !event.answersTeleport()) {
             sprint = sneak = false;
         }
     }

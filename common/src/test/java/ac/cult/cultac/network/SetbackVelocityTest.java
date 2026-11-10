@@ -28,7 +28,7 @@ class SetbackVelocityTest {
             f.place(new Vec3(.5, JavaTickFixture.FLOOR_Y + .5, .5), new Vec3(0, -.3, 0));
             f.tick(new Vec3(.5, JavaTickFixture.FLOOR_Y + .2, .5), false);
             SetbackTeleportUtil teleports = f.player.getSetbackTeleportUtil();
-            double carried = teleports.lastKnownGoodPosition.getVector().y;
+            double carried = teleports.safePosition().getVector().y;
 
             SetBackData setback = violationSetback(f);
 
@@ -65,7 +65,7 @@ class SetbackVelocityTest {
             double bounced = restitutedY(falling, -.2, 1.0D);
             assertEquals(
                     (bounced - GRAVITY) * VERTICAL_DRAG,
-                    f.player.getSetbackTeleportUtil().lastKnownGoodPosition.getVector().y,
+                    f.player.getSetbackTeleportUtil().safePosition().getVector().y,
                     1.0E-12);
         }
     }
@@ -79,7 +79,7 @@ class SetbackVelocityTest {
             f.tick(start.add(0, .1, 0), false);
             SetbackTeleportUtil teleports = f.player.getSetbackTeleportUtil();
             double carried = levitated(.1, 0);
-            assertEquals(carried, teleports.lastKnownGoodPosition.getVector().y, 1.0E-12);
+            assertEquals(carried, teleports.safePosition().getVector().y, 1.0E-12);
 
             SetBackData setback = violationSetback(f);
 

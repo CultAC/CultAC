@@ -22,6 +22,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
+import org.jetbrains.annotations.ApiStatus;
 
 public final class PacketHandlerScanner {
     /** Listener, event, player, packet. */
@@ -78,14 +80,28 @@ public final class PacketHandlerScanner {
 
     /** Validate the whole listener, then bind only its receive callbacks in declaration order. */
     public List<ReceiveRegistration> receiveHandlers(Object listener) {
+        return receiveHandlers(listener, null, false);
+    }
+
+    /**
+     * {@link #receiveHandlers(Object)} whose callbacks call the listener only when {@code gate}, tested before each
+     * call, is true; a null gate is always true.
+     */
+    @ApiStatus.Internal
+    public List<ReceiveRegistration> receiveHandlers(Object listener, BooleanSupplier gate) {
+        return receiveHandlers(listener, gate, true);
+    }
+
+    private List<ReceiveRegistration> receiveHandlers(Object listener, BooleanSupplier gate, boolean gated) {
         if (listener == null) return List.of();
         List<ReceiveRegistration> receives = new ArrayList<>();
         for (Entry entry : schema(listener.getClass()).entries()) {
             if (entry.direction() != PacketDirection.SERVERBOUND || entry.packetType() == null) continue;
             Invoker invoker = entry.invoker();
             Method method = entry.method();
-            PacketReceiveHandler<Object> callback =
-                    (event, player, packet) -> invoke(invoker, method, listener, event, player, packet);
+            PacketReceiveHandler<Object> callback = gated
+                    ? new GatedReceive(invoker, method, listener, gate)
+                    : (event, player, packet) -> invoke(invoker, method, listener, event, player, packet);
             receives.add(new ReceiveRegistration(entry.packetType(), callback, entry.method()));
         }
         return List.copyOf(receives);
@@ -93,17 +109,73 @@ public final class PacketHandlerScanner {
 
     /** Validate the whole listener, then bind only its send callbacks in declaration order. */
     public List<SendRegistration> sendHandlers(Object listener) {
+        return sendHandlers(listener, null, false);
+    }
+
+    /**
+     * {@link #sendHandlers(Object)} whose callbacks call the listener only when {@code gate}, tested before each call,
+     * is true; a null gate is always true.
+     */
+    @ApiStatus.Internal
+    public List<SendRegistration> sendHandlers(Object listener, BooleanSupplier gate) {
+        return sendHandlers(listener, gate, true);
+    }
+
+    private List<SendRegistration> sendHandlers(Object listener, BooleanSupplier gate, boolean gated) {
         if (listener == null) return List.of();
         List<SendRegistration> sends = new ArrayList<>();
         for (Entry entry : schema(listener.getClass()).entries()) {
             if (entry.direction() != PacketDirection.CLIENTBOUND || entry.packetType() == null) continue;
             Invoker invoker = entry.invoker();
             Method method = entry.method();
-            PacketSendHandler<Object> callback =
-                    (event, player, packet) -> invoke(invoker, method, listener, event, player, packet);
+            PacketSendHandler<Object> callback = gated
+                    ? new GatedSend(invoker, method, listener, gate)
+                    : (event, player, packet) -> invoke(invoker, method, listener, event, player, packet);
             sends.add(new SendRegistration(entry.packetType(), callback, entry.method()));
         }
         return List.copyOf(sends);
+    }
+
+    /** A gated scanned callback; route chains call its invoker directly from their own call sites. */
+    static final class GatedReceive implements PacketReceiveHandler<Object> {
+        final Invoker invoker;
+        final Method method;
+        final Object listener;
+        /** Null when always true. */
+        final BooleanSupplier gate;
+
+        GatedReceive(Invoker invoker, Method method, Object listener, BooleanSupplier gate) {
+            this.invoker = invoker;
+            this.method = method;
+            this.listener = listener;
+            this.gate = gate;
+        }
+
+        @Override
+        public void handle(PacketReceiveEvent event, CultPlayer player, Object packet) {
+            if (gate == null || gate.getAsBoolean()) invoke(invoker, method, listener, event, player, packet);
+        }
+    }
+
+    /** A gated scanned callback; route chains call its invoker directly from their own call sites. */
+    static final class GatedSend implements PacketSendHandler<Object> {
+        final Invoker invoker;
+        final Method method;
+        final Object listener;
+        /** Null when always true. */
+        final BooleanSupplier gate;
+
+        GatedSend(Invoker invoker, Method method, Object listener, BooleanSupplier gate) {
+            this.invoker = invoker;
+            this.method = method;
+            this.listener = listener;
+            this.gate = gate;
+        }
+
+        @Override
+        public void handle(PacketSendEvent<Object> event, CultPlayer player, Object packet) {
+            if (gate == null || gate.getAsBoolean()) invoke(invoker, method, listener, event, player, packet);
+        }
     }
 
     public boolean hasReceiveHandlerDeclaration(Class<?> type) {
@@ -263,7 +335,7 @@ public final class PacketHandlerScanner {
         }
     }
 
-    private static RuntimeException invocationFailure(Method method, Throwable throwable) {
+    static RuntimeException invocationFailure(Method method, Throwable throwable) {
         if (throwable instanceof RuntimeException runtimeException) {
             return runtimeException;
         }

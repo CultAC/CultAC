@@ -32,12 +32,13 @@ public class TimerCheck extends AbstractTimerCheck {
         boolean mountedPassengerRotation = !packet.hasPosition()
                 && (player.compensatedEntities.vehicles.serverPlayerVehicle != null
                         || player.compensatedEntities.getSelf().inVehicle());
-        recordModernMovePlayerPacket(event, !player.packetStateData.lastPacketWasTeleport && !mountedPassengerRotation);
-        recordTimerEvent(event, false, shouldCountMovePlayerForTimer());
+        recordModernMovePlayerPacket(event, !event.answersTeleport() && !mountedPassengerRotation);
+        recordTimerEvent(event, false, shouldCountMovePlayerForTimer(event.answersTeleport()));
     }
 
     @CultPacketHandler("serverbound.client_tick_end")
     public void onClientTickEnd(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
+        if (endRejectedClientTick(event)) return;
         recordTimerEvent(event, false, shouldCountClientTickEndForTimer());
         if (!event.isCancelled()) recordModernClientTickEndPacket();
     }

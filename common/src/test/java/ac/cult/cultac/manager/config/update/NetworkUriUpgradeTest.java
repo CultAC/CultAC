@@ -300,6 +300,7 @@ class NetworkUriUpgradeTest {
     /** The plugin log's warnings, until closed. */
     private static final class Captured extends Handler implements AutoCloseable {
         final List<String> messages = new CopyOnWriteArrayList<>();
+        private final long thread = Thread.currentThread().threadId();
 
         Captured() {
             LogUtil.getLogger().addHandler(this);
@@ -307,7 +308,9 @@ class NetworkUriUpgradeTest {
 
         @Override
         public void publish(LogRecord record) {
-            if (record.getLevel() == Level.WARNING && record.getMessage().contains("network"))
+            if (record.getLongThreadID() == thread
+                    && record.getLevel() == Level.WARNING
+                    && record.getMessage().contains("network"))
                 messages.add(record.getMessage());
         }
 

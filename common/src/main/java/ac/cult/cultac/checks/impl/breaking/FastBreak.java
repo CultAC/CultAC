@@ -131,6 +131,8 @@ public class FastBreak extends Check implements BlockBreakListener {
 
     @CultPacketHandler
     public void onSwing(PacketReceiveEvent<ServerboundSwing> event, CultPlayer player, ServerboundSwing packet) {
+        // ClientPacketListener#handleAnimate swings between client ticks, where no destroy progress is made.
+        if (player.serverSwingEcho.isEcho()) return;
         if (clientTicks == startTick) startTickSwings++;
         updateMaximumBlockDamage();
     }

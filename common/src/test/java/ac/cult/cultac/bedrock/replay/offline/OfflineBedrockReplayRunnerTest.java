@@ -21,6 +21,7 @@ import ac.cult.cultac.bedrock.protocol.BedrockMoveVector;
 import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
@@ -128,14 +129,16 @@ public final class OfflineBedrockReplayRunnerTest {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = offlinePlayer();
         Vec3 target = new Vec3(10.0D, 64.0D, 20.0D);
-        long revision = player.getSetbackTeleportUtil().addImmediateBedrockTransportTeleport(target, false);
+        long revision =
+                player.getSetbackTeleportUtil().bedrockTeleports().addImmediateBedrockTransportTeleport(target, false);
 
         player.lastTransactionReceived.set(10);
-        TeleportAcceptData accepted = player.getSetbackTeleportUtil().acknowledgeBedrockTeleportFrame(target);
+        TeleportAcceptData accepted =
+                player.getSetbackTeleportUtil().bedrockTeleports().acknowledgeBedrockTeleportFrame(target);
         assertTrue(accepted.isTeleport());
         assertTrue(accepted.isMatchedTeleportPosition());
         assertEquals(target, accepted.getTeleportData().getLocation());
-        assertFalse(player.getSetbackTeleportUtil().hasPendingPlayerPositionTeleport());
+        assertFalse(player.getSetbackTeleportUtil().javaTeleports().hasPendingPlayerPositionTeleport());
         closeOfflinePlayer(player);
     }
 
@@ -146,8 +149,7 @@ public final class OfflineBedrockReplayRunnerTest {
         player.x = 10.0D;
         player.y = 64.0D;
         player.z = 20.0D;
-        player.getSetbackTeleportUtil().hasFullyLoaded = true;
-        player.getSetbackTeleportUtil().hasFullyJoined = true;
+        SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
         ServerboundMovePlayer translatedMove =
                 new ServerboundMovePlayer(10.25D, 64.0D, 20.0D, 0, 0, true, false, true, false);
 
@@ -180,8 +182,7 @@ public final class OfflineBedrockReplayRunnerTest {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = offlinePlayer();
         try {
-            player.getSetbackTeleportUtil().hasFullyLoaded = true;
-            player.getSetbackTeleportUtil().hasFullyJoined = true;
+            SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
             player.packetStateData.bedrockTranslatedMovement.allowVehicle(71);
             var packet = new ServerboundMovePlayer(2, 64, 3, 0, 0, true, false, true, false);
             var event = translatedMovementEvent(player, packet);
@@ -199,20 +200,22 @@ public final class OfflineBedrockReplayRunnerTest {
         CultPlayer player = offlinePlayer();
         try {
             var teleports = player.getSetbackTeleportUtil();
-            teleports.hasFullyLoaded = true;
-            teleports.hasFullyJoined = true;
+            SetbackFixtures.setLoaded(teleports, true);
             Vec3 anchor = new Vec3(10, 64, 20);
             var packet = new ServerboundMovePlayer(10.25, 64, 20, 0, 0, true, false, true, false);
             player.packetStateData.bedrockTranslatedMovement.allowPlayer(true);
-            teleports.addImmediateBedrockTransportTeleport(anchor, true);
-            assertTrue(teleports.mustAcknowledgeBedrockTransportTeleport());
+            teleports.bedrockTeleports().addImmediateBedrockTransportTeleport(anchor, true);
+            assertTrue(teleports.bedrockTeleports().mustAcknowledgeBedrockTransportTeleport());
 
             var blocked = translatedMovementEvent(player, packet);
             new CheckManagerListener().onMovePlayer(blocked, player, packet);
             assertTrue(blocked.isCancelled());
             assertFalse(player.packetStateData.bedrockTranslatedMovement.hasPending());
 
-            assertTrue(teleports.acknowledgeBedrockTeleportFrame(anchor).isTeleport());
+            assertTrue(teleports
+                    .bedrockTeleports()
+                    .acknowledgeBedrockTeleportFrame(anchor)
+                    .isTeleport());
             player.packetStateData.bedrockTranslatedMovement.allowPlayer(true);
             var moving = translatedMovementEvent(player, packet);
             new CheckManagerListener().onMovePlayer(moving, player, packet);
@@ -229,8 +232,7 @@ public final class OfflineBedrockReplayRunnerTest {
         player.x = 10.0D;
         player.y = 64.0D;
         player.z = 20.0D;
-        player.getSetbackTeleportUtil().hasFullyLoaded = true;
-        player.getSetbackTeleportUtil().hasFullyJoined = true;
+        SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
         CheckManagerListener listener = new CheckManagerListener();
 
         List<ServerboundMovePlayer> geyserProjectionShapes = List.of(
@@ -271,8 +273,7 @@ public final class OfflineBedrockReplayRunnerTest {
         player.x = 10.0D;
         player.y = 64.0D;
         player.z = 20.0D;
-        player.getSetbackTeleportUtil().hasFullyLoaded = true;
-        player.getSetbackTeleportUtil().hasFullyJoined = true;
+        SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
         player.bedrockState.setSetbacksEnabled(false);
         CheckManagerListener listener = new CheckManagerListener();
         ServerboundMovePlayer translatedMove =
@@ -292,8 +293,7 @@ public final class OfflineBedrockReplayRunnerTest {
     public void translatedGroundIsNormalizedWithoutAPlayerViolation() {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = offlinePlayer();
-        player.getSetbackTeleportUtil().hasFullyLoaded = true;
-        player.getSetbackTeleportUtil().hasFullyJoined = true;
+        SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
         for (boolean canonicalGround : new boolean[] {false, true}) {
             for (boolean noModify : new boolean[] {false, true}) {
                 player.noModifyPacketPermission = noModify;
@@ -1359,12 +1359,14 @@ public final class OfflineBedrockReplayRunnerTest {
     private static void bootstrapSetbackAnchor(CultPlayer player, SetbackPosWithVector safe) {
         int bootstrapTransaction = player.lastTransactionSent.get();
         player.getSetbackTeleportUtil()
+                .javaTeleports()
                 .addSentTeleport(safe.getPos(), bootstrapTransaction, new RelativeFlag(0), true, -2);
         player.lastTransactionReceived.set(bootstrapTransaction);
         assertTrue(player.getSetbackTeleportUtil()
+                .javaTeleports()
                 .checkTeleportQueue(safe.getPos().x, safe.getPos().y, safe.getPos().z)
                 .isTeleport());
-        player.getSetbackTeleportUtil().lastKnownGoodPosition = safe;
+        SetbackFixtures.seedSafePosition(player, safe);
     }
 
     private static void buildFlatGroundWithTwoBlockPillar(
@@ -1425,7 +1427,7 @@ public final class OfflineBedrockReplayRunnerTest {
                     () -> {
                         CultPlayer p = offlinePlayer();
                         buildWorldAndSeed(p, pillarX, pillarZ, groundY, groundPosition);
-                        bootstrapSetbackAnchor(p, p.getSetbackTeleportUtil().lastKnownGoodPosition);
+                        bootstrapSetbackAnchor(p, p.getSetbackTeleportUtil().safePosition());
                         BedrockAuthInputFrame frame = syntheticPillarFrame(baseTick, pillarTop, false, true, false);
                         p.bedrockState.offerAuthInputFrame(frame);
                         return captureAscentResult(p, frame, pillarTop, groundY);
@@ -1439,7 +1441,7 @@ public final class OfflineBedrockReplayRunnerTest {
                     () -> {
                         CultPlayer p = offlinePlayer();
                         buildWorldAndSeed(p, pillarX, pillarZ, groundY, groundPosition);
-                        bootstrapSetbackAnchor(p, p.getSetbackTeleportUtil().lastKnownGoodPosition);
+                        bootstrapSetbackAnchor(p, p.getSetbackTeleportUtil().safePosition());
                         Vec3 pillarBottomBlock = new Vec3(pillarX + 0.5D, groundY + 1.00001D, pillarZ + 0.5D);
                         BedrockAuthInputFrame frame1 =
                                 syntheticPillarFrame(baseTick, pillarBottomBlock, false, true, false);
@@ -1459,7 +1461,7 @@ public final class OfflineBedrockReplayRunnerTest {
                     () -> {
                         CultPlayer p = offlinePlayer();
                         buildWorldAndSeed(p, pillarX, pillarZ, groundY, groundPosition);
-                        bootstrapSetbackAnchor(p, p.getSetbackTeleportUtil().lastKnownGoodPosition);
+                        bootstrapSetbackAnchor(p, p.getSetbackTeleportUtil().safePosition());
                         PillarAscentOutcome last = null;
                         for (int step = 1; step <= 4; step++) {
                             double fraction = step / 4.0D;
@@ -1483,7 +1485,7 @@ public final class OfflineBedrockReplayRunnerTest {
                     () -> {
                         CultPlayer p = offlinePlayer();
                         buildWorldAndSeed(p, pillarX, pillarZ, groundY, new Vec3(1.5D, groundY, 0.5D));
-                        bootstrapSetbackAnchor(p, p.getSetbackTeleportUtil().lastKnownGoodPosition);
+                        bootstrapSetbackAnchor(p, p.getSetbackTeleportUtil().safePosition());
                         BedrockAuthInputFrame approach =
                                 syntheticPillarFrame(baseTick, new Vec3(2.5D, groundY, 0.5D), false, false, true);
                         p.bedrockState.offerAuthInputFrame(approach);
@@ -1501,7 +1503,7 @@ public final class OfflineBedrockReplayRunnerTest {
                     () -> {
                         CultPlayer p = offlinePlayer();
                         buildWorldAndSeed(p, pillarX, pillarZ, groundY, groundPosition);
-                        bootstrapSetbackAnchor(p, p.getSetbackTeleportUtil().lastKnownGoodPosition);
+                        bootstrapSetbackAnchor(p, p.getSetbackTeleportUtil().safePosition());
                         Vec3 insidePillarBottom = new Vec3(pillarX + 0.5D, groundY, pillarZ + 0.5D);
                         BedrockAuthInputFrame slipIn =
                                 syntheticPillarFrame(baseTick, insidePillarBottom, false, false, false);
@@ -1520,7 +1522,7 @@ public final class OfflineBedrockReplayRunnerTest {
                     () -> {
                         CultPlayer p = offlinePlayer();
                         buildWorldAndSeed(p, pillarX, pillarZ, groundY, groundPosition);
-                        bootstrapSetbackAnchor(p, p.getSetbackTeleportUtil().lastKnownGoodPosition);
+                        bootstrapSetbackAnchor(p, p.getSetbackTeleportUtil().safePosition());
                         BedrockAuthInputFrame frame = syntheticPillarFrameBuilder(
                                         baseTick, pillarTop, false, true, false)
                                 .build();
@@ -1536,7 +1538,7 @@ public final class OfflineBedrockReplayRunnerTest {
                     () -> {
                         CultPlayer p = offlinePlayer();
                         buildWorldAndSeed(p, pillarX, pillarZ, groundY, groundPosition);
-                        bootstrapSetbackAnchor(p, p.getSetbackTeleportUtil().lastKnownGoodPosition);
+                        bootstrapSetbackAnchor(p, p.getSetbackTeleportUtil().safePosition());
                         Vec3 adjacentToPillar = new Vec3(pillarX - 1.0D + 0.5D, groundY, pillarZ + 0.5D);
                         BedrockAuthInputFrame sneak = syntheticPillarFrameBuilder(
                                         baseTick, adjacentToPillar, true, false, false)
@@ -1558,7 +1560,7 @@ public final class OfflineBedrockReplayRunnerTest {
                     () -> {
                         CultPlayer p = offlinePlayer();
                         buildWorldAndSeed(p, pillarX, pillarZ, groundY, groundPosition);
-                        bootstrapSetbackAnchor(p, p.getSetbackTeleportUtil().lastKnownGoodPosition);
+                        bootstrapSetbackAnchor(p, p.getSetbackTeleportUtil().safePosition());
                         BedrockAuthInputFrame swim = syntheticPillarFrameBuilder(
                                         baseTick, pillarTop, false, true, false)
                                 .startSwimming(true)
@@ -1576,7 +1578,7 @@ public final class OfflineBedrockReplayRunnerTest {
                     () -> {
                         CultPlayer p = offlinePlayer();
                         buildWorldAndSeed(p, pillarX, pillarZ, groundY, groundPosition);
-                        bootstrapSetbackAnchor(p, p.getSetbackTeleportUtil().lastKnownGoodPosition);
+                        bootstrapSetbackAnchor(p, p.getSetbackTeleportUtil().safePosition());
                         Vec3 deltaToTop = new Vec3(pillarTop.x - groundPosition.x, 2.0D, 0.0D);
                         BedrockAuthInputFrame frame = BedrockAuthInputFrame.builder(PLAYER_UUID)
                                 .protocolVersion(0)
@@ -1608,7 +1610,7 @@ public final class OfflineBedrockReplayRunnerTest {
                     () -> {
                         CultPlayer p = offlinePlayer();
                         buildWorldAndSeed(p, pillarX, pillarZ, groundY, groundPosition);
-                        bootstrapSetbackAnchor(p, p.getSetbackTeleportUtil().lastKnownGoodPosition);
+                        bootstrapSetbackAnchor(p, p.getSetbackTeleportUtil().safePosition());
                         Vec3 abovePillar = new Vec3(pillarX + 0.5D, groundY + 3.0D, pillarZ + 0.5D);
                         BedrockAuthInputFrame glideDescend = syntheticPillarFrameBuilder(
                                         baseTick, abovePillar, false, false, false)
@@ -1755,8 +1757,7 @@ public final class OfflineBedrockReplayRunnerTest {
         player.gamemode = GameMode.SURVIVAL;
         player.canFly = false;
         player.isFlying = false;
-        player.getSetbackTeleportUtil().hasFullyLoaded = true;
-        player.getSetbackTeleportUtil().hasFullyJoined = true;
+        SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
         buildFlatGroundWithTwoBlockPillar(player, groundPosition, (int) groundY, pillarX, pillarZ);
         seedPlayerAt(player, syntheticPillarFrame(0, groundPosition, false, false, false));
     }
@@ -1826,8 +1827,7 @@ public final class OfflineBedrockReplayRunnerTest {
             player.gamemode = GameMode.SURVIVAL;
             player.canFly = false;
             player.isFlying = false;
-            player.getSetbackTeleportUtil().hasFullyLoaded = true;
-            player.getSetbackTeleportUtil().hasFullyJoined = true;
+            SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
             buildFlatGroundWithTwoBlockPillar(player, groundPos, (int) groundY, pillarX, pillarZ);
 
             // Seed player at ground
@@ -1859,7 +1859,7 @@ public final class OfflineBedrockReplayRunnerTest {
                     + " setback=" + player.getSetbackTeleportUtil().isPendingSetback()
                     + " pos=" + new Vec3(player.x, player.y, player.z));
 
-            SetbackPosWithVector safe = player.getSetbackTeleportUtil().lastKnownGoodPosition;
+            SetbackPosWithVector safe = player.getSetbackTeleportUtil().safePosition();
             assertNotNull(safe);
             bootstrapSetbackAnchor(player, safe);
 
@@ -1943,21 +1943,22 @@ public final class OfflineBedrockReplayRunnerTest {
             player.lastOnGround = onGround;
 
             // The final native spawn teleport is the authority, independent of Java packets.
-            player.getSetbackTeleportUtil().hasFullyLoaded = false;
-            player.getSetbackTeleportUtil().hasFullyJoined = false;
-            player.getSetbackTeleportUtil().addImmediateBedrockTransportTeleport(groundPos, onGround);
+            SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), false);
+            player.getSetbackTeleportUtil()
+                    .bedrockTeleports()
+                    .addImmediateBedrockTransportTeleport(groundPos, onGround);
             assertNull(player.getSetbackTeleportUtil().getRequiredSetBack());
 
-            TeleportAcceptData accepted = player.getSetbackTeleportUtil().acknowledgeBedrockTeleportFrame(groundPos);
+            TeleportAcceptData accepted =
+                    player.getSetbackTeleportUtil().bedrockTeleports().acknowledgeBedrockTeleportFrame(groundPos);
             assertTrue(accepted.isTeleport());
             assertTrue(accepted.isInitialSpawnTeleport());
             player.checkManager.getSimulationProcessor().applyAcceptedBedrockTeleport(accepted);
-            assertTrue(player.getSetbackTeleportUtil().hasFullyLoaded);
-            assertTrue(player.getSetbackTeleportUtil().hasFullyJoined);
+            assertTrue(player.getSetbackTeleportUtil().hasFullyLoaded());
             assertNull(player.getSetbackTeleportUtil().getRequiredSetBack());
             assertEquals(
                     groundPos,
-                    player.getSetbackTeleportUtil().lastKnownGoodPosition.getPos());
+                    player.getSetbackTeleportUtil().safePosition().getPos());
 
             // The first movement after the acknowledged spawn boundary is an
             // impossible pillar teleport and must be corrected to that boundary.
@@ -2017,8 +2018,7 @@ public final class OfflineBedrockReplayRunnerTest {
             boolean onGround = Collisions.collide(player, 0, -SimpleCollisionBox.COLLISION_EPSILON, 0).y == 0;
             player.onGround = onGround;
             player.lastOnGround = onGround;
-            player.getSetbackTeleportUtil().lastKnownGoodPosition = new SetbackPosWithVector(groundPos, Vec3.ZERO, 0);
-
+            SetbackFixtures.seedSafePosition(player, new SetbackPosWithVector(groundPos, Vec3.ZERO));
             // Establish a valid initial carry
             BedrockAuthInputFrame seedFrame = syntheticPillarFrame(0, groundPos, false, false, false);
             player.bedrockState.offerAuthInputFrame(seedFrame);

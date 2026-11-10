@@ -17,6 +17,11 @@ public final class PacketEntityNautilus extends PacketEntityTrackXRot {
         this.stepHeightAttribute = 1.0D;
     }
 
+    /**
+     * The tail of AbstractNautilus#tick, then the rider's release. ClientLevel#tickPassenger runs LocalPlayer#aiStep
+     * after the root's whole tick, so AbstractNautilus#onPlayerJump reads the cooldown this tick left: a dash this tick
+     * set it to 40 before the rider could release again.
+     */
     public void tickClientState() {
         if (dashing && dashCooldown < 35) {
             dashing = false;
@@ -25,7 +30,7 @@ public final class PacketEntityNautilus extends PacketEntityTrackXRot {
             dashCooldown--;
         }
         if (nextPendingJumpScale > 0.0D) {
-            pendingJumpScale = nextPendingJumpScale;
+            if (hasSaddle && dashCooldown <= 0) pendingJumpScale = nextPendingJumpScale;
             nextPendingJumpScale = 0.0D;
         }
     }

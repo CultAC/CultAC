@@ -1,16 +1,20 @@
 package ac.cult.cultac.cloud.diag;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import ac.cult.blocksim.data.BlockRegistry;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.Check;
+import ac.cult.cultac.checks.impl.prediction.BlockGrid;
+import ac.cult.cultac.checks.impl.prediction.PredictionObserver;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SuperDebug;
 import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
@@ -39,21 +43,29 @@ import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.utils.anticheat.NettyScheduler;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.debug.DebugText;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.grim.grimac.api.config.ConfigManager;
 import com.github.luben.zstd.ZstdInputStream;
+import com.sun.management.ThreadMXBean;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.util.ReferenceCountUtil;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
@@ -205,6 +217,464 @@ class DiagPredictionTest {
         }
     }
 
+    /**
+     * Every bundle a watched player's recorded states upload is byte for byte the bundle of the same states printed as
+     * each prediction completed: cuts at the start, middle and end of a ring that has evicted ticks and texts, a cut
+     * still waiting when its watch stops, and cuts across a watch that starts again. The recorded states reach their
+     * diagnostics a few ticks late, after the player's state has moved on.
+     */
+    @Test
+    void recordedStatesUploadAsTheTextPrintedAtCapture() throws Exception {
+        Limits limits = Limits.of(
+                true,
+                120,
+                256 * 1024,
+                Limits.MAX_SERVER_RING_BYTES,
+                Limits.MAX_PLAYERS,
+                0,
+                Limits.MAX_UPLOAD_BYTES_PER_SECOND,
+                0,
+                Limits.MAX_BUNDLES_PER_HOUR);
+        Diagnostics printed = diagnostics(limits);
+        Diagnostics recorded = diagnostics(limits);
+        AtomicLong tick = new AtomicLong();
+        Bot bot = new Bot(2).counting(tick::get);
+        Tee tee = new Tee(tick::get);
+        List<List<byte[]>> bundles = new ArrayList<>();
+        try {
+            tee.start(printed, recorded, bot);
+            for (int i = 0; i < 200; i++) tee.tick(bot, tick);
+            long newest = tee.settle(bot);
+            assertEquals(120, tee.recorded.ring.size(), "the ring evicted its oldest ticks");
+            tee.cut(bundles, 1, newest - 119, newest - 100, newest - 119, newest - 110);
+            tee.cut(bundles, 2, newest - 70, newest - 40, newest - 60, newest - 50);
+            tee.cut(bundles, 3, newest - 19, newest, newest - 9, newest);
+            tee.cut(bundles, 4, newest - 160, newest - 110, newest - 130, newest - 115);
+            tee.cut(bundles, 5, 0, newest, newest - 119, newest);
+
+            tee.cutLater(6, newest - 5, newest + 20, newest - 5, newest + 5);
+            for (int i = 0; i < 8; i++) tee.tick(bot, tick);
+            tee.settle(bot);
+            tee.stop(printed, recorded, bot);
+            bundles.add(tee.collect(printed, recorded));
+
+            for (int i = 0; i < 30; i++) tee.tick(bot, tick);
+            tee.start(printed, recorded, bot);
+            for (int i = 0; i < 60; i++) tee.tick(bot, tick);
+            newest = tee.settle(bot);
+            tee.cut(bundles, 7, newest - 80, newest - 40, newest - 70, newest - 50);
+            tee.cut(bundles, 8, newest - 30, newest, newest - 15, newest - 5);
+            tee.cut(bundles, 9, newest - 59, newest, newest - 59, newest);
+        } finally {
+            bot.close();
+        }
+        assertEquals(9, bundles.size());
+        int fulls = 0;
+        for (List<byte[]> parts : bundles) {
+            for (byte[] part : parts) {
+                for (DiagTick diagTick :
+                        Intake.parseFrom(part).getMessages(0).getDiag().getTicksList()) {
+                    if (!diagTick.getFull().isEmpty()) fulls++;
+                }
+            }
+        }
+        assertTrue(fulls >= 40, "full texts " + fulls);
+    }
+
+    /**
+     * Hands each prediction to a watch of {@code printed} as the string it prints at once, and to a watch of
+     * {@code recorded} as its recorded state, held for a few ticks; tick ends follow each the same way.
+     */
+    private static final class Tee implements PredictionObserver {
+        private static final int HOLD_TICKS = 7;
+        private static final byte[] HEADER_BUNDLE = new byte[16];
+
+        final LongSupplier seq;
+        final List<Runnable> held = new ArrayList<>();
+        DiagWatch printed;
+        DiagWatch recorded;
+        private Diagnostics printedOwner;
+        private Diagnostics recordedOwner;
+        private UUID player;
+
+        Tee(LongSupplier seq) {
+            this.seq = seq;
+        }
+
+        void start(Diagnostics printed, Diagnostics recorded, Bot bot) {
+            printedOwner = printed;
+            recordedOwner = recorded;
+            player = bot.player.getUniqueId();
+            this.printed = printed.watch(player, 1, 3600, seq, bot.debug::history, watch -> {});
+            this.recorded = recorded.watch(player, 1, 3600, seq, bot.debug::history, watch -> {});
+            assertNotNull(this.printed);
+            assertNotNull(this.recorded);
+            bot.debug.watch(this);
+        }
+
+        void stop(Diagnostics printed, Diagnostics recorded, Bot bot) {
+            release();
+            printed.watch(player, 1, 0, seq, bot.debug::history, watch -> {});
+            recorded.watch(player, 1, 0, seq, bot.debug::history, watch -> {});
+            assertTrue(this.printed.ended() && this.recorded.ended());
+            bot.debug.unwatch(this);
+        }
+
+        void tick(Bot bot, AtomicLong tick) {
+            PredictionResult before =
+                    bot.player.checkManager.getSimulationProcessor().getLastPrediction();
+            bot.tick();
+            PredictionResult result =
+                    bot.player.checkManager.getSimulationProcessor().getLastPrediction();
+            if (result != null && result != before && result.hasEffectiveFlags()) {
+                List<String> flags = new ArrayList<>();
+                for (PredictionResult.Flag flag : result.getFlags())
+                    flags.add(flag.getCheck().getCheckName());
+                long at = tick.get();
+                printed.tickEnd(at, flags);
+                DiagWatch watch = recorded;
+                held.add(() -> watch.tickEnd(at, flags));
+            }
+            tick.incrementAndGet();
+            if (tick.get() % HOLD_TICKS == 0) release();
+        }
+
+        /** Releases what is held and waits for both rings to take it; the newest seq predicted. */
+        long settle(Bot bot) {
+            release();
+            long newest = bot.lastPredicted;
+            await(() -> printed.ring != null && printed.ring.newest() >= newest);
+            await(() -> recorded.ring != null && recorded.ring.newest() >= newest);
+            return newest;
+        }
+
+        void cut(List<List<byte[]>> bundles, int id, long from, long to, long fullFrom, long fullTo) {
+            cutLater(id, from, to, fullFrom, fullTo);
+            bundles.add(collect(printedOwner, recordedOwner));
+        }
+
+        void cutLater(int id, long from, long to, long fullFrom, long fullTo) {
+            byte[] bundle = HEADER_BUNDLE.clone();
+            bundle[0] = (byte) id;
+            printedOwner.cut(player, new Cut(bundle, from, to, fullFrom, fullTo), "header");
+            recordedOwner.cut(player, new Cut(bundle.clone(), from, to, fullFrom, fullTo), "header");
+        }
+
+        /** The next bundle each uploads, which must be the same bytes. */
+        List<byte[]> collect(Diagnostics printed, Diagnostics recorded) {
+            List<byte[]> expected = records(printed.upload());
+            List<byte[]> actual = records(recorded.upload());
+            assertEquals(expected.size(), actual.size(), "parts");
+            for (int i = 0; i < expected.size(); i++) {
+                assertArrayEquals(expected.get(i), actual.get(i), "part " + i);
+            }
+            return actual;
+        }
+
+        private void release() {
+            for (Runnable op : held) op.run();
+            held.clear();
+        }
+
+        @Override
+        public long pendingSeq() {
+            return seq.getAsLong();
+        }
+
+        @Override
+        public void capture(long seq, double offset, String trace, String state, BlockGrid grid, long startNanos) {
+            printed.capture(seq, offset, trace, state, grid, startNanos);
+            DiagWatch watch = recorded;
+            held.add(() -> watch.capture(seq, offset, trace, state, grid, startNanos));
+        }
+
+        @Override
+        public void captureText(
+                long seq, double offset, String trace, DebugText state, BlockGrid grid, long startNanos) {
+            printed.capture(seq, offset, trace, state == null ? null : state.toString(), grid, startNanos);
+            DiagWatch watch = recorded;
+            held.add(() -> watch.captureText(seq, offset, trace, state, grid, startNanos));
+        }
+
+        @Override
+        public void failed(RuntimeException failure) {
+            throw new AssertionError(failure);
+        }
+    }
+
+    /**
+     * With {@code CULTAC_DIAG_CAPTURE_BENCH} naming a file, appends the bytes and cpu a watched player's tick costs:
+     * its state printed to a string on the packet thread and then framed, against recorded and printed straight into
+     * the frame's text, over a real walk's states; and the whole watch, both threads, with and without cuts.
+     */
+    @Test
+    void captureCost() throws Exception {
+        String out = System.getenv("CULTAC_DIAG_CAPTURE_BENCH");
+        assumeTrue(out != null && !out.isEmpty());
+        StringBuilder report = new StringBuilder();
+        textCost(report);
+        for (boolean cuts : new boolean[] {false, true}) watchCost(report, cuts);
+        Files.writeString(Path.of(out), report.toString(), StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+    }
+
+    private static void textCost(StringBuilder report) throws ReflectiveOperationException {
+        AtomicLong tick = new AtomicLong();
+        Bot bot = new Bot(3).counting(tick::get);
+        List<DebugText> states = new ArrayList<>();
+        List<BlockGrid> grids = new ArrayList<>();
+        bot.debug.watch(new PredictionObserver() {
+            @Override
+            public long pendingSeq() {
+                return tick.get();
+            }
+
+            @Override
+            public void capture(long seq, double offset, String trace, String state, BlockGrid grid, long start) {}
+
+            @Override
+            public void captureText(
+                    long seq, double offset, String trace, DebugText state, BlockGrid grid, long start) {
+                if (state == null) return;
+                states.add(state);
+                grids.add(grid);
+            }
+
+            @Override
+            public void failed(RuntimeException failure) {
+                throw new AssertionError(failure);
+            }
+        });
+        try {
+            for (int i = 0; i < 400; i++) {
+                bot.tick();
+                tick.incrementAndGet();
+            }
+        } finally {
+            bot.close();
+        }
+        Field textParts = DebugText.class.getDeclaredField("parts");
+        Field textSize = DebugText.class.getDeclaredField("size");
+        Field textNumbers = DebugText.class.getDeclaredField("numbers");
+        Field builderParts = DebugText.Builder.class.getDeclaredField("parts");
+        Field builderNumbers = DebugText.Builder.class.getDeclaredField("numbers");
+        Field builderSize = DebugText.Builder.class.getDeclaredField("size");
+        Field builderCount = DebugText.Builder.class.getDeclaredField("count");
+        for (Field field :
+                List.of(textParts, textSize, textNumbers, builderParts, builderNumbers, builderSize, builderCount)) {
+            field.setAccessible(true);
+        }
+        int n = states.size();
+        Object[][] parts = new Object[n][];
+        long[][] numbers = new long[n][];
+        ThreadMXBean threads = (ThreadMXBean) ManagementFactory.getThreadMXBean();
+        long thread = Thread.currentThread().threadId();
+        for (int i = 0; i < n; i++) {
+            parts[i] = Arrays.copyOf((Object[]) textParts.get(states.get(i)), textSize.getInt(states.get(i)));
+            int count = 0;
+            for (Object part : parts[i]) {
+                if (part instanceof Enum<?> && part.getClass().getEnclosingClass() == DebugText.class) count++;
+            }
+            numbers[i] = Arrays.copyOf((long[]) textNumbers.get(states.get(i)), count);
+        }
+        // What printing each state's vectors through their toString allocates.
+        long vectorBytes = 0;
+        long vectorChars = 0;
+        for (int warm = 0; warm < 3; warm++) {
+            long before = threads.getThreadAllocatedBytes(thread);
+            for (Object[] state : parts) {
+                for (Object part : state) {
+                    if (part.getClass() == Vec3.class)
+                        vectorChars += part.toString().length();
+                }
+            }
+            vectorBytes = (threads.getThreadAllocatedBytes(thread) - before) / n;
+        }
+        int reps = 11;
+        int passes = 16;
+        String[] names = {"string+frame", "record+frame", "string", "record"};
+        double[][] alloc = new double[4][reps];
+        double[][] cpu = new double[4][reps];
+        long sink = 0;
+        try (DiagText text = new DiagText(1)) {
+            for (int rep = -4; rep < reps; rep++) {
+                for (int pair = 0; pair < 2; pair++) {
+                    for (int order = 0; order < 2; order++) {
+                        int way = pair * 2 + (((rep & 1) == 0) == (order == 0) ? 0 : 1);
+                        long bytes = threads.getThreadAllocatedBytes(thread);
+                        long time = threads.getCurrentThreadCpuTime();
+                        for (int k = 0; k < n * passes; k++) {
+                            int i = k % n;
+                            DebugText.Builder sb = new DebugText.Builder(parts[i].length + 64, numbers[i].length + 32);
+                            System.arraycopy(parts[i], 0, builderParts.get(sb), 0, parts[i].length);
+                            System.arraycopy(numbers[i], 0, builderNumbers.get(sb), 0, numbers[i].length);
+                            builderSize.setInt(sb, parts[i].length);
+                            builderCount.setInt(sb, numbers[i].length);
+                            switch (way) {
+                                case 0 -> sink += text.compress(DiagTextTest.kept(sb.toString()), grids.get(i)).length;
+                                case 1 -> sink += text.compress(sb.toText(), grids.get(i)).length;
+                                case 2 -> sink += sb.toString().length();
+                                default -> sink += sb.toText().hashCode() & 1;
+                            }
+                        }
+                        if (rep < 0) continue;
+                        alloc[way][rep] = (threads.getThreadAllocatedBytes(thread) - bytes) / (double) (n * passes);
+                        cpu[way][rep] = (threads.getCurrentThreadCpuTime() - time) / (double) (n * passes);
+                    }
+                }
+            }
+        }
+        report.append(String.format(
+                Locale.ROOT,
+                "diag capture text, %d states (sink %d), Vec3 strings %d B/state (%d chars):",
+                n,
+                sink,
+                vectorBytes,
+                vectorChars / 3 / n));
+        for (int way = 0; way < 4; way++) median(report, names[way], alloc[way], cpu[way]);
+        report.append('\n');
+    }
+
+    private void watchCost(StringBuilder report, boolean cuts) throws Exception {
+        Diagnostics diagnostics = diagnostics();
+        AtomicLong tick = new AtomicLong();
+        Bot bot = new Bot(4).counting(tick::get);
+        DiagWatch watch = diagnostics.watch(bot.player.getUniqueId(), 1, 3600, tick::get, bot.debug::history, w -> {});
+        boolean[] printed = new boolean[1];
+        bot.debug.watch(new PredictionObserver() {
+            @Override
+            public long pendingSeq() {
+                return tick.get();
+            }
+
+            @Override
+            public void capture(long seq, double offset, String trace, String state, BlockGrid grid, long start) {
+                watch.capture(seq, offset, trace, state, grid, start);
+            }
+
+            @Override
+            public void captureText(
+                    long seq, double offset, String trace, DebugText state, BlockGrid grid, long start) {
+                if (printed[0]) watch.capture(seq, offset, trace, state == null ? null : state.toString(), grid, start);
+                else watch.captureText(seq, offset, trace, state, grid, start);
+            }
+
+            @Override
+            public void failed(RuntimeException failure) {
+                throw new AssertionError(failure);
+            }
+        });
+        ThreadMXBean threads = (ThreadMXBean) ManagementFactory.getThreadMXBean();
+        long self = Thread.currentThread().threadId();
+        int block = 1200;
+        int reps = 9;
+        double[][] alloc = new double[4][reps];
+        double[][] cpu = new double[4][reps];
+        try {
+            for (int i = 0; i < 20; i++) {
+                bot.tick();
+                tick.incrementAndGet();
+            }
+            long newestBefore = bot.lastPredicted;
+            await(() -> watch.ring != null && watch.ring.newest() >= newestBefore);
+            long diag = diagThread();
+            int bundle = 0;
+            for (int rep = -3; rep < reps; rep++) {
+                for (int order = 0; order < 2; order++) {
+                    boolean usePrinted = ((rep & 1) == 0) == (order == 0);
+                    printed[0] = usePrinted;
+                    long bytes = threads.getThreadAllocatedBytes(self);
+                    long time = threads.getCurrentThreadCpuTime();
+                    long diagBytes = threads.getThreadAllocatedBytes(diag);
+                    long diagTime = threads.getThreadCpuTime(diag);
+                    int predicted = 0;
+                    for (int i = 0; i < block; i++) {
+                        long last = bot.lastPredicted;
+                        bot.tick();
+                        tick.incrementAndGet();
+                        if (bot.lastPredicted != last) predicted++;
+                        if (i % 128 == 127) {
+                            long caught = bot.lastPredicted;
+                            await(() -> watch.ring.newest() >= caught);
+                        }
+                    }
+                    long packetBytes = threads.getThreadAllocatedBytes(self) - bytes;
+                    long packetTime = threads.getCurrentThreadCpuTime() - time;
+                    long newest = bot.lastPredicted;
+                    await(() -> watch.ring.newest() >= newest);
+                    if (cuts) {
+                        byte[] id = new byte[16];
+                        id[0] = (byte) ++bundle;
+                        diagnostics.cut(
+                                bot.player.getUniqueId(),
+                                new Cut(id, newest - 40, newest, newest - 20, newest),
+                                "header");
+                        records(diagnostics.upload());
+                    }
+                    long diagBytesUsed = threads.getThreadAllocatedBytes(diag) - diagBytes;
+                    long diagTimeUsed = threads.getThreadCpuTime(diag) - diagTime;
+                    if (rep < 0) continue;
+                    int way = usePrinted ? 0 : 1;
+                    alloc[way][rep] = packetBytes / (double) predicted;
+                    cpu[way][rep] = packetTime / (double) predicted;
+                    alloc[way + 2][rep] = diagBytesUsed / (double) predicted;
+                    cpu[way + 2][rep] = diagTimeUsed / (double) predicted;
+                }
+            }
+        } finally {
+            bot.close();
+            diagnostics.close();
+        }
+        await(() -> !diagnostics.threadRunning());
+        report.append(cuts ? "diag watch, cut each block:" : "diag watch, no cuts:");
+        String[] names = {"packet string", "packet record", "diag string", "diag record"};
+        for (int way = 0; way < 4; way++) median(report, names[way], alloc[way], cpu[way]);
+        report.append('\n');
+    }
+
+    private static long diagThread() {
+        for (Thread thread : Thread.getAllStackTraces().keySet()) {
+            if (thread.getName().startsWith("cult-cloud-diag-") && thread.isAlive()) return thread.threadId();
+        }
+        throw new AssertionError("no diag thread");
+    }
+
+    private static void median(StringBuilder report, String name, double[] alloc, double[] cpu) {
+        Arrays.sort(alloc);
+        Arrays.sort(cpu);
+        int n = alloc.length;
+        report.append(String.format(
+                Locale.ROOT,
+                " %s alloc median %.0f B (min %.0f, max %.0f), cpu median %.0f ns (min %.0f, max %.0f);",
+                name,
+                alloc[n / 2],
+                alloc[0],
+                alloc[n - 1],
+                cpu[n / 2],
+                cpu[0],
+                cpu[n - 1]));
+    }
+
+    /** One bundle's records, through its last part. */
+    private static List<byte[]> records(DiagUpload upload) {
+        List<byte[]> records = new ArrayList<>();
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        long nanos = 0;
+        while (System.nanoTime() < deadline) {
+            byte[] record = upload.poll(1, nanos += TimeUnit.SECONDS.toNanos(10));
+            if (record == null) {
+                sleep(5);
+                continue;
+            }
+            records.add(record);
+            try {
+                if (Intake.parseFrom(record).getMessages(0).getDiag().getLast()) return records;
+            } catch (IOException malformed) {
+                throw new AssertionError(malformed);
+            }
+        }
+        throw new AssertionError("no last part");
+    }
+
     private static void clearDouble(String key) {
         try {
             Method clear = OfflineCultTestBootstrap.class.getDeclaredMethod("clearDoubleConfigOverride", String.class);
@@ -216,9 +686,13 @@ class DiagPredictionTest {
     }
 
     private Diagnostics diagnostics() {
+        return diagnostics(ON);
+    }
+
+    private Diagnostics diagnostics(Limits limits) {
         Diagnostics diagnostics = new Diagnostics(new DiagUpload(), "prediction-test");
         diagnostics.captureLimitNanos = Long.MAX_VALUE;
-        diagnostics.connected(1, ON);
+        diagnostics.connected(1, limits);
         opened.add(diagnostics);
         return diagnostics;
     }
@@ -322,7 +796,7 @@ class DiagPredictionTest {
             if (step.input != null) {
                 var input = event(ServerboundPackets.PLAYER_INPUT, step.input);
                 STEER.onPlayerInput(input, player, step.input);
-                LISTENER.onPlayerInput(input, player, step.input);
+                CheckManagerListener.receiveGeneric(input, player);
             }
             if (step.sprintChange != null) {
                 ServerboundPlayerCommand command = new ServerboundPlayerCommand(0, step.sprintChange, 0);

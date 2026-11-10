@@ -167,8 +167,7 @@ public class PacketEntitySelf extends PacketEntity {
             boolean hasPosition,
             @Nullable Float yaw,
             @Nullable Float pitch,
-            CultPlayer player,
-            boolean bundled) {
+            CultPlayer player) {
         // please don't send this type of packet to the player self, it's not possible in vanilla
     }
 
@@ -179,8 +178,7 @@ public class PacketEntitySelf extends PacketEntity {
             boolean hasRotation,
             float yaw,
             float pitch,
-            CultPlayer player,
-            boolean bundled) {
+            CultPlayer player) {
         // please don't send this type of packet to the player self, it's not possible in vanilla
     }
 
@@ -243,39 +241,6 @@ public class PacketEntitySelf extends PacketEntity {
     }
 
     @Override
-    public void onFirstTransaction(
-            boolean relative, boolean hasPos, double relX, double relY, double relZ, CultPlayer player) {
-        // Player ignores this
-    }
-
-    @Override
-    public void onFirstTransaction(
-            boolean relative,
-            boolean hasPos,
-            double relX,
-            double relY,
-            double relZ,
-            @Nullable Float yaw,
-            @Nullable Float pitch,
-            CultPlayer player) {
-        // Player ignores this
-    }
-
-    @Override
-    public void onFirstTransaction(
-            boolean relative,
-            boolean hasPos,
-            double relX,
-            double relY,
-            double relZ,
-            boolean hasRotation,
-            float yaw,
-            float pitch,
-            CultPlayer player) {
-        // Player ignores this
-    }
-
-    @Override
     public void onBundleTransaction(
             boolean relative, boolean hasPos, double relX, double relY, double relZ, CultPlayer player) {
         // Player ignores this
@@ -338,23 +303,6 @@ public class PacketEntitySelf extends PacketEntity {
             float yaw,
             float pitch,
             CultPlayer player) {
-        // Player ignores this
-    }
-
-    @Override
-    public void onBundledPositionSyncTransaction(double x, double y, double z, CultPlayer player) {
-        // Player ignores this
-    }
-
-    @Override
-    public void onBundledPositionSyncTransaction(
-            double x, double y, double z, @Nullable Float yaw, @Nullable Float pitch, CultPlayer player) {
-        // Player ignores this
-    }
-
-    @Override
-    public void onBundledPositionSyncTransaction(
-            double x, double y, double z, boolean hasRotation, float yaw, float pitch, CultPlayer player) {
         // Player ignores this
     }
 

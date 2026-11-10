@@ -94,7 +94,7 @@ public class DumbTimer extends CultProcessor implements PositionListener {
     }
 
     private void handleMovement(final PacketReceiveEvent event) {
-        if (player.isBedrockMovement() || player.packetStateData.lastPacketWasTeleport) return;
+        if (player.isBedrockMovement() || event.answersTeleport()) return;
         countedThisClientTick = true;
         if (exceedsBacklog()) rejectTick(event);
     }

@@ -27,9 +27,12 @@ import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
+import it.unimi.dsi.fastutil.ints.Int2ObjectFunction;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.util.*;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
+import java.util.function.IntFunction;
 import org.jetbrains.annotations.Nullable;
 
 public class CompensatedEntities {
@@ -45,12 +48,10 @@ public class CompensatedEntities {
     public static final Set<String> EXCLUDED_MODIFIER_IDS = Set.of(SPRINTING_MODIFIER_ID, SNOW_MODIFIER_ID);
     private static final String ATTRIBUTE_NAMESPACE = "minecraft:";
     private static final long LOCAL_PLAYER_CLIENT_TICK_ORDER = 0L;
-    private static final int HELD_UPDATES = 4;
-    private static final int HELD_ENTITIES = 256;
+    // Client ticks whose end has been processed, counting the one whose entities are ticking.
+    private long clientTicks;
     public final EntityMap entityMap = new EntityMap();
     public final Int2ObjectOpenHashMap<TrackerData> serverPositionsMap = new Int2ObjectOpenHashMap<>(40, 0.7f);
-    private final Int2ObjectOpenHashMap<List<HeldAttributes>> pendingAttributes = new Int2ObjectOpenHashMap<>(10, 0.7f);
-    private final Int2ObjectOpenHashMap<List<EquipmentEntry>> pendingEquipment = new Int2ObjectOpenHashMap<>(10, 0.7f);
     public final CompensatedVehicleState vehicles;
     public List<SimpleCollisionBox> fishingRodPulls = new EvictingQueue<>(100); // sanity limit to prevent leaks.
     private long nextClientEntityTickOrder = 1L;
@@ -75,6 +76,8 @@ public class CompensatedEntities {
     private List<PacketEntityCamel> camels = List.of();
     private List<PacketEntity> poseCollisionCandidates = List.of();
     private List<PacketEntity> unknownCollisionCandidates = List.of();
+    // Refilled in place by refreshTypeViews.
+    private final ArrayList<PacketEntity> collisionOrPlayerCandidates = new ArrayList<>();
 
     CultPlayer player;
 
@@ -107,8 +110,6 @@ public class CompensatedEntities {
     /** A replacement ClientLevel cannot retain remote entities or their queued values. */
     public void clearClientLevel() {
         clearEntityMap();
-        pendingAttributes.clear();
-        pendingEquipment.clear();
         fishingRodPulls.clear();
         resetClientTickOrder();
     }
@@ -129,61 +130,88 @@ public class CompensatedEntities {
 
     /** The entities passing {@link PacketEntity#mayPushOrCollide()}, in entityMap iteration order. Read only. */
     public List<PacketEntity> pushOrCollideCandidates() {
+        if (entityMap.viewCount(EntityMap.PUSH_OR_COLLIDE) <= 0) return pushOrCollideCandidates = List.of();
         refreshTypeViews();
         return pushOrCollideCandidates;
     }
 
     /** The boats, in entityMap iteration order. Read only. */
     public List<PacketEntity> boats() {
+        if (entityMap.viewCount(EntityMap.BOATS) <= 0) return boats = List.of();
         refreshTypeViews();
         return boats;
     }
 
     /** The camels, in entityMap iteration order. Read only. */
     public List<PacketEntityCamel> camels() {
+        if (entityMap.viewCount(EntityMap.CAMELS) <= 0) return camels = List.of();
         refreshTypeViews();
         return camels;
     }
 
     /** The boats, shulkers and happy ghasts, in entityMap iteration order. Read only. */
     public List<PacketEntity> poseCollisionCandidates() {
+        if (entityMap.viewCount(EntityMap.POSE_COLLISION) <= 0) return poseCollisionCandidates = List.of();
         refreshTypeViews();
         return poseCollisionCandidates;
     }
 
     /** The boats, shulkers and {@link PacketEntityHappyGhast}s, in entityMap iteration order. Read only. */
     public List<PacketEntity> unknownCollisionCandidates() {
+        if (entityMap.viewCount(EntityMap.UNKNOWN_COLLISION) <= 0) return unknownCollisionCandidates = List.of();
         refreshTypeViews();
         return unknownCollisionCandidates;
     }
 
+    /**
+     * The boats, shulkers, {@link PacketEntityHappyGhast}s and {@link PacketEntityPlayer}s, in entityMap iteration
+     * order. Read only, and only until the next entityMap change: the next view read after it refills the list.
+     */
+    public List<PacketEntity> collisionOrPlayerCandidates() {
+        if (entityMap.viewCount(EntityMap.COLLISION_OR_PLAYER) <= 0) {
+            collisionOrPlayerCandidates.clear();
+            return List.of();
+        }
+        refreshTypeViews();
+        return collisionOrPlayerCandidates;
+    }
+
+    // Builds only the views with a nonzero count; the getters return List.of() for the others.
     private void refreshTypeViews() {
         if (typeViewsAt == entityMap.mutations) return;
-        List<PacketEntity> pushOrCollide = presized(pushOrCollideCandidates);
-        List<PacketEntity> boatList = presized(boats);
-        List<PacketEntityCamel> camelList = new ArrayList<>(camels.size());
-        List<PacketEntity> pose = presized(poseCollisionCandidates);
-        List<PacketEntity> unknown = presized(unknownCollisionCandidates);
+        ArrayList<PacketEntity> pushOrCollide = presized(EntityMap.PUSH_OR_COLLIDE);
+        ArrayList<PacketEntity> boatList = presized(EntityMap.BOATS);
+        int camelCount = entityMap.viewCount(EntityMap.CAMELS);
+        ArrayList<PacketEntityCamel> camelList = camelCount <= 0 ? null : new ArrayList<>(camelCount);
+        ArrayList<PacketEntity> pose = presized(EntityMap.POSE_COLLISION);
+        ArrayList<PacketEntity> unknown = presized(EntityMap.UNKNOWN_COLLISION);
+        ArrayList<PacketEntity> collisionOrPlayer = collisionOrPlayerCandidates;
+        collisionOrPlayer.clear();
+        boolean anyCollisionOrPlayer = entityMap.viewCount(EntityMap.COLLISION_OR_PLAYER) > 0;
         for (PacketEntity entity : entityMap.values()) {
-            if (entity.mayPushOrCollide()) pushOrCollide.add(entity);
+            if (pushOrCollide != null && entity.mayPushOrCollide()) pushOrCollide.add(entity);
             boolean boat = entity.isBoat();
             boolean shulker = entity.type == EntityTypeIds.SHULKER;
-            if (boat) boatList.add(entity);
-            if (entity instanceof PacketEntityCamel camel) camelList.add(camel);
-            if (boat || shulker || entity.isHappyGhast()) pose.add(entity);
-            if (boat || shulker || entity instanceof PacketEntityHappyGhast) unknown.add(entity);
+            if (boatList != null && boat) boatList.add(entity);
+            if (camelList != null && entity instanceof PacketEntityCamel camel) camelList.add(camel);
+            if (pose != null && (boat || shulker || entity.isHappyGhast())) pose.add(entity);
+            boolean collision = boat || shulker || entity instanceof PacketEntityHappyGhast;
+            if (unknown != null && collision) unknown.add(entity);
+            if (anyCollisionOrPlayer && (collision || entity instanceof PacketEntityPlayer))
+                collisionOrPlayer.add(entity);
         }
-        pushOrCollideCandidates = pushOrCollide;
-        boats = boatList;
-        camels = camelList;
-        poseCollisionCandidates = pose;
-        unknownCollisionCandidates = unknown;
+        pushOrCollideCandidates = pushOrCollide == null ? List.of() : pushOrCollide;
+        boats = boatList == null ? List.of() : boatList;
+        camels = camelList == null ? List.of() : camelList;
+        poseCollisionCandidates = pose == null ? List.of() : pose;
+        unknownCollisionCandidates = unknown == null ? List.of() : unknown;
         typeViewsAt = entityMap.mutations;
     }
 
-    private List<PacketEntity> presized(List<PacketEntity> previous) {
-        if (previous.isEmpty() || entityMap.isEmpty()) return new ArrayList<>();
-        return new ArrayList<>(Math.max(10, previous.size() + 1));
+    @Nullable
+    private ArrayList<PacketEntity> presized(int view) {
+        int count = entityMap.viewCount(view);
+        return count <= 0 ? null : new ArrayList<>(count);
     }
 
     private void track(PacketEntity entity) {
@@ -424,8 +452,6 @@ public class CompensatedEntities {
             for (PacketEntity passenger : removing.passengers) settleIfUntrackedRider(passenger);
         }
         PacketEntity entity = entityMap.remove(entityID);
-        pendingAttributes.remove(entityID);
-        pendingEquipment.remove(entityID);
         if (entity == null) return;
         untrack(entity);
         addOrder.remove(entity);
@@ -444,9 +470,10 @@ public class CompensatedEntities {
         entity.eject();
         if (player.isBedrockMovement()) {
             vehicles.seedStartingVelocityIfRootChanged(previousRoot);
-            if (previousRoot == null) player.getSetbackTeleportUtil().transferBedrockVehicleSetback(entityID);
+            if (previousRoot == null)
+                player.getSetbackTeleportUtil().vehicleTeleports().transferBedrockVehicleSetback(entityID);
         } else if (previousRoot != null) {
-            player.getSetbackTeleportUtil().reissueDroppedVehicleSetback();
+            player.getSetbackTeleportUtil().vehicleTeleports().reissueDroppedVehicleSetback();
         }
     }
 
@@ -627,10 +654,8 @@ public class CompensatedEntities {
 
         PacketEntity entity = player.compensatedEntities.getEntity(entityID);
         boolean entityScaleChanged = false;
-        if (entity == null && entityID != player.entityID) {
-            holdAttributes(entityID, objects, provenAt);
-            return;
-        }
+        // ClientPacketListener#handleUpdateAttributes drops the update for an id the client lacks.
+        if (entity == null && entityID != player.entityID) return;
 
         if (entity != null && entityID != player.entityID) {
             for (AttributeSnapshot snapshot : objects) {
@@ -809,6 +834,15 @@ public class CompensatedEntities {
         return rideTickSeat;
     }
 
+    /**
+     * Where a Java passenger's ClientPacketListener#handleMovePlayer reports it, from Cult's state alone. A passenger
+     * stays where the last Entity#rideTick's Entity#positionRider seated it; before its first ride tick it stays where
+     * it mounted, as Entity#startRiding moves nothing.
+     */
+    public Vec3 passengerReportPosition() {
+        return rideTickSeat != null ? rideTickSeat : new Vec3(player.x, player.y, player.z);
+    }
+
     /** Whether the local player was a passenger at the end of the last client tick. */
     public boolean rodeLastClientTick() {
         return rideTickSeat != null;
@@ -861,10 +895,10 @@ public class CompensatedEntities {
     }
 
     /** Adds the entity and replays its held attributes; returns the greatest replayed proof, or Integer.MIN_VALUE. */
-    public int addEntity(int entityID, int entityType, Vec3 position, float xRot, float yRot, int data) {
+    public void addEntity(int entityID, int entityType, Vec3 position, float xRot, float yRot, int data) {
         // Dropped items are all server sided and players can't interact with them (except create them!), save the
         // performance
-        if (entityType == EntityTypeIds.ITEM) return Integer.MIN_VALUE;
+        if (entityType == EntityTypeIds.ITEM) return;
 
         PacketEntity packetEntity = createTrackedEntity(entityID, entityType, position, xRot, data);
         packetEntity.setClientPhysicalRotation(xRot, yRot);
@@ -886,23 +920,6 @@ public class CompensatedEntities {
         addOrder.add(packetEntity);
         addOrderMapped = false;
         track(packetEntity);
-        int replayedProof = Integer.MIN_VALUE;
-        List<HeldAttributes> held = pendingAttributes.remove(entityID);
-        if (held != null) {
-            // Each held update keeps its own proof; those already answered retire with the spawn.
-            for (HeldAttributes update : held) {
-                if (update.leastScale() == update.leastScale())
-                    packetEntity.onScale(update.leastScale(), update.provenAt());
-                updateAttributes(entityID, update.values(), update.provenAt());
-                replayedProof = Math.max(replayedProof, update.provenAt());
-            }
-            packetEntity.onSizeHandled(player.lastTransactionReceived.get());
-        }
-        List<EquipmentEntry> pendingEquipmentUpdates = pendingEquipment.remove(entityID);
-        if (pendingEquipmentUpdates != null) {
-            updateEntityEquipment(entityID, pendingEquipmentUpdates);
-        }
-        return replayedProof;
     }
 
     private PacketEntity createTrackedEntity(int entityID, int entityType, Vec3 position, float xRot, int data) {
@@ -1000,31 +1017,8 @@ public class CompensatedEntities {
 
     public void updateEntityEquipment(int entityID, List<EquipmentEntry> slots) {
         PacketEntity entity = getEntity(entityID);
-        if (entity == null) {
-            List<EquipmentEntry> merged = new ArrayList<>();
-            List<EquipmentEntry> existing = pendingEquipment.remove(entityID);
-            if (existing != null) {
-                merged.addAll(existing);
-            }
-            for (EquipmentEntry slot : slots) {
-                int existingIndex = -1;
-                for (int i = 0; i < merged.size(); i++) {
-                    if (merged.get(i).slot() == slot.slot()) {
-                        existingIndex = i;
-                        break;
-                    }
-                }
-                EquipmentEntry copiedSlot =
-                        new EquipmentEntry(slot.slot(), slot.item().copy());
-                if (existingIndex >= 0) {
-                    merged.set(existingIndex, copiedSlot);
-                } else {
-                    merged.add(copiedSlot);
-                }
-            }
-            pendingEquipment.put(entityID, merged);
-            return;
-        }
+        // ClientPacketListener#handleSetEquipment drops the update for an id the client lacks.
+        if (entity == null) return;
 
         boolean controlled = vehicles.canClientAuthoritativelyMoveVisibleRoot(entity);
         for (EquipmentEntry slot : slots) {
@@ -1102,20 +1096,18 @@ public class CompensatedEntities {
             cat.updateActionMetadata(
                     watchableObjects, player.user.getCultConnection().getObservedProtocol());
         if (entity instanceof PacketEntityArmorStand stand) stand.updateActionMetadata(watchableObjects);
-        var flags = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.ENTITY_SHARED_FLAGS);
-        if (flags != null && flags.value() instanceof Byte value) entity.actionSharedFlags = value;
+        if (WatchableIndexUtil.value(watchableObjects, WatchableIndexUtil.ENTITY_SHARED_FLAGS) instanceof Byte value)
+            entity.actionSharedFlags = value;
         if (entity.isDisplay()) {
-            var duration = WatchableIndexUtil.getIndex(
-                    watchableObjects, WatchableIndexUtil.DISPLAY_POS_ROT_INTERPOLATION_DURATION);
-            if (duration != null && duration.value() instanceof Integer value) entity.onDisplayTeleportDuration(value);
+            if (WatchableIndexUtil.value(watchableObjects, WatchableIndexUtil.DISPLAY_POS_ROT_INTERPOLATION_DURATION)
+                    instanceof Integer value) entity.onDisplayTeleportDuration(value);
         }
         if (entity.isLivingEntity()) {
-            var pose = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.ENTITY_POSE);
-            if (pose != null && pose.value() instanceof EntityPose value) {
+            if (WatchableIndexUtil.value(watchableObjects, WatchableIndexUtil.ENTITY_POSE)
+                    instanceof EntityPose value) {
                 entity.onPose(value, provenAt);
             }
-            var health = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.LIVING_HEALTH);
-            if (health != null && health.value() instanceof Float value) {
+            if (WatchableIndexUtil.value(watchableObjects, WatchableIndexUtil.LIVING_HEALTH) instanceof Float value) {
                 if (entity instanceof PacketEntitySelf self) {
                     self.setHealth(value);
                     // Gui#tick opens the death screen once DATA_HEALTH_ID makes LivingEntity#isDeadOrDying true.
@@ -1126,39 +1118,35 @@ public class CompensatedEntities {
             }
         }
         if (entity instanceof PacketEntityCreaking creaking) {
-            var canMove = WatchableIndexUtil.getIndex(watchableObjects, 16);
-            if (canMove != null && canMove.value() instanceof Boolean value) creaking.actionCanMove = value;
+            if (WatchableIndexUtil.value(watchableObjects, 16) instanceof Boolean value) creaking.actionCanMove = value;
         }
         if (entity instanceof PacketEntitySpider spider) {
-            var climbing = WatchableIndexUtil.getIndex(watchableObjects, 16);
-            if (climbing != null && climbing.value() instanceof Byte value) spider.actionClimbing = (value & 1) != 0;
+            if (WatchableIndexUtil.value(watchableObjects, 16) instanceof Byte value)
+                spider.actionClimbing = (value & 1) != 0;
         }
         if (entity instanceof PacketEntityInteraction interaction) {
-            var width = WatchableIndexUtil.getIndex(watchableObjects, 8);
-            var height = WatchableIndexUtil.getIndex(watchableObjects, 9);
-            if (width != null && width.value() instanceof Float value) interaction.actionWidth = value;
-            if (height != null && height.value() instanceof Float value) interaction.actionHeight = value;
+            if (WatchableIndexUtil.value(watchableObjects, 8) instanceof Float value) interaction.actionWidth = value;
+            if (WatchableIndexUtil.value(watchableObjects, 9) instanceof Float value) interaction.actionHeight = value;
             // Interaction#onSyncedDataUpdated refreshes its dimensions on either field.
-            if (width != null || height != null) interaction.refreshDimensions(player);
+            if (WatchableIndexUtil.has(watchableObjects, 8) || WatchableIndexUtil.has(watchableObjects, 9))
+                interaction.refreshDimensions(player);
         }
         var modelType = EntityTypeUtil.modelType(entity.type);
         if (modelType != null && modelType.has(ac.cult.blocksim.entity.EntityTypes.ARROW)) {
-            var inGround = WatchableIndexUtil.getIndex(watchableObjects, 10);
-            if (inGround != null && inGround.value() instanceof Boolean value) entity.actionArrowInGround = value;
+            if (WatchableIndexUtil.value(watchableObjects, 10) instanceof Boolean value)
+                entity.actionArrowInGround = value;
         }
 
-        WatchableIndexUtil.Layout layout = WatchableIndexUtil.forModel(player.user.getCultConnection());
+        var version = player.user.getCultConnection().getObservedProtocol();
+        WatchableIndexUtil.Layout layout = WatchableIndexUtil.forModel(version);
         applyAgeableMetadata(entity, watchableObjects);
         applySizeMetadata(entity, watchableObjects, layout);
         if (entity instanceof PacketEntityShulker) {
             applyShulkerMetadata(entity, watchableObjects, provenAt);
         }
         if (entity instanceof PacketEntityPolarBear bear) {
-            var standing = WatchableIndexUtil.getIndex(
-                    watchableObjects,
-                    WatchableIndexUtil.polarBearStanding(
-                            player.user.getCultConnection().getObservedProtocol()));
-            if (standing != null && standing.value() instanceof Boolean value) bear.onStanding(value, provenAt);
+            if (WatchableIndexUtil.value(watchableObjects, WatchableIndexUtil.polarBearStanding(version))
+                    instanceof Boolean value) bear.onStanding(value, provenAt);
         }
         if (entity instanceof PacketEntityRideable) {
             applyRideableMetadata(entity, watchableObjects, layout);
@@ -1170,31 +1158,27 @@ public class CompensatedEntities {
             applyHappyGhastMetadata(happyGhast, watchableObjects, layout);
         }
         if (entity instanceof PacketEntityNautilus nautilus) {
-            EntityMetadata.Entry dashData = WatchableIndexUtil.getIndex(watchableObjects, layout.nautilusDash());
-            if (dashData != null && dashData.value() instanceof Boolean dashing) {
+            if (WatchableIndexUtil.value(watchableObjects, layout.nautilusDash()) instanceof Boolean dashing) {
                 nautilus.setDashingFromMetadata(dashing);
             }
-            EntityMetadata.Entry tameData = WatchableIndexUtil.getIndex(
-                    watchableObjects,
-                    WatchableIndexUtil.tameableFlags(
-                            player.user.getCultConnection().getObservedProtocol()));
-            if (tameData != null && tameData.value() instanceof Byte tameFlags) {
+            if (WatchableIndexUtil.value(watchableObjects, WatchableIndexUtil.tameableFlags(version))
+                    instanceof Byte tameFlags) {
                 nautilus.isTame = (tameFlags & 0x04) != 0;
             }
         }
         applyGravityMetadata(entity, watchableObjects);
 
         if (entity.type == EntityTypeIds.FIREWORK_ROCKET) {
-            EntityMetadata.Entry fireworkData =
-                    WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.FIREWORK_ATTACHED_TO_TARGET);
-            if (fireworkData == null) return;
-            trackFireworkAttachment(entityID, fireworkData.value(), provenAt);
+            if (!WatchableIndexUtil.has(watchableObjects, WatchableIndexUtil.FIREWORK_ATTACHED_TO_TARGET)) return;
+            trackFireworkAttachment(
+                    entityID,
+                    WatchableIndexUtil.value(watchableObjects, WatchableIndexUtil.FIREWORK_ATTACHED_TO_TARGET),
+                    provenAt);
         }
 
         if (entity instanceof PacketEntityHook) {
-            EntityMetadata.Entry hookedData =
-                    WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.FISHING_HOOKED_ENTITY);
-            if (!(hookedData != null && hookedData.value() instanceof Integer hooked)) return;
+            if (!(WatchableIndexUtil.value(watchableObjects, WatchableIndexUtil.FISHING_HOOKED_ENTITY)
+                    instanceof Integer hooked)) return;
             ((PacketEntityHook) entity).attached = hooked - 1; // the server adds 1 to the ID
         }
 
@@ -1206,10 +1190,7 @@ public class CompensatedEntities {
     private void applyAgeableMetadata(PacketEntity entity, List<EntityMetadata.Entry> watchableObjects) {
         if (!entity.isAgeable()) return;
 
-        EntityMetadata.Entry babyData = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.AGEABLE_BABY);
-        if (babyData == null) return;
-
-        Object value = babyData.value();
+        Object value = WatchableIndexUtil.value(watchableObjects, WatchableIndexUtil.AGEABLE_BABY);
         // Required because bukkit Ageable doesn't align with minecraft's ageable
         if (value instanceof Boolean) {
             entity.isBaby = (boolean) value;
@@ -1223,10 +1204,9 @@ public class CompensatedEntities {
         if (!entity.isSize()) return;
 
         int sizeIndex = entity.type == EntityTypeIds.PHANTOM ? WatchableIndexUtil.PHANTOM_SIZE : layout.slimeSize();
-        EntityMetadata.Entry sizeData = WatchableIndexUtil.getIndex(watchableObjects, sizeIndex);
-        if (sizeData == null) return;
+        if (!WatchableIndexUtil.has(watchableObjects, sizeIndex)) return;
 
-        Object value = sizeData.value();
+        Object value = WatchableIndexUtil.value(watchableObjects, sizeIndex);
         if (value instanceof Integer) {
             ((PacketEntitySizeable) entity).size = (int) value;
         } else if (value instanceof Byte) {
@@ -1261,16 +1241,14 @@ public class CompensatedEntities {
             ((PacketEntityRideable) entity).hasSaddle = (boolean) saddleData.value();
         }
         if (entity.type == EntityTypeIds.PIG) {
-            EntityMetadata.Entry boostData = WatchableIndexUtil.getIndex(watchableObjects, layout.pigBoostTime());
-            if (boostData != null && boostData.value() instanceof Integer boost) {
+            if (WatchableIndexUtil.value(watchableObjects, layout.pigBoostTime()) instanceof Integer boost) {
                 ((PacketEntityRideable) entity).boost.onSynced(boost);
             }
             return;
         }
 
         if (entity instanceof PacketEntityStrider) {
-            EntityMetadata.Entry boostData = WatchableIndexUtil.getIndex(watchableObjects, layout.striderBoostTime());
-            if (boostData != null && boostData.value() instanceof Integer boost) {
+            if (WatchableIndexUtil.value(watchableObjects, layout.striderBoostTime()) instanceof Integer boost) {
                 ((PacketEntityRideable) entity).boost.onSynced(boost);
             }
         }
@@ -1278,8 +1256,7 @@ public class CompensatedEntities {
 
     private void applyHorseMetadata(
             PacketEntity entity, List<EntityMetadata.Entry> watchableObjects, WatchableIndexUtil.Layout layout) {
-        EntityMetadata.Entry flagsData = WatchableIndexUtil.getIndex(watchableObjects, layout.horseFlags());
-        if (flagsData != null && flagsData.value() instanceof Byte flags) {
+        if (WatchableIndexUtil.value(watchableObjects, layout.horseFlags()) instanceof Byte flags) {
             PacketEntityHorse horse = (PacketEntityHorse) entity;
             horse.isTame = (flags & 0x02) != 0;
             // Through 1.21.4, AbstractHorse#isSaddled reads flag 0x04 from
@@ -1293,13 +1270,11 @@ public class CompensatedEntities {
         }
 
         if (entity instanceof PacketEntityCamel camel) {
-            EntityMetadata.Entry dashData = WatchableIndexUtil.getIndex(watchableObjects, layout.camelDash());
-            if (dashData != null && dashData.value() instanceof Boolean dashing) {
+            if (WatchableIndexUtil.value(watchableObjects, layout.camelDash()) instanceof Boolean dashing) {
                 camel.setDashingFromMetadata(dashing);
             }
             // Camel defines LAST_POSE_CHANGE_TICK directly after DASH.
-            EntityMetadata.Entry poseTickData = WatchableIndexUtil.getIndex(watchableObjects, layout.camelDash() + 1);
-            if (poseTickData != null && poseTickData.value() instanceof Number poseTick) {
+            if (WatchableIndexUtil.value(watchableObjects, layout.camelDash() + 1) instanceof Number poseTick) {
                 camel.lastPoseChangeTick = poseTick.longValue();
             }
         }
@@ -1309,17 +1284,14 @@ public class CompensatedEntities {
             PacketEntityHappyGhast happyGhast,
             List<EntityMetadata.Entry> watchableObjects,
             WatchableIndexUtil.Layout layout) {
-        EntityMetadata.Entry staysStillData =
-                WatchableIndexUtil.getIndex(watchableObjects, layout.happyGhastStaysStill());
-        if (staysStillData != null && staysStillData.value() instanceof Boolean staysStill) {
+        if (WatchableIndexUtil.value(watchableObjects, layout.happyGhastStaysStill()) instanceof Boolean staysStill) {
             happyGhast.staysStill = staysStill;
         }
     }
 
     private void applyGravityMetadata(PacketEntity entity, List<EntityMetadata.Entry> watchableObjects) {
-        EntityMetadata.Entry gravityData =
-                WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.ENTITY_NO_GRAVITY);
-        if (gravityData != null && gravityData.value() instanceof Boolean noGravity) {
+        if (WatchableIndexUtil.value(watchableObjects, WatchableIndexUtil.ENTITY_NO_GRAVITY)
+                instanceof Boolean noGravity) {
             // Vanilla uses hasNoGravity, which is a bad name IMO
             // hasGravity > hasNoGravity
             entity.hasGravity = !noGravity;
@@ -1345,6 +1317,16 @@ public class CompensatedEntities {
         if (mobFlags != null) {
             entity.noAI = ((byte) mobFlags.value() & 0x01) != 0;
         }
+    }
+
+    /**
+     * Whether a Bedrock actor is held where it entered a chunk the client has not loaded: it stays there through later
+     * moves until the chunk loads, and a remote player placed there leaves only by a teleport.
+     */
+    public boolean isInBedrockLimbo(PacketEntity entity) {
+        if (!entity.clientPhysicalPositionExact) return false;
+        Vec3 position = entity.clientPhysicalPosition;
+        return position != null && !entity.isInLoadedChunk(player.compensatedWorld, position);
     }
 
     /** ClientLevel root/passenger order and client ticking membership. */
@@ -1438,78 +1420,67 @@ public class CompensatedEntities {
         }
     }
 
-    /** The number of attribute updates held for entityID until it is added. */
-    public int heldAttributeUpdates(int entityID) {
-        List<HeldAttributes> held = pendingAttributes.get(entityID);
-        return held == null ? 0 : held.size();
-    }
-
-    private void holdAttributes(int entityID, List<AttributeSnapshot> values, int provenAt) {
-        List<HeldAttributes> held = pendingAttributes.get(entityID);
-        if (held == null) {
-            // A tracked spawn's attributes always hold; the client drops those for an id it lacks, so untracked ids
-            // beyond the bound go unheld.
-            if (pendingAttributes.size() >= HELD_ENTITIES && !serverPositionsMap.containsKey(entityID)) return;
-            pendingAttributes.put(entityID, held = new ArrayList<>(HELD_UPDATES));
-        }
-        if (held.size() == HELD_UPDATES) {
-            HeldAttributes oldest = held.remove(0);
-            held.set(0, merge(oldest, held.get(0)));
-        }
-        held.add(new HeldAttributes(List.copyOf(values), provenAt, Float.NaN));
-    }
-
-    // The later values win, the earlier's scale stays an alternative, and the later proof proves both.
-    private HeldAttributes merge(HeldAttributes earlier, HeldAttributes later) {
-        Map<String, AttributeSnapshot> values = new LinkedHashMap<>();
-        for (AttributeSnapshot snapshot : earlier.values()) values.put(snapshot.attribute(), snapshot);
-        for (AttributeSnapshot snapshot : later.values()) values.put(snapshot.attribute(), snapshot);
-        float leastScale = least(least(earlier.leastScale(), heldScale(earlier.values())), later.leastScale());
-        return new HeldAttributes(
-                List.copyOf(values.values()), Math.max(earlier.provenAt(), later.provenAt()), leastScale);
-    }
-
-    private float heldScale(List<AttributeSnapshot> values) {
-        float scale = Float.NaN;
-        for (AttributeSnapshot snapshot : values) {
-            if (matchesAttribute(snapshot, "scale")) scale = (float) calculateAttribute(snapshot, 0.0625, 16.0);
-        }
-        return scale;
-    }
-
-    // The lesser of two scales, NaN standing for none.
-    private static float least(float a, float b) {
-        return b < a || a != a ? b : a;
-    }
-
-    /**
-     * Attributes for an entity not yet added, which the client has applied once it answers provenAt; leastScale is
-     * a smaller scale merged earlier updates set, or NaN.
-     */
-    private record HeldAttributes(List<AttributeSnapshot> values, int provenAt, float leastScale) {}
-
     /**
      * The tracked entities by id; {@code mutations} advances on every put and clear, and on every remove of a present
-     * key: removing an absent key leaves the arrays untouched.
+     * key: removing an absent key leaves the arrays untouched. Put, remove and clear also keep the number of values
+     * each type view accepts; they are the supported mutators, and the other map mutators throw.
      */
     public static final class EntityMap extends Int2ObjectOpenHashMap<PacketEntity> {
+        static final int PUSH_OR_COLLIDE = 0;
+        static final int BOATS = 1;
+        static final int CAMELS = 2;
+        static final int POSE_COLLISION = 3;
+        static final int UNKNOWN_COLLISION = 4;
+        static final int COLLISION_OR_PLAYER = 5;
+
         private int mutations;
+        private final int[] viewCounts = new int[6];
 
         public EntityMap() {
             super(40, 0.7f);
         }
 
+        // Every input is fixed at construction, so an entity's mask never changes while it is mapped.
+        static int viewMask(PacketEntity entity) {
+            int mask = entity.mayPushOrCollide() ? 1 << PUSH_OR_COLLIDE : 0;
+            boolean boat = entity.isBoat();
+            boolean shulker = entity.type == EntityTypeIds.SHULKER;
+            if (boat) mask |= 1 << BOATS;
+            if (entity instanceof PacketEntityCamel) mask |= 1 << CAMELS;
+            if (boat || shulker || entity.isHappyGhast()) mask |= 1 << POSE_COLLISION;
+            boolean unknown = boat || shulker || entity instanceof PacketEntityHappyGhast;
+            if (unknown) mask |= 1 << UNKNOWN_COLLISION;
+            if (unknown || entity instanceof PacketEntityPlayer) mask |= 1 << COLLISION_OR_PLAYER;
+            return mask;
+        }
+
+        int viewCount(int view) {
+            return viewCounts[view];
+        }
+
+        private void count(@Nullable PacketEntity entity, int delta) {
+            if (entity == null) return;
+            int mask = viewMask(entity);
+            for (int view = 0; mask != 0; view++, mask >>>= 1) if ((mask & 1) != 0) viewCounts[view] += delta;
+        }
+
         @Override
         public PacketEntity put(int key, PacketEntity value) {
             mutations++;
-            return super.put(key, value);
+            PacketEntity replaced = super.put(key, value);
+            count(replaced, -1);
+            count(value, 1);
+            return replaced;
         }
 
         @Override
         public PacketEntity remove(int key) {
             int before = size();
             PacketEntity removed = super.remove(key);
-            if (size() != before) mutations++;
+            if (size() != before) {
+                mutations++;
+                count(removed, -1);
+            }
             return removed;
         }
 
@@ -1517,6 +1488,72 @@ public class CompensatedEntities {
         public void clear() {
             mutations++;
             super.clear();
+            Arrays.fill(viewCounts, 0);
         }
+
+        @Override
+        public PacketEntity putIfAbsent(int key, PacketEntity value) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public boolean remove(int key, Object value) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public boolean replace(int key, PacketEntity oldValue, PacketEntity value) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public PacketEntity replace(int key, PacketEntity value) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public PacketEntity computeIfAbsent(int key, IntFunction<? extends PacketEntity> mapping) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public PacketEntity computeIfAbsent(int key, Int2ObjectFunction<? extends PacketEntity> mapping) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public PacketEntity computeIfPresent(
+                int key, BiFunction<? super Integer, ? super PacketEntity, ? extends PacketEntity> remapping) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public PacketEntity compute(
+                int key, BiFunction<? super Integer, ? super PacketEntity, ? extends PacketEntity> remapping) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public PacketEntity merge(
+                int key,
+                PacketEntity value,
+                BiFunction<? super PacketEntity, ? super PacketEntity, ? extends PacketEntity> remapping) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void replaceAll(BiFunction<? super Integer, ? super PacketEntity, ? extends PacketEntity> function) {
+            throw new UnsupportedOperationException();
+        }
+    }
+
+    /** The client ticks processed so far; while a tick's entities tick, that tick is counted. */
+    public long clientTicks() {
+        return clientTicks;
+    }
+
+    /** A client tick's end, before its entities tick. */
+    public void onClientTick() {
+        clientTicks++;
     }
 }

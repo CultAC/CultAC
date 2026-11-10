@@ -26,8 +26,8 @@ import java.util.function.Supplier;
  * <p>Off costs nothing: no thread, queue or ring exists until the service's limits enable diagnostics and a watch
  * starts, and an unwatched player's packet thread reads one null field per prediction and per tick end. While watched, the
  * packet thread copies each prediction ({@link DiagWatch#capture}) into a bounded queue; the single
- * {@code cult-cloud-diag} thread prints the block grid, compresses the text, keeps the ring and builds the parts, which
- * {@link DiagUpload} paces onto the socket. Nothing runs on the server's main thread and nothing is written to a
+ * {@code cult-cloud-diag} thread prints the state and the block grid, compresses the text, keeps the ring and builds
+ * the parts, which {@link DiagUpload} paces onto the socket. Nothing runs on the server's main thread and nothing is written to a
  * player's connection. Three failures anywhere in diagnostics trip it off for the process; prediction goes on.
  */
 public final class Diagnostics {

@@ -25,7 +25,7 @@ class PlacedEntityPositionTest {
             // No gravity, so FallingBlockEntity#tick adds no local movement between server positions.
             block.hasGravity = false;
 
-            block.onBundledPositionSyncTransaction(0.5, 85.9599609375, 0.5, player);
+            block.onBundleTransaction(false, true, 0.5, 85.9599609375, 0.5, player);
             tick(player, block, 3);
             assertEquals(85.9599609375, minY(block), 1e-9);
 
@@ -33,7 +33,7 @@ class PlacedEntityPositionTest {
             double y = 85.9599609375;
             for (double move : moves) {
                 y += move;
-                block.onFirstTransaction(false, true, 0.5, y, 0.5, player);
+                block.onBundleFirstTransaction(false, true, 0.5, y, 0.5, player);
                 block.onSecondTransaction();
                 tick(player, block, 20);
                 assertEquals(y, minY(block), 1e-9);

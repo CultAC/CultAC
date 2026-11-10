@@ -48,6 +48,19 @@ public class PredictionResult {
     @EqualsAndHashCode.Exclude
     @ToString.Exclude
     private double selectionOffset = Double.NaN;
+    // The last legacy-like vector and the closest, target and radius bits it was built from.
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    private Vec3 legacyLikeVector, legacyLikeClosest, legacyLikeTarget;
+
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    private long legacyLikeRadius;
+
     private Boolean cachedAnyRealityControlsVerticalMovement;
     private Boolean cachedAnyRealityDidTickSkipGravity;
 
@@ -248,7 +261,23 @@ public class PredictionResult {
             return profilePredictionVector;
         }
         Vec3 closest = getAcceptedClosestToTarget();
-        return UncertaintyHelper.handleCircularInput(new PredVector(closest), getTarget(), getHorizontalInputRadius());
+        if (closest == null) {
+            return UncertaintyHelper.handleCircularInput(
+                    new PredVector(closest), getTarget(), getHorizontalInputRadius());
+        }
+        Vec3 target = getTarget();
+        double radius = getHorizontalInputRadius();
+        long radiusBits = Double.doubleToRawLongBits(radius);
+        if (legacyLikeVector != null
+                && closest == legacyLikeClosest
+                && target == legacyLikeTarget
+                && radiusBits == legacyLikeRadius) return legacyLikeVector;
+        Vec3 vector = UncertaintyHelper.handleCircularInput(new PredVector(closest), target, radius);
+        legacyLikeClosest = closest;
+        legacyLikeTarget = target;
+        legacyLikeRadius = radiusBits;
+        legacyLikeVector = vector;
+        return vector;
     }
 
     /** Radius of the circular horizontal input allowance around the closest movement. */

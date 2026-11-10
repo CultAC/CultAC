@@ -98,6 +98,16 @@ public final class DebugText {
                 }
             } else if (part instanceof Part value) {
                 value.appendTo(sb);
+            } else if (part.getClass() == Vec3.class) {
+                // As Vec3#toString prints it.
+                Vec3 vector = (Vec3) part;
+                sb.append('(')
+                        .append(vector.x)
+                        .append(", ")
+                        .append(vector.y)
+                        .append(", ")
+                        .append(vector.z)
+                        .append(')');
             } else {
                 sb.append(part);
             }

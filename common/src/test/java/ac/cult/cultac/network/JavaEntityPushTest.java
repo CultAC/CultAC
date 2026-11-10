@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InputKeys;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CarriedPush;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.EntityPush;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
@@ -21,8 +22,11 @@ import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityPositionSync;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveEntities;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundUpdateAttributes;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
+import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.value.EntityPose;
+import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.PositionPath;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
@@ -37,6 +41,7 @@ class JavaEntityPushTest {
     private static final ServerboundPlayerInput NONE =
             new ServerboundPlayerInput(false, false, false, false, false, false, false);
     private static final Vec3 START = new Vec3(0.5, FLOOR_Y + 10, 0.5);
+    private static final Vec3 GROUNDED = new Vec3(0, -0.0784000015258789, 0);
     private static final Vec3 TOUCHING = new Vec3(0.5, FLOOR_Y + 9, 1.0);
     /** Entity#push from {@link #TOUCHING}, 0.5 along Z: more than airborne input reaches. */
     private static final double PUSH = -0.05 * 0.5 / Math.sqrt(0.5);
@@ -53,6 +58,18 @@ class JavaEntityPushTest {
     private static final Vec3 STEPPING_FROM = TOUCHING.add(0, 0, 0.4);
     /** Three interpolation steps of -0.4 each. */
     private static final double STEPPING_DZ = -1.2;
+
+    /**
+     * A recorded interaction at (593.6777343125403, 61.675, 1176.112483456511) less the player's
+     * (593.5222185027443, 62.92159999847412, 1175.578128188504).
+     */
+    private static final Vec3 INTERACTION_FROM_CONTACT =
+            new Vec3(593.6777343125403 - 593.5222185027443, 61.675 - 62.92159999847412, 1176.112483456511 - 1175.578128188504);
+    /** The update_attributes scale of the slime riding that interaction. */
+    private static final double INTERACTION_SLIME_SCALE = 1.2254902194528017;
+    /** Entity#push on the player from the slime at {@link #INTERACTION_FROM_CONTACT}. */
+    private static final double INTERACTION_PUSH_X = -push(INTERACTION_FROM_CONTACT.x, INTERACTION_FROM_CONTACT.z);
+    private static final double INTERACTION_PUSH_Z = -push(INTERACTION_FROM_CONTACT.z, INTERACTION_FROM_CONTACT.x);
 
     private static final RelativeFlag ALL_DELTAS =
             keep(RelativeFlag.DELTA_X, RelativeFlag.DELTA_Y, RelativeFlag.DELTA_Z, RelativeFlag.ROTATE_DELTA);
@@ -86,7 +103,7 @@ class JavaEntityPushTest {
     void anEntityTickingAfterThePlayerPushesFromWhereItsInterpolationStepLeftIt() throws Exception {
         try (var f = falling()) {
             PacketEntity entity = entity(f, 100, STEPPING_FROM);
-            entity.onFirstTransaction(true, true, 0, 0, STEPPING_DZ, f.player);
+            entity.onBundleFirstTransaction(true, true, 0, 0, STEPPING_DZ, f.player);
             entity.onSecondTransaction();
 
             PredictionResult first = f.tick(START.add(0, FIRST_FALL, 0), false);
@@ -503,6 +520,59 @@ class JavaEntityPushTest {
         }
     }
 
+    /**
+     * Entity#rideTick runs LivingEntity#tick before Entity#positionRider seats the rider, and Entity#startRiding moves
+     * nothing: on its first ride tick a rider pushes from where it was when the set_passengers mounted it.
+     */
+    @Test
+    void aRiderPushesFromWhereItMountedOnItsFirstRideTick() throws Exception {
+        try (var f = mountedAtHubSpawn()) {
+            f.tickEnd();
+            PredictionResult pushed = f.tick(STANDING.add(HUB_PUSH_X, 0, HUB_PUSH_Z), true);
+            assertFalse(pushed.hasFlag(InputKeys.class), describe(pushed));
+            assertEquals(1, pushed.getSimulationContext().getWorldData().getNumPushing());
+            assertExact(pushed);
+        }
+    }
+
+    /**
+     * A vehicle the client ticks before the local player (a LocalPlayer appended after it in a retained level) ticks its
+     * rider before the player too, so the first ride tick's push moves the player in that same tick.
+     */
+    @Test
+    void aRiderTickingBeforeThePlayerPushesFromWhereItMountedInTheSameTick() throws Exception {
+        try (var f = mountedAtHubSpawn(true)) {
+            PredictionResult pushed = f.tick(STANDING.add(HUB_PUSH_X, 0, HUB_PUSH_Z), true);
+            assertFalse(pushed.hasFlag(InputKeys.class), describe(pushed));
+            assertEquals(1, pushed.getSimulationContext().getWorldData().getNumPushing());
+            assertExact(pushed);
+        }
+    }
+
+    /** From its second ride tick the rider pushes from its seat on the vehicle, which is above the player's box. */
+    @Test
+    void aRiderPushesFromWhereItMountedOnlyOnItsFirstRideTick() throws Exception {
+        try (var f = mountedAtHubSpawn()) {
+            f.tickEnd();
+            f.tickEnd();
+            PredictionResult late = f.tick(STANDING.add(HUB_PUSH_X, 0, HUB_PUSH_Z), true);
+            assertTrue(late.hasFlag(InputKeys.class), describe(late));
+        }
+    }
+
+    /** A rider that already rode a vehicle keeps its last seat through a new set_passengers, not its spawn position. */
+    @Test
+    void aRemountedRiderDoesNotPushFromWhereItSpawned() throws Exception {
+        try (var f = mountedAtHubSpawn()) {
+            f.tickEnd();
+            f.setPassengers(100, List.of(RIDER));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            f.tickEnd();
+            PredictionResult remounted = f.tick(STANDING.add(HUB_PUSH_X, 0, HUB_PUSH_Z), true);
+            assertTrue(remounted.hasFlag(InputKeys.class), describe(remounted));
+        }
+    }
+
     /** Entity#rideTick runs LivingEntity#tick, whose aiStep pushes from the seat positionRider gave the rider. */
     @Test
     void aLivingRiderOfAnotherEntityPushesFromItsSeat() throws Exception {
@@ -543,6 +613,35 @@ class JavaEntityPushTest {
         }
     }
 
+    /**
+     * Interaction#getDimensions is EntityDimensions.scalable(width, height), whose default passenger attachment sits
+     * at the height: a slime seated on a 0.7 tall interaction pushes from 0.7 above the interaction's feet.
+     */
+    @Test
+    void aLivingRiderOfAnInteractionPushesFromItsHeight() throws Exception {
+        try (var f = falling()) {
+            seatScaledSlimeOnInteraction(f, 0.7F);
+
+            assertExact(f.tick(CONTACT, false));
+            PredictionResult pushed = f.tick(CONTACT.add(INTERACTION_PUSH_X, SECOND_FALL, INTERACTION_PUSH_Z), false);
+            assertEquals(1, pushed.getSimulationContext().getWorldData().getNumPushing());
+            assertExact(pushed);
+        }
+    }
+
+    /** A zero height interaction seats the slime at its feet, below the player's box: the same move is not explained. */
+    @Test
+    void aLivingRiderOfAFlatInteractionDoesNotReachThePlayer() throws Exception {
+        try (var f = falling()) {
+            seatScaledSlimeOnInteraction(f, 0.0F);
+
+            assertExact(f.tick(CONTACT, false));
+            PredictionResult pushed = f.tick(CONTACT.add(INTERACTION_PUSH_X, SECOND_FALL, INTERACTION_PUSH_Z), false);
+            assertEquals(0, pushed.getSimulationContext().getWorldData().getNumPushing());
+            assertFalse(exact(pushed), describe(pushed));
+        }
+    }
+
     /** Avatar#POSES: a swimming player is 0.6 tall, so its hat sits 0.6 above its feet. */
     @Test
     void aLivingRiderOfASwimmingPlayerPushesFromItsLoweredSeat() throws Exception {
@@ -576,7 +675,7 @@ class JavaEntityPushTest {
     void aLivingRiderOfAVehicleWithAnUncertainPositionMayPushFromAnySeat() throws Exception {
         try (var f = falling()) {
             PacketEntity vehicle = entity(f, 100, BELOW_TOUCHING);
-            vehicle.onFirstTransaction(true, true, 0, 0, 2.0, f.player);
+            vehicle.onBundleFirstTransaction(true, true, 0, 0, 2.0, f.player);
             seatSlime(f, vehicle);
 
             PredictionResult contact = f.tick(START.add(0, FIRST_FALL, 0), false);
@@ -597,14 +696,15 @@ class JavaEntityPushTest {
             f.input(NONE);
             PacketEntity entity = entity(f, 100, SNAP_FROM);
             assertExact(f.tick(STANDING, true));
-            entity.onFirstTransaction(true, true, SNAP_STEPPING_DX, 0, 0, f.player);
+            entity.onBundleFirstTransaction(true, true, SNAP_STEPPING_DX, 0, 0, f.player);
             entity.onSecondTransaction();
             assertExact(f.tick(STANDING, true));
 
             positionSync(f, 100, SNAPPED);
             assertExact(f.tick(STANDING, true));
             assertExact(f.tick(STANDING, true));
-            assertExact(f.tick(STANDING.add(-pushFrom(SNAPPED.x + 2.0 / 3.0 * SNAP_STEPPING_DX - STANDING.x), 0, 0), true));
+            assertExact(
+                    f.tick(STANDING.add(-pushFrom(SNAPPED.x + 2.0 / 3.0 * SNAP_STEPPING_DX - STANDING.x), 0, 0), true));
         }
     }
 
@@ -721,6 +821,90 @@ class JavaEntityPushTest {
         return dx / root * Math.min(1.0, 1.0 / root) * 0.05F;
     }
 
+    /** Entity#push's impulse along an axis {@code d} away, {@code other} away on the other horizontal axis. */
+    private static double push(double d, double other) {
+        double root = Math.sqrt(Math.max(Math.abs(d), Math.abs(other)));
+        return d / root * Math.min(1.0, 1.0 / root) * 0.05F;
+    }
+
+    /**
+     * Bundle 01a1c27d: the player slides to a stop at seq 3434 (12044.706876643548, 99.0, 12000.329102427044); seq 3449
+     * adds slime 12937 at the hub spawn (12043.5, 100.0, 12000.5) with size 4, mounts it on player 10920, then sends
+     * 10920 a stepped entity_position_sync to that spawn over three ticks.
+     */
+    private static final Vec3 HUB_SPAWN_FROM_STANDING =
+            new Vec3(12043.5 - 12044.706876643548, 100.0 - 99.0, 12000.5 - 12000.329102427044);
+    /** 01a1c27d seq 3451 move: (0.05000000074505806, 0, -0.007080159202814684). */
+    private static final double HUB_PUSH_X = -push(HUB_SPAWN_FROM_STANDING.x, HUB_SPAWN_FROM_STANDING.z);
+    private static final double HUB_PUSH_Z = -push(HUB_SPAWN_FROM_STANDING.z, HUB_SPAWN_FROM_STANDING.x);
+    private static final int HUB_SLIME_SIZE = 4;
+    /** 01a1c27d seqs 3429 to 3434: the player's positions, keys none, less the last. */
+    private static final double[][] HUB_SLIDE = {
+        {12044.65851172794 - 12044.706876643548, 12000.2666478383 - 12000.329102427044},
+        {12044.681589226833 - 12044.706876643548, 12000.296448276997 - 12000.329102427044},
+        {12044.694189542693 - 12044.706876643548, 12000.312719318415 - 12000.329102427044},
+        {12044.701069315952 - 12044.706876643548, 12000.32160330806 - 12000.329102427044},
+        {12044.704825672587 - 12044.706876643548, 12000.32645396697 - 12000.329102427044},
+        {0, 0}
+    };
+    /** 01a1c27d seq 3430 move: (0.02307749889405386, 0, 0.029800438696838683). */
+    private static final Vec3 HUB_SLIDE_START = new Vec3(0.02307749889405386, 0, 0.029800438696838683);
+    /** 01a1c27d seqs 3435 to 3449: client ticks without a position. */
+    private static final int HUB_STILL_TICKS = 15;
+    /**
+     * 01a1c27d player 10920 before the mount: seq 3441 entity_position_sync (12049.716645393893, 37.360800830128795,
+     * 12008.801731773907) plus the move_entity_pos deltas of seqs 3442 to 3448, in 1/4096 blocks.
+     */
+    private static final Vec3 HUB_VEHICLE_FROM_STANDING = new Vec3(
+            12049.716645393893 + (128 + 115 + 106 + 96 + 87 + 79 + 72) / 4096.0 - 12044.706876643548,
+            37.360800830128795 + (1127 + 783 + 447 + 117 - 207 - 524 - 834) / 4096.0 - 99.0,
+            12008.801731773907 + (963 + 876 + 798 + 726 + 660 + 601 + 547) / 4096.0 - 12000.329102427044);
+    /** 01a1c27d seq 3449 entity_position_sync 10920: stepped, tickOffset 3, yaw -90, pitch 0, not on ground. */
+    private static final int HUB_VEHICLE_SYNC_TICKS = 3;
+
+    /**
+     * A player with no keys that slid to a stop at {@link #STANDING}, after a set_passengers it answered put a size
+     * {@link #HUB_SLIME_SIZE} slime, added at {@link #HUB_SPAWN_FROM_STANDING}, on remote player 100 at
+     * {@link #HUB_VEHICLE_FROM_STANDING}, whose answered stepped sync then heads for the spawn.
+     */
+    private static JavaTickFixture mountedAtHubSpawn() throws Exception {
+        return mountedAtHubSpawn(false);
+    }
+
+    /** {@link #mountedAtHubSpawn()}, with player 100 ahead of the local player in the client's tick order or not. */
+    private static JavaTickFixture mountedAtHubSpawn(boolean vehicleTicksBeforePlayer) throws Exception {
+        JavaTickFixture f = new JavaTickFixture();
+        f.player.xRot = 9.300004F;
+        f.player.yRot = -6.900001F;
+        f.place(STANDING.add(HUB_SLIDE[0][0], 0, HUB_SLIDE[0][1]), HUB_SLIDE_START.add(GROUNDED));
+        f.input(NONE);
+        for (int row = 1; row < HUB_SLIDE.length; row++) {
+            assertExact(f.tick(STANDING.add(HUB_SLIDE[row][0], 0, HUB_SLIDE[row][1]), true));
+        }
+        for (int tick = 0; tick < HUB_STILL_TICKS; tick++) f.tickEnd();
+        Vec3 spawn = STANDING.add(HUB_SPAWN_FROM_STANDING);
+        f.addRemotePlayer(100, STANDING.add(HUB_VEHICLE_FROM_STANDING), GameMode.SURVIVAL);
+        var entities = f.player.compensatedEntities;
+        if (vehicleTicksBeforePlayer) entities.appendSelfToClientTickOrder();
+        entities.addEntity(RIDER, EntityTypeIds.SLIME, spawn, 0, 0, 0);
+        entities.updateEntityMetadata(
+                RIDER, List.of(new EntityMetadata.Entry(18, HUB_SLIME_SIZE, ByteBuffer.allocate(0))));
+        f.setPassengers(100, List.of(RIDER));
+        var sync = new ClientboundEntityPositionSync(
+                100,
+                new PositionPath.Stepped(List.of(
+                        new PositionPath.Step(new Vec3d(spawn.x, spawn.y, spawn.z), HUB_VEHICLE_SYNC_TICKS))),
+                -90.0F,
+                0.0F,
+                false);
+        var event = new PacketSendEvent<>(
+                f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.ENTITY_POSITION_SYNC, sync, false);
+        f.player.packetEntityReplication.onEntityPositionSync(event, f.player, sync);
+        event.tasksAfter().forEach(Runnable::run);
+        f.pongThrough(f.player.lastTransactionSent.get());
+        return f;
+    }
+
     private static final int TICKS_LOADING = 3;
     private static final Vec3 LOADING = new Vec3(0.5, FLOOR_Y, 0.5);
     private static final Vec3 LOADING_OTHER = new Vec3(0.94, FLOOR_Y, 0.5);
@@ -748,6 +932,29 @@ class JavaEntityPushTest {
     private static void seatSlime(JavaTickFixture f, PacketEntity vehicle) {
         f.player.compensatedEntities.addEntity(RIDER, EntityTypeIds.SLIME, AWAY, 0, 0, 0);
         f.player.compensatedEntities.entityMap.get(RIDER).mount(vehicle);
+    }
+
+    /**
+     * An interaction {@code height} tall at {@link #INTERACTION_FROM_CONTACT} from {@link #CONTACT}, carrying a slime of
+     * scale {@link #INTERACTION_SLIME_SCALE} that spawns far from the player.
+     */
+    private static void seatScaledSlimeOnInteraction(JavaTickFixture f, float height) {
+        var entities = f.player.compensatedEntities;
+        entities.addEntity(100, EntityTypeIds.INTERACTION, CONTACT.add(INTERACTION_FROM_CONTACT), 0, 0, 0);
+        entities.updateEntityMetadata(
+                100,
+                List.of(
+                        new EntityMetadata.Entry(8, 0.7F, ByteBuffer.allocate(0)),
+                        new EntityMetadata.Entry(9, height, ByteBuffer.allocate(0))));
+        entities.addEntity(RIDER, EntityTypeIds.SLIME, AWAY, 0, 0, 0);
+        var scale = new ClientboundUpdateAttributes(
+                RIDER, List.of(new AttributeSnapshot("minecraft:scale", INTERACTION_SLIME_SCALE, List.of())));
+        var event = new PacketSendEvent<>(
+                f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.UPDATE_ATTRIBUTES, scale, false);
+        f.player.packetEntityReplication.onUpdateAttributes(event, f.player, scale);
+        event.tasksAfter().forEach(Runnable::run);
+        f.pongThrough(f.player.lastTransactionSent.get());
+        entities.entityMap.get(RIDER).mount(entities.entityMap.get(100));
     }
 
     /** A set_passengers putting zombie 100 on the player, its ping answered or not. */

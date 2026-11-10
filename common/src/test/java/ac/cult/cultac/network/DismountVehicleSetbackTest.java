@@ -44,7 +44,7 @@ class DismountVehicleSetbackTest {
             List<String> written = written(f);
             assertFalse(written.contains("minecraft:move_vehicle"), written.toString());
             assertTrue(written.contains("minecraft:player_position"), written.toString());
-            assertEquals(0, teleports.queuedVehicleTeleportCount());
+            assertEquals(0, teleports.vehicleTeleports().queuedVehicleTeleportCount());
 
             acceptEveryTeleport(f);
             assertFalse(f.player.compensatedEntities.getSelf().inVehicle());
@@ -60,7 +60,7 @@ class DismountVehicleSetbackTest {
             assertTrue(teleports.executeViolationSetback());
             List<String> correction = written(f);
             assertTrue(correction.contains("minecraft:move_vehicle"), correction.toString());
-            assertEquals(1, teleports.queuedVehicleTeleportCount());
+            assertEquals(1, teleports.vehicleTeleports().queuedVehicleTeleportCount());
 
             removeVehicle(f);
             List<String> removal = written(f);
@@ -115,7 +115,7 @@ class DismountVehicleSetbackTest {
         passengers(f, f.player.entityID);
         acceptEveryTeleport(f);
         assertTrue(f.player.compensatedEntities.getSelf().inVehicle());
-        f.player.getSetbackTeleportUtil().updateSafeVehiclePosition(SAFE);
+        f.player.getSetbackTeleportUtil().updateSafeVehiclePosition(VEHICLE, f.player.lastTransactionSent.get(), SAFE);
         f.pongThrough(f.player.sendTrailingTransaction());
         written(f);
         return f;

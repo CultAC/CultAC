@@ -11,8 +11,9 @@ import java.util.List;
 import java.util.function.IntUnaryOperator;
 
 /**
- * Immutable palettes; a section pool may share their block storage across connections, copy-on-write. Mutable consumers
- * copy storage; no frame or encoded copy is retained.
+ * Immutable palettes; a section pool may share their block storage across connections, copy-on-write, and a
+ * single-entry palette is a canonical section that every thread shares. Mutable consumers copy storage; no frame or
+ * encoded copy is retained.
  */
 public final class SectionSnapshot {
     private final short nonEmpty, fluids;
@@ -59,13 +60,13 @@ public final class SectionSnapshot {
         short nonEmpty = input.readShort();
         boolean wireFluids = version.atLeast(ProtocolVersion.V26_1);
         short fluids = wireFluids ? input.readShort() : 0;
-        var blocks = PalettedSection.readBlocksPooled(input, version, sourceStates, states, modelStates, pool);
+        var blocks = PalettedSection.readCanonicalBlocksPooled(input, version, sourceStates, states, modelStates, pool);
         return new SectionSnapshot(
                 nonEmpty,
                 fluids,
                 wireFluids ? fluids : blocks.pooledFluidCount(),
                 blocks.states(),
-                PalettedSection.readBiomes(input, version, sourceBiomes, biomes, modelBiomes));
+                PalettedSection.readCanonicalBiomes(input, version, sourceBiomes, biomes, modelBiomes));
     }
 
     public static SectionSnapshot readBiomes(
@@ -75,7 +76,7 @@ public final class SectionSnapshot {
                 (short) 0,
                 -1,
                 null,
-                PalettedSection.readBiomes(input, version, sourceBiomes, biomes, modelBiomes));
+                PalettedSection.readCanonicalBiomes(input, version, sourceBiomes, biomes, modelBiomes));
     }
 
     public PalettedSection copyBlocks() {

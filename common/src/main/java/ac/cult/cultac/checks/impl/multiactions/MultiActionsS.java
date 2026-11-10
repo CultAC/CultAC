@@ -25,6 +25,8 @@ public class MultiActionsS extends Check implements DecodedPacketReceiveListener
     @Override
     public void onDecodedPacketReceive(PacketReceiveEvent event) {
         if (event.getPacket() instanceof ServerboundSwing) {
+            // ClientPacketListener#handleAnimate swings whatever screen is open.
+            if (player.serverSwingEcho.isEcho()) return;
             if (swing) flag();
             if (player.openWindow.mustBeOpen()) {
                 swing = true;

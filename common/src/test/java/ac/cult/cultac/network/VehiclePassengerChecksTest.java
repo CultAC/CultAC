@@ -444,7 +444,9 @@ class VehiclePassengerChecksTest {
     private static int teleport(JavaTickFixture f, Vec3 target) {
         int id = 7;
         int transaction = f.player.sendTrailingTransaction();
-        f.player.getSetbackTeleportUtil()
+        f.player
+                .getSetbackTeleportUtil()
+                .javaTeleports()
                 .addSentTeleport(target, Vec3.ZERO, transaction, new RelativeFlag(0), false, id, 0, 0, 0, 0);
         f.pongThrough(transaction);
         return id;

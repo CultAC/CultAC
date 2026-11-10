@@ -120,6 +120,15 @@ public final class ClientWorldRegistries {
     private TimelineGeneration timelines;
     private Map<String, PaintingSize> paintings;
     private String initialPainting;
+    private BuiltEnvironment lastEnvironment;
+
+    /** An environment a binding built, and every input its build read besides the view. */
+    private record BuiltEnvironment(
+            Definition entry,
+            Data data,
+            TimelineGeneration timelines,
+            Map<String, List<String>> timelineTags,
+            EnvironmentData value) {}
 
     public ClientWorldRegistries(Data defaults) {
         this(defaults, ClientWorldView.RECEIVED);
@@ -237,6 +246,7 @@ public final class ClientWorldRegistries {
         timelines.tags = data.tags().getOrDefault(TIMELINES, Map.of());
         paintings = generation.paintings();
         initialPainting = generation.initialPainting();
+        lastEnvironment = null;
     }
 
     /**
@@ -353,6 +363,7 @@ public final class ClientWorldRegistries {
     public void applyTags(String registry, RegistryTags.Payload payload) {
         data = withTags(data, registry, payload);
         if (registry.equals(TIMELINES)) timelines.tags = data.tags().getOrDefault(TIMELINES, Map.of());
+        lastEnvironment = null;
     }
 
     private static Data withTags(Data data, String registry, RegistryTags.Payload payload) {
@@ -405,6 +416,16 @@ public final class ClientWorldRegistries {
         var capturedTimelines = timelines;
         var json = JsonParser.parseString(dimension.json()).getAsJsonObject();
         return new DimensionData.Binding(dimension, () -> {
+            var last = lastEnvironment;
+            if (last != null
+                    && last.entry() == entry
+                    && last.data() == data
+                    && last.timelines() == capturedTimelines
+                    && last.timelineTags() == capturedTimelines.tags) {
+                // One reuse covers the readable check and the apply after it; an unused build stays until the next one.
+                lastEnvironment = null;
+                return last.value();
+            }
             var biomeAttributes = new HashMap<Integer, JsonObject>();
             var biomes = data.registries().get(BIOMES);
             for (int id = 0; id < biomes.size(); id++) {
@@ -416,8 +437,10 @@ public final class ClientWorldRegistries {
                 biomeAttributes.put(
                         id, attributes(JsonParser.parseString(definition.json()).getAsJsonObject()));
             }
-            return new EnvironmentData(
+            var environment = new EnvironmentData(
                     attributes(json), biomeAttributes, capturedTimelines.resolve(json.get("timelines")));
+            lastEnvironment = new BuiltEnvironment(entry, data, capturedTimelines, capturedTimelines.tags, environment);
+            return environment;
         });
     }
 

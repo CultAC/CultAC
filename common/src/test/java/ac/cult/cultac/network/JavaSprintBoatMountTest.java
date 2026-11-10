@@ -10,6 +10,7 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.sprint.SprintA;
 import ac.cult.cultac.checks.impl.sprint.SprintG;
+import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.platform.api.world.PlatformWorld;
@@ -280,7 +281,7 @@ class JavaSprintBoatMountTest {
     private static PredictionResult rideTick(
             JavaTickFixture f, boolean paddling, float yaw, float pitch, Vec3 boat, boolean stop) {
         var paddle = new ServerboundPaddleBoat(paddling, paddling);
-        f.listener.onPaddleBoat(f.event(ServerboundPackets.PADDLE_BOAT, paddle), f.player, paddle);
+        CheckManagerListener.receiveGeneric(f.event(ServerboundPackets.PADDLE_BOAT, paddle), f.player);
         var rot = new ServerboundMovePlayer(0, 0, 0, yaw, pitch, false, false, false, true);
         f.listener.onMovePlayer(f.event(ServerboundPackets.MOVE_PLAYER, rot), f.player, rot);
         f.moveVehicle(boat, BOAT_YAW, 0, false);

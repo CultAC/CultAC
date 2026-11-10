@@ -61,7 +61,7 @@ public class ElytraC extends Check implements PostPredictionListener, DecodedPac
             glideThisTick = glideLastTick = false;
         }
 
-        if (!player.packetStateData.lastPacketWasTeleport) {
+        if (!event.answersTeleport()) {
             glideLastTick = glideThisTick;
             glideThisTick = exempt = false;
         }

@@ -52,7 +52,7 @@ class SetbackCorrectionTickTest {
             PredictionResult accepted = f.tick(moved, false);
             assertTrue(exact(accepted), describe(accepted));
             SetbackTeleportUtil teleports = f.player.getSetbackTeleportUtil();
-            SetbackPosWithVector safe = teleports.lastKnownGoodPosition;
+            SetbackPosWithVector safe = teleports.safePosition();
             double carried = safe.getVector().y;
 
             // The client claims to fall a block further than it can, past the immediate-setback threshold.
@@ -62,9 +62,9 @@ class SetbackCorrectionTickTest {
             assertTrue(teleports.isPendingSetback(), "the rejected movement was not set back");
             SetBackData setback = teleports.getRequiredSetBack();
             Vec3 location = setback.getTeleportData().getLocation();
-            assertNotEquals(moved.add(0, -1, 0), teleports.lastKnownGoodPosition.getPos(),
+            assertNotEquals(moved.add(0, -1, 0), teleports.safePosition().getPos(),
                     "the rejected movement became safe");
-            assertEquals(location, teleports.lastKnownGoodPosition.getPos(),
+            assertEquals(location, teleports.safePosition().getPos(),
                     "the correction is the new rollback anchor");
             assertEquals(moved.x, location.x, 1.0E-12);
             assertEquals(moved.y + carried, location.y, 1.0E-12);
@@ -91,7 +91,7 @@ class SetbackCorrectionTickTest {
             PredictionResult sprint = f.tick(fed, false);
             assertTrue(exact(sprint), describe(sprint));
             SetbackTeleportUtil teleports = f.player.getSetbackTeleportUtil();
-            SetbackPosWithVector safe = teleports.lastKnownGoodPosition;
+            SetbackPosWithVector safe = teleports.safePosition();
             assertEquals(fed, safe.getPos());
 
             // LocalPlayer#aiStep stops a client's sprint at 6 food or less; the engine leaves that rule to SprintA.
@@ -105,8 +105,8 @@ class SetbackCorrectionTickTest {
             assertTrue(f.player.checkManager.getCheck(SprintA.class).violations > 0, "SprintA did not flag");
             assertTrue(teleports.isPendingSetback(), "SprintA did not set back");
             Vec3 location = teleports.getRequiredSetBack().getTeleportData().getLocation();
-            assertNotEquals(hungry, teleports.lastKnownGoodPosition.getPos(), "the hungry sprint became safe");
-            assertEquals(location, teleports.lastKnownGoodPosition.getPos(),
+            assertNotEquals(hungry, teleports.safePosition().getPos(), "the hungry sprint became safe");
+            assertEquals(location, teleports.safePosition().getPos(),
                     "the correction is the new rollback anchor");
             // One input-less tick in free air from the well-fed sprint's end.
             assertEquals(safe.getPos().x + safe.getVector().x, location.x, 1.0E-12);
@@ -131,7 +131,7 @@ class SetbackCorrectionTickTest {
             f.move(second, false);
             assertTrue(exact(prediction(f)), describe(prediction(f)));
             SetbackTeleportUtil teleports = f.player.getSetbackTeleportUtil();
-            SetbackPosWithVector safe = teleports.lastKnownGoodPosition;
+            SetbackPosWithVector safe = teleports.safePosition();
             assertEquals(second, safe.getPos());
             TickTimer timer = f.player.checkManager.getCheck(TickTimer.class);
             // TickTimer sets back only above its setback VL of 1.
@@ -176,7 +176,7 @@ class SetbackCorrectionTickTest {
             PredictionResult accepted = f.tick(first, false);
             assertTrue(exact(accepted), describe(accepted));
             SetbackTeleportUtil teleports = f.player.getSetbackTeleportUtil();
-            SetbackPosWithVector safe = teleports.lastKnownGoodPosition;
+            SetbackPosWithVector safe = teleports.safePosition();
             // Phase sets back only above its setback VL of 1.
             phase.violations = 1;
 
@@ -189,8 +189,8 @@ class SetbackCorrectionTickTest {
             assertTrue(phase.violations > 1, "Phase did not flag the clip");
             assertTrue(teleports.isPendingSetback(), "Phase did not set back");
             Vec3 location = teleports.getRequiredSetBack().getTeleportData().getLocation();
-            assertNotEquals(clipped, teleports.lastKnownGoodPosition.getPos(), "the clip became safe");
-            assertEquals(location, teleports.lastKnownGoodPosition.getPos(),
+            assertNotEquals(clipped, teleports.safePosition().getPos(), "the clip became safe");
+            assertEquals(location, teleports.safePosition().getPos(),
                     "the correction is the new rollback anchor");
             assertEquals(first.y + safe.getVector().y, location.y, 1.0E-12);
             // The correction tick from the safe state ends at the wall's face, outside the block.

@@ -77,7 +77,7 @@ public class MultiActionsF extends BlockPlaceCheck implements BlockBreakListener
     @CultPacketHandler
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
-        if (!player.packetStateData.lastPacketWasTeleport) {
+        if (!event.answersTeleport()) {
             block = entity = false;
         }
     }

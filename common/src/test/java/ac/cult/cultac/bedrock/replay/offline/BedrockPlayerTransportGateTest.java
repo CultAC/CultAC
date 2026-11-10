@@ -8,6 +8,7 @@ import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
@@ -79,6 +80,7 @@ public final class BedrockPlayerTransportGateTest {
             int pendingBefore = player.getSetbackTeleportUtil().pendingTeleports.size();
             int teleportId = 37;
             player.getSetbackTeleportUtil()
+                    .bedrockTeleports()
                     .addImmediateBedrockTransportTeleport(
                             new Vec3(527.2020263671875, 64.84375, -78.90235137939453), false);
             player.packetStateData.bedrockServerResponse = true;
@@ -96,7 +98,7 @@ public final class BedrockPlayerTransportGateTest {
 
             assertFalse(event.isCancelled());
             assertFalse(player.getSetbackTeleportUtil().isPendingSetback());
-            assertTrue(player.getSetbackTeleportUtil().hasPendingBedrockTransportTeleport());
+            assertTrue(player.getSetbackTeleportUtil().bedrockTeleports().hasPendingBedrockTransportTeleport());
             assertTrue(player.getSetbackTeleportUtil().pendingTeleports.size() > pendingBefore);
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
@@ -121,7 +123,7 @@ public final class BedrockPlayerTransportGateTest {
             listener.onMovePlayer(teleport, player, projection);
             assertFalse(teleport.isCancelled());
             assertFalse(teleport.getPacket().onGround());
-            assertFalse(player.packetStateData.lastPacketWasTeleport);
+            assertTrue(teleport.answersTeleport());
 
             gate.clear();
             gate.allowPlayer(true);
@@ -129,6 +131,7 @@ public final class BedrockPlayerTransportGateTest {
             listener.onMovePlayer(nextFrame, player, projection);
             assertFalse(nextFrame.isCancelled());
             assertTrue(nextFrame.getPacket().onGround());
+            assertFalse(nextFrame.answersTeleport());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
@@ -148,20 +151,42 @@ public final class BedrockPlayerTransportGateTest {
             listener.onMovePlayer(unannounced, player, response);
             assertTrue(unannounced.isCancelled());
 
-            ServerboundAcceptTeleportation accept =
-                    new ServerboundAcceptTeleportation(9, new Vec3d(5.0D, 70.0D, 5.0D), 10.0F, 20.0F);
+            // Before 26.3 the wire carries an ID-only acknowledgement, and Geyser's teleport PosRot follows it.
+            ServerboundAcceptTeleportation accept = new ServerboundAcceptTeleportation(9, null, 0.0F, 0.0F);
             listener.onAcceptTeleportation(RecordReceiveTestEvents.teleport(player, accept), player, accept);
             PacketReceiveEvent<ServerboundMovePlayer> answered = receiveEvent(player, response);
             listener.onMovePlayer(answered, player, response);
             assertFalse(answered.isCancelled());
             assertFalse(answered.getPacket().onGround());
-            var visible = player.getSetbackTeleportUtil().getClass().getDeclaredField("bedrockPaperVisiblePosition");
-            visible.setAccessible(true);
-            assertEquals(new Vec3(5.0D, 70.0D, 5.0D), visible.get(player.getSetbackTeleportUtil()));
+            assertEquals(
+                    new Vec3(5.0D, 70.0D, 5.0D),
+                    player.getSetbackTeleportUtil().bedrockTeleports().paperVisiblePosition());
 
             PacketReceiveEvent<ServerboundMovePlayer> repeated = receiveEvent(player, response);
             listener.onMovePlayer(repeated, player, response);
             assertTrue(repeated.isCancelled());
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    @Test
+    public void geyserPositionedAcknowledgementLeavesTheNextProjectionGated() {
+        OfflineCultTestBootstrap.installConfig();
+        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            seedSetbackAnchor(player, new Vec3(0.5D, 64.0D, 0.5D));
+            CheckManagerListener listener = new CheckManagerListener();
+            // Geyser's JavaPlayerPositionTranslator#acceptTeleport answers a 26.3 teleport with this acknowledgement
+            // alone; no PosRot follows it, so the next projection is an ordinary auth frame's.
+            ServerboundAcceptTeleportation accept =
+                    new ServerboundAcceptTeleportation(9, new Vec3d(5.0D, 70.0D, 5.0D), 10.0F, 20.0F);
+            listener.onAcceptTeleportation(RecordReceiveTestEvents.teleport(player, accept), player, accept);
+            ServerboundMovePlayer projection =
+                    new ServerboundMovePlayer(5.0D, 70.0D, 5.0D, 10.0F, 20.0F, true, false, true, true);
+            PacketReceiveEvent<ServerboundMovePlayer> unpermitted = receiveEvent(player, projection);
+            listener.onMovePlayer(unpermitted, player, projection);
+            assertTrue(unpermitted.isCancelled());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
@@ -195,9 +220,8 @@ public final class BedrockPlayerTransportGateTest {
     }
 
     private static void seedSetbackAnchor(CultPlayer player, Vec3 position) {
-        player.getSetbackTeleportUtil().lastKnownGoodPosition = new SetbackPosWithVector(position, Vec3.ZERO, 0);
-        player.getSetbackTeleportUtil().hasFullyLoaded = true;
-        player.getSetbackTeleportUtil().hasFullyJoined = true;
+        SetbackFixtures.seedSafePosition(player, new SetbackPosWithVector(position, Vec3.ZERO));
+        SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
     }
 
     private static PacketReceiveEvent<ServerboundMovePlayer> receiveEvent(

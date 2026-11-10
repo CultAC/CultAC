@@ -21,6 +21,7 @@ import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.JavaCollisionState;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -33,6 +34,8 @@ public class CollisionModifier implements UncertaintyHandler {
         {Collisions.Axis.X, Collisions.Axis.Z, Collisions.Axis.Y},
         {Collisions.Axis.Z, Collisions.Axis.X, Collisions.Axis.Y}
     };
+    private static final ProbeDimensions DEFAULT_PROBE_DIMENSIONS =
+            new ProbeDimensions(0.6F, 0.6F, 1.8F, SimpleCollisionBox.AxisEpsilon.JAVA);
 
     // Probe scratch: one instance probes on one thread at a time, and none of these escapes a probe.
     private final List<SimpleCollisionBox> probeCollisions = new ArrayList<>();
@@ -46,8 +49,9 @@ public class CollisionModifier implements UncertaintyHandler {
     private final AxisResult positiveResult = new AxisResult(0, false);
     private final AxisResult negativeResult = new AxisResult(0, false);
     // An axis step's tests and move depend only on its axis, position and movements within one probe.
-    private final ResolvedStep[] resolvedSteps = new ResolvedStep[PROBE_ORDERS.length * 3];
-    private int resolvedStepCount;
+    private final ResolvedSteps resolvedSteps = new ResolvedSteps();
+    private final CollideAxisData.Reusable reusableResult = new CollideAxisData.Reusable();
+    private boolean reuseNextResult;
     private final boolean javaTravelInput;
 
     public CollisionModifier() {
@@ -471,7 +475,7 @@ public class CollisionModifier implements UncertaintyHandler {
                 target,
                 playerPos,
                 attemptedMovementExtents,
-                new ProbeDimensions(0.6F, 0.6F, 1.8F, SimpleCollisionBox.AxisEpsilon.JAVA));
+                DEFAULT_PROBE_DIMENSIONS);
     }
 
     public CollideAxisData probeCollisions(
@@ -521,6 +525,8 @@ public class CollisionModifier implements UncertaintyHandler {
             JavaCollisionState actor,
             boolean followCandidateVerticalMovement,
             double horizontalInputReach) {
+        boolean reuse = reuseNextResult;
+        reuseNextResult = false;
         CollisionBoxPool pool = CollisionBoxPool.current();
         int mark = pool.mark();
         try {
@@ -535,7 +541,8 @@ public class CollisionModifier implements UncertaintyHandler {
                     actor,
                     followCandidateVerticalMovement,
                     horizontalInputReach,
-                    pool);
+                    pool,
+                    reuse);
         } finally {
             probeCollisions.clear();
             pool.release(mark);
@@ -560,7 +567,18 @@ public class CollisionModifier implements UncertaintyHandler {
         return shove == null || shove.movement().lengthSqr() == 0.0D ? null : shove.movement();
     }
 
-    /** Native colliders come from {@code pool}; none of them outlives this call. */
+    /**
+     * Makes the next probe write its plain block result into this modifier's scratch, which the probe after it
+     * overwrites; the caller reads that result before probing again and keeps no reference to it.
+     */
+    public void reuseNextResult(boolean reuse) {
+        reuseNextResult = reuse;
+    }
+
+    /**
+     * Native colliders come from {@code pool}; none of them outlives this call. With {@code reuse}, a plain block result
+     * is {@link #reusableResult}.
+     */
     private CollideAxisData probeCollisions(
             CultPlayer player,
             SimulationContext context,
@@ -572,7 +590,8 @@ public class CollisionModifier implements UncertaintyHandler {
             JavaCollisionState actor,
             boolean followCandidateVerticalMovement,
             double horizontalInputReach,
-            CollisionBoxPool pool) {
+            CollisionBoxPool pool,
+            boolean reuse) {
         // Start with player bounding box
         SimpleCollisionBox grabBoxesBB = context.getFromMaximumExtent(probeGrabBox);
 
@@ -646,7 +665,8 @@ public class CollisionModifier implements UncertaintyHandler {
                         attemptedMovementExtents,
                         dimensions,
                         followCandidateVerticalMovement,
-                        collisions);
+                        collisions,
+                        null);
                 blocks.setUnknown(List.copyOf(found));
                 return blocks;
             }
@@ -674,7 +694,8 @@ public class CollisionModifier implements UncertaintyHandler {
                             attemptedMovementExtents,
                             dimensions,
                             followCandidateVerticalMovement,
-                            collisions));
+                            collisions,
+                            null));
                     collisions.subList(blocks, collisions.size()).clear();
                 }
                 return EntityWorldCollisions.of(results, worlds);
@@ -690,9 +711,11 @@ public class CollisionModifier implements UncertaintyHandler {
                 attemptedMovementExtents,
                 dimensions,
                 followCandidateVerticalMovement,
-                collisions);
+                collisions,
+                reuse ? reusableResult : null);
     }
 
+    /** Fills {@code into} when given, a new result otherwise. */
     private CollideAxisData probeAxes(
             SimulationContext context,
             double minY,
@@ -703,10 +726,11 @@ public class CollisionModifier implements UncertaintyHandler {
             SimpleCollisionBox attemptedMovementExtents,
             ProbeDimensions dimensions,
             boolean followCandidateVerticalMovement,
-            List<SimpleCollisionBox> collisions) {
+            List<SimpleCollisionBox> collisions,
+            CollideAxisData.Reusable into) {
         Vec3 stuckSpeed = context.getLastStuckSpeed();
         List<SimpleCollisionBox> unknown = List.of();
-        CollideAxisData result = new CollideAxisData(null, null, null, null, unknown);
+        CollideAxisData result = into == null ? new CollideAxisData(null, null, null, null, unknown) : into.reset();
 
         // TODO: This is stupid, DO WE CARE ABOUT COLLISIONS WHEN UNKNOWN?
         List<SimpleCollisionBox> collisionsMinusUnknown;
@@ -726,7 +750,7 @@ public class CollisionModifier implements UncertaintyHandler {
         boolean vehicle = isJavaVehicleMove(context);
         // Entity#collide moves along Y, then along X and Z in Direction#axisStepOrder of the move before collision.
         int stepOrder = Math.abs(beforeCollision.x) < Math.abs(beforeCollision.z) ? 1 : 0;
-        resolvedStepCount = 0;
+        resolvedSteps.clear();
 
         // Brute force the current-client axis order possibilities exposed by the server-observable movement envelope.
         for (int orderIndex = 0; orderIndex < PROBE_ORDERS.length; orderIndex++) {
@@ -752,7 +776,7 @@ public class CollisionModifier implements UncertaintyHandler {
                 AxisResult neg;
                 double moved = 0;
                 ResolvedStep step =
-                        findResolvedStep(axis, iterX, iterY, iterZ, positiveMovement, negativeMovement, movement);
+                        resolvedSteps.find(axis, iterX, iterY, iterZ, positiveMovement, negativeMovement, movement);
                 if (step != null) {
                     pos = step.positive(positiveResult);
                     neg = step.negative(negativeResult);
@@ -801,7 +825,7 @@ public class CollisionModifier implements UncertaintyHandler {
                         moved = moveBoundingBoxForAxis(
                                 context, collisionsMinusUnknown, axis, movement, iterX, iterY, iterZ, dimensions);
                     }
-                    recordResolvedStep(
+                    resolvedSteps.record(
                             axis,
                             iterX,
                             iterY,
@@ -844,84 +868,101 @@ public class CollisionModifier implements UncertaintyHandler {
         return result;
     }
 
-    private ResolvedStep findResolvedStep(
-            Collisions.Axis axis,
-            double x,
-            double y,
-            double z,
-            double positiveMovement,
-            double negativeMovement,
-            double movement) {
-        long xBits = Double.doubleToRawLongBits(x);
-        long yBits = Double.doubleToRawLongBits(y);
-        long zBits = Double.doubleToRawLongBits(z);
-        long positiveBits = Double.doubleToRawLongBits(positiveMovement);
-        long negativeBits = Double.doubleToRawLongBits(negativeMovement);
-        long movementBits = Double.doubleToRawLongBits(movement);
-        for (int i = 0; i < resolvedStepCount; i++) {
-            ResolvedStep step = resolvedSteps[i];
-            if (step.axis == axis
-                    && step.x == xBits
-                    && step.y == yBits
-                    && step.z == zBits
-                    && step.positiveMovement == positiveBits
-                    && step.negativeMovement == negativeBits
-                    && step.requestedMovement == movementBits) {
-                return step;
+    /**
+     * The axis steps one probe resolved, kept per axis in the order recorded: a probe looks each axis up once per order,
+     * so no axis records more steps than there are orders.
+     */
+    static final class ResolvedSteps {
+        private final ResolvedStep[][] byAxis =
+                new ResolvedStep[Collisions.Axis.values().length][PROBE_ORDERS.length];
+        private final int[] counts = new int[byAxis.length];
+
+        void clear() {
+            Arrays.fill(counts, 0);
+        }
+
+        /** The first step recorded since {@link #clear} with this axis and the same raw bits, or null. */
+        ResolvedStep find(
+                Collisions.Axis axis,
+                double x,
+                double y,
+                double z,
+                double positiveMovement,
+                double negativeMovement,
+                double movement) {
+            int count = counts[axis.ordinal()];
+            if (count == 0) return null;
+            ResolvedStep[] steps = byAxis[axis.ordinal()];
+            long xBits = Double.doubleToRawLongBits(x);
+            long yBits = Double.doubleToRawLongBits(y);
+            long zBits = Double.doubleToRawLongBits(z);
+            long positiveBits = Double.doubleToRawLongBits(positiveMovement);
+            long negativeBits = Double.doubleToRawLongBits(negativeMovement);
+            long movementBits = Double.doubleToRawLongBits(movement);
+            for (int i = 0; i < count; i++) {
+                ResolvedStep step = steps[i];
+                if (step.x == xBits
+                        && step.y == yBits
+                        && step.z == zBits
+                        && step.positiveMovement == positiveBits
+                        && step.negativeMovement == negativeBits
+                        && step.requestedMovement == movementBits) {
+                    return step;
+                }
             }
+            return null;
         }
-        return null;
+
+        void record(
+                Collisions.Axis axis,
+                double x,
+                double y,
+                double z,
+                double positiveMovement,
+                double negativeMovement,
+                double requestedMovement,
+                AxisResult pos,
+                AxisResult neg,
+                double movement,
+                double moved) {
+            int a = axis.ordinal();
+            ResolvedStep[] steps = byAxis[a];
+            if (counts[a] == steps.length) return;
+            ResolvedStep step = steps[counts[a]];
+            if (step == null) {
+                step = new ResolvedStep();
+                steps[counts[a]] = step;
+            }
+            counts[a]++;
+            step.x = Double.doubleToRawLongBits(x);
+            step.y = Double.doubleToRawLongBits(y);
+            step.z = Double.doubleToRawLongBits(z);
+            step.positiveMovement = Double.doubleToRawLongBits(positiveMovement);
+            step.negativeMovement = Double.doubleToRawLongBits(negativeMovement);
+            step.requestedMovement = Double.doubleToRawLongBits(requestedMovement);
+            step.hasPositive = pos != null;
+            step.positiveCollide = pos != null && pos.collide;
+            step.positiveResult = pos == null ? 0 : pos.result;
+            step.hasNegative = neg != null;
+            step.negativeCollide = neg != null && neg.collide;
+            step.negativeResult = neg == null ? 0 : neg.result;
+            step.movement = movement;
+            step.moved = moved;
+        }
     }
 
-    private void recordResolvedStep(
-            Collisions.Axis axis,
-            double x,
-            double y,
-            double z,
-            double positiveMovement,
-            double negativeMovement,
-            double requestedMovement,
-            AxisResult pos,
-            AxisResult neg,
-            double movement,
-            double moved) {
-        if (resolvedStepCount == resolvedSteps.length) return;
-        ResolvedStep step = resolvedSteps[resolvedStepCount];
-        if (step == null) {
-            step = new ResolvedStep();
-            resolvedSteps[resolvedStepCount] = step;
-        }
-        resolvedStepCount++;
-        step.axis = axis;
-        step.x = Double.doubleToRawLongBits(x);
-        step.y = Double.doubleToRawLongBits(y);
-        step.z = Double.doubleToRawLongBits(z);
-        step.positiveMovement = Double.doubleToRawLongBits(positiveMovement);
-        step.negativeMovement = Double.doubleToRawLongBits(negativeMovement);
-        step.requestedMovement = Double.doubleToRawLongBits(requestedMovement);
-        step.hasPositive = pos != null;
-        step.positiveCollide = pos != null && pos.collide;
-        step.positiveResult = pos == null ? 0 : pos.result;
-        step.hasNegative = neg != null;
-        step.negativeCollide = neg != null && neg.collide;
-        step.negativeResult = neg == null ? 0 : neg.result;
-        step.movement = movement;
-        step.moved = moved;
-    }
-
-    private static final class ResolvedStep {
-        private Collisions.Axis axis;
+    static final class ResolvedStep {
         private long x, y, z;
         private long positiveMovement, negativeMovement, requestedMovement;
         private boolean hasPositive, positiveCollide, hasNegative, negativeCollide;
         private double positiveResult, negativeResult;
-        private double movement, moved;
+        double movement, moved;
 
-        private AxisResult positive(AxisResult out) {
+        AxisResult positive(AxisResult out) {
             return restore(out, hasPositive, positiveCollide, positiveResult);
         }
 
-        private AxisResult negative(AxisResult out) {
+        AxisResult negative(AxisResult out) {
             return restore(out, hasNegative, negativeCollide, negativeResult);
         }
 

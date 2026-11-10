@@ -271,7 +271,7 @@ class ScaledPlayerCollisionTest {
         if (input != null) {
             var inputEvent = event(player, ServerboundPackets.PLAYER_INPUT, input);
             STEER.onPlayerInput(inputEvent, player, input);
-            LISTENER.onPlayerInput(inputEvent, player, input);
+            CheckManagerListener.receiveGeneric(inputEvent, player);
         }
         ServerboundMovePlayer move =
                 new ServerboundMovePlayer(to.x, to.y, to.z, yaw, pitch, onGround, false, true, true);

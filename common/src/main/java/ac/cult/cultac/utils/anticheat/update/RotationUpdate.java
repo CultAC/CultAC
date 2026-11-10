@@ -14,10 +14,17 @@ public final class RotationUpdate {
 
     private float deltaYRot, deltaXRot;
     private boolean isCinematic;
+    // The rotation a teleport answer set, not one the player turned to.
+    private final boolean teleport;
     private double sensitivityX, sensitivityY;
 
     public RotationUpdate(HeadRotation from, HeadRotation to, float deltaXRot, float deltaYRot) {
+        this(from, to, deltaXRot, deltaYRot, false);
+    }
+
+    public RotationUpdate(HeadRotation from, HeadRotation to, float deltaXRot, float deltaYRot, boolean teleport) {
         this.from = from;
+        this.teleport = teleport;
         this.to = to;
         // Two finite wire rotations can still overflow when subtracted as floats.
         this.deltaXRot = Float.isFinite(deltaXRot) ? deltaXRot : finiteDifference(to.yaw(), from.yaw());
