@@ -1437,6 +1437,7 @@ public class CompensatedWorld {
         pistons.clear();
         lastBlockEntityPass = ClientBlockEntityPass.EMPTY;
         openShulkerBoxes.clear();
+        if (player.bedrockState != null) player.bedrockState.shulkerBoxLids.clear();
     }
 
     /** The Bedrock engine's piston and shulker push envelope for the packet {@code context} predicts. */
@@ -1827,8 +1828,12 @@ public class CompensatedWorld {
                 || !dimension.equals(dimensionForChunk(pos.getX() >> 4, pos.getZ() >> 4))) return;
         int state = getBlockStateIdAt(pos);
         // Preserve the current-block check using the generated model block IDs.
-        if (ac.cult.blocksim.data.DataTables.defaults().registry().blockIndex(state) == packet.blockId())
-            clientBlockEntities.blockEvent(pos, state, packet.action(), packet.parameter());
+        if (ac.cult.blocksim.data.DataTables.defaults().registry().blockIndex(state) != packet.blockId()) return;
+        clientBlockEntities.blockEvent(pos, state, packet.action(), packet.parameter());
+        // Geyser forwards a shulker box's viewer count (event type 1) as block event data 1 for any viewer and 0
+        // for none, which opens or closes the Bedrock lid.
+        if (player.isBedrockMovement() && packet.action() == 1 && ClientBlockProperties.isShulkerBox(state))
+            player.bedrockState.shulkerBoxLids.blockEvent(pos.asLong(), packet.parameter() > 0);
     }
 
     public void addToCache(CachedChunk chunk, int chunkX, int chunkZ) {

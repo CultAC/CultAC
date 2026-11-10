@@ -8,6 +8,7 @@ import ac.cult.blocksim.data.BlockTags;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.StateFacts;
 import ac.cult.blocksim.data.StateProperty;
+import ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext;
 import ac.cult.cultac.bedrock.prediction.api.BedrockCollisionShapeQuery;
 import ac.cult.cultac.bedrock.prediction.world.BedrockBlockMetadata;
 import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
@@ -27,9 +28,15 @@ public final class BedrockCollisionWorldBuilder {
     private static final BlockRegistry REGISTRY = DataTables.defaults().registry();
 
     private final BedrockCollisionOverrideCatalog catalog;
+    private final BedrockBlockShapeContext context;
 
     public BedrockCollisionWorldBuilder(BedrockCollisionOverrideCatalog catalog) {
+        this(catalog, BedrockBlockShapeContext.NONE);
+    }
+
+    public BedrockCollisionWorldBuilder(BedrockCollisionOverrideCatalog catalog, BedrockBlockShapeContext context) {
         this.catalog = Objects.requireNonNull(catalog, "catalog");
+        this.context = Objects.requireNonNull(context, "context");
     }
 
     public BlockCollisionWorld build(Map<BlockPosition, Integer> blockStates) {
@@ -77,6 +84,11 @@ public final class BedrockCollisionWorldBuilder {
 
     public static boolean dynamicMovement(int state) {
         return scaffoldingBlock(state) || powderSnowBlock(state);
+    }
+
+    /** Whether the shape of {@code state} depends on client state kept for the position it is at. */
+    public static boolean positionDependentMovement(int state) {
+        return shulkerBoxBlock(state);
     }
 
     public static boolean clientComputedMovement(int state) {
@@ -163,7 +175,7 @@ public final class BedrockCollisionWorldBuilder {
             return powderSnowCollisionBoxes(position, query);
         }
         if (shulkerBoxBlock(state)) {
-            return List.of(fullBlockBox(position));
+            return List.of(shulkerBoxCollisionBox(position, state));
         }
         return catalog.override(state)
                 .map(shape -> bambooBlock(state)
@@ -232,6 +244,26 @@ public final class BedrockCollisionWorldBuilder {
 
     private static boolean shulkerBoxBlock(int state) {
         return BlockFamilies.SHULKER_BOX.test(state) || BlockTags.SHULKER_BOXES.test(state);
+    }
+
+    /** A shulker box is one box whose face on the box's facing side its lid moves out along that facing. */
+    private WorldCollisionBox shulkerBoxCollisionBox(BlockPosition position, int state) {
+        WorldCollisionBox closed = fullBlockBox(position);
+        float lift = context.shulkerBoxLift().at(position);
+        if (lift <= 0.0F) {
+            return closed;
+        }
+        Direction facing = Direction.from3DDataValue(BlockProps.FACING.value(state));
+        double x = facing.getStepX() * (double) lift;
+        double y = facing.getStepY() * (double) lift;
+        double z = facing.getStepZ() * (double) lift;
+        return new WorldCollisionBox(
+                closed.minX() + Math.min(0.0D, x),
+                closed.minY() + Math.min(0.0D, y),
+                closed.minZ() + Math.min(0.0D, z),
+                closed.maxX() + Math.max(0.0D, x),
+                closed.maxY() + Math.max(0.0D, y),
+                closed.maxZ() + Math.max(0.0D, z));
     }
 
     private static List<WorldCollisionBox> powderSnowCollisionBoxes(

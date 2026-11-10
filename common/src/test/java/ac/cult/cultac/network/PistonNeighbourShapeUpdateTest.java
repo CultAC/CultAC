@@ -8,7 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.BlockRegistry;
 import ac.cult.blocksim.data.DataTables;
-import ac.cult.cultac.events.packets.listeners.PacketBlockAction;
 import ac.cult.cultac.events.packets.worldreader.PacketWorldReaderTwentySix;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -135,7 +134,6 @@ class PistonNeighbourShapeUpdateTest {
         var packet = new ClientboundBlockEvent(PISTON, action, SOUTH, REGISTRY.blockIndex(STICKY));
         var event = new PacketSendEvent<>(
                 f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.BLOCK_EVENT, packet, false);
-        new PacketBlockAction().onBlockEvent(event, f.player, packet);
         new PacketWorldReaderTwentySix().handleBlockEvent(f.player, event, packet);
         event.getTasksAfterSend().forEach(Runnable::run);
         f.pongThrough(f.player.lastTransactionSent.get());

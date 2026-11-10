@@ -23,6 +23,7 @@ public final class BedrockPlayerState {
     public final BedrockBlockBreakActions blockBreakActions = new BedrockBlockBreakActions();
     public final BedrockMovementEffects movementEffects = new BedrockMovementEffects();
     public final BedrockClientActors clientActors = new BedrockClientActors();
+    public final BedrockShulkerBoxLids shulkerBoxLids = new BedrockShulkerBoxLids();
     public final ac.cult.cultac.bedrock.prediction.integration.BedrockMovementCorrections movementCorrections =
             new ac.cult.cultac.bedrock.prediction.integration.BedrockMovementCorrections();
     /** The session's view of its world registries through Geyser. */
@@ -38,6 +39,12 @@ public final class BedrockPlayerState {
     private BedrockAuthInputFrame lastProcessedFrame;
     private long processedAuthInputSequence;
     private long lastMovementTick = -1;
+
+    /** The client state this player's block collision shapes read. */
+    public ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext blockShapeContext() {
+        return new ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext(position -> shulkerBoxLids.lift(
+                ac.cult.cultac.protocol.value.BlockPos.asLong(position.x(), position.y(), position.z())));
+    }
 
     public long lastMovementTick() {
         return lastMovementTick;

@@ -9,7 +9,6 @@ import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
-import ac.cult.cultac.events.packets.listeners.PacketBlockAction;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.events.packets.worldreader.PacketWorldReaderTwentySix;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -74,7 +73,6 @@ class JavaGlidePistonWaterPrecisionTest {
             var packet = new ClientboundBlockEvent(pistonAt, 0, 5, blocks.blockIndex(piston));
             var event = new PacketSendEvent<>(
                     f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.BLOCK_EVENT, packet, false);
-            new PacketBlockAction().onBlockEvent(event, f.player, packet);
             new PacketWorldReaderTwentySix().handleBlockEvent(f.player, event, packet);
             event.getTasksAfterSend().forEach(Runnable::run);
             f.pongThrough(f.player.lastTransactionSent.get());

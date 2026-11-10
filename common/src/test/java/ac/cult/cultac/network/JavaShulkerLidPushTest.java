@@ -14,7 +14,6 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.events.packets.PacketServerTickingState;
-import ac.cult.cultac.events.packets.listeners.PacketBlockAction;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.events.packets.worldreader.PacketWorldReaderTwentySix;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -783,7 +782,6 @@ class JavaShulkerLidPushTest {
         var packet = new ClientboundBlockEvent(pos, action, parameter, REGISTRY.blockIndex(state));
         var event = new PacketSendEvent<>(
                 f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.BLOCK_EVENT, packet, false);
-        new PacketBlockAction().onBlockEvent(event, f.player, packet);
         new PacketWorldReaderTwentySix().handleBlockEvent(f.player, event, packet);
         event.getTasksAfterSend().forEach(Runnable::run);
         if (handled) f.pongThrough(f.player.lastTransactionSent.get());

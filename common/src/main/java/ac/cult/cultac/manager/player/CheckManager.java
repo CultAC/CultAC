@@ -101,6 +101,7 @@ import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.PacketTypeTable;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPacket;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import ac.cult.cultac.utils.anticheat.update.BlockPlace;
@@ -114,6 +115,7 @@ import ac.cult.cultac.utils.latency.KeepAliveProcessor;
 import ac.cult.cultac.utils.lists.EvictingQueue;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
+import ac.cult.cultac.utils.nmsutil.ClientBlockProperties;
 import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 import com.google.common.collect.ClassToInstanceMap;
 import com.google.common.collect.ImmutableClassToInstanceMap;
@@ -955,6 +957,9 @@ public class CheckManager {
         getListener(BedrockPlayerReach.class).endClientTick();
         getListener(BedrockEntityReach.class).endClientTick();
         getListener(BedrockPlaceVisibility.class).endClientTick();
+        // The lids step once the tick's move is predicted: the next tick's move meets this step.
+        player.bedrockState.shulkerBoxLids.tick(position -> ClientBlockProperties.isShulkerBox(
+                player.compensatedWorld.getBlockStateIdAt(BlockPos.of(position))));
         getListener(PacketEntityReplication.class).tickBedrockClient();
     }
 

@@ -4,6 +4,7 @@ import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.BlockRegistry;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.StateFacts;
+import ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionOverrideCatalog;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionWorldBuilder;
 import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
@@ -102,7 +103,11 @@ final class BedrockSolidBlockSampler {
         private SampleAccumulator(CultPlayer player, BedrockCollisionOverrideCatalog geometry) {
             this.player = player;
             this.geometry = geometry;
-            this.worldBuilder = new BedrockCollisionWorldBuilder(geometry);
+            this.worldBuilder = new BedrockCollisionWorldBuilder(
+                    geometry,
+                    player.bedrockState == null
+                            ? BedrockBlockShapeContext.NONE
+                            : player.bedrockState.blockShapeContext());
         }
 
         private void add(int x, int y, int z) {

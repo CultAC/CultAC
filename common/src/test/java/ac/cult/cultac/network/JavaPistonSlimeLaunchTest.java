@@ -8,7 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ac.cult.blocksim.data.BlockRegistry;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.events.packets.listeners.PacketBlockAction;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.events.packets.worldreader.PacketWorldReaderTwentySix;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -157,7 +156,6 @@ class JavaPistonSlimeLaunchTest {
         var packet = new ClientboundBlockEvent(pos, action, parameter, REGISTRY.blockIndex(state));
         var event = new PacketSendEvent<>(
                 f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.BLOCK_EVENT, packet, false);
-        new PacketBlockAction().onBlockEvent(event, f.player, packet);
         new PacketWorldReaderTwentySix().handleBlockEvent(f.player, event, packet);
         event.getTasksAfterSend().forEach(Runnable::run);
         f.pongThrough(f.player.lastTransactionSent.get());

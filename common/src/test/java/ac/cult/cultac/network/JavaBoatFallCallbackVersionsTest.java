@@ -13,7 +13,6 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaBlockEntityPass;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassState;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
-import ac.cult.cultac.events.packets.listeners.PacketBlockAction;
 import ac.cult.cultac.events.packets.worldreader.PacketWorldReaderTwentySix;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.RegistryTags;
@@ -299,7 +298,6 @@ class JavaBoatFallCallbackVersionsTest {
         var packet = new ClientboundBlockEvent(pos, 0, face, REGISTRY.blockIndex(piston));
         var event = new PacketSendEvent<>(
                 f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.BLOCK_EVENT, packet, false);
-        new PacketBlockAction().onBlockEvent(event, f.player, packet);
         new PacketWorldReaderTwentySix().handleBlockEvent(f.player, event, packet);
         event.getTasksAfterSend().forEach(Runnable::run);
         f.pongThrough(f.player.lastTransactionSent.get());

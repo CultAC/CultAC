@@ -87,7 +87,9 @@ public final class BedrockClientBlockShapeMappings {
                 id++) {
             int javaStateId = id;
             Optional<BedrockCollisionOverrideShape> override = catalog.override(javaStateId);
-            boolean dynamicMovement = BedrockCollisionWorldBuilder.dynamicMovement(javaStateId);
+            // A shape that reads the player's client state is built per query, like an actor-dependent one.
+            boolean dynamicMovement = BedrockCollisionWorldBuilder.dynamicMovement(javaStateId)
+                    || BedrockCollisionWorldBuilder.positionDependentMovement(javaStateId);
             boolean clientComputedMovement = BedrockCollisionWorldBuilder.clientComputedMovement(javaStateId);
             if (dynamicMovement) {
                 entries.put(javaStateId, new Entry(null, true, clientComputedMovement));
@@ -109,8 +111,8 @@ public final class BedrockClientBlockShapeMappings {
     private static Optional<CollisionBox> buildDynamicMovement(
             BedrockCollisionOverrideCatalog catalog, CultPlayer player, int state, int x, int y, int z) {
         BlockPosition position = new BlockPosition(x, y, z);
-        BlockCollisionWorld world =
-                new BedrockCollisionWorldBuilder(catalog).build(Map.of(position, state), bedrockQuery(player));
+        BlockCollisionWorld world = new BedrockCollisionWorldBuilder(catalog, player.bedrockState.blockShapeContext())
+                .build(Map.of(position, state), bedrockQuery(player));
         return Optional.of(world.blockAt(position)
                 .map(block -> fromWorldBoxes(block.collisionBoxes()))
                 .orElse(NoCollisionBox.INSTANCE));
