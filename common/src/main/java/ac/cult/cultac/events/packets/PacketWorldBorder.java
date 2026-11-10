@@ -44,12 +44,9 @@ public class PacketWorldBorder extends CultProcessor implements CheckListener, C
             if (lerpDurationTicks <= 0L) {
                 return newDiameter;
             }
-            // 1.21.11/26.1 WorldBorder collision shapes use getMin/Max(0.0F):
-            // the previous world-tick size, until MovingBorderExtent becomes static.
-            long collisionTicks =
-                    !player.isBedrockMovement() && player.getClientVersion().isOlderThan(ClientVersion.V_26_2)
-                            ? Math.max(0L, lerpElapsedTicks - 1L)
-                            : lerpElapsedTicks;
+            // MovingBorderExtent#getCollisionShape uses getMin/Max(0.0F): the previous world-tick size, until
+            // the extent becomes static. Minecraft#tick moves entities before ClientLevel#tick updates the border.
+            long collisionTicks = player.isBedrockMovement() ? lerpElapsedTicks : Math.max(0L, lerpElapsedTicks - 1L);
             double progress = Math.min(1.0D, (double) collisionTicks / (double) lerpDurationTicks);
             return CultMath.lerp(progress, oldDiameter, newDiameter);
         }
