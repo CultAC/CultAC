@@ -80,6 +80,7 @@ public class PacketServerTeleport {
         Vec3 deltaMovement = new Vec3(
                 teleport.delta().x(), teleport.delta().y(), teleport.delta().z());
         RelativeFlag flags = new RelativeFlag(Relative.pack(teleport.relatives()));
+        // The rotation reported so far; the acceptance resolves the one the client handles the packet with.
         float sourceYaw = player.xRot;
         float sourcePitch = player.yRot;
         float finalYaw = calculateRotation(sourceYaw, teleport.yaw(), flags, RelativeFlag.Y_ROT);
@@ -129,7 +130,9 @@ public class PacketServerTeleport {
                         sourcePitch,
                         finalYaw,
                         absolutePitch,
-                        event.isAuthored());
+                        event.isAuthored(),
+                        teleport.yaw(),
+                        teleport.pitch());
     }
 
     private void handlePlayerRotation(

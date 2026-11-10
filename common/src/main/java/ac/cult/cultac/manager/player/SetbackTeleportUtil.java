@@ -1231,7 +1231,8 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
                     && (teleportPos.isPositionOnly() || receivedTransaction == teleportPos.getTransaction())) {
                 pendingTeleports.poll();
                 if (pistonTeleport != null) simulation.acceptRelativePistonTeleport(pistonTeleport);
-                return completeTeleport(teleportPos, clamped, true);
+                // The rotation this response replaces is the one the client handled the teleport with.
+                return completeTeleport(teleportPos.resolvePositionRotation(player.xRot, player.yRot), clamped, true);
             } else if (teleportPos.isPositionOnly() && receivedTransaction <= teleportPos.getTransaction()) {
                 break;
             } else if (teleportPos.isPositionOnly() || receivedTransaction > teleportPos.getTransaction()) {
@@ -1906,9 +1907,44 @@ public class SetbackTeleportUtil extends CultProcessor implements PostPrediction
             float finalYaw,
             float finalPitch,
             boolean authored) {
+        addSentTeleport(
+                position,
+                deltaMovement,
+                transaction,
+                flags,
+                plugin,
+                teleportId,
+                sourceYaw,
+                sourcePitch,
+                finalYaw,
+                finalPitch,
+                authored,
+                Float.NaN,
+                Float.NaN);
+    }
+
+    /**
+     * {@code packetYaw}/{@code packetPitch} are a player_position's own rotation, whose source the acceptance
+     * resolves; NaN keeps {@code sourceYaw}/{@code sourcePitch}.
+     */
+    public void addSentTeleport(
+            Vec3 position,
+            Vec3 deltaMovement,
+            int transaction,
+            RelativeFlag flags,
+            boolean plugin,
+            int teleportId,
+            float sourceYaw,
+            float sourcePitch,
+            float finalYaw,
+            float finalPitch,
+            boolean authored,
+            float packetYaw,
+            float packetPitch) {
         TeleportData data = new TeleportData(
                 position, flags, deltaMovement, transaction, teleportId, sourceYaw, sourcePitch, finalYaw, finalPitch);
         if (!player.isBedrockMovement()) data.configureJavaRotation(player.getClientVersion(), finalPitch);
+        data.setPacketRotation(packetYaw, packetPitch);
         data.setAuthored(authored);
         data.setSentWhileVehicle(player.compensatedEntities.vehicles.serverPlayerVehicle != null
                 || player.compensatedEntities.getSelf().inVehicle());

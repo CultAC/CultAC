@@ -38,6 +38,10 @@ public class TeleportData {
     float finalPitch;
     private ClientVersion clientVersion = ClientVersion.V_26_3;
     private float velocityPitch;
+    /** A player_position's own rotation, absolute or relative by {@link #flags}; NaN when the source is given. */
+    private float packetYaw = Float.NaN;
+
+    private float packetPitch = Float.NaN;
 
     @Setter
     int transaction;
@@ -132,6 +136,8 @@ public class TeleportData {
         copy.authored = authored;
         copy.clientVersion = clientVersion;
         copy.velocityPitch = velocityPitch;
+        copy.packetYaw = packetYaw;
+        copy.packetPitch = packetPitch;
         copy.bedrockOnGround = bedrockOnGround;
         copy.bedrockTransportOnly = bedrockTransportOnly;
         copy.bedrockTransportRevision = bedrockTransportRevision;
@@ -148,6 +154,27 @@ public class TeleportData {
 
     public static float clientPitch(ClientVersion version, float absolutePitch) {
         return clampPitch(version.isOlderThan(ClientVersion.V_1_21_5) ? absolutePitch % 360.0F : absolutePitch);
+    }
+
+    public void setPacketRotation(float yaw, float pitch) {
+        packetYaw = yaw;
+        packetPitch = pitch;
+    }
+
+    /**
+     * ClientPacketListener#handleMovePlayer builds PositionMoveRotation#of from the rotation the client holds when it
+     * handles the packet, not the one it had reported when the packet was sent: {@code yaw}/{@code pitch}, its last
+     * report or what an earlier teleport it handled since left.
+     */
+    public TeleportData resolvePositionRotation(float yaw, float pitch) {
+        if (Float.isNaN(packetYaw)) return this;
+        TeleportData copy = copyWithLocation(location);
+        copy.sourceYaw = yaw;
+        copy.sourcePitch = pitch;
+        copy.finalYaw = (flags.isSet(RelativeFlag.Y_ROT.getMask()) ? yaw : 0.0F) + packetYaw;
+        copy.configureJavaRotation(
+                clientVersion, (flags.isSet(RelativeFlag.X_ROT.getMask()) ? pitch : 0.0F) + packetPitch);
+        return copy;
     }
 
     /** Resolve handleRotatePlayer against the last rotation reported before its immediate echo. */
