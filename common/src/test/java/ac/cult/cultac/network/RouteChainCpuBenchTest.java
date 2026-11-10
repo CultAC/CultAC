@@ -22,10 +22,10 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 /**
- * Thread CPU and allocation of route dispatch: a loop over the handlers (the base) against {@link PacketReceiveRoute}
- * and {@link PacketSendRoute}, through scanned handlers of distinct listener classes behind one gating wrapper, the
- * way per-player check routes hold them. Runs only with {@code CULT_ROUTE_BENCH} set; results go to stdout and
- * {@code build/route-chain-bench.txt}.
+ * Thread CPU and allocation of route dispatch over scanned handlers of distinct listener classes, interleaved: a loop
+ * over gating wrappers (the base), {@link PacketReceiveRoute} and {@link PacketSendRoute} over the same wrappers
+ * ("chain"), and the routes over gated scanned handlers, the way per-player check routes hold them ("invoker chain").
+ * Runs only with {@code CULT_ROUTE_BENCH} set; results go to stdout and {@code build/route-chain-bench.txt}.
  */
 class RouteChainCpuBenchTest {
     private static final ThreadMXBean THREADS = (ThreadMXBean) ManagementFactory.getThreadMXBean();
@@ -45,18 +45,28 @@ class RouteChainCpuBenchTest {
         Assumptions.assumeTrue(System.getenv("CULT_ROUTE_BENCH") != null);
         int repetitions = Integer.parseInt(System.getenv().getOrDefault("CULT_ROUTE_BENCH_REPS", "9"));
 
-        PacketReceiveHandler[] moves = gated(
-                new M00(), new M01(), new M02(), new M03(), new M04(), new M05(), new M06(), new M07(), new M08(),
-                new M09(), new M10(), new M11(), new M12(), new M13(), new M14(), new M15(), new M16(), new M17(),
-                new M18(), new M19(), new M20(), new M21(), new M22(), new M23(), new M24(), new M25(), new M26(),
-                new M27(), new M28(), new M29(), new M30(), new M31(), new M32(), new M33(), new M34(), new M35(),
-                new M36(), new M37(), new M38(), new M39(), new M40(), new M41(), new M42(), new M43());
-        PacketReceiveHandler[] pongs = gated(
-                new P0(), new P1(), new P2(), new P3(), new P4(), new P5(), new P6(), new P7(), new P8(), new P9());
-        PacketSendHandler[] pings = gatedSend(
-                new S00(), new S01(), new S02(), new S03(), new S04(), new S05(), new S06(), new S07(), new S08(),
-                new S09(), new S10(), new S11());
+        Listener[] moveListeners = {
+            new M00(), new M01(), new M02(), new M03(), new M04(), new M05(), new M06(), new M07(), new M08(),
+            new M09(), new M10(), new M11(), new M12(), new M13(), new M14(), new M15(), new M16(), new M17(),
+            new M18(), new M19(), new M20(), new M21(), new M22(), new M23(), new M24(), new M25(), new M26(),
+            new M27(), new M28(), new M29(), new M30(), new M31(), new M32(), new M33(), new M34(), new M35(),
+            new M36(), new M37(), new M38(), new M39(), new M40(), new M41(), new M42(), new M43()
+        };
+        Listener[] pongListeners = {
+            new P0(), new P1(), new P2(), new P3(), new P4(), new P5(), new P6(), new P7(), new P8(), new P9()
+        };
+        Listener[] pingListeners = {
+            new S00(), new S01(), new S02(), new S03(), new S04(), new S05(), new S06(), new S07(), new S08(),
+            new S09(), new S10(), new S11()
+        };
+        PacketReceiveHandler[] moves = gated(moveListeners);
+        PacketReceiveHandler[] pongs = gated(pongListeners);
+        PacketSendHandler[] pings = gatedSend(pingListeners);
         PacketReceiveHandler[] small = Arrays.copyOf(pongs, 3);
+        PacketReceiveHandler[] movesDirect = direct(moveListeners);
+        PacketReceiveHandler[] pongsDirect = direct(pongListeners);
+        PacketSendHandler[] pingsDirect = directSend(pingListeners);
+        PacketReceiveHandler[] smallDirect = Arrays.copyOf(pongsDirect, 3);
         PacketReceiveHandler[] plain = {
             (event, player, packet) -> sink++,
             (event, player, packet) -> sink += 2,
@@ -75,6 +85,12 @@ class RouteChainCpuBenchTest {
                 PacketReceiveRoute.of(small)::dispatch,
                 PacketReceiveRoute.of(plain)::dispatch,
                 PacketSendRoute.of(pings, new PacketSendHandler[0])::dispatch);
+        var invoking = new Routes(
+                PacketReceiveRoute.of(movesDirect)::dispatch,
+                PacketReceiveRoute.of(pongsDirect)::dispatch,
+                PacketReceiveRoute.of(smallDirect)::dispatch,
+                PacketReceiveRoute.of(plain)::dispatch,
+                PacketSendRoute.of(pingsDirect, new PacketSendHandler[0])::dispatch);
 
         int n = 64;
         var moveEvents = new PacketReceiveEvent[n];
@@ -98,10 +114,11 @@ class RouteChainCpuBenchTest {
                     null, ConnectionPhase.PLAY, ClientboundPackets.PING, new ClientboundPing(i), false);
         }
         String[] names = {"move 44", "pong 10", "pong 3", "send 12", "mixed tick"};
-        Workload[][] workloads = new Workload[2][];
-        Routes[] both = {base, chained};
-        for (int side = 0; side < 2; side++) {
-            Routes routes = both[side];
+        String[] sides = {"loop", "chain", "invoker chain"};
+        Workload[][] workloads = new Workload[3][];
+        Routes[] all = {base, chained, invoking};
+        for (int side = 0; side < 3; side++) {
+            Routes routes = all[side];
             workloads[side] = new Workload[] {
                 i -> receive(routes.move, moveEvents[i & 63]),
                 i -> receive(routes.pongs, pongEvents[i & 63]),
@@ -118,11 +135,13 @@ class RouteChainCpuBenchTest {
         }
         var lines = new StringBuilder();
         for (int w = 0; w < names.length; w++) {
-            double[][] cpu = new double[2][repetitions];
-            double[][] alloc = new double[2][repetitions];
+            double[][] cpu = new double[3][repetitions];
+            double[][] alloc = new double[3][repetitions];
             for (int r = -3; r < repetitions; r++) {
-                for (int k = 0; k < 2; k++) {
-                    int side = (r & 1) == 0 ? k : 1 - k;
+                for (int k = 0; k < 3; k++) {
+                    // Every rotation of the three, forwards and backwards, so no side always runs first.
+                    int turn = Math.floorMod(r, 6);
+                    int side = turn < 3 ? (turn + k) % 3 : (turn + 3 - k) % 3;
                     var workload = workloads[side][w];
                     long calls = 0;
                     long wallStart = System.nanoTime();
@@ -140,20 +159,23 @@ class RouteChainCpuBenchTest {
                     }
                 }
             }
-            double[] ratio = new double[repetitions];
-            for (int r = 0; r < repetitions; r++) ratio[r] = cpu[1][r] / cpu[0][r];
-            lines.append(line(names[w] + " loop", cpu[0], alloc[0])).append('\n');
-            lines.append(line(names[w] + " route", cpu[1], alloc[1])).append('\n');
-            double[] sorted = ratio.clone();
-            Arrays.sort(sorted);
-            lines.append(String.format(
-                            Locale.ROOT,
-                            "%-22s median %.3f  min %.3f  max %.3f",
-                            names[w] + " route/loop",
-                            sorted[sorted.length / 2],
-                            sorted[0],
-                            sorted[sorted.length - 1]))
-                    .append('\n');
+            for (int side = 0; side < 3; side++)
+                lines.append(line(names[w] + " " + sides[side], cpu[side], alloc[side]))
+                        .append('\n');
+            int[][] pairs = {{1, 0}, {2, 0}, {2, 1}};
+            for (int[] pair : pairs) {
+                double[] ratio = new double[repetitions];
+                for (int r = 0; r < repetitions; r++) ratio[r] = cpu[pair[0]][r] / cpu[pair[1]][r];
+                Arrays.sort(ratio);
+                lines.append(String.format(
+                                Locale.ROOT,
+                                "%-36s median %.3f  min %.3f  max %.3f",
+                                names[w] + " " + sides[pair[0]] + "/" + sides[pair[1]],
+                                ratio[ratio.length / 2],
+                                ratio[0],
+                                ratio[ratio.length - 1]))
+                        .append('\n');
+            }
         }
         lines.append("sink ").append(sink).append('\n');
         System.out.print(lines);
@@ -217,7 +239,7 @@ class RouteChainCpuBenchTest {
         }
     }
 
-    /** One wrapper class around every scanned handler, gating on a listener flag as check routes do. */
+    /** One wrapper class around every scanned handler, gating as check routes did before gated handlers. */
     private static PacketReceiveHandler[] gated(Listener... listeners) {
         var handlers = new PacketReceiveHandler[listeners.length];
         for (int i = 0; i < listeners.length; i++) {
@@ -225,7 +247,7 @@ class RouteChainCpuBenchTest {
             PacketReceiveHandler<Object> scanned =
                     SCANNER.receiveHandlers(listener).getFirst().handler();
             handlers[i] = (event, player, packet) -> {
-                if (listener.enabled()) scanned.handle(event, player, packet);
+                if (shouldDispatch(listener)) scanned.handle(event, player, packet);
             };
         }
         return handlers;
@@ -238,21 +260,56 @@ class RouteChainCpuBenchTest {
             PacketSendHandler<Object> scanned =
                     SCANNER.sendHandlers(listener).getFirst().handler();
             handlers[i] = (event, player, packet) -> {
-                if (listener.enabled()) scanned.handle(event, player, packet);
+                if (shouldDispatch(listener)) scanned.handle(event, player, packet);
             };
         }
         return handlers;
     }
 
+    /** The same gate handed to the scanner, as check routes do now. */
+    private static PacketReceiveHandler[] direct(Listener... listeners) {
+        var handlers = new PacketReceiveHandler[listeners.length];
+        for (int i = 0; i < listeners.length; i++) {
+            Listener listener = listeners[i];
+            handlers[i] = SCANNER.receiveHandlers(listener, () -> shouldDispatch(listener))
+                    .getFirst()
+                    .handler();
+        }
+        return handlers;
+    }
+
+    private static PacketSendHandler[] directSend(Listener... listeners) {
+        var handlers = new PacketSendHandler[listeners.length];
+        for (int i = 0; i < listeners.length; i++) {
+            Listener listener = listeners[i];
+            handlers[i] = SCANNER.sendHandlers(listener, () -> shouldDispatch(listener))
+                    .getFirst()
+                    .handler();
+        }
+        return handlers;
+    }
+
+    /** The shape of the check gate: a type test, then a player field read that is false for Java players. */
+    private static boolean shouldDispatch(Object listener) {
+        return !(listener instanceof Listener gated) || !gated.player.bedrock || gated.supported();
+    }
+
+    /** A player's movement platform, mutable as the real one is. */
+    static final class BenchPlayer {
+        boolean bedrock;
+    }
+
+    static final BenchPlayer PLAYER = new BenchPlayer();
+
     abstract static class Listener {
+        final BenchPlayer player = PLAYER;
         long acc;
         boolean last;
         double prev;
         int count;
-        boolean disabled;
 
-        boolean enabled() {
-            return !disabled;
+        boolean supported() {
+            return getClass().isAnnotationPresent(Deprecated.class);
         }
     }
 
