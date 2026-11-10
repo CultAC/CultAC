@@ -79,11 +79,7 @@ final class BedrockEndTickVelocityBranches {
                 BedrockLiquidClimbOutMovement.CLIMB_OUT_VELOCITY_Y,
                 state.velocity().z());
         return BedrockEntityInsideMovement.applyBubbleColumns(
-                        evidence.fluidContext(),
-                        state.gliding(),
-                        climbOutVelocity,
-                        state.physicalFeetPosition(),
-                        state.simulationTick())
+                        evidence.fluidContext(), state.gliding(), climbOutVelocity)
                 .y();
     }
 

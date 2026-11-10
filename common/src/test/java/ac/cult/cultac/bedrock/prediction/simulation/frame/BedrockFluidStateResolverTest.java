@@ -75,6 +75,31 @@ public class BedrockFluidStateResolverTest {
     }
 
     @Test
+    public void bubbleColumnTouchesTheBoxShrunkByAThousandthOnEverySide() {
+        BlockCollisionWorld column = new BlockCollisionWorld(List.of(PlacedBlockCollision.manual(
+                new BlockPosition(1, 0, 0),
+                "minecraft:bubble_column[drag=false]",
+                "minecraft:bubble_column",
+                Map.of("drag", false),
+                List.of())));
+
+        // A box 0.0005 into the column misses it; 0.0015 into it is pushed.
+        assertFalse(bubbleLayersAt(column, new Vec3d(0.7005D, 0.0D, 0.5D)));
+        assertTrue(bubbleLayersAt(column, new Vec3d(0.7015D, 0.0D, 0.5D)));
+        assertFalse(bubbleLayersAt(column, new Vec3d(1.5D, 0.9995D, 0.5D)));
+        assertTrue(bubbleLayersAt(column, new Vec3d(1.5D, 0.9985D, 0.5D)));
+    }
+
+    private static boolean bubbleLayersAt(BlockCollisionWorld world, Vec3d feet) {
+        return !BedrockFluidStateResolver.withFluidStateFromBlockWorld(contextWithWorld(world), feet)
+                .worldState()
+                .fluidState()
+                .bubbleColumnState()
+                .layers()
+                .isEmpty();
+    }
+
+    @Test
     public void lavaContactDoesNotIncludeSurfaceBoundaryQuantization() {
         BedrockMovementContext context = contextWithWorld(new BlockCollisionWorld(List.of(PlacedBlockCollision.manual(
                 new BlockPosition(0, 0, 0),

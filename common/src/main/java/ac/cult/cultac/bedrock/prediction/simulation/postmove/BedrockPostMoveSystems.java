@@ -1,5 +1,6 @@
 package ac.cult.cultac.bedrock.prediction.simulation.postmove;
 
+import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockCollisionOutput;
 import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockEntityMove;
 import ac.cult.cultac.bedrock.prediction.simulation.travel.BedrockMoveRequest;
@@ -28,11 +29,12 @@ public final class BedrockPostMoveSystems {
                     plan.frame().input().previousState(),
                             plan.frame().frameFacts().blockCollisionWorld(),
                     blockMove.position(), velocity);
-            velocity = BedrockBoatInsideMovement.apply(
-                    frame.postMoveContext(),
-                    velocity,
-                    blockMove.position(),
-                    plan.frame().input().previousState().simulationTick());
+            velocity = new Vec3d(
+                    velocity.x(),
+                    BedrockBubbleColumnMovement.boatVelocityY(
+                            frame.postMoveContext().worldState().fluidState().bubbleColumnState(),
+                            (float) velocity.y()),
+                    velocity.z());
             velocity = ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockBlockSurfaceMovement
                     .applyInsideBlockAfterPostMoveEffects(
                             velocity,

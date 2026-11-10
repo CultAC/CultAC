@@ -121,24 +121,19 @@ final class BedrockAcceptedDiffVerticalVelocity {
         BedrockMovementState state = evidence.state();
         Vec3d acceptedDiff = evidence.acceptedDiff();
         BedrockMovementContext acceptedEndpointContext = evidence.fluidContext();
-        boolean explicitBubbleLayers = !acceptedEndpointContext
+        if (acceptedEndpointContext
                 .worldState()
                 .fluidState()
                 .bubbleColumnState()
                 .layers()
-                .isEmpty();
-        if (!explicitBubbleLayers
-                && !acceptedEndpointContext.inUpwardBubbleColumn()
-                && !acceptedEndpointContext.inDownwardBubbleColumn()) {
+                .isEmpty()) {
             return OptionalDouble.empty();
         }
         double baseVelocityY = acceptedDiffBaseVelocityY(movementResult, state, acceptedDiff);
         Vec3d velocity = BedrockEntityInsideMovement.applyBubbleColumns(
                 acceptedEndpointContext,
                 state.gliding(),
-                new Vec3d(state.velocity().x(), baseVelocityY, state.velocity().z()),
-                state.physicalFeetPosition(),
-                state.simulationTick());
+                new Vec3d(state.velocity().x(), baseVelocityY, state.velocity().z()));
         return OptionalDouble.of(velocity.y());
     }
 

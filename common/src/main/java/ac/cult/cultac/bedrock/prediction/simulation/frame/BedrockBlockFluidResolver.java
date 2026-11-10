@@ -145,9 +145,7 @@ final class BedrockBlockFluidResolver {
                 upwardBubbleContact,
                 downwardBubbleContact,
                 currentState,
-                bubbleLayers.isEmpty()
-                        ? BubbleColumnState.NONE
-                        : bubbleColumnState(bubbleLayers, actorBox.maxY() - actorBox.minY()),
+                bubbleLayers.isEmpty() ? BubbleColumnState.NONE : new BubbleColumnState(bubbleLayers),
                 false,
                 1.0D);
         return new BedrockFluidResolution(
@@ -214,14 +212,6 @@ final class BedrockBlockFluidResolver {
                 directionX,
                 directionY,
                 directionZ);
-    }
-
-    private static BubbleColumnState bubbleColumnState(List<BubbleColumnLayer> bubbleLayers, double playerHeight) {
-        int minY =
-                bubbleLayers.stream().mapToInt(BubbleColumnLayer::blockY).min().orElse(0);
-        int maxY =
-                bubbleLayers.stream().mapToInt(BubbleColumnLayer::blockY).max().orElse(-1);
-        return new BubbleColumnState(minY, maxY, maxY, maxY + 1.0D, playerHeight, bubbleLayers);
     }
 
     private static boolean isWaterloggedBlock(PlacedBlockCollision block) {
