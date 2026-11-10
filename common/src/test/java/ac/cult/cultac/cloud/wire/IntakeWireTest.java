@@ -558,13 +558,19 @@ class IntakeWireTest {
     }
 
     @Test
-    void aReplyForAPlayerThatIsNotSixteenBytesIsUnreadable() {
+    void aReplyForAPlayerThatIsNotSixteenBytesIsSkippedAndTheRestKept() {
+        ByteString shortPlayer = ByteString.copyFrom(new byte[3]);
+        ByteString player = ByteString.copyFrom(new byte[16]);
         byte[] replies = Replies.newBuilder()
-                .addReplies(
-                        Reply.newBuilder().setRefused(Refused.newBuilder().setPlayer(ByteString.copyFrom(new byte[3]))))
+                .addReplies(Reply.newBuilder().setRefused(Refused.newBuilder().setPlayer(shortPlayer)))
+                .addReplies(Reply.newBuilder().setCapture(Capture.newBuilder().setPlayer(shortPlayer)))
+                .addReplies(Reply.newBuilder().setEvent(Event.newBuilder().setPlayer(shortPlayer)))
+                .addReplies(Reply.newBuilder().setRefused(Refused.newBuilder().setPlayer(player)))
                 .build()
                 .toByteArray();
-        assertThrows(IllegalArgumentException.class, () -> IntakeWire.replies(replies));
+        List<IntakeWire.Reply> read = IntakeWire.replies(replies);
+        assertEquals(1, read.size());
+        assertEquals(new UUID(0, 0), read.getFirst().player());
     }
 
     @Test

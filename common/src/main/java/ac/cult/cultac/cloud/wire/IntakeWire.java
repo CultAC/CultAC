@@ -1124,7 +1124,10 @@ public final class IntakeWire {
         }
     }
 
-    /** A whole message from the service. Kinds this client does not know are skipped. */
+    /**
+     * A whole message from the service. Kinds this client does not know, and replies whose player is not 16 bytes long,
+     * are skipped.
+     */
     public static List<Reply> replies(byte[] message) {
         return replies(message, "");
     }
@@ -1143,18 +1146,22 @@ public final class IntakeWire {
             switch (reply.getKindCase()) {
                 case CAPTURE -> {
                     var capture = reply.getCapture();
+                    if (capture.getPlayer().size() != 16) continue;
                     replies.add(new Capture(
                             uuid(capture.getPlayer()),
                             ids(capture.getServerboundList()),
                             ids(capture.getClientboundList()),
                             ids(capture.getDimensionList())));
                 }
-                case REFUSED ->
+                case REFUSED -> {
+                    if (reply.getRefused().getPlayer().size() != 16) continue;
                     replies.add(new Refused(
                             uuid(reply.getRefused().getPlayer()),
                             text(reply.getRefused().getReason(), apiKey, MAX_DETAIL_BYTES)));
+                }
                 case EVENT -> {
                     var event = reply.getEvent();
+                    if (event.getPlayer().size() != 16) continue;
                     replies.add(new Event(
                             uuid(event.getPlayer()),
                             event.getTick(),
