@@ -66,6 +66,11 @@ public final class BedrockFrameProcessor {
         var processor = player.checkManager.getSimulationProcessor();
         var teleport = player.getSetbackTeleportUtil().bedrockTeleports().acknowledgeBedrockTeleportFrame(frame);
         if (teleport.isTeleport()) {
+            player.checkManager
+                    .getListener(DumbTimer.class)
+                    .onTeleportAccepted(
+                            teleport.isInitialSpawnTeleport(),
+                            new Vec3(player.x, player.y, player.z).distanceTo(frame.getPosition()));
             processor.applyAcceptedBedrockTeleport(teleport);
             player.packetStateData.bedrockTranslatedMovement.markTeleportFrame();
         }

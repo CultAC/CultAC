@@ -143,6 +143,68 @@ public class BedrockPendingTeleportTickTest {
         }
     }
 
+    @Test
+    public void acceptingAFarTeleportOpensTheTimerWindowOfALongTeleport() throws Exception {
+        assertTrue(timerWindowOpenedAt(acceptTeleportOver(100)));
+    }
+
+    @Test
+    public void acceptingANearTeleportLeavesTheTimerWindowClosed() throws Exception {
+        assertFalse(timerWindowOpenedAt(acceptTeleportOver(8)));
+    }
+
+    /** Whether the timer's long-teleport window was opened at or after the given time. */
+    private static boolean timerWindowOpenedAt(double[] timer) {
+        return timer[1] >= timer[0];
+    }
+
+    /** Returns the time just before the accepting frame and the timer's last long teleport after it. */
+    private static double[] acceptTeleportOver(double distance) throws Exception {
+        OfflineCultTestBootstrap.installConfig();
+        var player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            player.gamemode = GameMode.SURVIVAL;
+            Vec3 ground = new Vec3(1.5, 106, 1.5);
+            player.x = player.lastX = ground.x;
+            player.y = player.lastY = ground.y;
+            player.z = player.lastZ = ground.z;
+            player.onGround = player.lastOnGround = false;
+            player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, ground.x, ground.y, ground.z);
+            assertNotNull(process(player, frame(player, 700, ground, -0.0784, false, false)));
+
+            // The first teleport a client accepts is its spawn teleport, which opens the window at any distance.
+            acceptTeleport(player, ground, 701, 10);
+            Vec3 target = ground.add(distance, 0, 0);
+            var timer = player.checkManager.getListener(ac.cult.cultac.checks.impl.movement.timer.DumbTimer.class);
+            var lastLongTeleport = timer.getClass().getDeclaredField("lastLongTeleport");
+            lastLongTeleport.setAccessible(true);
+            double before = System.nanoTime();
+            acceptTeleport(player, target, 702, 11);
+            return new double[] {before, lastLongTeleport.getDouble(timer)};
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    private static void acceptTeleport(CultPlayer player, Vec3 target, long tick, int transaction) {
+        var teleports = player.getSetbackTeleportUtil();
+        teleports.javaTeleports().addSentTeleport(target, transaction, new RelativeFlag(0), false, transaction);
+        teleports.pendingTeleports.removeIf(pending -> pending.getBedrockTransportRevision() < 0);
+        teleports
+                .bedrockTeleports()
+                .addImmediateBedrockTransportTeleport(
+                        target,
+                        false,
+                        BedrockCoordinateFrame.IDENTITY,
+                        null,
+                        new BedrockTeleportOperation(transaction, BedrockTeleportProvenance.GEYSER, transaction),
+                        transaction);
+        player.lastTransactionReceived.set(100);
+        assertTrue(teleports.bedrockTeleports().mustAcknowledgeBedrockTransportTeleport());
+        process(player, frame(player, tick, target, 0, false, true));
+        assertFalse(teleports.bedrockTeleports().mustAcknowledgeBedrockTransportTeleport());
+    }
+
     private static BedrockAuthInputFrame startupFrame(
             CultPlayer player, long tick, Vec3 position, double futureVelocity, boolean handlesTeleport) {
         long flags = 1L << PlayerAuthInputData.VERTICAL_COLLISION.ordinal();
