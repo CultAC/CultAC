@@ -39,6 +39,8 @@ public final class BedrockFrameProcessor {
                 || !Float.isFinite(original.getPitch())
                 || !BedrockControlInput.validControl(original)
                 || !player.bedrockState.acceptMovementTick(original.getClientTick())) return null;
+        // The client steps its pistons before it moves.
+        player.bedrockState.pistonBlocks.tick(player.compensatedWorld::getBlockStateIdAt);
         // Key input is independent of position, including while a teleport or
         // passenger transition blocks movement. Count and admit the tick first.
         // TODO: Check timer interactions with blocking sneaking and blocking teleports

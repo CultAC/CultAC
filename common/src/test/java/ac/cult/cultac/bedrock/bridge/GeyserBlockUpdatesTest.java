@@ -6,10 +6,12 @@ import static org.mockito.Mockito.*;
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.BlockProps;
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import java.util.ArrayList;
 import java.util.List;
@@ -21,6 +23,7 @@ import org.cloudburstmc.nbt.NbtMap;
 import org.cloudburstmc.protocol.bedrock.data.BlockChangeEntry;
 import org.cloudburstmc.protocol.bedrock.data.inventory.transaction.InventoryTransactionType;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
+import org.cloudburstmc.protocol.bedrock.packet.BlockEntityDataPacket;
 import org.cloudburstmc.protocol.bedrock.packet.InventoryTransactionPacket;
 import org.cloudburstmc.protocol.bedrock.packet.MovePlayerPacket;
 import org.cloudburstmc.protocol.bedrock.packet.PlayerAuthInputPacket;
@@ -182,6 +185,124 @@ public class GeyserBlockUpdatesTest {
         h.finish();
         assertTrue(h.receipts.isEmpty());
         verify(h.player).addBedrockTransactionTask(isNull(), any());
+    }
+
+    /**
+     * A retracting sticky piston at x 67 of the session frame: Geyser places a moving block at x 68 with the data
+     * of the slime block it carries, then the piston arm's data, and the arm's data again alone on later ticks.
+     */
+    @Test
+    public void pistonBlockEntityDataTakesEffectWithItsRunAtWorldPositions() throws Exception {
+        Harness h = new Harness();
+        var registry = DataTables.defaults().registry();
+        int slime = registry.block("minecraft:slime_block").defaultState();
+        int moving = registry.block("minecraft:moving_piston").defaultState();
+        int sticky = BlockProps.FACING.with(
+                registry.block("minecraft:sticky_piston").defaultState(), Direction.EAST.get3DDataValue());
+        var tables = new GeyserBlockStateMappings.Tables(Map.of(60, moving, 61, slime), h.tables.sentStates());
+        NbtMap slimeTag = NbtMap.builder()
+                .putString("name", "minecraft:slime")
+                .putCompound("states", NbtMap.EMPTY)
+                .build();
+        java.util.function.Function<NbtMap, GeyserBedrockBlock> definitions =
+                tag -> tag.equals(slimeTag) ? definition(61) : null;
+        var frame = new BedrockCoordinateFrame(20000, 20040, 4);
+        var pistonPosition = new BlockPos(20067, 121, 20020);
+        var movingPosition = new BlockPos(20068, 121, 20020);
+        java.util.function.ToIntFunction<BlockPos> world = position ->
+                position.equals(pistonPosition) ? sticky : position.equals(movingPosition) ? moving : 0;
+        h.player.bedrockState = new BedrockPlayerState(java.util.UUID.randomUUID());
+        var pistons = h.player.bedrockState.pistonBlocks;
+        h.player.x = 20070.3;
+        h.player.y = 120;
+        h.player.z = 20020.5;
+
+        h.updates.capture(block(Vector3i.from(68, 121, -20), 0, 60), frame, tables);
+        assertTrue(h.updates.capture(
+                blockEntity(
+                        68,
+                        NbtMap.builder()
+                                .putString("id", "MovingBlock")
+                                .putBoolean("expanding", false)
+                                .putCompound("movingBlock", slimeTag)
+                                .putInt("pistonPosX", 67)
+                                .putInt("pistonPosY", 121)
+                                .putInt("pistonPosZ", -20)
+                                .build()),
+                frame,
+                tables,
+                definitions));
+        assertTrue(h.updates.capture(blockEntity(67, arm(3, 1.0F, 1.0F)), frame, tables, definitions));
+        h.finish();
+        assertEquals(1, h.receipts.size());
+        assertNull("nothing applies before the client has the run", pistons.carried(movingPosition, world));
+        h.receipts.removeFirst().accept(h.player);
+        verify(h.player.compensatedWorld).handleBedrockClientBlockUpdate(movingPosition, moving, false);
+        var carried = pistons.carried(movingPosition, world);
+        assertEquals(slime, carried.state());
+        assertEquals(new BlockPos(20069, 121, 20020), carried.last());
+        assertEquals(new BlockPos(20069, 121, 20020), carried.current());
+
+        // The arm's data alone is a run of its own.
+        assertTrue(h.updates.capture(blockEntity(67, arm(3, 0.5F, 1.0F)), frame, tables, definitions));
+        assertTrue(h.updates.pending());
+        h.finish();
+        assertFalse(h.updates.pending());
+        h.receipts.removeFirst().accept(h.player);
+        // It sets the state: the progress it carries does not replace the client's own.
+        carried = pistons.carried(movingPosition, world);
+        assertEquals(new BlockPos(20069, 121, 20020), carried.last());
+        assertEquals(new BlockPos(20069, 121, 20020), carried.current());
+
+        // Any other block entity only accompanies its block.
+        assertFalse(h.updates.capture(
+                blockEntity(68, NbtMap.builder().putString("id", "Chest").build()), frame, tables, definitions));
+        assertFalse(h.updates.pending());
+
+        // A moving block that names no piston, carrying a block the world cannot hold.
+        assertTrue(h.updates.capture(
+                blockEntity(
+                        68,
+                        NbtMap.builder()
+                                .putString("id", "MovingBlock")
+                                .putCompound("movingBlock", NbtMap.EMPTY)
+                                .putInt("pistonPosX", 0)
+                                .putInt("pistonPosY", -1)
+                                .putInt("pistonPosZ", 0)
+                                .build()),
+                frame,
+                tables,
+                definitions));
+        h.finish();
+        h.receipts.removeFirst().accept(h.player);
+        carried = pistons.carried(movingPosition, world);
+        assertEquals(ac.cult.cultac.bedrock.player.BedrockPistonBlocks.NO_BLOCK, carried.state());
+        assertEquals(movingPosition, carried.last());
+        assertEquals(movingPosition, carried.current());
+
+        // Distant data needs no boundary of its own.
+        h.player.x = 20200;
+        assertTrue(h.updates.capture(blockEntity(67, arm(0, 0.0F, 0.0F)), frame, tables, definitions));
+        h.finish();
+        assertTrue(h.receipts.isEmpty());
+        verify(h.player).addBedrockTransactionTask(isNull(), any());
+    }
+
+    private static NbtMap arm(int state, float progress, float lastProgress) {
+        return NbtMap.builder()
+                .putString("id", "PistonArm")
+                .putFloat("Progress", progress)
+                .putFloat("LastProgress", lastProgress)
+                .putByte("NewState", (byte) state)
+                .putByte("State", (byte) state)
+                .build();
+    }
+
+    private static BlockEntityDataPacket blockEntity(int x, NbtMap data) {
+        var packet = new BlockEntityDataPacket();
+        packet.setBlockPosition(Vector3i.from(x, 121, -20));
+        packet.setData(data);
+        return packet;
     }
 
     @Test

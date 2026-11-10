@@ -1780,10 +1780,18 @@ public final class GeyserBedrockBridgeRuntime {
                 } else if (blockUpdates.active()) {
                     throw new IllegalStateException("Missing correction coordinate origin");
                 }
-            } else if (blockUpdates.pending()
-                    && !blockUpdates.active()
-                    && !(packet instanceof org.cloudburstmc.protocol.bedrock.packet.BlockEntityDataPacket)) {
-                // The boundary directly follows the run it proves; block entity data only accompanies the blocks.
+            } else if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.BlockEntityDataPacket blockEntity) {
+                // Block entity data accompanies the blocks. A piston's is part of the run its boundary proves.
+                if (emission != null
+                        && blockUpdates.capture(
+                                blockEntity,
+                                emission.frame(),
+                                GeyserBlockStateMappings.tables(owner.connection.getBlockMappings()),
+                                tag -> owner.connection.getBlockMappings().getDefinition(tag))) {
+                    blockUpdateSource = wrapper;
+                }
+            } else if (blockUpdates.pending() && !blockUpdates.active()) {
+                // The boundary directly follows the run it proves.
                 blockUpdateSource = null;
                 blockUpdates.finish(
                         observedPlayer,

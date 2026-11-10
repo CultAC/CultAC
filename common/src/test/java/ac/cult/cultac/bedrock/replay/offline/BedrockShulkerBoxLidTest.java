@@ -119,6 +119,7 @@ public class BedrockShulkerBoxLidTest {
         float shown = BedrockShulkerBoxLids.lift(openness);
         var context = new ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext(
                 position -> shown,
+                ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext.NONE.movingBlockBoxes(),
                 ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame.IDENTITY);
         var builder = new BedrockCollisionWorldBuilder(BedrockClientBlockShapeMappings.catalog(), context);
         var position = new BlockPosition(BOX.getX(), BOX.getY(), BOX.getZ());

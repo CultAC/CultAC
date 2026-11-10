@@ -2,6 +2,7 @@ package ac.cult.cultac.bedrock.bridge;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.bedrock.player.BedrockBlockLayers;
+import ac.cult.cultac.bedrock.player.BedrockPistonBlocks;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
@@ -12,9 +13,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import org.cloudburstmc.math.vector.Vector3i;
+import org.cloudburstmc.nbt.NbtMap;
 import org.cloudburstmc.protocol.bedrock.data.definitions.BlockDefinition;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
+import org.cloudburstmc.protocol.bedrock.packet.BlockEntityDataPacket;
 import org.cloudburstmc.protocol.bedrock.packet.UpdateBlockPacket;
 import org.cloudburstmc.protocol.bedrock.packet.UpdateSubChunkBlocksPacket;
 
@@ -29,6 +33,9 @@ import org.cloudburstmc.protocol.bedrock.packet.UpdateSubChunkBlocksPacket;
  * translation while the client holds nothing else is left to the Java listener. Everything else is applied to the
  * world at a latency boundary written right after the run. A {@link GeyserBlockAckTranslator#bracket} marks
  * corrections that apply regardless, because the client's own prediction may have changed the block.
+ *
+ * <p>The block entity data of a moving block and of a piston arm travels with those blocks: it tells where a
+ * piston's carried blocks collide, and takes effect at the same boundary.
  */
 final class GeyserBlockUpdates {
     private static final int RANGE = 16;
@@ -37,6 +44,8 @@ final class GeyserBlockUpdates {
     private final Map<BlockPos, BedrockBlockLayers> clientOnly = new HashMap<>();
     /** The layers written by the block packets since the last boundary. */
     private final Map<BlockPos, Written> run = new LinkedHashMap<>();
+    /** The piston block entity data sent since the last boundary. */
+    private final List<PistonData> pistonData = new ArrayList<>();
 
     private int[] sentStates = new int[0];
     private int depth;
@@ -51,7 +60,7 @@ final class GeyserBlockUpdates {
 
     /** Whether block packets were captured that no boundary proves yet. */
     boolean pending() {
-        return !run.isEmpty();
+        return !run.isEmpty() || !pistonData.isEmpty();
     }
 
     static boolean supports(BedrockPacket packet) {
@@ -71,6 +80,46 @@ final class GeyserBlockUpdates {
         }
     }
 
+    /**
+     * Captures the data of a moving block or a piston arm; any other block entity is not part of a run.
+     * {@code definitions} gives the block a moving block's data names.
+     */
+    boolean capture(
+            BlockEntityDataPacket packet,
+            BedrockCoordinateFrame coordinates,
+            GeyserBlockStateMappings.Tables tables,
+            Function<NbtMap, ? extends BlockDefinition> definitions) {
+        NbtMap data = packet.getData();
+        if (data == null) return false;
+        BlockPos position = world(packet.getBlockPosition(), coordinates);
+        switch (data.getString("id", "")) {
+            case "MovingBlock" -> {
+                NbtMap block = data.getCompound("movingBlock", null);
+                BlockDefinition definition = block == null ? null : definitions.apply(block);
+                Integer state =
+                        definition == null ? null : tables.palette().get(definition.getRuntimeId());
+                int carried = state == null ? BedrockPistonBlocks.NO_BLOCK : state;
+                var named = Vector3i.from(
+                        data.getInt("pistonPosX", 0), data.getInt("pistonPosY", -1), data.getInt("pistonPosZ", 0));
+                // A moving block without a piston names the position (0, -1, 0).
+                BlockPos piston =
+                        named.getX() == 0 && named.getY() == -1 && named.getZ() == 0 ? null : world(named, coordinates);
+                boolean expanding = data.getBoolean("expanding");
+                pistonData.add(new PistonData(
+                        position, pistons -> pistons.movingBlock(position, carried, piston, expanding)));
+            }
+            case "PistonArm" -> {
+                // The client keeps its own progress: only the state reaches it.
+                int state = data.getByte("State");
+                pistonData.add(new PistonData(position, pistons -> pistons.pistonArm(position, state)));
+            }
+            default -> {
+                return false;
+            }
+        }
+        return true;
+    }
+
     void end(CultPlayer player, Consumer<Consumer<CultPlayer>> trailingBoundary) {
         if (!active()) throw new IllegalStateException("Unbalanced Geyser block acknowledgement");
         if (--depth != 0) return;
@@ -79,9 +128,10 @@ final class GeyserBlockUpdates {
 
     /** Ends the run: its updates take effect once the client has processed the boundary written here. */
     void finish(CultPlayer player, Consumer<Consumer<CultPlayer>> trailingBoundary) {
-        if (run.isEmpty()) return;
+        if (!pending()) return;
         if (player == null) {
             run.clear();
+            pistonData.clear();
             return;
         }
         List<Update> snapshot = new ArrayList<>(run.size());
@@ -90,18 +140,26 @@ final class GeyserBlockUpdates {
             if (update != null) snapshot.add(update);
         }
         run.clear();
-        if (snapshot.isEmpty()) return;
-        boolean near = snapshot.stream()
-                .anyMatch(update -> Math.abs(update.position().getX() - player.x) < RANGE
-                        && Math.abs(update.position().getY() - player.y) < RANGE
-                        && Math.abs(update.position().getZ() - player.z) < RANGE);
-        Consumer<CultPlayer> apply =
-                target -> snapshot.forEach(update -> target.compensatedWorld.handleBedrockClientBlockUpdate(
-                        update.position(), update.state(), update.serverBlock()));
+        List<PistonData> pistons = List.copyOf(pistonData);
+        pistonData.clear();
+        if (snapshot.isEmpty() && pistons.isEmpty()) return;
+        boolean near = snapshot.stream().anyMatch(update -> near(player, update.position()))
+                || pistons.stream().anyMatch(data -> near(player, data.position()));
+        Consumer<CultPlayer> apply = target -> {
+            snapshot.forEach(update -> target.compensatedWorld.handleBedrockClientBlockUpdate(
+                    update.position(), update.state(), update.serverBlock()));
+            pistons.forEach(data -> data.apply().accept(target.bedrockState.pistonBlocks));
+        };
         // Preserve BasePacketWorldReader's nearby trailing proof / distant existing proof policy.
         if (near) trailingBoundary.accept(apply);
         else
             player.addBedrockTransactionTask(player.getLastClientboundBedrockTransaction(), () -> apply.accept(player));
+    }
+
+    private static boolean near(CultPlayer player, BlockPos position) {
+        return Math.abs(position.getX() - player.x) < RANGE
+                && Math.abs(position.getY() - player.y) < RANGE
+                && Math.abs(position.getZ() - player.z) < RANGE;
     }
 
     /** The client replaced this column, or every column: it holds none of the earlier blocks. */
@@ -112,6 +170,7 @@ final class GeyserBlockUpdates {
     void clear() {
         clientOnly.clear();
         run.clear();
+        pistonData.clear();
     }
 
     private Update resolve(CompensatedWorld world, BlockPos position, Written written) {
@@ -157,15 +216,18 @@ final class GeyserBlockUpdates {
             state = definition == null ? null : palette.get(definition.getRuntimeId());
             if (state == null) return;
         }
-        var world = new BlockPos(
-                Math.addExact(position.getX(), coordinates.originX()),
-                position.getY(),
-                Math.addExact(position.getZ(), coordinates.originZ()));
-        Written written = run.computeIfAbsent(world, ignored -> new Written());
+        Written written = run.computeIfAbsent(world(position, coordinates), ignored -> new Written());
         written.correction |= active();
         if (layer == 0) written.primary = state;
         else if (layer == 1) written.extra = state;
         else throw new IllegalArgumentException("Unknown Bedrock block layer " + layer);
+    }
+
+    private static BlockPos world(Vector3i position, BedrockCoordinateFrame coordinates) {
+        return new BlockPos(
+                Math.addExact(position.getX(), coordinates.originX()),
+                position.getY(),
+                Math.addExact(position.getZ(), coordinates.originZ()));
     }
 
     private static final class Written {
@@ -181,4 +243,6 @@ final class GeyserBlockUpdates {
     }
 
     private record Update(BlockPos position, int state, boolean serverBlock) {}
+
+    private record PistonData(BlockPos position, Consumer<BedrockPistonBlocks> apply) {}
 }

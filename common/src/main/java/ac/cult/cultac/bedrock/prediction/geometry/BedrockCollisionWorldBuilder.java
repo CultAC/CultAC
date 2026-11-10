@@ -88,7 +88,7 @@ public final class BedrockCollisionWorldBuilder {
 
     /** Whether the shape of {@code state} depends on client state kept for the position it is at. */
     public static boolean positionDependentMovement(int state) {
-        return shulkerBoxBlock(state) || maxPositionOffset(state) > 0.0F;
+        return shulkerBoxBlock(state) || movingPistonBlock(state) || maxPositionOffset(state) > 0.0F;
     }
 
     /** How far a hash of its position shifts the shape of {@code state} on X and Z; 0 for a shape it does not. */
@@ -159,7 +159,7 @@ public final class BedrockCollisionWorldBuilder {
     private List<WorldCollisionBox> collisionBoxes(
             BlockPosition position, int state, BedrockCollisionShapeQuery query) {
         if (movingPistonBlock(state)) {
-            return List.of();
+            return context.movingBlockBoxes().at(position);
         }
         if (pistonArmBlock(state)) {
             return pistonArmCollisionBoxes(position, state, 0.0D);

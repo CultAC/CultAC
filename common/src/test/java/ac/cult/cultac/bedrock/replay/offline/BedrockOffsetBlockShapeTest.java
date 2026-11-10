@@ -152,7 +152,7 @@ public class BedrockOffsetBlockShapeTest {
     }
 
     private static WorldCollisionBox box(int state, BlockPosition position, BedrockCoordinateFrame frame) {
-        var context = new BedrockBlockShapeContext(at -> 0.0F, frame);
+        var context = new BedrockBlockShapeContext(at -> 0.0F, BedrockBlockShapeContext.NONE.movingBlockBoxes(), frame);
         var boxes = new BedrockCollisionWorldBuilder(BedrockClientBlockShapeMappings.catalog(), context)
                 .build(Map.of(position, state))
                 .blockAt(position)

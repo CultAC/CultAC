@@ -38,6 +38,15 @@ final class BedrockSolidBlockSampler {
                 }
             }
         }
+        if (player.bedrockState != null) {
+            // A moving block collides up to a cell away from its own, along its piston.
+            player.bedrockState.pistonBlocks.forEachMovingBlock(position -> {
+                if (bounds.besides(position.getX(), position.getY(), position.getZ())
+                        && BlockIds.is(player.compensatedWorld.getBlockStateIdAt(position), BlockIds.MOVING_PISTON)) {
+                    sampled.add(position.getX(), position.getY(), position.getZ());
+                }
+            });
+        }
         return sampled.build();
     }
 
@@ -107,7 +116,7 @@ final class BedrockSolidBlockSampler {
                     geometry,
                     player.bedrockState == null
                             ? BedrockBlockShapeContext.NONE
-                            : player.bedrockState.blockShapeContext());
+                            : player.bedrockState.blockShapeContext(player));
         }
 
         private void add(int x, int y, int z) {
@@ -160,6 +169,18 @@ final class BedrockSolidBlockSampler {
     }
 
     private record SampleBounds(int minX, int maxX, int minY, int maxY, int minZ, int maxZ) {
+        /** Whether a cell lies outside these bounds and within one cell of them. */
+        private boolean besides(int x, int y, int z) {
+            boolean inside = x >= minX && x <= maxX && y >= minY && y <= maxY && z >= minZ && z <= maxZ;
+            return !inside
+                    && x >= minX - 1
+                    && x <= maxX + 1
+                    && y >= minY - 1
+                    && y <= maxY + 1
+                    && z >= minZ - 1
+                    && z <= maxZ + 1;
+        }
+
         private static SampleBounds from(CultPlayer player, SimpleCollisionBox query) {
             // The caller has already expanded this box for the complete tick displacement.
             // Integer rounding is sufficient here; another block shell cannot reach the sweep.

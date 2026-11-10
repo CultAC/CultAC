@@ -1437,7 +1437,10 @@ public class CompensatedWorld {
         pistons.clear();
         lastBlockEntityPass = ClientBlockEntityPass.EMPTY;
         openShulkerBoxes.clear();
-        if (player.bedrockState != null) player.bedrockState.shulkerBoxLids.clear();
+        if (player.bedrockState != null) {
+            player.bedrockState.shulkerBoxLids.clear();
+            player.bedrockState.pistonBlocks.clear();
+        }
     }
 
     /** The Bedrock engine's piston and shulker push envelope for the packet {@code context} predicts. */

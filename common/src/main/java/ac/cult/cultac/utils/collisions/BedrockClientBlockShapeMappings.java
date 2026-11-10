@@ -111,7 +111,8 @@ public final class BedrockClientBlockShapeMappings {
     private static Optional<CollisionBox> buildDynamicMovement(
             BedrockCollisionOverrideCatalog catalog, CultPlayer player, int state, int x, int y, int z) {
         BlockPosition position = new BlockPosition(x, y, z);
-        BlockCollisionWorld world = new BedrockCollisionWorldBuilder(catalog, player.bedrockState.blockShapeContext())
+        BlockCollisionWorld world = new BedrockCollisionWorldBuilder(
+                        catalog, player.bedrockState.blockShapeContext(player))
                 .build(Map.of(position, state), bedrockQuery(player));
         return Optional.of(world.blockAt(position)
                 .map(block -> fromWorldBoxes(block.collisionBoxes()))
