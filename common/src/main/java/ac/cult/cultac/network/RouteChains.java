@@ -1,5 +1,7 @@
 package ac.cult.cultac.network;
 
+import ac.cult.cultac.network.PacketHandlerScanner.GatedReceive;
+import ac.cult.cultac.network.PacketHandlerScanner.GatedSend;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.player.CultPlayer;
@@ -16,18 +18,23 @@ import java.util.Map;
 
 /**
  * Straight-line handler chains. A chain is a sequence of segments, each an instance of a hidden clone of a template,
- * one clone per position and handler-class tuple, so each call site in it has its own compiled code and type profile.
+ * one clone per position and call-site tuple, so each call site in it has its own compiled code and type profile.
+ * Gated scanned handlers run in gated segments, which call their invokers directly; any other handler runs in a plain
+ * segment through {@code handle}.
  */
 final class RouteChains {
     static final int WIDTH = 8;
     /** Distinct clones per template; past it, segments at one position share a clone. */
     private static final int MAX_CLONES = 1024;
 
-    private static final Segments RECEIVE = new Segments(
-            ReceiveSegment.class,
-            MethodType.methodType(ReceiveChain.class, PacketReceiveHandler[].class, int.class, int.class));
-    private static final Segments SEND = new Segments(
-            SendSegment.class, MethodType.methodType(SendChain.class, PacketSendHandler[].class, int.class, int.class));
+    private static final MethodType RECEIVE_CONSTRUCTOR =
+            MethodType.methodType(ReceiveChain.class, PacketReceiveHandler[].class, int.class, int.class);
+    private static final MethodType SEND_CONSTRUCTOR =
+            MethodType.methodType(SendChain.class, PacketSendHandler[].class, int.class, int.class);
+    private static final Segments RECEIVE = new Segments(ReceiveSegment.class, RECEIVE_CONSTRUCTOR);
+    private static final Segments GATED_RECEIVE = new Segments(GatedReceiveSegment.class, RECEIVE_CONSTRUCTOR);
+    private static final Segments SEND = new Segments(SendSegment.class, SEND_CONSTRUCTOR);
+    private static final Segments GATED_SEND = new Segments(GatedSendSegment.class, SEND_CONSTRUCTOR);
 
     private RouteChains() {}
 
@@ -41,16 +48,19 @@ final class RouteChains {
 
     /** Segments calling {@code handlers} in order when run in order, or null when no clone can be defined. */
     static ReceiveChain[] receive(PacketReceiveHandler<?>[] handlers) {
-        if (handlers.length == 0 || !RECEIVE.available) return null;
+        if (handlers.length == 0) return null;
         try {
-            var chain = new ReceiveChain[(handlers.length + WIDTH - 1) / WIDTH];
-            for (int position = 0; position < chain.length; position++) {
-                int from = position * WIDTH;
-                int count = Math.min(WIDTH, handlers.length - from);
-                chain[position] = (ReceiveChain) RECEIVE.constructor(handlers, from, count, position)
-                        .invokeExact((PacketReceiveHandler[]) handlers, from, count);
+            List<ReceiveChain> chain = new ArrayList<>();
+            for (int from = 0; from < handlers.length; ) {
+                boolean gated = handlers[from] instanceof GatedReceive;
+                int count = run(handlers, from, GatedReceive.class);
+                var segments = gated ? GATED_RECEIVE : RECEIVE;
+                if (!segments.available) return null;
+                chain.add((ReceiveChain) segments.constructor(handlers, from, count, chain.size())
+                        .invokeExact((PacketReceiveHandler[]) handlers, from, count));
+                from += count;
             }
-            return chain;
+            return chain.toArray(ReceiveChain[]::new);
         } catch (Throwable unavailable) {
             if (unavailable instanceof VirtualMachineError error) throw error;
             return null;
@@ -59,26 +69,51 @@ final class RouteChains {
 
     /** Segments calling {@code handlers} in order when run in order, or null when no clone can be defined. */
     static SendChain[] send(PacketSendHandler<?>[] handlers) {
-        if (handlers.length == 0 || !SEND.available) return null;
+        if (handlers.length == 0) return null;
         try {
-            var chain = new SendChain[(handlers.length + WIDTH - 1) / WIDTH];
-            for (int position = 0; position < chain.length; position++) {
-                int from = position * WIDTH;
-                int count = Math.min(WIDTH, handlers.length - from);
-                chain[position] = (SendChain) SEND.constructor(handlers, from, count, position)
-                        .invokeExact((PacketSendHandler[]) handlers, from, count);
+            List<SendChain> chain = new ArrayList<>();
+            for (int from = 0; from < handlers.length; ) {
+                boolean gated = handlers[from] instanceof GatedSend;
+                int count = run(handlers, from, GatedSend.class);
+                var segments = gated ? GATED_SEND : SEND;
+                if (!segments.available) return null;
+                chain.add((SendChain) segments.constructor(handlers, from, count, chain.size())
+                        .invokeExact((PacketSendHandler[]) handlers, from, count));
+                from += count;
             }
-            return chain;
+            return chain.toArray(SendChain[]::new);
         } catch (Throwable unavailable) {
             if (unavailable instanceof VirtualMachineError error) throw error;
             return null;
         }
     }
 
+    /** How many handlers from {@code from}, up to {@link #WIDTH}, share whether they are a {@code gated}. */
+    private static int run(Object[] handlers, int from, Class<?> gated) {
+        boolean first = gated.isInstance(handlers[from]);
+        int count = 1;
+        while (count < WIDTH && from + count < handlers.length && gated.isInstance(handlers[from + count]) == first)
+            count++;
+        return count;
+    }
+
     /** The handler a segment of {@code count} handlers from {@code from} calls at {@code site}, or null. */
     static <H> H slot(H[] handlers, int from, int count, int site) {
         int index = site - (WIDTH - count);
         return index < 0 ? null : handlers[from + index];
+    }
+
+    /** What a call site's type profile sees: the invoker and gate classes of a gated handler, else its class. */
+    private static String site(Object handler) {
+        if (handler instanceof GatedReceive gated) return gated(gated.invoker, gated.gate);
+        if (handler instanceof GatedSend gated) return gated(gated.invoker, gated.gate);
+        return handler.getClass().getName();
+    }
+
+    private static String gated(Object invoker, Object gate) {
+        return invoker.getClass().getName()
+                + '?'
+                + (gate == null ? "" : gate.getClass().getName());
     }
 
     private static final class Segments {
@@ -100,8 +135,7 @@ final class RouteChains {
             if (!available) throw new IOException(template.getName() + " cannot be cloned");
             // Class names, not classes: the key must not keep a listener's class loader alive.
             var builder = new StringBuilder().append(position);
-            for (int i = from; i < from + count; i++)
-                builder.append(',').append(handlers[i].getClass().getName());
+            for (int i = from; i < from + count; i++) builder.append(',').append(site(handlers[i]));
             String key = builder.toString();
             MethodHandle clone = clones.get(key);
             if (clone != null) return clone;

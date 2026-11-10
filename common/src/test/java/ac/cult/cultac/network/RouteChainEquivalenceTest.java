@@ -216,6 +216,232 @@ class RouteChainEquivalenceTest {
         assertNull(type.get());
     }
 
+    /**
+     * Gated scanned handlers against the CheckManager wrapper they replace: the same handler calls, gate tests in the
+     * same order and number (gates an earlier handler flips included), cancellation and failure.
+     */
+    @Test
+    void gatedReceiveRoutesMatchTheWrappedLoop() {
+        for (int seed = 0; seed < 800; seed++) {
+            var random = new Random(seed);
+            var trace = new Trace();
+            for (int k = 0; k < trace.initial.length; k++) trace.initial[k] = random.nextInt(3) != 0;
+            var wrapped = new ArrayList<PacketReceiveHandler<Object>>();
+            var gated = new ArrayList<PacketReceiveHandler<Object>>();
+            int count = size(random);
+            for (int i = 0; i < count; i++) {
+                int id = trace.next++;
+                if (random.nextInt(5) == 0) {
+                    var plain = plainReceive(random, trace, id);
+                    wrapped.add(plain);
+                    gated.add(plain);
+                    continue;
+                }
+                var recorder = new Recorder(trace, id, failure(random, id), action(random, trace));
+                var gate = gate(random, trace, id);
+                PacketReceiveHandler<Object> scanned =
+                        SCANNER.receiveHandlers(recorder).getFirst().handler();
+                wrapped.add(
+                        gate == null
+                                ? scanned
+                                : (event, player, packet) -> {
+                                    if (gate.getAsBoolean()) scanned.handle(event, player, packet);
+                                });
+                gated.add(SCANNER.receiveHandlers(recorder, gate).getFirst().handler());
+            }
+            var route = PacketReceiveRoute.of(gated.toArray(PacketReceiveHandler[]::new));
+            var packet = new ServerboundPong(seed);
+            boolean cancelled = random.nextInt(4) == 0;
+            var expected = trace.run(cancelled, event -> loop(wrapped, event, PLAYER, packet), packet);
+            assertEquals(
+                    expected, trace.run(cancelled, event -> route.dispatch(event, PLAYER, packet), packet), "" + seed);
+            assertEquals(
+                    expected, trace.run(cancelled, event -> loop(gated, event, PLAYER, packet), packet), "" + seed);
+        }
+    }
+
+    @Test
+    void gatedSendRoutesMatchTheWrappedLoopForPlayersAndConnections() {
+        for (int seed = 0; seed < 800; seed++) {
+            var random = new Random(seed);
+            var trace = new Trace();
+            for (int k = 0; k < trace.initial.length; k++) trace.initial[k] = random.nextInt(3) != 0;
+            var wrapped = new ArrayList<PacketSendHandler<Object>>();
+            var gated = new ArrayList<PacketSendHandler<Object>>();
+            var wrappedConnection = new ArrayList<PacketSendHandler<Object>>();
+            var gatedConnection = new ArrayList<PacketSendHandler<Object>>();
+            int count = size(random);
+            for (int i = 0; i < count; i++) {
+                int id = trace.next++;
+                PacketSendHandler<Object> before, after;
+                if (random.nextInt(5) == 0) {
+                    boolean flips = random.nextBoolean();
+                    before = after = (event, player, packet) -> {
+                        trace.call(-id, event, player, packet);
+                        if (flips) trace.open[id & 3] ^= true;
+                    };
+                } else {
+                    var recorder = new Recorder(trace, id, failure(random, id), action(random, trace));
+                    var gate = gate(random, trace, id);
+                    PacketSendHandler<Object> scanned =
+                            SCANNER.sendHandlers(recorder).getFirst().handler();
+                    before = gate == null
+                            ? scanned
+                            : (event, player, packet) -> {
+                                if (gate.getAsBoolean()) scanned.handle(event, player, packet);
+                            };
+                    after = SCANNER.sendHandlers(recorder, gate).getFirst().handler();
+                }
+                wrapped.add(before);
+                gated.add(after);
+                if (random.nextInt(3) == 0) {
+                    wrappedConnection.add(before);
+                    gatedConnection.add(after);
+                }
+            }
+            var route = PacketSendRoute.of(
+                    gated.toArray(PacketSendHandler[]::new), gatedConnection.toArray(PacketSendHandler[]::new));
+            var packet = new ClientboundPing(seed);
+            boolean cancelled = random.nextInt(4) == 0;
+            assertEquals(
+                    trace.runSend(cancelled, event -> loopSend(wrapped, event, PLAYER, packet), packet),
+                    trace.runSend(cancelled, event -> route.dispatch(event, PLAYER, packet), packet),
+                    "seed " + seed);
+            assertEquals(
+                    trace.runSend(cancelled, event -> loopSend(wrappedConnection, event, null, packet), packet),
+                    trace.runSend(cancelled, event -> route.dispatchConnection(event, packet), packet),
+                    "connection seed " + seed);
+        }
+    }
+
+    /** A dispatch adds the same frames above its first and its last handler, whatever the route's length. */
+    @Test
+    void handlerDepthDoesNotGrowWithTheRoute() {
+        List<List<String>> frames = new ArrayList<>();
+        List<PacketReceiveHandler<Object>> gated = new ArrayList<>();
+        List<PacketReceiveHandler<Object>> plain = new ArrayList<>();
+        for (int i = 0; i < 44; i++) {
+            gated.add(SCANNER.receiveHandlers(new DepthProbe(frames), () -> true)
+                    .getFirst()
+                    .handler());
+            plain.add((event, player, packet) -> frames.add(framesBelowTheRoute()));
+        }
+        PacketReceiveRoute.of(gated.toArray(PacketReceiveHandler[]::new)).dispatch(null, PLAYER, null);
+        assertEquals(44, frames.size());
+        assertEquals(1, Set.copyOf(frames).size(), frames.toString());
+        assertEquals(
+                List.of(DepthProbe.class.getName() + ".pong", "", GatedReceiveSegment.class.getName() + ".dispatch"),
+                frames.getFirst().stream()
+                        .map(frame -> frame.contains("$$Lambda") ? "" : frame)
+                        .toList());
+        frames.clear();
+        PacketReceiveRoute.of(plain.toArray(PacketReceiveHandler[]::new)).dispatch(null, PLAYER, null);
+        assertEquals(44, frames.size());
+        assertEquals(1, frames.stream().map(List::size).distinct().count(), frames.toString());
+    }
+
+    /** A template that cannot be cloned leaves routes on the loop, with the same calls. */
+    @Test
+    void routesFallBackToTheLoopWhenATemplateIsUnavailable() throws Exception {
+        var field = RouteChains.class.getDeclaredField("GATED_RECEIVE");
+        field.setAccessible(true);
+        Object segments = field.get(null);
+        var available = segments.getClass().getDeclaredField("available");
+        available.setAccessible(true);
+        available.setBoolean(segments, false);
+        try {
+            var trace = new Trace();
+            List<PacketReceiveHandler<Object>> handlers = new ArrayList<>();
+            for (int i = 0; i < 12; i++) {
+                int id = trace.next++;
+                handlers.add(SCANNER.receiveHandlers(new Recorder(trace, id, null), null)
+                        .getFirst()
+                        .handler());
+            }
+            var route = PacketReceiveRoute.of(handlers.toArray(PacketReceiveHandler[]::new));
+            var chain = PacketReceiveRoute.class.getDeclaredField("chain");
+            chain.setAccessible(true);
+            assertNull(chain.get(route));
+            var packet = new ServerboundPong(3);
+            assertEquals(
+                    trace.run(false, event -> loop(handlers, event, PLAYER, packet), packet),
+                    trace.run(false, event -> route.dispatch(event, PLAYER, packet), packet));
+        } finally {
+            available.setBoolean(segments, true);
+        }
+    }
+
+    private static PacketReceiveHandler<Object> plainReceive(Random random, Trace trace, int id) {
+        return switch (random.nextInt(3)) {
+            case 0 -> (event, player, packet) -> trace.call(-id, event, player, packet);
+            case 1 ->
+                (event, player, packet) -> {
+                    trace.call(-id, event, player, packet);
+                    trace.open[id & 3] ^= true;
+                };
+            default ->
+                (event, player, packet) -> {
+                    trace.call(-id, event, player, packet);
+                    event.setCancelled(!event.isCancelled());
+                };
+        };
+    }
+
+    /** Null (always true), a flag an earlier handler may flip, or a gate that fails. */
+    private static BooleanSupplier gate(Random random, Trace trace, int id) {
+        int flag = random.nextInt(trace.open.length);
+        var unchecked = new IllegalStateException("gate " + id);
+        var checked = new Exception("gate " + id);
+        return switch (random.nextInt(40)) {
+            case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 -> null;
+            case 10 ->
+                () -> {
+                    trace.calls.add("gate " + id + " throws");
+                    throw unchecked;
+                };
+            case 11 ->
+                () -> {
+                    trace.calls.add("gate " + id + " throws checked");
+                    return RouteChainEquivalenceTest.<RuntimeException>sneaky(checked);
+                };
+            default ->
+                () -> {
+                    trace.calls.add("gate " + id + " reads " + flag + " " + trace.open[flag]);
+                    return trace.open[flag];
+                };
+        };
+    }
+
+    private static Throwable failure(Random random, int id) {
+        return switch (random.nextInt(30)) {
+            case 0 -> new Exception("checked " + id);
+            case 1 -> new IllegalArgumentException("runtime " + id);
+            case 2 -> new AssertionError("error " + id);
+            default -> null;
+        };
+    }
+
+    /** Nothing, or a change of state a later gate or handler reads. */
+    private static Consumer<Object> action(Random random, Trace trace) {
+        int flag = random.nextInt(trace.open.length);
+        return switch (random.nextInt(6)) {
+            case 0 -> event -> trace.open[flag] ^= true;
+            case 1 -> event -> trace.open[flag] = false;
+            case 2 -> RouteChainEquivalenceTest::flipCancelled;
+            default -> null;
+        };
+    }
+
+    private static void flipCancelled(Object event) {
+        if (event instanceof PacketReceiveEvent<?> receive) receive.setCancelled(!receive.isCancelled());
+        else ((PacketSendEvent<?>) event).setCancelled(!((PacketSendEvent<?>) event).isCancelled());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T extends Throwable> boolean sneaky(Throwable failure) throws T {
+        throw (T) failure;
+    }
+
     private static void spun(List<String> calls, int id, PacketReceiveEvent<?> event, CultPlayer player, Object p) {
         calls.add(id + ":" + (player == PLAYER) + ":" + p);
     }
@@ -355,6 +581,10 @@ class RouteChainEquivalenceTest {
         int next;
         Object expectedPacket;
         Runnable publish;
+        /** What the gates read; reset to {@link #initial} before every run. */
+        final boolean[] open = new boolean[4];
+
+        final boolean[] initial = new boolean[4];
 
         void call(int id, Object event, CultPlayer player, Object packet) {
             boolean cancelled = event instanceof PacketReceiveEvent<?> receive
@@ -380,6 +610,7 @@ class RouteChainEquivalenceTest {
 
         private Outcome outcome(Runnable path, BooleanSupplier cancelled, Object packet) {
             calls.clear();
+            System.arraycopy(initial, 0, open, 0, open.length);
             expectedPacket = packet;
             String failure = null;
             try {
@@ -395,26 +626,58 @@ class RouteChainEquivalenceTest {
     static final class Recorder {
         private final Trace trace;
         private final int id;
-        private final Exception failure;
+        private final Throwable failure;
+        private final Consumer<Object> action;
 
-        Recorder(Trace trace, int id, Exception failure) {
+        Recorder(Trace trace, int id, Throwable failure) {
+            this(trace, id, failure, null);
+        }
+
+        Recorder(Trace trace, int id, Throwable failure, Consumer<Object> action) {
             this.trace = trace;
             this.id = id;
             this.failure = failure;
+            this.action = action;
         }
 
         @CultPacketHandler
         void pong(PacketReceiveEvent<ServerboundPong> event, CultPlayer player, ServerboundPong packet)
-                throws Exception {
+                throws Throwable {
             trace.call(id, event, player, packet);
+            if (action != null) action.accept(event);
             if (failure != null) throw failure;
         }
 
         @CultPacketHandler
-        void ping(PacketSendEvent<ClientboundPing> event, CultPlayer player, ClientboundPing packet) throws Exception {
+        void ping(PacketSendEvent<ClientboundPing> event, CultPlayer player, ClientboundPing packet) throws Throwable {
             trace.call(id, event, player, packet);
+            if (action != null) action.accept(event);
             if (failure != null) throw failure;
         }
+    }
+
+    /** Records the frames between itself and the route that dispatched it. */
+    static final class DepthProbe {
+        private final List<List<String>> frames;
+
+        DepthProbe(List<List<String>> frames) {
+            this.frames = frames;
+        }
+
+        @CultPacketHandler
+        void pong(PacketReceiveEvent<ServerboundPong> event, CultPlayer player, ServerboundPong packet) {
+            frames.add(framesBelowTheRoute());
+        }
+    }
+
+    /** Class and method of every frame from the caller's down to, not including, the route's dispatch. */
+    private static List<String> framesBelowTheRoute() {
+        return StackWalker.getInstance(Option.SHOW_HIDDEN_FRAMES)
+                .walk(stream -> stream.skip(1)
+                        .takeWhile(frame -> !frame.getClassName().equals(PacketReceiveRoute.class.getName()))
+                        .map(frame ->
+                                frame.getClassName().replaceAll("/0x\\p{XDigit}+", "") + "." + frame.getMethodName())
+                        .toList());
     }
 }
 
