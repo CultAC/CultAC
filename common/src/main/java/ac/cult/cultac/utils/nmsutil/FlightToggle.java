@@ -1,7 +1,6 @@
 package ac.cult.cultac.utils.nmsutil;
 
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAutoJump;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.data.PacketStateData;
@@ -120,7 +119,7 @@ public final class FlightToggle {
 
     // LocalPlayer#move runs updateAutoJump after the move, with the client option open.
     private static boolean autoJumpCanFire(CultPlayer player) {
-        return player.checkManager.getListener(JavaAutoJump.class).canFireIn(player.packetStateData.acceptedClientTick);
+        return player.checkManager.getJavaAutoJump().canFireIn(player.packetStateData.acceptedClientTick);
     }
 
     // LocalPlayer#aiStep toggles in a vehicle only through jumpableVehicle(): a horse or nautilus the player controls

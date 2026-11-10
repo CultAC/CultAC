@@ -67,6 +67,7 @@ import ac.cult.cultac.checks.impl.prediction.checks.ItemUseDesync;
 import ac.cult.cultac.checks.impl.prediction.checks.NoSlow;
 import ac.cult.cultac.checks.impl.prediction.checks.Phase;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.*;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAutoJump;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.runner.ExplosionHandler;
 import ac.cult.cultac.checks.impl.prediction.runner.KnockbackHandler;
@@ -170,6 +171,13 @@ public class CheckManager {
     private final Map<Class<?>, CheckListener> listenersByClass;
     private final PacketWorldBorder worldBorder;
     private final SetbackBlocker setbackBlocker;
+    private final NoSlow noSlow;
+    private final JavaAutoJump javaAutoJump;
+    private final NoFallPseudo noFallPseudo;
+    private final InvalidStep invalidStep;
+    private final VerticalOffset verticalOffset;
+    private final Speed speed;
+    private final Strafe strafe;
 
     List<BlockPlace> placesToCheck = new EvictingQueue<>(20);
 
@@ -232,6 +240,11 @@ public class CheckManager {
         listenersByClass = new IdentityHashMap<>(allCheckListeners);
         worldBorder = getListener(PacketWorldBorder.class);
         setbackBlocker = getListener(SetbackBlocker.class);
+        noSlow = getListener(NoSlow.class);
+        javaAutoJump = getListener(JavaAutoJump.class);
+        noFallPseudo = getListener(NoFallPseudo.class);
+        invalidStep = getListener(InvalidStep.class);
+        verticalOffset = getListener(VerticalOffset.class);
 
         List<CheckListener> positionUpdates = new ArrayList<>();
         for (var checks : List.of(prePredictionChecks, positionCheck, packetChecks)) {
@@ -278,6 +291,8 @@ public class CheckManager {
                 processor.reload();
             }
         }
+        speed = getCheck(Speed.class);
+        strafe = getCheck(Strafe.class);
     }
 
     // Keys each listener by its concrete class, preserving list order in the resulting map.
@@ -1195,6 +1210,41 @@ public class CheckManager {
     /** {@code getListener(SetbackBlocker.class)}, read on every Java movement packet. */
     public SetbackBlocker getSetbackBlocker() {
         return setbackBlocker;
+    }
+
+    /** {@code getListener(NoSlow.class)}, read on every Java tick end and prediction. */
+    public NoSlow getNoSlow() {
+        return noSlow;
+    }
+
+    /** {@code getListener(JavaAutoJump.class)}, read on every Java tick end. */
+    public JavaAutoJump getJavaAutoJump() {
+        return javaAutoJump;
+    }
+
+    /** {@code getListener(NoFallPseudo.class)}, read on every prediction. */
+    public NoFallPseudo getNoFallPseudo() {
+        return noFallPseudo;
+    }
+
+    /** {@code getListener(InvalidStep.class)}. */
+    public InvalidStep getInvalidStep() {
+        return invalidStep;
+    }
+
+    /** {@code getListener(VerticalOffset.class)}. */
+    public VerticalOffset getVerticalOffset() {
+        return verticalOffset;
+    }
+
+    /** {@code getCheck(Speed.class)} as construction left it, read on every prediction. */
+    public Speed getSpeed() {
+        return speed;
+    }
+
+    /** {@code getCheck(Strafe.class)} as construction left it, read on every prediction. */
+    public Strafe getStrafe() {
+        return strafe;
     }
 
     private ExplosionHandler explosionHandlerCache;

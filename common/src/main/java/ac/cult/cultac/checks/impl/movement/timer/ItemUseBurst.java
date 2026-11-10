@@ -5,7 +5,6 @@ import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
 import ac.cult.cultac.checks.impl.prediction.ItemUseBurstResult;
 import ac.cult.cultac.checks.impl.prediction.checks.ItemUseInput;
-import ac.cult.cultac.checks.impl.prediction.checks.NoSlow;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.network.CultPacketHandler;
@@ -198,7 +197,7 @@ public final class ItemUseBurst extends Check implements PostPredictionListener,
     public void onPlayerTickEnd(PacketReceiveEvent event) {
         if (!player.usesModernJavaItemUse()) return;
         long time = now.getAsLong();
-        view.threshold(player.checkManager.getListener(NoSlow.class).threshold());
+        view.threshold(player.checkManager.getNoSlow().threshold());
         view.period(period());
         // LivingEntity#updatingUsingItem stops the client once its hand holds another item. The
         // client-view inventory mirrors its own clicks and drops, and server slots at their proofs.

@@ -9,8 +9,6 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InputKeys;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoSneakSlow;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.OmniSprint;
-import ac.cult.cultac.checks.impl.prediction.checks.psuedo.Speed;
-import ac.cult.cultac.checks.impl.prediction.checks.psuedo.Strafe;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -85,8 +83,7 @@ public class HorizontalAnalyzer implements EngineCheck {
         double absInputZ = Math.abs(minimumInputZ);
 
         boolean wasOnGround = result.getSimulationContext().getLastOnGround().determineOptimistically();
-        Class<? extends Check> pseudoCheck = wasOnGround ? Speed.class : Strafe.class;
-        final Check speedOrStrafe = player.checkManager.getCheck(pseudoCheck);
+        final Check speedOrStrafe = wasOnGround ? player.checkManager.getSpeed() : player.checkManager.getStrafe();
 
         // A player cannot move more than 0.98 "input" in a single direction
         // A player cannot move more than a total of 1 "input" in a single tick
