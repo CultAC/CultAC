@@ -48,6 +48,7 @@ import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRemoteBlockEntityPass;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiptideRelease;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaSpinAttack;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVehicleReport;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaWithheldTravel;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfile;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
@@ -1428,7 +1429,12 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         long start = System.nanoTime();
         this.lastMovementTime.add(start);
         Vec3 diff = to.subtract(from);
-        double length = diff.lengthSqr();
+        // A root still interpolating reports its target, up to ClientPacketListener's 64-block interpolation limit
+        // from where it physically is: its own travel is the report's distance from that target.
+        PacketEntity reporting = this.currentPredictionVehicle();
+        double length = JavaVehicleReport.followsTarget(this.player, reporting)
+                ? to.subtract(reporting.newPacketLocation.targetPosition()).lengthSqr()
+                : diff.lengthSqr();
         if (length > 1.0) {
             Check crashCheck = (Check) this.player.checkManager.getListener(CrashF.class);
             crashCheck.debug(() -> "length=" + length);
@@ -1437,7 +1443,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         if (length > 400.0) {
             if (this.player.getSetbackTeleportUtil().hasFullyLoaded) {
                 Check crashCheck = (Check) this.player.checkManager.getListener(CrashF.class);
-                crashCheck.flag("len " + diff.length());
+                crashCheck.flag("len " + Math.sqrt(length));
             }
 
             this.player.getSetbackTeleportUtil().executeViolationSetback();

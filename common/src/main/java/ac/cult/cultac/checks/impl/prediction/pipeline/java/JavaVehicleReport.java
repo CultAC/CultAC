@@ -4,6 +4,7 @@ import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
 
 /** ServerboundMoveVehiclePacket reports the active interpolation target instead of the root's physical position. */
@@ -11,9 +12,17 @@ public final class JavaVehicleReport {
     private JavaVehicleReport() {}
 
     public static boolean followsTarget(CultPlayer player, SimulationContext context) {
-        var vehicle = context.getVehicle();
+        return followsTarget(player, context.getVersion(), context.getVehicle());
+    }
+
+    /** As {@link #followsTarget(CultPlayer, SimulationContext)}, before the tick's context exists. */
+    public static boolean followsTarget(CultPlayer player, PacketEntity vehicle) {
+        return followsTarget(player, player.getClientVersion(), vehicle);
+    }
+
+    private static boolean followsTarget(CultPlayer player, ClientVersion version, PacketEntity vehicle) {
         return !player.isBedrockMovement()
-                && context.getVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)
+                && version.isNewerThanOrEquals(ClientVersion.V_1_21_2)
                 && player.packetStateData.isVehicleMovementFromClientTick()
                 && vehicle != null
                 && vehicle.newPacketLocation != null
