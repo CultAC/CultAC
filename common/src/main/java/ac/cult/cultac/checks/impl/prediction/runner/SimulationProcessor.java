@@ -53,6 +53,7 @@ import ac.cult.cultac.checks.type.PositionListener;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
@@ -352,6 +353,13 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                         // one keeps the last sent onGround, judged like that StatusOnly.
                         if (!result.isExempt() && !result.hasFlag(NoFallPseudo.class)) {
                             this.lastOnGround = DesyncStatus.fromBoolean(this.player.onGround);
+                        }
+                        // Player#tick clears a spectator's onGround every tick, and LocalPlayer#sendPosition sends
+                        // nothing while another entity is the camera.
+                        if (this.player.gamemode == GameMode.SPECTATOR
+                                && this.player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11)) {
+                            this.player.onGround = false;
+                            this.lastOnGround = DesyncStatus.FALSE;
                         }
                     } else if (this.ticksWhileLoadingLevel < MAX_LOADING_LEVEL_TICKS) {
                         // Entity#push adds to the waiting player's deltaMovement with no travel or friction between.
