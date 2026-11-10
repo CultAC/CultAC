@@ -8,7 +8,6 @@ public record BounceBlockState(BounceBlockType type, double surfaceY) {
     private static final String JAVA_SLIME_BLOCK_IDENTIFIER = "minecraft:slime_block";
     private static final String BED_BLOCK_IDENTIFIER = "minecraft:bed";
     private static final float BED_BOUNCE_SCALE = -0.75F;
-    private static final float BED_BOUNCE_CAP = 0.75F;
 
     public BounceBlockState {
         type = Objects.requireNonNull(type, "type");
@@ -33,7 +32,8 @@ public record BounceBlockState(BounceBlockType type, double surfaceY) {
         return switch (type) {
             case NONE -> 0.0D;
             case SLIME -> -(float) fallingVelocityY;
-            case BED -> Math.min((float) fallingVelocityY * BED_BOUNCE_SCALE, BED_BOUNCE_CAP);
+            // A bed returns three quarters of the fall speed, however fast the fall.
+            case BED -> (float) fallingVelocityY * BED_BOUNCE_SCALE;
         };
     }
 
