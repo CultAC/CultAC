@@ -280,6 +280,151 @@ public class BedrockActorAttributesTest {
     }
 
     @Test
+    public void speedReceivedOnTheTickTheClientTakesACorrectionIsLost() {
+        // A capture of a donkey mounted as it spawned: the correction of its second ridden tick and then its only
+        // movement speed, 0.175, reached the client after that tick; the speed was acknowledged only after its
+        // third. The client took the correction on its fourth tick and kept 0.7: its first step ridden forward
+        // later is 0.7 and its second 0.7 * 0.546 + 0.7. No later packet carries the 0.175 again.
+        var history = donkeyRide(false);
+        var rewind = new BedrockMovementRewind(history);
+        rewind.queue(2, true, correction(history, 2));
+        rewind.apply(null, commit(history.current()));
+        history.record(BedrockActorHistoryTest.forward(
+                history.current().getFirst(), 3, BedrockActorHistoryTest.ground(), Vec3d.ZERO));
+
+        rewind.queue(0, false, attributes(0.175F, false));
+        var corrected = BedrockProfileState.previousState(
+                rewind.apply(null, commit(history.current())).carry());
+        assertEquals(3, corrected.clientTick());
+        assertEquals(0.7F, corrected.movementAttribute().current(), 0);
+
+        var first = BedrockActorHistoryTest.forward(
+                        entry(corrected), 4, BedrockActorHistoryTest.ground(), new Vec3d(0, 0, 1))
+                .end()
+                .getFirst()
+                .state();
+        // Positions are floats near x=289: one step resolves to about 3e-5.
+        assertEquals(
+                0.7,
+                first.physicalFeetPosition()
+                        .subtract(corrected.physicalFeetPosition())
+                        .length(),
+                3.0E-5);
+        assertEquals(1.0822, step(first, 5).length(), 6.0E-5);
+    }
+
+    @Test
+    public void speedReceivedBeforeTheTickACorrectionReplaysSurvivesIt() {
+        // A capture of a donkey mounted as it spawned: the correction of its first ridden tick and then its 0.175
+        // were both acknowledged before its second tick. The client took the correction on its third tick, and
+        // every later ridden step on the ground gained 0.175.
+        var history = donkeyRide(false);
+        var rewind = new BedrockMovementRewind(history);
+        rewind.queue(2, true, correction(history, 2));
+        rewind.queue(0, false, attributes(0.175F, false));
+        var updated = BedrockProfileState.previousState(
+                rewind.apply(null, commit(history.current())).carry());
+        assertEquals(0.175F, updated.movementAttribute().current(), 0);
+        history.record(
+                BedrockActorHistoryTest.forward(entry(updated), 3, BedrockActorHistoryTest.ground(), Vec3d.ZERO));
+
+        var corrected = BedrockProfileState.previousState(
+                rewind.apply(null, commit(history.current())).carry());
+        assertEquals(3, corrected.clientTick());
+        assertEquals(0.175F, corrected.movementAttribute().current(), 0);
+        assertEquals(0.175, step(corrected, 4).length(), 3.0E-5);
+    }
+
+    @Test
+    public void correctionToATickAfterTheMountsSpeedArrivedKeepsIt() {
+        // The same ride without the early correction: the donkey's first step is 0.175, and the corrections
+        // of its later ticks leave it at that speed.
+        var history = donkeyRide(false);
+        var rewind = new BedrockMovementRewind(history);
+        rewind.queue(0, false, attributes(0.175F, false));
+        var updated = BedrockProfileState.previousState(
+                rewind.apply(null, commit(history.current())).carry());
+        for (long tick = 3; tick <= 4; tick++)
+            history.record(BedrockActorHistoryTest.forward(
+                    history.current().getFirst(), tick, BedrockActorHistoryTest.ground(), Vec3d.ZERO));
+        assertEquals(0.175F, updated.movementAttribute().current(), 0);
+
+        rewind.queue(3, true, correction(history, 3));
+        var corrected = BedrockProfileState.previousState(
+                rewind.apply(null, commit(history.current())).carry());
+        assertEquals(0.175F, corrected.movementAttribute().current(), 0);
+        assertEquals(0.175, step(corrected, 5).length(), 3.0E-5);
+    }
+
+    @Test
+    public void mountThatHadItsSpeedBeforeItWasRiddenKeepsItThroughACorrection() {
+        // The same donkey when its 0.175 reached the client before the ride: its first step is 0.175.
+        var history = donkeyRide(true);
+        history.record(BedrockActorHistoryTest.forward(
+                history.current().getFirst(), 3, BedrockActorHistoryTest.ground(), Vec3d.ZERO));
+        var rewind = new BedrockMovementRewind(history);
+        rewind.queue(1, true, correction(history, 1));
+        var corrected = BedrockProfileState.previousState(
+                rewind.apply(null, commit(history.current())).carry());
+        assertEquals(0.175F, corrected.movementAttribute().current(), 0);
+        assertEquals(0.175, step(corrected, 4).length(), 3.0E-5);
+    }
+
+    /** Two idle ticks of a newly ridden donkey, which has its movement speed already or has none yet. */
+    private static BedrockActorHistory donkeyRide(boolean speedReceived) {
+        var mount = org.mockito.Mockito.mock(ac.cult.cultac.utils.data.packetentity.PacketEntityHorse.class);
+        mount.bedrockAttributes = speedReceived
+                ? ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes.EMPTY.replace(
+                        Map.of("minecraft:movement", BedrockMovementAttributeState.serverValue(0.175F, false)))
+                : ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes.EMPTY;
+        mount.onGround = true;
+        var context = org.mockito.Mockito.mock(ac.cult.cultac.checks.impl.prediction.SimulationContext.class);
+        org.mockito.Mockito.when(context.getVehicle()).thenReturn(mount);
+        org.mockito.Mockito.when(context.getStart()).thenReturn(new ac.cult.cultac.utils.math.Vec3(289, 82, -86));
+        var donkey = BedrockInitialStateFactory.resolve(
+                context,
+                BedrockInputFrame.idle(1),
+                BedrockActorHistoryTest.ground().movementContext(),
+                null,
+                null);
+        assertEquals(speedReceived ? 0.175F : 0.7F, donkey.movementAttribute().current(), 0);
+        var history = new BedrockActorHistory();
+        var entry = entry(donkey);
+        for (long tick = 1; tick <= 2; tick++) {
+            var frame = BedrockActorHistoryTest.forward(entry, tick, BedrockActorHistoryTest.ground(), Vec3d.ZERO);
+            history.record(frame);
+            entry = frame.end().getFirst();
+        }
+        return history;
+    }
+
+    /** A correction of the ridden mount to where it already was at the end of that tick. */
+    private static BedrockReplayEvent.Transform correction(BedrockActorHistory history, long tick) {
+        var state = history.frames().stream()
+                .filter(frame -> frame.tick() == tick)
+                .findFirst()
+                .orElseThrow()
+                .end()
+                .getFirst()
+                .state();
+        return new BedrockReplayEvent.Transform(new ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection(
+                1,
+                0,
+                71,
+                171,
+                tick,
+                BedrockVectorAdapter.toJava(state.physicalFeetPosition()),
+                BedrockVectorAdapter.toJava(state.velocity()),
+                state.inputFrame().yaw(),
+                state.inputFrame().pitch(),
+                state.collisionFlags().onGround(),
+                state.coordinateFrame(),
+                -1,
+                null,
+                true));
+    }
+
+    @Test
     public void horseJumpUsesWireJumpStrength() {
         var state = new BedrockReplayAttributeEvent(
                         Map.of("minecraft:horse.jump_strength", BedrockMovementAttributeState.serverValue(0.8F, false)),

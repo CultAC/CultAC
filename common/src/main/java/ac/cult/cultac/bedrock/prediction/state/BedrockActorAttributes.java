@@ -8,6 +8,9 @@ import java.util.Map;
 public record BedrockActorAttributes(Map<String, BedrockMovementAttributeState> values) {
     public static final String MOVEMENT = "minecraft:movement";
     public static final BedrockActorAttributes EMPTY = new BedrockActorAttributes(Map.of());
+    /** The movement speed a ridden mount has until the client receives one for it. */
+    public static final BedrockMovementAttributeState UNSENT_MOUNT_MOVEMENT =
+            BedrockMovementAttributeState.serverValue(0.7F, false);
 
     public BedrockActorAttributes {
         values = Map.copyOf(values);

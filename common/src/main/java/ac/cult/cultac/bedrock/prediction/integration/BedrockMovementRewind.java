@@ -71,10 +71,17 @@ final class BedrockMovementRewind {
         }
         var live = entries.getFirst().state();
         var deferred = new ArrayList<Update>();
+        // The client replays a correction of its vehicle with the attributes its replayed ticks had: the updates it
+        // received since its last tick are lost.
+        boolean takesVehicleCorrection = updates.stream()
+                .anyMatch(update -> update.event() instanceof BedrockReplayEvent.Transform transform
+                        && transform.correction().vehicle()
+                        && !deferred(update));
         // Arrival order: an attribute update and a replay acknowledged together must both survive.
         for (Update update : updates) {
             boolean attributes = attributes(update);
-            if (!attributes && update.historical() && update.tick() >= authoritative.newestTick()) {
+            if (attributes && takesVehicleCorrection) continue;
+            if (!attributes && deferred(update)) {
                 deferred.add(update);
                 continue;
             }
@@ -131,6 +138,11 @@ final class BedrockMovementRewind {
         if (entries.equals(BedrockProfileState.profileEntries(current.carry()))) return current;
         return new PredictionCommit(
                 new BedrockNextTickStates(entries), BedrockNextTickVelocityDerivation.profileStateVelocities(entries));
+    }
+
+    /** A replay of a tick waits for the frame after it, the tick the client takes it on. */
+    private boolean deferred(Update update) {
+        return update.historical() && update.tick() >= authoritative.newestTick();
     }
 
     private static boolean attributes(Update update) {

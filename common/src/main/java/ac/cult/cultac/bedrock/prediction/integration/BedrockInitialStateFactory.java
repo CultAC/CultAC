@@ -9,6 +9,7 @@ import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockFluidMovementSourceResolver;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockFluidStateResolver;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockPowderSnowContactResolver;
+import ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes;
 import ac.cult.cultac.bedrock.prediction.state.BedrockHorseState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockClimbableContact;
@@ -79,7 +80,12 @@ final class BedrockInitialStateFactory {
         var entity = context.getVehicle() != null
                 ? context.getVehicle()
                 : context.getEntities() == null ? null : context.getEntities().getSelf();
-        return entity == null ? state : state.withAttributes(entity.bedrockAttributes);
+        if (entity == null) return state;
+        var attributes = entity.bedrockAttributes;
+        // Held by the state, so a correction to a tick before the mount's own speed arrived returns to it.
+        if (entity instanceof PacketEntityHorse && !attributes.values().containsKey(BedrockActorAttributes.MOVEMENT))
+            attributes = attributes.withMovement(BedrockActorAttributes.UNSENT_MOUNT_MOVEMENT);
+        return state.withAttributes(attributes);
     }
 
     private static Medium initialMovementBranch(Medium medium, boolean onGround) {
