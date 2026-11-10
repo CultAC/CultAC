@@ -273,7 +273,7 @@ class ExtentPrimitiveEquivalenceTest {
     }
 
     /** Forces the state that keeps one tail handler per bit of {@code mask}; the runnables restore it in reverse. */
-    private static List<Runnable> perturb(int mask, PredictionResult result, PredictionResult last)
+    static List<Runnable> perturb(int mask, PredictionResult result, PredictionResult last)
             throws ReflectiveOperationException {
         List<Runnable> undo = new ArrayList<>();
         SimulationContext context = result.getSimulationContext();
@@ -325,7 +325,7 @@ class ExtentPrimitiveEquivalenceTest {
         return undo;
     }
 
-    private static List<UncertaintyHandler> keptHandlers(
+    static List<UncertaintyHandler> keptHandlers(
             ValidMovements valid, List<UncertaintyHandler> handlers, PredictionResult last)
             throws ReflectiveOperationException {
         if (handlers != UncertaintyPipeline.MODIFIERS) return handlers;
@@ -339,8 +339,7 @@ class ExtentPrimitiveEquivalenceTest {
     }
 
     /** The box of the six extents as the chain of every kept handler's handleMovementTrace moves them. */
-    private static SimpleCollisionBox referenceBox(
-            ValidMovements valid, List<UncertaintyHandler> kept, PredictionResult last)
+    static SimpleCollisionBox referenceBox(ValidMovements valid, List<UncertaintyHandler> kept, PredictionResult last)
             throws ReflectiveOperationException {
         PredVector start = (PredVector) field(valid, "initialStartingVel");
         double posX = chain(valid, kept, start.withX(LARGE_MOVEMENT), last).position().x;
@@ -365,7 +364,7 @@ class ExtentPrimitiveEquivalenceTest {
         return trace;
     }
 
-    private static boolean declaresPositionForm(UncertaintyHandler handler) throws NoSuchMethodException {
+    static boolean declaresPositionForm(UncertaintyHandler handler) throws NoSuchMethodException {
         Method method = handler.getClass()
                 .getMethod(
                         "positionInto",
@@ -376,7 +375,9 @@ class ExtentPrimitiveEquivalenceTest {
                         SimulationContext.class,
                         PredictionResult.class,
                         PredVector.class,
-                        Vec3.class);
+                        double.class,
+                        double.class,
+                        double.class);
         return method.getDeclaringClass() != UncertaintyHandler.class;
     }
 
@@ -399,11 +400,11 @@ class ExtentPrimitiveEquivalenceTest {
         return random.nextInt(3) == 0 ? EDGES[random.nextInt(EDGES.length)] : (random.nextDouble() - 0.5) * 2;
     }
 
-    private interface Outcome {
+    interface Outcome {
         String get() throws Exception;
     }
 
-    private static String outcome(Outcome outcome) {
+    static String outcome(Outcome outcome) {
         try {
             return outcome.get();
         } catch (Exception | AssertionError e) {
@@ -411,7 +412,7 @@ class ExtentPrimitiveEquivalenceTest {
         }
     }
 
-    private static String flags(ValidMovements valid) {
+    static String flags(ValidMovements valid) {
         return " vertical " + valid.isControlsVerticalMovement() + " gravity " + valid.isDidTickSkipGravity() + " ";
     }
 
@@ -441,7 +442,7 @@ class ExtentPrimitiveEquivalenceTest {
         throw new NoSuchFieldException(type.getName() + "." + name);
     }
 
-    private static Object field(Object owner, String name) throws ReflectiveOperationException {
+    static Object field(Object owner, String name) throws ReflectiveOperationException {
         Field field = declared(owner.getClass(), name);
         field.setAccessible(true);
         return field.get(owner);
@@ -460,7 +461,7 @@ class ExtentPrimitiveEquivalenceTest {
         return Double.isNaN(value) ? "NaN" : Long.toHexString(Double.doubleToRawLongBits(value));
     }
 
-    private static String boxBits(SimpleCollisionBox box) {
+    static String boxBits(SimpleCollisionBox box) {
         return bits(box.minX, box.minY, box.minZ) + " " + bits(box.maxX, box.maxY, box.maxZ);
     }
 }

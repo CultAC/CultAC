@@ -49,12 +49,14 @@ public class BubbleColumn implements UncertaintyHandler {
             SimulationContext context,
             PredictionResult lastResult,
             PredVector carrier,
-            Vec3 end) {
+            double endX,
+            double endY,
+            double endZ) {
         if (context.getVehicle() != null
                 && !player.isBedrockMovement()
                 && JavaMovementEngine.contextUsesExactEffects(context)) return;
         if (beforeElytra(context)) return;
-        xyz[1] = applyY(context, lastResult, xyz[1], end.y);
+        xyz[1] = applyY(context, lastResult, xyz[1], endY);
     }
 
     static boolean beforeElytra(SimulationContext context) {

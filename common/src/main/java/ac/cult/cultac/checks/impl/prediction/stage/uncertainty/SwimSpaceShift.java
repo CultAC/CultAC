@@ -44,16 +44,18 @@ public class SwimSpaceShift implements UncertaintyHandler {
             SimulationContext context,
             PredictionResult lastResult,
             PredVector carrier,
-            Vec3 end) {
+            double endX,
+            double endY,
+            double endZ) {
         if (!result.getSimulationContext().getWorldData().maybeInLiquid()) return;
         if (context.getVehicle() != null) return;
 
         double y = xyz[1];
-        if (end.y - y > 0) {
+        if (endY - y > 0) {
             double baseY = applyLivingEntityThresholdBeforeWaterJump(y);
-            xyz[1] = CultMath.clamp(end.y, baseY, baseY + 0.04F);
+            xyz[1] = CultMath.clamp(endY, baseY, baseY + 0.04F);
         } else if (context.isSneaking()) {
-            xyz[1] = CultMath.clamp(end.y, y, y - 0.04F);
+            xyz[1] = CultMath.clamp(endY, y, y - 0.04F);
         }
     }
 
