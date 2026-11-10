@@ -20,6 +20,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.LongFunction;
@@ -41,6 +42,8 @@ public abstract class LeasedJobs<J> {
     public static final long MAX_POLL_SECONDS = 60;
     /** How long to wait before asking a service without this kind of job again. */
     public static final long ABSENT_POLL_SECONDS = 300;
+    /** The share of a poll's wait it may be moved by either way. */
+    static final double POLL_SPREAD = 0.2;
 
     public static final long RESULT_RETRY_SECONDS = 10;
 
@@ -114,16 +117,27 @@ public abstract class LeasedJobs<J> {
         return id(answered).equals(id(pending));
     }
 
+    /** Starts polling: the first round within {@link #MIN_POLL_SECONDS}, at a random point. */
     public void start() {
         chain = generation.next();
-        poll();
+        after.apply((long) (MIN_POLL_SECONDS * ThreadLocalRandom.current().nextDouble())).execute(this::poll);
     }
 
     private void poll() {
         if (!generation.latest(chain)) return;
         pollOnce()
-                .whenComplete((next, error) ->
-                        after.apply(error == null ? next : DEFAULT_POLL_SECONDS).execute(this::poll));
+                .whenComplete((next, error) -> after.apply(spread(
+                                error == null ? next : DEFAULT_POLL_SECONDS,
+                                ThreadLocalRandom.current().nextDouble()))
+                        .execute(this::poll));
+    }
+
+    /**
+     * {@code seconds} moved by up to {@link #POLL_SPREAD} of itself either way, at {@code random} in [0, 1), rounded
+     * to whole seconds and at least one.
+     */
+    static long spread(long seconds, double random) {
+        return Math.max(1, Math.round(seconds * (1 - POLL_SPREAD + 2 * POLL_SPREAD * random)));
     }
 
     /** One round: fetches the pending jobs and runs each this instance should; completes with the seconds to wait. */

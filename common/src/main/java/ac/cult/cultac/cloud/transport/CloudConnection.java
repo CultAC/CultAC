@@ -56,6 +56,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Flow;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -63,6 +64,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.BooleanSupplier;
+import java.util.function.DoubleSupplier;
 import java.util.function.LongSupplier;
 import org.yaml.snakeyaml.Yaml;
 
@@ -153,6 +155,8 @@ public final class CloudConnection {
     private static final Duration MAX_BACKOFF = Duration.ofSeconds(30);
     /** A socket must stay open this long before a reconnect skips the backoff. */
     private static final long STABLE_NANOS = TimeUnit.SECONDS.toNanos(30);
+    /** The most random wait added to a backoff step, and the most a reconnect after a stable socket waits. */
+    private static final Duration BACKOFF_SPREAD = Duration.ofSeconds(5);
     /** A socket quiet this long is pinged; quiet as long again after the ping, it is given up. */
     private static final long QUIET_NANOS = TimeUnit.SECONDS.toNanos(30);
     /**
@@ -278,7 +282,8 @@ public final class CloudConnection {
     /** How long the last socket stayed open, set when it is lost; -1 once the sender has waited for it. */
     private volatile long lastLifeNanos = -1;
 
-    private final Backoff backoff = new Backoff(MIN_BACKOFF, MAX_BACKOFF, STABLE_NANOS);
+    private final Backoff backoff = new Backoff(
+            MIN_BACKOFF, MAX_BACKOFF, STABLE_NANOS, BACKOFF_SPREAD, () -> ThreadLocalRandom.current().nextDouble());
     private final SocketLiveness liveness;
     private final LongSupplier clock;
     private boolean failing;
@@ -370,18 +375,25 @@ public final class CloudConnection {
 
     /**
      * The wait before the next connect: doubling from {@code min} to {@code max} while connects fail or sockets close
-     * within {@code stableNanos} of opening, none after a socket that stayed open that long.
+     * within {@code stableNanos} of opening, plus a random part of up to the step itself and at most {@code spread};
+     * after a socket that stayed open that long, only a random wait of up to {@code spread}.
      */
     static final class Backoff {
         private final Duration min;
         private final Duration max;
         private final long stableNanos;
+        private final Duration spread;
+        /** Uniform in [0, 1). */
+        private final DoubleSupplier random;
+
         private Duration next;
 
-        Backoff(Duration min, Duration max, long stableNanos) {
+        Backoff(Duration min, Duration max, long stableNanos, Duration spread, DoubleSupplier random) {
             this.min = min;
             this.max = max;
             this.stableNanos = stableNanos;
+            this.spread = spread;
+            this.random = random;
             next = min;
         }
 
@@ -390,14 +402,18 @@ public final class CloudConnection {
             Duration wait = next;
             Duration doubled = next.multipliedBy(2);
             next = doubled.compareTo(max) > 0 ? max : doubled;
-            return wait;
+            return wait.plus(part(wait.compareTo(spread) < 0 ? wait : spread));
         }
 
         /** A socket closed after {@code lifeNanos} open: the wait before reconnecting. */
         Duration closed(long lifeNanos) {
             if (lifeNanos < stableNanos) return failed();
             next = min;
-            return Duration.ZERO;
+            return part(spread);
+        }
+
+        private Duration part(Duration most) {
+            return Duration.ofNanos((long) (most.toNanos() * random.getAsDouble()));
         }
     }
 
