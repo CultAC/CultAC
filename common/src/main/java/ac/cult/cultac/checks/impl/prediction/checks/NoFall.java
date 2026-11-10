@@ -29,7 +29,7 @@ public class NoFall implements EngineCheck {
         if (result.getSimulationContext().getVehicle() != null) return;
 
         boolean flaggedNoFall = false;
-        final NoFallPseudo noFallPseudo = player.checkManager.getListener(NoFallPseudo.class);
+        final NoFallPseudo noFallPseudo = player.checkManager.getNoFallPseudo();
 
         PistonPushes pushes = result.getSimulationContext().getWorldData().getPistonPushes();
         // From 26.3 the shulker box block shoves are the packet's last Entity#move calls, and the last sets onGround.
@@ -69,7 +69,8 @@ public class NoFall implements EngineCheck {
                 && !shoveMayEndMove
                 && canCollideDown
                 && valid.maxY + 0.001 < travelY // And their valid Y is below their actual movement
-                && downCollide.inMovementSpace(stuckSpeedY) + 0.001 >= travelY) { // And they recovered by colliding
+                && (downCollide.inMovementSpace(stuckSpeedY) + 0.001 >= travelY // And they recovered by colliding
+                        || stepsUpFromDownwardMove(result, valid))) {
             result.addFlag(noFallPseudo, () -> "false", 0.1);
             flaggedNoFall = true;
         }
@@ -89,6 +90,16 @@ public class NoFall implements EngineCheck {
         if (flaggedNoFall) {
             result.setDesiredOnGround(desiredOnGround);
         }
+    }
+
+    /**
+     * A travel above the floor it could land on, and above every Y the player requested, that only Entity#collide's
+     * step-up explains. Every requested Y is downward, so the step follows a collision that stopped the downward move:
+     * Entity#move sets verticalCollisionBelow, then onGround, and Entity#checkFallDamage lands the fall. A client that
+     * reports this move airborne skips that landing on the server, which then resets the fall for the upward move.
+     */
+    private static boolean stepsUpFromDownwardMove(PredictionResult result, SimpleCollisionBox valid) {
+        return result.getValidMovements().isCanStep() && valid.maxY < 0.0D;
     }
 
     /**

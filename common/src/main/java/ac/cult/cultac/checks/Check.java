@@ -100,7 +100,7 @@ public class Check extends CultProcessor implements AbstractCheck {
         this.defaultDecay = checkInfo.getDecay();
         this.defaultSetbackVL = checkInfo.getSetback();
         this.alternativeName = checkInfo.getAltName();
-        this.experimental = false;
+        this.experimental = checkInfo.isExperimental();
         this.defaultDescription = checkInfo.getDescription();
         this.stableKey = Objects.requireNonNull(checkInfo.getStableKey(), "checkInfo.stableKey");
         this.displayName = this.checkName;

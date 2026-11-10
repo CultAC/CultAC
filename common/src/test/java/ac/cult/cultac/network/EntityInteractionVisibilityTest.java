@@ -553,7 +553,7 @@ class EntityInteractionVisibilityTest {
     private static PacketEntity afterBundledSync(Setup setup, int type) {
         setup.player.compensatedEntities.addEntity(42, type, SYNC_FROM, 0, 0, 0);
         var entity = setup.player.compensatedEntities.getEntity(42);
-        entity.onBundledPositionSyncTransaction(SYNC_TO.x, SYNC_TO.y, SYNC_TO.z, setup.player);
+        entity.onBundleTransaction(false, true, SYNC_TO.x, SYNC_TO.y, SYNC_TO.z, setup.player);
         return entity;
     }
 

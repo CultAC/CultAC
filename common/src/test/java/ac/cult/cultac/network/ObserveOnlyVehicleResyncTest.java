@@ -40,7 +40,7 @@ class ObserveOnlyVehicleResyncTest {
                 assertTrue(f.player.compensatedEntities.getSelf().inVehicle());
                 assertEquals(
                         observeOnly ? 0 : 1,
-                        f.player.getSetbackTeleportUtil().queuedVehicleTeleportCount(),
+                        f.player.getSetbackTeleportUtil().vehicleTeleports().queuedVehicleTeleportCount(),
                         "observeOnly=" + observeOnly);
 
                 List<Object> dismount = passengers(f, List.of());

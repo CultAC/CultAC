@@ -35,14 +35,14 @@ class CloudConnectionHostileIntakeTest {
     void anAnsweredSocketUrlMayCarryTheKeyOnlyOverTlsOrToThisMachine() {
         URI https = URI.create("https://intake.example/api/v1/connect");
         URI loopback = URI.create("http://127.0.0.1:8080/api/v1/connect");
-        assertTrue(CloudConnection.answerAllowed(https, "wss://replica.example/intake"));
-        assertFalse(CloudConnection.answerAllowed(https, "ws://replica.example/intake"));
-        assertFalse(CloudConnection.answerAllowed(https, "wss://user:secret@replica.example/intake"));
-        assertFalse(CloudConnection.answerAllowed(https, "https://replica.example/intake"));
+        assertTrue(CloudConnection.answerAllowed(https, "wss://replica.intake.example/intake"));
+        assertFalse(CloudConnection.answerAllowed(https, "ws://replica.intake.example/intake"));
+        assertFalse(CloudConnection.answerAllowed(https, "wss://user:secret@replica.intake.example/intake"));
+        assertFalse(CloudConnection.answerAllowed(https, "https://replica.intake.example/intake"));
         assertFalse(CloudConnection.answerAllowed(https, "wss:///intake"));
         assertFalse(CloudConnection.answerAllowed(https, "not a url"));
         assertTrue(CloudConnection.answerAllowed(loopback, "ws://127.0.0.1:8080/intake"));
-        assertTrue(CloudConnection.answerAllowed(loopback, "wss://replica.example/intake"));
+        assertTrue(CloudConnection.answerAllowed(loopback, "wss://localhost/intake"));
         assertFalse(CloudConnection.answerAllowed(loopback, "ws://user@127.0.0.1:8080/intake"));
         assertFalse(CloudConnection.answerAllowed(
                 URI.create("http://intake.example/api/v1/connect"), "ws://replica.example/intake"));
@@ -51,6 +51,25 @@ class CloudConnectionHostileIntakeTest {
         assertFalse(CloudConnection.answerAllowed(loopback, "ws://replica.example/intake"));
         assertFalse(CloudConnection.answerAllowed(loopback, "ws://192.0.2.1:8081/intake"));
         assertFalse(CloudConnection.answerAllowed(loopback, "ws://127.0.0.1.example/intake"));
+    }
+
+    @Test
+    void anAnsweredSocketUrlNamesTheConnectHostOrASubdomainOfIt() {
+        URI https = URI.create("https://Intake.Example:8443/api/v1/connect");
+        assertTrue(CloudConnection.answerAllowed(https, "wss://intake.example/api/v1/intake"));
+        assertTrue(CloudConnection.answerAllowed(https, "wss://INTAKE.EXAMPLE./api/v1/intake"));
+        assertTrue(CloudConnection.answerAllowed(https, "wss://eu.intake.example:9443/api/v1/intake"));
+        assertFalse(CloudConnection.answerAllowed(https, "wss://other.example/api/v1/intake"));
+        assertFalse(CloudConnection.answerAllowed(https, "wss://intake.example.other/api/v1/intake"));
+        assertFalse(CloudConnection.answerAllowed(https, "wss://badintake.example/api/v1/intake"));
+        assertFalse(CloudConnection.answerAllowed(https, "wss://127.0.0.1/api/v1/intake"));
+        URI ip = URI.create("https://192.0.2.10/api/v1/connect");
+        assertTrue(CloudConnection.answerAllowed(ip, "wss://192.0.2.10:8443/api/v1/intake"));
+        assertFalse(CloudConnection.answerAllowed(ip, "wss://1.192.0.2.10/api/v1/intake"));
+        assertFalse(CloudConnection.answerAllowed(ip, "wss://192.0.2.11/api/v1/intake"));
+        URI v6 = URI.create("https://[2001:db8::1]/api/v1/connect");
+        assertTrue(CloudConnection.answerAllowed(v6, "wss://[2001:DB8::1]/api/v1/intake"));
+        assertFalse(CloudConnection.answerAllowed(v6, "wss://[2001:db8::2]/api/v1/intake"));
     }
 
     @Test

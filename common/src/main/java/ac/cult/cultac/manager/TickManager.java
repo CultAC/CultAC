@@ -2,7 +2,6 @@ package ac.cult.cultac.manager;
 
 import ac.cult.cultac.manager.tick.Tickable;
 import ac.cult.cultac.manager.tick.impl.ClientVersionSetter;
-import ac.cult.cultac.manager.tick.impl.ResetTick;
 import ac.cult.cultac.manager.tick.impl.TickInventory;
 import ac.cult.cultac.manager.tick.impl.TickPermissions;
 import com.google.common.collect.ClassToInstanceMap;
@@ -15,9 +14,7 @@ public class TickManager {
     private final ClassToInstanceMap<Tickable> asyncTick;
 
     public TickManager() {
-        syncTick = new ImmutableClassToInstanceMap.Builder<Tickable>()
-                .put(ResetTick.class, new ResetTick())
-                .build();
+        syncTick = new ImmutableClassToInstanceMap.Builder<Tickable>().build();
 
         asyncTick = new ImmutableClassToInstanceMap.Builder<Tickable>()
                 .put(

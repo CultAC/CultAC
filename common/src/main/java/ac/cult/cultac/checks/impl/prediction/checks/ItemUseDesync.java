@@ -30,7 +30,7 @@ public final class ItemUseDesync extends CultProcessor implements PostPrediction
     public void onPredictionComplete(PredictionComplete complete) {
         if (!player.usesModernJavaItemUse() || complete.isTeleport() || complete.isExempt()) return;
         var evidence = complete.getPredictionResult().getItemUseResult();
-        double threshold = player.checkManager.getListener(NoSlow.class).threshold();
+        double threshold = player.checkManager.getNoSlow().threshold();
         if (evidence == null || !evidence.state().required() || evidence.deterministic(threshold)) return;
         boolean alreadyDesynced = pendingTick == evidence.state().tick() && Boolean.TRUE.equals(pending);
         pendingTick = evidence.state().tick();

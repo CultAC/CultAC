@@ -24,6 +24,8 @@ public final class CheckInfo {
     private final double decay;
     /** Violation level above which the check may set the player back. */
     private final double setback;
+    /** Whether the check is still experimental. */
+    private final boolean experimental;
 
     private CheckInfo(Builder builder) {
         if (builder.name == null || builder.name.isEmpty()) {
@@ -36,6 +38,7 @@ public final class CheckInfo {
         this.description = builder.description != null ? builder.description : FALLBACK_DESCRIPTION;
         this.decay = builder.decay;
         this.setback = builder.setback;
+        this.experimental = builder.experimental;
     }
 
     public static Builder builder() {
@@ -52,6 +55,7 @@ public final class CheckInfo {
         private String description;
         private double decay = 0.05;
         private double setback = 25;
+        private boolean experimental;
 
         private Builder() {}
 

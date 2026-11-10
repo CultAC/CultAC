@@ -43,7 +43,7 @@ public class NettyScheduler {
     private boolean idle(long now) {
         try {
             return !knockbackLatencyExceeded(now)
-                    && !player.getSetbackTeleportUtil().mustMoveDue(now)
+                    && !player.getSetbackTeleportUtil().policy().mustMoveDue(now)
                     && !player.clientTickEndTimeout.needsPoll(now);
         } catch (Throwable failure) {
             return false;
@@ -53,7 +53,7 @@ public class NettyScheduler {
     private void tick() {
         player.clientTickEndTimeout.poll(System.nanoTime());
         watchdogKnockbackLatency(System.nanoTime());
-        player.getSetbackTeleportUtil().checkIfMustMove();
+        player.getSetbackTeleportUtil().policy().checkIfMustMove();
     }
 
     public ScheduledFuture<?> runTaskInMs(Runnable runnable, int ms) {

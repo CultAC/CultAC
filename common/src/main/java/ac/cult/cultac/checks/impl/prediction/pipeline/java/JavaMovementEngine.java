@@ -21,6 +21,7 @@ import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.MainSupportingBlockData;
 import ac.cult.cultac.utils.data.PistonPushes;
 import ac.cult.cultac.utils.data.ShulkerBoxShoveResult;
+import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.GeyserVelocity;
@@ -35,6 +36,9 @@ public final class JavaMovementEngine implements MovementEngine {
     public static final JavaMovementEngine INSTANCE = new JavaMovementEngine();
     private static final CollisionModifier.ProbeDimensions PROBE_DIMENSIONS =
             new CollisionModifier.ProbeDimensions(0.6F, 0.6F, 1.8F, SimpleCollisionBox.AxisEpsilon.JAVA);
+    private static final CollisionModifier.ProbeDimensions CROUCHING_PROBE_DIMENSIONS =
+            new CollisionModifier.ProbeDimensions(
+                    0.6F, 0.6F, Pose.CROUCHING.height, SimpleCollisionBox.AxisEpsilon.JAVA);
 
     private JavaMovementEngine() {}
 
@@ -140,16 +144,32 @@ public final class JavaMovementEngine implements MovementEngine {
                 target,
                 playerPos,
                 attemptedMovementExtents,
-                context.getScale() == 1.0F || context.getVehicle() != null
-                        ? PROBE_DIMENSIONS
-                        : new CollisionModifier.ProbeDimensions(
-                                context.getMaxWidth(),
-                                context.getMinHeight(),
-                                context.getMaxHeight(),
-                                SimpleCollisionBox.AxisEpsilon.JAVA),
+                probeDimensions(player, context),
                 JavaFallDistance.beforeMove(player, context, initialStartingVelocity),
                 !canStep,
                 context.getHorizontalInputRadius(player, initialStartingVelocity));
+    }
+
+    /**
+     * The box heights the collision probe spans. A crouching player moves its crouching box: Player#updatePlayerPose
+     * sets the pose at the end of the tick before (1.21.11 and 26.2/26.3 Player#tick), and Entity#collide clips that
+     * box, so a ceiling above it but within standing height never stops the move.
+     */
+    private static CollisionModifier.ProbeDimensions probeDimensions(CultPlayer player, SimulationContext context) {
+        if (context.getVehicle() != null) return PROBE_DIMENSIONS;
+        float maxHeight = context.getMaxHeight();
+        if (context.getPose() == Pose.CROUCHING && collidesAtCrouchingPose(player.getClientVersion())) {
+            maxHeight = Pose.CROUCHING.height * context.getScale();
+        }
+        if (context.getScale() == 1.0F) {
+            return maxHeight == PROBE_DIMENSIONS.maxHeight() ? PROBE_DIMENSIONS : CROUCHING_PROBE_DIMENSIONS;
+        }
+        return new CollisionModifier.ProbeDimensions(
+                context.getMaxWidth(), context.getMinHeight(), maxHeight, SimpleCollisionBox.AxisEpsilon.JAVA);
+    }
+
+    private static boolean collidesAtCrouchingPose(ClientVersion version) {
+        return version == ClientVersion.V_1_21_11 || version.isNewerThanOrEquals(ClientVersion.V_26_2);
     }
 
     @Override

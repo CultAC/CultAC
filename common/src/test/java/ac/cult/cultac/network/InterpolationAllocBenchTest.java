@@ -52,10 +52,12 @@ class InterpolationAllocBenchTest {
                 float yaw = (n & 2) == 0 ? 10.0F : -10.0F;
                 for (PacketEntity entity : w.entities) {
                     switch (kind) {
-                        case 0, 3 -> entity.onFirstTransaction(true, true, d, 0, d, yaw, 0.0F, w.player);
+                        case 0, 3 -> entity.onBundleFirstTransaction(true, true, d, 0, d, yaw, 0.0F, w.player);
                         case 1 -> entity.onBundleFirstTransaction(true, true, d, 0, d, yaw, 0.0F, w.player);
                         case 2 ->
-                            entity.onBundledPositionSyncTransaction(
+                            entity.onBundleTransaction(
+                                    false,
+                                    true,
                                     entity.desyncClientPos.x + d,
                                     entity.desyncClientPos.y,
                                     entity.desyncClientPos.z + d,
@@ -69,8 +71,7 @@ class InterpolationAllocBenchTest {
                                     true,
                                     yaw,
                                     0.0F,
-                                    w.player,
-                                    kind == 5);
+                                    w.player);
                         }
                     }
                 }

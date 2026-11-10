@@ -34,18 +34,13 @@ class ReachInterpolationRestartTest {
             CultPlayer player = player(version);
             for (int type : TYPES) {
                 PacketEntity entity = new PacketEntity(type, 1);
-                for (int variant = 0; variant < 4; variant++) {
-                    boolean pointNine = (variant & 1) == 0;
-                    boolean uncertain = (variant & 2) == 0;
-                    ReachInterpolationData worn = ReachInterpolationData.takingStart(
-                            player, FIRST.copy(), 0, 64, 0, 10, 5, 40, -5, true, entity, true);
-                    wear(worn);
-                    assertTrue(worn.restart(
-                            player, SECOND.copy(), 5.5, 63.5, 7.75, 40, -5, 95, 12, pointNine, entity, uncertain));
-                    ReachInterpolationData fresh = ReachInterpolationData.takingStart(
-                            player, SECOND.copy(), 5.5, 63.5, 7.75, 40, -5, 95, 12, pointNine, entity, uncertain);
-                    assertSameState(fresh, worn, version + " " + type + " " + variant);
-                }
+                ReachInterpolationData worn =
+                        ReachInterpolationData.takingStart(player, FIRST.copy(), 0, 64, 0, 10, 5, 40, -5, entity);
+                wear(worn);
+                assertTrue(worn.restart(player, SECOND.copy(), 5.5, 63.5, 7.75, 40, -5, 95, 12, entity));
+                ReachInterpolationData fresh = ReachInterpolationData.takingStart(
+                        player, SECOND.copy(), 5.5, 63.5, 7.75, 40, -5, 95, 12, entity);
+                assertSameState(fresh, worn, version + " " + type);
             }
         }
     }
@@ -55,7 +50,7 @@ class ReachInterpolationRestartTest {
         CultPlayer player = player(ClientVersion.V_1_21_11);
         PacketEntity entity = new PacketEntity(EntityTypeIds.ZOMBIE, 1);
         ReachInterpolationData finished = new ReachInterpolationData(FIRST);
-        assertFalse(finished.restart(player, SECOND.copy(), 5.5, 63.5, 7.75, 0, 0, 0, 0, true, entity, true));
+        assertFalse(finished.restart(player, SECOND.copy(), 5.5, 63.5, 7.75, 0, 0, 0, 0, entity));
         assertSameState(new ReachInterpolationData(FIRST), finished, "finished");
     }
 
@@ -97,6 +92,8 @@ class ReachInterpolationRestartTest {
                 throw new AssertionError(e);
             }
             String name = at + " " + field.getName();
+            // A reused buffer, read only while heldStep holds a step, as the copy constructor treats it.
+            if (field.getName().equals("heldLocation") && heldStep(expected) < 0 && heldStep(actual) < 0) continue;
             if (want instanceof SimpleCollisionBox wantBox && got instanceof SimpleCollisionBox gotBox) {
                 assertEquals(boxBits(wantBox), boxBits(gotBox), name);
             } else if (want instanceof ArrayDeque<?> wantQueue && got instanceof ArrayDeque<?> gotQueue) {
@@ -109,6 +106,16 @@ class ReachInterpolationRestartTest {
             compared++;
         }
         assertFalse(compared == 0);
+    }
+
+    private static int heldStep(ReachInterpolationData data) {
+        try {
+            Field field = ReachInterpolationData.class.getDeclaredField("heldStep");
+            field.setAccessible(true);
+            return field.getInt(data);
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError(e);
+        }
     }
 
     private static String boxBits(SimpleCollisionBox box) {

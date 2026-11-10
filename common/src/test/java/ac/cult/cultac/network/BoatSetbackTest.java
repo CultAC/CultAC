@@ -2,6 +2,7 @@ package ac.cult.cultac.network;
 
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -112,6 +113,34 @@ class BoatSetbackTest {
     }
 
     /**
+     * The setback's move_vehicle follows its ping, and ClientPacketListener#handleMoveVehicle echoes it from the
+     * handler, so an echo before that ping's pong was never sent by a client that took the setback.
+     */
+    @Test
+    void aVehicleSetbackEchoBeforeItsPingDoesNotCompleteIt() throws Exception {
+        try (Ride ride = mount(SEAT)) {
+            Vec3 position = SEAT;
+            Vec3 velocity = Vec3.ZERO;
+            for (int tick = 0; tick < FALL_TICKS; tick++) {
+                velocity = floatBoatInAir(velocity);
+                position = position.add(velocity);
+                ride.f.rideTick(position, false);
+            }
+            JavaTickFixture.assertRejected(ride.f.rideTick(position, false), "VehicleOffset");
+            SetBackData setback = ride.f.player.getSetbackTeleportUtil().getRequiredSetBack();
+            int transaction = setback.getTeleportData().getTransaction();
+            assertTrue(ride.f.player.lastTransactionReceived.get() < transaction);
+
+            ride.echo(setback);
+            assertFalse(setback.isComplete(), "an echo before the setback's ping completed it");
+
+            ride.f.pongThrough(transaction);
+            ride.echo(setback);
+            assertTrue(setback.isComplete(), "the echo after the setback's ping was not accepted");
+        }
+    }
+
+    /**
      * ClientboundMoveVehiclePacket#fromEntity carries the boat's own rotation, the yaw AbstractBoat#controlBoat turned
      * it to in the tick the setback advances it by, and handleMoveVehicle snaps the client's boat to it; the boat keeps
      * turning by its deltaRotation from there.
@@ -195,13 +224,18 @@ class BoatSetbackTest {
          */
         Vec3 acceptSetback(SetBackData setback) {
             f.pongThrough(f.player.lastTransactionSent.get());
+            echo(setback);
+            assertTrue(setback.isComplete(), "the setback echo was not accepted");
+            f.tickEnd();
+            return motions.getLast();
+        }
+
+        /** The MoveVehicle ClientPacketListener#handleMoveVehicle sends alone for the setback's snapped boat. */
+        void echo(SetBackData setback) {
             ClientboundMoveVehicle snap = moves.getLast();
             Vec3 at = setback.getTeleportData().getLocation();
             var echo = new ServerboundMoveVehicle(new Vec3d(at.x, at.y, at.z), snap.yaw(), snap.pitch(), false, true);
             f.listener.onMoveVehicle(f.event(ServerboundPackets.MOVE_VEHICLE, echo), f.player, echo);
-            assertTrue(setback.isComplete(), "the setback echo was not accepted");
-            f.tickEnd();
-            return motions.getLast();
         }
 
         @Override

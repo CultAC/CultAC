@@ -141,6 +141,11 @@ public final class ProtocolRuntime {
         return other == data ? this : new ProtocolRuntime(other, catalog, commandInputLimit);
     }
 
+    /** Every declared family, supported on this version or not. */
+    public List<PacketType<?>> catalog() {
+        return catalog;
+    }
+
     public boolean supports(PacketType<?> type) {
         int slot = slotOrAbsent(type);
         return slot >= 0 && supported[slot];

@@ -17,6 +17,9 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.FluidFallingAdjustedMovement;
 
 public class Ladder implements UncertaintyHandler {
+    /** The reason of the vector LivingEntity#handleOnClimbable leaves, whose last vector is the one it clamped. */
+    public static final String CLAMP_REASON = "ladder";
+
     @Override
     public boolean skipsContext(CultPlayer player, SimulationContext context, PredictionResult lastResult) {
         boolean previousClimbBoost = lastResult != null
@@ -106,7 +109,7 @@ public class Ladder implements UncertaintyHandler {
             clampedY = CultMath.clamp(end.y, Math.min(start.y, clampedY), Math.max(start.y, clampedY));
             clampedZ = CultMath.clamp(end.z, Math.min(start.z, clampedZ), Math.max(start.z, clampedZ));
         }
-        return start.withXYZ(clampedX, clampedY, clampedZ, "ladder");
+        return start.withXYZ(clampedX, clampedY, clampedZ, CLAMP_REASON);
     }
 
     /**

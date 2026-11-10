@@ -34,4 +34,21 @@ public interface UncertaintyHandler {
             PredictionResult lastResult,
             PredVector start,
             Vec3 end);
+
+    /**
+     * Replaces the start in {@code xyz} with the position {@link #handleUncertainty} returns for it, with the same
+     * side effects, for a start whose flags are {@code carrier}'s and whose lineage since {@code carrier} holds only
+     * steps of handlers that implement this method. A handler that does not override it has no such form.
+     */
+    default void positionInto(
+            double[] xyz,
+            CultPlayer player,
+            ValidMovements valid,
+            PredictionResult result,
+            SimulationContext context,
+            PredictionResult lastResult,
+            PredVector carrier,
+            Vec3 end) {
+        throw new UnsupportedOperationException(getClass().getName());
+    }
 }

@@ -19,6 +19,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.value.EntityPose;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityArmorStand;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityCat;
@@ -31,6 +32,7 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntitySpider;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.BiPredicate;
 import java.util.function.Predicate;
@@ -78,6 +80,8 @@ public final class ClientEntityQueries {
     /** Level#getEntities(null, box) filters with EntitySelector.NO_SPECTATORS and includes the local player. */
     public boolean hasEntityIn(Box box) {
         if (player.gamemode != GameMode.SPECTATOR && box.intersects(localBox())) return true;
+        Objects.requireNonNull(box);
+        if (player.compensatedEntities.entityMap.isEmpty()) return false;
         return any(entity -> !spectator(entity), box::intersects);
     }
 
@@ -107,15 +111,32 @@ public final class ClientEntityQueries {
     public List<Box> playerCollisionBoxes(Box query) {
         var result = new ArrayList<Box>();
         var search = query.inflate(1.0E-7);
-        for (var entity : player.compensatedEntities.entityMap.values()) {
+        SimpleCollisionBox candidate = null;
+        // Remote players stay in the scan: spectator() caches their PlayerInfo and fails without a profile.
+        var entities = player.compensatedEntities.collisionOrPlayerCandidates();
+        for (int e = 0, size = entities.size(); e < size; e++) {
+            var entity = entities.get(e);
             if (!present(entity) || spectator(entity) || !collidable(entity)) continue;
-            for (var candidate : entity.getPossibleMovementCollisionBoxCandidates()) {
-                var bounds = entity.toBoundingBox(player, candidate);
+            if (candidate == null) candidate = new SimpleCollisionBox();
+            for (int i = 0, count = entity.possibleMovementCollisionBoxCandidateCount(); i < count; i++) {
+                var bounds = entity.toBoundingBox(player, entity.possibleMovementCollisionBoxCandidate(i, candidate));
+                Box.validateBounds(bounds.minX, bounds.minY, bounds.minZ, bounds.maxX, bounds.maxY, bounds.maxZ);
+                if (!intersects(search, bounds)) continue;
                 var box = new Box(bounds.minX, bounds.minY, bounds.minZ, bounds.maxX, bounds.maxY, bounds.maxZ);
-                if (search.intersects(box) && !result.contains(box)) result.add(box);
+                if (!result.contains(box)) result.add(box);
             }
         }
         return List.copyOf(result);
+    }
+
+    /** {@link Box#intersects} of {@code search} with {@code bounds}. */
+    private static boolean intersects(Box search, SimpleCollisionBox bounds) {
+        return search.minX() < bounds.maxX
+                && search.maxX() > bounds.minX
+                && search.minY() < bounds.maxY
+                && search.maxY() > bounds.minY
+                && search.minZ() < bounds.maxZ
+                && search.maxZ() > bounds.minZ;
     }
 
     /** Brush's ProjectileUtil overload has zero margin and does not count containment as a ray hit. */
@@ -234,9 +255,11 @@ public final class ClientEntityQueries {
 
     private boolean any(Predicate<PacketEntity> selected, BiPredicate<PacketEntity, Box> query) {
         boolean unresolved = false;
+        SimpleCollisionBox scratch = null;
         for (var entity : player.compensatedEntities.entityMap.values()) {
             if (!present(entity) || !selected.test(entity)) continue;
-            var result = test(entity, box -> query.test(entity, box));
+            if (scratch == null) scratch = new SimpleCollisionBox();
+            var result = test(entity, box -> query.test(entity, box), scratch);
             if (Boolean.TRUE.equals(result)) return true;
             unresolved |= result == null;
         }
@@ -245,10 +268,11 @@ public final class ClientEntityQueries {
     }
 
     /** Null means that the existing packet/tick ordering has not proved one query outcome. */
-    private Boolean test(PacketEntity entity, Predicate<Box> query) {
+    private Boolean test(PacketEntity entity, Predicate<Box> query, SimpleCollisionBox scratch) {
         if (entity instanceof PacketEntityHanging hanging) return query.test(hanging.actionBounds());
         Boolean result = null;
-        for (var position : entity.getPossibleMovementCollisionBoxCandidates()) {
+        for (int i = 0, count = entity.possibleMovementCollisionBoxCandidateCount(); i < count; i++) {
+            var position = entity.possibleMovementCollisionBoxCandidate(i, scratch);
             Box box;
             if (entity.isLivingEntity() && entity.actionPose == EntityPose.SLEEPING) {
                 double x = position.minX + .5 * (position.maxX - position.minX),

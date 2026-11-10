@@ -14,6 +14,7 @@ import ac.cult.cultac.checks.impl.cloud.CloudFlagCheck;
 import ac.cult.cultac.checks.impl.cloud.CloudFlagCheckTest;
 import ac.cult.cultac.cloud.CloudSettings;
 import ac.cult.cultac.cloud.Generation;
+import ac.cult.cultac.cloud.Pace;
 import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
@@ -38,9 +39,14 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -54,6 +60,7 @@ class CloudFlagsTest {
     private static final UUID OTHER = UUID.fromString("7b2f3c2e-5b4d-4e8f-9a0b-1c2d3e4f5a6c");
     private static final String FLAG = "0f0e0d0c-0b0a-4908-8706-050403020100";
     private static final String SECOND = "1f0e0d0c-0b0a-4908-8706-050403020101";
+    private static final String THIRD = "2f0e0d0c-0b0a-4908-8706-050403020102";
 
     private record Seen(String method, String uri, String authorization, String body) {}
 
@@ -78,6 +85,8 @@ class CloudFlagsTest {
     private final List<Raised> raised = Collections.synchronizedList(new ArrayList<>());
     private final Generation generation = new Generation();
     private final CloudFlags.Handled handled = new CloudFlags.Handled(CloudFlags.MAX_HANDLED);
+    private final AtomicLong clock = new AtomicLong();
+    private final Pace<UUID> pace = new Pace<>(3_600_000, CloudFlags.MAX_PER_PLAYER_HOUR, clock::get);
 
     private final CloudFlags.Host host = new CloudFlags.Host() {
         @Override
@@ -153,6 +162,7 @@ class CloudFlagsTest {
                 host,
                 generation,
                 handled,
+                pace,
                 seconds -> CompletableFuture.delayedExecutor(seconds * 10, TimeUnit.MILLISECONDS));
     }
 
@@ -233,6 +243,109 @@ class CloudFlagsTest {
         assertEquals(List.of(new Raised(PLAYER, CloudExploitExperimental.class)), raised);
         assertTrue(posts().stream().noneMatch(post -> post.uri().contains(FLAG)));
         assertEquals("/api/v1/cloud-flags/" + SECOND + "/claim", posts().get(0).uri());
+    }
+
+    @Test
+    void flagsPastAPlayersHourlyMostWaitForTheNextHour() throws Exception {
+        pace.max(1);
+        online.add(PLAYER);
+        online.add(OTHER);
+        pending(
+                flag(FLAG, PLAYER, "CloudCombat"),
+                flag(SECOND, PLAYER, "CloudExploitExperimental"),
+                flag(THIRD, OTHER, "CloudCombat"));
+        CloudFlags flags = flags();
+
+        flags.pollOnce().get(5, TimeUnit.SECONDS);
+        assertEquals(Set.of(new Raised(PLAYER, CloudCombat.class), new Raised(OTHER, CloudCombat.class)),
+                Set.copyOf(raised));
+
+        clock.set(3_599_000);
+        flags.pollOnce().get(5, TimeUnit.SECONDS);
+        assertEquals(2, raised.size());
+
+        clock.set(3_600_000);
+        flags.pollOnce().get(5, TimeUnit.SECONDS);
+        assertEquals(new Raised(PLAYER, CloudExploitExperimental.class), raised.get(2));
+    }
+
+    @Test
+    void aClaimTheServiceDoesNotGrantLeavesThePlayersCountAsItWas() throws Exception {
+        pace.max(1);
+        online.add(PLAYER);
+        pending(flag(FLAG, PLAYER, "CloudCombat"));
+        CloudFlags flags = flags();
+
+        for (int status : new int[] {409, 503}) {
+            claimStatus = status;
+            flags.pollOnce().get(5, TimeUnit.SECONDS);
+            assertTrue(raised.isEmpty());
+        }
+
+        claimStatus = 200;
+        flags.pollOnce().get(5, TimeUnit.SECONDS);
+        assertEquals(List.of(new Raised(PLAYER, CloudCombat.class)), raised);
+    }
+
+    @Test
+    void aClaimThatIsNotSentLeavesThePlayersCountAndTheFlagAsTheyWere() throws Exception {
+        pace.max(1);
+        online.add(PLAYER);
+        pending(flag(FLAG, PLAYER, "CloudCombat"));
+        AtomicInteger sends = new AtomicInteger();
+        AtomicBoolean rejecting = new AtomicBoolean(true);
+        Executor executor = task -> {
+            if (sends.incrementAndGet() > 1 && rejecting.get()) throw new RejectedExecutionException("full");
+            calls.execute(task);
+        };
+        CloudFlags flags = new CloudFlags(
+                base(),
+                KEY,
+                "arena-1",
+                HttpClient.newHttpClient(),
+                executor,
+                host,
+                generation,
+                handled,
+                pace,
+                seconds -> CompletableFuture.delayedExecutor(seconds * 10, TimeUnit.MILLISECONDS));
+
+        flags.pollOnce().handle((next, error) -> next).get(5, TimeUnit.SECONDS);
+        assertTrue(raised.isEmpty());
+        assertTrue(posts().isEmpty());
+
+        rejecting.set(false);
+        flags.pollOnce().get(5, TimeUnit.SECONDS);
+        assertEquals(List.of(new Raised(PLAYER, CloudCombat.class)), raised);
+    }
+
+    @Test
+    void aRoundClaimsAtMostItsMost() throws Exception {
+        pace.max(Integer.MAX_VALUE);
+        online.add(PLAYER);
+        leaving.add(PLAYER);
+        JsonArray many = new JsonArray();
+        for (int i = 0; i <= CloudFlags.MAX_CLAIMS_PER_ROUND; i++) {
+            many.add(flag(new UUID(i, i).toString(), PLAYER, "CloudCombat"));
+        }
+        pending = many;
+        AtomicInteger picked = new AtomicInteger();
+        CloudFlags.Host counting = new CloudFlags.Host() {
+            @Override
+            public boolean online(UUID player) {
+                picked.incrementAndGet();
+                return host.online(player);
+            }
+
+            @Override
+            public boolean schedule(UUID player, Class<? extends CloudFlagCheck> type, Consumer<CloudFlagCheck> flag) {
+                return host.schedule(player, type, flag);
+            }
+        };
+
+        flags("arena-1", counting).pollOnce().get(30, TimeUnit.SECONDS);
+
+        assertEquals(CloudFlags.MAX_CLAIMS_PER_ROUND, picked.get());
     }
 
     @Test

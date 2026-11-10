@@ -102,7 +102,7 @@ class HorseGroundStateTest {
             Vec3[] fall = ride.fallFromRest(AIR);
             VehicleGround check = ride.f.player.checkManager.getCheck(VehicleGround.class);
             check.violations = 10;
-            Vec3 safe = ride.f.player.getSetbackTeleportUtil().lastKnownGoodPosition.getPos();
+            Vec3 safe = ride.f.player.getSetbackTeleportUtil().safePosition().getPos();
             assertEquals(fall[0], safe);
 
             Move claim = ride.tick(fall[0].add(fall[1]), true, false);

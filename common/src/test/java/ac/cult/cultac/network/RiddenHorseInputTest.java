@@ -15,6 +15,7 @@ import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.events.packets.listeners.PacketPingListener;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerSteer;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -232,7 +233,7 @@ class RiddenHorseInputTest {
         player.onGround = true;
         player.lastOnGround = true;
         player.lastTransactionReceived.set(player.lastTransactionSent.get());
-        player.getSetbackTeleportUtil().hasFullyLoaded = true;
+        SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
     }
 
     private record Scenario(

@@ -1,10 +1,7 @@
 package ac.cult.cultac.checks.impl.visibility;
 
 import ac.cult.blocksim.data.DataTables;
-import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.Check;
-import ac.cult.cultac.checks.impl.combat.EntityReach;
-import ac.cult.cultac.checks.impl.combat.PlayerReach;
 import ac.cult.cultac.checks.impl.combat.ReachCheck;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -51,8 +48,7 @@ abstract class VisibilityCheck extends Check implements CheckListener {
     protected boolean attackHidden(PacketEntity target) {
         Sight sight = visibility.entitySight(target);
         if (sight != Sight.OUT_OF_RANGE) return sight == Sight.BLOCKED;
-        Class<? extends ReachCheck> owner = target.type == EntityTypeIds.PLAYER ? PlayerReach.class : EntityReach.class;
-        ReachCheck reach = player.checkManager.getCheck(owner);
+        ReachCheck reach = player.checkManager.getCheck(ReachCheck.owner(player, target.type));
         if (reach == null || !reach.enforcesReach(target)) return true;
         if (!reach.measuresBeyondReach(target)) return visibility.entityHidden(target, reach.measuredBox(target));
         // A cancel this check can make stays here while reach may only flag.

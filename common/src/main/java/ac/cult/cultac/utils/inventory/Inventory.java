@@ -116,6 +116,17 @@ public class Inventory extends AbstractContainerMenu {
                 && one.getCount() < this.getMaxStackSize();
     }
 
+    /** The player menu slot showing a storage slot, or -1 if the menu does not expose it. */
+    public int menuSlotForStorage(int storageSlot) {
+        for (int i = 0; i < getSlots().size(); i++) {
+            Slot slot = getSlot(i);
+            if (slot.isBackedBy(inventoryStorage) && slot.getContainerSlot() == storageSlot) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
     private static final int VANILLA_INVENTORY_SIZE = 36;
 
     static int storageSlotFromVanillaInventoryIndex(int slot) {

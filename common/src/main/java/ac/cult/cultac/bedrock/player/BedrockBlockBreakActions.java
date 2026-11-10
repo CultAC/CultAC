@@ -4,6 +4,7 @@ import ac.cult.blocksim.data.BlockFamilies;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.StateFacts;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
+import ac.cult.cultac.checks.impl.visibility.BedrockBreakVisibility;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
@@ -11,6 +12,8 @@ import ac.cult.cultac.utils.blockplace.ClientBlockActions;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BlockBreakSpeed;
 import java.util.List;
+import java.util.function.Consumer;
+import org.cloudburstmc.math.vector.Vector3i;
 import org.cloudburstmc.protocol.bedrock.data.PlayerBlockActionData;
 
 public final class BedrockBlockBreakActions {
@@ -20,8 +23,21 @@ public final class BedrockBlockBreakActions {
         breaking = null;
     }
 
-    public void apply(CultPlayer player, BedrockCoordinateFrame coordinates, List<PlayerBlockActionData> actions) {
-        for (var action : actions) {
+    /**
+     * Applies the block actions of an auth input in order, in its resolved {@code coordinates}, whose move claims the
+     * feet position {@code claimed}, or null when none is judged. One BedrockBreakVisibility judges hidden is removed
+     * from {@code actions}, so Geyser never translates it, and handed to {@code dropped} with its position in the
+     * client's coordinates, for the bridge to restore the block on the client.
+     */
+    public void apply(
+            CultPlayer player,
+            BedrockCoordinateFrame coordinates,
+            Vec3 claimed,
+            List<PlayerBlockActionData> actions,
+            Consumer<Vector3i> dropped) {
+        var visibility = player.checkManager.getCheck(BedrockBreakVisibility.class);
+        for (var iterator = actions.iterator(); iterator.hasNext(); ) {
+            var action = iterator.next();
             if (action.getAction() == org.cloudburstmc.protocol.bedrock.data.PlayerActionType.DROP_ITEM) {
                 player.getInventory().dropHeldItem(false);
                 continue;
@@ -35,6 +51,16 @@ public final class BedrockBlockBreakActions {
                 continue;
             }
             if (action.getFace() < 0 || action.getFace() > 5) continue;
+            boolean breaks = switch (action.getAction()) {
+                case START_BREAK, BLOCK_CONTINUE_DESTROY, BLOCK_PREDICT_DESTROY -> true;
+                default -> false;
+            };
+            if (breaks && visibility.dropsAction(action.getAction().name(), pos, action.getFace(), claimed)) {
+                iterator.remove();
+                if (pos.equals(breaking)) breaking = null;
+                dropped.accept(local);
+                continue;
+            }
             switch (action.getAction()) {
                 case START_BREAK, BLOCK_CONTINUE_DESTROY -> {
                     breaking = pos;

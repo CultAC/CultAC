@@ -14,21 +14,21 @@ import ac.cult.cultac.checks.impl.combat.EntityReach;
 import ac.cult.cultac.checks.impl.combat.PlayerHitboxes;
 import ac.cult.cultac.checks.impl.combat.PlayerReach;
 import ac.cult.cultac.checks.impl.combat.ReachCheck;
+import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
 import ac.cult.cultac.checks.impl.visibility.AttackMobVisibility;
 import ac.cult.cultac.checks.impl.visibility.AttackPlayerVisibility;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.codec.ModelRegistryNamesState;
 import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
-import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.packet.EntityPositionPath;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.player.PlayerObserver;
 import ac.cult.cultac.protocol.ConnectionPhase;
-import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
@@ -56,19 +56,14 @@ import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
 import ac.cult.cultac.protocol.value.PositionPath;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer;
 import ac.cult.cultac.utils.inventory.ItemUtil;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
-import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 import ac.grim.grimac.api.event.events.FlagEvent;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
-import java.lang.reflect.Field;
-import java.nio.ByteBuffer;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -289,9 +284,9 @@ class ReachInteractionRangeTest {
 
     @Test
     void anExemptPlayersAttackThroughAWallBeyondRangeStaysWithVisibility() throws Exception {
-        for (String permission : new String[] {
-            "cult.exempt.playerreach", "cult.nomodifypacket.playerreach", "cult.exempt.playerhitboxes"
-        }) {
+        for (String permission :
+                new String[] {"cult.exempt.playerreach", "cult.nomodifypacket.playerreach", "cult.exempt.playerhitboxes"
+                }) {
             try (var setup = new Setup()) {
                 Check visibility = setup.player.checkManager.getCheck(AttackPlayerVisibility.class);
                 visibility.setEnabled(true);
@@ -693,14 +688,6 @@ class ReachInteractionRangeTest {
     }
 
     @Test
-    void aStandingPoseTheClientMayNotHaveHandledKeepsTheCrouchingMinimumReach() throws Exception {
-        try (var setup = new Setup()) {
-            assertEquals(List.of(), setup.attackBelowStandingUp(false));
-            assertEquals(List.of("PlayerReach"), setup.attackBelowStandingUp(true));
-        }
-    }
-
-    @Test
     void aCrouchingMannequinBelowTheAttackerKeepsItsLegalMinimumReach() throws Exception {
         try (var setup = new Setup()) {
             assertEquals(List.of(), setup.attackBelow(MANNEQUIN, EntityPose.CROUCHING));
@@ -715,96 +702,9 @@ class ReachInteractionRangeTest {
     }
 
     @Test
-    void aScaleTheClientMayNotHaveHandledKeepsTheSmallerMinimumReach() throws Exception {
-        try (var setup = new Setup()) {
-            assertEquals(List.of(), setup.attackBelowScaledUp(false));
-            assertEquals(List.of("PlayerReach"), setup.attackBelowScaledUp(true));
-        }
-    }
-
-    @Test
-    void anEarlierHorseFlagsPingKeepsALaterRideableScaleItCannotProve() throws Exception {
-        try (var setup = new Setup()) {
-            assertEquals(List.of(), setup.horseScaledAfterFlags(false, 1));
-        }
-        try (var setup = new Setup()) {
-            assertEquals(List.of("EntityReach"), setup.horseScaledAfterFlags(true, 2));
-        }
-    }
-
-    @Test
-    void anEarlierBoostProofKeepsALaterRideableScaleItCannotProve() throws Exception {
-        try (var setup = new Setup()) {
-            assertEquals(List.of(), setup.pigScaledAfterBoost(false, 1));
-        }
-        try (var setup = new Setup()) {
-            assertEquals(List.of("EntityReach"), setup.pigScaledAfterBoost(true, 2));
-        }
-    }
-
-    @Test
-    void aScaleHeldForAnUnansweredSpawnKeepsTheDefaultScaleUntilItsOwnProof() throws Exception {
-        try (var setup = new Setup()) {
-            assertEquals(List.of(), setup.horseScaledBeforeSpawnAnswer(false, 2F, 1F, 2));
-        }
-        try (var setup = new Setup()) {
-            assertEquals(List.of("EntityReach"), setup.horseScaledBeforeSpawnAnswer(true, 2F, 2F, 2));
-        }
-    }
-
-    @Test
-    void scalesHeldForAnUnansweredSpawnKeepEveryIntermediateScale() throws Exception {
-        try (var setup = new Setup()) {
-            assertEquals(List.of(), setup.horseScaledBeforeSpawnAnswer(false, 2F, .5F, .5, 2));
-        }
-        try (var setup = new Setup()) {
-            assertEquals(List.of("EntityReach"), setup.horseScaledBeforeSpawnAnswer(true, 2F, 2F, .5, 2));
-        }
-    }
-
-    @Test
-    void manyScalesHeldForAnUnansweredSpawnStayBoundedAndKeepTheSmallest() throws Exception {
-        double[] bases = {1.5, .5, 3, 2.5, 1.25, 4, 1.75, 3.5, 2};
-        try (var setup = new Setup()) {
-            assertEquals(List.of(), setup.horseScaledBeforeSpawnAnswer(false, 2F, .5F, bases));
-        }
-        try (var setup = new Setup()) {
-            assertEquals(List.of("EntityReach"), setup.horseScaledBeforeSpawnAnswer(true, 2F, 2F, bases));
-        }
-    }
-
-    @Test
     void aScaleForTheLastOfManyUnansweredSpawnsIsHeld() throws Exception {
         try (var setup = new Setup()) {
             assertEquals(List.of(), setup.horseScaledAfterManySpawns());
-        }
-    }
-
-    @Test
-    void attributesForManyIdsNeverSpawnedStayBounded() throws Exception {
-        try (var setup = new Setup()) {
-            setup.holdForUnspawnedIds();
-        }
-    }
-
-    @Test
-    void aHeldScaleMergedIntoALaterSizeNeutralProofRetiresAtThatProof() throws Exception {
-        try (var setup = new Setup()) {
-            assertEquals(List.of("EntityReach"), setup.horseScaledThenSpedBeforeSpawnAnswer(new double[] {2}, 1F));
-        }
-    }
-
-    @Test
-    void heldScalesMergedIntoALaterSizeNeutralProofKeepTheSmallestUntilIt() throws Exception {
-        try (var setup = new Setup()) {
-            assertEquals(List.of("EntityReach"), setup.horseScaledThenSpedBeforeSpawnAnswer(new double[] {.5, 2}, .5F));
-        }
-    }
-
-    @Test
-    void interleavedSizeUpdatesNeverBoundTheTargetAboveWhatTheClientMayShow() throws Exception {
-        try (var setup = new Setup()) {
-            setup.convergeThroughSizeUpdates();
         }
     }
 
@@ -814,20 +714,6 @@ class ReachInteractionRangeTest {
             List<String> flagged = setup.attackDismountedScaledHorse(
                     horse -> assertEquals(2F, horse.leastScale()), horse -> assertEquals(2F, horse.leastScale()));
             assertEquals(List.of("EntityReach"), flagged);
-        }
-    }
-
-    @Test
-    void aSmallTargetsUnhandledPosesKeepTheirLeastWidthAndHeightSeparately() throws Exception {
-        try (var setup = new Setup()) {
-            List<String> flagged = setup.attackSmallStanderPosedAsleep(target -> {
-                assertEquals(.12F, target.leastPoseWidth(), 1.0E-6F);
-                assertEquals(.2F, target.leastPoseHeight(), 1.0E-6F);
-            });
-            assertEquals(List.of(), flagged);
-            PacketEntityPlayer target = setup.answerPoses();
-            assertEquals(.2F, target.leastPoseWidth(), 1.0E-6F);
-            assertEquals(.2F, target.leastPoseHeight(), 1.0E-6F);
         }
     }
 
@@ -964,19 +850,8 @@ class ReachInteractionRangeTest {
         try (var setup = new Setup()) {
             assertFalse(setup.attack(2.99));
             assertTrue(setup.attack(3.01));
-            assertEquals(List.of(), setup.attackAfter(2.99, entity -> setup.moveAwayAndBack(entity, 4, true)));
-            assertEquals(
-                    List.of("EntityReach"), setup.attackAfter(3.01, entity -> setup.moveAwayAndBack(entity, 4, true)));
-        }
-    }
-
-    // The client may have received an unbundled movement before any tick between its proofs.
-    @Test
-    void aTargetMovedByAnUnbundledMovementKeepsTheMargin() throws Exception {
-        try (var setup = new Setup()) {
-            assertEquals(List.of(), setup.attackAfter(3.01, entity -> setup.moveAwayAndBack(entity, 2, false)));
-            assertEquals(
-                    List.of("EntityReach"), setup.attackAfter(3.10, entity -> setup.moveAwayAndBack(entity, 2, false)));
+            assertEquals(List.of(), setup.attackAfter(2.99, entity -> setup.moveAwayAndBack(entity, 4)));
+            assertEquals(List.of("EntityReach"), setup.attackAfter(3.01, entity -> setup.moveAwayAndBack(entity, 4)));
         }
     }
 
@@ -984,10 +859,8 @@ class ReachInteractionRangeTest {
     @Test
     void aTargetWhoseQueueFoldedKeepsTheMargin() throws Exception {
         try (var setup = new Setup()) {
-            assertEquals(List.of(), setup.attackAfter(3.01, entity -> setup.moveAwayAndBack(entity, 200, true)));
-            assertEquals(
-                    List.of("EntityReach"),
-                    setup.attackAfter(3.10, entity -> setup.moveAwayAndBack(entity, 200, true)));
+            assertEquals(List.of(), setup.attackAfter(3.01, entity -> setup.moveAwayAndBack(entity, 200)));
+            assertEquals(List.of("EntityReach"), setup.attackAfter(3.10, entity -> setup.moveAwayAndBack(entity, 200)));
         }
     }
 
@@ -1001,11 +874,11 @@ class ReachInteractionRangeTest {
     }
 
     private static void snapAwayAndBack(Setup setup, PacketEntity entity) {
-        setup.moveAwayAndBack(entity, 2, false);
+        setup.moveAwayAndBack(entity, 2);
         Vec3 at = entity.newPacketLocation.targetPosition();
-        setup.positionSync(entity.getEntityId(), at.add(100, 0, 0));
-        setup.positionSync(entity.getEntityId(), at);
-        setup.moveAwayAndBack(entity, 2, true);
+        setup.bundledPositionSync(entity.getEntityId(), at.add(100, 0, 0));
+        setup.bundledPositionSync(entity.getEntityId(), at);
+        setup.moveAwayAndBack(entity, 2);
     }
 
     // The client sets a far teleport's position at once, where the model interpolates toward it.
@@ -1030,18 +903,13 @@ class ReachInteractionRangeTest {
     void aRelativeMoveAfterATeleportDecodesFromTheBaseTheTeleportKept() throws Exception {
         List<String> failures = new ArrayList<>();
         for (ProtocolVersion version : CODEC_BASE_VERSIONS) {
-            for (boolean bundled : new boolean[] {true, false}) {
-                try (var setup = new Setup(version)) {
-                    int id = setup.spawn(new Vec3(.5, 64, 1));
-                    setup.inBundles(bundled, () -> {
-                        setup.teleport(id, new Vec3(10.5, 64, 1));
-                        setup.moveRelative(id, 0, 0, 1024);
-                    });
-                    PacketEntity entity = setup.player.compensatedEntities.getEntity(id);
-                    Vec3 target = entity.newPacketLocation.targetPosition();
-                    if (!target.equals(new Vec3(.5, 64, 1.25)))
-                        failures.add(version + " bundled=" + bundled + ": " + target);
-                }
+            try (var setup = new Setup(version)) {
+                int id = setup.spawn(new Vec3(.5, 64, 1));
+                setup.teleport(id, new Vec3(10.5, 64, 1));
+                setup.moveRelative(id, 0, 0, 1024);
+                PacketEntity entity = setup.player.compensatedEntities.getEntity(id);
+                Vec3 target = entity.newPacketLocation.targetPosition();
+                if (!target.equals(new Vec3(.5, 64, 1.25))) failures.add(version + ": " + target);
             }
         }
         assertEquals(List.of(), failures);
@@ -1085,24 +953,19 @@ class ReachInteractionRangeTest {
     void aRotationAfterATeleportKeepsThePositionAndTheBase() throws Exception {
         List<String> failures = new ArrayList<>();
         for (ProtocolVersion version : CODEC_BASE_VERSIONS) {
-            for (boolean bundled : new boolean[] {true, false}) {
-                try (var setup = new Setup(version)) {
-                    int id = setup.spawn(new Vec3(.5, 64, 1));
-                    setup.inBundles(bundled, () -> {
-                        setup.teleport(id, new Vec3(.5, 64, 10.5));
-                        setup.turnEntity(id, 90);
-                    });
-                    var tracked = setup.player.compensatedEntities.getTrackedEntity(id);
-                    List<Double> state = List.of(
-                            tracked.getX(),
-                            tracked.getY(),
-                            tracked.getZ(),
-                            tracked.getCodecBaseX(),
-                            tracked.getCodecBaseY(),
-                            tracked.getCodecBaseZ());
-                    if (!state.equals(List.of(.5, 64.0, 10.5, .5, 64.0, 1.0)))
-                        failures.add(version + " bundled=" + bundled + ": " + state);
-                }
+            try (var setup = new Setup(version)) {
+                int id = setup.spawn(new Vec3(.5, 64, 1));
+                setup.teleport(id, new Vec3(.5, 64, 10.5));
+                setup.turnEntity(id, 90);
+                var tracked = setup.player.compensatedEntities.getTrackedEntity(id);
+                List<Double> state = List.of(
+                        tracked.getX(),
+                        tracked.getY(),
+                        tracked.getZ(),
+                        tracked.getCodecBaseX(),
+                        tracked.getCodecBaseY(),
+                        tracked.getCodecBaseZ());
+                if (!state.equals(List.of(.5, 64.0, 10.5, .5, 64.0, 1.0))) failures.add(version + ": " + state);
             }
         }
         assertEquals(List.of(), failures);
@@ -1151,24 +1014,20 @@ class ReachInteractionRangeTest {
     }
 
     /**
-     * Spawns this type at (.5, 64, 1), places it, then moves it by this delta; returns each bundling whose tracked
-     * position differs from expected.
+     * Spawns this type at (.5, 64, 1), places it, then moves it by this delta; returns the tracked position when it
+     * differs from expected.
      */
     private static List<String> trackedAfterAMove(
             Callable<Setup> setups, String type, ObjIntConsumer<Setup> place, EntityDelta move, Vec3 expected)
             throws Exception {
         List<String> failures = new ArrayList<>();
-        for (boolean bundled : new boolean[] {true, false}) {
-            try (var setup = setups.call()) {
-                int id = setup.spawn(type, new Vec3(.5, 64, 1));
-                setup.inBundles(bundled, () -> {
-                    place.accept(setup, id);
-                    setup.moveRelative(id, move);
-                });
-                var tracked = setup.player.compensatedEntities.getTrackedEntity(id);
-                Vec3 position = new Vec3(tracked.getX(), tracked.getY(), tracked.getZ());
-                if (!position.equals(expected)) failures.add("bundled=" + bundled + ": " + position);
-            }
+        try (var setup = setups.call()) {
+            int id = setup.spawn(type, new Vec3(.5, 64, 1));
+            place.accept(setup, id);
+            setup.moveRelative(id, move);
+            var tracked = setup.player.compensatedEntities.getTrackedEntity(id);
+            Vec3 position = new Vec3(tracked.getX(), tracked.getY(), tracked.getZ());
+            if (!position.equals(expected)) failures.add(String.valueOf(position));
         }
         return failures;
     }
@@ -1181,20 +1040,16 @@ class ReachInteractionRangeTest {
             Vec3 spawn, ObjIntConsumer<Setup> before, Vec3 teleport, List<String> expected) throws Exception {
         List<String> failures = new ArrayList<>();
         for (ProtocolVersion version : CODEC_BASE_VERSIONS) {
-            for (boolean bundled : new boolean[] {true, false}) {
-                try (var setup = new Setup(version)) {
-                    int id = setup.spawn(spawn);
-                    setup.inBundles(bundled, () -> {
-                        before.accept(setup, id);
-                        setup.teleport(id, teleport);
-                        setup.moveRelative(id, 0, 0, 1024);
-                    });
-                    PacketEntity entity = setup.player.compensatedEntities.getEntity(id);
-                    for (int tick = 0; tick < 100 && entity.newPacketLocation.hasActiveInterpolationTarget(); tick++)
-                        setup.tickEnd();
-                    List<String> flags = setup.attackEntity(id, EntityTypeIds.ZOMBIE, () -> {});
-                    if (!flags.equals(expected)) failures.add(version + " bundled=" + bundled + ": " + flags);
-                }
+            try (var setup = new Setup(version)) {
+                int id = setup.spawn(spawn);
+                before.accept(setup, id);
+                setup.teleport(id, teleport);
+                setup.moveRelative(id, 0, 0, 1024);
+                PacketEntity entity = setup.player.compensatedEntities.getEntity(id);
+                for (int tick = 0; tick < 100 && entity.newPacketLocation.hasActiveInterpolationTarget(); tick++)
+                    setup.tickEnd();
+                List<String> flags = setup.attackEntity(id, EntityTypeIds.ZOMBIE, () -> {});
+                if (!flags.equals(expected)) failures.add(version + ": " + flags);
             }
         }
         return failures;
@@ -1227,22 +1082,9 @@ class ReachInteractionRangeTest {
             int id = 101;
             setup.player.compensatedEntities.addEntity(id, EntityTypeIds.ZOMBIE, new Vec3(.5, 64, 1), 0, 0, 0);
             PacketEntity entity = setup.player.compensatedEntities.getEntity(id);
-            entity.onPositionPath(
-                    EntityPositionPath.linear(new Vec3(1.5, 64, 1)), true, null, null, setup.player, false);
+            entity.onPositionPath(EntityPositionPath.linear(new Vec3(1.5, 64, 1)), true, null, null, setup.player);
             entity.onMovement(setup.player, true);
-            setup.positionSync(id, new Vec3(-63.3, 64, 1));
-            assertFalse(entity.newPacketLocation.hasExactPosition());
-        }
-    }
-
-    // Answering the ping before an unbundled sync does not prove the client handled it.
-    @Test
-    void anUnbundledFarSyncAtItsFirstBoundaryKeepsTheMargin() throws Exception {
-        try (var setup = new Setup()) {
-            int id = 101;
-            setup.player.compensatedEntities.addEntity(id, EntityTypeIds.ZOMBIE, new Vec3(.5, 64, 1), 0, 0, 0);
-            PacketEntity entity = setup.player.compensatedEntities.getEntity(id);
-            setup.pongThrough(setup.sendUnbundledPositionSync(id, new Vec3(100.5, 64, 1)));
+            setup.bundledPositionSync(id, new Vec3(-63.3, 64, 1));
             assertFalse(entity.newPacketLocation.hasExactPosition());
         }
     }
@@ -1256,7 +1098,7 @@ class ReachInteractionRangeTest {
             PacketEntity boat = setup.player.compensatedEntities.getEntity(101);
             PacketEntity rider = setup.player.compensatedEntities.getEntity(102);
             rider.mount(boat);
-            boat.onFirstTransaction(false, true, .56, 64, 1, setup.player);
+            boat.onBundleFirstTransaction(false, true, .56, 64, 1, setup.player);
             assertFalse(boat.newPacketLocation.hasExactPosition());
             setup.player.compensatedEntities.settleIfUntrackedRider(rider);
             rider.eject();
@@ -1275,7 +1117,7 @@ class ReachInteractionRangeTest {
             passenger.mount(boat);
             setup.player.compensatedEntities.positionPassenger(boat, passenger);
             assertTrue(passenger.newPacketLocation.hasExactPosition());
-            boat.onFirstTransaction(false, true, .56, 64, 1, setup.player);
+            boat.onBundleFirstTransaction(false, true, .56, 64, 1, setup.player);
             setup.player.compensatedEntities.positionPassenger(boat, passenger);
             passenger.eject();
             assertFalse(passenger.newPacketLocation.hasExactPosition());
@@ -1298,11 +1140,11 @@ class ReachInteractionRangeTest {
                     rider = child;
                 }
                 setup.tickEnd();
-                root.onFirstTransaction(false, true, .5, 64, 1.84, setup.player);
+                root.onBundleFirstTransaction(false, true, .5, 64, 1.84, setup.player);
                 entities.settleIfUntrackedRider(rider);
                 rider.eject();
                 Vec3 seat = rider.clientPhysicalPosition;
-                rider.onPositionPath(EntityPositionPath.linear(seat), true, 1F, 0F, setup.player, true);
+                rider.onPositionPath(EntityPositionPath.linear(seat), true, 1F, 0F, setup.player);
                 setup.player.y = seat.y;
                 setup.player.lastY = seat.y;
                 assertEquals(
@@ -1421,6 +1263,8 @@ class ReachInteractionRangeTest {
         }
 
         private Setup(ProtocolVersion version, boolean originalClient) throws Exception {
+            // Simulation's flag verbose needs the tags DataStoreLifecycle registers at startup.
+            VerboseCodecs.ensureRegistered();
             fixture = new RecordReceiveFixture(version, false);
             if (originalClient)
                 Mockito.when(fixture.connection.platform().getClientProtocol()).thenReturn(version);
@@ -1439,7 +1283,7 @@ class ReachInteractionRangeTest {
             player.y = 64;
             player.z = -1.5;
             player.registryState = new ClientComponentRegistries();
-            player.getSetbackTeleportUtil().hasFullyLoaded = true;
+            SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
             var world = player.compensatedWorld;
             var dimension = player.getWorldRegistries().dimension("minecraft:overworld");
             world.setLastClientboundDimension("minecraft:overworld", dimension.dimension());
@@ -1583,8 +1427,7 @@ class ReachInteractionRangeTest {
             var motionPacket = new ClientboundEntityMotion(player.entityID, new Vec3d(0, 0, speed));
             var motion = new PacketSendEvent<>(
                     fixture.user, ConnectionPhase.PLAY, ClientboundPackets.ENTITY_MOTION, motionPacket, false);
-            var explodePacket =
-                    new ClientboundExplode(new Vec3d(player.x, player.y, player.z), new Vec3d(0, 0, push));
+            var explodePacket = new ClientboundExplode(new Vec3d(player.x, player.y, player.z), new Vec3d(0, 0, push));
             var explode = new PacketSendEvent<>(
                     fixture.user, ConnectionPhase.PLAY, ClientboundPackets.EXPLODE, explodePacket, false);
             motion.sharedPing(ping);
@@ -1674,7 +1517,7 @@ class ReachInteractionRangeTest {
             // The fixture writes no pings; the client answers the one after the respawn.
             pongThrough(player.lastTransactionSent.get() + 1);
             assertFalse(player.packetStateData.localPlayerTickedSinceSpawn);
-            player.getSetbackTeleportUtil().hasFullyLoaded = true;
+            SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
             hold(attackRange);
         }
 
@@ -1752,18 +1595,6 @@ class ReachInteractionRangeTest {
             return attackBelow(type, 2.7, () -> player.compensatedEntities.getEntity(nextEntity - 1).actionPose = pose);
         }
 
-        // As attackBelow with minimum reach 2.4, a standing target's attributes scaling it by 1.25 applied at the ping
-        // before it, and the ping after it answered or not: unscaled, the view hit through its top is at 2.43.
-        List<String> attackBelowScaledUp(boolean handled) {
-            return attackBelow(EntityTypeIds.PLAYER, 2.4, () -> {
-                int id = nextEntity - 1;
-                scale(id, 1.25);
-                int before = player.lastTransactionSent.get();
-                pongThrough(handled ? before + 1 : before);
-                assertEquals(1.25F, player.compensatedEntities.getEntity(id).scale);
-            });
-        }
-
         // A horse 3.5 ahead scaled by 2 while it was the player's vehicle, its proof answered, then left and its later
         // pings answered, attacked with an item of minimum reach 2.7 and no margin after a tick ending at yaw 90 and
         // sending yaw 0: the view hit through its near face is at 2.1. afterProof and beforeAttack see the horse then.
@@ -1808,191 +1639,6 @@ class ReachInteractionRangeTest {
             event.tasksAfter().forEach(Runnable::run);
         }
 
-        // As attackBelow, a crouching target's entity data standing it up applied at the ping before it, and the ping
-        // after it answered or not.
-        List<String> attackBelowStandingUp(boolean handled) {
-            return attackBelow(EntityTypeIds.PLAYER, 2.7, () -> {
-                int id = nextEntity - 1;
-                player.compensatedEntities.getEntity(id).actionPose = EntityPose.CROUCHING;
-                pose(id, EntityPose.STANDING);
-                int before = player.lastTransactionSent.get();
-                pongThrough(handled ? before + 1 : before);
-                assertEquals(EntityPose.STANDING, player.compensatedEntities.getEntity(id).actionPose);
-            });
-        }
-
-        // A standing player of scale .2 whose feet are 1.5 above and 2.78 ahead of the attacker's, its last move
-        // proven, attacked with an item of minimum reach 2.7 and no margin after a tick ending at yaw 90 and sending
-        // yaw 0: the item ray misses and the view hit through its near face at 2.72 is the vanilla hit. Entity data
-        // posing it sleeping, standing and sleeping is applied at the ping before the attack, the ping after it
-        // unanswered; beforeAttack sees the target then.
-        List<String> attackSmallStanderPosedAsleep(Consumer<PacketEntityPlayer> beforeAttack) {
-            hold("{\"min_reach\":2.7,\"max_reach\":4.5,\"hitbox_margin\":0}");
-            rotate(90, 0);
-            tickEnd();
-            Vec3 position = new Vec3(player.x, player.y + 1.5, player.z + 2.77);
-            return attackAt(
-                    position,
-                    Vec3.ZERO,
-                    () -> {
-                        int id = nextEntity - 1;
-                        var target = (PacketEntityPlayer) player.compensatedEntities.getEntity(id);
-                        target.scale = .2F;
-                        target.onFirstTransaction(true, true, 0, 0, .01, player);
-                        for (int tick = 0; tick < 3; tick++) tickEnd();
-                        target.onSecondTransaction();
-                        pose(id, EntityPose.SLEEPING);
-                        pose(id, EntityPose.STANDING);
-                        pose(id, EntityPose.SLEEPING);
-                        pongThrough(player.lastTransactionSent.get());
-                        assertEquals(EntityPose.SLEEPING, target.actionPose);
-                        beforeAttack.accept(target);
-                    },
-                    () -> rotate(0, 0));
-        }
-
-        // Answers the ping after the last entity data, returning the last target.
-        PacketEntityPlayer answerPoses() {
-            pongThrough(player.lastTransactionSent.get() + 1);
-            return (PacketEntityPlayer) player.compensatedEntities.getEntity(nextEntity - 1);
-        }
-
-        // Entity data posing this entity, applied at the last ping sent.
-        private void pose(int id, EntityPose pose) {
-            metadata(id, WatchableIndexUtil.ENTITY_POSE, pose);
-        }
-
-        // Entity data setting this field of this entity.
-        private void metadata(int id, int index, Object value) {
-            bind();
-            var packet =
-                    new EntityMetadata(id, List.of(new EntityMetadata.Entry(index, value, ByteBuffer.allocate(0))));
-            var event = new PacketSendEvent<>(fixture.user, ConnectionPhase.PLAY, metadataType(), packet, false);
-            player.packetEntityReplication.onSetEntityData(event, player, packet);
-            event.tasksAfter().forEach(Runnable::run);
-        }
-
-        // A horse 3.5 ahead with its feet .5 above the attacker's, its view hit at 2.8 at scale 1 and 2.1 at scale 2,
-        // as in attackRideableScaledAfterData with horse flags as the data; asserts its least scale before the attack.
-        List<String> horseScaledAfterFlags(boolean scaleProven, float leastScale) {
-            int flags =
-                    WatchableIndexUtil.forModel(player.user.getCultConnection()).horseFlags();
-            return attackRideableScaledAfterData(
-                    EntityTypeIds.HORSE,
-                    new Vec3(0, .5, 3.5),
-                    flags,
-                    (byte) 2,
-                    scaleProven,
-                    horse -> assertEquals(leastScale, horse.leastScale()));
-        }
-
-        // A pig 3.2 ahead with its feet 1 above the attacker's, its view hit at 2.75 at scale 1 and 2.3 at scale 2,
-        // as in attackRideableScaledAfterData with its boost time as the data; asserts its least scale before the
-        // attack.
-        List<String> pigScaledAfterBoost(boolean scaleProven, float leastScale) {
-            int boost =
-                    WatchableIndexUtil.forModel(player.user.getCultConnection()).pigBoostTime();
-            return attackRideableScaledAfterData(
-                    EntityTypeIds.PIG,
-                    new Vec3(0, 1, 3.2),
-                    boost,
-                    40,
-                    scaleProven,
-                    pig -> assertEquals(leastScale, pig.leastScale()));
-        }
-
-        // A rideable of this type at this offset from the attacker's feet, attacked with an item of minimum reach 2.7
-        // and no margin after a tick ending at yaw 90 and sending yaw 0, so the view hit is the vanilla hit. Before the
-        // attack, entity data setting this field is sent with its ping N, attributes scaling it by 2 are applied at
-        // once before N's answer, then N is answered, and the scale's own ping too if scaleProven. beforeAttack sees
-        // the target then.
-        List<String> attackRideableScaledAfterData(
-                int type,
-                Vec3 offset,
-                int index,
-                Object value,
-                boolean scaleProven,
-                Consumer<PacketEntity> beforeAttack) {
-            hold("{\"min_reach\":2.7,\"max_reach\":4.5,\"hitbox_margin\":0}");
-            rotate(90, 0);
-            tickEnd();
-            Vec3 position = new Vec3(player.x + offset.x, player.y + offset.y, player.z + offset.z);
-            return attackAt(
-                    type,
-                    position,
-                    Vec3.ZERO,
-                    () -> {
-                        int id = nextEntity - 1;
-                        int before = player.lastTransactionSent.get();
-                        metadata(id, index, value);
-                        int data = player.lastTransactionSent.get();
-                        assertEquals(before + 1, data);
-                        scale(id, 2);
-                        assertEquals(2F, player.compensatedEntities.getEntity(id).scale);
-                        pongThrough(data);
-                        if (scaleProven) pongThrough(data + 1);
-                        beforeAttack.accept(player.compensatedEntities.getEntity(id));
-                    },
-                    () -> rotate(0, 0));
-        }
-
-        // A horse 3.5 ahead with its feet .5 above the attacker's, its view hit at 2.8 at scale 1 and 2.1 at scale 2,
-        // attacked with an item of minimum reach 2.7 and no margin after a tick ending at yaw 90 and sending yaw 0.
-        // It spawns through add_entity with its proof S, attributes with these scale bases follow before S's answer,
-        // then S is answered, and the scales' own ping too if scaleProven; asserts its scale and least scale then.
-        // Once every ping is answered, its least scale is its scale.
-        List<String> horseScaledBeforeSpawnAnswer(boolean scaleProven, float scale, float leastScale, double... bases) {
-            hold("{\"min_reach\":2.7,\"max_reach\":4.5,\"hitbox_margin\":0}");
-            rotate(90, 0);
-            tickEnd();
-            int id = nextEntity++;
-            spawn(id, "minecraft:horse", new Vec3d(player.x, player.y + .5, player.z + 3.5));
-            int spawn = player.lastTransactionSent.get();
-            assertNull(player.compensatedEntities.getEntity(id));
-            for (int held = 1; held <= bases.length; held++) {
-                scale(id, bases[held - 1]);
-                assertEquals(Math.min(held, 4), player.compensatedEntities.heldAttributeUpdates(id));
-            }
-            pongThrough(spawn);
-            if (scaleProven) pongThrough(spawn + 1);
-            PacketEntity horse = player.compensatedEntities.getEntity(id);
-            assertEquals(scale, horse.scale);
-            assertEquals(leastScale, horse.leastScale());
-            List<String> flagged = attackEntity(id, EntityTypeIds.HORSE, () -> rotate(0, 0));
-            pongThrough(player.lastTransactionSent.get() + 1);
-            assertEquals(horse.scale, horse.leastScale());
-            return flagged;
-        }
-
-        // As horseScaledBeforeSpawnAnswer, attributes with these scale bases each followed by a ping, then four
-        // movement_speed-only attributes, all before the spawn proof S's answer: the held updates merge into the last
-        // proof P. Until P is answered the least scale is leastScale; once it is, 2, and the attack flags or not.
-        List<String> horseScaledThenSpedBeforeSpawnAnswer(double[] bases, float leastScale) {
-            hold("{\"min_reach\":2.7,\"max_reach\":4.5,\"hitbox_margin\":0}");
-            rotate(90, 0);
-            tickEnd();
-            int id = nextEntity++;
-            spawn(id, "minecraft:horse", new Vec3d(player.x, player.y + .5, player.z + 3.5));
-            int spawn = player.lastTransactionSent.get();
-            for (double base : bases) {
-                scale(id, base);
-                player.sendTransaction();
-            }
-            for (int sped = 0; sped < 4; sped++) attribute(id, "minecraft:movement_speed", .3);
-            int last = player.lastTransactionSent.get() + 1;
-            assertEquals(4, player.compensatedEntities.heldAttributeUpdates(id));
-            for (int answered = spawn; answered < last; answered++) {
-                pongThrough(answered);
-                assertEquals(
-                        leastScale, player.compensatedEntities.getEntity(id).leastScale(), "after " + answered);
-            }
-            pongThrough(last);
-            PacketEntity horse = player.compensatedEntities.getEntity(id);
-            assertEquals(2F, horse.scale);
-            assertEquals(2F, horse.leastScale());
-            return attackEntity(id, EntityTypeIds.HORSE, () -> rotate(0, 0));
-        }
-
         // 256 zombies behind the attacker spawn with attributes each, then a horse 4 ahead with its feet .5 above the
         // attacker's spawns scaled by 2, all before any answer; once every ping is answered, the empty hand attacks
         // it at yaw 0: its scale-2 near face is at 2.6, within the interaction range 3, and its scale-1 one at 3.3.
@@ -2015,18 +1661,6 @@ class ReachInteractionRangeTest {
             return attackEntity(id, EntityTypeIds.HORSE, () -> rotate(0, 0));
         }
 
-        // Attributes for 257 ids never spawned hold only the first 256, while a tracked spawn's still hold.
-        void holdForUnspawnedIds() {
-            int first = nextEntity;
-            for (int orphan = 0; orphan < 257; orphan++) scale(nextEntity++, 2);
-            assertEquals(1, player.compensatedEntities.heldAttributeUpdates(first + 255));
-            assertEquals(0, player.compensatedEntities.heldAttributeUpdates(first + 256));
-            int id = nextEntity++;
-            spawn(id, "minecraft:horse", new Vec3d(player.x, player.y, player.z + 4));
-            scale(id, 2);
-            assertEquals(1, player.compensatedEntities.heldAttributeUpdates(id));
-        }
-
         // An add_entity of this type at this position, its proof unanswered.
         private void spawn(int id, String type, Vec3d position) {
             bind();
@@ -2037,107 +1671,12 @@ class ReachInteractionRangeTest {
             event.tasksAfter().forEach(Runnable::run);
         }
 
-        // A player 3.2 ahead with its feet .3 below the attacker's eyes takes interleaved pose, scale and size-neutral
-        // entity data, pings and in-order answers. After each step the least size is at most every size the client
-        // may show, and an attack straight ahead with an item of minimum reach 2.7 and no margin, whose view hit lies
-        // between 2.75 and 2.9 for every such size, flags nothing.
-        void convergeThroughSizeUpdates() {
-            hold("{\"min_reach\":2.7,\"max_reach\":4.5,\"hitbox_margin\":0}");
-            rotate(0, 0);
-            tickEnd();
-            bind();
-            int id = nextEntity++;
-            player.compensatedEntities.addEntity(
-                    id, EntityTypeIds.PLAYER, new Vec3(player.x, player.y + 1.32, player.z + 3.2), 0, 0, 0);
-            PacketEntity target = player.compensatedEntities.getEntity(id);
-            EntityPose pose = EntityPose.STANDING;
-            float scale = 1;
-            // Each size the client may show and the transaction whose answer proves it applied it: an attack follows
-            // the answer to every ping before the size, so the client shows a size from the last proven to the last
-            // whose preceding ping is answered.
-            List<float[]> shown = new ArrayList<>(List.of(new float[] {.6F, 1.8F}));
-            List<Integer> provenBy = new ArrayList<>(List.of(Integer.MIN_VALUE));
-            ArrayDeque<Integer> pings = new ArrayDeque<>();
-            List<String> steps = List.of(
-                    "crouch",
-                    "scale 1.25",
-                    "ping",
-                    "flags",
-                    "swim",
-                    "pong",
-                    "scale 1.5",
-                    "ping",
-                    "stand",
-                    "ping",
-                    "pong",
-                    "flags",
-                    "scale 1",
-                    "ping",
-                    "fly",
-                    "pong",
-                    "pong",
-                    "ping",
-                    "pong");
-            for (String step : steps) {
-                int proof = player.lastTransactionSent.get() + 1;
-                String[] words = step.split(" ");
-                switch (words[0]) {
-                    case "crouch" -> pose = EntityPose.CROUCHING;
-                    case "swim" -> pose = EntityPose.SWIMMING;
-                    case "stand" -> pose = EntityPose.STANDING;
-                    case "fly" -> pose = EntityPose.FALL_FLYING;
-                    case "scale" -> scale = Float.parseFloat(words[1]);
-                    default -> {}
-                }
-                switch (words[0]) {
-                    case "crouch", "swim", "stand", "fly" -> pose(id, pose);
-                    case "scale" -> scale(id, scale);
-                    case "flags" -> metadata(id, WatchableIndexUtil.ENTITY_SHARED_FLAGS, (byte) 0);
-                    case "ping" -> {
-                        player.sendTransaction();
-                        pings.add(player.lastTransactionSent.get());
-                    }
-                    case "pong" -> pongThrough(pings.remove());
-                    default -> throw new IllegalArgumentException(step);
-                }
-                if (!words[0].equals("ping") && !words[0].equals("pong") && !words[0].equals("flags")) {
-                    shown.add(new float[] {PacketEntity.avatarWidth(pose, scale), PacketEntity.avatarHeight(pose, scale)
-                    });
-                    provenBy.add(proof);
-                }
-                int received = player.lastTransactionReceived.get();
-                int first = 0;
-                for (int k = 0; k < provenBy.size(); k++) if (provenBy.get(k) <= received) first = k;
-                float width = Float.MAX_VALUE, height = Float.MAX_VALUE;
-                for (int k = first; k < shown.size() && provenBy.get(k) <= received + 1; k++) {
-                    width = Math.min(width, shown.get(k)[0]);
-                    height = Math.min(height, shown.get(k)[1]);
-                }
-                String state = step + ": least " + target.leastPoseWidth() + " x " + target.leastPoseHeight()
-                        + ", shown " + width + " x " + height + ", answered " + received + ", proofs " + provenBy;
-                assertTrue(target.leastPoseWidth() <= width + 1.0E-6F, state);
-                assertTrue(target.leastPoseHeight() <= height + 1.0E-6F, state);
-                assertEquals(List.of(), attackEntity(id, EntityTypeIds.PLAYER, () -> rotate(0, 0)), step);
-            }
-            pongThrough(player.lastTransactionSent.get());
-            assertEquals(PacketEntity.avatarWidth(pose, scale), target.leastPoseWidth(), 1.0E-6F);
-            assertEquals(PacketEntity.avatarHeight(pose, scale), target.leastPoseHeight(), 1.0E-6F);
-        }
-
         private List<String> attackBelow(int type, double minReach, Runnable beforeAttack) {
             hold("{\"min_reach\":" + minReach + ",\"max_reach\":4.5,\"hitbox_margin\":0}");
             rotate(90, 45);
             tickEnd();
             Vec3 position = new Vec3(player.x, player.y - 1.9, player.z + 2);
             return attackAt(type, position, Vec3.ZERO, beforeAttack, () -> rotate(0, 45));
-        }
-
-        @SuppressWarnings("unchecked")
-        private static PacketType<EntityMetadata> metadataType() {
-            return (PacketType<EntityMetadata>) TestProtocolRuntime.catalog().stream()
-                    .filter(type -> type.recordClass() == EntityMetadata.class)
-                    .findFirst()
-                    .orElseThrow();
         }
 
         // One client tick attacking a boat of this type straight ahead at the eye's height whose near face is this far
@@ -2211,7 +1750,7 @@ class ReachInteractionRangeTest {
             if (moved.x != 0 || moved.y != 0 || moved.z != 0) {
                 player.compensatedEntities
                         .getEntity(id)
-                        .onFirstTransaction(true, true, moved.x, moved.y, moved.z, player);
+                        .onBundleFirstTransaction(true, true, moved.x, moved.y, moved.z, player);
                 for (int tick = 0; tick < 3; tick++) tickEnd();
             }
             beforeAttack.run();
@@ -2324,30 +1863,12 @@ class ReachInteractionRangeTest {
             return attackEntity(id, EntityTypeIds.ZOMBIE, () -> {});
         }
 
-        // This many movements half a block along +z and back, each proven by its bundle or by its second transaction.
-        void moveAwayAndBack(PacketEntity entity, int moves, boolean bundled) {
+        // This many movements half a block along +z and back, each proven by its bundle.
+        void moveAwayAndBack(PacketEntity entity, int moves) {
             Vec3 at = entity.desyncClientPos;
             for (int move = 1; move <= moves; move++) {
                 Vec3 to = move % 2 == 0 ? at : at.add(0, 0, .5);
-                entity.onPositionPath(EntityPositionPath.linear(to), true, null, null, player, bundled);
-                if (!bundled) entity.onSecondTransaction();
-            }
-        }
-
-        // A position sync outside any bundle, its first and second transactions answered.
-        void positionSync(int id, Vec3 to) {
-            pongThrough(sendUnbundledPositionSync(id, to) + 1);
-        }
-
-        // Sends a position sync outside any bundle; returns its first transaction, unanswered.
-        int sendUnbundledPositionSync(int id, Vec3 to) {
-            bind();
-            useBundleDelimiter(false);
-            try {
-                sendPositionSync(id, to);
-                return player.lastTransactionSent.get();
-            } finally {
-                useBundleDelimiter(true);
+                entity.onPositionPath(EntityPositionPath.linear(to), true, null, null, player);
             }
         }
 
@@ -2438,26 +1959,6 @@ class ReachInteractionRangeTest {
             player.packetEntityReplication.onMoveEntity(event, player, packet);
             event.tasksAfter().forEach(Runnable::run);
             pongThrough(player.lastTransactionSent.get() + 1);
-        }
-
-        // Sends entity movements in their own bundles, or each between its two pings.
-        void inBundles(boolean bundled, Runnable sends) {
-            useBundleDelimiter(bundled);
-            try {
-                sends.run();
-            } finally {
-                useBundleDelimiter(true);
-            }
-        }
-
-        private void useBundleDelimiter(boolean use) {
-            try {
-                Field field = player.packetEntityReplication.getClass().getDeclaredField("useReachBundleDelimiter");
-                field.setAccessible(true);
-                field.setBoolean(player.packetEntityReplication, use);
-            } catch (ReflectiveOperationException e) {
-                throw new IllegalStateException(e);
-            }
         }
 
         // The attack reached ReachCheck's measurement, so no exemption in ReachCheck#handleInteract dropped it.

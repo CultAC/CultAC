@@ -1,13 +1,20 @@
 package ac.cult.cultac.bedrock.bridge;
 
 import java.util.function.Predicate;
+import org.cloudburstmc.protocol.bedrock.data.inventory.transaction.InventoryTransactionType;
+import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
+import org.cloudburstmc.protocol.bedrock.packet.InventoryTransactionPacket;
 import org.cloudburstmc.protocol.bedrock.packet.NetworkStackLatencyPacket;
+import org.cloudburstmc.protocol.bedrock.packet.PlayerAuthInputPacket;
 import org.geysermc.geyser.registry.Registries;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.player.ClientboundBlockChangedAckPacket;
 
-/** Brackets only WorldCache.endPredictionsUpTo's synchronous, client-only block corrections. */
+/**
+ * Brackets the client-only block corrections Geyser sends synchronously: WorldCache.endPredictionsUpTo's for a Java
+ * acknowledgement, and BlockUtils.restoreCorrectBlock's for a block use or break Geyser rejects without asking Java.
+ */
 final class GeyserBlockAckTranslator extends PacketTranslator<ClientboundBlockChangedAckPacket> {
     private final PacketTranslator<ClientboundBlockChangedAckPacket> delegate;
     private final Predicate<GeyserSession> attached;
@@ -34,6 +41,19 @@ final class GeyserBlockAckTranslator extends PacketTranslator<ClientboundBlockCh
             return;
         }
         bracket(session, () -> delegate.translate(session, packet));
+    }
+
+    /**
+     * Whether Geyser may answer this client packet with BlockUtils.restoreCorrectBlock: a block use it rejects in
+     * BedrockInventoryTransactionTranslator (click off the block, out of range, wrong held item, world border) or a
+     * break BlockBreakHandler rejects from an auth input. The client's own prediction may already have changed the
+     * block, and no Java update follows the restore when the server's block never changed.
+     */
+    static boolean mayRestoreBlocks(BedrockPacket packet) {
+        return packet instanceof PlayerAuthInputPacket
+                || packet instanceof InventoryTransactionPacket use
+                        && use.getTransactionType() == InventoryTransactionType.ITEM_USE
+                        && use.getActionType() == 0;
     }
 
     static void bracket(GeyserSession session, Runnable translation) {

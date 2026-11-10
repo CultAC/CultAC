@@ -15,7 +15,7 @@ import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
 import org.cloudburstmc.protocol.bedrock.packet.UpdateBlockPacket;
 import org.cloudburstmc.protocol.bedrock.packet.UpdateSubChunkBlocksPacket;
 
-/** Short-lived capture of complete block corrections emitted by one Java acknowledgement. */
+/** Short-lived capture of complete block corrections emitted inside one {@link GeyserBlockAckTranslator#bracket}. */
 final class GeyserBlockUpdates {
     private final Map<BlockPos, BedrockBlockLayers> updates = new LinkedHashMap<>();
     private int depth;
@@ -48,7 +48,7 @@ final class GeyserBlockUpdates {
         if (!active()) throw new IllegalStateException("Unbalanced Geyser block acknowledgement");
         if (--depth != 0) return;
         // Geyser Block.sendBlockUpdatePacket emits both layers for each correction.
-        // Keep them only for this acknowledgement; the shared world retains normal Java states.
+        // Keep them only for this bracket; the shared world retains normal Java states.
         List<Update> snapshot = updates.entrySet().stream()
                 .map(entry -> new Update(entry.getKey(), entry.getValue().combined()))
                 .toList();

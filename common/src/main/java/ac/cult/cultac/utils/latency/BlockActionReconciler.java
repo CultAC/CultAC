@@ -165,8 +165,10 @@ public final class BlockActionReconciler {
         }
         var slots = new ArrayList<InventoryPackets.Slot>();
         for (int slot : correction.slots) {
+            int menuSlot = inventory.inventory.menuSlotForStorage(slot);
+            if (menuSlot < 0) continue;
             slots.add(new InventoryPackets.Slot(
-                    0, inventory.serverStateId(), slot, inventory.serverSlotForCorrection(slot)));
+                    0, inventory.serverStateId(), menuSlot, inventory.serverSlotForCorrection(slot)));
         }
         BlockPredictionAckSender.sendCorrections(player, correction.sequence, true, updates, slots);
     }

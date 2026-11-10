@@ -13,7 +13,7 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHandler;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
-import ac.cult.cultac.manager.player.SetbackTeleportUtil;
+import ac.cult.cultac.manager.player.setback.CorrectionSender;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -128,14 +128,14 @@ class UncertaintyFilterEquivalenceTest {
     }
 
     /**
-     * SetbackTeleportUtil#resyncWorld resends at most once per five wall-clock seconds, and each resend takes a
+     * CorrectionSender#resyncWorld resends at most once per five wall-clock seconds, and each resend takes a
      * transaction id; both dumps of a scenario run with it held shut so their ids cannot drift apart.
      */
     private static void holdWorldResync(JavaTickFixture f) {
         try {
-            Field field = SetbackTeleportUtil.class.getDeclaredField("lastWorldResync");
+            Field field = CorrectionSender.class.getDeclaredField("lastWorldResync");
             field.setAccessible(true);
-            field.setLong(f.player.getSetbackTeleportUtil(), Long.MAX_VALUE / 2);
+            field.setLong(f.player.getSetbackTeleportUtil().sender(), Long.MAX_VALUE / 2);
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException(e);
         }

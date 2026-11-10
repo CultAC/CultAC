@@ -13,6 +13,7 @@ import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsJ;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
@@ -139,9 +140,8 @@ public final class BedrockMoveVehicleTransportTest {
         try {
             mountHorse(player, 71);
             var teleports = player.getSetbackTeleportUtil();
-            teleports.hasFullyLoaded = true;
-            teleports.hasFullyJoined = true;
-            teleports.lastKnownGoodPosition = new SetbackPosWithVector(Vec3.ZERO, Vec3.ZERO, 0);
+            SetbackFixtures.setLoaded(teleports, true);
+            SetbackFixtures.seedSafePosition(teleports, new SetbackPosWithVector(Vec3.ZERO, Vec3.ZERO));
             Vec3 position = new Vec3(2, 64, 3);
             var packet = vehiclePacket(position);
             player.packetStateData.bedrockTranslatedMovement.allowVehicle(71);
@@ -171,34 +171,40 @@ public final class BedrockMoveVehicleTransportTest {
             mountHorse(player, 71);
             var teleports = player.getSetbackTeleportUtil();
             Vec3 target = new Vec3(0.0D, 64.0D, 0.0D);
-            teleports.lastKnownGoodPosition = new SetbackPosWithVector(target, Vec3.ZERO, 0);
-            teleports.hasFullyLoaded = true;
-            teleports.hasFullyJoined = true;
+            SetbackFixtures.seedSafePosition(teleports, new SetbackPosWithVector(target, Vec3.ZERO));
+            SetbackFixtures.setLoaded(teleports, true);
             teleports.executeNonSimulatingSetback();
-            teleports.blockOffsets = true;
+            SetbackFixtures.setBlockOffsets(teleports, true);
             int sent = teleports.getRequiredSetBack().getTeleportData().getTransaction();
-            assertEquals(1, teleports.queuedVehicleTeleportCount());
+            assertEquals(1, teleports.vehicleTeleports().queuedVehicleTeleportCount());
 
             player.lastTransactionReceived.set(sent - 1);
             assertFalse(teleports
+                    .vehicleTeleports()
                     .checkVehicleTeleportQueue(71, target.x, target.y, target.z)
                     .isTeleport());
-            teleports.completeBedrockMovementCorrection(new BedrockMovementCorrection(
-                    1, 0, 71, 71, 42, target, Vec3.ZERO, 0, 0, false, BedrockCoordinateFrame.IDENTITY, sent));
+            teleports
+                    .vehicleTeleports()
+                    .completeBedrockMovementCorrection(new BedrockMovementCorrection(
+                            1, 0, 71, 71, 42, target, Vec3.ZERO, 0, 0, false, BedrockCoordinateFrame.IDENTITY, sent));
             assertTrue(teleports.isPendingSetback());
-            assertTrue(teleports.hasUnacknowledgedSetbackVehicleTeleport());
+            assertTrue(teleports.vehicleTeleports().hasUnacknowledgedSetbackVehicleTeleport());
 
             player.lastTransactionReceived.set(sent);
-            teleports.completeBedrockMovementCorrection(new BedrockMovementCorrection(
-                    1, 0, 72, 72, 42, target, Vec3.ZERO, 0, 0, false, BedrockCoordinateFrame.IDENTITY, sent));
+            teleports
+                    .vehicleTeleports()
+                    .completeBedrockMovementCorrection(new BedrockMovementCorrection(
+                            1, 0, 72, 72, 42, target, Vec3.ZERO, 0, 0, false, BedrockCoordinateFrame.IDENTITY, sent));
             assertTrue(teleports.isPendingSetback());
             player.compensatedEntities.vehicles.applyAcceptedVehicleTeleportEntityState(
                     71, target, 0.0F, 0.0F, false, Vec3.ZERO, false);
-            teleports.completeBedrockMovementCorrection(new BedrockMovementCorrection(
-                    1, 0, 71, 71, 42, target, Vec3.ZERO, 0, 0, false, BedrockCoordinateFrame.IDENTITY, sent));
+            teleports
+                    .vehicleTeleports()
+                    .completeBedrockMovementCorrection(new BedrockMovementCorrection(
+                            1, 0, 71, 71, 42, target, Vec3.ZERO, 0, 0, false, BedrockCoordinateFrame.IDENTITY, sent));
             assertFalse(teleports.isPendingSetback());
-            assertFalse(teleports.blockOffsets);
-            assertEquals(0, teleports.queuedVehicleTeleportCount());
+            assertFalse(teleports.isBlockingOffsets());
+            assertEquals(0, teleports.vehicleTeleports().queuedVehicleTeleportCount());
 
             var packet = vehiclePacket(target.add(0.1D, 0.0D, 0.0D));
             var unvalidated = receiveEvent(player, packet);
@@ -225,30 +231,55 @@ public final class BedrockMoveVehicleTransportTest {
         try {
             mountHorse(player, 71);
             var teleports = player.getSetbackTeleportUtil();
-            teleports.lastKnownGoodPosition = new SetbackPosWithVector(Vec3.ZERO, Vec3.ZERO, 0);
-            teleports.hasFullyLoaded = true;
-            teleports.hasFullyJoined = true;
+            SetbackFixtures.seedSafePosition(teleports, new SetbackPosWithVector(Vec3.ZERO, Vec3.ZERO));
+            SetbackFixtures.setLoaded(teleports, true);
             teleports.executeNonSimulatingSetback();
             int sent = teleports.getRequiredSetBack().getTeleportData().getTransaction();
-            assertEquals(1, teleports.queuedVehicleTeleportCount());
+            assertEquals(1, teleports.vehicleTeleports().queuedVehicleTeleportCount());
 
             player.lastTransactionSent.set(sent + 2);
             teleports.executeTooHighLatencySetback("horse-correction-order");
-            teleports.blockOffsets = true;
+            SetbackFixtures.setBlockOffsets(teleports, true);
             int newer = teleports.getRequiredSetBack().getTeleportData().getTransaction();
             assertTrue(newer > sent);
-            assertEquals(2, teleports.queuedVehicleTeleportCount());
+            assertEquals(2, teleports.vehicleTeleports().queuedVehicleTeleportCount());
 
             player.lastTransactionReceived.set(sent);
-            teleports.completeBedrockMovementCorrection(new BedrockMovementCorrection(
-                    1, 0, 71, 71, 42, Vec3.ZERO, Vec3.ZERO, 0, 0, false, BedrockCoordinateFrame.IDENTITY, sent));
+            teleports
+                    .vehicleTeleports()
+                    .completeBedrockMovementCorrection(new BedrockMovementCorrection(
+                            1,
+                            0,
+                            71,
+                            71,
+                            42,
+                            Vec3.ZERO,
+                            Vec3.ZERO,
+                            0,
+                            0,
+                            false,
+                            BedrockCoordinateFrame.IDENTITY,
+                            sent));
             assertTrue(teleports.isPendingSetback());
-            assertTrue(teleports.blockOffsets);
-            assertEquals(1, teleports.queuedVehicleTeleportCount());
+            assertTrue(teleports.isBlockingOffsets());
+            assertEquals(1, teleports.vehicleTeleports().queuedVehicleTeleportCount());
 
             player.lastTransactionReceived.set(newer);
-            teleports.completeBedrockMovementCorrection(new BedrockMovementCorrection(
-                    2, 0, 71, 71, 43, Vec3.ZERO, Vec3.ZERO, 0, 0, false, BedrockCoordinateFrame.IDENTITY, newer));
+            teleports
+                    .vehicleTeleports()
+                    .completeBedrockMovementCorrection(new BedrockMovementCorrection(
+                            2,
+                            0,
+                            71,
+                            71,
+                            43,
+                            Vec3.ZERO,
+                            Vec3.ZERO,
+                            0,
+                            0,
+                            false,
+                            BedrockCoordinateFrame.IDENTITY,
+                            newer));
             assertFalse(teleports.isPendingSetback());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
@@ -338,8 +369,7 @@ public final class BedrockMoveVehicleTransportTest {
             ((PacketEntityHorse) player.compensatedEntities.getEntity(vehicleId)).hasSaddle = true;
             player.compensatedEntities.vehicles.setServerVehicle(
                     vehicleId, new int[] {player.entityID}, player.lastTransactionSent.get());
-            player.getSetbackTeleportUtil().hasFullyLoaded = true;
-            player.getSetbackTeleportUtil().hasFullyJoined = true;
+            SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
             assertNull(player.compensatedEntities.getSelf().getRiding());
             assertNull(ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl.controlledVehicle(player));
             ServerboundMoveVehicle packet = vehiclePacket(new Vec3(2.0D, 80.0D, 3.0D));
@@ -364,9 +394,8 @@ public final class BedrockMoveVehicleTransportTest {
             player.compensatedEntities.vehicles.setServerVehicle(
                     vehicleId, new int[] {player.entityID}, player.lastTransactionSent.get());
             var teleports = player.getSetbackTeleportUtil();
-            teleports.hasFullyLoaded = true;
-            teleports.hasFullyJoined = true;
-            teleports.addImmediateBedrockTransportTeleport(Vec3.ZERO, true);
+            SetbackFixtures.setLoaded(teleports, true);
+            teleports.bedrockTeleports().addImmediateBedrockTransportTeleport(Vec3.ZERO, true);
             assertTrue(teleports.blocksBedrockTranslatedMovement());
             Vec3 position = new Vec3(2, 64, 3);
             var packet = vehiclePacket(position);
@@ -375,7 +404,7 @@ public final class BedrockMoveVehicleTransportTest {
             new CheckManagerListener().onMoveVehicle(ordinary, player, packet);
             assertTrue(ordinary.isCancelled());
 
-            teleports.addVehicleTeleport(vehicleId, player.lastTransactionReceived.get(), position);
+            teleports.vehicleTeleports().addVehicleTeleport(vehicleId, player.lastTransactionReceived.get(), position);
             var echo = receiveEvent(player, packet);
             new CheckManagerListener().onMoveVehicle(echo, player, packet);
             assertFalse(echo.isCancelled());
@@ -414,10 +443,9 @@ public final class BedrockMoveVehicleTransportTest {
             int vehicleId = 57;
             player.compensatedEntities.vehicles.setServerVehicle(
                     vehicleId, new int[] {player.entityID}, player.lastTransactionSent.get());
-            player.getSetbackTeleportUtil().lastKnownGoodPosition =
-                    new SetbackPosWithVector(new Vec3(8.0D, 72.0D, -4.0D), Vec3.ZERO, 0);
-            player.getSetbackTeleportUtil().hasFullyLoaded = true;
-            player.getSetbackTeleportUtil().hasFullyJoined = true;
+            SetbackFixtures.seedSafePosition(
+                    player, new SetbackPosWithVector(new Vec3(8.0D, 72.0D, -4.0D), Vec3.ZERO));
+            SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
             player.getSetbackTeleportUtil().executeNonSimulatingSetback();
             assertTrue(player.getSetbackTeleportUtil().isPendingSetback());
 
@@ -440,6 +468,7 @@ public final class BedrockMoveVehicleTransportTest {
             int vehicleId = 61;
             Vec3 position = new Vec3(4.0D, 68.0D, 6.0D);
             player.getSetbackTeleportUtil()
+                    .vehicleTeleports()
                     .addVehicleTeleport(vehicleId, player.lastTransactionReceived.get(), position);
             ServerboundMoveVehicle packet = vehiclePacket(position);
             PacketReceiveEvent event = receiveEvent(player, packet);
@@ -448,6 +477,7 @@ public final class BedrockMoveVehicleTransportTest {
 
             assertFalse(event.isCancelled());
             assertFalse(player.getSetbackTeleportUtil()
+                    .vehicleTeleports()
                     .checkVehicleTeleportQueue(vehicleId, position.x, position.y, position.z)
                     .isTeleport());
             assertNull(player.checkManager.getSimulationProcessor().getLastPrediction());

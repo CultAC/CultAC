@@ -2,6 +2,7 @@ package ac.cult.cultac.utils.data;
 
 import ac.cult.blocksim.data.ItemComponents;
 import ac.cult.blocksim.engine.SimItemStack;
+import java.util.function.IntFunction;
 
 /**
  * Bounds on the Java client's Player#attackStrengthTicker. Player#tick increments it once per client tick and resets
@@ -86,6 +87,23 @@ public final class ClientAttackStrength {
 
     public boolean hasUnconfirmedHotbarChange() {
         return unconfirmedHotbarSlots != 0;
+    }
+
+    /**
+     * Player#handleEntityEvent(9): the server completed the local player's item use. A hotbar selection can precede its
+     * claim by one tick, so neither the server's selected slot nor its item-use state identifies the client's hand:
+     * every hotbar stack the completion changes may have been the main hand. A failed inventory prediction or an
+     * unconfirmed instant use leaves the actual stack unknown, so an earlier unconfirmed slot may have changed too.
+     */
+    public void onServerUseCompletion(IntFunction<SimItemStack> hotbarSlot, boolean infiniteMaterials) {
+        if (infiniteMaterials) return;
+        if (hasUnconfirmedHotbarChange()) onPossibleMainHandChange();
+        for (int slot = 0; slot < 9; slot++) {
+            if (changesItemOnUseCompletion(hotbarSlot.apply(slot), false)) {
+                onPossibleMainHandChange();
+                markUnconfirmedHotbarSlot(slot);
+            }
+        }
     }
 
     /** Item#finishUsingItem -> Consumable#onConsume -> ItemStack's UseRemainder, on modern Java clients. */

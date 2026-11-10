@@ -83,16 +83,20 @@ public class BedrockMovementFlaggingTest {
             assertEquals(2, check.violations, 0);
 
             var teleports = player.getSetbackTeleportUtil();
-            teleports.addSentTeleport(
-                    Vec3.ZERO, 10, new ac.cult.cultac.network.protocol.teleport.RelativeFlag(0), false, 1);
-            teleports.addImmediateBedrockTransportTeleport(
-                    Vec3.ZERO,
-                    false,
-                    BedrockCoordinateFrame.IDENTITY,
-                    null,
-                    new ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation(
-                            1, ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance.CULT_SETBACK, 10),
-                    10);
+            teleports
+                    .javaTeleports()
+                    .addSentTeleport(
+                            Vec3.ZERO, 10, new ac.cult.cultac.network.protocol.teleport.RelativeFlag(0), false, 1);
+            teleports
+                    .bedrockTeleports()
+                    .addImmediateBedrockTransportTeleport(
+                            Vec3.ZERO,
+                            false,
+                            BedrockCoordinateFrame.IDENTITY,
+                            null,
+                            new ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation(
+                                    1, ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance.CULT_SETBACK, 10),
+                            10);
             assertTrue(teleports.isPendingSetback());
             assertFalse(check.canFlagMovement());
         } finally {

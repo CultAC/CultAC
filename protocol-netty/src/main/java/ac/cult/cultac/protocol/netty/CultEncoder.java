@@ -27,6 +27,8 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.function.BiConsumer;
 import java.util.function.IntSupplier;
 import java.util.function.Predicate;
@@ -69,7 +71,8 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
     private Families idleFamilies = new Families();
     private Output idleOutput = new Output();
     private Batch idleBatch = new Batch(false);
-    private PacketSendEvent<?> idleSendEvent;
+    // Released own-route events; a nested expansion takes the second while its parent holds the first.
+    private PacketSendEvent<?> idleSendEvent, spareSendEvent;
     // Emitted frames for reuse, linked through Frame#next; none holds bytes or a promise.
     private Frame spareFrames;
     private int spareFrameCount;
@@ -227,11 +230,11 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         }
     }
 
-    /** Keeps an output that holds nothing more for the next write; its frame queue is not kept. */
+    /** Keeps an output that holds nothing more for the next write. */
     private void recycle(Output output) {
         if (!output.isEmpty() || output.hasTasks() || output.flush) return;
         if (output.groups != null && !output.groups.isEmpty()) return;
-        output.tail = null;
+        output.trimTasks();
         idleOutput = output;
     }
 
@@ -318,6 +321,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                     wrap(ctx, batch);
             }
             output.append(batch);
+            batch.trimTasks();
             idleBatch = batch;
         } catch (Throwable failure) {
             batch.discard(failure, fallback == null ? null : promise);
@@ -500,13 +504,20 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                 activeFamilies.addLast(route.type());
                 try {
                     var type = (PacketType<ClientboundPacket>) route.type();
-                    var idleEvent = route.own() ? idleSendEvent : null;
+                    PacketSendEvent<?> idleEvent = null;
+                    if (route.own()) {
+                        idleEvent = idleSendEvent;
+                        if (idleEvent != null) idleSendEvent = null;
+                        else {
+                            idleEvent = spareSendEvent;
+                            spareSendEvent = null;
+                        }
+                    }
                     PacketSendEvent<ClientboundPacket> event;
                     if (idleEvent == null) {
                         event = new PacketSendEvent<>(
                                 connection.user(), phase, type, (ClientboundPacket) value, batch.inside);
                     } else {
-                        idleSendEvent = null;
                         event = idleEvent.restart(
                                 connection.user(), phase, type, (ClientboundPacket) value, batch.inside);
                     }
@@ -1026,7 +1037,8 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
     private void recycle(PacketDispatcher.Route route, PacketSendEvent<?> event) {
         if (!route.own() || !event.tasksAfter().isEmpty()) return;
         event.release();
-        idleSendEvent = event;
+        if (idleSendEvent == null) idleSendEvent = event;
+        else spareSendEvent = event;
     }
 
     /** Keeps a frame that no output, batch or caller holds any more for a later {@link #frame}. */
@@ -1101,48 +1113,53 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         }
     }
 
-    /** Owns only un-emitted frames. Appending transfers ownership without retaining a tree. */
+    /**
+     * Owns only un-emitted frames, linked through {@link Frame#next}; a frame is in at most one output. Appending
+     * transfers ownership without retaining a tree.
+     */
     private static class Output {
-        // Most expansions contain exactly one frame. Allocate a queue only for a second one.
-        Frame first;
-        ArrayDeque<Frame> tail;
+        Frame first, last;
+        int size;
 
         boolean isEmpty() {
             return first == null;
         }
 
         int size() {
-            return first == null ? 0 : 1 + (tail == null ? 0 : tail.size());
+            return size;
         }
 
         void addLast(Frame frame) {
+            frame.next = null;
             if (first == null) first = frame;
-            else {
-                if (tail == null) tail = new ArrayDeque<>(4);
-                tail.addLast(frame);
-            }
+            else last.next = frame;
+            last = frame;
+            size++;
         }
 
         void addFirst(Frame frame) {
-            if (first != null) {
-                if (tail == null) tail = new ArrayDeque<>(4);
-                tail.addFirst(first);
-            }
+            frame.next = first;
+            if (first == null) last = frame;
             first = frame;
+            size++;
         }
 
         Frame removeFirst() {
             Frame result = first;
-            first = tail == null ? null : tail.pollFirst();
+            if (result != null) {
+                first = result.next;
+                result.next = null;
+                if (first == null) last = null;
+                size--;
+            }
             return result;
         }
 
         void collectPromises(java.util.Set<ChannelPromise> parts) {
-            if (first != null) parts.add(first.promise);
-            if (tail != null) for (Frame frame : tail) parts.add(frame.promise);
+            for (Frame frame = first; frame != null; frame = frame.next) parts.add(frame.promise);
         }
 
-        ArrayDeque<Runnable> tasks;
+        TaskQueue tasks;
         List<GroupCompletion> groups;
         boolean flush;
 
@@ -1152,7 +1169,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
 
         void addTasks(List<Runnable> actions) {
             if (actions.isEmpty()) return;
-            if (tasks == null) tasks = new ArrayDeque<>(actions.size());
+            if (tasks == null) tasks = new TaskQueue(actions.size());
             for (int i = 0; i < actions.size(); i++) tasks.addLast(actions.get(i));
         }
 
@@ -1161,28 +1178,34 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             groups.add(group);
         }
 
+        /** Drops a task queue an earlier burst grew, so a kept output retains only a small one. */
+        void trimTasks() {
+            if (tasks != null && !tasks.kept()) tasks = null;
+        }
+
         void append(Output source) {
             if (!source.isEmpty()) {
-                if (isEmpty()) {
-                    first = source.first;
-                    tail = source.tail;
-                    source.first = null;
-                    source.tail = null;
-                } else {
-                    while (!source.isEmpty()) addLast(source.removeFirst());
-                    source.tail = null;
-                }
+                if (isEmpty()) first = source.first;
+                else last.next = source.first;
+                last = source.last;
+                size += source.size;
+                source.first = null;
+                source.last = null;
+                source.size = 0;
             }
             if (source.hasTasks()) {
-                if (tasks == null) tasks = source.tasks;
-                else while (!source.tasks.isEmpty()) tasks.addLast(source.tasks.pollFirst());
+                // An empty queue here trades places with the source's, which keeps it for its next use.
+                if (!hasTasks()) {
+                    TaskQueue empty = tasks;
+                    tasks = source.tasks;
+                    source.tasks = empty;
+                } else while (!source.tasks.isEmpty()) tasks.addLast(source.tasks.removeFirst());
             }
             if (source.groups != null && !source.groups.isEmpty()) {
                 if (groups == null) groups = source.groups;
                 else for (int i = 0; i < source.groups.size(); i++) groups.add(source.groups.get(i));
             }
             flush |= source.flush;
-            source.tasks = null;
             source.groups = null;
             source.flush = false;
         }
@@ -1206,6 +1229,50 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                 groups.clear();
             }
             if (tasks != null) tasks.clear();
+        }
+    }
+
+    /** Tasks after send in run order; rejects a null task. */
+    private static final class TaskQueue {
+        private static final int KEPT_CAPACITY = 16;
+        private Runnable[] tasks;
+        private int head, size;
+
+        TaskQueue(int expected) {
+            tasks = new Runnable[Math.max(4, Integer.highestOneBit(Math.max(expected, 1) - 1) << 1)];
+        }
+
+        boolean isEmpty() {
+            return size == 0;
+        }
+
+        boolean kept() {
+            return tasks.length <= KEPT_CAPACITY;
+        }
+
+        void addLast(Runnable task) {
+            Objects.requireNonNull(task);
+            if (size == tasks.length) {
+                Runnable[] grown = new Runnable[tasks.length << 1];
+                for (int i = 0; i < size; i++) grown[i] = tasks[(head + i) & (tasks.length - 1)];
+                tasks = grown;
+                head = 0;
+            }
+            tasks[(head + size++) & (tasks.length - 1)] = task;
+        }
+
+        Runnable removeFirst() {
+            if (size == 0) throw new NoSuchElementException();
+            Runnable task = tasks[head];
+            tasks[head] = null;
+            head = (head + 1) & (tasks.length - 1);
+            size--;
+            return task;
+        }
+
+        void clear() {
+            while (size > 0) removeFirst();
+            head = 0;
         }
     }
 }

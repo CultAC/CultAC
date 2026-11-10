@@ -55,7 +55,7 @@ public class VehicleF extends Check implements CheckListener {
     @CultPacketHandler
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
-        if (!player.packetStateData.lastPacketWasTeleport) {
+        if (!event.answersTeleport()) {
             lastTickVehicle = player.compensatedEntities.getSelf().getRiding();
         }
     }

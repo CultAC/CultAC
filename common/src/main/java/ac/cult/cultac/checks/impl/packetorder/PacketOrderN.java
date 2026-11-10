@@ -56,7 +56,7 @@ public class PacketOrderN extends BlockPlaceCheck {
     @CultPacketHandler
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
-        if (!player.cameraEntity.isSelf() || !player.packetStateData.lastPacketWasTeleport) {
+        if (!player.cameraEntity.isSelf() || !event.answersTeleport()) {
             usingWithoutPlacing = placing = false;
         }
     }

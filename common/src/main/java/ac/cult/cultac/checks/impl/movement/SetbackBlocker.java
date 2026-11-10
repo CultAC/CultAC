@@ -39,10 +39,11 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
             } else {
                 // A frame that acknowledged a teleport projects as the teleport response,
                 // which the Java client sends with onGround=false.
-                player.packetStateData.lastPacketWasTeleport = authorization.teleport();
+                event.setAnswersTeleport(authorization.teleport());
+                if (authorization.teleport()) player.packetStateData.teleportedThisClientTick = true;
                 // Bedrock authored collision flags, not this Java ground bit. Normalize
                 // Geyser's velocity-based projection from the already simulated frame here.
-                boolean onGround = !player.packetStateData.lastPacketWasTeleport && authorization.canonicalGround();
+                boolean onGround = !authorization.teleport() && authorization.canonicalGround();
                 if (onGround != movePacket.onGround() && !player.isDisabled() && !player.noModifyPacketPermission) {
                     event.replace(movePacket.withOnGround(onGround));
                 }
@@ -55,7 +56,7 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
         // the client processes a server mount, ordinary movement must still
         // reach prediction and packet checks; forwarding is blocked afterward.
         // Packet-handler teleport acknowledgements have already set teleport.
-        boolean teleport = player.packetStateData.lastPacketWasTeleport;
+        boolean teleport = event.answersTeleport();
         if (!player.isBedrockMovement()
                 && !teleport
                 && player.compensatedEntities.vehicles.hasClientPlayerPassengerState()
@@ -67,6 +68,10 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
         // Bedrock's projection has already been predicted by its auth-input path.
         if (player.isBedrockMovement()) {
             blockMovePlayer(event, movePacket, translatedBedrockMovement);
+            blockDeadMovePlayer(event);
+        } else if (player.packetStateData.localPlayerRemoved || player.localPlayerRemovedThisTick()) {
+            // From the tick LocalPlayer#tickDeath removes the player, no aiStep moves it.
+            blockDeadMovePlayer(event);
         }
         blockInactiveMovePlayer(event, movePacket);
     }
@@ -80,7 +85,7 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
         } // Let's avoid letting people disable cult with cult.nomodifypackets
         if (!player.shouldEnforceMovementSetbacks()) return;
 
-        boolean teleport = player.packetStateData.lastPacketWasTeleport;
+        boolean teleport = event.answersTeleport();
         ServerboundMovePlayer wrapper = movePacket;
         // The player must obey setbacks
         if (!teleport
@@ -97,8 +102,8 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
     private void blockInactiveMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, ServerboundMovePlayer packet) {
         if (player.isDisabled() || !player.shouldEnforceMovementSetbacks()) return;
-        boolean teleport = player.packetStateData.lastPacketWasTeleport;
-        // Invalid sleeping/dead movement must not change the simulation's position anchor.
+        boolean teleport = event.answersTeleport();
+        // Invalid sleeping movement must not change the simulation's position anchor.
         if (!teleport && player.isInBed && packet.hasPosition()) {
             Vec3 bedPosition = player.bedPosition;
             if (bedPosition == null
@@ -108,9 +113,15 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
                 event.setCancelled(true);
             }
         }
+    }
 
-        // Player is dead
-        if (!teleport && player.compensatedEntities.getSelf().isDead) {
+    /**
+     * LivingEntity#tick runs aiStep for a dying Java player until LocalPlayer#tickDeath removes it at deathTime 20, so
+     * its moves before that tick are predicted first; none of them reaches the server.
+     */
+    private void blockDeadMovePlayer(PacketReceiveEvent<ServerboundMovePlayer> event) {
+        if (player.isDisabled() || !player.shouldEnforceMovementSetbacks()) return;
+        if (!event.answersTeleport() && player.compensatedEntities.getSelf().isDead) {
             event.setCancelled(true);
         }
     }
@@ -136,12 +147,12 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
         return top == Double.NEGATIVE_INFINITY ? bedPosition.y : top;
     }
 
-    private void handleMoveVehicle(final PacketReceiveEvent event) {
+    private void handleMoveVehicle(final PacketReceiveEvent<ServerboundMoveVehicle> event) {
         if (player.isDisabled()) {
             return;
         } // Let's avoid letting people disable cult with cult.nomodifypackets
 
-        boolean teleport = player.packetStateData.lastPacketWasTeleport;
+        boolean teleport = event.answersTeleport();
         Integer serverVehicle = player.compensatedEntities.vehicles.serverPlayerVehicle;
         int ridingVehicle = player.getRidingVehicleId();
 
@@ -162,7 +173,7 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
         // A client can intentionally delay transaction responses while continuing to send
         // movement. Only block this for Cult-owned vehicle setbacks; ordinary server
         // vehicle teleports may be pending while the client keeps moving old state.
-        if (!teleport && player.getSetbackTeleportUtil().hasUnacknowledgedSetbackVehicleTeleport()) {
+        if (!teleport && player.getSetbackTeleportUtil().vehicleTeleports().hasUnacknowledgedSetbackVehicleTeleport()) {
             event.setCancelled(true);
         }
 
@@ -191,12 +202,13 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
     public void onJavaMovePlayerAfterChecks(PacketReceiveEvent<ServerboundMovePlayer> event) {
         if (!player.isBedrockMovement()) {
             if (!event.getPacket().rotationOnly()
-                    && !player.packetStateData.lastPacketWasTeleport
+                    && !event.answersTeleport()
                     && player.compensatedEntities.vehicles.hasPlayerPassengerState()
                     && !player.compensatedEntities.vehicles.hasClientPlayerPassengerState()) {
                 event.setCancelled(true);
             }
             blockMovePlayer(event, event.getPacket(), false);
+            blockDeadMovePlayer(event);
         }
     }
 

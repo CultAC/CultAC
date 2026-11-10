@@ -89,10 +89,6 @@ cult:
     max-freeze-time-ms: 5000
 
   networking:
-    # Używa granic pakietów zbiorczych do synchronizacji śledzenia obiektów
-    # podczas kontroli zasięgu na klientach obsługujących takie pakiety.
-    reach-use-bundle-delimiter: true
-
     # Zastępuje wysyłaną wartość zdrowia innych żywych obiektów wartością 1 HP.
     # Zachowuje zdrowie obserwatora, jego obecnego wierzchowca i martwych obiektów.
     # Obserwatorzy z uprawnieniem cult.showhealth otrzymują rzeczywiste wartości zdrowia.

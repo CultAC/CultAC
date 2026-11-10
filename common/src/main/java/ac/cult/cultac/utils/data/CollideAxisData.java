@@ -139,6 +139,55 @@ public class CollideAxisData implements DebugText.Recordable {
         }
     }
 
+    /**
+     * Collision data its owner fills again for each probe: a result it combines into the first time stands in for a new
+     * one, so nothing read from it may outlive the next {@link #reset}.
+     */
+    public static final class Reusable extends CollideAxisData {
+        private final CollideResult spareX = new CollideResult(false, 0.0D);
+        private final CollideResult spareYPos = new CollideResult(false, 0.0D);
+        private final CollideResult spareYNeg = new CollideResult(false, 0.0D);
+        private final CollideResult spareZ = new CollideResult(false, 0.0D);
+
+        public Reusable() {
+            super(null, null, null, null, List.of());
+        }
+
+        /** This with every axis unset and no unknown boxes, as {@code new CollideAxisData(null, ..., List.of())}. */
+        public Reusable reset() {
+            x = null;
+            yPos = null;
+            yNeg = null;
+            z = null;
+            unknown = List.of();
+            return this;
+        }
+
+        @Override
+        public void combineX(boolean likelyCollide, double result, int side) {
+            if (x == null) x = spareX.reset(likelyCollide, result, side);
+            else x.combine(likelyCollide, result, side);
+        }
+
+        @Override
+        public void combineYPos(boolean likelyCollide, double result) {
+            if (yPos == null) yPos = spareYPos.reset(likelyCollide, result, 0);
+            else yPos.combine(likelyCollide, result, 0);
+        }
+
+        @Override
+        public void combineYNeg(boolean likelyCollide, double result) {
+            if (yNeg == null) yNeg = spareYNeg.reset(likelyCollide, result, 0);
+            else yNeg.combine(likelyCollide, result, 0);
+        }
+
+        @Override
+        public void combineZ(boolean likelyCollide, double result, int side) {
+            if (z == null) z = spareZ.reset(likelyCollide, result, side);
+            else z.combine(likelyCollide, result, side);
+        }
+    }
+
     private static final class ImmutableCollideResult extends CollideResult {
         private ImmutableCollideResult(boolean isLikelyCollide, double result, int side) {
             super(isLikelyCollide, result, side);
@@ -200,6 +249,13 @@ public class CollideAxisData implements DebugText.Recordable {
 
         public CollideResult combine(CollideResult newResult) {
             return combine(newResult.isLikelyCollide, newResult.result, newResult.side);
+        }
+
+        private CollideResult reset(boolean isLikelyCollide, double result, int side) {
+            this.isLikelyCollide = isLikelyCollide;
+            this.result = result;
+            this.side = side;
+            return this;
         }
 
         CollideResult combine(boolean newLikelyCollide, double newResult, int newSide) {

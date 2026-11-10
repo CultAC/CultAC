@@ -21,6 +21,7 @@ import ac.cult.cultac.events.packets.listeners.PacketSelfMetadataListener;
 import ac.cult.cultac.events.packets.patch.ResyncWorldUtil;
 import ac.cult.cultac.manager.config.BaseConfigManager;
 import ac.cult.cultac.manager.player.CheckManager;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -113,7 +114,7 @@ class ObserveOnlyTest {
     void setbacksReturnBeforeTouchingThePlayer() throws ReflectiveOperationException {
         try (var ignored = installConfig(true)) {
             SetbackTeleportUtil setbacks = new SetbackTeleportUtil(player);
-            setbacks.lastKnownGoodPosition = new SetbackPosWithVector(Vec3.ZERO, Vec3.ZERO, 0);
+            SetbackFixtures.seedSafePosition(setbacks, new SetbackPosWithVector(Vec3.ZERO, Vec3.ZERO));
             setbacks.executeForceResync("test");
             setbacks.executeNonSimulatingSetback();
             assertFalse(setbacks.executeViolationSetback());
@@ -232,7 +233,7 @@ class ObserveOnlyTest {
                 assertFalse(teleport.resent(), "mounted=" + mounted);
                 assertEquals(
                         new Vec3(0.5, 64, 0.5),
-                        teleport.setbacks().lastKnownGoodPosition.getPos(),
+                        teleport.setbacks().safePosition().getPos(),
                         "mounted=" + mounted);
             }
             try (var ignored = installConfig(false)) {
@@ -247,13 +248,13 @@ class ObserveOnlyTest {
     void aSetbackPendingWhenObserveOnlyStartsIsReleased() throws ReflectiveOperationException {
         try (var ignored = installConfig(false)) {
             SetbackTeleportUtil setbacks = ignoreServerTeleport(false).setbacks();
-            setbacks.blockOffsets = true;
+            SetbackFixtures.setBlockOffsets(setbacks, true);
             assertTrue(setbacks.isPendingSetback());
 
-            setbacks.observeOnlyStarted();
+            setbacks.policy().observeOnlyStarted();
 
             assertFalse(setbacks.isPendingSetback());
-            assertFalse(setbacks.blockOffsets);
+            assertFalse(setbacks.isBlockingOffsets());
         }
     }
 
@@ -463,11 +464,11 @@ class ObserveOnlyTest {
         when(player.checkManager.getListener(BadPacketsN.class)).thenReturn(mock(BadPacketsN.class));
         SetbackTeleportUtil setbacks = new SetbackTeleportUtil(player);
         when(player.getSetbackTeleportUtil()).thenReturn(setbacks);
-        setbacks.lastKnownGoodPosition = new SetbackPosWithVector(Vec3.ZERO, Vec3.ZERO, 0);
-        setbacks.hasFullyLoaded = true;
-        setbacks.addSentTeleport(new Vec3(10.5, 64, 10.5), 5, new RelativeFlag(0), true, 7);
+        SetbackFixtures.seedSafePosition(setbacks, new SetbackPosWithVector(Vec3.ZERO, Vec3.ZERO));
+        SetbackFixtures.setLoaded(setbacks, true);
+        setbacks.javaTeleports().addSentTeleport(new Vec3(10.5, 64, 10.5), 5, new RelativeFlag(0), true, 7);
         received.set(6);
-        setbacks.checkTeleportQueue(0.5, 64, 0.5);
+        setbacks.javaTeleports().checkTeleportQueue(0.5, 64, 0.5);
         channel.runPendingTasks();
         return new IgnoredTeleport(setbacks, !channel.outboundMessages().isEmpty());
     }

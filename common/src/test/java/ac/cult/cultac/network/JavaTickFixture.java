@@ -18,6 +18,7 @@ import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerSteer;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.manager.config.BaseConfigManager;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -75,9 +76,18 @@ final class JavaTickFixture implements AutoCloseable {
     }
 
     JavaTickFixture(ProtocolVersion protocol, ClientVersion client) throws Exception {
+        this(protocol, client, false);
+    }
+
+    /** A {@code client} on a host whose wire is {@code observed}, older than the 26.3 model. */
+    static JavaTickFixture olderHost(ProtocolVersion observed, ClientVersion client) throws Exception {
+        return new JavaTickFixture(observed, client, true);
+    }
+
+    private JavaTickFixture(ProtocolVersion protocol, ClientVersion client, boolean olderHost) throws Exception {
         Class.forName(VerboseCodecs.class.getName());
-        services = new RecordConsumerServices(protocol);
-        fixture = new RecordReceiveFixture(protocol);
+        services = new RecordConsumerServices(olderHost ? ProtocolVersion.V26_3 : protocol);
+        fixture = olderHost ? RecordReceiveFixture.olderHost(protocol) : new RecordReceiveFixture(protocol);
         player = fixture.player;
         fixture.user.bind(Mockito.mock(PlatformPlayer.class));
         setField(CultPlayer.class, player, "resolvedClientVersion", client);
@@ -92,7 +102,7 @@ final class JavaTickFixture implements AutoCloseable {
         }
         // Let the block-change timing uncertainty expire at client tick boundaries.
         for (int tick = 0; tick < 3; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff(0);
-        player.getSetbackTeleportUtil().hasFullyLoaded = true;
+        SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
         resetTimerBalances();
     }
 
@@ -139,7 +149,7 @@ final class JavaTickFixture implements AutoCloseable {
     void input(ServerboundPlayerInput input) {
         var event = event(ServerboundPackets.PLAYER_INPUT, input);
         steer.onPlayerInput(event, player, input);
-        listener.onPlayerInput(event, player, input);
+        CheckManagerListener.receiveGeneric(event, player);
     }
 
     /** One client tick that sends a position: the move and the tick end; the prediction it committed. */
@@ -328,6 +338,7 @@ final class JavaTickFixture implements AutoCloseable {
             float finalPitch) {
         int id = ++teleportId;
         player.getSetbackTeleportUtil()
+                .javaTeleports()
                 .addSentTeleport(
                         target, delta, transaction, flags, false, id, sourceYaw, sourcePitch, finalYaw, finalPitch);
         pongThrough(transaction);
@@ -358,7 +369,7 @@ final class JavaTickFixture implements AutoCloseable {
     void abilities(boolean flying) {
         var packet = new ServerboundPlayerAbilities(flying);
         var event = event(ServerboundPackets.PLAYER_ABILITIES, packet);
-        listener.onPlayerAbilities(event, player, packet);
+        CheckManagerListener.receiveGeneric(event, player);
     }
 
     void command(PlayerCommandAction action) {

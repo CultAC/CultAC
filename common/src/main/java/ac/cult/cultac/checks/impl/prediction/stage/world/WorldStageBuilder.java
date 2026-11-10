@@ -47,6 +47,7 @@ import java.util.Set;
 import java.util.function.IntPredicate;
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import org.jetbrains.annotations.Nullable;
 
 public class WorldStageBuilder {
     // Temporary Bedrock push-out approximation, inset on every face.
@@ -180,7 +181,7 @@ public class WorldStageBuilder {
 
         MainSupportingBlockData mainSupportingBlockData = findMainSupportingBlockPos(
                 player,
-                lastPrediction == null ? null : lastPrediction.getSimulationContext(),
+                player.checkManager.getSimulationProcessor().lastTickSupport(lastPrediction),
                 deltaX,
                 deltaZ,
                 simulationContext.getToMaxPose(),
@@ -847,11 +848,16 @@ public class WorldStageBuilder {
 
         SimpleCollisionBox entityBox;
         if (entities.isUntrackedRider(entity, selfRidingRoot, serverVehicleRoot)) {
-            if (!mayPushAsUntrackedRider(player, entity)
-                    || !entities.untrackedRiderMayReach(entity, playerBox, entityBounds, entityScratch)) return null;
-            entityBox = entities.untrackedRiderPushBox(entity);
-            if (entityBox == null) return null;
-            entityBox = entity.toBoundingBox(player, entityBox);
+            if (!mayPushAsUntrackedRider(player, entity)) return null;
+            if (pushesFromWhereItMounted(player, entity)) {
+                entityBox = entity.toBoundingBox(
+                        player, entity.getPossibleMovementCollisionBoxes(entityBounds, entityScratch));
+            } else {
+                if (!entities.untrackedRiderMayReach(entity, playerBox, entityBounds, entityScratch)) return null;
+                entityBox = entities.untrackedRiderPushBox(entity);
+                if (entityBox == null) return null;
+                entityBox = entity.toBoundingBox(player, entityBox);
+            }
         } else {
             // MCP-Reborn push/collision checks use the entity's concrete
             // bounding box, not the reach-expanded uncertainty box.
@@ -863,8 +869,8 @@ public class WorldStageBuilder {
 
     /**
      * Whether a rider outside the player's riding trees pushes it: Entity#rideTick runs LivingEntity#tick, whose aiStep
-     * pushes from the seat positionRider last gave the rider. Hard-colliding riders stay out, as Bedrock contact skips
-     * them.
+     * pushes from the seat positionRider last gave the rider, or on the first ride tick after a mount from riding
+     * nothing, from where Entity#startRiding found it. Hard-colliding riders stay out, as Bedrock contact skips them.
      */
     private static boolean mayPushAsUntrackedRider(CultPlayer player, PacketEntity entity) {
         return !player.isBedrockMovement()
@@ -872,6 +878,13 @@ public class WorldStageBuilder {
                 && !entity.isBoat()
                 && !entity.isMinecart()
                 && !isBedrockHardCollidingEntity(entity);
+    }
+
+    /** {@link PacketEntity#ridesFirstTickFromItsMount} this tick, for the client versions whose order was read. */
+    private static boolean pushesFromWhereItMounted(CultPlayer player, PacketEntity rider) {
+        ClientVersion version = player.getClientVersion();
+        return (version == ClientVersion.V_1_21_11 || version.isNewerThanOrEquals(ClientVersion.V_26_2))
+                && rider.ridesFirstTickFromItsMount(player.packetStateData.acceptedClientTick);
     }
 
     private static boolean isBedrockHardCollidingEntity(PacketEntity entity) {
@@ -1205,9 +1218,13 @@ public class WorldStageBuilder {
         return fishingRodPulls;
     }
 
+    /**
+     * Entity#checkSupportingBlock. {@code lastSupport} is the supporting block the move started with, whose
+     * onGroundNoBlocks stops the search behind the movement; null when there is none.
+     */
     public MainSupportingBlockData findMainSupportingBlockPos(
             CultPlayer player,
-            SimulationContext lastContext,
+            @Nullable MainSupportingBlockData lastSupport,
             double lastMovementX,
             double lastMovementZ,
             SimpleCollisionBox maxPose,
@@ -1220,12 +1237,7 @@ public class WorldStageBuilder {
                 maxPose.minX, maxPose.minY - 1.0E-6D, maxPose.minZ, maxPose.maxX, maxPose.minY, maxPose.maxZ);
 
         BlockPos supportingBlock = findSupportingBlock(player, slightlyBelowPlayer);
-        if (supportingBlock == null
-                && (lastContext != null
-                        && !lastContext
-                                .getWorldData()
-                                .getMainSupportingBlockPos()
-                                .lastOnGroundAndNoBlock())) {
+        if (supportingBlock == null && lastSupport != null && !lastSupport.lastOnGroundAndNoBlock()) {
             SimpleCollisionBox aabb2 = slightlyBelowPlayer.offset(-lastMovementX, 0.0D, -lastMovementZ);
             return new MainSupportingBlockData(findSupportingBlock(player, aabb2), true);
         }

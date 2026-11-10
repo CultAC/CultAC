@@ -6,7 +6,6 @@ import ac.cult.cultac.checks.impl.movement.timer.ItemUseBurst;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
@@ -53,8 +52,7 @@ public class BadPacketsR extends Check implements CheckListener {
                 windowTickNanos = tickNanos;
             } else if (positions == 0
                     && clock != 0
-                    && (player.packetStateData.playerLoadedIntoLevel
-                            || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_4))
+                    && player.localPlayerTicks()
                     && player.cameraEntity.isSelf()
                     && !player.compensatedEntities.getSelf().isDead) {
                 flag(V.write(verbose()).ulong(ms).ulong(diff).uint(positions));

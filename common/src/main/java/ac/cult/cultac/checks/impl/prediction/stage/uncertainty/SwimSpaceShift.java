@@ -35,6 +35,28 @@ public class SwimSpaceShift implements UncertaintyHandler {
         return start;
     }
 
+    @Override
+    public void positionInto(
+            double[] xyz,
+            CultPlayer player,
+            ValidMovements valid,
+            PredictionResult result,
+            SimulationContext context,
+            PredictionResult lastResult,
+            PredVector carrier,
+            Vec3 end) {
+        if (!result.getSimulationContext().getWorldData().maybeInLiquid()) return;
+        if (context.getVehicle() != null) return;
+
+        double y = xyz[1];
+        if (end.y - y > 0) {
+            double baseY = applyLivingEntityThresholdBeforeWaterJump(y);
+            xyz[1] = CultMath.clamp(end.y, baseY, baseY + 0.04F);
+        } else if (context.isSneaking()) {
+            xyz[1] = CultMath.clamp(end.y, y, y - 0.04F);
+        }
+    }
+
     private double applyLivingEntityThresholdBeforeWaterJump(double y) {
         // MCP-Reborn Entity#onAboveBubbleColumn/onInsideBubbleColumn mutates deltaMovement
         // after travel. On the next tick, LivingEntity#aiStep zeroes |deltaY| < 0.003

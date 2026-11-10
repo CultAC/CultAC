@@ -17,6 +17,7 @@ package ac.cult.cultac.utils.data.packetentity;
 
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.network.packet.EntityPositionPath;
 import ac.cult.cultac.network.packet.PacketCodecUtil;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -38,18 +39,36 @@ import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.function.DoubleUnaryOperator;
 import lombok.Getter;
 import org.jetbrains.annotations.Nullable;
 
 // You may not copy this check unless your anticheat is licensed under GPL
 public class PacketEntity {
     private static final EntityPose[] POSES = EntityPose.values();
+    // Teleport distance at which a Bedrock client places a remote player instead of lerping it.
+    private static final double BEDROCK_SNAP_DISTANCE_SQUARED = 0.25D;
 
     public long bedrockRuntimeId = -1;
     // Final Bedrock wire attributes, retained even before this actor is locally controlled.
     public ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes bedrockAttributes =
             ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes.EMPTY;
-    public ac.cult.cultac.bedrock.prediction.integration.BedrockEntityInterpolation bedrockInterpolation;
+    // How far above the feet the actor's Bedrock packet position is: the eye height for a player.
+    public float bedrockPositionOffset;
+    // Whether the last move a Bedrock client handled for this actor set onGround.
+    private boolean bedrockMoveOnGround;
+    // Whether the Bedrock client has the RESTING flag for this actor.
+    private boolean bedrockResting;
+    // After a Bedrock lerp step the y the next step starts from may differ from the shown box's (see
+    // bedrockStoredFeet). That y, in the client's frame on the packet position, while the actor is still shown at
+    // bedrockBaseFrom.
+    private Vec3 bedrockBaseFrom;
+    private float bedrockBaseY;
+    // The box size and scale Geyser last sent this actor (WIDTH, HEIGHT, SCALE) that the client has applied: a Bedrock
+    // client's actor box is width and height times scale, a player's following its pose. NaN until known.
+    public float bedrockWidth = Float.NaN;
+    public float bedrockHeight = Float.NaN;
+    public float bedrockScale = 1.0F;
     public ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState bedrockPrediction;
     public ac.cult.cultac.bedrock.prediction.state.BedrockBoatProperties bedrockBoat;
     public Vec3 desyncClientPos;
@@ -61,6 +80,8 @@ public class PacketEntity {
     private final boolean happyGhast;
 
     public PacketEntity riding;
+    // The counted client tick whose Entity#rideTick is this rider's first since it mounted from riding nothing.
+    private int firstRideTick = Integer.MIN_VALUE;
     // Mutated only through mount and eject, which keep the tracker's passenger count.
     public final List<PacketEntity> passengers = new ArrayList<>(0);
     // The tracker whose entityMap holds this entity; null while untracked.
@@ -108,8 +129,6 @@ public class PacketEntity {
     public ReachInterpolationData newPacketLocation;
     // Set by an unproven receipt, fold, teleport, far sync, seat placement or uncertain vehicle; holds for life.
     private boolean trackedPositionInexact;
-    // Unbundled position paths received but not yet proven by the transaction after them.
-    private int unprovenUnbundledPaths;
     private long clientTickOrder = Long.MAX_VALUE;
     // Reused: valid only until the client tick that computed it applies it.
     private SimpleCollisionBox exactAfterClientTickBox;
@@ -153,7 +172,6 @@ public class PacketEntity {
         this.desyncClientPos = spawnPosition;
         this.clientPhysicalPosition = spawnPosition;
         SimpleCollisionBox spawnBox = GetBoundingBox.getPacketEntityBoundingBox(cultPlayer, x, y, z, this);
-        boolean ridingInVehicle = cultPlayer.compensatedEntities.getSelf().inVehicle();
         this.newPacketLocation = ReachInterpolationData.takingStart(
                 cultPlayer,
                 spawnBox,
@@ -164,9 +182,7 @@ public class PacketEntity {
                 clientPhysicalPitch,
                 clientPhysicalYaw,
                 clientPhysicalPitch,
-                !ridingInVehicle,
-                this,
-                false);
+                this);
     }
 
     public int getType() {
@@ -197,6 +213,18 @@ public class PacketEntity {
         return happyGhast;
     }
 
+    /** Whether the client's box for this actor is sized by the data Geyser sent it. */
+    public boolean hasBedrockSize() {
+        return !Float.isNaN(bedrockWidth) && !Float.isNaN(bedrockHeight);
+    }
+
+    /** Size data a Bedrock client has applied; each null keeps the value before it. */
+    public void setBedrockSize(@Nullable Float width, @Nullable Float height, @Nullable Float scale) {
+        if (width != null) bedrockWidth = width;
+        if (height != null) bedrockHeight = height;
+        if (scale != null) bedrockScale = scale;
+    }
+
     /** The type test a push or collision with the player applies before any position or riding test. */
     public boolean mayPushOrCollide() {
         boolean hardCollidingEntity = boat || minecart || type == EntityTypeIds.STRIDER || happyGhast;
@@ -218,50 +246,6 @@ public class PacketEntity {
         return type == EntityTypeIds.STRIDER;
     }
 
-    // Set the old packet location to the new one
-    // Set the new packet location to the updated packet location
-    public void onFirstTransaction(
-            boolean relative, boolean hasPos, double relX, double relY, double relZ, CultPlayer player) {
-        onFirstTransaction(relative, hasPos, relX, relY, relZ, false, 0.0F, false, 0.0F, player, true);
-    }
-
-    public void onFirstTransaction(
-            boolean relative,
-            boolean hasPos,
-            double relX,
-            double relY,
-            double relZ,
-            @Nullable Float yaw,
-            @Nullable Float pitch,
-            CultPlayer player) {
-        onFirstTransaction(
-                relative,
-                hasPos,
-                relX,
-                relY,
-                relZ,
-                yaw != null,
-                yaw != null ? yaw : 0.0F,
-                pitch != null,
-                pitch != null ? pitch : 0.0F,
-                player,
-                true);
-    }
-
-    /** The yaw and pitch apply only when {@code hasRotation}. */
-    public void onFirstTransaction(
-            boolean relative,
-            boolean hasPos,
-            double relX,
-            double relY,
-            double relZ,
-            boolean hasRotation,
-            float yaw,
-            float pitch,
-            CultPlayer player) {
-        onFirstTransaction(relative, hasPos, relX, relY, relZ, hasRotation, yaw, hasRotation, pitch, player, true);
-    }
-
     public void onBundleFirstTransaction(
             boolean relative, boolean hasPos, double relX, double relY, double relZ, CultPlayer player) {
         onBundleFirstTransaction(relative, hasPos, relX, relY, relZ, null, null, player);
@@ -280,7 +264,7 @@ public class PacketEntity {
         // sub-packets in order, so the trailing ping's pong proves the handler
         // applied this movement before the client's next tick; the caller drops
         // the old packet box with onSecondTransaction at that same pong.
-        onFirstTransaction(
+        startInterpolation(
                 relative,
                 hasPos,
                 relX,
@@ -290,8 +274,7 @@ public class PacketEntity {
                 yaw != null ? yaw : 0.0F,
                 pitch != null,
                 pitch != null ? pitch : 0.0F,
-                player,
-                false);
+                player);
     }
 
     /** The yaw and pitch apply only when {@code hasRotation}. */
@@ -305,10 +288,11 @@ public class PacketEntity {
             float yaw,
             float pitch,
             CultPlayer player) {
-        onFirstTransaction(relative, hasPos, relX, relY, relZ, hasRotation, yaw, hasRotation, pitch, player, false);
+        startInterpolation(relative, hasPos, relX, relY, relZ, hasRotation, yaw, hasRotation, pitch, player);
     }
 
-    private void onFirstTransaction(
+    /** The interpolation toward a handled move; the caller drops the old one once the move is certain. */
+    private void startInterpolation(
             boolean relative,
             boolean hasPos,
             double relX,
@@ -318,8 +302,7 @@ public class PacketEntity {
             float yaw,
             boolean hasPitch,
             float pitch,
-            CultPlayer player,
-            boolean uncertainInitialSteps) {
+            CultPlayer player) {
         applyEntityPositionUpdate(relative, hasPos, relX, relY, relZ);
         if (desyncClientPos == null) {
             return;
@@ -337,21 +320,115 @@ public class PacketEntity {
                 ? GetBoundingBox.getPacketEntityBoundingBox(
                         interpolationStart(), player, desyncClientPos.x, desyncClientPos.y, desyncClientPos.z, this)
                 : interpolationStartingLocation(player, interpolationStart());
-        boolean ridingInVehicle = player.compensatedEntities.getSelf().inVehicle();
-        ReachInterpolationData dropped = oldPacketLocation;
-        this.oldPacketLocation = newPacketLocation;
-        this.newPacketLocation = nextInterpolation(
-                player,
-                startingLocation,
-                desyncClientPos.x,
-                desyncClientPos.y,
-                desyncClientPos.z,
-                placed ? targetYaw : clientPhysicalYaw,
-                placed ? targetPitch : clientPhysicalPitch,
-                targetYaw,
-                targetPitch,
-                !ridingInVehicle,
-                uncertainInitialSteps);
+        replaceInterpolation(
+                nextInterpolation(
+                        player,
+                        startingLocation,
+                        desyncClientPos.x,
+                        desyncClientPos.y,
+                        desyncClientPos.z,
+                        placed ? targetYaw : clientPhysicalYaw,
+                        placed ? targetPitch : clientPhysicalPitch,
+                        targetYaw,
+                        targetPitch),
+                false);
+    }
+
+    /**
+     * Cult takes a Bedrock move to {@code feet} as handled from now on, and certainly once {@link #onSecondTransaction}
+     * runs: a lerp over three ticks from where the actor is shown, restarting the count even toward the same target. A
+     * forced local move places the actor, and so does a remote player's teleport at least half a block from where it is
+     * shown, or a move into a chunk the client has not loaded. The bridge writes a marker between two moves of one
+     * actor, so the earlier is settled before the later begins; should two still begin together, the position before
+     * the first stays possible until they are settled.
+     */
+    public void beginBedrockMove(
+            CultPlayer player,
+            Vec3 feet,
+            float yaw,
+            float pitch,
+            boolean forcedLocal,
+            boolean teleport,
+            boolean onGround) {
+        desyncClientPos = feet;
+        bedrockMoveOnGround = onGround;
+        SimpleCollisionBox start = interpolationStartingLocation(player, interpolationStart());
+        if (clientPhysicalPositionExact && bedrockBaseFrom != null && clientPhysicalPosition == bedrockBaseFrom) {
+            // The lerp starts from its start position, which a raised step left above the box still shown.
+            double rise = (bedrockBaseY - bedrockPositionOffset) - clientPhysicalPosition.y;
+            start = start.copy();
+            start.minY += rise;
+            start.maxY += rise;
+        }
+        // A remote player moved into a chunk the client has not loaded is placed there, whatever the move's mode.
+        boolean unloadedTarget = isAvatar()
+                && !player.compensatedWorld.isChunkLoaded(CultMath.floor(feet.x) >> 4, CultMath.floor(feet.z) >> 4);
+        SimpleCollisionBox target =
+                forcedLocal || unloadedTarget || teleport && isAvatar() ? packetPositionBox(player) : null;
+        boolean placed = forcedLocal || unloadedTarget;
+        if (!placed && teleport && isAvatar()) {
+            if (nearestFeetDistanceSqr(start, target) >= BEDROCK_SNAP_DISTANCE_SQUARED) {
+                placed = true;
+            } else if (farthestFeetDistanceSqr(start, target) >= BEDROCK_SNAP_DISTANCE_SQUARED) {
+                // Snapped or lerping: a lerp from the union passes through both.
+                ReachInterpolationData.combineCollisionBox(start, target, start);
+            }
+        }
+        if (placed) {
+            // The move places the actor: it is at the target from the tick the client handles the move, and a later
+            // move lerps from there. Geyser follows a remote player's teleport with the same position as a normal move.
+            ReachInterpolationData snapped = new ReachInterpolationData(target);
+            snapped.setCurrentAndTargetRotation(yaw, pitch);
+            replaceInterpolation(snapped, true);
+            clientPhysicalPosition = feet;
+            clientPhysicalPositionExact = true;
+            setClientPhysicalRotation(yaw, pitch);
+            return;
+        }
+        DoubleUnaryOperator storedFeet = newPacketLocation == null ? null : newPacketLocation.bedrockStoredFeet();
+        replaceInterpolation(
+                nextInterpolation(
+                        player, start, feet.x, feet.y, feet.z, clientPhysicalYaw, clientPhysicalPitch, yaw, pitch),
+                true);
+        // The new lerp starts from the position the last step left for it.
+        newPacketLocation.dueBedrockStoredFeet(storedFeet);
+    }
+
+    // Per axis, the feet of a box from shown, the same size as target, lie between these offsets from target's feet.
+    private static double nearestFeetDistanceSqr(SimpleCollisionBox shown, SimpleCollisionBox target) {
+        return square(nearest(shown.minX - target.minX, shown.maxX - target.maxX))
+                + square(nearest(shown.minY - target.minY, shown.maxY - target.maxY))
+                + square(nearest(shown.minZ - target.minZ, shown.maxZ - target.maxZ));
+    }
+
+    private static double farthestFeetDistanceSqr(SimpleCollisionBox shown, SimpleCollisionBox target) {
+        return square(Math.max(Math.abs(shown.minX - target.minX), Math.abs(shown.maxX - target.maxX)))
+                + square(Math.max(Math.abs(shown.minY - target.minY), Math.abs(shown.maxY - target.maxY)))
+                + square(Math.max(Math.abs(shown.minZ - target.minZ), Math.abs(shown.maxZ - target.maxZ)));
+    }
+
+    private static double nearest(double low, double high) {
+        if (low <= 0.0D && high >= 0.0D) return 0.0D;
+        return Math.min(Math.abs(low), Math.abs(high));
+    }
+
+    private static double square(double value) {
+        return value * value;
+    }
+
+    /**
+     * Makes {@code next} the interpolation toward the packet position. The one it replaces stays possible until
+     * {@link #onSecondTransaction}; with {@code keepUnsettled}, so does an older one not settled yet.
+     */
+    private void replaceInterpolation(ReachInterpolationData next, boolean keepUnsettled) {
+        ReachInterpolationData dropped;
+        if (keepUnsettled && oldPacketLocation != null) {
+            dropped = newPacketLocation;
+        } else {
+            dropped = oldPacketLocation;
+            this.oldPacketLocation = newPacketLocation;
+        }
+        this.newPacketLocation = next;
         recycleInterpolation(dropped);
         trackedPositionInexact = true;
         keepPositionCertainty();
@@ -387,8 +464,7 @@ public class PacketEntity {
             boolean hasPosition,
             @Nullable Float yaw,
             @Nullable Float pitch,
-            CultPlayer player,
-            boolean bundled) {
+            CultPlayer player) {
         onPositionPath(
                 path,
                 hasPosition,
@@ -396,8 +472,7 @@ public class PacketEntity {
                 yaw != null ? yaw : 0.0F,
                 pitch != null,
                 pitch != null ? pitch : 0.0F,
-                player,
-                bundled);
+                player);
     }
 
     /** The yaw and pitch apply only when {@code hasRotation}. */
@@ -407,9 +482,8 @@ public class PacketEntity {
             boolean hasRotation,
             float yaw,
             float pitch,
-            CultPlayer player,
-            boolean bundled) {
-        onPositionPath(path, hasPosition, hasRotation, yaw, hasRotation, pitch, player, bundled);
+            CultPlayer player) {
+        onPositionPath(path, hasPosition, hasRotation, yaw, hasRotation, pitch, player);
     }
 
     private void onPositionPath(
@@ -419,8 +493,7 @@ public class PacketEntity {
             float yaw,
             boolean hasPitch,
             float pitch,
-            CultPlayer player,
-            boolean bundled) {
+            CultPlayer player) {
         if (hasPosition) desyncClientPos = path.endPosition();
         if (skipsInterpolation(player)) {
             setPositionRaw(
@@ -443,9 +516,7 @@ public class PacketEntity {
                     clientPhysicalPitch,
                     clientPhysicalYaw,
                     clientPhysicalPitch,
-                    false,
-                    this,
-                    false);
+                    this);
         }
         if (newPacketLocation != null && newPacketLocation.usesSteppedInterpolation()) {
             float targetYaw = interpolationTargetYaw(hasYaw, yaw);
@@ -456,46 +527,26 @@ public class PacketEntity {
                             newPacketLocation.hasActiveInterpolationTarget()
                                     ? newPacketLocation.targetPosition()
                                     : clientPhysicalPosition);
-            if (bundled) {
-                oldPacketLocation = null;
-            } else {
-                oldPacketLocation = newPacketLocation;
-                newPacketLocation = newPacketLocation.copy();
-            }
+            oldPacketLocation = null;
             // Starting/appending an interpolation records the entity's physical transform,
             // including its current passenger attachment, as the next delta reference.
             newPacketLocation.setPhysicalBeforePathAppend(
                     actualPath, targetYaw, targetPitch, clientPhysicalPosition, clientPhysicalYaw, clientPhysicalPitch);
             newPacketLocation.appendPath(actualPath, targetYaw, targetPitch);
-            if (!bundled) unprovenUnbundledPaths++;
             keepPositionCertainty();
             return;
         }
-        if (bundled)
-            onBundleTransaction(
-                    false,
-                    hasPosition,
-                    path.endPosition().x,
-                    path.endPosition().y,
-                    path.endPosition().z,
-                    hasYaw,
-                    yaw,
-                    hasPitch,
-                    pitch,
-                    player);
-        else
-            onFirstTransaction(
-                    false,
-                    hasPosition,
-                    path.endPosition().x,
-                    path.endPosition().y,
-                    path.endPosition().z,
-                    hasYaw,
-                    yaw,
-                    hasPitch,
-                    pitch,
-                    player,
-                    true);
+        onBundleTransaction(
+                false,
+                hasPosition,
+                path.endPosition().x,
+                path.endPosition().y,
+                path.endPosition().z,
+                hasYaw,
+                yaw,
+                hasPitch,
+                pitch,
+                player);
     }
 
     private void applyEntityPositionUpdate(boolean relative, boolean hasPos, double relX, double relY, double relZ) {
@@ -595,9 +646,7 @@ public class PacketEntity {
                 clientPhysicalYaw,
                 clientPhysicalPitch,
                 targetYaw,
-                targetPitch,
-                !player.compensatedEntities.getSelf().inVehicle(),
-                false);
+                targetPitch);
         recycleInterpolation(replaced);
         keepPositionCertainty();
     }
@@ -731,27 +780,6 @@ public class PacketEntity {
         return interpolationStart;
     }
 
-    public void onBundledPositionSyncTransaction(double x, double y, double z, CultPlayer player) {
-        onBundledPositionSyncTransaction(x, y, z, null, null, player);
-    }
-
-    public void onBundledPositionSyncTransaction(
-            double x, double y, double z, @Nullable Float yaw, @Nullable Float pitch, CultPlayer player) {
-        // MCP-Reborn ClientPacketListener#handleEntityPositionSync calls
-        // moveOrInterpolateTo for normal active entities. ClientLevel#isTickingEntity
-        // is membership in EntityTickList, not "currently inside this entity's
-        // tick", so nearby tracked entities keep their current box until their
-        // interpolation tick runs. The post-packet bundle ping proves the handler
-        // ran, not that interpolation has advanced.
-        onBundleTransaction(false, true, x, y, z, yaw, pitch, player);
-    }
-
-    /** The yaw and pitch apply only when {@code hasRotation}. */
-    public void onBundledPositionSyncTransaction(
-            double x, double y, double z, boolean hasRotation, float yaw, float pitch, CultPlayer player) {
-        onBundleTransaction(false, true, x, y, z, hasRotation, yaw, hasRotation, pitch, player);
-    }
-
     // Remove the possibility of the old packet location
     public void onSecondTransaction() {
         ReachInterpolationData dropped = oldPacketLocation;
@@ -780,60 +808,16 @@ public class PacketEntity {
             float currentYaw,
             float currentPitch,
             float targetYaw,
-            float targetPitch,
-            boolean isPointNine,
-            boolean uncertainInitialSteps) {
+            float targetPitch) {
         ReachInterpolationData spare = spareInterpolation;
         spareInterpolation = null;
         if (spare != null
                 && spare.restart(
-                        player,
-                        startingLocation,
-                        x,
-                        y,
-                        z,
-                        currentYaw,
-                        currentPitch,
-                        targetYaw,
-                        targetPitch,
-                        isPointNine,
-                        this,
-                        uncertainInitialSteps)) {
+                        player, startingLocation, x, y, z, currentYaw, currentPitch, targetYaw, targetPitch, this)) {
             return spare;
         }
         return ReachInterpolationData.takingStart(
-                player,
-                startingLocation.copy(),
-                x,
-                y,
-                z,
-                currentYaw,
-                currentPitch,
-                targetYaw,
-                targetPitch,
-                isPointNine,
-                this,
-                uncertainInitialSteps);
-    }
-
-    public int unprovenUnbundledPaths() {
-        return unprovenUnbundledPaths;
-    }
-
-    /**
-     * The transaction after an unbundled position path proves the client handled it. With no client tick since the one
-     * before it, the client handled the path between the same two client ticks as both pings.
-     */
-    public void onUnbundledPathProven() {
-        if (unprovenUnbundledPaths > 0) unprovenUnbundledPaths--;
-    }
-
-    /**
-     * Minecraft#runTick handles queued packets before each frame's client ticks, so a client tick between an unbundled
-     * path's two transactions leaves the path handled before or after that tick.
-     */
-    private void tickWithUnprovenUnbundledPath() {
-        if (unprovenUnbundledPaths > 0) markPositionInexact();
+                player, startingLocation.copy(), x, y, z, currentYaw, currentPitch, targetYaw, targetPitch, this);
     }
 
     /** Entity data replacing the pose, which the client has applied once it answers provenAt. */
@@ -911,15 +895,6 @@ public class PacketEntity {
 
     // If the old and new packet location are split, we need to combine bounding boxes
     public void onMovement(CultPlayer player, boolean tickingReliably) {
-        if (player.isBedrockMovement() && bedrockRuntimeId != -1) {
-            if (bedrockInterpolation != null) bedrockInterpolation.tick(player, this);
-            if (isBoat() && bedrockPrediction != null) {
-                ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState.rebase(
-                        this, player.getSetbackTeleportUtil().getActiveBedrockCoordinateFrame());
-            }
-            return;
-        }
-        tickWithUnprovenUnbundledPath();
         ReachInterpolationData interpolation = newPacketLocation;
         Vec3 physicalBefore = clientPhysicalPosition;
         boolean idleProbe = false;
@@ -937,12 +912,17 @@ public class PacketEntity {
 
         if (player.isBedrockMovement() && isBoat() && bedrockPrediction != null) {
             ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState.rebase(
-                    this, player.getSetbackTeleportUtil().getActiveBedrockCoordinateFrame());
+                    this, player.getSetbackTeleportUtil().bedrockTeleports().getActiveBedrockCoordinateFrame());
         }
 
         // Handle uncertainty of second transaction spanning over multiple ticks
         if (oldPacketLocation != null) {
+            if (player.isBedrockMovement()) oldPacketLocation.rebaseBedrock(BoundingBoxSize.getHeight(player, this));
             oldPacketLocation.tickMovement(true, tickingReliably);
+            if (player.isBedrockMovement()) {
+                oldPacketLocation.dueBedrockStoredFeet(
+                        bedrockStoredFeet(player, oldPacketLocation.bedrockStepsLeft() > 0));
+            }
             widenStartingLocationByOldLocation();
         }
         if (idleProbe
@@ -958,13 +938,40 @@ public class PacketEntity {
 
     private void stepInterpolation(CultPlayer player, boolean tickingReliably) {
         carryInterpolationTargetByLocalPhysics(player);
+        if (player.isBedrockMovement()) newPacketLocation.rebaseBedrock(BoundingBoxSize.getHeight(player, this));
         SimpleCollisionBox exactAfterClientTick = exactInterpolatedLocationAfterClientTick(player);
+        boolean keptShown =
+                player.isBedrockMovement() && exactAfterClientTick != null && landsOnStoredBase(exactAfterClientTick);
+        if (keptShown) {
+            // The step left the start position where it was, so the actor keeps showing the box it showed.
+            exactAfterClientTick = GetBoundingBox.getBoundingBoxFromPosAndSize(
+                    exactAfterClientTickBox,
+                    clientPhysicalPosition.x,
+                    clientPhysicalPosition.y,
+                    clientPhysicalPosition.z,
+                    BoundingBoxSize.getWidth(player, this),
+                    BoundingBoxSize.getHeight(player, this));
+            exactAfterClientTickPosition = clientPhysicalPosition;
+        }
+        int bedrockStepsBefore = player.isBedrockMovement()
+                        && exactAfterClientTick != null
+                        && newPacketLocation.hasExactMovementLocationAfterClientTick()
+                ? newPacketLocation.remainingLerpSteps()
+                : 0;
+        // A Bedrock lerp that already ended takes no step: the actor keeps the box, and the start position, the last
+        // step left it, until the next move.
+        boolean bedrockFinished =
+                player.isBedrockMovement() && oldPacketLocation == null && newPacketLocation.bedrockStepsLeft() == 0;
         float exactYawAfterClientTick = exactYawAfterClientTick();
         float exactPitchAfterClientTick = exactPitchAfterClientTick();
         boolean exactRotationAfterClientTick = exactRotationAfterClientTick();
         boolean rotationMayStep = oldPacketLocation != null || newPacketLocation.hasActiveInterpolationTarget();
         newPacketLocation.tickMovement(oldPacketLocation == null, tickingReliably);
-        alignExactInterpolatedLocation(exactAfterClientTick);
+        if (player.isBedrockMovement()) {
+            newPacketLocation.dueBedrockStoredFeet(bedrockStoredFeet(player, newPacketLocation.bedrockStepsLeft() > 0));
+        }
+        if (!bedrockFinished) alignExactInterpolatedLocation(exactAfterClientTick);
+        if (keptShown) newPacketLocation.holdBedrockShownLocation(exactAfterClientTick);
         if (exactRotationAfterClientTick) {
             newPacketLocation.setExactRotation(exactYawAfterClientTick, exactPitchAfterClientTick);
             clientPhysicalYaw = exactYawAfterClientTick;
@@ -973,14 +980,21 @@ public class PacketEntity {
         } else if (rotationMayStep) {
             clientPhysicalYawCurrent = false;
         }
-        if (exactAfterClientTickPosition != null) {
+        if (bedrockFinished) {
+            return;
+        } else if (exactAfterClientTickPosition != null) {
             clientPhysicalPosition = exactAfterClientTickPosition;
             clientPhysicalPositionExact = true;
+            // With no position change the start position, and the base held for it, stay as they were.
+            if (player.isBedrockMovement() && !keptShown) storeBedrockBase(player, bedrockStepsBefore > 1);
         } else if (exactAfterClientTick != null) {
             clientPhysicalPosition = positionFromCollisionBox(exactAfterClientTick, clientPhysicalPosition);
             clientPhysicalPositionExact = true;
+            if (player.isBedrockMovement()) storeBedrockBase(player, bedrockStepsBefore > 1);
         } else {
             clientPhysicalPositionExact = false;
+            // Which start position the next lerp has is no longer known.
+            bedrockBaseFrom = null;
         }
     }
 
@@ -990,7 +1004,6 @@ public class PacketEntity {
      * LivingEntity#aiStep reaches travelRidden. Covers 26.3's stepped interpolation and a boat's LinearInterpolationHandler.
      */
     public void interpolateBeforeLocalTravel(CultPlayer player) {
-        tickWithUnprovenUnbundledPath();
         if (!hasActiveLocalRootInterpolation()) {
             return;
         }
@@ -1030,7 +1043,6 @@ public class PacketEntity {
 
     private void tickPacketInterpolationPreservingPhysical(
             CultPlayer player, Vec3 physicalPosition, float physicalYaw, float physicalPitch, boolean carryTarget) {
-        tickWithUnprovenUnbundledPath();
         if (carryTarget) {
             carryInterpolationTargetByLocalPhysics(player);
         }
@@ -1080,8 +1092,9 @@ public class PacketEntity {
     }
 
     protected void carryInterpolationTargetByLocalPhysics(CultPlayer player, ReachInterpolationData interpolationData) {
-        // Only an interpolating entity carries local movement into its target.
-        if (interpolationData == null
+        // Only an interpolating entity carries local movement into its target; a Bedrock client only lerps it.
+        if (player.isBedrockMovement()
+                || interpolationData == null
                 || !interpolationData.hasActiveInterpolationTarget()
                 || !hasUsableMountedPhysicalPosition(player)
                 || placedAtPacketPosition(player)) {
@@ -1138,7 +1151,9 @@ public class PacketEntity {
                 && newPacketLocation.interpolatesFromPhysicalAfterClientTick()
                 && hasUsableMountedPhysicalPosition(player)) {
             if (exactAfterClientTickBox == null) exactAfterClientTickBox = new SimpleCollisionBox();
-            Vec3 position = newPacketLocation.exactPositionAfterClientTickFromPhysical(clientPhysicalPosition);
+            Vec3 position = player.isBedrockMovement()
+                    ? bedrockLerpStep(player)
+                    : newPacketLocation.exactPositionAfterClientTickFromPhysical(clientPhysicalPosition);
             exactAfterClientTickPosition = position;
             return GetBoundingBox.getBoundingBoxFromPosAndSize(
                     exactAfterClientTickBox,
@@ -1149,8 +1164,90 @@ public class PacketEntity {
                     BoundingBoxSize.getHeight(player, this));
         }
         if (!newPacketLocation.hasExactMovementLocationAfterClientTick()) return null;
+        // A Bedrock move may not be handled yet, or start from several possible positions, whose union is not one the
+        // client is at.
+        if (player.isBedrockMovement()
+                && (oldPacketLocation != null || !newPacketLocation.hasOnePositionAfterClientTick())) {
+            return null;
+        }
         if (exactAfterClientTickBox == null) exactAfterClientTickBox = new SimpleCollisionBox();
         return newPacketLocation.exactMovementLocationAfterClientTick(exactAfterClientTickBox);
+    }
+
+    /**
+     * The Bedrock client's lerp step, pos += (target - pos) * (1 / n) in floats, in its coordinate frame and on the
+     * packet position {@link #bedrockPositionOffset} above the feet.
+     */
+    private Vec3 bedrockLerpStep(CultPlayer player) {
+        BedrockCoordinateFrame frame =
+                player.getSetbackTeleportUtil().bedrockTeleports().getActiveBedrockCoordinateFrame();
+        Vec3 from = frame.toLocal(clientPhysicalPosition);
+        Vec3 to = frame.toLocal(newPacketLocation.targetFeet());
+        int steps = newPacketLocation.remainingLerpSteps();
+        float offset = bedrockPositionOffset;
+        float fromY = clientPhysicalPosition == bedrockBaseFrom ? bedrockBaseY : (float) (from.y + offset);
+        float x = bedrockLerp(steps, (float) from.x, (float) to.x);
+        float y = bedrockLerp(steps, fromY, (float) (to.y + offset));
+        float z = bedrockLerp(steps, (float) from.z, (float) to.z);
+        return frame.toWorld(new Vec3(x, (double) y - offset, z));
+    }
+
+    // Whether a step from a changed start position landed on it: the shown actor has not moved across, and the step's
+    // packet y is the start one.
+    private boolean landsOnStoredBase(SimpleCollisionBox step) {
+        if (clientPhysicalPosition == null || clientPhysicalPosition != bedrockBaseFrom) return false;
+        Vec3 feet = positionFromCollisionBox(step, clientPhysicalPosition);
+        return (float) feet.x == (float) clientPhysicalPosition.x
+                && (float) feet.z == (float) clientPhysicalPosition.z
+                && (float) (feet.y + bedrockPositionOffset) == bedrockBaseY;
+    }
+
+    // The start y after a step that leaves steps when stepsLeft, applied to where the step left the actor.
+    private void storeBedrockBase(CultPlayer player, boolean stepsLeft) {
+        bedrockBaseFrom = null;
+        DoubleUnaryOperator storedFeet = bedrockStoredFeet(player, stepsLeft);
+        if (storedFeet == null) return;
+        double feet = clientPhysicalPosition.y;
+        double stored = storedFeet.applyAsDouble(feet);
+        if (stored == feet) return;
+        bedrockBaseFrom = clientPhysicalPosition;
+        bedrockBaseY = (float) (stored + bedrockPositionOffset);
+    }
+
+    /**
+     * Where a Bedrock actor's next lerp step starts from in y, after a step that leaves steps when stepsLeft; null when
+     * it starts from the step's. Each change is monotone.
+     * <ul>
+     *   <li>For an actor whose last move set onGround, minecarts aside, while steps are left: y rises to the next whole
+     *       number when floor(y + 0.01f) passes it.
+     *   <li>A resting bat hangs from the block above each tick: floor(y) + 1 - its height.
+     * </ul>
+     */
+    private @Nullable DoubleUnaryOperator bedrockStoredFeet(CultPlayer player, boolean stepsLeft) {
+        boolean lift = stepsLeft && bedrockMoveOnGround && !isMinecart();
+        boolean hang = bedrockResting && type == EntityTypeIds.BAT;
+        if (!lift && !hang) return null;
+        float offset = bedrockPositionOffset;
+        float height = BoundingBoxSize.getHeight(player, this);
+        return feet -> {
+            float y = (float) (feet + offset);
+            if (lift) {
+                int raised = (int) Math.floor(y + 0.01F);
+                if (raised != (int) Math.floor(y)) y = raised;
+            }
+            if (hang) y = (float) Math.floor(y) + 1.0F - height;
+            float stored = y;
+            return stored == (float) (feet + offset) ? feet : stored - (double) offset;
+        };
+    }
+
+    /** The RESTING flag a Bedrock client applied for this actor. */
+    public void setBedrockResting(boolean resting) {
+        bedrockResting = resting;
+    }
+
+    private static float bedrockLerp(int steps, float from, float to) {
+        return steps <= 1 ? to : from + (to - from) * (1.0F / steps);
     }
 
     private boolean exactRotationAfterClientTick() {
@@ -1283,7 +1380,6 @@ public class PacketEntity {
         Vec3 codecBase = desyncClientPos;
         passengerPhysicalBox = null;
         oldPacketLocation = null;
-        bedrockInterpolation = null;
         setPositionRaw(seat, clientPhysicalYaw, clientPhysicalPitch);
         markPositionInexact();
         if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)) {
@@ -1388,9 +1484,11 @@ public class PacketEntity {
     public SimpleCollisionBox getPossibleCollisionBoxes(SimpleCollisionBox out, SimpleCollisionBox scratch) {
         if (passengerPhysicalBox != null && riding != null) return out.set(passengerPhysicalBox);
         newPacketLocation.getPossibleLocationCombined(out);
-        if (oldPacketLocation == null) return out;
-        return ReachInterpolationData.combineCollisionBox(
-                oldPacketLocation.getPossibleLocationCombined(scratch), out, out);
+        if (oldPacketLocation != null) {
+            ReachInterpolationData.combineCollisionBox(
+                    oldPacketLocation.getPossibleLocationCombined(scratch), out, out);
+        }
+        return out;
     }
 
     public SimpleCollisionBox getPossibleMovementCollisionBoxes() {
@@ -1405,9 +1503,11 @@ public class PacketEntity {
     public SimpleCollisionBox getPossibleMovementCollisionBoxes(SimpleCollisionBox out, SimpleCollisionBox scratch) {
         if (passengerPhysicalBox != null && riding != null) return out.set(passengerPhysicalBox);
         newPacketLocation.getPossibleMovementLocationCombined(out);
-        if (oldPacketLocation == null) return out;
-        return ReachInterpolationData.combineCollisionBox(
-                oldPacketLocation.getPossibleMovementLocationCombined(scratch), out, out);
+        if (oldPacketLocation != null) {
+            ReachInterpolationData.combineCollisionBox(
+                    oldPacketLocation.getPossibleMovementLocationCombined(scratch), out, out);
+        }
+        return out;
     }
 
     /**
@@ -1440,7 +1540,8 @@ public class PacketEntity {
     public int possibleMovementCollisionBoxCandidateCount() {
         if (passengerPhysicalBox != null && riding != null) return 1;
         int count = newPacketLocation.possibleMovementLocationCount();
-        return oldPacketLocation == null ? count : count + oldPacketLocation.possibleMovementLocationCount();
+        if (oldPacketLocation != null) count += oldPacketLocation.possibleMovementLocationCount();
+        return count;
     }
 
     /** Writes the {@code index}th of {@link #getPossibleMovementCollisionBoxCandidates()} into {@code out}. */
@@ -1467,7 +1568,6 @@ public class PacketEntity {
         return riding == null
                 && received >= dataProvenAt
                 && !hasInexactPosition()
-                && unprovenUnbundledPaths == 0
                 && replacedPoses == 0
                 && Float.isNaN(replacedScale)
                 && getExactMovementCollisionBox() != null;
@@ -1513,6 +1613,22 @@ public class PacketEntity {
 
     public PacketEntity getRiding() {
         return riding;
+    }
+
+    /**
+     * Records the mount that just put this entity on {@link #riding}: one from riding nothing makes {@code clientTick}
+     * its first ride tick, in which it is still where Entity#startRiding found it; any other keeps its last seat.
+     */
+    public void onMounted(boolean fromRidingNothing, int clientTick) {
+        firstRideTick = fromRidingNothing ? clientTick : Integer.MIN_VALUE;
+    }
+
+    /**
+     * Whether {@code clientTick} is this rider's first Entity#rideTick since it mounted from riding nothing: that tick's
+     * LivingEntity#tick runs before Entity#positionRider seats it, from where it stood when it mounted.
+     */
+    public boolean ridesFirstTickFromItsMount(int clientTick) {
+        return riding != null && firstRideTick == clientTick;
     }
 
     public void addPotionEffect(MovementEffect effect, int amplifier) {

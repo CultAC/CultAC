@@ -269,8 +269,9 @@ public final class OrderedLegacyCheckDispatchTest {
             BadPacketsV check = player.checkManager.getListener(BadPacketsV.class);
             ServerboundMovePlayer movement = new ServerboundMovePlayer(0, 0, 0, 0, 0, true, false, false, false);
 
-            player.packetStateData.lastPacketWasTeleport = true;
-            check.onMovePlayer(receiveEvent(player, movement), player, movement);
+            var teleportAnswer = receiveEvent(player, movement);
+            teleportAnswer.setAnswersTeleport(true);
+            check.onMovePlayer(teleportAnswer, player, movement);
 
             Field field = BadPacketsV.class.getDeclaredField("lastTeleportTicks");
             field.setAccessible(true);

@@ -53,6 +53,27 @@ public class FluidPush implements UncertaintyHandler {
         return verticalRadius > 0.0D ? UncertaintyHelper.handleVertical(adjusted, end, verticalRadius) : adjusted;
     }
 
+    @Override
+    public void positionInto(
+            double[] xyz,
+            CultPlayer player,
+            ValidMovements valid,
+            PredictionResult result,
+            SimulationContext context,
+            PredictionResult lastContext,
+            PredVector carrier,
+            Vec3 end) {
+        if (!pushes(context)) return;
+        double waterRadius = flowingCurrentRadius(context, lastContext);
+        double verticalRadius = end.y < xyz[1] ? waterRadius : 0.0D;
+        if (waterRadius <= 0.0D) {
+            return;
+        }
+
+        UncertaintyHelper.circularInto(xyz, end, waterRadius);
+        if (verticalRadius > 0.0D) UncertaintyHelper.verticalInto(xyz, end, verticalRadius);
+    }
+
     private boolean pushes(SimulationContext context) {
         return CollisionModifier.isJavaVehicleMove(context) == beforeCollision;
     }

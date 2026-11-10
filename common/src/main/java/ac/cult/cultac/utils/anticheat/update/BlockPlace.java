@@ -253,22 +253,13 @@ public class BlockPlace {
             return false;
         }
 
-        if (player.debugPlaces) {
-            player.sendMessage("Applying resolved " + formatState(state) + " at " + position + " consume=false");
-        }
-
         int original = player.compensatedWorld.updateBlock(position.getX(), position.getY(), position.getZ(), state);
         player.getGhostBlockMitigator().handleBlockPlace(position, original, state, this);
         return true;
     }
 
     public void resync() {
-        if (player.debugPlaces) player.sendMessage("Block place resync'd");
         isCancelled = true;
-    }
-
-    private static String formatState(int state) {
-        return DataTables.defaults().registry().serialize(state);
     }
 
     // All method with rants about mojang must go below this line
