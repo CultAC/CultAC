@@ -292,6 +292,8 @@ cloud:
     # Порожнє значення: тимчасові бани виконує command, якщо він містить %duration% або %seconds%, інакше цей сервер
     # їх ніколи не бере.
     temp-command: ""
+    # The most panel bans this server claims a minute; the rest run in the minutes after.
+    max-per-minute: 300
 
 # Дозволяє командам модераторів, автодоповненню та сповіщенням працювати на всіх ваших проксі й серверах.
 # Інструкція з налаштування: docs/network.md у вихідному коді CultAC. Зміни застосовуються через /cult reload.

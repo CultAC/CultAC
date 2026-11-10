@@ -297,6 +297,8 @@ cloud:
     # Optional: runs timed bans in place of command, such as "tempban %silent% %player% %duration% %reason%". Empty:
     # command runs timed bans when it holds %duration% or %seconds%, else this server never takes them.
     temp-command: ""
+    # The most panel bans this server claims a minute; the rest run in the minutes after.
+    max-per-minute: 300
 
 # Yetkili komutlarının, Tab tamamlamanın ve uyarıların tüm proxy'lerinizde ve sunucularınızda çalışmasını sağlar.
 # Kurulum rehberi: CultAC kaynak kodundaki docs/network.md. /cult reload değişiklikleri uygular.

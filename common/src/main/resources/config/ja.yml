@@ -305,6 +305,8 @@ cloud:
     # Optional: runs timed bans in place of command, such as "tempban %silent% %player% %duration% %reason%". Empty:
     # command runs timed bans when it holds %duration% or %seconds%, else this server never takes them.
     temp-command: ""
+    # The most panel bans this server claims a minute; the rest run in the minutes after.
+    max-per-minute: 300
 
 # スタッフ用コマンド、Tab 補完、アラートを、すべてのプロキシとサーバーをまたいで使えるようにします。
 # 設定ガイド：CultAC のソース内の docs/network.md。変更は /cult reload で反映されます。

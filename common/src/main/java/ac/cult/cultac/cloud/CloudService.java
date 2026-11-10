@@ -94,6 +94,7 @@ public final class CloudService {
         CONNECTIONS.configure(settings);
         LabelClient.refreshCatalogWhile(settings.enabled());
         String ownId = CloudServerIds.own(settings.serverIdTemplate(), settings.proxyId(), proxy);
+        StaffBans.maxPerMinute(config.getIntElse("cloud.staff-ban.max-per-minute", StaffBans.DEFAULT_MAX_PER_MINUTE));
         StaffBans.configure(settings, StaffBans.Commands.read(config), ownId, proxy);
         CloudFlags.configure(settings, ownId);
         CloudCapture.uplinks(UPLINKS);
@@ -186,7 +187,7 @@ public final class CloudService {
 
     private static void finding(IntakeWire.Event event) {
         FindingsLog log = findings;
-        if (log == null) return;
+        if (log == null || !(event.confidence() >= 0 && event.confidence() <= 1)) return;
         CultPlayer player = CultAPI.INSTANCE.getPlayerDataManager().getPlayer(event.player());
         log.add(
                 event.player(),

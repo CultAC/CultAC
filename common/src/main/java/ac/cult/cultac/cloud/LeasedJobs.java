@@ -112,6 +112,9 @@ public abstract class LeasedJobs<J> {
      */
     protected abstract CompletableFuture<Void> run(J job);
 
+    /** A claim of a job {@link #due} picked that the service did not grant or did not answer. */
+    protected void unclaimed(J job) {}
+
     /** Whether the job a won claim answered with is {@code pending}'s. */
     protected boolean answers(J answered, J pending) {
         return id(answered).equals(id(pending));
@@ -209,6 +212,7 @@ public abstract class LeasedJobs<J> {
         return send(request("/api/v1/" + kind.route() + "/" + id(job) + "/claim")
                         .POST(HttpRequest.BodyPublishers.ofString(body.toString())))
                 .handle((reply, error) -> {
+                    if (error != null || reply.status() != 200) unclaimed(job);
                     if ((error != null || reply.status() != 200) && !generation.latest(chain)) {
                         release(job);
                         return CompletableFuture.<Void>completedFuture(null);

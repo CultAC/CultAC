@@ -313,6 +313,8 @@ cloud:
     # Optional: runs timed bans in place of command, such as "tempban %silent% %player% %duration% %reason%". Empty:
     # command runs timed bans when it holds %duration% or %seconds%, else this server never takes them.
     temp-command: ""
+    # The most panel bans this server claims a minute; the rest run in the minutes after.
+    max-per-minute: 300
 
 # 让管理命令、Tab 补全和警报在你所有的代理和服务器之间通用。
 # 设置指南：CultAC 源码中的 docs/network.md。修改后用 /cult reload 生效。
