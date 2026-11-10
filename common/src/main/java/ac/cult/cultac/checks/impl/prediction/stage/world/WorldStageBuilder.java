@@ -54,13 +54,6 @@ import lombok.Data;
 import org.jetbrains.annotations.Nullable;
 
 public class WorldStageBuilder {
-    // Temporary Bedrock push-out approximation, inset on every face.
-    // prevents exploits due to incomplete phase check
-    // bedrock client sends pos as (minX + maxX) / 2 and doesn't rebase bounding box on position like java client
-    // causing floating point inaccuracies. Yes, this causes falses, but I'm not sure how to fix bedrock's
-    // floating point inprecision is any decent way... perhaps looking at the many bounding boxes that can send
-    // the position and picking the one at the end of the tick that doesn't intersect with any new block collisions?
-    private static final double BEDROCK_PUSH_OUT_INSET = 0.002D;
     private static final BlockRegistry BLOCKS = DataTables.defaults().registry();
     private static final Direction[] HORIZONTAL_ESCAPES = {
         Direction.WEST, Direction.EAST, Direction.NORTH, Direction.SOUTH
@@ -499,8 +492,12 @@ public class WorldStageBuilder {
                         player, oldPos.x + bbWidth * 0.35D, oldPos.y, oldPos.z + bbWidth * 0.35D, bodyMaxY);
     }
 
-    public static boolean moveTowardsClosestSpaceBedrock(SimpleCollisionBox box, List<SimpleCollisionBox> shapes) {
-        box = box.copy().expand(-BEDROCK_PUSH_OUT_INSET);
+    /**
+     * The horizontal direction that leaves the shapes the box overlaps, or null when nothing pushes it. Each axis
+     * points away from their mean center, turns around when only the opposite corridor is free and is dropped when
+     * neither is. A box centered on them leaves towards +x and +z.
+     */
+    public static Vec3 moveTowardsClosestSpaceBedrock(SimpleCollisionBox box, List<SimpleCollisionBox> shapes) {
         List<SimpleCollisionBox> surrounding = new ArrayList<>();
         SimpleCollisionBox search = box.copy().expand(1.0, 0.0, 1.0);
         float centerX = 0.0F;
@@ -516,7 +513,7 @@ public class WorldStageBuilder {
                 surrounding.add(shape);
             }
         }
-        if (overlaps == 0) return false;
+        if (overlaps == 0) return null;
         centerX *= 1.0F / overlaps;
         centerZ *= 1.0F / overlaps;
         float dx = (float) ((box.minX + box.maxX) * 0.5) - centerX;
@@ -529,13 +526,20 @@ public class WorldStageBuilder {
         // unlike java, anything with a collision box can push the player
         SimpleCollisionBox centered =
                 box.copy().offset(centerX - (box.minX + box.maxX) * 0.5, 0.0, centerZ - (box.minZ + box.maxZ) * 0.5);
-        for (Direction direction : HORIZONTAL_ESCAPES) {
-            if (direction.getModX() != 0 ? dx == 0.0F : dz == 0.0F) continue;
-            SimpleCollisionBox corridor =
-                    centered.copy().expandToCoordinate(direction.getModX(), 0.0, direction.getModZ());
-            if (surrounding.stream().noneMatch(corridor::isIntersected)) return true;
+        float pushX = dx * freeCorridor(centered, surrounding, Math.signum(dx), 0.0F);
+        float pushZ = dz * freeCorridor(centered, surrounding, 0.0F, Math.signum(dz));
+        return pushX == 0.0F && pushZ == 0.0F ? null : new Vec3(pushX, 0.0, pushZ);
+    }
+
+    /** 1 when the corridor along the direction is free, -1 when only the opposite one is, else 0. */
+    private static float freeCorridor(
+            SimpleCollisionBox centered, List<SimpleCollisionBox> surrounding, float x, float z) {
+        if (x == 0.0F && z == 0.0F) return 0.0F;
+        for (float side = 1.0F; side >= -1.0F; side -= 2.0F) {
+            SimpleCollisionBox corridor = centered.copy().expandToCoordinate(x * side, 0.0, z * side);
+            if (surrounding.stream().noneMatch(corridor::isIntersected)) return side;
         }
-        return false;
+        return 0.0F;
     }
 
     // Does minY to maxY exist in a block?

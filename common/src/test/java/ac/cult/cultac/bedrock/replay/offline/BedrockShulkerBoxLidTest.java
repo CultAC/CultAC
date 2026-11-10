@@ -197,7 +197,8 @@ public class BedrockShulkerBoxLidTest {
 
     /**
      * A player standing on a box that opens: the tick after the event still stands on the closed box, and the lid's
-     * first step, 0.0713 high, takes the player into the box, through which it falls.
+     * first step, 0.0713 high, takes the player into the box, through which it falls. The box sits in the floor, so
+     * the end-of-tick push finds no free side to push the player towards.
      */
     @Test
     public void aPlayerOnAnOpeningBoxFallsIntoItFromTheFirstLidStep() {
@@ -219,19 +220,53 @@ public class BedrockShulkerBoxLidTest {
         }
     }
 
+    /**
+     * A box facing east opens into the player standing beside it, 0.01 from the closed box: the tick after the event
+     * meets the closed box, the next one the lid's first step 0.0713 out, which the move leaves and the end-of-tick
+     * push then pushes the player out of at 0.1 east; the step after that still overlaps and pushes again.
+     */
+    @Test
+    public void aLidOpeningIntoThePlayerBesideItPushesThePlayerAway() {
+        OfflineCultTestBootstrap.installConfig();
+        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            int east = shulkerBox("east");
+            placeBox(player, east, BOX.getY());
+            var still = new Vec3(0, GRAVITY_TICK, 0);
+            var beside = new Vec3(BOX.getX() + 1.31, BOX.getY(), BOX.getZ() + 0.5);
+            standAt(player, beside);
+            frame(player, 51400, beside, still, true);
+            player.checkManager.endBedrockClientTick();
+            blockEvent(player, 1, 1, east);
+            frame(player, 51401, beside, still, true);
+            player.checkManager.endBedrockClientTick();
+            frame(player, 51402, beside, new Vec3(0.1, GRAVITY_TICK, 0), true);
+            player.checkManager.endBedrockClientTick();
+            frame(player, 51403, beside.add(0.1, 0, 0), new Vec3(0.1, GRAVITY_TICK, 0), true);
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
     private static int shulkerBox(String facing) {
         var registry = DataTables.defaults().registry();
         return registry.with(registry.block("minecraft:shulker_box").defaultState(), "facing", facing);
     }
 
+    /** A box facing up set into a stone floor level with its top. */
     private static void placeBox(CultPlayer player) {
+        placeBox(player, UP, BOX.getY() + 1);
+    }
+
+    /** {@code state} at {@link #BOX} with stone around it below {@code floorTop}. */
+    private static void placeBox(CultPlayer player, int state, int floorTop) {
         int stone = DataTables.defaults().registry().block("minecraft:stone").defaultState();
         for (int x = BOX.getX() - 2; x <= BOX.getX() + 2; x++)
             for (int z = BOX.getZ() - 2; z <= BOX.getZ() + 2; z++) {
                 player.compensatedWorld.ensureValidationChunkLoaded(x >> 4, z >> 4);
-                player.compensatedWorld.updateBlock(x, BOX.getY() - 1, z, stone);
+                for (int y = BOX.getY() - 1; y < floorTop; y++) player.compensatedWorld.updateBlock(x, y, z, stone);
             }
-        player.compensatedWorld.updateBlock(BOX.getX(), BOX.getY(), BOX.getZ(), UP);
+        player.compensatedWorld.updateBlock(BOX.getX(), BOX.getY(), BOX.getZ(), state);
     }
 
     /** A handled block event of {@code viewers} viewers. */
@@ -240,16 +275,23 @@ public class BedrockShulkerBoxLidTest {
     }
 
     private static void blockEvent(CultPlayer player, int type, int parameter) {
+        blockEvent(player, type, parameter, UP);
+    }
+
+    private static void blockEvent(CultPlayer player, int type, int parameter, int state) {
         player.compensatedWorld.applyClientBlockEvent(
                 player.compensatedWorld.getLastClientboundDimension().dimension(),
-                new ClientboundBlockEvent(
-                        BOX, type, parameter, DataTables.defaults().registry().blockIndex(UP)));
+                new ClientboundBlockEvent(BOX, type, parameter, DataTables.defaults().registry().blockIndex(state)));
     }
 
     private static void standAt(CultPlayer player, double y) {
-        player.x = player.lastX = BOX.getX() + 0.5;
-        player.y = player.lastY = y;
-        player.z = player.lastZ = BOX.getZ() + 0.5;
+        standAt(player, new Vec3(BOX.getX() + 0.5, y, BOX.getZ() + 0.5));
+    }
+
+    private static void standAt(CultPlayer player, Vec3 feet) {
+        player.x = player.lastX = feet.x;
+        player.y = player.lastY = feet.y;
+        player.z = player.lastZ = feet.z;
         player.onGround = player.lastOnGround = true;
         player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, player.x, player.y, player.z);
     }
@@ -257,7 +299,11 @@ public class BedrockShulkerBoxLidTest {
     /** One client tick that ends with the feet at {@code y}, which the engine must predict without a flag. */
     private static void frame(CultPlayer player, long tick, double y, float velocityY, boolean verticalCollision) {
         var feet = new Vec3(BOX.getX() + 0.5, (float) y, BOX.getZ() + 0.5);
-        var velocity = new Vec3(0, velocityY, 0);
+        frame(player, tick, feet, new Vec3(0, velocityY, 0), verticalCollision);
+    }
+
+    /** One client tick that ends at {@code feet} with {@code velocity}, which the engine must predict without a flag. */
+    private static void frame(CultPlayer player, long tick, Vec3 feet, Vec3 velocity, boolean verticalCollision) {
         var frame = BedrockAuthInputFrame.builder(player.playerUUID)
                 .protocolVersion(2193)
                 .clientTick(tick)
@@ -265,7 +311,7 @@ public class BedrockShulkerBoxLidTest {
                 .playMode(2)
                 .deviceId(3)
                 .position(feet)
-                .packetPosition(new Vec3(feet.x, (float) (y + 1.62001), feet.z))
+                .packetPosition(new Vec3(feet.x, (float) (feet.y + 1.62001), feet.z))
                 .rotation(0, 0, 0)
                 .moveVector(0, 0)
                 .delta(velocity)
@@ -285,8 +331,9 @@ public class BedrockShulkerBoxLidTest {
                 .subtract(new Vec3d(feet.x, feet.y, feet.z))
                 .length();
         assertTrue("tick " + tick + " position offset " + offset, offset <= 0.001);
-        double velocityOffset =
-                state.velocity().subtract(new Vec3d(0, velocityY, 0)).length();
+        double velocityOffset = state.velocity()
+                .subtract(new Vec3d(velocity.x, velocity.y, velocity.z))
+                .length();
         assertTrue("tick " + tick + " velocity offset " + velocityOffset, velocityOffset <= 0.001);
     }
 }

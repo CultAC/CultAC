@@ -309,13 +309,7 @@ public final class BedrockMovementEngine implements MovementEngine {
             var movement = bedrockResult.movementResult();
             var state = bedrockResult.nextTickBaseState();
             var frame = result.getSimulationContext().getBedrockInput();
-            List<Entry> entries = BedrockForwardTick.finish(
-                            movement,
-                            state,
-                            frame.getReportedEndOfTickVelocity() == null
-                                    ? null
-                                    : BedrockVectorAdapter.toBedrock(frame.getReportedEndOfTickVelocity()))
-                    .stream()
+            List<Entry> entries = BedrockForwardTick.finish(movement, state).stream()
                     .map(next -> new Entry(next, bedrockResult.nextTickBaseMobJumpComponent()))
                     .toList();
             if (result.isExempt() && frame.getReportedEndOfTickVelocity() != null) {

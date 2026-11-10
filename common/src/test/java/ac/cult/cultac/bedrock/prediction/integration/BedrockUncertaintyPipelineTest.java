@@ -279,41 +279,24 @@ public final class BedrockUncertaintyPipelineTest {
                 true,
                 false,
                 null);
-        Vec3d reported = new Vec3d(-0.047259465, 0, 0.088127986);
         var selected = previous.withPhysicalFeetPosition(new Vec3d(0.9, 0, 0.5), 0.16);
-        var pushed =
-                ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick.finish(movement, selected, reported);
+        // The box overlaps the block from its west side, so the push raises the resting x velocity to 0.1 westward.
+        var pushed = ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick.finish(movement, selected);
         Assert.assertEquals(1, pushed.size());
         Assert.assertEquals(selected.physicalFeetPosition(), pushed.getFirst().physicalFeetPosition());
-        Assert.assertEquals(reported.x(), pushed.getFirst().velocity().x(), 1.0E-12);
-        Assert.assertEquals(reported.z(), pushed.getFirst().velocity().z(), 1.0E-12);
-        var unpushed = ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick.finish(movement, selected);
-        Assert.assertEquals(
-                unpushed.getFirst().velocity().y(), pushed.getFirst().velocity().y(), 0);
-        var outside =
-                ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick.finish(movement, previous, reported);
+        Assert.assertEquals(-0.1F, pushed.getFirst().velocity().x(), 0);
+        Assert.assertEquals(0, pushed.getFirst().velocity().z(), 0);
+        var outside = ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick.finish(movement, previous);
         Assert.assertEquals(0, outside.getFirst().velocity().x(), 0);
         Assert.assertEquals(0, outside.getFirst().velocity().z(), 0);
-        var excessive = ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick.finish(
-                        movement, selected, new Vec3d(-1, 1, 1))
-                .getFirst();
-        Assert.assertEquals(-0.1, excessive.velocity().x(), 0);
-        Assert.assertEquals(0.1, excessive.velocity().z(), 0);
         Assert.assertEquals(
-                unpushed.getFirst().velocity().y(), excessive.velocity().y(), 0);
+                outside.getFirst().velocity().y(), pushed.getFirst().velocity().y(), 0);
+        Vec3 reported = new Vec3(-0.1F, pushed.getFirst().velocity().y(), 0);
         var observation = BedrockMovementObservationFactory.fromForwardSelection(
-                movement,
-                new Vec3(0.9, 0, 0.5),
-                selected,
-                new Vec3(reported.x(), unpushed.getFirst().velocity().y(), reported.z()),
-                null);
+                movement, new Vec3(0.9, 0, 0.5), selected, reported, null);
         Assert.assertEquals(0, observation.velocityOffset(), 1.0E-12);
         var claimedOverlap = BedrockMovementObservationFactory.fromForwardSelection(
-                movement,
-                new Vec3(0.9, 0, 0.5),
-                previous,
-                new Vec3(reported.x(), outside.getFirst().velocity().y(), reported.z()),
-                null);
+                movement, new Vec3(0.9, 0, 0.5), previous, reported, null);
         Assert.assertEquals(0.1, claimedOverlap.velocityOffset(), 1.0E-7);
     }
 
