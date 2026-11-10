@@ -899,6 +899,7 @@ public class CultPlayer implements GrimUser {
      * same task and proves the packet without another. Standalone packets instead retain a FIFO trailing proof,
      * without claiming bundle atomicity or application before the next client tick. Protocol transitions cannot
      * carry an old-phase proof. Returns null, writing nothing, when no transaction can be sent.
+     * Calls that share one flush-bundle ping may return the same immutable record.
      */
     @Nullable
     public TrackedTransaction appendTrailingProofTransaction(
@@ -908,10 +909,16 @@ public class CultPlayer implements GrimUser {
                 : event.flushPing();
         if (shared > 0) {
             event.getWritesAfterSend().addAll(packetsBeforeProof);
-            return new TrackedTransaction(shared, null);
+            TrackedTransaction proof = sharedProof;
+            if (proof == null || proof.transaction() != shared)
+                sharedProof = proof = new TrackedTransaction(shared, null);
+            return proof;
         }
         return writeTrailingProofTransaction(event, packetsBeforeProof);
     }
+
+    // The last shared flush-bundle proof handed out; a record, so any thread may return it.
+    private TrackedTransaction sharedProof;
 
     /**
      * Writes a tracked ping of its own directly after the event's packet, for a packet whose client handler sends a
