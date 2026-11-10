@@ -943,12 +943,16 @@ public class CheckManagerListener implements ac.cult.cultac.network.OpaqueReceiv
                 packetRoot == null ? vehiclePacket.onGround() : packetRoot.onGround;
         player.packetStateData.vehicleMovementOnGroundPresent = clientReportsOnGround;
         player.packetStateData.vehicleMovementReportedOnGround = clientReportsOnGround && vehiclePacket.onGround();
-        // AbstractBoat#tick takes getStatus() and runs super.tick()'s fluid update before
-        // InterpolationHandler#interpolate moves the boat.
+        // Through 26.2 AbstractBoat#tick takes getStatus() and runs super.tick()'s fluid update before its own
+        // InterpolationHandler#interpolate moves the boat. From 26.3 Entity#commonTick interpolates before tick().
+        boolean interpolatesBeforeBoatTick = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3);
+        if (interpolatesBeforeBoatTick && checkableClientTick && firstClientTickVehicleMove) {
+            packetRoot.interpolateBeforeLocalTravel(player);
+        }
         if (shouldTickControlledBoatForClientVehiclePacket(packetRoot, checkableClientTick)) {
             player.boatData.tick(player);
         }
-        if (checkableClientTick && firstClientTickVehicleMove) {
+        if (!interpolatesBeforeBoatTick && checkableClientTick && firstClientTickVehicleMove) {
             packetRoot.interpolateBeforeLocalTravel(player);
         }
         Vec3 oldPosition = currentVehiclePhysicalPosition(player, packetRoot, new Vec3(player.x, player.y, player.z));

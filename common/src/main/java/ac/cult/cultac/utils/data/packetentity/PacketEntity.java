@@ -206,8 +206,8 @@ public class PacketEntity {
 
     public HashMap<MovementEffect, Integer> potionsMap = null;
     public BoatEntityStatus boatStatus = null;
-    private BoatEntityStatus statusBeforeStep;
-    private int statusBeforeStepTick = Integer.MIN_VALUE;
+    private BoatEntityStatus boatTickStatus;
+    private int boatTickStatusAt = Integer.MIN_VALUE;
     // AbstractBoat#deltaRotation of this boat as the player's control moved to another boat.
     public float boatDeltaRotation;
     // AbstractBoat's inputLeft/Right/Up/Down: only LocalPlayer#rideTick writes them, and nothing clears them on a
@@ -1188,10 +1188,14 @@ public class PacketEntity {
                     && interpolation.isSettled()) return;
             idleProbe = interpolation.beginIdleProbe();
         }
-        // The local passenger's Entity#baseTick reads its boat's status after the boat's tick.
-        if (boat && !player.isBedrockMovement() && this == player.compensatedEntities.getSelf().getRiding())
-            updateBoatStatus(player);
+        // The local passenger's Entity#baseTick reads its boat's status after the boat's tick. Through 26.2
+        // AbstractBoat#tick takes it before its own interpolation step; from 26.3 Entity#commonTick steps first.
+        boolean ridden =
+                boat && !player.isBedrockMovement() && this == player.compensatedEntities.getSelf().getRiding();
+        boolean stepsBeforeStatus = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3);
+        if (ridden && !stepsBeforeStatus) updateBoatStatus(player);
         stepInterpolation(player);
+        if (ridden && stepsBeforeStatus) updateBoatStatus(player);
 
         if (player.isBedrockMovement() && isBoat() && bedrockPrediction != null) {
             ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState.rebase(
@@ -1469,25 +1473,25 @@ public class PacketEntity {
     }
 
     /**
-     * AbstractBoat#tick updates status even for a boat the client does not control, before
-     * InterpolationHandler#interpolate moves it: a status every position candidate agrees on, else null.
+     * AbstractBoat#tick updates status even for a boat the client does not control: a status every position
+     * candidate agrees on, else null.
      */
     private void updateBoatStatus(CultPlayer player) {
-        statusBeforeStepTick = player.packetStateData.acceptedClientTick;
-        statusBeforeStep = null;
+        boatTickStatusAt = player.packetStateData.acceptedClientTick;
+        boatTickStatus = null;
         for (SimpleCollisionBox box : getPossibleMovementCollisionBoxCandidates()) {
             BoatEntityStatus status = BoatData.sampleStatus(player, box).status();
-            if (statusBeforeStep != null && status != statusBeforeStep) {
-                statusBeforeStep = null;
+            if (boatTickStatus != null && status != boatTickStatus) {
+                boatTickStatus = null;
                 return;
             }
-            statusBeforeStep = status;
+            boatTickStatus = status;
         }
     }
 
-    /** The status this client tick's AbstractBoat#tick took before its interpolation step, else null. */
+    /** The status this client tick's AbstractBoat#tick took, else null. */
     public @Nullable BoatEntityStatus boatStatusThisTick(CultPlayer player) {
-        return statusBeforeStepTick == player.packetStateData.acceptedClientTick ? statusBeforeStep : null;
+        return boatTickStatusAt == player.packetStateData.acceptedClientTick ? boatTickStatus : null;
     }
 
     public boolean hasPassenger(PacketEntity entity) {

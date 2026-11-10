@@ -196,8 +196,8 @@ public class BoatTransform implements UncertaintyHandler {
         // MCP-Reborn AbstractBoat#tick calls super.tick() before floatBoat(); Entity#baseTick
         // applies the water current and then the lava current there (Entity#updateFluidInteraction,
         // updateInWaterStateAndDoFluidPushing before 26.1). AbstractBoat#getStatus() and
-        // Entity#baseTick run before interpolation, so both currents sample the same
-        // pre-interpolation fluid box captured with the boat status.
+        // Entity#baseTick run on the same side of the interpolation step, before it through 26.2
+        // and after it from 26.3, so both currents sample the fluid box captured with the boat status.
         // Boats are Entity, not Player, so EntityFluidInteraction.Tracker#applyCurrentTo
         // normalizes accumulated current instead of averaging it like LocalPlayer movement.
         SimpleCollisionBox fluidBox = player.boatData.fluidInteractionBox == null

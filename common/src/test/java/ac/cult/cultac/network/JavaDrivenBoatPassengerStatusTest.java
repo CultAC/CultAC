@@ -29,10 +29,12 @@ import org.junit.jupiter.params.provider.CsvSource;
 
 /**
  * A boat the player drives rests on the floor over one water cell, the player's box reaching into that water below
- * the boat. A teleport the client interpolates carries it under a water ceiling. AbstractBoat#tick takes getStatus()
- * before InterpolationHandler#interpolate: on land, not under water, so the passenger's fluid box starts at the moved
- * boat's top and the passenger, still at its previous seat, travels in air. The first move after the dismount falls by
- * that ride tick's gravity.
+ * the boat. A teleport the client interpolates carries it under a water ceiling. Through 26.2 AbstractBoat#tick takes
+ * getStatus() before InterpolationHandler#interpolate: on land, not under water, so the passenger's fluid box starts at
+ * the moved boat's top and the passenger, still at its previous seat, travels in air. The first move after the dismount
+ * falls by that ride tick's gravity. From 26.3 Entity#commonTick steps the boat before AbstractBoat#tick: the status is
+ * already under water, the passenger's whole box reaches the water below its previous seat and the ride tick leaves
+ * water gravity instead.
  */
 class JavaDrivenBoatPassengerStatusTest {
     private static final int BOAT = 100;
@@ -40,13 +42,15 @@ class JavaDrivenBoatPassengerStatusTest {
     /** The client interpolates this over AbstractBoat's three steps; the first ends 2.6 blocks on, under the ceiling. */
     private static final Vec3 TARGET = BOAT_AT.add(0, 0, 7.8);
     private static final double FALL = -0.08 * 0.98F;
+    /** LivingEntity#getFluidFallingAdjustedMovement from rest. */
+    private static final double WATER_FALL = -0.08 / 16.0;
     private static final ServerboundPlayerInput NONE =
             new ServerboundPlayerInput(false, false, false, false, false, false, false);
 
     @ParameterizedTest
     @CsvSource({"V_1_21_11, true", "V_1_21_11, false", "V_26_2, true", "V_26_2, false", "V_26_3, true",
         "V_26_3, false"})
-    void theStepUnderTheCeilingKeepsTheStatusFromBeforeIt(ClientVersion version, boolean underCeiling)
+    void theStepUnderTheCeilingTakesTheStatusItsVersionSamples(ClientVersion version, boolean underCeiling)
             throws Exception {
         try (var f = new JavaTickFixture();
                 var ignored = observeOnly()) {
@@ -83,6 +87,7 @@ class JavaDrivenBoatPassengerStatusTest {
             f.pongThrough(f.player.lastTransactionSent.get());
             assertFalse(f.player.compensatedEntities.getSelf().inVehicle());
             // The first free move then travels in air from the seat, by the delta the ride tick left.
+            double fall = underCeiling && version.isNewerThanOrEquals(ClientVersion.V_26_3) ? WATER_FALL : FALL;
             f.player.compensatedWorld.updateBlock(new BlockPos(0, FLOOR_Y - 1, -1), BlockIds.STONE.defaultState());
             for (int x = -3; x <= 3; x++) {
                 for (int z = 2; z <= 8; z++) {
@@ -90,7 +95,7 @@ class JavaDrivenBoatPassengerStatusTest {
                         f.player.compensatedWorld.updateBlock(new BlockPos(x, y, z), BlockIds.AIR.defaultState());
                 }
             }
-            PredictionResult first = f.tick(seat.add(0, FALL, 0), false);
+            PredictionResult first = f.tick(seat.add(0, fall, 0), false);
             assertTrue(exact(first), version + (underCeiling ? " under a ceiling: " : " in the open: ")
                     + describe(first));
         }
