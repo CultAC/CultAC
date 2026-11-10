@@ -12,8 +12,12 @@ import java.util.Optional;
 final class BedrockCollisionClipper {
     static final float DEFAULT_MAX_DEPENETRATION = 1.0F;
 
+    /**
+     * The deepest full overlap the swept move resolves through the nearest face. A ridden vehicle is moved out of a
+     * block it overlaps by the move itself; a player is pushed out by the end-of-tick block push instead.
+     */
     static float maximumDepenetration(ac.cult.cultac.bedrock.prediction.state.BedrockMovementState state) {
-        return state.isVehicle() ? 0.0F : 0.01F;
+        return state.isVehicle() ? DEFAULT_MAX_DEPENETRATION : 0.01F;
     }
 
     private BedrockCollisionClipper() {}
