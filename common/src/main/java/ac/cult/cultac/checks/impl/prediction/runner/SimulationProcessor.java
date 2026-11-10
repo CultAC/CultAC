@@ -1883,13 +1883,19 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     // must not replace the ordinary move's collision/velocity state.
                     CollideAxisData stepEligibility = probedCollisions;
                     if (engine == JavaMovementEngine.INSTANCE && !stepEligibility.couldCollideHorizontally()) {
-                        stepEligibility = probeCollisions(
-                                player,
-                                engine,
-                                thisResult,
-                                attemptedExtents,
-                                thisResult.getSimulationContext().getTarget(),
-                                true);
+                        // Only couldCollideHorizontally reads this probe, so it may land in the probe's scratch.
+                        collisionProbe.reuseNextResult(true);
+                        try {
+                            stepEligibility = probeCollisions(
+                                    player,
+                                    engine,
+                                    thisResult,
+                                    attemptedExtents,
+                                    thisResult.getSimulationContext().getTarget(),
+                                    true);
+                        } finally {
+                            collisionProbe.reuseNextResult(false);
+                        }
                     }
                     allowStep = stepEligibility.couldCollideHorizontally();
                 }
