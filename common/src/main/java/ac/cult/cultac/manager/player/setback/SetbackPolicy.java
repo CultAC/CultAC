@@ -117,7 +117,7 @@ public final class SetbackPolicy {
 
     public boolean executeTooHighLatencySetback(String cause) {
         if (isExempt()) return false;
-        // Latency is measured by movement: a dead client's movement is cancelled before prediction, and a client
+        // Latency is measured by forwarded movement: a dead client's movement is never forwarded, and a client
         // that has not accepted its placement teleport has no movement to send yet.
         if (player.compensatedEntities.getSelf().isDead || !gate.hasFullyLoaded()) return false;
         if (debug.getAsBoolean()) {

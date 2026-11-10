@@ -226,16 +226,24 @@ class JavaSetbackPacketOrderingTest {
         }
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"bed", "dead"})
-    void invalidBedAndDeathMovementCannotChangeThePredictionAnchor(String reason) throws Exception {
+    @Test
+    void deadMovementIsPredictedButNeverForwarded() throws Exception {
         try (var setup = new Setup(ProtocolVersion.V26_3)) {
-            if (reason.equals("bed")) {
-                setup.player.isInBed = true;
-                setup.player.bedPosition = new Vec3(5, 64, 5);
-            } else {
-                setup.player.compensatedEntities.getSelf().isDead = true;
-            }
+            setup.player.compensatedEntities.getSelf().isDead = true;
+            assertTrue(setup.move(true, .5, 0).isCancelled());
+            assertFalse(setup.player
+                    .checkManager
+                    .getSimulationProcessor()
+                    .getLastMovementTime()
+                    .isEmpty());
+        }
+    }
+
+    @Test
+    void invalidBedMovementCannotChangeThePredictionAnchor() throws Exception {
+        try (var setup = new Setup(ProtocolVersion.V26_3)) {
+            setup.player.isInBed = true;
+            setup.player.bedPosition = new Vec3(5, 64, 5);
             var reminder = setup.player.checkManager.getCheck(BadPacketsE.class);
             setField(BadPacketsE.class, reminder, "noReminderTicks", 19);
             assertTrue(setup.move(true, .6, 0).isCancelled());

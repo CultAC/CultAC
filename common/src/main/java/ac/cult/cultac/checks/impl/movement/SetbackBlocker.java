@@ -68,6 +68,10 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
         // Bedrock's projection has already been predicted by its auth-input path.
         if (player.isBedrockMovement()) {
             blockMovePlayer(event, movePacket, translatedBedrockMovement);
+            blockDeadMovePlayer(event);
+        } else if (player.packetStateData.localPlayerRemoved || player.localPlayerRemovedThisTick()) {
+            // From the tick LocalPlayer#tickDeath removes the player, no aiStep moves it.
+            blockDeadMovePlayer(event);
         }
         blockInactiveMovePlayer(event, movePacket);
     }
@@ -99,7 +103,7 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
             PacketReceiveEvent<ServerboundMovePlayer> event, ServerboundMovePlayer packet) {
         if (player.isDisabled() || !player.shouldEnforceMovementSetbacks()) return;
         boolean teleport = event.answersTeleport();
-        // Invalid sleeping/dead movement must not change the simulation's position anchor.
+        // Invalid sleeping movement must not change the simulation's position anchor.
         if (!teleport && player.isInBed && packet.hasPosition()) {
             Vec3 bedPosition = player.bedPosition;
             if (bedPosition == null
@@ -109,9 +113,15 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
                 event.setCancelled(true);
             }
         }
+    }
 
-        // Player is dead
-        if (!teleport && player.compensatedEntities.getSelf().isDead) {
+    /**
+     * LivingEntity#tick runs aiStep for a dying Java player until LocalPlayer#tickDeath removes it at deathTime 20, so
+     * its moves before that tick are predicted first; none of them reaches the server.
+     */
+    private void blockDeadMovePlayer(PacketReceiveEvent<ServerboundMovePlayer> event) {
+        if (player.isDisabled() || !player.shouldEnforceMovementSetbacks()) return;
+        if (!event.answersTeleport() && player.compensatedEntities.getSelf().isDead) {
             event.setCancelled(true);
         }
     }
@@ -198,6 +208,7 @@ public class SetbackBlocker extends CultProcessor implements CheckListener {
                 event.setCancelled(true);
             }
             blockMovePlayer(event, event.getPacket(), false);
+            blockDeadMovePlayer(event);
         }
     }
 
