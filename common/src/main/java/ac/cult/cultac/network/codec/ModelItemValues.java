@@ -353,14 +353,14 @@ public final class ModelItemValues {
 
     private static ComponentWireEncoding encoding(WireValueDecoder.ComponentEncoding value) {
         if (value.items().isEmpty())
-            return new ComponentWireEncoding(value.protocol(), value.bytes(), value.references());
+            return ComponentWireEncoding.adopting(value.protocol(), value.bytes(), value.references(), Map.of());
         var children = new HashMap<String, Map<String, ComponentWireEncoding>>();
         value.items().forEach((slot, components) -> {
             var encodings = new HashMap<String, ComponentWireEncoding>();
             components.forEach((key, child) -> encodings.put(key, encoding(child)));
             children.put(slot, Map.copyOf(encodings));
         });
-        return new ComponentWireEncoding(value.protocol(), value.bytes(), value.references(), children);
+        return ComponentWireEncoding.adopting(value.protocol(), value.bytes(), value.references(), children);
     }
 
     public SimItemStack item(WireValueDecoder.DecodedItem<NbtValue> value) {

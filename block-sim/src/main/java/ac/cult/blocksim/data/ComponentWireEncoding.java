@@ -2,6 +2,7 @@ package ac.cult.blocksim.data;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.ToIntBiFunction;
 
 /** Transport metadata, independent of component equality and the simulation's values. */
@@ -17,10 +18,22 @@ public final class ComponentWireEncoding {
 
     public ComponentWireEncoding(int protocol, byte[] bytes, Map<String, Map<Integer, String>> references,
                                  Map<String, Map<String, ComponentWireEncoding>> items) {
+        this(bytes.clone(), protocol, references, items);
+    }
+
+    private ComponentWireEncoding(byte[] bytes, int protocol, Map<String, Map<Integer, String>> references,
+                                  Map<String, Map<String, ComponentWireEncoding>> items) {
         this.protocol = protocol;
-        this.bytes = bytes.clone();
+        this.bytes = bytes;
         this.references = immutable(references);
         this.items = immutable(items);
+    }
+
+    /** As the constructor, keeping {@code bytes} itself: the caller hands the array over and never uses it again. */
+    public static ComponentWireEncoding adopting(int protocol, byte[] bytes,
+                                                 Map<String, Map<Integer, String>> references,
+                                                 Map<String, Map<String, ComponentWireEncoding>> items) {
+        return new ComponentWireEncoding(Objects.requireNonNull(bytes), protocol, references, items);
     }
 
     private static <K, V> Map<String, Map<K, V>> immutable(Map<String, Map<K, V>> source) {
