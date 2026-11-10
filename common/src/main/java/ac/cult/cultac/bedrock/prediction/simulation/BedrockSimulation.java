@@ -39,9 +39,7 @@ public final class BedrockSimulation {
         if (state.isHorse()) state = state.withHorse(state.horse().withForwardJump(control.z() > 0.0D));
         var options = BedrockTravelOptions.vanilla(input.canStep(), input.maxUpStep())
                 .withTravelActive(!state.hasTeleported());
-        var scaffolding = !state.isVehicle()
-                        && input.intent().vertical().descendInput()
-                        && state.climbableContact().descendAllowed()
+        var scaffolding = !state.isVehicle() && descendRequested(state, input)
                 ? BedrockTravelInput.ScaffoldingVerticalBranch.DESCEND
                 : BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE;
         var result = BedrockTravelEngine.INSTANCE.travel(
@@ -75,14 +73,21 @@ public final class BedrockSimulation {
             addHorseCandidates(candidates, input);
             return List.copyOf(candidates);
         }
-        if (input.intent().vertical().descendInput()
-                && input.previousState().climbableContact().descendAllowed()) {
-            addBranchCandidates(candidates, input, BedrockTravelInput.ScaffoldingVerticalBranch.DESCEND);
-            addBranchCandidates(candidates, input, BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE);
-        } else {
-            addBranchCandidates(candidates, input, BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE);
-        }
+        addBranchCandidates(
+                candidates,
+                input,
+                descendRequested(input.previousState(), input)
+                        ? BedrockTravelInput.ScaffoldingVerticalBranch.DESCEND
+                        : BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE);
         return List.copyOf(candidates);
+    }
+
+    /**
+     * Sneak falls through scaffolding or powder snow whenever the row below the feet holds it,
+     * whatever else is held. Nothing else decides the branch, so there is one candidate.
+     */
+    private static boolean descendRequested(BedrockMovementState state, Input input) {
+        return input.intent().vertical().descendInput() && state.climbableContact().descendAllowed();
     }
 
     private static void addHorseCandidates(List<Candidate> candidates, Input input) {

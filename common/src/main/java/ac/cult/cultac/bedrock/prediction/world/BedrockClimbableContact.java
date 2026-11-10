@@ -1,7 +1,10 @@
 package ac.cult.cultac.bedrock.prediction.world;
 
+import ac.cult.cultac.bedrock.prediction.geometry.BedrockActorBox;
 import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
+import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
+import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision.BlockContactBehavior;
 
 public record BedrockClimbableContact(
@@ -29,34 +32,30 @@ public record BedrockClimbableContact(
         boolean descendAllowed = false;
         boolean climbableContact = false;
         boolean ascendableBlock = false;
-        double actorFeetBlockY = Math.floor(physicalFeetPosition.y());
+        // The client scans the block columns its box reaches, edges included: the row its feet
+        // are in holds what it can ascend, the row one below what it can descend through.
+        WorldCollisionBox box = BedrockActorBox.create(
+                physicalFeetPosition,
+                new PlayerDimensionsState(playerWidth, playerHeight),
+                blockCollisionWorld.coordinateFrame());
+        int feetRow = (int) Math.floor(box.minY());
+        int rowBelow = (int) Math.floor((float) box.minY() - 1.0F);
         for (PlacedBlockCollision block : blockCollisionWorld.blocks()) {
-            if (isScaffoldingBlock(block)) {
-                if (blockAtActorHeight(block, physicalFeetPosition, playerWidth, actorFeetBlockY)) {
-                    scaffoldingContact = true;
-
-                    descendAllowed = true;
+            boolean scaffolding = isScaffoldingBlock(block);
+            if (scaffolding || canStandOnSnow && isPowderSnowBlock(block)) {
+                if (!inBoxColumns(block, box)) {
+                    continue;
                 }
-                if (scaffoldingAtActorHeight(
-                        block, physicalFeetPosition, playerWidth, Math.floor(physicalFeetPosition.y() - 1.0D))) {
-                    descendAllowed = true;
+                if (block.position().y() == feetRow) {
+                    scaffoldingContact |= scaffolding;
+                    ascendableBlock |= !scaffolding;
                 }
-                continue;
-            }
-            if (canStandOnSnow && isPowderSnowBlock(block)) {
-
-                if (blockAtActorHeight(block, physicalFeetPosition, playerWidth, actorFeetBlockY)) {
-                    ascendableBlock = true;
-                }
-                if (blockAtActorHeight(
-                        block, physicalFeetPosition, playerWidth, Math.floor(physicalFeetPosition.y() - 1.0D))) {
-                    descendAllowed = true;
-                }
+                descendAllowed |= block.position().y() == rowBelow;
                 continue;
             }
             if (isClimbableBlock(block)) {
 
-                if (blockAtActorFeet(block, physicalFeetPosition, actorFeetBlockY)) {
+                if (blockAtActorFeet(block, physicalFeetPosition, Math.floor(physicalFeetPosition.y()))) {
                     climbableContact = true;
                 }
             }
@@ -72,20 +71,12 @@ public record BedrockClimbableContact(
         return descendAllowed;
     }
 
-    private static boolean blockAtActorHeight(
-            PlacedBlockCollision block, Vec3d physicalFeetPosition, double playerWidth, double blockY) {
+    private static boolean inBoxColumns(PlacedBlockCollision block, WorldCollisionBox box) {
         BlockPosition position = block.position();
-        double halfWidth = playerWidth * 0.5D;
-        return position.y() == (int) blockY
-                && physicalFeetPosition.x() + halfWidth > position.x()
-                && physicalFeetPosition.x() - halfWidth < position.x() + 1.0D
-                && physicalFeetPosition.z() + halfWidth > position.z()
-                && physicalFeetPosition.z() - halfWidth < position.z() + 1.0D;
-    }
-
-    private static boolean scaffoldingAtActorHeight(
-            PlacedBlockCollision scaffolding, Vec3d physicalFeetPosition, double playerWidth, double blockY) {
-        return blockAtActorHeight(scaffolding, physicalFeetPosition, playerWidth, blockY);
+        return position.x() >= Math.floor(box.minX())
+                && position.x() <= Math.floor(box.maxX())
+                && position.z() >= Math.floor(box.minZ())
+                && position.z() <= Math.floor(box.maxZ());
     }
 
     private static boolean blockAtActorFeet(PlacedBlockCollision block, Vec3d physicalFeetPosition, double blockY) {

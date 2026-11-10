@@ -41,7 +41,8 @@ public final class BedrockClimbableContactTest {
 
         assertTrue(contact.climbing());
         assertTrue(contact.scaffolding());
-        assertTrue(contact.descendAllowed());
+        // The row below the feet holds no scaffolding to fall through.
+        assertFalse(contact.descendAllowed());
     }
 
     @Test

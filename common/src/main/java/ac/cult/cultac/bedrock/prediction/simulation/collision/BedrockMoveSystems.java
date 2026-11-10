@@ -17,7 +17,8 @@ public final class BedrockMoveSystems {
         BedrockFrameState frame = plan.frame();
         if (!frame.input().options().travelActive()) {
             var previous = frame.input().previousState();
-            // Travel is inactive on this tick, so no collision sweep is needed.
+            // Travel is inactive on this tick, so no collision sweep is needed. The climbable
+            // contact comes out of a move: with none, the contact from before the teleport stays.
             var unchanged = new BedrockEntityMove.Result(
                     previous.physicalFeetPosition(),
                     plan.travelVelocity(),
@@ -31,15 +32,7 @@ public final class BedrockMoveSystems {
                     false,
                     false,
                     false);
-            return new BedrockCollisionOutput(
-                    unchanged,
-                    frame.input()
-                            .worldSnapshot()
-                            .climbableContactAt(
-                                    previous.physicalFeetPosition(),
-                                    frame.frameFacts().movementDimensions()),
-                    plan.moveRequest(),
-                    null);
+            return new BedrockCollisionOutput(unchanged, previous.climbableContact(), plan.moveRequest(), null);
         }
         BedrockMoveRequest request = applyBlockMovementSlowdown(plan);
         var previous = frame.input().previousState();
