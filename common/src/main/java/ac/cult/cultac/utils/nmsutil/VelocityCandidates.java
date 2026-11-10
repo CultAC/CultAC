@@ -208,7 +208,10 @@ public final class VelocityCandidates {
         int onBlock = context.getWorldData().getOnBlock();
         CultPlayer player = result.getPlayer();
         boolean use26Dot2 = player != null && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2);
-        if (use26Dot2 ? !isBouncyBlock(onBlock) : !BlockIds.is(onBlock, BlockIds.SLIME_BLOCK)) {
+        boolean bed = player != null
+                && player.getClientVersion() == ClientVersion.V_1_21_11
+                && ClientBlockProperties.isBed(onBlock);
+        if (use26Dot2 ? !isBouncyBlock(onBlock) : !BlockIds.is(onBlock, BlockIds.SLIME_BLOCK) && !bed) {
             return OptionalDouble.empty();
         }
 
@@ -230,7 +233,8 @@ public final class VelocityCandidates {
             bounceY = restitutedBounceY(
                     player, deltaY, clippedY, gravity, blockBounciness(onBlock, livingMover(context)));
         } else {
-            bounceY = -deltaY;
+            // 1.21.11 SlimeBlock#bounceUp, BedBlock#bounceUp (0.66F for a living entity).
+            bounceY = bed ? -deltaY * 0.66F : -deltaY;
         }
         double packetVisibleThreshold = player == null ? 2.0E-4D : player.getMovementThreshold();
         return bounceY > packetVisibleThreshold && mayHaveClippedVertically(result)
@@ -341,7 +345,9 @@ public final class VelocityCandidates {
 
     /**
      * Whether the box that {@code trace}'s move ends in rests on a block or a possible entity box. Entity#collide
-     * clips a downward move only onto a collider's top, so after that clip the box cannot move down at all.
+     * clips a downward move only onto a collider's top, so after that clip the box cannot move down at all. The probe
+     * continues the clipped move for 1.21.11 and 26.2+ clients: a query reaching only the collision epsilon below the
+     * box can miss the collider it touches, as BlockCollisions keeps only shapes the query overlaps.
      */
     private static boolean restsOnCollider(PredictionResult result, MovementTrace trace) {
         CultPlayer player = result.getPlayer();
@@ -350,11 +356,14 @@ public final class VelocityCandidates {
             return true;
         }
         SimpleCollisionBox end = context.getFromActualPose().copy().offset(trace.position());
-        double probe = -SimpleCollisionBox.COLLISION_EPSILON;
+        ClientVersion version = player.getClientVersion();
+        double probe = version == ClientVersion.V_1_21_11 || version.isNewerThanOrEquals(ClientVersion.V_26_2)
+                ? Math.min(trace.preCollisionMovement().y - trace.position().y, -SimpleCollisionBox.COLLISION_EPSILON)
+                : -SimpleCollisionBox.COLLISION_EPSILON;
         return Collisions.collideWithAdditionalCollisionBoxes(
                                 player, end, 0.0D, probe, 0.0D, player.entityCollisionBoxes())
                         .y
-                != probe;
+                > -SimpleCollisionBox.COLLISION_EPSILON;
     }
 
     /**
