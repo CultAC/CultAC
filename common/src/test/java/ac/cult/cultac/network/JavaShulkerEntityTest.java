@@ -80,6 +80,32 @@ class JavaShulkerEntityTest {
         }
     }
 
+    /**
+     * A lid reopened one step short of closed climbs by float steps that end just under its target, so its last step
+     * lifts the player 4.8e-5: less than the 2.0E-4 LocalPlayer#sendPosition withholds a position below. The client
+     * stands on the open lid from then on, wherever it last reported.
+     */
+    @Test
+    void aLiftSendPositionWithholdsStillLeavesThePlayerOnTheLid() throws Exception {
+        ClientVersion version = ClientVersion.V_26_3;
+        try (var f = standingOnShulker(version, false)) {
+            var client = new Client(version, false);
+            var sender = new Sender(f);
+            sender.tick(client.tick(), "standing");
+            f.pongThrough(peek(f, (byte) 100));
+            client.raw = 100;
+            for (int tick = 0; tick < 24; tick++) sender.tick(client.tick(), "opening " + tick);
+            f.pongThrough(peek(f, (byte) 0));
+            client.raw = 0;
+            for (int tick = 0; tick < 19; tick++) sender.tick(client.tick(), "closing " + tick);
+            f.pongThrough(peek(f, (byte) 50));
+            client.raw = 50;
+            for (int tick = 0; tick < 16; tick++) sender.tick(client.tick(), "reopening " + tick);
+            assertTrue(sender.withheldLift, "the scenario must end on a lift sendPosition withholds");
+            assertEquals(client.y, f.player.y, 1.0E-12);
+        }
+    }
+
     @ParameterizedTest
     @EnumSource(
             value = ClientVersion.class,
@@ -336,6 +362,42 @@ class JavaShulkerEntityTest {
     }
 
     record Report(double y, boolean onGround) {}
+
+    /** LocalPlayer#sendPosition for a client that never turns: a position past 2.0E-4 or every 20th tick. */
+    private static final class Sender {
+        private final JavaTickFixture f;
+        private double sentY = FLOOR_Y + 1.0;
+        private boolean sentOnGround = true;
+        // The first tick reports the position the client stands at.
+        private int reminder = 19;
+        boolean withheldLift;
+
+        Sender(JavaTickFixture f) {
+            this.f = f;
+        }
+
+        void tick(Report report, String name) {
+            var simulation = f.player.checkManager.getSimulationProcessor();
+            PredictionResult before = simulation.getLastPrediction();
+            reminder++;
+            double moved = report.y - sentY;
+            if (moved * moved > 2.0E-4 * 2.0E-4 || reminder >= 20) {
+                f.tick(new Vec3(SHULKER_AT.x, report.y, SHULKER_AT.z), report.onGround);
+                sentY = report.y;
+                reminder = 0;
+            } else {
+                withheldLift |= moved > 0.0;
+                if (report.onGround != sentOnGround) f.statusTick(report.onGround, false);
+                else f.tickEnd();
+            }
+            sentOnGround = report.onGround;
+            PredictionResult result = simulation.getLastPrediction();
+            assertTrue(result != before, name + ": the tick committed no prediction");
+            assertTrue(
+                    !result.isExempt() && !result.hasEffectiveFlags(),
+                    name + " y " + report.y + " ground " + report.onGround + ": " + describe(result));
+        }
+    }
 
     /** The client: a player without input on the floor east of a size 1 shulker attached to the wall west of it. */
     private static final class SideClient {

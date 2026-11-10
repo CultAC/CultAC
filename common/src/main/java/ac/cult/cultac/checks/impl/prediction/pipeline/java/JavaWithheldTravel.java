@@ -44,8 +44,10 @@ public final class JavaWithheldTravel {
         double bound = threshold * threshold;
         var reported = player.packetStateData.knownInput;
         // An idle tick at the last sent position leaves nothing to commit. After withheld travel the client is not
-        // there: an idle tick ends where that travel did, which only the replay finds.
-        boolean nothingToReplay = before.lengthSqr() > bound || before.lengthSqr() == 0 && startsAt(prediction, sent);
+        // there: an idle tick ends where that travel did, which only the replay finds. A pass after the travel moves
+        // the client by its own distance, however far the travel went.
+        boolean nothingToReplay = !movedAfterTravel(prediction)
+                && (before.lengthSqr() > bound || before.lengthSqr() == 0 && startsAt(prediction, sent));
         if (reported.forwardImpulse() == 0 && reported.strafeImpulse() == 0 && nothingToReplay) return null;
         List<Vec3> keys = ClientKeyInput.travelInputs(player, context, prediction.getInitialStartingVel());
         if (keys.isEmpty()) return null;
@@ -86,6 +88,17 @@ public final class JavaWithheldTravel {
         if (ends[0] == null) ends[0] = ends[1];
         if (ends[1] == null) ends[1] = ends[0];
         return ends;
+    }
+
+    /** Whether a shulker or block entity may move an accepted candidate between its travel and sendPosition. */
+    private static boolean movedAfterTravel(PredictionResult prediction) {
+        if (prediction.getSimulationContext().getPassAfterTravel() != null) return true;
+        for (var reality : prediction.getRealities()) {
+            if (reality.getFlagSeverity() == 0
+                    && reality.getSimulationContext() != null
+                    && reality.getSimulationContext().getPassAfterTravel() != null) return true;
+        }
+        return false;
     }
 
     /** Whether every accepted candidate's travel starts at {@code sent}, LocalPlayer#sendPosition's last position. */
