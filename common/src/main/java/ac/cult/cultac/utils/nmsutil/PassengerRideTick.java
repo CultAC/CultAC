@@ -72,6 +72,16 @@ public final class PassengerRideTick {
         useSeats = false;
     }
 
+    /** LivingEntity#xxa and zza as the local player's last LocalPlayer#applyInput stored them, on foot or riding. */
+    public Vec3 movementInput() {
+        return movementInput;
+    }
+
+    /** LivingEntity#jumping as the local player's last LocalPlayer#applyInput stored it. */
+    public boolean jumping() {
+        return jumping;
+    }
+
     /**
      * Whether the local player's LivingEntity holds neither xxa/zza nor jumping. Another entity's camera only decays
      * xxa/zza and keeps jumping (LivingEntity#applyInput), so this is decided by the last tick the player was its own

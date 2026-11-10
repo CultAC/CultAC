@@ -59,8 +59,10 @@ public class PacketEntityHappyGhast extends PacketEntityTrackXRot {
         return rootYaw + CultMath.wrapDegrees(controllerYaw - rootYaw) * 0.08F;
     }
 
+    /** {@code rawInputState} is the rider's xxa/zza on Java, and the raw keys on Bedrock. */
     public Vec3 getRiddenInput(Vec3 rawInputState, boolean jumping, float controllerPitch) {
-        Vec3 controllerInput = getExactControllerModifiedInput(rawInputState);
+        Vec3 controllerInput =
+                player.isBedrockMovement() ? getExactControllerModifiedInput(rawInputState) : rawInputState;
         float xxa = (float) controllerInput.x;
         float zza = (float) controllerInput.z;
         float vertical = 0.0F;

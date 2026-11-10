@@ -198,7 +198,9 @@ class VehiclePassengerReceiptTest {
             var version = p.getClientVersion();
             when(ctx.getVersion()).thenReturn(version);
             when(ctx.getVehicle()).thenReturn(p.compensatedEntities.getEntity(CAMEL));
-            when(ctx.getHorseInputs()).thenReturn(new Vec3(0, 0, 1));
+            // The rider's xxa/zza with forward held.
+            when(ctx.getHorseInputs())
+                    .thenReturn(VelocityTransformer.getExactControllerModifiedInputStatic(new Vec3(0, 0, 1), 1.0F));
             when(ctx.getXRot()).thenReturn(324.39648F);
             when(ctx.getWorldData()).thenReturn(world);
             when(ctx.getCamelRiderSprinting(p)).thenReturn(DesyncStatus.FALSE);

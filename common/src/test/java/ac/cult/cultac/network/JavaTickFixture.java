@@ -14,6 +14,7 @@ import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
 import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
@@ -152,6 +153,25 @@ final class JavaTickFixture implements AutoCloseable {
         var event = event(ServerboundPackets.PLAYER_INPUT, input);
         steer.onPlayerInput(event, player, input);
         listener.onPlayerInput(event, player, input);
+    }
+
+    /**
+     * Leaves the local player's LivingEntity xxa, zza and jumping as its last LocalPlayer#applyInput stored them with
+     * the keys last sent held and no slowdown: what a root it rides reads in its next getRiddenInput.
+     */
+    void holdRiderInput() throws Exception {
+        var simulation = player.checkManager.getSimulationProcessor();
+        Field field = simulation.getClass().getDeclaredField("passengerRideTick");
+        field.setAccessible(true);
+        Object ride = field.get(simulation);
+        var keys = player.packetStateData.knownInput;
+        Vec3 raw = new Vec3(keys.strafeImpulse(), 0.0, keys.forwardImpulse());
+        Vec3 stored = player.getClientVersion().isOlderThan(ClientVersion.V_1_21_5)
+                ? new Vec3((float) raw.x * 0.98F, 0.0, (float) raw.z * 0.98F)
+                : VelocityTransformer.getExactControllerModifiedInputStatic(raw, 1.0F);
+        setField(ride.getClass(), ride, "observedSelf", player.compensatedEntities.getSelf());
+        setField(ride.getClass(), ride, "movementInput", stored);
+        setField(ride.getClass(), ride, "jumping", keys.jump());
     }
 
     /** One client tick that sends a position: the move and the tick end; the prediction it committed. */

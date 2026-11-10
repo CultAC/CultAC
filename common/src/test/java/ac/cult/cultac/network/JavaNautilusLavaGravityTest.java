@@ -53,7 +53,7 @@ class JavaNautilusLavaGravityTest {
     }
 
     /** Seats the player on a saddled, slow-falling nautilus at rest, holding forward and looking straight up. */
-    private static void mount(JavaTickFixture f) {
+    private static void mount(JavaTickFixture f) throws Exception {
         for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
         f.player.xRot = f.player.lastTickXRot = 0.0F;
         f.player.yRot = f.player.lastTickYRot = -90.0F;
@@ -67,7 +67,7 @@ class JavaNautilusLavaGravityTest {
         f.setPassengers(VEHICLE, List.of(f.player.entityID));
         f.pongThrough(f.player.lastTransactionSent.get());
         f.input(FORWARD);
-        f.player.boatData.useNextInputForVehicleTick();
+        f.holdRiderInput();
         f.player.checkManager.getSimulationProcessor().seedStartingVelocity(Vec3.ZERO);
     }
 }

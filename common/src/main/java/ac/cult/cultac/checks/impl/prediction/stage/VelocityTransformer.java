@@ -366,17 +366,23 @@ public class VelocityTransformer {
             return new Vec3(0.0D, 0.0D, 1.0D);
         }
 
+        // A Java context carries the rider's xxa/zza themselves; a Bedrock one the raw keys.
+        Vec3 inputs = simulationContext.getHorseInputs();
+        boolean rawKeys = player.isBedrockMovement();
         if (vehicle instanceof PacketEntityHorse) {
-            return getExactHorseFamilyRiddenInput(simulationContext.getHorseInputs());
+            return getExactHorseFamilyRiddenInput(inputs, rawKeys);
         }
 
         if (vehicle instanceof PacketEntityHappyGhast happyGhast) {
-            return getExactHappyGhastRiddenInput(
-                    simulationContext.getHorseInputs(), player.boatData.vehicleJump, player.yRot, happyGhast);
+            boolean jumping = rawKeys
+                    ? player.boatData.vehicleJump
+                    : player.checkManager.getSimulationProcessor().riderJumping();
+            return getExactHappyGhastRiddenInput(inputs, jumping, player.yRot, happyGhast);
         }
 
         if (vehicle instanceof PacketEntityNautilus) {
-            return getExactNautilusRiddenInput(simulationContext.getHorseInputs(), player.yRot);
+            return getExactNautilusRiddenInput(
+                    rawKeys ? getExactControllerModifiedInputStatic(inputs) : inputs, player.yRot);
         }
 
         return null;
@@ -495,8 +501,8 @@ public class VelocityTransformer {
         return happyGhast.getRiddenInput(rawInputState, jumping, controllerPitch);
     }
 
-    static Vec3 getExactNautilusRiddenInput(Vec3 rawInputState, float controllerPitch) {
-        Vec3 modified = getExactControllerModifiedInputStatic(rawInputState);
+    /** {@code modified} is the rider's xxa/zza. */
+    static Vec3 getExactNautilusRiddenInput(Vec3 modified, float controllerPitch) {
         float sideways = (float) modified.x;
         float forwardKey = (float) modified.z;
         float forward = 0.0F;
@@ -536,14 +542,16 @@ public class VelocityTransformer {
         return horse.isRearing && horse.horseJump <= 0.0D && !horse.allowStandSliding;
     }
 
-    private Vec3 getExactHorseFamilyRiddenInput(Vec3 rawInputState) {
+    private Vec3 getExactHorseFamilyRiddenInput(Vec3 rawInputState, boolean rawKeys) {
         // KeyboardInput#tick normalizes key impulses, LocalPlayer#applyInput stores modifyInput(...)
         // into xxa/zza, and AbstractHorse#getRiddenInput maps that exact pair to ridden Vec3.
         // Before 1.21.5, LocalPlayer#serverAiStep stores the raw impulses and LivingEntity#aiStep
-        // scales them by 0.98.
-        Vec3 modifiedInput = simulationContext.getVersion().isOlderThan(ClientVersion.V_1_21_5)
-                ? new Vec3((float) rawInputState.x * 0.98F, 0.0D, (float) rawInputState.z * 0.98F)
-                : getExactControllerModifiedInput(rawInputState);
+        // scales them by 0.98. Without raw keys the input is that stored pair already.
+        Vec3 modifiedInput = !rawKeys
+                ? rawInputState
+                : simulationContext.getVersion().isOlderThan(ClientVersion.V_1_21_5)
+                        ? new Vec3((float) rawInputState.x * 0.98F, 0.0D, (float) rawInputState.z * 0.98F)
+                        : getExactControllerModifiedInput(rawInputState);
         float modifiedX = (float) modifiedInput.x;
         float modifiedZ = (float) modifiedInput.z;
         if (modifiedInput.lengthSqr() < 1.0E-7D) {

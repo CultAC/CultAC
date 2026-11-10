@@ -149,7 +149,8 @@ class JavaRiddenClimbTest {
     }
 
     /** Seats the player on a saddled nautilus at {@code seat} holding forward, the nautilus moving at {@code motion}. */
-    private static void mount(JavaTickFixture f, Vec3 seat, float yaw, float pitch, Vec3 motion) {
+    private static void mount(JavaTickFixture f, Vec3 seat, float yaw, float pitch, Vec3 motion)
+            throws Exception {
         for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
         f.player.xRot = f.player.lastTickXRot = yaw;
         f.player.yRot = f.player.lastTickYRot = pitch;
@@ -162,7 +163,7 @@ class JavaRiddenClimbTest {
         f.setPassengers(VEHICLE, List.of(f.player.entityID));
         f.pongThrough(f.player.lastTransactionSent.get());
         f.input(FORWARD);
-        f.player.boatData.useNextInputForVehicleTick();
+        f.holdRiderInput();
         f.player.checkManager.getSimulationProcessor().seedStartingVelocity(motion);
     }
 

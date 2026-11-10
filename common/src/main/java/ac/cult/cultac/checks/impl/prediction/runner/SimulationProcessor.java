@@ -1952,6 +1952,11 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         return List.of(this.player.compensatedEntities.getSelf().deltaMovement);
     }
 
+    /** LivingEntity#jumping of the local player, which a ridden root's getRiddenInput reads before the rider ticks. */
+    public boolean riderJumping() {
+        return this.passengerRideTick.jumping();
+    }
+
     /** A set_entity_motion of the local passenger sets the delta it rides with and a dismount keeps. */
     public void replaceRideTickVelocity(Vec3 velocity) {
         if (this.rideTicked) this.passengerRideTick.setMotion(velocity);
@@ -3402,10 +3407,15 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             @Nullable CarryWorld world,
             @Nullable JavaPredictionCarry.PistonStart anchored,
             @Nullable JavaPredictionCarry selectedCarry) {
-        Vec3 vehicleInputs = Float.floatToRawIntBits(player.boatData.vehicleHoriz) == 0
-                        && Float.floatToRawIntBits(player.boatData.vehicleForward) == 0
-                ? Vec3.ZERO
-                : new Vec3(player.boatData.vehicleHoriz, 0.0, player.boatData.vehicleForward);
+        // ClientLevel#tickNonPassenger ticks a living root before its rider, so its getRiddenInput reads the xxa/zza
+        // the rider's last LocalPlayer#applyInput stored, with the sneak and item-use scale of that tick. Bedrock
+        // keeps the staged raw keys.
+        Vec3 vehicleInputs = !player.isBedrockMovement()
+                ? this.passengerRideTick.movementInput()
+                : Float.floatToRawIntBits(player.boatData.vehicleHoriz) == 0
+                                && Float.floatToRawIntBits(player.boatData.vehicleForward) == 0
+                        ? Vec3.ZERO
+                        : new Vec3(player.boatData.vehicleHoriz, 0.0, player.boatData.vehicleForward);
         SimulationContext context = new SimulationContext(
                 start,
                 end,
