@@ -82,6 +82,14 @@ public final class ConnectionFixture {
         return new CloudSettings(url, key, CloudSettings.DEFAULT_SERVER_ID, "proxy", protocols, false, false);
     }
 
+    /** A taken message's remaining bytes, null for none. */
+    static byte[] bytes(ByteBuffer message) {
+        if (message == null) return null;
+        byte[] bytes = new byte[message.remaining()];
+        message.duplicate().get(bytes);
+        return bytes;
+    }
+
     /** One message of a socket's zstd frame, from its bytes and the messages before it on {@code zstd}. */
     static byte[] decompress(ZstdDecompressCtx zstd, byte[] message) {
         ByteBuffer in = ByteBuffer.allocateDirect(message.length - 1);

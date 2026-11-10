@@ -1361,7 +1361,7 @@ public final class CloudConnection {
                     batch.clear();
                 }
                 if (overdue() || late()) return;
-                byte[] next = ending ? pipeline.take(endByNanos - clock.getAsLong()) : pipeline.take();
+                ByteBuffer next = ending ? pipeline.take(endByNanos - clock.getAsLong()) : pipeline.take();
                 if (next == null) return;
                 write(open, next);
                 logRefused();
@@ -1459,11 +1459,13 @@ public final class CloudConnection {
     /**
      * {@link WebSocket} takes one message at a time, so only the sender thread writes, each after the last. A write
      * fails after 15 s, once a retiring socket's time is up, or, while the sender ends its open message, at
-     * {@link #endByNanos}.
+     * {@link #endByNanos}. Once the socket has taken the whole message, its array goes back to the frame arrays; one it
+     * may still read is let go.
      */
-    private void write(WebSocket open, byte[] message) throws Exception {
+    private void write(WebSocket open, ByteBuffer message) throws Exception {
+        int bytes = message.remaining();
         try {
-            CompletableFuture<WebSocket> sending = open.sendBinary(ByteBuffer.wrap(message), true);
+            CompletableFuture<WebSocket> sending = open.sendBinary(message, true);
             long giveUp = System.nanoTime() + WRITE_NANOS;
             while (true) {
                 try {
@@ -1473,11 +1475,12 @@ public final class CloudConnection {
                     if (overdue() || late() || System.nanoTime() - giveUp > 0) throw slow;
                 }
             }
+            shared.frames.give(message.array());
         } catch (Exception failure) {
             if (!ending) lost(open, "send failed: " + failure);
             throw failure;
         } finally {
-            pipeline.sent(message);
+            pipeline.sent(bytes);
         }
     }
 

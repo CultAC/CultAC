@@ -42,12 +42,12 @@ final class CompressionPipeline implements AutoCloseable {
     /** The socket's zstd frame; null before the first socket and once closed. */
     private IntakeWire.StreamWriter stream;
     /** The part last submitted to the stream, which the next one is written after. */
-    private CompletableFuture<byte[]> streamTail;
+    private CompletableFuture<ByteBuffer> streamTail;
     /** What the open message holds in the queued count; null while no message is open. */
     private AtomicLong open;
 
     /** A message ended; {@code counted} is what it holds in the queued count until it is written. */
-    private record Pending(AtomicLong counted, CompletableFuture<byte[]> message) {}
+    private record Pending(AtomicLong counted, CompletableFuture<ByteBuffer> message) {}
 
     /**
      * Writes on {@code pool}, which has {@code threads} threads and outlives the pipeline. {@code queuedBytes} is the
@@ -153,10 +153,11 @@ final class CompressionPipeline implements AutoCloseable {
     private void submit(byte[][] own, int[] lengths, boolean[] pooled, FrameBuffers frames, int bytes, boolean end) {
         IntakeWire.StreamWriter writer = stream;
         AtomicLong counted = open == null ? new AtomicLong() : open;
-        CompletableFuture<byte[]> after = streamTail == null ? CompletableFuture.completedFuture(null) : streamTail;
+        CompletableFuture<ByteBuffer> after =
+                streamTail == null ? CompletableFuture.completedFuture(null) : streamTail;
         writing.incrementAndGet();
         writingBytes.addAndGet(bytes);
-        CompletableFuture<byte[]> part = after.<byte[]>handleAsync(
+        CompletableFuture<ByteBuffer> part = after.<ByteBuffer>handleAsync(
                         (previous, failed) -> {
                             if (failed != null) throw new CompletionException(failed);
                             return written(writer, own, lengths, pooled, frames, bytes, end, counted);
@@ -176,9 +177,10 @@ final class CompressionPipeline implements AutoCloseable {
 
     /**
      * A part written: the compressed bytes it adds to the message replace its records' in the queued count. The part
-     * that ends the message returns it as its own array; any other returns null.
+     * that ends the message returns it in an array of its own, one from {@code frames} when there are frames; any other
+     * returns null.
      */
-    private byte[] written(
+    private ByteBuffer written(
             IntakeWire.StreamWriter writer,
             byte[][] records,
             int[] lengths,
@@ -198,12 +200,13 @@ final class CompressionPipeline implements AutoCloseable {
             queuedBytes.addAndGet(delta);
             return null;
         }
-        byte[] out = new byte[written.remaining()];
-        written.get(out);
-        long delta = out.length - held - bytes;
+        int length = written.remaining();
+        byte[] out = frames == null ? new byte[length] : frames.take(length);
+        written.get(out, 0, length);
+        long delta = length - held - bytes;
         counted.addAndGet(delta);
         queuedBytes.addAndGet(delta);
-        return out;
+        return ByteBuffer.wrap(out, 0, length);
     }
 
     /** Whether a message is open: parts of it were submitted and none ended it. */
@@ -212,10 +215,10 @@ final class CompressionPipeline implements AutoCloseable {
     }
 
     /**
-     * The oldest submitted message, once written; null when none is pending. Its bytes stay queued until {@link #sent}.
-     * Interrupted, the message is given up and its bytes leave the count once its write ends.
+     * The oldest submitted message, once written, its remaining bytes; null when none is pending. Its bytes stay queued
+     * until {@link #sent}. Interrupted, the message is given up and its bytes leave the count once its write ends.
      */
-    byte[] take() throws InterruptedException, ExecutionException {
+    ByteBuffer take() throws InterruptedException, ExecutionException {
         try {
             return take(Long.MAX_VALUE);
         } catch (TimeoutException unbounded) {
@@ -224,7 +227,7 @@ final class CompressionPipeline implements AutoCloseable {
     }
 
     /** As {@link #take}, the message given up as on an interrupt once {@code timeoutNanos} pass before it is written. */
-    byte[] take(long timeoutNanos) throws InterruptedException, ExecutionException, TimeoutException {
+    ByteBuffer take(long timeoutNanos) throws InterruptedException, ExecutionException, TimeoutException {
         Pending head = pending.poll();
         if (head == null) return null;
         try {
@@ -235,7 +238,7 @@ final class CompressionPipeline implements AutoCloseable {
         } catch (InterruptedException | TimeoutException given) {
             head.message()
                     .whenComplete((message, failed) ->
-                            queuedBytes.addAndGet(failed == null ? -message.length : -head.counted().get()));
+                            queuedBytes.addAndGet(failed == null ? -message.remaining() : -head.counted().get()));
             throw given;
         }
     }
@@ -245,9 +248,9 @@ final class CompressionPipeline implements AutoCloseable {
         return open == null && pending.isEmpty();
     }
 
-    /** A message from {@link #take} left on the socket or was given up. */
-    void sent(byte[] message) {
-        queuedBytes.addAndGet(-message.length);
+    /** A message from {@link #take} of {@code bytes} bytes left on the socket or was given up. */
+    void sent(int bytes) {
+        queuedBytes.addAndGet(-bytes);
     }
 
     /**
@@ -258,7 +261,7 @@ final class CompressionPipeline implements AutoCloseable {
         Pending head;
         while ((head = pending.poll()) != null) {
             try {
-                queuedBytes.addAndGet(-head.message().join().length);
+                queuedBytes.addAndGet(-head.message().join().remaining());
             } catch (RuntimeException failed) {
                 queuedBytes.addAndGet(-head.counted().get());
             }
