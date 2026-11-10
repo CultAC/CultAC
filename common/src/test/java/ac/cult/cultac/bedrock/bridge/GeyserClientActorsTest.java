@@ -37,7 +37,7 @@ public class GeyserClientActorsTest {
             new SimpleCollisionBox(-3.0E7, -1000, -3.0E7, 3.0E7, 1000, 3.0E7);
 
     @Test
-    public void theSpawnAndItsSnapToTheBorderTakeEffectTogetherAtTheNextMarker() {
+    public void theSpawnAndItsMoveToTheBorderTakeEffectTogetherAtTheNextMarker() {
         Harness h = new Harness();
         h.capture(add(X_WALL, -29.5F, 110.0F, 2.5F));
         h.capture(add(Z_WALL, -29.5F, 110.0F, 2.5F));
@@ -50,9 +50,14 @@ public class GeyserClientActorsTest {
         assertFalse(h.actors.hasPending());
         assertTrue(h.colliders().isEmpty());
         h.acknowledge();
+        // Both stand where they spawned, around the player at local (-29.5, 120, 2.5), until a tick steps them.
+        for (SimpleCollisionBox box : h.colliders()) {
+            assertEquals(20064 - 34.5, box.minX, 0);
+            assertEquals(20080 - 2.5, box.minZ, 0);
+        }
+        h.settle();
         List<SimpleCollisionBox> boxes = h.colliders();
         assertEquals(2, boxes.size());
-        // The player at local (-29.5, 120, 2.5) is inside neither box: the spawn around it never stood alone.
         SimpleCollisionBox x = boxes.stream().filter(box -> box.minX > 20036).findFirst().orElseThrow();
         assertEquals(20064 + (double) (-21.000002F - 5.0F), x.minX, 0);
         assertEquals(110.0, x.minY, 0);
@@ -65,12 +70,37 @@ public class GeyserClientActorsTest {
         assertEquals(20064 - 24.5, z.maxX, 0);
     }
 
+    /** Each move restarts a lerp of three ticks from where the last step left the actor. */
+    @Test
+    public void aMoveIsReachedInThreeTicksAndARepeatedMoveStartsOver() {
+        Harness h = new Harness();
+        h.capture(add(Z_WALL, -5.5F, 110.0F, 50.5F));
+        h.capture(move(Z_WALL, -5.5F, 110.0F, 41.000004F));
+        h.proven();
+        h.tick();
+        float first = 50.5F + (41.000004F - 50.5F) * (1.0F / 3.0F);
+        assertEquals(20080 + (double) (first + 5.0F), h.colliders().getFirst().maxZ, 0);
+        h.capture(move(Z_WALL, -5.5F, 110.0F, 41.000004F));
+        h.proven();
+        h.tick();
+        float second = first + (41.000004F - first) * (1.0F / 3.0F);
+        // 50.222225 in the client's coordinates.
+        assertEquals(50.222225F, second + 5.0F, 2.0E-6F);
+        assertEquals(20080 + (double) (second + 5.0F), h.colliders().getFirst().maxZ, 0);
+        h.tick();
+        h.tick();
+        assertEquals(20080 + (double) (41.000004F + 5.0F), h.colliders().getFirst().maxZ, 0);
+        h.tick();
+        assertEquals(20080 + (double) (41.000004F + 5.0F), h.colliders().getFirst().maxZ, 0);
+    }
+
     @Test
     public void aZeroSizeWithoutTheFlagSwitchesTheWallOffAndTheFlagSwitchesItOnAgain() {
         Harness h = new Harness();
         h.capture(add(Z_WALL, -29.5F, 110.0F, 2.5F));
         h.capture(move(Z_WALL, -29.5F, 110.0F, -7.0F));
         h.proven();
+        h.settle();
         assertEquals(1, h.colliders().size());
         h.capture(data(Z_WALL, false, 0.0F, 0.0F));
         assertEquals(1, h.colliders().size());
@@ -79,6 +109,7 @@ public class GeyserClientActorsTest {
         h.capture(data(Z_WALL, true, 10.0F, 25.0F));
         h.capture(move(Z_WALL, -29.5005F, 110.0F, -8.999999F));
         h.proven();
+        h.settle();
         assertEquals(20080 + (double) (-8.999999F + 5.0F), h.colliders().getFirst().maxZ, 0);
     }
 
@@ -92,6 +123,7 @@ public class GeyserClientActorsTest {
         delta.setX(-28.0F);
         h.capture(delta);
         h.proven();
+        h.settle();
         assertEquals(20064 - 33.0, h.colliders().getFirst().minX, 0);
         assertEquals(20078.0, h.colliders().getFirst().maxZ, 0);
         var remove = new RemoveEntityPacket();
@@ -197,6 +229,16 @@ public class GeyserClientActorsTest {
         void proven() {
             boundary();
             acknowledge();
+        }
+
+        /** One client tick's lerp step. */
+        void tick() {
+            player.bedrockState.clientActors.tick();
+        }
+
+        /** The ticks a move takes to reach its position. */
+        void settle() {
+            for (int step = 0; step < 3; step++) tick();
         }
 
         List<SimpleCollisionBox> colliders() {

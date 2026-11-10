@@ -34,17 +34,16 @@ public class BedrockShulkerLidTest {
     @Test
     public void theBoxIsAUnitWideAndItsLidRaisesTheTop() {
         withShulker(player -> {
-            PacketEntityShulker shulker = shulker(player);
-            assertBox(shulker, 120.98);
+            assertBox(player, 120.98);
             peek(player, 100);
-            assertBox(shulker, 120.98);
+            assertBox(player, 120.98);
             double[] tops = {120.98615, 121.00446, 121.03449, 121.07548, 121.12645, 121.18610, 121.25298, 121.32549};
             for (double top : tops) {
                 player.checkManager.endBedrockClientTick();
-                assertBox(shulker, top);
+                assertBox(player, top);
             }
             for (int tick = 8; tick < 25; tick++) player.checkManager.endBedrockClientTick();
-            assertBox(shulker, 121.98);
+            assertBox(player, 121.98);
         });
     }
 
@@ -57,6 +56,23 @@ public class BedrockShulkerLidTest {
             peek(player, 100);
             clientTick(player, 25217, 120.98);
             clientTick(player, 25218, 120.98615);
+        });
+    }
+
+    /** An opening lid carries the player standing on it up with every step, the largest 0.078 in a tick. */
+    @Test
+    public void anOpeningLidLiftsThePlayerStandingOnIt() {
+        withShulker(player -> {
+            standAt(player, 120.98);
+            clientTick(player, 25216, 120.98);
+            peek(player, 100);
+            clientTick(player, 25217, 120.98);
+            double[] feet = {
+                120.98615, 121.00446, 121.03449, 121.07548, 121.12645, 121.18610, 121.25298, 121.32549, 121.40176,
+                121.47996, 121.55821, 121.63448, 121.70699, 121.77387, 121.83356, 121.88450, 121.92549, 121.95553,
+                121.97385, 121.98000, 121.98000
+            };
+            for (int i = 0; i < feet.length; i++) clientTick(player, 25218 + i, feet[i]);
         });
     }
 
@@ -108,6 +124,7 @@ public class BedrockShulkerLidTest {
                     player.compensatedWorld.updateBlock(x, 119, z, stone);
                 }
             player.compensatedEntities.addEntity(SHULKER, EntityTypeIds.SHULKER, new Vec3(X, 120.0, Z), 0, 0, 0);
+            shulker(player).bedrockCollidable = true;
             test.accept(player);
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
@@ -126,9 +143,8 @@ public class BedrockShulkerLidTest {
                         WatchableIndexUtil.SHULKER_PEEK, (byte) peek, ByteBuffer.allocate(0))));
     }
 
-    private static void assertBox(PacketEntityShulker shulker, double top) {
-        SimpleCollisionBox box = shulker.bedrockCollisionBox(new SimpleCollisionBox(), new SimpleCollisionBox());
-        assertNotNull(box);
+    private static void assertBox(CultPlayer player, double top) {
+        SimpleCollisionBox box = shulker(player).bedrockShownBox(player, new SimpleCollisionBox());
         assertEquals(61.0, box.minX, 0.0);
         assertEquals(62.0, box.maxX, 0.0);
         assertEquals(21.0, box.minZ, 0.0);

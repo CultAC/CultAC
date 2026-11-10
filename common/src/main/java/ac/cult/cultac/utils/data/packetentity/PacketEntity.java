@@ -74,6 +74,9 @@ public class PacketEntity {
     public float bedrockWidth = Float.NaN;
     public float bedrockHeight = Float.NaN;
     public float bedrockScale = 1.0F;
+    // Whether the Bedrock client has the COLLIDABLE flag for this actor: its box is then a shape the moves of the
+    // player, and of a mob it rides, collide with.
+    public boolean bedrockCollidable;
     public ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState bedrockPrediction;
     public ac.cult.cultac.bedrock.prediction.state.BedrockBoatProperties bedrockBoat;
     public Vec3 desyncClientPos;
@@ -357,13 +360,24 @@ public class PacketEntity {
         if (scale != null) bedrockScale = scale;
     }
 
+    /**
+     * The one box a Bedrock client holds for this actor until its next lerp step, written into {@code out}: at the
+     * position its last step left it. While Cult does not know that position exactly, the newest candidate stands
+     * for it.
+     */
+    public SimpleCollisionBox bedrockShownBox(CultPlayer player, SimpleCollisionBox out) {
+        if (clientPhysicalPositionExact && clientPhysicalPosition != null) {
+            return GetBoundingBox.getPacketEntityBoundingBox(
+                    out, player, clientPhysicalPosition.x, clientPhysicalPosition.y, clientPhysicalPosition.z, this);
+        }
+        return positionCollisionBoxCandidate(possibleMovementCollisionBoxCandidateCount() - 1, out);
+    }
+
     /** The type test a push or collision with the player applies before any position or riding test. */
     public boolean mayPushOrCollide() {
-        boolean hardCollidingEntity = boat || minecart || type == EntityTypeIds.STRIDER || happyGhast;
-        // Players can push living entities. Some entities also provide
-        // hard movement collision boxes that Bedrock consumes as geometry.
-        // The one exemption to a living entity is an armor stand (matters due to plugins sending them)
-        return !(!living && !hardCollidingEntity || type == EntityTypeIds.ARMOR_STAND);
+        // Living entities push the player and boats and minecarts collide with it. The one exemption to a living
+        // entity is an armor stand (matters due to plugins sending them).
+        return (living || boat || minecart) && type != EntityTypeIds.ARMOR_STAND;
     }
 
     public boolean isAnimal() {
@@ -1761,7 +1775,8 @@ public class PacketEntity {
         bedrockResting = resting;
     }
 
-    private static float bedrockLerp(int steps, float from, float to) {
+    /** One step of a Bedrock actor's lerp with {@code steps} left, the last of which lands on the target. */
+    public static float bedrockLerp(int steps, float from, float to) {
         return steps <= 1 ? to : from + (to - from) * (1.0F / steps);
     }
 

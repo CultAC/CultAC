@@ -2,7 +2,9 @@ package ac.cult.cultac.bedrock.prediction.simulation.collision;
 
 import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
+import ac.cult.cultac.bedrock.prediction.world.BlockCollision;
 import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
+import java.util.List;
 import java.util.Optional;
 
 public final class BedrockCollisionProjectionResolver {
@@ -18,14 +20,15 @@ public final class BedrockCollisionProjectionResolver {
             return Optional.empty();
         }
         Vec3d feet = movementResult.previousState().physicalFeetPosition();
+        List<BlockCollision> obstacles = BedrockCollisionSweep.collisionObstacles(blockWorld);
         BedrockCollisionSweep.MoveResult baseMove = BedrockCollisionSweep.sweep(
                 movementResult
                         .previousState()
                         .collisionBox(movementResult.movementContext().playerDimensionsState()),
                 requestedDelta,
-                BedrockCollisionSweep.collisionObstacles(blockWorld),
+                obstacles,
                 movementResult.previousState().coordinateFrame(),
-                BedrockCollisionClipper.maximumDepenetration(movementResult.previousState()));
+                BedrockCollisionClipper.maximumDepenetration(movementResult.previousState(), obstacles));
         return downwardSupportCollision(feet, requestedDelta, baseMove)
                 ? Optional.of(baseMove.position())
                 : Optional.empty();

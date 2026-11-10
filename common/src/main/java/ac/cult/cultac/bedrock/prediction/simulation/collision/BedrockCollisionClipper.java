@@ -13,11 +13,22 @@ final class BedrockCollisionClipper {
     static final float DEFAULT_MAX_DEPENETRATION = 1.0F;
 
     /**
-     * The deepest full overlap the swept move resolves through the nearest face. A ridden vehicle is moved out of a
-     * block it overlaps by the move itself; a player is pushed out by the end-of-tick block push instead.
+     * The deepest full overlap, on each axis, the swept move resolves through the nearest face. A ridden vehicle is
+     * moved out of a block it overlaps by the move itself, until two moves in a row have overlapped a shape: from then
+     * on it keeps no limit of its own until a move overlaps nothing. A player is pushed out by the end-of-tick block
+     * push instead. Each solid actor among {@code obstacles} raises the limit of the whole move to its own.
      */
-    static float maximumDepenetration(ac.cult.cultac.bedrock.prediction.state.BedrockMovementState state) {
-        return state.isVehicle() ? DEFAULT_MAX_DEPENETRATION : 0.01F;
+    static BedrockDepenetrationLimit maximumDepenetration(
+            ac.cult.cultac.bedrock.prediction.state.BedrockMovementState state, List<BlockCollision> obstacles) {
+        float own = !state.isVehicle() ? 0.01F : state.penetratingMoves() < 2 ? DEFAULT_MAX_DEPENETRATION : 0.0F;
+        BedrockDepenetrationLimit limit = BedrockDepenetrationLimit.uniform(own);
+        for (int index = obstacles.size() - 1; index >= 0; index--) {
+            Optional<PlacedBlockCollision> block = obstacles.get(index).block();
+            if (block.isEmpty()) continue;
+            BedrockDepenetrationLimit actor = BedrockDepenetrationLimit.ofSolidActor(block.get());
+            if (actor != null) limit = limit.atLeast(actor);
+        }
+        return limit;
     }
 
     private BedrockCollisionClipper() {}
@@ -31,7 +42,8 @@ final class BedrockCollisionClipper {
             Vec3d requestedMove,
             List<BlockCollision> obstacles,
             BedrockCoordinateFrame frame) {
-        return clip(moving, requestedMove, obstacles, frame, DEFAULT_MAX_DEPENETRATION);
+        return clip(
+                moving, requestedMove, obstacles, frame, BedrockDepenetrationLimit.uniform(DEFAULT_MAX_DEPENETRATION));
     }
 
     static ClipResult clip(
@@ -39,22 +51,27 @@ final class BedrockCollisionClipper {
             Vec3d requestedMove,
             List<BlockCollision> obstacles,
             BedrockCoordinateFrame frame,
-            float maximumDepenetration) {
+            BedrockDepenetrationLimit maximumDepenetration) {
         FloatMove move = FloatMove.from(requestedMove);
         Optional<PlacedBlockCollision> yCollisionBlock = Optional.empty();
+        float penetration = 0.0F;
         // The vanilla swept-move consumes shapes in reverse insertion
         // order and moves the actor only after the phase.
         for (int index = obstacles.size() - 1; index >= 0; index--) {
             BlockCollision obstacle = obstacles.get(index);
             AabbClip clip = clipCollide(obstacle.box(), moving, move, frame);
+            // Every full overlap counts, whether the move leaves the shape or passes through it.
+            penetration += clip.penetration();
             FloatMove clippedMove =
-                    clip.penetration() <= maximumDepenetration ? clip.depenetratedMove() : clip.normalMove();
+                    clip.penetration() <= clip.axis().component(maximumDepenetration)
+                            ? clip.depenetratedMove()
+                            : clip.normalMove();
             if (clippedMove.y() != move.y()) {
                 yCollisionBlock = obstacle.block();
             }
             move = clippedMove;
         }
-        return new ClipResult(move.toVec3d(), yCollisionBlock);
+        return new ClipResult(move.toVec3d(), yCollisionBlock, penetration);
     }
 
     private static AabbClip clipCollide(
@@ -144,7 +161,7 @@ final class BedrockCollisionClipper {
         return (float) value;
     }
 
-    record ClipResult(Vec3d move, Optional<PlacedBlockCollision> yCollisionBlock) {
+    record ClipResult(Vec3d move, Optional<PlacedBlockCollision> yCollisionBlock, float penetration) {
         ClipResult {
             move = Objects.requireNonNull(move, "move");
             yCollisionBlock = Objects.requireNonNull(yCollisionBlock, "yCollisionBlock");
@@ -194,6 +211,14 @@ final class BedrockCollisionClipper {
     private enum SweepAxis {
         X,
         Y,
-        Z
+        Z;
+
+        private float component(BedrockDepenetrationLimit limit) {
+            return switch (this) {
+                case X -> limit.x();
+                case Y -> limit.y();
+                case Z -> limit.z();
+            };
+        }
     }
 }

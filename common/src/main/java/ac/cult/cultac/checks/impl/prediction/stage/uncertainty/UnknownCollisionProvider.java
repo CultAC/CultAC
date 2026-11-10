@@ -5,8 +5,6 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
-import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.EntityCollisionSelection;
@@ -24,7 +22,7 @@ public final class UnknownCollisionProvider {
             SimpleCollisionBox entityBox,
             SimpleCollisionBox scratch) {
         if (player.isBedrockMovement()) {
-            addBedrockEntityUnknownCollisions(player, playerPos, queryBox, boxes, entityBox, scratch);
+            addBedrockEntityUnknownCollisions(player, queryBox, boxes, entityBox, scratch);
         } else {
             PacketEntity actor =
                     context.getVehicle() == null ? player.compensatedEntities.getSelf() : context.getVehicle();
@@ -34,91 +32,45 @@ public final class UnknownCollisionProvider {
     }
 
     /**
-     * Adds a copy of each entity box that intersects {@code queryBox}, for a Bedrock move. {@code entityBox} and
+     * Adds a copy of each entity box that may push the boat a Bedrock player rides and intersects {@code queryBox}.
+     * Solid actors are exact shapes of a Bedrock move instead, and a boat takes none of them. {@code entityBox} and
      * {@code scratch} are working space owned by the caller.
      */
     private static void addBedrockEntityUnknownCollisions(
             CultPlayer player,
-            Vec3 playerPos,
             SimpleCollisionBox queryBox,
             List<SimpleCollisionBox> boxes,
             SimpleCollisionBox entityBox,
             SimpleCollisionBox scratch) {
-        boolean ridingStrider = player.compensatedEntities.getSelf().getRiding() instanceof PacketEntityStrider;
-        boolean inBoat = player.compensatedEntities.getSelf().getRiding() != null
-                && player.compensatedEntities.getSelf().getRiding().isBoat();
-        boolean inVehicle = player.compensatedEntities.getSelf().inVehicle();
+        PacketEntity riding = player.compensatedEntities.getSelf().getRiding();
+        if (riding == null || !riding.isBoat()) return;
 
-        Iterable<PacketEntity> candidates = inBoat
-                ? player.compensatedEntities.entityMap.values()
-                : player.compensatedEntities.unknownCollisionCandidates();
         PacketEntity selfRidingRoot = player.compensatedEntities.selfRidingRoot();
         PacketEntity serverVehicleRoot = player.compensatedEntities.serverVehicleRoot();
-        PacketEntity rootOfSelf = inVehicle ? player.compensatedEntities.rootOfSelf() : null;
-        for (PacketEntity entity : candidates) {
+        PacketEntity rootOfSelf = player.compensatedEntities.rootOfSelf();
+        for (PacketEntity entity : player.compensatedEntities.entityMap.values()) {
             if (player.compensatedEntities.isUntrackedRider(entity, selfRidingRoot, serverVehicleRoot)) continue;
             // EntityGetter#getEntityCollisions never returns the moving vehicle itself, and
             // AbstractBoat#canVehicleCollide rejects anything Entity#isPassengerOfSameVehicle.
-            if (inVehicle && player.compensatedEntities.sharesRootVehicleWithSelf(entity, rootOfSelf)) continue;
-            if (entity.isBoat()) {
-                // Expand by 2 since boats suck.
+            if (player.compensatedEntities.sharesRootVehicleWithSelf(entity, rootOfSelf)) continue;
+            if (riding.hasPassenger(entity)) continue;
+            // Minecarts are the only non-living that can push
+            boolean canPush = entity.isLivingEntity() || entity.isMinecart();
+            // Bats, parrots, and armor stands cannot
+            if (entity.type == EntityTypeIds.BAT
+                    || entity.type == EntityTypeIds.PARROT
+                    || entity.type == EntityTypeIds.ARMOR_STAND) {
+                canPush = false;
+            }
+            // We ignore some edge cases like horses that are vehicles (why exempt this?) but it's fine.
+            if (canPush) {
                 addIntersecting(
                         boxes,
-                        entity.getPossibleCollisionBoxes(entityBox, scratch).expand(2),
+                        entity.toBoundingBox(player, entity.getPossibleCollisionBoxes(entityBox, scratch))
+                                .expand(1),
                         queryBox);
             }
-
-            if (inBoat && !player.compensatedEntities.getSelf().getRiding().hasPassenger(entity)) {
-                boolean canPush = entity.isLivingEntity();
-                // Minecarts and boats are only non-living that can push
-                if (entity.isMinecart() || entity.isBoat()) {
-                    canPush = true;
-                }
-                // Bats, parrots, and armor stands cannot
-                if (entity.type == EntityTypeIds.BAT
-                        || entity.type == EntityTypeIds.PARROT
-                        || entity.type == EntityTypeIds.ARMOR_STAND) {
-                    canPush = false;
-                }
-                // We ignore some edge cases like horses that are vehicles (why exempt this?) but it's fine.
-                if (canPush) {
-                    addIntersecting(
-                            boxes,
-                            entity.toBoundingBox(player, entity.getPossibleCollisionBoxes(entityBox, scratch))
-                                    .expand(1),
-                            queryBox);
-                }
-            }
-
-            if (ridingStrider
-                    && entity.type == EntityTypeIds.SHULKER
-                    && !player.compensatedEntities.getSelf().getRiding().hasPassenger(entity)) {
-                // Striders suck less.
-                addIntersecting(
-                        boxes,
-                        entity.getPossibleCollisionBoxes(entityBox, scratch).expand(1),
-                        queryBox);
-            }
-
-            if (!inVehicle
-                    && entity instanceof PacketEntityHappyGhast
-                    && collidesAtSomePosition(player, playerPos, entity, scratch)) {
-                addIntersecting(boxes, entity.getPossibleMovementCollisionBoxes(entityBox, scratch), queryBox);
-            }
         }
-    }
-
-    /** Whether {@code entity} collides with the player on foot at {@code playerPos} at one of its positions. */
-    private static boolean collidesAtSomePosition(
-            CultPlayer player, Vec3 playerPos, PacketEntity entity, SimpleCollisionBox scratch) {
-        var selection = new EntityCollisionSelection(player, player.compensatedEntities.getSelf(), playerPos);
-        if (!selection.mayCollide(entity)) return false;
-        for (int i = 0, count = entity.possibleMovementCollisionBoxCandidateCount(); i < count; i++) {
-            SimpleCollisionBox box =
-                    selection.collisionBox(entity, entity.possibleMovementCollisionBoxCandidate(i, scratch));
-            if (selection.collidesAt(entity, box)) return true;
-        }
-        return false;
     }
 
     /**

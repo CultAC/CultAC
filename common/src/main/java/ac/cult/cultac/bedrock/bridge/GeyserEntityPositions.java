@@ -27,6 +27,8 @@ final class GeyserEntityPositions {
     // Actors with a move written since the last latency marker: that move begins when the client answers the marker
     // before it.
     private final LongOpenHashSet movedSinceMarker = new LongOpenHashSet();
+    // Actors whose last written flags carry COLLIDABLE: only their flag updates can clear it.
+    private final LongOpenHashSet collidable = new LongOpenHashSet();
 
     static boolean hasPosition(BedrockPacket packet) {
         return packet instanceof AddEntityPacket
@@ -90,7 +92,11 @@ final class GeyserEntityPositions {
         if (packet instanceof SetEntityDataPacket data) {
             Size size = Size.read(data.getMetadata());
             Position previous = written.get(data.getRuntimeEntityId());
-            if (size != null && previous != null && (size.sized() || isBat(player, previous.javaId()))) {
+            if (size != null
+                    && previous != null
+                    && (writesCollidable(data.getRuntimeEntityId(), size)
+                            || size.sized()
+                            || isBat(player, previous.javaId()))) {
                 long id = data.getRuntimeEntityId();
                 pending.add(() -> player.latencyUtils.addRealTimeTask(previous.creationTransaction(), () -> {
                     PacketEntity entity = player.compensatedEntities.getEntity(previous.javaId());
@@ -103,6 +109,7 @@ final class GeyserEntityPositions {
         }
         if (packet instanceof RemoveEntityPacket remove) {
             long removedId = remove.getUniqueEntityId();
+            collidable.remove(removedId);
             Position removed = written.remove(removedId);
             if (removed != null)
                 pending.add(() -> player.latencyUtils.addRealTimeTask(removed.creationTransaction(), () -> {
@@ -182,6 +189,7 @@ final class GeyserEntityPositions {
         Vec3 world = coordinates.toWorld(new Vec3(position.getX(), position.getY(), position.getZ()));
         written.put(runtimeId, new Position(javaId, creationTransaction, world, yaw, pitch));
         Size size = spawnSize;
+        if (size != null) writesCollidable(runtimeId, size);
         float offset = clientOffset(translated);
         Vec3 feet = coordinates.toWorld(new Vec3(position.getX(), position.getY() - offset, position.getZ()));
         Vec3 spawnVelocity = motion == null ? null : new Vec3(motion.getX(), motion.getY(), motion.getZ());
@@ -269,6 +277,13 @@ final class GeyserEntityPositions {
         written.clear();
         pending.clear();
         movedSinceMarker.clear();
+        collidable.clear();
+    }
+
+    /** Records the COLLIDABLE flag {@code size} writes for the actor; whether it changes what was last written. */
+    private boolean writesCollidable(long runtimeId, Size size) {
+        if (size.collidable() == null) return false;
+        return size.collidable() ? collidable.add(runtimeId) : collidable.remove(runtimeId);
     }
 
     private static float byteAngle(float angle) {
@@ -296,17 +311,20 @@ final class GeyserEntityPositions {
     private static final float SLEEPING_PLAYER_OFFSET = 0.2F;
     private static final float PLAYER_OFFSET = 1.62001F;
 
-    // The actor data that shapes where the client shows the actor: its size, and the RESTING flag a bat hangs by.
-    private record Size(Float width, Float height, Float scale, Boolean resting) {
+    // The actor data that shapes the box the client holds for the actor: its size, the RESTING flag a bat hangs by,
+    // and the COLLIDABLE flag that makes the box solid for other actors.
+    private record Size(Float width, Float height, Float scale, Boolean resting, Boolean collidable) {
         static Size read(EntityDataMap data) {
             if (data == null) return null;
             Float width = data.get(EntityDataTypes.WIDTH);
             Float height = data.get(EntityDataTypes.HEIGHT);
             Float scale = data.get(EntityDataTypes.SCALE);
-            Boolean resting = data.get(EntityDataTypes.FLAGS) == null ? null : data.getFlag(EntityFlag.RESTING);
-            return width == null && height == null && scale == null && resting == null
+            boolean flags = data.get(EntityDataTypes.FLAGS) != null;
+            Boolean resting = flags ? data.getFlag(EntityFlag.RESTING) : null;
+            Boolean collidable = flags ? data.getFlag(EntityFlag.COLLIDABLE) : null;
+            return width == null && height == null && scale == null && !flags
                     ? null
-                    : new Size(width, height, scale, resting);
+                    : new Size(width, height, scale, resting, collidable);
         }
 
         boolean sized() {
@@ -316,6 +334,7 @@ final class GeyserEntityPositions {
         void apply(PacketEntity entity) {
             entity.setBedrockSize(width, height, scale);
             if (resting != null) entity.setBedrockResting(resting);
+            if (collidable != null) entity.bedrockCollidable = collidable;
         }
     }
 }

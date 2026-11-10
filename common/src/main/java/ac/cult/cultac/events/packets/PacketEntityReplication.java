@@ -468,6 +468,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
     private void tickEntityInterpolationAtClientTickEnd() {
         player.compensatedEntities.onClientTick();
+        if (player.isBedrockMovement() && player.bedrockState != null) player.bedrockState.clientActors.tick();
         PacketEntity velocityVehicle = player.compensatedEntities.vehicles.getVelocityMovementVehicle();
         java.util.function.Consumer<PacketEntity> tick = entity -> {
             if (player.isBedrockMovement()

@@ -106,7 +106,8 @@ public final class BedrockImmobileTick {
                         nextSneaking ? current.sneakingTicks() + 1L : 0L,
                         prepared.control().itemUseSlowdownTicks(),
                         prepared.dolphinBoost().endTick(),
-                        prepared.cameraWater()),
+                        prepared.cameraWater(),
+                        current.penetratingMoves()),
                 false,
                 prepared.input().previousState().attributes());
         return new Result(next, mobJumpComponent.afterHeldTick(frame.jumping()));

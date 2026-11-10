@@ -2,24 +2,59 @@ package ac.cult.cultac.bedrock.player;
 
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
 import java.util.function.Consumer;
 
 /**
  * The actors the Bedrock client's translator creates with no server entity behind them, as the client has processed
  * them. One that carries the collidable flag is a solid box other actors collide with: Geyser builds its world
- * border from two invisible ones, 10 wide and 25 tall, whose face lies on the border.
+ * border from two invisible ones, 10 wide and 25 tall, whose face lies on the border once they have reached it.
+ *
+ * <p>The client spawns an actor at its position and lerps it to each later one over three of its ticks, so the box
+ * a move meets is the one the last tick's step left.
  */
 public final class BedrockClientActors {
-    private final Long2ObjectOpenHashMap<Actor> actors = new Long2ObjectOpenHashMap<>();
+    private static final int LERP_STEPS = 3;
 
-    /** The client spawned the actor, or snapped it to a position, in the frame's local coordinates. */
+    // Spawn order, which is the order colliders are passed in.
+    private final Long2ObjectLinkedOpenHashMap<Actor> actors = new Long2ObjectLinkedOpenHashMap<>();
+
+    /** The client spawned the actor at a position in the frame's local coordinates. */
     public void place(long runtimeId, float x, float y, float z, BedrockCoordinateFrame frame) {
         Actor actor = actors.computeIfAbsent(runtimeId, ignored -> new Actor());
         actor.x = x;
         actor.y = y;
         actor.z = z;
         actor.frame = frame;
+        actor.stepsLeft = 0;
+    }
+
+    /** The client handled a move of the actor: it lerps there from where it is, restarting the count. */
+    public void move(long runtimeId, float x, float y, float z, BedrockCoordinateFrame frame) {
+        Actor actor = actors.get(runtimeId);
+        if (actor == null) return;
+        if (!frame.equals(actor.frame)) {
+            actor.x = frame.localX((double) actor.x + actor.frame.originX());
+            actor.z = frame.localZ((double) actor.z + actor.frame.originZ());
+            actor.frame = frame;
+        }
+        actor.targetX = x;
+        actor.targetY = y;
+        actor.targetZ = z;
+        actor.stepsLeft = LERP_STEPS;
+    }
+
+    /** The lerp step of a client tick, which the client takes after the player's move. */
+    public void tick() {
+        if (actors.isEmpty()) return;
+        for (Actor actor : actors.values()) {
+            if (actor.stepsLeft == 0) continue;
+            actor.x = PacketEntity.bedrockLerp(actor.stepsLeft, actor.x, actor.targetX);
+            actor.y = PacketEntity.bedrockLerp(actor.stepsLeft, actor.y, actor.targetY);
+            actor.z = PacketEntity.bedrockLerp(actor.stepsLeft, actor.z, actor.targetZ);
+            actor.stepsLeft--;
+        }
     }
 
     /** Actor data the client processed; a null value was not part of it. */
@@ -52,6 +87,10 @@ public final class BedrockClientActors {
         private float x;
         private float y;
         private float z;
+        private float targetX;
+        private float targetY;
+        private float targetZ;
+        private int stepsLeft;
         private float width;
         private float height;
         private boolean collidable;

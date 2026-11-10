@@ -1039,5 +1039,6 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
         return DebugText.print(this);
     }
 
-    public record HardCollidingEntityCollision(SimpleCollisionBox box, boolean boatLike, boolean minecartLike) {}
+    /** The box of a solid actor a Bedrock move collides with; a happy ghast lifts a mover inside its top. */
+    public record HardCollidingEntityCollision(SimpleCollisionBox box, boolean happyGhast) {}
 }

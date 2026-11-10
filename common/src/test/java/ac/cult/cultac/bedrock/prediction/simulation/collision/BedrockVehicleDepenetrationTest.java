@@ -30,6 +30,7 @@ public final class BedrockVehicleDepenetrationTest {
     private static final float HORSE_WIDTH = 1.3965F;
     private static final float HORSE_HEIGHT = 1.6F;
     private static final Vec3d PRESSED = new Vec3d(25.502789, 120.0, 33.650875);
+    private static final Vec3d BORDER_HORSE = new Vec3d(41.5, 120.0, -29.5);
 
     @Test
     public void aHorseThatGrowsIntoAWallLeavesItOnTheSameTick() {
@@ -121,9 +122,72 @@ public final class BedrockVehicleDepenetrationTest {
                 PRESSED, Vec3d.ZERO, BedrockInputFrame.idle(0), BedrockCollisionFlags.ON_GROUND);
         var boat = boat(standing);
 
-        assertEquals(1.0F, BedrockCollisionClipper.maximumDepenetration(horse(PlayerDimensionsState.DEFAULT)), 0);
-        assertEquals(1.0F, BedrockCollisionClipper.maximumDepenetration(boat), 0);
-        assertEquals(0.01F, BedrockCollisionClipper.maximumDepenetration(standing), 0);
+        assertEquals(
+                BedrockDepenetrationLimit.uniform(1.0F),
+                BedrockCollisionClipper.maximumDepenetration(horse(PlayerDimensionsState.DEFAULT), List.of()));
+        assertEquals(
+                BedrockDepenetrationLimit.uniform(1.0F),
+                BedrockCollisionClipper.maximumDepenetration(boat, List.of()));
+        assertEquals(
+                BedrockDepenetrationLimit.uniform(0.01F),
+                BedrockCollisionClipper.maximumDepenetration(standing, List.of()));
+    }
+
+    /**
+     * A capture of a standing ridden horse when the translator's world border appears: both border actors spawn
+     * around it and lerp away, so its first two moves overlap them too deeply to leave. On the third the nearer actor
+     * still overlaps the horse by 0.976 along x, and the client reports the horse unmoved.
+     */
+    @Test
+    public void aHorseThatOverlappedShapesOnTwoMovesInARowNoLongerLeavesThem() {
+        var gravity = new Vec3d(0.0, -0.0784, 0.0);
+        var grown = new PlayerDimensionsState(HORSE_WIDTH, HORSE_HEIGHT);
+        var horse = BedrockMovementState.fromPhysicalFeet(
+                        BORDER_HORSE, gravity, BedrockInputFrame.idle(0), BedrockCollisionFlags.ON_GROUND)
+                .withHorse(new BedrockHorseState(null, false, 0, false, false, 0, -1, false, 0))
+                .withPlayerDimensions(grown, true);
+
+        var spawned = BedrockEntityMove.actorMove(
+                        horse, gravity, border(36.5F, 110.0F, -34.5F, 36.5F, 110.0F, -34.5F), grown)
+                .baseMove();
+        assertTrue(spawned.penetrating());
+        assertEquals(0.0, spawned.appliedDelta().x(), 0);
+        horse = horse.withPenetratingMove(spawned.penetrating());
+
+        var firstStep = BedrockEntityMove.actorMove(
+                        horse, gravity, border(39.333332F, 109.46F, -34.5F, 36.5F, 109.46F, -36.666668F), grown)
+                .baseMove();
+        assertTrue(firstStep.penetrating());
+        assertEquals(1.0F, BedrockCollisionClipper.maximumDepenetration(horse, List.of()).x(), 0);
+        horse = horse.withPenetratingMove(firstStep.penetrating());
+        assertEquals(0.0F, BedrockCollisionClipper.maximumDepenetration(horse, List.of()).x(), 0);
+
+        var secondStep = border(41.22222F, 109.1F, -34.5F, 36.5F, 109.1F, -38.11111F);
+        var held = BedrockEntityMove.actorMove(horse, gravity, secondStep, grown).baseMove();
+        assertEquals(0.0, held.appliedDelta().x(), 0);
+        assertEquals(0.0, held.appliedDelta().z(), 0);
+
+        // A horse that had not overlapped anything would leave the same actor through its face.
+        var fresh = horse.withPenetratingMove(false);
+        assertEquals(1.0F, BedrockCollisionClipper.maximumDepenetration(fresh, List.of()).x(), 0);
+        var left = BedrockEntityMove.actorMove(fresh, gravity, secondStep, grown).baseMove();
+        assertEquals(-0.97603F, (float) left.appliedDelta().x(), 2.0E-5F);
+    }
+
+    /** Ground under the border horse and the border's two 10 by 25 actors, by their low corners. */
+    private static BlockCollisionWorld border(
+            float firstMinX, float firstMinY, float firstMinZ, float secondMinX, float secondMinY, float secondMinZ) {
+        var blocks = new ArrayList<PlacedBlockCollision>();
+        for (int x = 39; x <= 43; x++) {
+            for (int z = -32; z <= -28; z++) {
+                blocks.add(stone(x, 119, z));
+            }
+        }
+        blocks.add(BedrockDepenetrationLimit.SOLID_ACTOR.solidActor(new WorldCollisionBox(
+                firstMinX, firstMinY, firstMinZ, firstMinX + 10.0F, firstMinY + 25.0F, firstMinZ + 10.0F)));
+        blocks.add(BedrockDepenetrationLimit.SOLID_ACTOR.solidActor(new WorldCollisionBox(
+                secondMinX, secondMinY, secondMinZ, secondMinX + 10.0F, secondMinY + 25.0F, secondMinZ + 10.0F)));
+        return new BlockCollisionWorld(blocks);
     }
 
     private static BedrockMovementState boat(BedrockMovementState state) {

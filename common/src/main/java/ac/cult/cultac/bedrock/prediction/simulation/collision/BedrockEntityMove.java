@@ -155,7 +155,8 @@ public final class BedrockEntityMove {
                         finalizedMove.stepRetryAllowed(),
                         verticalCollision,
                         false)
-                .withBox(collisionMove.selectedMove().finalBox());
+                .withBox(collisionMove.selectedMove().finalBox())
+                .withPenetrating(collisionMove.baseMove().penetrating());
     }
 
     public static ActorMove actorMove(
@@ -177,7 +178,7 @@ public final class BedrockEntityMove {
                 requestedDelta,
                 obstacles,
                 current.coordinateFrame(),
-                BedrockCollisionClipper.maximumDepenetration(current));
+                BedrockCollisionClipper.maximumDepenetration(current, obstacles));
         return new ActorMove(requestedDelta, obstacles, baseMove);
     }
 
@@ -323,7 +324,39 @@ public final class BedrockEntityMove {
             boolean stepRetryAllowed,
             boolean verticalCollision,
             boolean standingBounceBounced,
-            WorldCollisionBox collisionBox) {
+            WorldCollisionBox collisionBox,
+            boolean penetrating) {
+        public Result(
+                Vec3d position,
+                Vec3d velocity,
+                boolean xCollision,
+                boolean zCollision,
+                boolean horizontalCollisionFlag,
+                boolean horizontalBlockContact,
+                BedrockCollisionFlags collisionFlags,
+                boolean onGround,
+                boolean steppedUp,
+                boolean stepRetryAllowed,
+                boolean verticalCollision,
+                boolean standingBounceBounced,
+                WorldCollisionBox collisionBox) {
+            this(
+                    position,
+                    velocity,
+                    xCollision,
+                    zCollision,
+                    horizontalCollisionFlag,
+                    horizontalBlockContact,
+                    collisionFlags,
+                    onGround,
+                    steppedUp,
+                    stepRetryAllowed,
+                    verticalCollision,
+                    standingBounceBounced,
+                    collisionBox,
+                    false);
+        }
+
         public Result(
                 Vec3d position,
                 Vec3d velocity,
@@ -367,7 +400,27 @@ public final class BedrockEntityMove {
                     stepRetryAllowed,
                     verticalCollision,
                     standingBounceBounced,
-                    box);
+                    box,
+                    penetrating);
+        }
+
+        /** Whether the move's own swept move overlapped any shape it met, which the next move's limit depends on. */
+        public Result withPenetrating(boolean value) {
+            return new Result(
+                    position,
+                    velocity,
+                    xCollision,
+                    zCollision,
+                    horizontalCollisionFlag,
+                    horizontalBlockContact,
+                    collisionFlags,
+                    onGround,
+                    steppedUp,
+                    stepRetryAllowed,
+                    verticalCollision,
+                    standingBounceBounced,
+                    collisionBox,
+                    value);
         }
     }
 }

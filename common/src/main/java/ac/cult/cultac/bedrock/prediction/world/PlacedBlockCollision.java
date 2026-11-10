@@ -20,6 +20,11 @@ public record PlacedBlockCollision(
         List<WorldCollisionBox> contactBoxes,
         List<WorldCollisionBox> insideBlockContactBoxes,
         Set<BlockContactBehavior> contactBehaviors) {
+    /** The identifiers of a solid actor's box, which a move collides with after the blocks. */
+    public static final String SOLID_ACTOR = "minecraft:hard_entity_collision";
+
+    public static final String HAPPY_GHAST_ACTOR = "minecraft:happy_ghast_entity_collision";
+
     public PlacedBlockCollision(
             BlockPosition position,
             String javaState,
@@ -237,11 +242,10 @@ public record PlacedBlockCollision(
         return contactBehaviors.contains(Objects.requireNonNull(behavior, "behavior"));
     }
 
+    /** Whether this is the box of a solid actor rather than a block. */
     public boolean isEntityCollision() {
         return switch (bedrockIdentifier) {
-            case "minecraft:boat_entity_collision",
-                    "minecraft:minecart_entity_collision",
-                    "minecraft:hard_entity_collision" -> true;
+            case SOLID_ACTOR, HAPPY_GHAST_ACTOR -> true;
             default -> false;
         };
     }

@@ -123,6 +123,17 @@ public record BedrockMovementState(
                         BedrockDolphinBoost.INITIAL));
     }
 
+    /** How many moves in a row, up to two, overlapped a shape they met. */
+    public int penetratingMoves() {
+        return memory.penetratingMoves();
+    }
+
+    /** Counts the move just made: one that overlapped any shape it met extends the run, any other ends it. */
+    public BedrockMovementState withPenetratingMove(boolean penetrating) {
+        int value = penetrating ? Math.min(memory.penetratingMoves() + 1, 2) : 0;
+        return new BedrockMovementState(motion, actor, memory.withPenetratingMoves(value), tickStart, attributes);
+    }
+
     public BedrockCoordinateFrame coordinateFrame() {
         return motion.coordinateFrame();
     }
@@ -673,7 +684,8 @@ public record BedrockMovementState(
                         frame.sneaking() ? sneakingTicks() + 1L : 0L,
                         update.itemUse().slowdownTicks(),
                         dolphinBoost(),
-                        cameraWater()),
+                        cameraWater(),
+                        penetratingMoves()),
                 false,
                 attributes);
     }
@@ -1023,7 +1035,8 @@ public record BedrockMovementState(
             long sneakingTicks,
             long itemUseSlowdownTicks,
             BedrockDolphinBoost dolphinBoost,
-            BedrockCameraWaterState cameraWater) {
+            BedrockCameraWaterState cameraWater,
+            int penetratingMoves) {
         public TickMemory(
                 long simulationTick,
                 long powderSnowTicks,
@@ -1048,7 +1061,8 @@ public record BedrockMovementState(
                     sneakingTicks,
                     itemUseSlowdownTicks,
                     dolphinBoost,
-                    BedrockCameraWaterState.INITIAL);
+                    BedrockCameraWaterState.INITIAL,
+                    0);
         }
 
         public TickMemory {
@@ -1085,7 +1099,8 @@ public record BedrockMovementState(
                     sneakingTicks,
                     itemUseSlowdownTicks,
                     dolphinBoost,
-                    cameraWater);
+                    cameraWater,
+                    penetratingMoves);
         }
 
         TickMemory withFallDistance(float value) {
@@ -1101,7 +1116,8 @@ public record BedrockMovementState(
                     sneakingTicks,
                     itemUseSlowdownTicks,
                     dolphinBoost,
-                    cameraWater);
+                    cameraWater,
+                    penetratingMoves);
         }
 
         TickMemory withItemUseSlowdownTicks(long value) {
@@ -1117,7 +1133,8 @@ public record BedrockMovementState(
                     sneakingTicks,
                     value,
                     dolphinBoost,
-                    cameraWater);
+                    cameraWater,
+                    penetratingMoves);
         }
 
         TickMemory withDolphinBoost(BedrockDolphinBoost value) {
@@ -1133,7 +1150,8 @@ public record BedrockMovementState(
                     sneakingTicks,
                     itemUseSlowdownTicks,
                     value,
-                    cameraWater);
+                    cameraWater,
+                    penetratingMoves);
         }
 
         TickMemory withCameraWater(BedrockCameraWaterState value) {
@@ -1149,7 +1167,8 @@ public record BedrockMovementState(
                     sneakingTicks,
                     itemUseSlowdownTicks,
                     dolphinBoost,
-                    value);
+                    value,
+                    penetratingMoves);
         }
 
         TickMemory withSpin(boolean value) {
@@ -1165,7 +1184,25 @@ public record BedrockMovementState(
                     sneakingTicks,
                     itemUseSlowdownTicks,
                     dolphinBoost,
-                    cameraWater);
+                    cameraWater,
+                    penetratingMoves);
+        }
+
+        TickMemory withPenetratingMoves(int value) {
+            return new TickMemory(
+                    simulationTick,
+                    powderSnowTicks,
+                    fallFlyTicks,
+                    fallDistance,
+                    swimAmount,
+                    riptideChargeTicks,
+                    riptideSpinActive,
+                    riptideSpinTicks,
+                    sneakingTicks,
+                    itemUseSlowdownTicks,
+                    dolphinBoost,
+                    cameraWater,
+                    value);
         }
 
         private static void requireNonNegative(String name, long value) {

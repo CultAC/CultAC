@@ -20,11 +20,11 @@ import org.geysermc.geyser.session.GeyserSession;
 
 /**
  * Reads the actors Geyser sends without a server entity behind them, which the shared entity tracker never sees:
- * the two invisible collidable armor stands of its world border, spawned at the player and snapped to the border
- * on every input.
+ * the two invisible collidable armor stands of its world border, spawned at the player and moved to the border on
+ * every input.
  *
- * <p>Updates written since the last latency marker take effect together when the client answers the next one, so
- * an actor spawned around the player and moved to the border in the same batch never stands around the player.
+ * <p>Updates written since the last latency marker take effect together when the client answers the next one: an
+ * actor spawned around the player and moved in the same batch starts its lerp to the border from the player.
  */
 final class GeyserClientActors {
     /** The last position written for each actor without a server entity, which a partial move refers to. */
@@ -70,7 +70,7 @@ final class GeyserClientActors {
 
     private void moved(long id, Vector3f position, BedrockCoordinateFrame frame) {
         if (written.replace(id, position) == null) return;
-        pending.add(actors -> actors.place(id, position.getX(), position.getY(), position.getZ(), frame));
+        pending.add(actors -> actors.move(id, position.getX(), position.getY(), position.getZ(), frame));
     }
 
     boolean hasPending() {

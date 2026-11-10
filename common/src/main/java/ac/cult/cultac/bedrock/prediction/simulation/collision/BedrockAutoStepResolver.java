@@ -30,12 +30,14 @@ final class BedrockAutoStepResolver {
         Vec3d startFeet = current.physicalFeetPosition();
         WorldCollisionBox startBox = current.collisionBox(dimensions);
         List<BlockCollision> stepShapes = shapesIgnoringCeiling(startBox, obstacles);
+        BedrockDepenetrationLimit maximumDepenetration =
+                BedrockCollisionClipper.maximumDepenetration(current, obstacles);
         BedrockCollisionSweep.MoveResult upMove = BedrockCollisionSweep.sweep(
                 startBox,
                 new Vec3d(requestedDelta.x(), maxUpStep, requestedDelta.z()),
                 stepShapes,
                 current.coordinateFrame(),
-                BedrockCollisionClipper.maximumDepenetration(current));
+                maximumDepenetration);
 
         double acceptedRise = upMove.appliedDelta().y();
         BedrockCollisionClipper.ClipResult downClip = BedrockCollisionClipper.clip(
@@ -43,7 +45,7 @@ final class BedrockAutoStepResolver {
                 new Vec3d(0.0D, -acceptedRise, 0.0D),
                 stepShapes,
                 current.coordinateFrame(),
-                BedrockCollisionClipper.maximumDepenetration(current));
+                maximumDepenetration);
         Vec3d finalDelta = addFloat(upMove.appliedDelta(), downClip.move());
         WorldCollisionBox finalBox = BedrockCollisionSweep.moveBedrock(
                 upMove.finalBox(),

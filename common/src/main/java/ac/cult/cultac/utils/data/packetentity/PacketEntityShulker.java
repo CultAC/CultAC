@@ -22,7 +22,7 @@ import org.jetbrains.annotations.Nullable;
  * its vehicle chain gives it, since nothing positions it.
  *
  * <p>For a Bedrock player the same peek steps at the end of each client tick and shoves nothing: a shulker on the
- * floor is a collider 0.98 tall that the physical peek raises ({@link #bedrockCollisionBox}). Every other Bedrock
+ * floor is a collider 0.98 tall that the physical peek raises ({@link #bedrockShownBox}). Every other Bedrock
  * read keeps the plain entity box.
  */
 public class PacketEntityShulker extends PacketEntity {
@@ -402,27 +402,12 @@ public class PacketEntityShulker extends PacketEntity {
         return player.isBedrockMovement() && facing == Direction.DOWN && riding == null && scale == 1.0F;
     }
 
-    /**
-     * The box a Bedrock player on foot collides with, or null for a shulker that is not such a collider: the position
-     * boxes, {@link #BEDROCK_CLOSED_HEIGHT} tall and raised by the physical peek the last client tick left.
-     */
-    public @Nullable SimpleCollisionBox bedrockCollisionBox(SimpleCollisionBox out, SimpleCollisionBox scratch) {
-        if (!hasBedrockLid()) return null;
-        double minY = Double.POSITIVE_INFINITY;
-        double maxY = Double.NEGATIVE_INFINITY;
-        for (int i = 0, count = possibleMovementCollisionBoxCandidateCount(); i < count; i++) {
-            SimpleCollisionBox position = super.possibleMovementCollisionBoxCandidate(i, scratch);
-            minY = Math.min(minY, position.minY);
-            maxY = Math.max(maxY, position.minY);
-        }
-        super.getPossibleMovementCollisionBoxes(out, scratch);
-        return out.set(
-                out.minX,
-                minY,
-                out.minZ,
-                out.maxX,
-                maxY + BEDROCK_CLOSED_HEIGHT + bedrockPhysicalPeek(peek),
-                out.maxZ);
+    /** The shown box, {@link #BEDROCK_CLOSED_HEIGHT} tall and raised by the physical peek for a lid collider. */
+    @Override
+    public SimpleCollisionBox bedrockShownBox(CultPlayer player, SimpleCollisionBox out) {
+        super.bedrockShownBox(player, out);
+        if (hasBedrockLid()) out.maxY = out.minY + BEDROCK_CLOSED_HEIGHT + bedrockPhysicalPeek(peek);
+        return out;
     }
 
     /** The lid's height above the closed box at peek {@code amount}: the square of the sine of that quarter turn. */

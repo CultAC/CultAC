@@ -15,6 +15,8 @@ import java.util.Optional;
 public final class BedrockCollisionSweep {
     public static final double EPSILON = 1.0E-9D;
     public static final double CONTACT_EPSILON = 1.0E-6D;
+    /** The summed full-overlap depth from which a move counts as penetrating the shapes it met. */
+    private static final float PENETRATING_DEPTH = 1.0E-6F;
 
     private BedrockCollisionSweep() {}
 
@@ -48,6 +50,15 @@ public final class BedrockCollisionSweep {
             List<BlockCollision> obstacles,
             BedrockCoordinateFrame frame,
             float maximumDepenetration) {
+        return sweep(box, delta, obstacles, frame, BedrockDepenetrationLimit.uniform(maximumDepenetration));
+    }
+
+    public static MoveResult sweep(
+            WorldCollisionBox box,
+            Vec3d delta,
+            List<BlockCollision> obstacles,
+            BedrockCoordinateFrame frame,
+            BedrockDepenetrationLimit maximumDepenetration) {
         return sweepAxisOrder(box, delta, obstacles, frame, maximumDepenetration);
     }
 
@@ -73,13 +84,14 @@ public final class BedrockCollisionSweep {
             Vec3d delta,
             List<BlockCollision> obstacles,
             BedrockCoordinateFrame frame,
-            float maximumDepenetration) {
+            BedrockDepenetrationLimit maximumDepenetration) {
         Vec3d requested = new Vec3d(f(delta.x()), f(delta.y()), f(delta.z()));
         float movedX = 0.0F;
         float movedY = 0.0F;
         float movedZ = 0.0F;
         Optional<PlacedBlockCollision> yCollisionBlock = Optional.empty();
         WorldCollisionBox verticalPhaseBox = box;
+        float penetration = 0.0F;
 
         // The sweep includes every axis, including zero-length moves.
         Vec3d[] segments = {
@@ -91,6 +103,7 @@ public final class BedrockCollisionSweep {
             BedrockCollisionClipper.ClipResult clipped =
                     BedrockCollisionClipper.clip(box, segments[phase], obstacles, frame, maximumDepenetration);
             Vec3d move = clipped.move();
+            penetration += clipped.penetration();
             movedX += (float) move.x();
             movedY += (float) move.y();
             movedZ += (float) move.z();
@@ -115,7 +128,8 @@ public final class BedrockCollisionSweep {
                 appliedDelta.y() != requested.y(),
                 appliedDelta.z() != requested.z(),
                 yCollisionBlock,
-                frame);
+                frame,
+                penetration >= PENETRATING_DEPTH);
     }
 
     static WorldCollisionBox moveBedrock(
@@ -132,7 +146,31 @@ public final class BedrockCollisionSweep {
             boolean yCollision,
             boolean zCollision,
             Optional<PlacedBlockCollision> yCollisionBlock,
-            BedrockCoordinateFrame coordinateFrame) {
+            BedrockCoordinateFrame coordinateFrame,
+            boolean penetrating) {
+        public MoveResult(
+                Vec3d position,
+                Vec3d appliedDelta,
+                WorldCollisionBox finalBox,
+                WorldCollisionBox verticalPhaseBox,
+                boolean xCollision,
+                boolean yCollision,
+                boolean zCollision,
+                Optional<PlacedBlockCollision> yCollisionBlock,
+                BedrockCoordinateFrame coordinateFrame) {
+            this(
+                    position,
+                    appliedDelta,
+                    finalBox,
+                    verticalPhaseBox,
+                    xCollision,
+                    yCollision,
+                    zCollision,
+                    yCollisionBlock,
+                    coordinateFrame,
+                    false);
+        }
+
         public MoveResult(
                 Vec3d position,
                 Vec3d appliedDelta,

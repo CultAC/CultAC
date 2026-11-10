@@ -41,9 +41,7 @@ final class BedrockWorldSnapshotBuilder {
         BedrockBlockCollisionWorldSampler.BedrockSampledBlockWorld sampledBlockWorld =
                 blockWorld.sample(player, context, geometry, frame, playerContext, region);
         BlockCollisionWorld collisionWorld = withHardCollidingEntities(
-                        withHardCollidingEntities(
-                                sampledBlockWorld.world(), context.getHardCollidingEntityCollisionsForMovementTick()),
-                        BedrockShulkerColliders.of(player, context))
+                        sampledBlockWorld.world(), context.getHardCollidingEntityCollisionsForMovementTick())
                 .withCoordinateFrame(frame.getCoordinateFrame());
         BedrockMovementContext movementContext = movementContext(collisionWorld, playerContext, player, context);
         return new BedrockWorldSnapshot(
@@ -143,7 +141,8 @@ final class BedrockWorldSnapshotBuilder {
         }
         WorldCollisionBox collisionBox = new WorldCollisionBox(
                 sourceBox.minX, sourceBox.minY, sourceBox.minZ, sourceBox.maxX, sourceBox.maxY, sourceBox.maxZ);
-        String identifier = hardCollidingEntityIdentifier(collision);
+        String identifier =
+                collision.happyGhast() ? PlacedBlockCollision.HAPPY_GHAST_ACTOR : PlacedBlockCollision.SOLID_ACTOR;
         return PlacedBlockCollision.manual(
                 new BlockPosition((int) Math.floor(collisionBox.minX()), (int) Math.floor(collisionBox.minY()), (int)
                         Math.floor(collisionBox.minZ())),
@@ -152,15 +151,5 @@ final class BedrockWorldSnapshotBuilder {
                 List.of(collisionBox),
                 List.of(collisionBox),
                 List.of(collisionBox));
-    }
-
-    private static String hardCollidingEntityIdentifier(SimulationContext.HardCollidingEntityCollision collision) {
-        if (collision.boatLike()) {
-            return "minecraft:boat_entity_collision";
-        }
-        if (collision.minecartLike()) {
-            return "minecraft:minecart_entity_collision";
-        }
-        return "minecraft:hard_entity_collision";
     }
 }

@@ -9,8 +9,8 @@ import ac.cult.blocksim.data.StateFacts;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockSolidActors;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
-import ac.cult.cultac.checks.impl.prediction.SimulationContext.HardCollidingEntityCollision;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaSpinAttack;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CarriedPush;
@@ -623,7 +623,6 @@ public class WorldStageBuilder {
         pushingTickingAfterPlayer = 0;
         ridersTickingAfterPlayer = 0;
         List<SimpleCollisionBox> entityCollisionBoxes = null;
-        List<HardCollidingEntityCollision> hardCollidingEntityCollisions = null;
 
         // Players in vehicles do not have collisions
         if (context.getVehicle() == null) {
@@ -659,30 +658,16 @@ public class WorldStageBuilder {
                     if (entities.isUntrackedRider(entity, selfRidingRoot, serverVehicleRoot))
                         ridersTickingAfterPlayer++;
                 }
-                boolean boatLike = entity.isBoat();
-                boolean minecartLike = entity.isMinecart();
-                if (boatLike || minecartLike || isBedrockHardCollidingEntity(entity)) {
-                    if (hardCollidingEntityCollisions == null) hardCollidingEntityCollisions = new ArrayList<>();
-                    hardCollidingEntityCollisions.add(
-                            new HardCollidingEntityCollision(entityBox.copy(), boatLike, minecartLike));
-                } else {
-                    if (entityCollisionBoxes == null) entityCollisionBoxes = new ArrayList<>();
-                    entityCollisionBoxes.add(entityBox.copy());
-                }
+                if (entityCollisionBoxes == null) entityCollisionBoxes = new ArrayList<>();
+                entityCollisionBoxes.add(entityBox.copy());
             }
-        }
-        if (player.isBedrockMovement() && player.bedrockState != null) {
-            // Actors only the Bedrock client holds are solid for it and for the vehicle it rides.
-            List<HardCollidingEntityCollision> solid =
-                    hardCollidingEntityCollisions == null ? new ArrayList<>() : hardCollidingEntityCollisions;
-            player.bedrockState.clientActors.colliders(
-                    movementReach(context), box -> solid.add(new HardCollidingEntityCollision(box, false, false)));
-            if (!solid.isEmpty()) hardCollidingEntityCollisions = solid;
         }
         context.cacheEntityCollisionBoxesForMovementTick(
                 entityCollisionBoxes == null ? List.of() : List.copyOf(entityCollisionBoxes));
         context.cacheHardCollidingEntityCollisionsForMovementTick(
-                hardCollidingEntityCollisions == null ? List.of() : List.copyOf(hardCollidingEntityCollisions));
+                player.isBedrockMovement() && player.bedrockState != null
+                        ? List.copyOf(BedrockSolidActors.collect(player, context))
+                        : List.of());
 
         return numColliding;
     }
@@ -740,15 +725,6 @@ public class WorldStageBuilder {
         return entity instanceof PacketEntityPlayer remote
                 && remote.profile != null
                 && remote.actionSpectator(entities.clientPlayerModes);
-    }
-
-    /** The boxes the moving actor, the player or the vehicle it rides, may hold through the movement, and touch. */
-    private static SimpleCollisionBox movementReach(SimulationContext context) {
-        Vec3 from = context.getStart();
-        SimpleCollisionBox reach = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                new SimpleCollisionBox(), from.x, from.y, from.z, context.getMaxWidth(), context.getMaxHeight());
-        reach.union(context.getToMaximumExtent());
-        return pusherContactBox(reach);
     }
 
     /** The boxes the player's own box may hold through the context's movement. */
@@ -920,19 +896,15 @@ public class WorldStageBuilder {
 
     /**
      * Whether a rider outside the player's riding trees pushes it: Entity#rideTick runs LivingEntity#tick, whose aiStep
-     * pushes from the seat positionRider last gave the rider. Hard-colliding riders stay out, as Bedrock contact skips
-     * them.
+     * pushes from the seat positionRider last gave the rider. Boats, minecarts, striders and happy ghasts stay out.
      */
     private static boolean mayPushAsUntrackedRider(CultPlayer player, PacketEntity entity) {
         return !player.isBedrockMovement()
                 && entity.isLivingEntity()
                 && !entity.isBoat()
                 && !entity.isMinecart()
-                && !isBedrockHardCollidingEntity(entity);
-    }
-
-    private static boolean isBedrockHardCollidingEntity(PacketEntity entity) {
-        return entity.type == EntityTypeIds.STRIDER || entity.isHappyGhast();
+                && entity.type != EntityTypeIds.STRIDER
+                && !entity.isHappyGhast();
     }
 
     private StuckEdgeData couldBeOnStuckEdge(
