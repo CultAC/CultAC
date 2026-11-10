@@ -81,7 +81,7 @@ class VehiclePassengerReceiptTest {
 
             assertTrue(graphReceipt > p.lastTransactionReceived.get());
             assertEquals(ATTACHMENT, state.serverPlayerVehicleTransaction);
-            assertTrue(state.canCurrentPlayerControlServerVehicleForClientTickMovement());
+            assertTrue(state.canServerPlayerVehicleBeLocalAuthoritative());
             assertEquals(
                     before, camel.passengers.stream().map(e -> e.getEntityId()).toList());
 
@@ -89,7 +89,7 @@ class VehiclePassengerReceiptTest {
             p.latencyUtils.handleNettySyncTransaction(graphReceipt);
             assertEquals(
                     after, camel.passengers.stream().map(e -> e.getEntityId()).toList());
-            assertTrue(state.canCurrentPlayerControlServerVehicleForClientTickMovement());
+            assertTrue(state.canServerPlayerVehicleBeLocalAuthoritative());
             assertEquals(POSITION, camel.clientPhysicalPosition);
             assertEquals(CARRY, camel.deltaMovement);
         }
@@ -104,10 +104,10 @@ class VehiclePassengerReceiptTest {
             int[] after = transition.equals("add") ? new int[] {p.entityID, REAR} : new int[] {p.entityID};
             state.setServerVehicle(CAMEL, after, UPDATE);
             assertEquals(ATTACHMENT, state.serverPlayerVehicleTransaction);
-            assertFalse(state.canCurrentPlayerControlServerVehicleForClientTickMovement());
+            assertFalse(state.canServerPlayerVehicleBeLocalAuthoritative());
 
             p.lastTransactionReceived.set(ATTACHMENT);
-            assertTrue(state.canCurrentPlayerControlServerVehicleForClientTickMovement());
+            assertTrue(state.canServerPlayerVehicleBeLocalAuthoritative());
         }
     }
 
@@ -119,9 +119,9 @@ class VehiclePassengerReceiptTest {
             state.setServerVehicle(CAMEL, new int[] {REAR, p.entityID}, ATTACHMENT);
             state.setServerVehicle(CAMEL, new int[] {p.entityID, REAR}, UPDATE);
             assertEquals(UPDATE, state.serverPlayerVehicleTransaction);
-            assertFalse(state.canCurrentPlayerControlServerVehicleForClientTickMovement());
+            assertFalse(state.canServerPlayerVehicleBeLocalAuthoritative());
             p.lastTransactionReceived.set(UPDATE);
-            assertTrue(state.canCurrentPlayerControlServerVehicleForClientTickMovement());
+            assertTrue(state.canServerPlayerVehicleBeLocalAuthoritative());
         }
     }
 
@@ -132,9 +132,9 @@ class VehiclePassengerReceiptTest {
             var state = p.compensatedEntities.vehicles;
             state.setServerVehicle(CAMEL, new int[] {REAR, p.entityID}, UPDATE);
             assertEquals(UPDATE, state.serverPlayerVehicleTransaction);
-            assertFalse(state.canCurrentPlayerControlServerVehicleForClientTickMovement());
+            assertFalse(state.canServerPlayerVehicleBeLocalAuthoritative());
             p.lastTransactionReceived.set(UPDATE);
-            assertFalse(state.canCurrentPlayerControlServerVehicleForClientTickMovement());
+            assertFalse(state.canServerPlayerVehicleBeLocalAuthoritative());
         }
     }
 
@@ -148,9 +148,9 @@ class VehiclePassengerReceiptTest {
             var state = p.compensatedEntities.vehicles;
             state.setServerVehicle(other, new int[] {p.entityID}, UPDATE);
             assertEquals(UPDATE, state.serverPlayerVehicleTransaction);
-            assertFalse(state.canCurrentPlayerControlServerVehicleForClientTickMovement());
+            assertFalse(state.canServerPlayerVehicleBeLocalAuthoritative());
             p.lastTransactionReceived.set(UPDATE);
-            assertTrue(state.canCurrentPlayerControlServerVehicleForClientTickMovement());
+            assertTrue(state.canServerPlayerVehicleBeLocalAuthoritative());
         }
     }
 
@@ -164,11 +164,11 @@ class VehiclePassengerReceiptTest {
             if (completeDismount) state.applyClientVisibleDismount();
             state.setServerVehicle(CAMEL, new int[] {p.entityID}, UPDATE + 1);
             assertEquals(UPDATE + 1, state.serverPlayerVehicleTransaction);
-            assertFalse(state.canCurrentPlayerControlServerVehicleForClientTickMovement());
+            assertFalse(state.canServerPlayerVehicleBeLocalAuthoritative());
             p.lastTransactionReceived.set(UPDATE);
-            assertFalse(state.canCurrentPlayerControlServerVehicleForClientTickMovement());
+            assertFalse(state.canServerPlayerVehicleBeLocalAuthoritative());
             p.lastTransactionReceived.set(UPDATE + 1);
-            assertTrue(state.canCurrentPlayerControlServerVehicleForClientTickMovement());
+            assertTrue(state.canServerPlayerVehicleBeLocalAuthoritative());
         }
     }
 
@@ -181,7 +181,7 @@ class VehiclePassengerReceiptTest {
             state.setServerVehicle(CAMEL, after, UPDATE);
             after[0] = REAR;
             assertArrayEquals(new int[] {p.entityID, REAR}, state.serverPlayerVehiclePassengers);
-            assertTrue(state.canCurrentPlayerControlServerVehicleForClientTickMovement());
+            assertTrue(state.canServerPlayerVehicleBeLocalAuthoritative());
         }
     }
 
@@ -192,7 +192,7 @@ class VehiclePassengerReceiptTest {
             Class.forName(ac.cult.cultac.checks.impl.verbose.VerboseCodecs.class.getName());
             var p = f.player;
             p.compensatedEntities.vehicles.setServerVehicle(CAMEL, new int[] {p.entityID}, UPDATE);
-            p.packetStateData.markVehicleMove(true, true);
+            p.packetStateData.markVehicleMove(true);
             var ctx = mock(SimulationContext.class);
             var world = mock(WorldData.class);
             var version = p.getClientVersion();

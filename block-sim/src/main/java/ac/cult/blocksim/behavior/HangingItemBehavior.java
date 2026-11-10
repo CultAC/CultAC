@@ -1,6 +1,5 @@
 package ac.cult.blocksim.behavior;
 
-import ac.cult.blocksim.data.Box;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.StateFacts;
 import ac.cult.blocksim.engine.*;

@@ -1,6 +1,7 @@
 package ac.cult.cultac.manager;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.when;
@@ -50,6 +51,7 @@ class AlertExclusionTest {
         PlatformPlayer player = mock(PlatformPlayer.class);
         when(player.getUniqueId()).thenReturn(uuid);
         when(player.getNative()).thenReturn(nativePlayer);
+        when(player.hasPermission(anyString())).thenReturn(true);
         return player;
     }
 }

@@ -4,7 +4,6 @@ import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckData;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.checks.type.DecodedPacketReceiveListener;
-import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -74,7 +73,7 @@ public class BadPacketsJ extends Check implements DecodedPacketReceiveListener, 
         }
 
         // A boat rider's Rot carries the turn of the vehicle move the client sends after it, judged at tick end
-        if (this.rotations > 0 && !player.packetStateData.lastPacketWasTeleport && riddenBoat() == null) {
+        if (this.rotations > 0 && !event.answersTeleport() && riddenBoat() == null) {
             onTickPacket(player.xRot, player.yRot);
         }
     }
@@ -90,7 +89,7 @@ public class BadPacketsJ extends Check implements DecodedPacketReceiveListener, 
 
         if (this.rotations > 0) {
             // The client sends no tick movement, so no rotation, until ClientPacketListener#hasClientLoaded
-            if (CheckManagerListener.localPlayerTicked(player)) {
+            if (player.localPlayerTicks()) {
                 // LocalPlayer#sendChanges sends Rot every riding tick, so a tick without movement ran sendPosition,
                 // which sends no rotation while the player's equals the last one it sent
                 if (player.packetStateData.receivedMovementThisClientTick) {

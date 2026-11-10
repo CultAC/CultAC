@@ -95,6 +95,8 @@ class ReachInterpolationRestartTest {
                 throw new AssertionError(e);
             }
             String name = at + " " + field.getName();
+            // A reused buffer, read only while heldStep holds a step, as the copy constructor treats it.
+            if (field.getName().equals("heldLocation") && heldStep(expected) < 0 && heldStep(actual) < 0) continue;
             if (want instanceof SimpleCollisionBox wantBox && got instanceof SimpleCollisionBox gotBox) {
                 assertEquals(boxBits(wantBox), boxBits(gotBox), name);
             } else if (want instanceof ArrayDeque<?> wantQueue && got instanceof ArrayDeque<?> gotQueue) {

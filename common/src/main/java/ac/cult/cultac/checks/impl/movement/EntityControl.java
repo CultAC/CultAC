@@ -10,6 +10,7 @@ import ac.cult.cultac.player.CultPlayer;
 public class EntityControl extends Check implements PostPredictionListener {
     public static final CheckInfo INFO = CheckInfo.builder()
             .name("EntityControl")
+            .stableKey("grim.legacy.entitycontrol")
             .description("Controlled a ridden mob in an impossible way")
             .configName("EntityControl")
             .build();

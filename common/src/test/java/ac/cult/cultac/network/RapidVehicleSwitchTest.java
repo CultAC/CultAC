@@ -40,11 +40,11 @@ class RapidVehicleSwitchTest {
         try (var f = fixture(distance)) {
             var firstMoves = mount(f, FIRST);
             int firstProof = f.player.lastTransactionSent.get();
-            int firstResponses = f.player.getSetbackTeleportUtil().queuedVehicleTeleportCount();
+            int firstResponses = f.player.getSetbackTeleportUtil().vehicleTeleports().queuedVehicleTeleportCount();
             assertTrue(firstResponses > 0);
 
             var secondMoves = mount(f, SECOND);
-            assertTrue(f.player.getSetbackTeleportUtil().queuedVehicleTeleportCount() > firstResponses);
+            assertTrue(f.player.getSetbackTeleportUtil().vehicleTeleports().queuedVehicleTeleportCount() > firstResponses);
 
             for (var move : firstMoves) echo(f, move);
             f.pongThrough(firstProof);
@@ -56,7 +56,7 @@ class RapidVehicleSwitchTest {
             f.pongThrough(f.player.lastTransactionSent.get());
             assertEquals(
                     SECOND, f.player.compensatedEntities.getSelf().getRiding().getEntityId());
-            assertEquals(0, f.player.getSetbackTeleportUtil().queuedVehicleTeleportCount());
+            assertEquals(0, f.player.getSetbackTeleportUtil().vehicleTeleports().queuedVehicleTeleportCount());
             assertEquals(0, f.player.checkManager.getCheck(BadPacketsVehicle.class).violations);
             assertEquals(0, f.player.checkManager.getCheck(CrashF.class).violations);
         }

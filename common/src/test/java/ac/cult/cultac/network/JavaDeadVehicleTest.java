@@ -43,8 +43,10 @@ class JavaDeadVehicleTest {
             PacketEntity zombie = add(f, 101, EntityTypeIds.ZOMBIE);
             PacketEntity tnt = add(f, 102, EntityTypeIds.TNT);
 
+            // Entity#handleEntityEvent has no case for 3; only LivingEntity's kills.
             entityEvent(f, 102, DEATH);
-            assertTrue(tnt.isDead, "a non-living entity's event 3 waits for no proof");
+            f.pongThrough(f.player.lastTransactionSent.get());
+            assertFalse(tnt.isDead, "a non-living entity does not die from event 3");
 
             entityEvent(f, 101, DEATH);
             assertFalse(zombie.isDead, "dead once the client reads it");

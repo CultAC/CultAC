@@ -248,6 +248,7 @@ public final class ClientboundPackets {
             "horse_screen_open");
     public static final PacketType<ClientboundOpenScreen> OPEN_SCREEN =
             PLAY.add("open_screen", ClientboundOpenScreen.class, new OpenScreenCodec());
+    public static final PacketType<Opaque> OPEN_SIGN_EDITOR = PLAY.ignored("open_sign_editor");
 
     private static final List<PacketType<?>> ALL = C.types();
 

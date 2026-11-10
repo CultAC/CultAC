@@ -11,7 +11,7 @@ repositories {
     maven("https://repo.viaversion.com") { content { includeGroup("com.viaversion") } }
     mavenCentral()
 }
-java.toolchain.languageVersion.set(JavaLanguageVersion.of(21))
+java.toolchain.languageVersion.set(JavaLanguageVersion.of(25))
 tasks.withType<JavaCompile>().configureEach { options.release.set(21) }
 dependencies {
     compileOnly("com.velocitypowered:velocity-api:3.4.0")
@@ -58,6 +58,10 @@ tasks.shadowJar {
         exclude(dependency("org.yaml:snakeyaml:.*"))
         exclude(dependency("org.slf4j:slf4j-api:.*"))
     }
+
+    // Velocity plugins share class lookups, and some (LiteBans) read org.bukkit.entity.Player as running on Bukkit.
+    // GrimAPI needs the shim only to build its proxies here, and the runtime jar never resolves it on Velocity.
+    relocate("org.bukkit.entity.Player", "ac.cult.velocity.shim.bukkit.Player")
 
     mergeServiceFiles()
     exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")

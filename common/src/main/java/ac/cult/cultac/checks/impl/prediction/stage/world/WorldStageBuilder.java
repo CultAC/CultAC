@@ -51,6 +51,7 @@ import java.util.Set;
 import java.util.function.IntPredicate;
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import org.jetbrains.annotations.Nullable;
 
 public class WorldStageBuilder {
     // Temporary Bedrock push-out approximation, inset on every face.
@@ -176,12 +177,7 @@ public class WorldStageBuilder {
         MainSupportingBlockData mainSupportingBlockData = findMainSupportingBlockPos(
                 player,
                 player.isBedrockMovement()
-                        ? (lastPrediction == null
-                                ? null
-                                : lastPrediction
-                                        .getSimulationContext()
-                                        .getWorldData()
-                                        .getMainSupportingBlockPos())
+                        ? player.checkManager.getSimulationProcessor().lastTickSupport(lastPrediction)
                         : simulationContext.getLastTickMainSupportingBlockData(),
                 deltaX,
                 deltaZ,
@@ -420,6 +416,16 @@ public class WorldStageBuilder {
             CultPlayer player, SimpleCollisionBox box, double entityBoundingBoxMinY, SimpleCollisionBox body) {
         FluidState state = new FluidState(false, false, false, 0.0D, 0.0D);
         if (!ClientFluidQueries.hasLoadedFluidNeighborhood(player, body)) return state;
+        // Collisions#hasState visits floor(min) to floor(max) on each axis, which holds the cells Entity reads.
+        if (!player.compensatedWorld.mayHaveFluid(
+                        (int) Math.floor(box.minX),
+                        (int) Math.floor(box.minY),
+                        (int) Math.floor(box.minZ),
+                        (int) Math.floor(box.maxX),
+                        (int) Math.floor(box.maxY),
+                        (int) Math.floor(box.maxZ))
+                && !ClientFluidQueries.countsEmptyFluid(player, FluidTags.WATER)
+                && !ClientFluidQueries.countsEmptyFluid(player, FluidTags.LAVA)) return state;
 
         SimpleCollisionBox lavaCollision = box.copy();
         double depthMinY = ClientFluidQueries.usesLegacyFluidDepth(player) ? box.minY : entityBoundingBoxMinY;
@@ -1211,29 +1217,14 @@ public class WorldStageBuilder {
         return primary != null ? primary : swept;
     }
 
-    public MainSupportingBlockData findMainSupportingBlockPos(
-            CultPlayer player,
-            SimulationContext lastContext,
-            double lastMovementX,
-            double lastMovementZ,
-            SimpleCollisionBox maxPose,
-            boolean isOnGround) {
-        return findMainSupportingBlockPos(
-                player,
-                lastContext == null ? null : lastContext.getWorldData().getMainSupportingBlockPos(),
-                lastMovementX,
-                lastMovementZ,
-                maxPose,
-                isOnGround);
-    }
-
     /**
      * Entity#checkSupportingBlock after a move of ({@code lastMovementX}, {@code lastMovementZ}) that left the box
-     * {@code maxPose}, from the support {@code previous} the move started with (null when unknown).
+     * {@code maxPose}, from the support {@code previous} the move started with, whose onGroundNoBlocks stops the
+     * search behind the movement (null when there is none).
      */
     public MainSupportingBlockData findMainSupportingBlockPos(
             CultPlayer player,
-            MainSupportingBlockData previous,
+            @Nullable MainSupportingBlockData previous,
             double lastMovementX,
             double lastMovementZ,
             SimpleCollisionBox maxPose,

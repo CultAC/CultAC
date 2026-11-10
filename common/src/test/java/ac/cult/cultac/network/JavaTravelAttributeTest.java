@@ -17,6 +17,7 @@ import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -67,6 +68,8 @@ class JavaTravelAttributeTest {
     private static final double EDGE_SNEAK = 0.2;
     // LivingEntity#travelRidden: the 0.98F forward input at a horse's getRiddenSpeed, its movement_speed 0.225.
     private static final double RIDDEN_WALK = (double) 0.98F * (double) 0.225F;
+    /** LivingEntity#travelInWater leaves a horse resting on the floor 0 * 0.8 - 0.08 / 16 of Y motion. */
+    private static final double RESTING_IN_WATER_Y = -0.08D / 16.0D;
 
     @Test
     void soulSpeedCarriesFullSpeedOnSoulSand() throws Exception {
@@ -432,6 +435,22 @@ class JavaTravelAttributeTest {
         }
     }
 
+    /**
+     * The move a rider sends before ClientPacketListener#handleSetEntityPassengersPacket reads the server's dismount
+     * still travels on AbstractHorse#getRiddenInput.
+     */
+    @Test
+    void aRiddenHorseTravelsOnItsRidersInputUntilTheClientReadsItsDismount() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            riddenHorseInWater(f, 1.0, true);
+            f.setPassengers(100, List.of());
+            assertTrue(f.player.compensatedEntities.vehicles.hasPendingServerDismount());
+            assertTrue(f.player.compensatedEntities.getSelf().inVehicle());
+
+            JavaTickFixture.assertVehicleExact(rideForward(f, RIDDEN_WALK), 0);
+        }
+    }
+
     @Test
     void aRiddenHorseInWaterGetsNoSprintModifier() throws Exception {
         try (var f = new JavaTickFixture()) {
@@ -552,6 +571,10 @@ class JavaTravelAttributeTest {
         event.tasksAfter().forEach(Runnable::run);
         f.pongThrough(f.player.lastTransactionSent.get());
         f.pongThrough(sendAttribute(f, 100, "minecraft:water_movement_efficiency", 0.0, waterMovementEfficiency));
+        // Entity#move reports the ground only for a downward move it clipped, so a horse resting in water keeps sinking.
+        if (onGround) {
+            f.player.checkManager.getSimulationProcessor().seedStartingVelocity(new Vec3(0, RESTING_IN_WATER_Y, 0));
+        }
         // AbstractHorse#tick runs before LocalPlayer#rideTick hands it this tick's keys.
         f.input(FORWARD);
         f.rideTick(new Vec3(0.5, FLOOR_Y, 0.5), onGround);
@@ -690,7 +713,7 @@ class JavaTravelAttributeTest {
     /** A respawn with no following attribute packet, after which the client has loaded into the level. */
     private static void respawn(JavaTickFixture f, byte dataToKeep) {
         f.fixture.respawn(dataToKeep);
-        f.player.getSetbackTeleportUtil().hasFullyLoaded = true;
+        SetbackFixtures.setLoaded(f.player.getSetbackTeleportUtil(), true);
         f.player.packetStateData.playerLoadedIntoLevel = true;
     }
 

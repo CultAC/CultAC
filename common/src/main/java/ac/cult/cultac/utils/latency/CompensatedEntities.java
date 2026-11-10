@@ -2,6 +2,7 @@ package ac.cult.cultac.utils.latency;
 
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.cultac.checks.impl.badpackets.BadPacketsM;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaBlockEntityPath;
 import ac.cult.cultac.network.packet.EntityMetadata;
@@ -49,15 +50,13 @@ public class CompensatedEntities {
     public static final Set<String> EXCLUDED_MODIFIER_IDS = Set.of(SPRINTING_MODIFIER_ID, SNOW_MODIFIER_ID);
     private static final String ATTRIBUTE_NAMESPACE = "minecraft:";
     private static final long LOCAL_PLAYER_CLIENT_TICK_ORDER = 0L;
-    private static final int HELD_UPDATES = 4;
-    private static final int HELD_ENTITIES = 256;
+    // Client ticks whose end has been processed, counting the one whose entities are ticking.
+    private long clientTicks;
     public final EntityMap entityMap = new EntityMap();
     public final Int2ObjectOpenHashMap<TrackerData> serverPositionsMap = new Int2ObjectOpenHashMap<>(40, 0.7f);
     // Java: for each held entity ID, the sent drops (remove_entities, a login or a level change) the client has not
     // handled yet. A held entity with one pending is gone once the client handles the packets sent so far.
     private final Int2IntOpenHashMap sentDrops = new Int2IntOpenHashMap();
-    private final Int2ObjectOpenHashMap<List<HeldAttributes>> pendingAttributes = new Int2ObjectOpenHashMap<>(10, 0.7f);
-    private final Int2ObjectOpenHashMap<List<EquipmentEntry>> pendingEquipment = new Int2ObjectOpenHashMap<>(10, 0.7f);
     public final CompensatedVehicleState vehicles;
     public List<SimpleCollisionBox> fishingRodPulls = new EvictingQueue<>(100); // sanity limit to prevent leaks.
     private long nextClientEntityTickOrder = 1L;
@@ -212,8 +211,6 @@ public class CompensatedEntities {
     /** A replacement ClientLevel cannot retain remote entities or their queued values. */
     public void clearClientLevel() {
         clearEntityMap();
-        pendingAttributes.clear();
-        pendingEquipment.clear();
         fishingRodPulls.clear();
         ravagerRoars.clear();
         fishingPulls.reset();
@@ -801,8 +798,6 @@ public class CompensatedEntities {
             for (PacketEntity passenger : removing.passengers) settleIfUntrackedRider(passenger);
         }
         PacketEntity entity = entityMap.remove(entityID);
-        pendingAttributes.remove(entityID);
-        pendingEquipment.remove(entityID);
         if (entity == null) return;
         boolean removedSelfVehicle = vehicles.serverPlayerVehicle != null && vehicles.serverPlayerVehicle == entityID;
         if (removedSelfVehicle) {
@@ -831,9 +826,10 @@ public class CompensatedEntities {
         entity.eject();
         if (player.isBedrockMovement()) {
             vehicles.seedStartingVelocityIfRootChanged(previousRoot);
-            if (previousRoot == null) player.getSetbackTeleportUtil().transferBedrockVehicleSetback(entityID);
+            if (previousRoot == null)
+                player.getSetbackTeleportUtil().vehicleTeleports().transferBedrockVehicleSetback(entityID);
         } else if (previousRoot != null) {
-            player.getSetbackTeleportUtil().reissueDroppedVehicleSetback();
+            player.getSetbackTeleportUtil().vehicleTeleports().reissueDroppedVehicleSetback();
         }
     }
 
@@ -1018,10 +1014,8 @@ public class CompensatedEntities {
 
         PacketEntity entity = player.compensatedEntities.getEntity(entityID);
         boolean entityScaleChanged = false;
-        if (entity == null && entityID != player.entityID) {
-            holdAttributes(entityID, objects, provenAt);
-            return;
-        }
+        // ClientPacketListener#handleUpdateAttributes drops the update for an id the client lacks.
+        if (entity == null && entityID != player.entityID) return;
 
         if (entity != null && entityID != player.entityID) {
             for (AttributeSnapshot snapshot : objects) {
@@ -1233,6 +1227,15 @@ public class CompensatedEntities {
         return rideTickSeat;
     }
 
+    /**
+     * Where a Java passenger's ClientPacketListener#handleMovePlayer reports it, from Cult's state alone. A passenger
+     * stays where the last Entity#rideTick's Entity#positionRider seated it; before its first ride tick it stays where
+     * it mounted, as Entity#startRiding moves nothing.
+     */
+    public Vec3 passengerReportPosition() {
+        return rideTickSeat != null ? rideTickSeat : new Vec3(player.x, player.y, player.z);
+    }
+
     /** Whether the local player was a passenger at the end of the last client tick. */
     public boolean rodeLastClientTick() {
         return rideTickSeat != null;
@@ -1287,8 +1290,8 @@ public class CompensatedEntities {
         }
     }
 
-    /** Adds the entity and replays its held attributes; returns the greatest replayed proof, or Integer.MIN_VALUE. */
-    public int addEntity(int entityID, int entityType, Vec3 position, float xRot, float yRot, int data) {
+    /** Adds the entity the client's ClientPacketListener#handleAddEntity adds. */
+    public void addEntity(int entityID, int entityType, Vec3 position, float xRot, float yRot, int data) {
         // ClientLevel#addEntity first discards the entity holding this ID: it stops riding and ejects its riders.
         PacketEntity previous = player.isBedrockMovement() ? null : entityMap.get(entityID);
         if (previous != null) {
@@ -1299,7 +1302,7 @@ public class CompensatedEntities {
         }
         // Dropped items are all server sided and players can't interact with them (except create them!), save the
         // performance
-        if (entityType == EntityTypeIds.ITEM) return Integer.MIN_VALUE;
+        if (entityType == EntityTypeIds.ITEM) return;
 
         PacketEntity packetEntity = createTrackedEntity(entityID, entityType, position, xRot, data);
         if (!player.isBedrockMovement() && EntityTypeUtil.isTamableAnimal(entityType))
@@ -1324,25 +1327,6 @@ public class CompensatedEntities {
         addOrder.add(packetEntity);
         addOrderMapped = false;
         track(packetEntity);
-        int replayedProof = Integer.MIN_VALUE;
-        List<HeldAttributes> held = pendingAttributes.remove(entityID);
-        if (held != null) {
-            // Each held update keeps its own proof; those already answered retire with the spawn.
-            for (HeldAttributes update : held) {
-                if (update.leastScale() == update.leastScale()) {
-                    if (player.isBedrockMovement()) packetEntity.onScale(update.leastScale(), update.provenAt());
-                    else packetEntity.onScaleAttribute(update.leastScale(), update.provenAt());
-                }
-                updateAttributes(entityID, update.values(), update.provenAt());
-                replayedProof = Math.max(replayedProof, update.provenAt());
-            }
-            packetEntity.onSizeHandled(player.lastTransactionReceived.get());
-        }
-        List<EquipmentEntry> pendingEquipmentUpdates = pendingEquipment.remove(entityID);
-        if (pendingEquipmentUpdates != null) {
-            updateEntityEquipment(entityID, pendingEquipmentUpdates);
-        }
-        return replayedProof;
     }
 
     private PacketEntity createTrackedEntity(int entityID, int entityType, Vec3 position, float xRot, int data) {
@@ -1373,9 +1357,7 @@ public class CompensatedEntities {
         if (EntityTypeUtil.isHorseFamily(entityType)) {
             return new PacketEntityHorse(player, entityID, entityType, position.x, position.y, position.z, xRot);
         }
-        if (entityType == EntityTypeIds.SLIME
-                || entityType == EntityTypeIds.MAGMA_CUBE
-                || entityType == EntityTypeIds.PHANTOM) {
+        if (EntityTypeUtil.isCubeMob(entityType) || entityType == EntityTypeIds.PHANTOM) {
             return new PacketEntitySizeable(player, entityID, entityType, position.x, position.y, position.z);
         }
         if ((entityType == EntityTypeIds.PIG)) {
@@ -1403,6 +1385,9 @@ public class CompensatedEntities {
             return new PacketEntityHurtingProjectile(player, entityID, entityType, position, data);
         }
         if (entityType == EntityTypeIds.RAVAGER) return new PacketEntityRavager(player, entityID, entityType, position);
+        if (entityType == EntityTypeIds.FALLING_BLOCK) {
+            return new PacketEntityFallingBlock(player, entityID, position);
+        }
         return new PacketEntity(player, entityID, entityType, position.x, position.y, position.z);
     }
 
@@ -1441,31 +1426,8 @@ public class CompensatedEntities {
 
     public void updateEntityEquipment(int entityID, List<EquipmentEntry> slots) {
         PacketEntity entity = getEntity(entityID);
-        if (entity == null) {
-            List<EquipmentEntry> merged = new ArrayList<>();
-            List<EquipmentEntry> existing = pendingEquipment.remove(entityID);
-            if (existing != null) {
-                merged.addAll(existing);
-            }
-            for (EquipmentEntry slot : slots) {
-                int existingIndex = -1;
-                for (int i = 0; i < merged.size(); i++) {
-                    if (merged.get(i).slot() == slot.slot()) {
-                        existingIndex = i;
-                        break;
-                    }
-                }
-                EquipmentEntry copiedSlot =
-                        new EquipmentEntry(slot.slot(), slot.item().copy());
-                if (existingIndex >= 0) {
-                    merged.set(existingIndex, copiedSlot);
-                } else {
-                    merged.add(copiedSlot);
-                }
-            }
-            pendingEquipment.put(entityID, merged);
-            return;
-        }
+        // ClientPacketListener#handleSetEquipment drops the update for an id the client lacks.
+        if (entity == null) return;
 
         boolean controlled = vehicles.canClientAuthoritativelyMoveVisibleRoot(entity);
         for (EquipmentEntry slot : slots) {
@@ -1559,8 +1521,13 @@ public class CompensatedEntities {
             }
             var health = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.LIVING_HEALTH);
             if (health != null && health.value() instanceof Float value) {
-                if (entity instanceof PacketEntitySelf self) self.setHealth(value);
-                else entity.actionAlive = value > 0.0F;
+                if (entity instanceof PacketEntitySelf self) {
+                    self.setHealth(value);
+                    // Gui#tick opens the death screen once DATA_HEALTH_ID makes LivingEntity#isDeadOrDying true.
+                    if (value <= 0.0F && !player.isBedrockMovement()) {
+                        player.checkManager.getListener(BadPacketsM.class).onDeath();
+                    }
+                } else entity.actionAlive = value > 0.0F;
             }
             ClientMovementSpeed ridden = entity.riddenMovementSpeed();
             var frozen = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.ENTITY_TICKS_FROZEN);
@@ -1833,6 +1800,16 @@ public class CompensatedEntities {
     public void onLazyRiderMoved(PacketEntity rider, SimpleCollisionBox box) {
         if (player.isBedrockMovement()) return;
         clientTickMembership.moved(rider, (box.minX + box.maxX) / 2, box.minY, (box.minZ + box.maxZ) / 2);
+    }
+
+    /**
+     * Whether a Bedrock actor is held where it entered a chunk the client has not loaded: it stays there through later
+     * moves until the chunk loads, and a remote player placed there leaves only by a teleport.
+     */
+    public boolean isInBedrockLimbo(PacketEntity entity) {
+        if (!entity.clientPhysicalPositionExact) return false;
+        Vec3 position = entity.clientPhysicalPosition;
+        return position != null && !entity.isInLoadedChunk(player.compensatedWorld, position);
     }
 
     /** ClientLevel root/passenger order and client ticking membership. */
@@ -2159,56 +2136,6 @@ public class CompensatedEntities {
         onLazyRiderMoved(rider, riderTickBox);
     }
 
-    /** The number of attribute updates held for entityID until it is added. */
-    public int heldAttributeUpdates(int entityID) {
-        List<HeldAttributes> held = pendingAttributes.get(entityID);
-        return held == null ? 0 : held.size();
-    }
-
-    private void holdAttributes(int entityID, List<AttributeSnapshot> values, int provenAt) {
-        List<HeldAttributes> held = pendingAttributes.get(entityID);
-        if (held == null) {
-            // A tracked spawn's attributes always hold; the client drops those for an id it lacks, so untracked ids
-            // beyond the bound go unheld.
-            if (pendingAttributes.size() >= HELD_ENTITIES && !serverPositionsMap.containsKey(entityID)) return;
-            pendingAttributes.put(entityID, held = new ArrayList<>(HELD_UPDATES));
-        }
-        if (held.size() == HELD_UPDATES) {
-            HeldAttributes oldest = held.remove(0);
-            held.set(0, merge(oldest, held.get(0)));
-        }
-        held.add(new HeldAttributes(List.copyOf(values), provenAt, Float.NaN));
-    }
-
-    // The later values win, the earlier's scale stays an alternative, and the later proof proves both.
-    private HeldAttributes merge(HeldAttributes earlier, HeldAttributes later) {
-        Map<String, AttributeSnapshot> values = new LinkedHashMap<>();
-        for (AttributeSnapshot snapshot : earlier.values()) values.put(snapshot.attribute(), snapshot);
-        for (AttributeSnapshot snapshot : later.values()) values.put(snapshot.attribute(), snapshot);
-        float leastScale = least(least(earlier.leastScale(), heldScale(earlier.values())), later.leastScale());
-        return new HeldAttributes(
-                List.copyOf(values.values()), Math.max(earlier.provenAt(), later.provenAt()), leastScale);
-    }
-
-    private float heldScale(List<AttributeSnapshot> values) {
-        float scale = Float.NaN;
-        for (AttributeSnapshot snapshot : values) {
-            if (matchesAttribute(snapshot, "scale")) scale = (float) calculateAttribute(snapshot, 0.0625, 16.0);
-        }
-        return scale;
-    }
-
-    // The lesser of two scales, NaN standing for none.
-    private static float least(float a, float b) {
-        return b < a || a != a ? b : a;
-    }
-
-    /**
-     * Attributes for an entity not yet added, which the client has applied once it answers provenAt; leastScale is
-     * a smaller scale merged earlier updates set, or NaN.
-     */
-    private record HeldAttributes(List<AttributeSnapshot> values, int provenAt, float leastScale) {}
-
     /**
      * The tracked entities by id; {@code mutations} advances on every put and clear, and on every remove of a present
      * key: removing an absent key leaves the arrays untouched.
@@ -2239,5 +2166,15 @@ public class CompensatedEntities {
             mutations++;
             super.clear();
         }
+    }
+
+    /** The client ticks processed so far; while a tick's entities tick, that tick is counted. */
+    public long clientTicks() {
+        return clientTicks;
+    }
+
+    /** A client tick's end, before its entities tick. */
+    public void onClientTick() {
+        clientTicks++;
     }
 }

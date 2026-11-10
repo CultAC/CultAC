@@ -19,6 +19,10 @@ import ac.cult.cultac.checks.impl.cloud.CloudCombat;
 import ac.cult.cultac.checks.impl.cloud.CloudCombatExperimental;
 import ac.cult.cultac.checks.impl.cloud.CloudExploit;
 import ac.cult.cultac.checks.impl.cloud.CloudExploitExperimental;
+import ac.cult.cultac.checks.impl.combat.BedrockEntityHitboxes;
+import ac.cult.cultac.checks.impl.combat.BedrockEntityReach;
+import ac.cult.cultac.checks.impl.combat.BedrockPlayerHitboxes;
+import ac.cult.cultac.checks.impl.combat.BedrockPlayerReach;
 import ac.cult.cultac.checks.impl.combat.EntityHitboxes;
 import ac.cult.cultac.checks.impl.combat.EntityReach;
 import ac.cult.cultac.checks.impl.combat.FairReach;
@@ -34,10 +38,13 @@ import ac.cult.cultac.checks.impl.exploit.ExploitB;
 import ac.cult.cultac.checks.impl.exploit.ExploitC;
 import ac.cult.cultac.checks.impl.exploit.ExploitF;
 import ac.cult.cultac.checks.impl.groundspoof.NoFallExecutor;
+import ac.cult.cultac.checks.impl.misc.BrandSpoofA;
+import ac.cult.cultac.checks.impl.misc.BrandSpoofB;
 import ac.cult.cultac.checks.impl.misc.ClientBrand;
 import ac.cult.cultac.checks.impl.misc.GhostBlockMitigation;
 import ac.cult.cultac.checks.impl.misc.SkinBlinker;
 import ac.cult.cultac.checks.impl.movement.EntityControl;
+import ac.cult.cultac.checks.impl.movement.GhostFriction;
 import ac.cult.cultac.checks.impl.movement.SetbackBlocker;
 import ac.cult.cultac.checks.impl.movement.VehiclePredictionRunner;
 import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
@@ -68,6 +75,10 @@ import ac.cult.cultac.checks.impl.sprint.*;
 import ac.cult.cultac.checks.impl.vehicle.*;
 import ac.cult.cultac.checks.impl.visibility.AttackMobVisibility;
 import ac.cult.cultac.checks.impl.visibility.AttackPlayerVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockAttackMobVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockAttackPlayerVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockBreakVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockPlaceVisibility;
 import ac.cult.cultac.checks.impl.visibility.BreakVisibility;
 import ac.cult.cultac.checks.impl.visibility.InteractEntityVisibility;
 import ac.cult.cultac.checks.impl.visibility.PlaceVisibility;
@@ -290,6 +301,8 @@ public class CheckManager {
                 player.pluginChannelManager,
                 new PlayerReach(player, visibility),
                 new EntityReach(player, visibility),
+                new BedrockPlayerReach(player, visibility),
+                new BedrockEntityReach(player, visibility),
                 visibility,
                 new PlaceVisibility(player, visibility),
                 new BreakVisibility(player, visibility),
@@ -298,6 +311,12 @@ public class CheckManager {
                 new InteractEntityVisibility(player, visibility),
                 new PlayerHitboxes(player),
                 new EntityHitboxes(player),
+                new BedrockPlayerHitboxes(player),
+                new BedrockEntityHitboxes(player),
+                new BedrockAttackPlayerVisibility(player),
+                new BedrockAttackMobVisibility(player),
+                new BedrockPlaceVisibility(player),
+                new BedrockBreakVisibility(player),
                 new FairReach(player, visibility),
                 player.packetEntityReplication,
                 new PacketChangeGameState(player),
@@ -313,6 +332,8 @@ public class CheckManager {
                 new ChatE(player),
                 new ClientBrand(player),
                 new SkinBlinker(player),
+                new BrandSpoofA(player),
+                new BrandSpoofB(player),
                 new NoFallExecutor(player),
                 new PingA(player),
                 new TransactionOrder(player),
@@ -377,6 +398,7 @@ public class CheckManager {
                 player.openWindow,
                 new VehicleA(player),
                 new VehicleB(player),
+                new VehicleGround(player),
                 new VehicleD(player),
                 new VehicleE(player),
                 new VehicleF(player),
@@ -433,8 +455,9 @@ public class CheckManager {
     private static ClassToInstanceMap<PostPredictionListener> buildPostPredictionChecks(CultPlayer player) {
         return listenerMap(List.<PostPredictionListener>of(
                 player.getGhostBlockMitigator(),
-                new FlagCaller(player),
+                // Before every listener that shows the Cult Log identifier: the first one to show it builds the log.
                 new SuperDebug(player),
+                new FlagCaller(player),
                 new NoSlow(player),
                 player.getItemUseDesync(),
                 player.itemUseBurst,
@@ -448,6 +471,7 @@ public class CheckManager {
                 player.knockbackHandler,
                 player.explosionHandler,
                 player.keepSprint,
+                new GhostFriction(player),
                 player.compensatedFireworks,
                 player.lastInstanceManager,
                 new PacketOrderE(player),
@@ -604,6 +628,8 @@ public class CheckManager {
         registerReceive(registrations, packetChecks.get(PluginChannelManager.class));
         registerReceive(registrations, packetChecks.get(PlayerReach.class));
         registerReceive(registrations, packetChecks.get(EntityReach.class));
+        registerReceive(registrations, packetChecks.get(BedrockPlayerReach.class));
+        registerReceive(registrations, packetChecks.get(BedrockEntityReach.class));
         registerReceive(registrations, packetChecks.get(FairReach.class));
         registerReceive(registrations, packetChecks.get(BadPacketsWindow.class));
         registerReceive(registrations, packetChecks.get(CompensatedInventory.class));
@@ -612,6 +638,7 @@ public class CheckManager {
         registerReceive(registrations, packetChecks.get(BadPacketsO.class));
         registerReceive(registrations, packetChecks.get(ClientBrand.class));
         registerReceive(registrations, packetChecks.get(SkinBlinker.class));
+        registerReceive(registrations, packetChecks.get(BrandSpoofA.class));
         registerReceive(registrations, packetChecks.get(NoFallExecutor.class));
         registerReceive(registrations, prePredictionChecks.get(ExploitA.class));
         registerReceive(registrations, prePredictionChecks.get(ExploitB.class));
@@ -646,6 +673,8 @@ public class CheckManager {
         registerTickEnd(packetChecks.get(ActionManager.class));
         registerTickEnd(packetChecks.get(PlayerReach.class));
         registerTickEnd(packetChecks.get(EntityReach.class));
+        registerTickEnd(packetChecks.get(BedrockPlayerReach.class));
+        registerTickEnd(packetChecks.get(BedrockEntityReach.class));
         registerTickEnd(packetChecks.get(ClientVisibilityProcessor.class));
         registerTickEnd(vehicleCheck.get(VehiclePredictionRunner.class));
         // MCP-Reborn Minecraft#tick computes the attack hit result before
@@ -916,6 +945,19 @@ public class CheckManager {
         }
     }
 
+    /**
+     * A Bedrock client tick's end, when the Geyser bridge has handled its PlayerAuthInput. As at a Java tick end, the
+     * reach checks first measure the attacks sent since the last one, then the block uses the client's tick made are
+     * judged from the path through this tick, then remote actors take their lerp step.
+     */
+    public void endBedrockClientTick() {
+        player.packetStateData.localPlayerTickedSinceSpawn = true;
+        getListener(BedrockPlayerReach.class).endClientTick();
+        getListener(BedrockEntityReach.class).endClientTick();
+        getListener(BedrockPlaceVisibility.class).endClientTick();
+        getListener(PacketEntityReplication.class).tickBedrockClient();
+    }
+
     @SuppressWarnings("unchecked")
     public <T extends CheckListener> T getListener(Class<T> check) {
         return (T) listenersByClass.get(check);
@@ -1087,20 +1129,29 @@ public class CheckManager {
     }
 
     public void onPredictionFinish(final PredictionComplete complete) {
-        for (PostPredictionListener check : predictionListeners) {
-            if (!shouldDispatch(check)) {
-                continue;
+        SetbackTeleportUtil setbacks = getSetbackUtil();
+        // A tick predicted without a movement packet is the client's movement for that tick as well.
+        setbacks.movementReceived();
+        try {
+            for (PostPredictionListener check : predictionListeners) {
+                if (!shouldDispatch(check)) {
+                    continue;
+                }
+                check.onPredictionComplete(complete);
             }
-            check.onPredictionComplete(complete);
-        }
-        for (PostPredictionListener check : pseudoListeners) {
-            if (!shouldDispatch(check)) {
-                continue;
+            for (PostPredictionListener check : pseudoListeners) {
+                if (!shouldDispatch(check)) {
+                    continue;
+                }
+                if (!MovementProfiles.forPlayer(player).shouldRunPseudoCheck(check.getClass())) {
+                    continue;
+                }
+                check.onPredictionComplete(complete);
             }
-            if (!MovementProfiles.forPlayer(player).shouldRunPseudoCheck(check.getClass())) {
-                continue;
-            }
-            check.onPredictionComplete(complete);
+        } finally {
+            // SetbackTeleportUtil stages the safe position where its friction is current; a listener after it that
+            // sets this movement back must roll back past it.
+            setbacks.commitSafePosition();
         }
     }
 

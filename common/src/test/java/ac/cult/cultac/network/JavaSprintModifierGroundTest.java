@@ -208,7 +208,7 @@ class JavaSprintModifierGroundTest {
                 assertTrue(exact(result), "tick " + tick + ": " + describe(result));
                 velocity = new Vec3(delta.x * FRICTION, 0.0, delta.z * FRICTION);
             }
-            var anchor = f.player.getSetbackTeleportUtil().lastKnownGoodPosition;
+            var anchor = f.player.getSetbackTeleportUtil().safePosition();
             assertNotNull(anchor);
             assertNotNull(anchor.getSprintOutcomes());
             Vec3 anchorPosition = position;
@@ -258,13 +258,15 @@ class JavaSprintModifierGroundTest {
 
             var correction = setbacks.getRequiredSetBack();
             Vec3 target = correction.getTeleportData().getLocation();
-            f.pongThrough(f.player.lastTransactionSent.get());
+            // ClientPacketListener#handleMovePlayer answers the correction before the ping written after it.
+            f.pongThrough(correction.getTeleportData().getTransaction());
             var accept = new ServerboundAcceptTeleportation(
                     correction.getTeleportData().getTeleportId(), new Vec3d(target.x, target.y, target.z), YAW, 0.0F);
             var event = f.event(ServerboundPackets.ACCEPT_TELEPORTATION, accept);
             new PacketServerTeleport().onAcceptTeleportation(event, f.player, accept);
             assertFalse(event.isCancelled());
             assertTrue(correction.isComplete());
+            f.pongThrough(f.player.lastTransactionSent.get());
 
             Vec3 delta = correction.getVelocity().add(ClientMoveInput.of(f, SPRINT, 1.0F, CANONICAL, YAW));
             PredictionResult result = f.tick(target.add(delta.x, 0.0, delta.z), true);

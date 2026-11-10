@@ -15,7 +15,9 @@ import io.netty.buffer.ByteBuf;
 public final class SwingAnimationCodec implements PacketCodec<ClientboundSwingAnimation> {
     @Override
     public ClientboundSwingAnimation read(ByteBuf input, ProtocolContext context) {
-        return new ClientboundSwingAnimation(Wire.readVarInt(input));
+        int entityId = Wire.readVarInt(input);
+        int hand = Wire.readVarInt(input);
+        return new ClientboundSwingAnimation(entityId, hand, Wire.readVarInt(input));
     }
 
     // The unconsumed suffix remains in the original forwarded packet.

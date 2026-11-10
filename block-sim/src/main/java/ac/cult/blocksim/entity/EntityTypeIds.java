@@ -33,6 +33,7 @@ public final class EntityTypeIds {
     public static final int HORSE = id("horse");
     public static final int HUSK = id("husk");
     public static final int ILLUSIONER = id("illusioner");
+    public static final int INTERACTION = id("interaction");
     public static final int ITEM = id("item");
     public static final int ITEM_DISPLAY = id("item_display");
     public static final int LLAMA = id("llama");

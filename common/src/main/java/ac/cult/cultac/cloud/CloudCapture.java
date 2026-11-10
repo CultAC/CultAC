@@ -4,6 +4,8 @@ import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.cloud.Cloud;
 import ac.cult.cultac.checks.impl.cloud.CloudFlagCheck;
+import ac.cult.cultac.checks.impl.combat.BedrockEntityReach;
+import ac.cult.cultac.checks.impl.combat.BedrockPlayerReach;
 import ac.cult.cultac.checks.impl.combat.EntityReach;
 import ac.cult.cultac.checks.impl.combat.PlayerReach;
 import ac.cult.cultac.checks.impl.combat.ReachCheck;
@@ -125,7 +127,8 @@ public final class CloudCapture implements PlayerObserver {
     private static final Map<Integer, StreamIds> STREAM_IDS = new ConcurrentHashMap<>();
     private static final List<String> REGISTRIES = List.of("minecraft:damage_type", "minecraft:enchantment");
     private static final LogThrottle THROTTLE = new LogThrottle();
-    private static final List<Class<? extends ReachCheck>> REACH_CHECKS = List.of(PlayerReach.class, EntityReach.class);
+    private static final List<Class<? extends ReachCheck>> REACH_CHECKS =
+            List.of(PlayerReach.class, EntityReach.class, BedrockPlayerReach.class, BedrockEntityReach.class);
 
     private static volatile SegmentBinder binder = SegmentBinder.NONE;
     private static volatile Uplinks uplinks = Uplinks.NONE;

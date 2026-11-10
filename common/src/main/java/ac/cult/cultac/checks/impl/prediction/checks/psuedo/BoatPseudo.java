@@ -8,6 +8,7 @@ import ac.cult.cultac.player.CultPlayer;
 public class BoatPseudo extends Check implements PostPredictionListener {
     public static final CheckInfo INFO = CheckInfo.builder()
             .name("BoatOffset")
+            .stableKey("grim.legacy.boatoffset")
             .description("Impossible boat movement")
             .build();
 

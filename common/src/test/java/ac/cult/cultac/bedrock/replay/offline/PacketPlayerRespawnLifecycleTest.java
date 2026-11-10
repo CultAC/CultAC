@@ -396,10 +396,12 @@ public final class PacketPlayerRespawnLifecycleTest {
         CultPlayer player = offlineJavaPlayer();
         try {
             var teleports = player.getSetbackTeleportUtil();
-            teleports.addSentTeleport(new Vec3(1, 64, 1), 5, new RelativeFlag(0), true, 1);
-            teleports.addSentTeleport(new Vec3(2, 64, 2), 6, new RelativeFlag(0), true, 2);
+            teleports.javaTeleports().addSentTeleport(new Vec3(1, 64, 1), 5, new RelativeFlag(0), true, 1);
+            teleports.javaTeleports().addSentTeleport(new Vec3(2, 64, 2), 6, new RelativeFlag(0), true, 2);
             // Only ID teleports are dropped; an entity-to-self teleport leaves as before.
-            teleports.addImmediatePlayerTeleport(new Vec3(0, 64, 0), Vec3.ZERO, new RelativeFlag(0), 4, 0, 0, 0, 0);
+            teleports
+                    .javaTeleports()
+                    .addImmediatePlayerTeleport(new Vec3(0, 64, 0), Vec3.ZERO, new RelativeFlag(0), 4, 0, 0, 0, 0);
 
             ClientboundLogin login = loginPacket(true);
             new PacketPlayerRespawn().onLogin(sendEvent(player, ClientboundPackets.LOGIN, login), player, login);
@@ -407,7 +409,7 @@ public final class PacketPlayerRespawnLifecycleTest {
             assertEquals(1, teleports.pendingTeleports.size());
             assertTrue(teleports.pendingTeleports.peekFirst().isPositionOnly());
             // The new backend numbers its teleports from the start again.
-            teleports.addSentTeleport(new Vec3(3, 64, 3), 7, new RelativeFlag(0), true, 1);
+            teleports.javaTeleports().addSentTeleport(new Vec3(3, 64, 3), 7, new RelativeFlag(0), true, 1);
             assertEquals(
                     "A teleport sent after the LOGIN belongs to the new level", 2, teleports.pendingTeleports.size());
         } finally {

@@ -16,7 +16,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
-/** A setback sends the position and velocity the 26.3 client reaches by one input-less tick from the safe state. */
+/**
+ * A setback that rejects a movement sends the position and velocity the 26.3 client reaches by one input-less tick
+ * from the safe state.
+ */
 class SetbackVelocityTest {
     private static final double GRAVITY = 0.08D;
     // LivingEntity#travelInAir: computeModifiedFriction(0.98F, 1.0) for the vertical drag and Entity#getAirDrag.
@@ -29,7 +32,7 @@ class SetbackVelocityTest {
             f.place(new Vec3(.5, JavaTickFixture.FLOOR_Y + .5, .5), new Vec3(0, -.3, 0));
             f.tick(new Vec3(.5, JavaTickFixture.FLOOR_Y + .2, .5), false);
             SetbackTeleportUtil teleports = f.player.getSetbackTeleportUtil();
-            double carried = teleports.lastKnownGoodPosition.getVector().y;
+            double carried = teleports.safePosition().getVector().y;
 
             SetBackData setback = violationSetback(f);
 
@@ -66,7 +69,7 @@ class SetbackVelocityTest {
             double bounced = restitutedY(falling, -.2, 1.0D);
             assertEquals(
                     (bounced - GRAVITY) * VERTICAL_DRAG,
-                    f.player.getSetbackTeleportUtil().lastKnownGoodPosition.getVector().y,
+                    f.player.getSetbackTeleportUtil().safePosition().getVector().y,
                     1.0E-12);
         }
     }
@@ -93,7 +96,7 @@ class SetbackVelocityTest {
             assertTrue(JavaTickFixture.exact(result), JavaTickFixture.describe(result));
 
             SetbackTeleportUtil teleports = f.player.getSetbackTeleportUtil();
-            assertEquals(0.0D, teleports.lastKnownGoodPosition.getVector().x);
+            assertEquals(0.0D, teleports.safePosition().getVector().x);
             f.pongThrough(f.player.sendTrailingTransaction());
             teleports.executeNonSimulatingSetback();
             assertEquals(0.0D, teleports.getRequiredSetBack().getVelocity().x);
@@ -109,7 +112,7 @@ class SetbackVelocityTest {
             f.tick(start.add(0, .1, 0), false);
             SetbackTeleportUtil teleports = f.player.getSetbackTeleportUtil();
             double carried = levitated(.1, 0);
-            assertEquals(carried, teleports.lastKnownGoodPosition.getVector().y, 1.0E-12);
+            assertEquals(carried, teleports.safePosition().getVector().y, 1.0E-12);
 
             SetBackData setback = violationSetback(f);
 
@@ -122,6 +125,8 @@ class SetbackVelocityTest {
         // The client has the chunk it stands in once it answers a ping sent after it.
         f.pongThrough(f.player.sendTrailingTransaction());
         SetbackTeleportUtil teleports = f.player.getSetbackTeleportUtil();
+        // The client's next movement arrives and this setback rejects it; the correction tick stands in for it.
+        teleports.movementReceived();
         assertTrue(teleports.executeViolationSetback());
         return teleports.getRequiredSetBack();
     }

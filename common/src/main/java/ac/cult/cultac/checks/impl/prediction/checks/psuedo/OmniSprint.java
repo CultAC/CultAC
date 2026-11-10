@@ -10,6 +10,7 @@ import java.util.function.Supplier;
 public class OmniSprint extends Check implements PostPredictionListener {
     public static final CheckInfo INFO = CheckInfo.builder()
             .name("OmniSprint")
+            .stableKey("grim.legacy.omnisprint")
             .description("Sprinted sideways or backward")
             .build();
 

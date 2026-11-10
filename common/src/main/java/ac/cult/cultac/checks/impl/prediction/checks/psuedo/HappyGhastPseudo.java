@@ -8,6 +8,7 @@ import ac.cult.cultac.player.CultPlayer;
 public class HappyGhastPseudo extends Check implements PostPredictionListener {
     public static final CheckInfo INFO = CheckInfo.builder()
             .name("HappyGhastOffset")
+            .stableKey("grim.legacy.happyghastoffset")
             .description("Impossible happy ghast flight")
             .build();
 

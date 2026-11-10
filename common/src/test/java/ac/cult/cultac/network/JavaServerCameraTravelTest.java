@@ -1,5 +1,6 @@
 package ac.cult.cultac.network;
 
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -108,7 +109,7 @@ class JavaServerCameraTravelTest {
         Mockito.when(f.fixture.user.getPlayer().getWorld()).thenReturn(Mockito.mock(PlatformWorld.class));
         f.player.packetStateData.playerLoadedIntoLevel = true;
         f.place(position, velocity);
-        f.player.getSetbackTeleportUtil().lastKnownGoodPosition = new SetbackPosWithVector(position, velocity, 0);
+        SetbackFixtures.seedSafePosition(f.player, new SetbackPosWithVector(position, velocity));
         f.addRemotePlayer(CAMERA, new Vec3(3.5, FLOOR_Y, 3.5), GameMode.SURVIVAL);
         return f;
     }

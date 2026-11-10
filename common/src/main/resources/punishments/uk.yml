@@ -1,0 +1,140 @@
+# %check_name% - назва перевірки
+# %description% - опис перевірки
+# %vl% - кількість порушень
+# %verbose% - додаткова інформація
+# %player% - нікнейм гравця
+# [alert] - спеціальна команда для сповіщення
+# [webhook] - спеціальна команда для сповіщення через вебхук Discord
+# [proxy] - спеціальна команда для сповіщення інших серверів, підключених до вашого проксі (BungeeCord/Velocity)
+
+Punishments:
+  Simulation:
+    # Через скільки секунд порушення має бути видалене?
+    remove-violations-after: 300
+    # Ця секція охоплює всі перевірки, назва яких містить вказане ім'я.
+    # Щоб виключити перевірку, яка інакше потрапила б сюди, поставте знак оклику перед її назвою
+    # Наприклад, !BadPacketsN
+    checks:
+      - "Simulation"
+      - "BedrockMovement"
+      - "GroundSpoof"
+      - "Timer"
+      - "NoFall"
+    # Поріг:Інтервал Команда
+    #
+    # N — кількість активних порушень, потрібна для виконання команди.
+    # Активні порушення рахуються в межах вікна remove-violations-after.
+    # Якщо M > 0, команда виконується на N, потім на N+M, N+2M, ...
+    # Якщо M = 0, команда виконується один раз, коли досягнуто N.
+    #
+    # Приклади:
+    # - "100:0 kick %player% incorrect movement!"   виконається один раз на 100-му спрацюванні
+    # - "100:50 say %player% is cheating"           виконається на 100, 150, 200, ... спрацюваннях
+    # - "5:3 [alert]"                               виконається на 5, 8, 11, 14, ... спрацюваннях
+    #
+    commands:
+      - "100:40 [alert]"
+      - "1:1 [log]"
+      - "100:100 [webhook]"
+      - "100:100 [proxy]"
+  Knockback:
+    remove-violations-after: 300
+    checks:
+      - "Knockback"
+      - "Explosion"
+      - "KeepSprint"
+    commands:
+      - "5:5 [alert]"
+      - "1:1 [log]"
+      - "20:20 [webhook]"
+      - "20:20 [proxy]"
+  Post:
+    remove-violations-after: 300
+    checks:
+      - "Post"
+    commands:
+      - "20:20 [alert]"
+      - "1:1 [log]"
+      - "40:40 [webhook]"
+      - "40:40 [proxy]"
+  BadPackets:
+    remove-violations-after: 300
+    checks:
+      - "BadPackets"
+      - "PacketOrder"
+      - "Crash"
+    commands:
+      - "20:20 [alert]"
+      - "1:1 [log]"
+      - "40:40 [webhook]"
+      - "40:40 [proxy]"
+  Reach:
+    remove-violations-after: 300
+    checks:
+      - "Reach"
+    commands:
+      - "1:1 [alert]"
+      - "1:1 [log]"
+      - "1:1 [webhook]"
+      - "1:1 [proxy]"
+  Hitboxes:
+    remove-violations-after: 300
+    checks:
+      - "Hitboxes"
+    commands:
+      - "5:3 [alert]"
+      - "1:1 [log]"
+      - "5:3 [webhook]"
+      - "5:3 [proxy]"
+  Misc:
+    remove-violations-after: 300
+    checks:
+      - "Vehicle"
+      - "NoSlow"
+      - "NoSneakSlow"
+      - "Sprint"
+      - "MultiActions"
+      - "Place"
+      - "Baritone"
+      - "Break"
+      - "TransactionOrder"
+      - "Elytra"
+      - "Chat"
+      - "Exploit"
+      - "SkinBlinker"
+      - "!Cloud"
+    commands:
+      - "10:5 [alert]"
+      - "1:1 [log]"
+      - "20:10 [webhook]"
+      - "20:10 [proxy]"
+  Combat:
+    remove-violations-after: 300
+    checks:
+      - "Interact"
+      - "AttackPlayerVisibility"
+      - "AttackMobVisibility"
+      - "Aim"
+    commands:
+      - "20:40 [alert]"
+      - "1:1 [log]"
+  # Станом на 2.2.10 перевірок AutoClicker немає, це заготовка. Cult додасть перевірки AutoClicker у майбутньому.
+  Autoclicker:
+    remove-violations-after: 300
+    checks:
+      - "Autoclicker"
+    commands:
+      - "20:40 [alert]"
+      - "1:1 [log]"
+  # Знахідки Gladiator Cloud, кожна — одне порушення. Додайте сюди свою команду бану або кіку, щоб карати за них.
+  Cloud:
+    remove-violations-after: 1800
+    checks:
+      - "Cloud"
+    commands:
+      - "1:1 [alert]"
+      - "1:1 [log]"
+      - "3:3 [webhook]"
+      - "3:3 [proxy]"
+
+cult-config-version: 5

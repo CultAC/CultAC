@@ -18,6 +18,9 @@ import ac.cult.cultac.utils.nmsutil.FluidFallingAdjustedMovement;
 import ac.cult.cultac.utils.nmsutil.VelocityCandidates;
 
 public class Ladder implements UncertaintyHandler {
+    /** The reason of the vector LivingEntity#handleOnClimbable leaves, whose last vector is the one it clamped. */
+    public static final String CLAMP_REASON = "ladder";
+
     /** A late-pass replay already ran the travel's clamp; its later spatial shove is not deltaMovement. */
     @Override
     public MovementTrace handleMovementTrace(
@@ -125,7 +128,7 @@ public class Ladder implements UncertaintyHandler {
             // The clamp is per axis and monotonic, so a velocity range maps through it end by end.
             Vec3 low = handleOnClimbable(player, context, new Vec3(-1.0E9, -1.0E9, -1.0E9));
             Vec3 high = handleOnClimbable(player, context, new Vec3(1.0E9, 1.0E9, 1.0E9));
-            return start.clamped(low, high, "ladder");
+            return start.clamped(low, high, CLAMP_REASON);
         }
         double clampedX = clamped.x;
         double clampedY = clamped.y;
@@ -135,7 +138,7 @@ public class Ladder implements UncertaintyHandler {
             clampedY = CultMath.clamp(end.y, Math.min(start.y, clampedY), Math.max(start.y, clampedY));
             clampedZ = CultMath.clamp(end.z, Math.min(start.z, clampedZ), Math.max(start.z, clampedZ));
         }
-        return start.withXYZ(clampedX, clampedY, clampedZ, "ladder");
+        return start.withXYZ(clampedX, clampedY, clampedZ, CLAMP_REASON);
     }
 
     /**

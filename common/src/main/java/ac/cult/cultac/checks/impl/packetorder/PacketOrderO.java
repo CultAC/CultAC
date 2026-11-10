@@ -33,7 +33,7 @@ public class PacketOrderO extends Check implements CheckListener {
             flying = false;
         }
 
-        if (WrapperPlayClientPlayerFlying.isFlying(event) && !player.packetStateData.lastPacketWasTeleport) {
+        if (WrapperPlayClientPlayerFlying.isFlying(event) && !event.answersTeleport()) {
             flying = true;
             return;
         }

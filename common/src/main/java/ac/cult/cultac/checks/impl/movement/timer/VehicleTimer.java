@@ -14,6 +14,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
 public class VehicleTimer extends AbstractTimerCheck {
     public static final CheckInfo INFO = CheckInfo.builder()
             .name("TimerVehicle")
+            .stableKey("grim.legacy.timervehicle")
             .description("Game ran faster than normal while riding")
             .configName("TimerVehicle")
             .setback(5)
@@ -28,19 +29,19 @@ public class VehicleTimer extends AbstractTimerCheck {
     @CultPacketHandler
     public void onMoveVehicle(
             PacketReceiveEvent<ServerboundMoveVehicle> event, CultPlayer player, ServerboundMoveVehicle packet) {
-        recordTimerEvent(event, false, shouldCountMoveVehicleForTimer());
+        recordTimerEvent(event, false, shouldCountMoveVehicleForTimer(event.answersTeleport()));
     }
 
     @CultPacketHandler
     public void onPlayerInput(
             PacketReceiveEvent<ServerboundPlayerInput> event, CultPlayer player, ServerboundPlayerInput packet) {
-        recordTimerEvent(event, false, shouldCountVehicleInputForTimer());
+        recordTimerEvent(event, false, shouldCountVehicleInputForTimer(event.answersTeleport()));
     }
 
     @CultPacketHandler
     public void onPaddleBoat(
             PacketReceiveEvent<ServerboundPaddleBoat> event, CultPlayer player, ServerboundPaddleBoat packet) {
-        recordTimerEvent(event, false, shouldCountVehicleInputForTimer());
+        recordTimerEvent(event, false, shouldCountVehicleInputForTimer(event.answersTeleport()));
     }
 
     @CultPacketHandler
@@ -57,6 +58,7 @@ public class VehicleTimer extends AbstractTimerCheck {
 
     @CultPacketHandler("serverbound.client_tick_end")
     public void onClientTickEnd(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
+        if (event.isCancelled()) return;
         countedVehicleMovementThisClientTick = false;
     }
 
@@ -70,9 +72,9 @@ public class VehicleTimer extends AbstractTimerCheck {
         recordTimerEvent(event, true, false);
     }
 
-    private boolean shouldCountMoveVehicleForTimer() {
+    private boolean shouldCountMoveVehicleForTimer(boolean teleport) {
         // Ignore teleports
-        if (player.packetStateData.lastPacketWasTeleport) return false;
+        if (teleport) return false;
 
         isDummy = false;
         if (countedVehicleMovementThisClientTick) return false;
@@ -80,9 +82,9 @@ public class VehicleTimer extends AbstractTimerCheck {
         return true; // Client controlling vehicle
     }
 
-    private boolean shouldCountVehicleInputForTimer() {
+    private boolean shouldCountVehicleInputForTimer(boolean teleport) {
         // Ignore teleports
-        if (player.packetStateData.lastPacketWasTeleport) return false;
+        if (teleport) return false;
 
         if (player.compensatedEntities.getSelf().inVehicle()) {
             if (isDummy) { // Server is controlling vehicle

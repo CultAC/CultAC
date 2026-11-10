@@ -20,6 +20,8 @@ import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
 import ac.cult.cultac.checks.impl.sprint.SprintE;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
@@ -29,6 +31,7 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.CollideAxisData.CollideResult;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -44,6 +47,8 @@ class JavaSprintCornerCollisionTest {
             new ServerboundPlayerInput(true, false, false, false, true, false, true);
     private static final ServerboundPlayerInput SPRINT =
             new ServerboundPlayerInput(true, false, false, false, false, false, true);
+    private static final ServerboundPlayerInput FORWARD =
+            new ServerboundPlayerInput(true, false, false, false, false, false, false);
     private static final ServerboundPlayerInput FORWARD_RIGHT_SPRINT =
             new ServerboundPlayerInput(true, false, false, true, false, false, true);
     private static final float CANONICAL = (float) ((double) 0.1F * (1.0D + (double) 0.3F));
@@ -253,6 +258,114 @@ class JavaSprintCornerCollisionTest {
         }
     }
 
+    /**
+     * A 1.21.11 client walks forward at yaw -18.68424, still sprinting, and a wall at +X clips its move to (0.04996,
+     * 0.26476). LocalPlayer#isHorizontalCollisionMinor divides the dot product by the length of the input that
+     * Mth.sin and Mth.cos give, 0.99997 at this yaw, so the angle is 7.9962 degrees: minor, and the client keeps the
+     * sprint. The engine state is a real client's move.
+     */
+    @Test
+    void aMinorCollisionMeasuresTheAngleWithTheSineTablesInputLength() throws Exception {
+        try (var f = new JavaTickFixture(ProtocolVersion.V26_3, ClientVersion.V_1_21_11)) {
+            f.input(FORWARD);
+            Vec3 start = new Vec3(0.040633049108459114, -0.0784000015258789, 0.1440767104512006);
+            Vec3 target = new Vec3(0.04996279180568308, 0.0, 0.26476004861785896);
+            PredictionResult result = collision(
+                    f,
+                    -18.68424F,
+                    0.13000001F,
+                    start,
+                    point(start),
+                    target,
+                    new CollideResult(true, target.x, 1),
+                    new CollideResult(false, target.z));
+            assertEquals(DesyncStatus.FALSE, ClientHorizontalCollision.hard(result));
+
+            // The same wall clipping the move to x = 0.0499 leaves it 8.009 degrees from the input: hard.
+            Vec3 wider = new Vec3(0.0499, 0.0, target.z);
+            PredictionResult hard = collision(
+                    f,
+                    -18.68424F,
+                    0.13000001F,
+                    start,
+                    point(start),
+                    wider,
+                    new CollideResult(true, wider.x, 1),
+                    new CollideResult(false, wider.z));
+            assertEquals(DesyncStatus.TRUE, ClientHorizontalCollision.hard(hard));
+        }
+    }
+
+    /**
+     * A 1.21.11 client sprints forward at yaw -154.49982 and lands with the move (-0.000526, -0.0469, -0.0458). Two
+     * starting velocities reproduce it: from x = -0.0208 a wall at x - 0.000725 clips the move at 25 degrees from the
+     * forward key, a hard collision, while from x = -0.0115, the last move's x times air friction, the forward key
+     * reaches the move without touching the wall. Entity#move then leaves horizontalCollision false, so
+     * LocalPlayer#shouldStopRunSprinting keeps the sprint. The engine state is a real client's move.
+     */
+    @Test
+    void aCollisionOnlyOneAcceptedStartingVelocityMeetsIsNotHard() throws Exception {
+        try (var f = new JavaTickFixture(ProtocolVersion.V26_3, ClientVersion.V_1_21_11)) {
+            f.input(SPRINT);
+            Vec3 target = new Vec3(-5.261263668216998E-4, -0.046906671964435986, -0.04582122501415142);
+            Vec3 clipped = new Vec3(-0.02082176970108284, -0.46085035948982184, -0.0228242643455535);
+            Vec3 free = new Vec3(-0.011497459838345516, -0.46085035948982567, -0.0228242643455535);
+            CollideResult wall = new CollideResult(true, -7.248394140333403E-4, -1);
+            CollideResult alongZ = new CollideResult(false, target.z);
+
+            assertEquals(
+                    DesyncStatus.TRUE,
+                    ClientHorizontalCollision.hard(
+                            collision(f, -154.49982F, 0.026F, clipped, point(clipped), target, wall, alongZ)));
+
+            List<PredictionResult> realities = new ArrayList<>();
+            PredictionResult selected =
+                    collision(f, -154.49982F, 0.026F, clipped, point(clipped), target, wall, alongZ, realities);
+            PredictionResult unclipped = collision(
+                    f,
+                    -154.49982F,
+                    0.026F,
+                    free,
+                    point(free),
+                    target,
+                    new CollideResult(false, target.x),
+                    alongZ,
+                    realities);
+            realities.add(unclipped);
+            realities.add(selected);
+            assertEquals(DesyncStatus.FALSE, ClientHorizontalCollision.hard(selected));
+
+            unclipped.setFlagSeverity(1.0);
+            assertEquals(DesyncStatus.TRUE, ClientHorizontalCollision.hard(selected));
+        }
+    }
+
+    /**
+     * Sprinting into a wall, a second accepted starting velocity that meets the same wall at a wide angle keeps the
+     * collision hard.
+     */
+    @Test
+    void aCollisionEveryAcceptedStartingVelocityMeetsStaysHard() throws Exception {
+        try (var f = new JavaTickFixture(ProtocolVersion.V26_3, ClientVersion.V_1_21_11)) {
+            f.input(SPRINT);
+            Vec3 target = new Vec3(-7.248394140333403E-4, -0.046906671964435986, -0.04582122501415142);
+            Vec3 clipped = new Vec3(-0.02082176970108284, -0.46085035948982184, -0.0228242643455535);
+            Vec3 slower = new Vec3(-0.015, -0.46085035948982184, -0.0228242643455535);
+            CollideResult wall = new CollideResult(true, target.x, -1);
+            CollideResult alongZ = new CollideResult(false, target.z);
+            List<PredictionResult> realities = new ArrayList<>();
+            PredictionResult selected =
+                    collision(f, -154.49982F, 0.026F, clipped, point(clipped), target, wall, alongZ, realities);
+            realities.add(collision(f, -154.49982F, 0.026F, slower, point(slower), target, wall, alongZ, realities));
+            realities.add(selected);
+            assertEquals(DesyncStatus.TRUE, ClientHorizontalCollision.hard(selected));
+        }
+    }
+
+    private static SimpleCollisionBox point(Vec3 start) {
+        return new SimpleCollisionBox(start.x, start.y, start.z, start.x, start.y, start.z, false);
+    }
+
     /** A move from the closest starting movement {@code closest}, accepted from any start within {@code starts}. */
     private static PredictionResult collision(
             JavaTickFixture f,
@@ -263,6 +376,20 @@ class JavaSprintCornerCollisionTest {
             Vec3 target,
             CollideResult x,
             CollideResult z) {
+        return collision(f, yaw, inputRadius, closest, starts, target, x, z, List.of());
+    }
+
+    /** {@link #collision} as one of {@code realities}, the zero-flag results of the same move. */
+    private static PredictionResult collision(
+            JavaTickFixture f,
+            float yaw,
+            float inputRadius,
+            Vec3 closest,
+            SimpleCollisionBox starts,
+            Vec3 target,
+            CollideResult x,
+            CollideResult z,
+            List<PredictionResult> realities) {
         SimulationContext context = mock(SimulationContext.class);
         doReturn(yaw).when(context).getXRot();
         doReturn((double) inputRadius).when(context).getHorizontalInputRadius(any(), any());
@@ -271,8 +398,8 @@ class JavaSprintCornerCollisionTest {
                 .when(valid)
                 .getClosestTrace();
         doReturn(starts).when(valid).getCollisionIgnoredMaxStartingVelExtents();
-        PredictionResult result = new PredictionResult(
-                f.player, new PredVector(closest), context, target, null, List.of(), List.of());
+        PredictionResult result =
+                new PredictionResult(f.player, new PredVector(closest), context, target, null, realities, realities);
         result.setValidMovements(valid);
         result.setCollideAxisData(new CollideAxisData(
                 x, new CollideResult(false, 0.0), new CollideResult(true, 0.0), z, List.of()));

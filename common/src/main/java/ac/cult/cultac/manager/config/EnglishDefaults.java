@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.yaml.snakeyaml.Yaml;
 
 /**
@@ -23,6 +24,11 @@ public final class EnglishDefaults {
     /** The shipped English value of {@code key} in {@code /<directory>/en.yml}. */
     public static @NotNull String string(@NotNull String directory, @NotNull String key) {
         return value(directory, key).toString();
+    }
+
+    /** The shipped English text of {@code key} in {@code /<directory>/en.yml}, or null when it ships no text there. */
+    public static @Nullable String stringOrNull(@NotNull String directory, @NotNull String key) {
+        return FILES.computeIfAbsent(directory, EnglishDefaults::load).get(key) instanceof String text ? text : null;
     }
 
     /** The shipped English list at {@code key} in {@code /<directory>/en.yml}. */

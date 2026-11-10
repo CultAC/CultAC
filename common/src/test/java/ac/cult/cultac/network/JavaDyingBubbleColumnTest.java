@@ -1,5 +1,6 @@
 package ac.cult.cultac.network;
 
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -113,7 +114,7 @@ class JavaDyingBubbleColumnTest {
         f.place(at, Vec3.ZERO);
         f.player.onGround = f.player.lastOnGround = false;
         f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.FALSE);
-        f.player.getSetbackTeleportUtil().lastKnownGoodPosition = new SetbackPosWithVector(at, Vec3.ZERO, 0);
+        SetbackFixtures.seedSafePosition(f.player, new SetbackPosWithVector(at, Vec3.ZERO));
         f.player.packetStateData.playerLoadedIntoLevel = true;
         f.input(NONE);
         return f;

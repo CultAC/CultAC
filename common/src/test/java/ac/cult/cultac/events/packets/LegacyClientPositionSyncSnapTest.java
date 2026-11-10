@@ -31,9 +31,8 @@ import net.kyori.adventure.text.Component;
 import org.junit.jupiter.api.Test;
 
 /**
- * ClientPacketListener#handleEntityPositionSync on a pre-26.3 client from 1.21.2 on snaps a ticking entity to a
- * position more than 64 blocks from where the client shows it, and interpolates a nearer one. A 1.21.1 client gets
- * the sync as a teleport, which ClientPacketListener#handleTeleportEntity always interpolates.
+ * ClientPacketListener#handleEntityPositionSync on a pre-26.3 client snaps a ticking entity to a position more than 64
+ * blocks from where the client shows it, and interpolates a nearer one.
  */
 class LegacyClientPositionSyncSnapTest {
     private static final int ID = 3000;

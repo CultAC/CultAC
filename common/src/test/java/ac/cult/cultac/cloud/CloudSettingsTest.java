@@ -283,7 +283,7 @@ class CloudSettingsTest {
 
     @Test
     void theBundledConfigsCarryTheCloudBlockOff() throws IOException {
-        for (String locale : List.of("de", "en", "es", "fr", "it", "ja", "nl", "pl", "pt", "ro", "ru", "tr", "zh")) {
+        for (String locale : List.of("de", "en", "es", "fr", "it", "ja", "nl", "pl", "pt", "ro", "ru", "tr", "uk", "zh")) {
             try (var input = CloudSettingsTest.class.getResourceAsStream("/config/" + locale + ".yml")) {
                 assertNotNull(input, locale);
                 String text = new String(input.readAllBytes(), StandardCharsets.UTF_8);
@@ -291,7 +291,7 @@ class CloudSettingsTest {
                 assertTrue(text.contains("  url: \"\""), locale);
                 assertTrue(text.contains("  api-key: \"\""), locale);
                 assertTrue(text.contains("  server-id: \"\""), locale);
-                assertTrue(text.contains("config-version: 17"), locale);
+                assertTrue(text.contains("config-version: 18"), locale);
             }
         }
     }

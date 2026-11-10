@@ -33,8 +33,8 @@ webhook-test-message: "test message"
 webhook-test-succeeded: "Discord webhook test succeeded!"
 webhook-test-failed: "Discord webhook test failed!"
 
-alerts-format: "%prefix% &f%player% &bfallito <hover:show_text:\"&b%check_name%%experimental%\n&8Descrizione: &f%description%\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
-alerts-format-proxy: "%prefix% &f[&cproxy&f] &f%player% &bfallito <hover:show_text:\"&b%check_name%%experimental%\n&8Descrizione: &f%description%\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
+alerts-format: "%prefix% &f<click:run_command:'/%command% spectate %player%'><hover:show_text:'/%command% spectate %player%'>%player%</hover></click> &bfallito <hover:show_text:\"&b%check_name%%experimental%\n&8Descrizione: &f%description%\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
+alerts-format-proxy: "%prefix% &f[&cproxy&f] &f<click:run_command:'/%command% spectate %player%'><hover:show_text:'/%command% spectate %player%'>%player%</hover></click> &bfallito <hover:show_text:\"&b%check_name%%experimental%\n&8Descrizione: &f%description%\">&f%check_name%%experimental%</hover> &f(x&c%vl%&f) &7%verbose%"
 experimental-symbol: "*"
 
 profile:
@@ -163,4 +163,4 @@ findplayer-usage: "%prefix% &cTo search, type &f/%command% findplayer brand=luna
 
 # Marcatori di schema — vedi il commento di intestazione in config.yml.
 config-flavor: V2
-config-version: 3
+config-version: 5

@@ -77,6 +77,16 @@ class CheckPolicyTest {
     }
 
     @Test
+    void aNamedFormatAlertIsAStaffAlert() {
+        CheckPolicy.Status status = policy(
+                        group(List.of("Sprint"), "3:0 [alert:alerts-format-suspected]", "6:0 [alert:]"))
+                .status(SPRINT_D);
+        assertEquals(Handling.ALERTS, status.handling(true));
+        assertEquals(3, status.alertAt());
+        assertTrue(status.actions().isEmpty());
+    }
+
+    @Test
     void logOrWebhookAloneIsRecorded() {
         CheckPolicy.Status logged =
                 policy(group(List.of("Sprint"), "1:1 [log]")).status(SPRINT_D);

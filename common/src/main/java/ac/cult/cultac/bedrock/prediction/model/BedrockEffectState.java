@@ -12,8 +12,6 @@ public record BedrockEffectState(
         boolean weaving,
         BedrockEffectState.MovementSpeedEffectOrder movementSpeedEffectOrder) {
     public static final BedrockEffectState NONE = new BedrockEffectState(0, 0, 0, 0, false, false, false);
-    private static final double SLOWNESS_SPEED_REDUCTION_PER_LEVEL = 0.15D;
-    private static final double SPEED_SPEED_BONUS_PER_LEVEL = 0.2D;
 
     public BedrockEffectState(
             int slownessLevel,
@@ -130,27 +128,6 @@ public record BedrockEffectState(
                 slowFalling,
                 value,
                 movementSpeedEffectOrder);
-    }
-
-    public float applyMovementSpeedEffects(float speed) {
-        return switch (movementSpeedEffectOrder) {
-            case SLOWNESS_THEN_SPEED -> applySpeedEffect(applySlownessEffect(speed));
-            case SPEED_THEN_SLOWNESS -> applySlownessEffect(applySpeedEffect(speed));
-        };
-    }
-
-    private float applySlownessEffect(float speed) {
-        if (slownessLevel <= 0) {
-            return speed;
-        }
-        return Math.max(0.0F, speed * (float) (1.0D - SLOWNESS_SPEED_REDUCTION_PER_LEVEL * slownessLevel));
-    }
-
-    private float applySpeedEffect(float speed) {
-        if (speedLevel <= 0) {
-            return speed;
-        }
-        return speed * (float) (1.0D + SPEED_SPEED_BONUS_PER_LEVEL * speedLevel);
     }
 
     public enum MovementSpeedEffectOrder {

@@ -65,7 +65,7 @@ class JavaVehicleControlRegainTest {
             throws Exception {
         try (var f = mounted(version)) {
             var selected = new ServerboundSetCarriedItem(0);
-            f.listener.onSetCarriedItem(f.event(ServerboundPackets.SET_CARRIED_ITEM, selected), f.player, selected);
+            ac.cult.cultac.events.packets.listeners.CheckManagerListener.receiveGeneric(f.event(ServerboundPackets.SET_CARRIED_ITEM, selected), f.player);
             float speed = (float) (0.25D * 0.225D);
             float move = speed * (0.21600002F / (0.6F * 0.6F * 0.6F));
             assertVehicleExact(f.rideTick(START.add(0, 0, move), true), f.player.packetStateData.acceptedClientTick);
@@ -91,12 +91,12 @@ class JavaVehicleControlRegainTest {
             PacketEntityRideable pig = pig(f);
             // Establish a controlled prediction for this SAME root; first-mount initialization already refreshes ground.
             var control = new ServerboundSetCarriedItem(0);
-            f.listener.onSetCarriedItem(f.event(ServerboundPackets.SET_CARRIED_ITEM, control), f.player, control);
+            ac.cult.cultac.events.packets.listeners.CheckManagerListener.receiveGeneric(f.event(ServerboundPackets.SET_CARRIED_ITEM, control), f.player);
             float riddenSpeed = (float) (0.25D * 0.225D);
             float firstMove = riddenSpeed * (0.21600002F / (0.6F * 0.6F * 0.6F));
             assertVehicleExact(f.rideTick(START.add(0, 0, firstMove), true), f.player.packetStateData.acceptedClientTick);
             var release = new ServerboundSetCarriedItem(1);
-            f.listener.onSetCarriedItem(f.event(ServerboundPackets.SET_CARRIED_ITEM, release), f.player, release);
+            ac.cult.cultac.events.packets.listeners.CheckManagerListener.receiveGeneric(f.event(ServerboundPackets.SET_CARRIED_ITEM, release), f.player);
             Vec3 start = START.add(0, 3, 0);
             Vec3 velocity = new Vec3(0, -0.2, 0.05);
             seed(f, velocity);
@@ -126,7 +126,7 @@ class JavaVehicleControlRegainTest {
             assertEquals(passiveCarry, pig.deltaMovement);
 
             var selected = new ServerboundSetCarriedItem(0);
-            f.listener.onSetCarriedItem(f.event(ServerboundPackets.SET_CARRIED_ITEM, selected), f.player, selected);
+            ac.cult.cultac.events.packets.listeners.CheckManagerListener.receiveGeneric(f.event(ServerboundPackets.SET_CARRIED_ITEM, selected), f.player);
             Vec3 inherited = version.isOlderThan(ClientVersion.V_1_21_5) ? passiveCarry.scale(0.98D) : passiveCarry;
             float speed = (float) (0.25D * 0.225D);
             float acceleration = ground ? speed * (0.21600002F / (0.6F * 0.6F * 0.6F)) : speed * 0.1F;
@@ -155,7 +155,7 @@ class JavaVehicleControlRegainTest {
 
             Vec3 codecBase = pig.desyncClientPos;
             int proof = correction(f, START, 0, 0);
-            assertEquals(1, f.player.getSetbackTeleportUtil().queuedVehicleTeleportCount());
+            assertEquals(1, f.player.getSetbackTeleportUtil().vehicleTeleports().queuedVehicleTeleportCount());
             assertFalse(f.player.compensatedEntities.vehicles.canClientAuthoritativelyMoveVisibleRoot(pig));
             assertFalse(echo(f, START, 0, 0).isCancelled());
             assertPosition(START, pig.clientPhysicalPosition);
@@ -164,13 +164,13 @@ class JavaVehicleControlRegainTest {
             assertEquals(velocities, f.player.checkManager.getSimulationProcessor().getValidPlayerStartingVels());
             assertSame(prediction, f.player.checkManager.getSimulationProcessor().getLastPrediction());
             assertEquals(tick, f.player.packetStateData.acceptedClientTick);
-            assertEquals(0, f.player.packetStateData.clientTickVehicleMovePacketsThisClientTick);
-            assertEquals(0, f.player.getSetbackTeleportUtil().queuedVehicleTeleportCount());
+            assertFalse(f.player.packetStateData.clientTickVehicleMoveThisClientTick);
+            assertEquals(0, f.player.getSetbackTeleportUtil().vehicleTeleports().queuedVehicleTeleportCount());
             f.pongThrough(proof);
             assertPosition(START, pig.clientPhysicalPosition);
 
             var selected = new ServerboundSetCarriedItem(0);
-            f.listener.onSetCarriedItem(f.event(ServerboundPackets.SET_CARRIED_ITEM, selected), f.player, selected);
+            ac.cult.cultac.events.packets.listeners.CheckManagerListener.receiveGeneric(f.event(ServerboundPackets.SET_CARRIED_ITEM, selected), f.player);
             assertEquals(0, f.player.getInventory().inventory.selected);
             // LivingEntity#aiStep's legacy !isEffectiveAi damping precedes Pig#travelRidden through 1.21.4.
             double inherited = carry.z * (version.isOlderThan(ClientVersion.V_1_21_5) ? 0.98D : 1.0D);
@@ -197,7 +197,7 @@ class JavaVehicleControlRegainTest {
             assertFalse(echo(f, START, 0, 0).isCancelled());
             f.pongThrough(proof);
             var selected = new ServerboundSetCarriedItem(0);
-            f.listener.onSetCarriedItem(f.event(ServerboundPackets.SET_CARRIED_ITEM, selected), f.player, selected);
+            ac.cult.cultac.events.packets.listeners.CheckManagerListener.receiveGeneric(f.event(ServerboundPackets.SET_CARRIED_ITEM, selected), f.player);
             assertVehicleExact(f.rideTick(START.add(0, 0, travel), true), f.player.packetStateData.acceptedClientTick);
         }
     }
@@ -261,7 +261,7 @@ class JavaVehicleControlRegainTest {
             assertEquals(pitch, pig.clientPhysicalPitch);
             assertEquals(velocity, pig.deltaMovement);
             assertEquals(factor, pig.boost.factor(version));
-            assertEquals(0, f.player.packetStateData.clientTickVehicleMovePacketsThisClientTick);
+            assertFalse(f.player.packetStateData.clientTickVehicleMoveThisClientTick);
             assertPosition(physical, new Vec3(f.player.x, f.player.y, f.player.z));
         }
     }
@@ -363,9 +363,8 @@ class JavaVehicleControlRegainTest {
             var rot = new ServerboundMovePlayer(0, 0, 0, 0, 0, true, false, false, true);
             f.listener.onMovePlayer(f.event(ServerboundPackets.MOVE_PLAYER, rot), f.player, rot);
             echo(f, START, 0, 0);
-            assertFalse(f.player.packetStateData.lastPacketWasTeleport);
-            assertEquals(1, f.player.getSetbackTeleportUtil().queuedVehicleTeleportCount());
-            assertEquals(1, f.player.packetStateData.clientTickVehicleMovePacketsThisClientTick);
+            assertEquals(1, f.player.getSetbackTeleportUtil().vehicleTeleports().queuedVehicleTeleportCount());
+            assertTrue(f.player.packetStateData.clientTickVehicleMoveThisClientTick);
             assertTrue(pig.boost.factor(version) > 1.0F);
             f.pongThrough(proof);
         }

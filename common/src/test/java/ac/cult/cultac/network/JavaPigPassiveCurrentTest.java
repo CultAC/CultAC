@@ -112,6 +112,6 @@ class JavaPigPassiveCurrentTest {
 
     private static void select(JavaTickFixture f, int slot) {
         var packet = new ServerboundSetCarriedItem(slot);
-        f.listener.onSetCarriedItem(f.event(ServerboundPackets.SET_CARRIED_ITEM, packet), f.player, packet);
+        ac.cult.cultac.events.packets.listeners.CheckManagerListener.receiveGeneric(f.event(ServerboundPackets.SET_CARRIED_ITEM, packet), f.player);
     }
 }

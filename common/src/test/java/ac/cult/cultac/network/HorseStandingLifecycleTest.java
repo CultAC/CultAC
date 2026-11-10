@@ -12,6 +12,7 @@ import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.events.packets.listeners.PacketPingListener;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -152,7 +153,7 @@ class HorseStandingLifecycleTest {
         CultPlayer player = f.player;
         player.gamemode = GameMode.SURVIVAL;
         player.lastTransactionReceived.set(player.lastTransactionSent.get());
-        player.getSetbackTeleportUtil().hasFullyLoaded = true;
+        SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
         player.compensatedEntities.addEntity(VEHICLE, type, new Vec3(0.5D, 64.0D, 0.5D), 0.0F, 0.0F, 0);
         PacketEntityHorse horse = (PacketEntityHorse) player.compensatedEntities.getEntity(VEHICLE);
         assertNotNull(horse);

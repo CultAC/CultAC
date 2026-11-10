@@ -53,7 +53,7 @@ class NetworkUriUpgradeTest {
                 .update(file.toFile(), CultConfigSpecs.mainConfig());
         assertTrue(result.migrated);
         Map<String, Object> data = new Yaml().load(Files.readString(file));
-        assertEquals(17, data.get("config-version"));
+        assertEquals(18, data.get("config-version"));
         Map<String, Object> network = network(data);
         for (String old : new String[] {"transport", "network", "uri", "nats-credentials-file"})
             assertFalse(network.containsKey(old), old + " in " + network);
@@ -280,12 +280,12 @@ class NetworkUriUpgradeTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"de", "en", "es", "fr", "it", "ja", "nl", "pl", "pt", "ro", "ru", "tr", "zh"})
+    @ValueSource(strings = {"de", "en", "es", "fr", "it", "ja", "nl", "pl", "pt", "ro", "ru", "tr", "uk", "zh"})
     void bundledLanguagesShipTheNetworkBlockWithoutASecret(String language) throws Exception {
         try (var source = CultConfigSpecs.class.getResourceAsStream("/config/" + language + ".yml")) {
             assertNotNull(source);
             Map<String, Object> data = new Yaml().load(source);
-            assertEquals(17, data.get("config-version"));
+            assertEquals(18, data.get("config-version"));
             assertEquals(
                     Map.of("type", "none", "redis", REDIS_DEFAULTS, "nats", NATS_DEFAULTS, "instance-id", ""),
                     network(data));
@@ -300,6 +300,7 @@ class NetworkUriUpgradeTest {
     /** The plugin log's warnings, until closed. */
     private static final class Captured extends Handler implements AutoCloseable {
         final List<String> messages = new CopyOnWriteArrayList<>();
+        private final long thread = Thread.currentThread().threadId();
 
         Captured() {
             LogUtil.getLogger().addHandler(this);
@@ -307,7 +308,9 @@ class NetworkUriUpgradeTest {
 
         @Override
         public void publish(LogRecord record) {
-            if (record.getLevel() == Level.WARNING && record.getMessage().contains("network"))
+            if (record.getLongThreadID() == thread
+                    && record.getLevel() == Level.WARNING
+                    && record.getMessage().contains("network"))
                 messages.add(record.getMessage());
         }
 

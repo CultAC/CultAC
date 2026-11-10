@@ -8,10 +8,14 @@ import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.TestUsers;
+import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
@@ -45,7 +49,7 @@ class PhaseResizeTest {
         version.setAccessible(true);
         version.set(player, ClientVersion.V_1_21_11);
         player.gamemode = GameMode.SURVIVAL;
-        player.getSetbackTeleportUtil().hasFullyLoaded = true;
+        SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
         player.checkManager.getSimulationProcessor().handleRespawn();
         for (int x = -1; x <= 1; x++) {
             for (int z = -1; z <= 1; z++) {
@@ -178,12 +182,57 @@ class PhaseResizeTest {
         phase.onPredictionComplete(new PredictionComplete(result));
     }
 
+    @Test
+    void scaleAttributeGrowsTheBoxOnlyAfterTheTravelItArrivesIn() {
+        // A recorded session: minecraft:scale 2.0 lands in the tick of the wall slide.
+        player.compensatedWorld.ensureValidationChunkLoaded(4955 >> 4, 4984 >> 4);
+        block(4956, 64, 4984, "minecraft:oak_wood");
+        block(4956, 64, 4983, "minecraft:oak_wood");
+        block(4955, 64, 4983, "minecraft:stripped_oak_wood");
+        Vec3 seq4715 = new Vec3(4955.699999988079, 64.0, 4984.612349347781);
+        Vec3 seq4716 = new Vec3(4955.699999988079, 64.0, 4984.535051092203);
+        Vec3 seq4717 = new Vec3(4955.619086267408, 64.0, 4984.641027198902);
+        RecordingPhase phase = new RecordingPhase(player);
+        phase.oldBox = GetBoundingBox.getBoundingBoxFromPosAndSize(seq4715.x, seq4715.y, seq4715.z, 0.6F, 1.8F);
+        at(seq4715, 2);
+        phase.travelScale = 1;
+        move(phase, seq4716);
+        assertEquals(0, phase.flags);
+        at(seq4716, 2);
+        phase.travelScale = 2;
+        move(phase, seq4717);
+        assertEquals(0, phase.flags);
+    }
+
+    @Test
+    void pendingBoxGrowthStillRejectsNewPenetration() {
+        stone(1, 64, 0);
+        RecordingPhase phase = new RecordingPhase(player);
+        phase.oldBox = GetBoundingBox.getBoundingBoxFromPosAndSize(0.5, 64, 0.5, 0.6F, 1.8F);
+        at(new Vec3(0.5, 64, 0.5), 2);
+        phase.travelScale = 1;
+        move(phase, new Vec3(0.8, 64, 0.5));
+        assertEquals(1, phase.flags);
+    }
+
+    @Test
+    void pendingBoxShrinkStillRejectsNewPenetration() {
+        stone(2, 64, 0);
+        RecordingPhase phase = new RecordingPhase(player);
+        phase.oldBox = GetBoundingBox.getBoundingBoxFromPosAndSize(0.5, 64, 0.5, 0.6F * 2, 1.8F * 2);
+        at(new Vec3(0.5, 64, 0.5), 1);
+        phase.travelScale = 2;
+        move(phase, new Vec3(1.5, 64, 0.5));
+        assertEquals(1, phase.flags);
+    }
+
     private void stone(int x, int y, int z) {
+        block(x, y, z, "minecraft:stone_bricks");
+    }
+
+    private void block(int x, int y, int z, String block) {
         player.compensatedWorld.applyBlockChangeRawDANGER(
-                x,
-                y,
-                z,
-                DataTables.defaults().registry().block("minecraft:stone_bricks").defaultState());
+                x, y, z, DataTables.defaults().registry().block(block).defaultState());
     }
 
     private void at(Vec3 position, float scale) {
@@ -199,10 +248,11 @@ class PhaseResizeTest {
     private void move(RecordingPhase phase, Vec3 position) {
         assertFalse(player.getSetbackTeleportUtil().shouldBlockMovement());
         assertFalse(player.checkManager.getSimulationProcessor().isExempt());
+        var packet = new ServerboundMovePlayer(position.x, position.y, position.z, 0, 0, false, false, true, false);
         phase.onMovePlayer(
-                null,
+                new PacketReceiveEvent<>(player.user, ConnectionPhase.PLAY, ServerboundPackets.MOVE_PLAYER, packet),
                 player,
-                new ServerboundMovePlayer(position.x, position.y, position.z, 0, 0, false, false, true, false));
+                packet);
     }
 
     /** Retain the real flag decision while collecting it before alert/setback side effects. */

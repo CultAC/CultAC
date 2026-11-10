@@ -3,6 +3,7 @@ package ac.cult.cultac.network;
 import ac.cult.cultac.network.routing.NetworkModule;
 import ac.cult.cultac.platform.api.sender.Sender;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -29,6 +30,20 @@ public interface NetworkRouting {
 
     /** Every online player the network knows of, this instance's included. */
     Collection<NetworkPlayer> roster();
+
+    record SearchResult(List<NetworkPlayer> players, int total, int unavailable) {}
+
+    default CompletableFuture<SearchResult> search(String query) {
+        var filters = PlayerSearchFilters.parse(query);
+        var matches = roster().stream()
+                .filter(p -> filters.stream().allMatch(f -> !f.matched(p).isEmpty()))
+                .toList();
+        return CompletableFuture.completedFuture(new SearchResult(matches, matches.size(), 0));
+    }
+
+    default CompletableFuture<SearchResult> search(String query, UUID sender) {
+        return search(query);
+    }
 
     /**
      * Runs {@code line}, a CultAC command starting with one of its registered roots

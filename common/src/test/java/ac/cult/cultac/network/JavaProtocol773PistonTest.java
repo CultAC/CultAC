@@ -98,7 +98,7 @@ class JavaProtocol773PistonTest {
             int transaction = f.player.sendTrailingTransaction();
             f.player
                     .getSetbackTeleportUtil()
-                    .addSentTeleport(new Vec3(2, FLOOR_Y, 3.5), Vec3.ZERO, transaction, RelativeFlag.X, true, 42);
+                    .javaTeleports().addSentTeleport(new Vec3(2, FLOOR_Y, 3.5), Vec3.ZERO, transaction, RelativeFlag.X, true, 42);
             f.pongThrough(transaction);
             var ack = new ServerboundAcceptTeleportation(42, new Vec3d(actual.x, actual.y, actual.z), 0, 0);
             var event = f.event(ServerboundPackets.ACCEPT_TELEPORTATION, ack);

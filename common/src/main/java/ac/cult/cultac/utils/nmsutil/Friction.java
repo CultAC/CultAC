@@ -213,20 +213,40 @@ public final class Friction {
             CultPlayer player, Vec3 from, MainSupportingBlockData mainSupportingBlockData, boolean onGround) {
         // MCP-Reborn 26.2 LivingEntity#travelInAir passes the block friction and the
         // 0.91 air drag through the friction_modifier / air_drag_modifier attributes.
+        if (!onGround) {
+            return player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2)
+                    ? computeModifiedFriction(
+                            0.91F, (float) player.compensatedEntities.getEntityInControl().airDragModifier)
+                    : 0.91f;
+        }
+        return getGroundFriction(player, BlockProperties.getFriction(player, mainSupportingBlockData, from));
+    }
+
+    /** {@link #getPlayerFriction} on the ground over a block of {@code blockFriction}. */
+    public static float getGroundFriction(CultPlayer player, float blockFriction) {
         if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2)) {
             float airDrag = computeModifiedFriction(
                     0.91F, (float) player.compensatedEntities.getEntityInControl().airDragModifier);
-            if (!onGround) return airDrag;
-            float blockFriction =
-                    computeModifiedFriction(BlockProperties.getFriction(player, mainSupportingBlockData, from), (float)
-                            player.compensatedEntities.getEntityInControl().frictionModifier);
-            return blockFriction * airDrag;
+            return computeModifiedFriction(
+                            blockFriction, (float) player.compensatedEntities.getEntityInControl().frictionModifier)
+                    * airDrag;
         }
+        return 0.91f * blockFriction;
+    }
 
-        if (!onGround) return 0.91f;
-
-        float frictionUnderPlayer = BlockProperties.getFriction(player, mainSupportingBlockData, from);
-        return 0.91f * frictionUnderPlayer;
+    /** LivingEntity#getFrictionInfluencedSpeed's multiplier of the ground speed over a block of {@code friction}. */
+    public static float getGroundSpeedFactor(CultPlayer player, float friction) {
+        // MCP-Reborn 26.2 LivingEntity#getFrictionInfluencedSpeed receives the
+        // friction_modifier-adjusted block friction and only boosts movement
+        // speed on slippery blocks (friction > 0.6).
+        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2)) {
+            float modifiedFriction = computeModifiedFriction(
+                    friction, (float) player.compensatedEntities.getEntityInControl().frictionModifier);
+            return modifiedFriction > 0.6f
+                    ? 0.21600002f / (modifiedFriction * modifiedFriction * modifiedFriction)
+                    : 1f;
+        }
+        return 0.21600002f / (friction * friction * friction);
     }
 
     private static boolean isFinite(Vec3 vector) {

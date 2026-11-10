@@ -24,7 +24,7 @@ public class NoFallExecutor extends Check implements CheckListener {
     }
 
     private void handleMovePlayer(PacketReceiveEvent<ServerboundMovePlayer> event, ServerboundMovePlayer packet) {
-        boolean forceGroundFalse = player.packetStateData.lastPacketWasTeleport;
+        boolean forceGroundFalse = event.answersTeleport();
         // The prediction based NoFall check (that runs before us without the packet)
         // has asked us to set the player's onGround status to the ground state the
         // simulation derived, instead of blindly inverting the client's claim.

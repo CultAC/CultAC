@@ -8,6 +8,7 @@ import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.aim.processor.AimProcessor;
 import ac.cult.cultac.checks.impl.combat.FairReach;
 import ac.cult.cultac.checks.impl.combat.KeepSprint;
+import ac.cult.cultac.checks.impl.misc.ClientBrand;
 import ac.cult.cultac.checks.impl.movement.GhostBlockMitigator;
 import ac.cult.cultac.checks.impl.movement.timer.ItemUseBurst;
 import ac.cult.cultac.checks.impl.packetorder.PacketOrderProcessor;
@@ -51,6 +52,7 @@ import ac.cult.cultac.utils.data.ClientItemUseState;
 import ac.cult.cultac.utils.data.ClientSprintState;
 import ac.cult.cultac.utils.data.ClientSwimState;
 import ac.cult.cultac.utils.data.PacketStateData;
+import ac.cult.cultac.utils.data.ServerSwingEcho;
 import ac.cult.cultac.utils.data.VehicleData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.enums.Pose;
@@ -266,6 +268,7 @@ public class CultPlayer implements GrimUser {
     public final ClientSwimState swimState = new ClientSwimState();
     public final ClientAttackStrength attackStrength = new ClientAttackStrength();
     public final ClientCombatAttributes combatAttributes = new ClientCombatAttributes();
+    public final ServerSwingEcho serverSwingEcho = new ServerSwingEcho();
     public final VisibilityDebug visibilityDebug = new VisibilityDebug(this);
     public boolean isFlying;
     public boolean canFly;
@@ -366,6 +369,35 @@ public class CultPlayer implements GrimUser {
         return movementPlatform == MovementPlatform.BEDROCK;
     }
 
+    /**
+     * LocalPlayer#tick runs only once ClientPacketListener#hasClientLoaded, which 1.21.4 introduced, and not after
+     * LocalPlayer#tickDeath removed the player.
+     */
+    public boolean localPlayerTicks() {
+        return !isBedrockMovement()
+                && (packetStateData.playerLoadedIntoLevel || getClientVersion().isOlderThan(ClientVersion.V_1_21_4))
+                && !compensatedEntities.getSelf().isRemovedFromLevel();
+    }
+
+    /**
+     * LocalPlayer#tickDeath reached deathTime 20 in this client tick, whose LivingEntity#tick then skips aiStep.
+     * PacketEntitySelf#tickDeath counts the ticks, applied where the client tick's LocalPlayer#tick starts.
+     */
+    public boolean localPlayerRemovedThisTick() {
+        return packetStateData.localPlayerTickStarted
+                && packetStateData.localPlayerTickRan
+                && compensatedEntities.getSelf().isRemovedFromLevel();
+    }
+
+    /** A client tick the model counts ended: a Java tick end, or a Bedrock auth-input frame. */
+    public void endCountedClientTick() {
+        packetStateData.acceptedClientTick++;
+        packetStateData.lastClientTickEndTransaction = lastTransactionReceived.get();
+        packetStateData.carriedItemChangedThisClientTick = false;
+        packetStateData.carriedItemClaimedThisClientTick = false;
+        serverOpenedInventoryThisTick = false;
+    }
+
     public boolean shouldEnforceMovementSetbacks() {
         return movementPlatform == MovementPlatform.JAVA
                 || (bedrockState != null && bedrockState.shouldEnforceSetbacks());
@@ -392,8 +424,8 @@ public class CultPlayer implements GrimUser {
     public void tickHeadYaw() {
         float before = yawBeforeLook;
         yawBeforeLook = xRot;
-        // LocalPlayer#tick, and with it Player#aiStep, only runs once the client has loaded; before 1.21.4, from login.
-        if (!packetStateData.playerLoadedIntoLevel && !getClientVersion().isOlderThan(ClientVersion.V_1_21_4)) return;
+        // Player#aiStep runs in LocalPlayer#tick.
+        if (!localPlayerTicks() || localPlayerRemovedThisTick()) return;
         float boatYawBefore = boatYawBeforeTurn;
         headYaw = xRot;
         unclampedHeadYaw = Float.NaN;
@@ -649,7 +681,7 @@ public class CultPlayer implements GrimUser {
         }
 
         SentTransaction acknowledged = acknowledgeThrough(id);
-        if (!isBedrockMovement() && getSetbackTeleportUtil().hasWithheldJavaTeleport()) {
+        if (!isBedrockMovement() && getSetbackTeleportUtil().javaTeleports().hasWithheldJavaTeleport()) {
             withheld("answered a ping sent after a teleport it did not answer");
         }
 
@@ -1182,7 +1214,7 @@ public class CultPlayer implements GrimUser {
         // to swimming based on exact collision tests at the current position.
         if (!canPlayerFitWithinBlocksAndEntitiesWhen(Pose.SWIMMING, x, y, z)) {
             // Player#updatePlayerPose does not call setPose at all in this case.
-            return pose;
+            return isBedrockMovement() ? desiredPose : pose;
         }
 
         if (gamemode == GameMode.SPECTATOR
@@ -1492,8 +1524,6 @@ public class CultPlayer implements GrimUser {
     public boolean spoofHealth = false;
     public boolean throwError = false;
     public boolean chunkDebug = false;
-    public boolean debugPlaces = false;
-    public boolean debugBreaks = false;
     public boolean debugNoSlow = false;
     // Temporary command override, owned by the player's model thread and discarded on reconnect.
     public Vec3 debugUncertainty = Vec3.ZERO;
@@ -1516,7 +1546,7 @@ public class CultPlayer implements GrimUser {
         boolean nowObserveOnly = CultAPI.INSTANCE.getConfigManager().isObserveOnly();
         if (nowObserveOnly != observeOnly) {
             observeOnly = nowObserveOnly;
-            if (nowObserveOnly) getSetbackTeleportUtil().observeOnlyStarted();
+            if (nowObserveOnly) getSetbackTeleportUtil().policy().observeOnlyStarted();
             else {
                 // Violations counted while nothing acted would otherwise set back on the next flag.
                 for (AbstractCheck check : getChecks()) {
@@ -1564,8 +1594,17 @@ public class CultPlayer implements GrimUser {
     }
 
     public ac.cult.cultac.utils.latency.ClientWorldRegistries getWorldRegistries() {
-        if (registryState == null) registryState = new ac.cult.cultac.utils.latency.ClientComponentRegistries();
-        return registryState.worldRegistries(user.getCultConnection().platform()::initialWorldData);
+        return registryState().worldRegistries(user.getCultConnection().platform()::initialWorldData);
+    }
+
+    /** This connection's received registries, created with the view its client has of them. */
+    public ClientComponentRegistries registryState() {
+        if (registryState == null)
+            registryState = new ClientComponentRegistries(
+                    bedrockState == null || !isBedrockMovement()
+                            ? ac.cult.cultac.utils.latency.ClientWorldView.RECEIVED
+                            : bedrockState.worldView);
+        return registryState;
     }
 
     public CompensatedInventory getInventory() {
@@ -1710,6 +1749,22 @@ public class CultPlayer implements GrimUser {
         return platformPlayer != null ? platformPlayer.getWorld().getUID() : null;
     }
 
+    public ClientClassification getClientClassification() {
+        if (isBedrockMovement()) {
+            return new ClientClassification(
+                    ClientClassification.Type.BEDROCK,
+                    ClientClassification.Type.UNSET,
+                    ClientClassification.Type.UNSET);
+        }
+        var mods = clientMods;
+        return new ClientClassification(
+                checkManager.getCheck(ClientBrand.class).isHasBrand()
+                        ? ClientClassification.brandType(getBrand())
+                        : ClientClassification.Type.UNKNOWN,
+                pluginChannelManager.getChannelType(),
+                mods != null && mods.lunar() ? ClientClassification.Type.LUNAR : ClientClassification.Type.UNSET);
+    }
+
     @Override
     public String getBrand() {
         var check = checkManager.getCheck(ac.cult.cultac.checks.impl.misc.ClientBrand.class);
@@ -1752,14 +1807,16 @@ public class CultPlayer implements GrimUser {
         return getClientVersion().getReleaseName();
     }
 
+    /** Java mouse sensitivity, or {@link Double#NaN} when the client does not supply Java mouse rotations. */
     @Override
     public double getHorizontalSensitivity() {
-        return checkManager.getCheck(AimProcessor.class).sensitivityX;
+        return isBedrockMovement() ? Double.NaN : checkManager.getCheck(AimProcessor.class).sensitivityX;
     }
 
+    /** Java mouse sensitivity, or {@link Double#NaN} when the client does not supply Java mouse rotations. */
     @Override
     public double getVerticalSensitivity() {
-        return checkManager.getCheck(AimProcessor.class).sensitivityY;
+        return isBedrockMovement() ? Double.NaN : checkManager.getCheck(AimProcessor.class).sensitivityY;
     }
 
     @Override
@@ -1854,30 +1911,17 @@ public class CultPlayer implements GrimUser {
     /** An estimated server tick boundary: ends this tick and starts the next. Owner thread only. */
     public void onServerTickEnd() {
         onEndOfTickEvent();
-        packetEntityReplication.tickStartTick();
     }
 
     public void onEndOfTickEvent() {
-        runEndOfTickTasks();
+        tick++;
         packetEntityReplication.onEndOfTickEvent();
     }
 
     /** Paper's end of server tick {@code serverTick}. Owner thread only. */
     public void onEndOfTickEvent(int serverTick) {
-        runEndOfTickTasks();
-        packetEntityReplication.onEndOfTickEvent(serverTick);
-    }
-
-    private void runEndOfTickTasks() {
         tick++;
-        for (Runnable task : endOfTickTasks) task.run();
-        endOfTickTasks.clear();
-    }
-
-    private final List<Runnable> endOfTickTasks = new ArrayList<>(4);
-
-    public void addEndOfTickTask(Runnable task) {
-        endOfTickTasks.add(task);
+        packetEntityReplication.onEndOfTickEvent(serverTick);
     }
 
     @Getter

@@ -17,8 +17,13 @@ package ac.cult.cultac.checks.impl.combat;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.bedrock.prediction.state.BedrockCameraWaterState;
+import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
+import ac.cult.cultac.checks.impl.visibility.BedrockAttackMobVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockAttackPlayerVisibility;
+import ac.cult.cultac.checks.impl.visibility.BedrockAttackVisibility;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.network.CultPacketHandler;
@@ -34,12 +39,18 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
+import ac.cult.cultac.utils.visibility.BedrockEye;
+import ac.cult.cultac.utils.visibility.BedrockPickBlocks;
 import ac.cult.cultac.utils.visibility.ClientVisibility;
 import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 import java.util.*;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.HoverEvent;
+import net.kyori.adventure.text.format.NamedTextColor;
 
 // You may not copy the check unless you are licensed under GPL
-// PlayerReach and EntityReach each run this check for their own attack targets.
+// PlayerReach and EntityReach run this check for a Java client's attack targets, BedrockPlayerReach and
+// BedrockEntityReach for a Bedrock client's.
 public abstract class ReachCheck extends Check implements CheckListener, ClientTickEndListener {
     private record QueuedAttack(
             int index,
@@ -49,7 +60,10 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
             Vec3 targetSize,
             int type,
             boolean enforced,
-            AttackReach reach) {}
+            AttackReach reach,
+            String context,
+            BedrockAttackPick pick,
+            Vec3 claimedEye) {}
 
     /**
      * An attack measured at the client's last tick end: its index among the tick's attack packets, the target's id,
@@ -60,8 +74,25 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
             int index, int entityId, int type, SimpleCollisionBox box, List<Vec3> origins, double reach) {}
 
     private static final String MISSED_HITBOX = "Missed hitbox";
+    private static final String DEFAULT_SCALE_TEXT = String.format("%.4f", 1.0F);
     // CultPlayer#getPossibleEyeHeights at scale 1.
     private static final double[] EYE_HEIGHTS = {0.4, 1.27, 1.62};
+    // A Bedrock attack is measured on the target's box grown by 0.1 on every side, players and end crystals included.
+    private static final double BEDROCK_PICK_MARGIN = 0.1D;
+    private static final double BEDROCK_RAVAGER_PICK_WIDTH = 1.95F;
+    private static final double BEDROCK_RAVAGER_PICK_HEIGHT = 2.2F;
+    // InputMode ordinals of a Bedrock client that picks at a screen point rather than along its view.
+    private static final int BEDROCK_TOUCH = 2;
+    private static final int BEDROCK_MOTION_CONTROLLER = 4;
+    private static final int BEDROCK_MOUSE = 1;
+    private static final int BEDROCK_GAMEPAD = 3;
+    // The length of a Bedrock client's pick ray by input mode; other modes reach farther in creative.
+    private static final double BEDROCK_MOUSE_RAY = 5.7F;
+    private static final double BEDROCK_GAMEPAD_RAY = 5.6F;
+    private static final double BEDROCK_OTHER_RAY = 6.7F;
+    private static final double BEDROCK_CREATIVE_RAY = 12.0F;
+    // How far /cult debug reach lets the measured reach exceed the client's claimed reach before showing it red.
+    private static final double REACH_DEBUG_TOLERANCE = 0.001;
     private final ClientVisibilityProcessor visibility;
     // The looks measureBest tries, three components each.
     private final double[] looks = new double[15];
@@ -78,6 +109,8 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
     private boolean cancelImpossibleHits;
     private double threshold;
     private double cancelBuffer; // For the next 4 hits after using reach, we aggressively cancel reach
+    // A Bedrock client's rotation at its last two tick ends, and at the one being ended.
+    private float tickYaw, tickPitch, lastTickYaw, lastTickPitch, nextYaw, nextPitch;
 
     /** Attack packets this tick, every check's targets counted, so each attack's index is its place in the tick. */
     private int attacks;
@@ -89,6 +122,20 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
 
     /** Whether this check owns attacks on this entity type; -1 is an entity Cult does not track. */
     protected abstract boolean targets(int type);
+
+    /** Whether this check judges a Bedrock client's attacks; the others judge a Java client's. */
+    protected abstract boolean judgesBedrock();
+
+    /** The reach check that owns {@code player}'s attacks on targets of {@code type}. */
+    public static Class<? extends ReachCheck> owner(CultPlayer player, int type) {
+        boolean avatar = type == EntityTypeIds.PLAYER;
+        if (player.isBedrockMovement()) return avatar ? BedrockPlayerReach.class : BedrockEntityReach.class;
+        return avatar ? PlayerReach.class : EntityReach.class;
+    }
+
+    private boolean owns(int type) {
+        return player.isBedrockMovement() == judgesBedrock() && targets(type);
+    }
 
     private int targetType(int entityId, PacketEntity entity) {
         if (entity != null) return entity.type;
@@ -105,91 +152,180 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
     /** The check that owns this check's attacks whose look misses the target. */
     protected abstract Class<? extends Check> hitboxes();
 
-    private void handleInteract(final PacketReceiveEvent event, ServerboundInteract action) {
-        if (!player.isDisabled() && action != null && action.action() == InteractAction.ATTACK) {
-            int index = attacks++;
-            PacketEntity entity = player.compensatedEntities.entityMap.get(action.entityId());
-            if (!targets(targetType(action.entityId(), entity))) return;
-
-            // Don't let the player teleport to bypass reach
-            if (player.getSetbackTeleportUtil().shouldBlockMovement()) {
-                debug(() -> {
-                    return "cancelled = teleport";
-                });
-                event.setCancelled(true);
-                player.onPacketCancel();
-                return;
-            }
-
-            // ServerGamePacketListenerImpl#handleAttack drops attacks until the client has loaded, and the LocalPlayer
-            // they would be judged from has not ticked yet.
-            if (!player.packetStateData.localPlayerTickedSinceSpawn) {
-                debug(() -> {
-                    return "cancelled = not ticked";
-                });
-                event.setCancelled(true);
-                player.onPacketCancel();
-                return;
-            }
-
-            // Stop people from freezing transactions before an entity spawns to bypass reach
-            if (entity == null) {
-                // Only cancel if and only if we are tracking this entity
-                // This is because we don't track paintings.
-                if (shouldModifyPackets()
-                        && (player.compensatedEntities.serverPositionsMap.containsKey(action.entityId())
-                                || isPartOfUnspawnedDragon(action.entityId()))) {
-                    debug(() -> {
-                        return "cancelled = no entity";
-                    });
-                    event.setCancelled(true);
-                    player.onPacketCancel();
-                }
-                return;
-            }
-
-            if (!measured(entity)) return;
-
-            AttackReach reach = AttackReach.capture(player, visibility);
-            boolean tooManyAttacks = playerAttackQueue.size() > 10;
-            if (!tooManyAttacks) {
-                // Queue for next tick for a precise post-rotation check. Vanilla computes
-                // the hit result before sending the attack packet; movement and tick-end
-                // packets from the same client tick must not change the target box used here.
-                playerAttackQueue.add(new QueuedAttack(
-                        index,
-                        action.entityId(),
-                        getAttackOrigins(),
-                        getReachBox(entity),
-                        getReachSize(entity),
-                        entity.type,
-                        isEnforced(entity),
-                        reach));
-            }
-
-            final boolean knownInvalid = isKnownInvalid(entity, reach);
-
-            if ((shouldModifyPackets() && cancelImpossibleHits && knownInvalid)
-                    || (tooManyAttacks && !CultAPI.INSTANCE.getConfigManager().isObserveOnly())) {
-                debug(() -> {
-                    return "cancelled, many=" + tooManyAttacks + ", invalid=" + knownInvalid;
-                });
-                event.setCancelled(true);
-                player.onPacketCancel();
-            }
-        }
-    }
-
     @CultPacketHandler
     public void onInteract(
             PacketReceiveEvent<ServerboundInteract> event, CultPlayer player, ServerboundInteract packet) {
-        handleInteract(event, packet);
+        if (packet != null && packet.action() == InteractAction.ATTACK && attack(packet.entityId(), null, 0, null)) {
+            event.setCancelled(true);
+            player.onPacketCancel();
+        }
+    }
+
+    /**
+     * A Bedrock client's attack on the Java entity {@code entityId}, handed over by the Geyser bridge when it arrives
+     * with the world point the client reports its pick hit, null when it sent none, and how far that point's floats
+     * may lie from it; true when the bridge must drop it.
+     */
+    public boolean onBedrockAttack(int entityId, Vec3 hit, double hitPrecision) {
+        return onBedrockAttack(entityId, hit, hitPrecision, null);
+    }
+
+    /**
+     * As {@link #onBedrockAttack(int, Vec3, double)}, with the eye the client reports with the attack, its position at
+     * its last tick end at eye height, or null when it sent none. Only /cult debug reach shows it.
+     */
+    public boolean onBedrockAttack(int entityId, Vec3 hit, double hitPrecision, Vec3 claimedEye) {
+        return judgesBedrock() && attack(entityId, hit, hitPrecision, claimedEye);
+    }
+
+    /**
+     * Queues an attack for this client tick's end; true when the attack must be dropped. An experimental check still
+     * measures the attacks of a player with experimental checks off, but drops none of them.
+     */
+    private boolean attack(int entityId, Vec3 hit, double hitPrecision, Vec3 claimedEye) {
+        return queueAttack(entityId, hit, hitPrecision, claimedEye)
+                && (!isExperimental() || player.isExperimentalChecks());
+    }
+
+    private boolean queueAttack(int entityId, Vec3 hit, double hitPrecision, Vec3 claimedEye) {
+        if (player.isDisabled()) return false;
+        int index = attacks++;
+        PacketEntity entity = player.compensatedEntities.entityMap.get(entityId);
+        if (!owns(targetType(entityId, entity))) return false;
+
+        // Don't let the player teleport to bypass reach
+        if (player.getSetbackTeleportUtil().shouldBlockMovement()) {
+            debug(() -> {
+                return "cancelled = teleport";
+            });
+            return true;
+        }
+
+        // ServerGamePacketListenerImpl#handleAttack drops attacks until the client has loaded, and the LocalPlayer
+        // they would be judged from has not ticked yet.
+        if (!player.packetStateData.localPlayerTickedSinceSpawn) {
+            debug(() -> {
+                return "cancelled = not ticked";
+            });
+            return true;
+        }
+
+        // Stop people from freezing transactions before an entity spawns to bypass reach
+        if (entity == null) {
+            // Only cancel if and only if we are tracking this entity
+            // This is because we don't track paintings.
+            if (shouldModifyPackets()
+                    && (player.compensatedEntities.serverPositionsMap.containsKey(entityId)
+                            || isPartOfUnspawnedDragon(entityId))) {
+                debug(() -> {
+                    return "cancelled = no entity";
+                });
+                return true;
+            }
+            return false;
+        }
+
+        if (!measured(entity)) return false;
+        // A Bedrock client's attacks while mounted are left out.
+        if (player.isBedrockMovement() && player.compensatedEntities.getSelf().getRiding() != null) return false;
+
+        AttackReach reach = AttackReach.capture(player, visibility);
+        BedrockAttackPick pick = player.isBedrockMovement() ? bedrockPick(hit, hitPrecision) : null;
+        boolean tooManyAttacks = playerAttackQueue.size() > 10;
+        if (!tooManyAttacks) {
+            // Queue for next tick for a precise post-rotation check. Vanilla computes
+            // the hit result before sending the attack packet; movement and tick-end
+            // packets from the same client tick must not change the target box used here.
+            playerAttackQueue.add(new QueuedAttack(
+                    index,
+                    entityId,
+                    getAttackOrigins(),
+                    getReachBox(entity),
+                    getReachSize(entity),
+                    entity.type,
+                    isEnforced(entity),
+                    reach,
+                    describeContext(entity),
+                    pick,
+                    claimedEye));
+        }
+
+        final boolean knownInvalid = pick != null
+                ? isEnforced(entity) && isKnownInvalidOnBedrock(pick, getReachBox(entity), reach)
+                : isKnownInvalid(entity, reach);
+
+        // A Bedrock client's attack through blocks is judged at the point its pick entered the target, as it arrives,
+        // on the targets whose box the hitbox checks hold that point to.
+        if (pick != null && isEnforced(entity)) {
+            boolean avatar = entity.type == EntityTypeIds.PLAYER;
+            Class<? extends BedrockAttackVisibility> owner =
+                    avatar ? BedrockAttackPlayerVisibility.class : BedrockAttackMobVisibility.class;
+            String detail = avatar ? "" : "type=" + EntityTypeUtil.getKey(entity.type);
+            if (player.checkManager.getCheck(owner).dropsAttack(hit, hitPrecision, detail)) return true;
+        }
+
+        if ((shouldModifyPackets() && cancelImpossibleHits && knownInvalid)
+                || (tooManyAttacks && !CultAPI.INSTANCE.getConfigManager().isObserveOnly())) {
+            debug(() -> {
+                return "cancelled, many=" + tooManyAttacks + ", invalid=" + knownInvalid;
+            });
+            return true;
+        }
+        return false;
     }
 
     @Override
     public void onPlayerTickEnd(final PacketReceiveEvent event) {
+        endClientTick();
+    }
+
+    /** Measures the attacks sent since the last client tick end with this tick's look. */
+    public void endClientTick() {
+        var frame = player.isBedrockMovement() && player.bedrockState != null
+                ? player.bedrockState.getLastOfferedFrame()
+                : null;
+        if (frame != null && frame.hasRotation()) {
+            nextYaw = frame.getYaw();
+            nextPitch = frame.getPitch();
+        }
         tickBetterReachCheckWithAngle();
+        lastTickYaw = tickYaw;
+        lastTickPitch = tickPitch;
+        tickYaw = nextYaw;
+        tickPitch = nextPitch;
         attacks = 0;
+    }
+
+    // The pick of a Bedrock client's attack sent since its last tick end, from its eye's path over its last two ticks.
+    private BedrockAttackPick bedrockPick(Vec3 hit, double hitPrecision) {
+        var frame = player.bedrockState == null ? null : player.bedrockState.getLastOfferedFrame();
+        int inputMode = frame == null ? -1 : frame.getInputMode();
+        return new BedrockAttackPick(
+                new Vec3(player.lastX, player.lastY, player.lastZ),
+                new Vec3(player.x, player.y, player.z),
+                hit,
+                hitPrecision,
+                lastTickYaw,
+                lastTickPitch,
+                tickYaw,
+                tickPitch,
+                inputMode == BEDROCK_TOUCH || inputMode == BEDROCK_MOTION_CONTROLLER,
+                bedrockRayLength(inputMode),
+                bedrockEyes());
+    }
+
+    private List<BedrockEye> bedrockEyes() {
+        return BedrockEye.of(player).eyes();
+    }
+
+    // How far along its pick ray the input mode's block pick meets a block that drops a hit in the pick margin: the
+    // shortest ray it may have used, and none for a touch screen, which keeps such a hit whatever lies along its ray.
+    private double bedrockRayLength(int inputMode) {
+        if (inputMode == BEDROCK_TOUCH) return 0;
+        if (inputMode == BEDROCK_MOUSE) return BEDROCK_MOUSE_RAY;
+        if (inputMode == BEDROCK_MOTION_CONTROLLER)
+            return player.gamemode == GameMode.CREATIVE ? BEDROCK_CREATIVE_RAY : BEDROCK_OTHER_RAY;
+        return BEDROCK_GAMEPAD_RAY;
     }
 
     /** The attacks this check measured at the client's last tick end, in packet order; kept while observed. */
@@ -197,7 +333,11 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         if (measuredAttacks.isEmpty()) return List.of();
         List<MeasuredAttack> measured = new ArrayList<>(measuredAttacks.size());
         for (QueuedAttack attack : measuredAttacks) {
-            measureBest(attack.targetBox(), attack.targetSize(), attack.fromCandidates(), attack.reach(), false);
+            if (attack.pick() != null) {
+                bestDistance = attack.pick().reach(bedrockTarget(attack.pick(), measuredBox(attack.targetBox())));
+            } else {
+                measureBest(attack.targetBox(), attack.targetSize(), attack.fromCandidates(), attack.reach(), false);
+            }
             measured.add(new MeasuredAttack(
                     attack.index(),
                     attack.entityId(),
@@ -229,8 +369,132 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         }
     }
 
+    // Whether a Bedrock client's attack lies beyond its range or reports a hit off the target's box; both are known
+    // when it arrives, as neither needs the look its next tick sends.
+    private boolean isKnownInvalidOnBedrock(BedrockAttackPick pick, SimpleCollisionBox reachBox, AttackReach reach) {
+        SimpleCollisionBox box = measuredBox(reachBox);
+        return pick.reach(bedrockTarget(pick, box)) - threshold > reach.maxClosestDistance() || !hitOnBox(pick, box);
+    }
+
+    // BedrockPlayerReach and BedrockEntityReach flag an attack whose hit lies beyond the client's range from every eye
+    // on its path; their hitboxes checks one whose hit lies off the target's box, that no view the client could have
+    // turned to that frame looks at, or that the client would have dropped for a block its ray met.
+    private void judgeBedrock(QueuedAttack attack) {
+        BedrockAttackPick pick = attack.pick();
+        SimpleCollisionBox box = measuredBox(attack.targetBox());
+        double distance = pick.reach(bedrockTarget(pick, box));
+        double max = attack.reach().maxClosestDistance();
+        boolean tooFar = attack.enforced() && distance - threshold > max;
+        relayReach(attack, distance, max);
+        if (!attack.enforced()) return;
+        String type = attack.type() == EntityTypeIds.PLAYER
+                ? ""
+                : " type=" + EntityTypeUtil.getKey(attack.type()).getPath();
+        if (tooFar) {
+            flag(String.format("%.5f blocks, max=%.5f", distance, max) + type + attack.context());
+        }
+        String missed;
+        if (!hitOnBox(pick, box)) {
+            missed = "hit off box";
+        } else if (!pick.looksAtHit(nextYaw, nextPitch, box)) {
+            missed = "look off hit";
+        } else if (keepsMarginHitsPastBlocks()) {
+            missed = null;
+        } else {
+            SimpleCollisionBox raw = box.copy();
+            raw.expand(-BEDROCK_PICK_MARGIN);
+            boolean kept =
+                    pick.keptPastBlocks(box, raw, (from, to, edge) -> BedrockPickBlocks.blocks(player, from, to, edge));
+            missed = kept ? null : "hit in pick margin";
+        }
+        if (missed != null) {
+            player.checkManager.getCheck(hitboxes()).flag((missed + type + attack.context()).strip());
+        }
+    }
+
+    // Shows /cult debug reach listeners the reach measured above beside the one the client claims, from its eye to the
+    // hit it reports. The client reports its position at the standing eye height whatever its pose, so its eye is that
+    // point lowered to the eye height the client had at that tick, of those it may have had the one nearest the
+    // measured reach. calc is red when it exceeds the claim by more than REACH_DEBUG_TOLERANCE, green otherwise, and
+    // gray when the client claimed no eye or hit. The hover holds the points.
+    private void relayReach(QueuedAttack attack, double distance, double max) {
+        player.checkManager.getDebugHandler().relayReach(() -> {
+            BedrockAttackPick pick = attack.pick();
+            Vec3 reported = attack.claimedEye();
+            Vec3 hit = pick.hit();
+            Vec3 eye = reported == null || hit == null ? reported : claimedEye(pick, reported, distance);
+            String claimed = "none";
+            String difference = "";
+            NamedTextColor calcColor = NamedTextColor.GRAY;
+            if (eye != null && hit != null) {
+                double claimedReach = eye.distanceTo(hit);
+                claimed = String.format(Locale.ROOT, "%.5f", claimedReach);
+                difference = String.format(Locale.ROOT, " diff=%+.5f", distance - claimedReach);
+                calcColor = distance - claimedReach > REACH_DEBUG_TOLERANCE ? NamedTextColor.RED : NamedTextColor.GREEN;
+            }
+            String details = "claimed eye " + debugPoint(eye) + "\nreported eye " + debugPoint(reported)
+                    + "\nclaimed hit " + debugPoint(hit) + "\nfeet path "
+                    + debugPoint(pick.last()) + " -> " + debugPoint(pick.now());
+            return Component.text(EntityTypeUtil.getKey(attack.type()).getPath() + " calc=", NamedTextColor.GRAY)
+                    .append(Component.text(String.format(Locale.ROOT, "%.5f", distance), calcColor))
+                    .append(Component.text(" claimed=", NamedTextColor.GRAY))
+                    .append(Component.text(claimed, NamedTextColor.WHITE))
+                    .append(Component.text(
+                            difference
+                                    + String.format(Locale.ROOT, " max=%.5f", max)
+                                    + (attack.enforced() ? "" : " unenforced"),
+                            NamedTextColor.GRAY))
+                    .hoverEvent(HoverEvent.showText(Component.text(details, NamedTextColor.GRAY)));
+        });
+    }
+
+    // The reported eye lowered from the standing eye height to the eye height the client may have had at its latest
+    // tick that puts it nearest the measured reach.
+    static Vec3 claimedEye(BedrockAttackPick pick, Vec3 reported, double distance) {
+        Vec3 best = reported;
+        double nearest = Double.POSITIVE_INFINITY;
+        for (BedrockEye candidate : pick.eyes()) {
+            Vec3 eye = reported.add(0, candidate.now() - BedrockCameraWaterState.STANDING_EYE_HEIGHT, 0);
+            double off = Math.abs(eye.distanceTo(pick.hit()) - distance);
+            if (off < nearest) {
+                nearest = off;
+                best = eye;
+            }
+        }
+        return best;
+    }
+
+    private static String debugPoint(Vec3 point) {
+        return point == null ? "none" : String.format(Locale.ROOT, "(%.5f, %.5f, %.5f)", point.x, point.y, point.z);
+    }
+
+    // The point of the box nearest the reported hit, or nearest the client's position when it reported none.
+    private static Vec3 bedrockTarget(BedrockAttackPick pick, SimpleCollisionBox box) {
+        Vec3 from = pick.hit() == null ? pick.now() : pick.hit();
+        return new Vec3(
+                Math.max(box.minX, Math.min(from.x, box.maxX)),
+                Math.max(box.minY, Math.min(from.y, box.maxY)),
+                Math.max(box.minZ, Math.min(from.z, box.maxZ)));
+    }
+
+    private static boolean hitOnBox(BedrockAttackPick pick, SimpleCollisionBox box) {
+        Vec3 hit = pick.hit();
+        double e = pick.hitPrecision();
+        return hit != null
+                && hit.x >= box.minX - e
+                && hit.x <= box.maxX + e
+                && hit.y >= box.minY - e
+                && hit.y <= box.maxY + e
+                && hit.z >= box.minZ - e
+                && hit.z <= box.maxZ + e;
+    }
+
     private void tickBetterReachCheckWithAngle() {
         for (QueuedAttack attack : playerAttackQueue) {
+            if (attack.pick() != null) {
+                judgeBedrock(attack);
+                continue;
+            }
             String result = checkReach(
                     attack.targetBox(),
                     attack.targetSize(),
@@ -240,23 +504,46 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
                     attack.reach(),
                     false);
             if (MISSED_HITBOX.equals(result)) {
-                player.checkManager
-                        .getCheck(hitboxes())
-                        .flag(
-                                attack.type() == EntityTypeIds.PLAYER
-                                        ? ""
-                                        : "type=" + EntityTypeUtil.getKey(attack.type()));
+                String verbose = attack.type() == EntityTypeIds.PLAYER
+                        ? attack.context()
+                        : "type=" + EntityTypeUtil.getKey(attack.type()) + attack.context();
+                player.checkManager.getCheck(hitboxes()).flag(verbose.strip());
             } else if (result != null) {
                 if (attack.type() != EntityTypeIds.PLAYER) {
                     result += " type=" + EntityTypeUtil.getKey(attack.type()).getPath();
                 }
-                flag(result);
+                flag(result + attack.context());
             }
         }
 
         measuredAttacks.clear();
         if (player.observer != null) measuredAttacks.addAll(playerAttackQueue);
         playerAttackQueue.clear();
+    }
+
+    // Riding and scale change the modeled geometry; named in the verbose only when they apply.
+    private String describeContext(PacketEntity target) {
+        StringBuilder context = new StringBuilder();
+        PacketEntity self = player.compensatedEntities.getSelf();
+        if (self.getRiding() != null) {
+            context.append(" vehicle=")
+                    .append(EntityTypeUtil.getKey(self.getRiding().type).getPath());
+        }
+        if (target.getRiding() != null) {
+            context.append(" target-vehicle=")
+                    .append(EntityTypeUtil.getKey(target.getRiding().type).getPath());
+        }
+        appendScale(context, " scale=", self.scale);
+        appendScale(context, " target-scale=", target.scale);
+        return context.toString();
+    }
+
+    // Compared at printed precision so attribute float noise never logs a default "1.0000".
+    private static void appendScale(StringBuilder context, String key, float scale) {
+        String text = String.format("%.4f", scale);
+        if (!text.equals(DEFAULT_SCALE_TEXT)) {
+            context.append(key).append(text);
+        }
     }
 
     /** The positions the client may have attacked from: where it stands, or each seat its vehicle may hold it in. */
@@ -305,7 +592,35 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
      * which a crystal riding another entity holds at the seat Entity#positionRider gives it, not at its last packet.
      */
     public SimpleCollisionBox getReachBox(PacketEntity reachEntity) {
-        SimpleCollisionBox movementBox = reachEntity.toBoundingBox(player, reachEntity.getPossibleCollisionBoxes());
+        SimpleCollisionBox box = getTargetBox(reachEntity);
+        if (player.isBedrockMovement()) box.expand(BEDROCK_PICK_MARGIN);
+        return box;
+    }
+
+    // A Bedrock attack on a ravager is measured on one box, 1.95 wide and 2.2 tall from its feet at any scale, instead
+    // of the box its size data gives it.
+    private SimpleCollisionBox ravagerPickBox(PacketEntity ravager, SimpleCollisionBox movementBox) {
+        double grow = (BEDROCK_RAVAGER_PICK_WIDTH - BoundingBoxSize.getWidth(player, ravager)) / 2.0D;
+        double feetTop = movementBox.maxY - BoundingBoxSize.getHeight(player, ravager);
+        return new SimpleCollisionBox(
+                movementBox.minX - grow,
+                movementBox.minY,
+                movementBox.minZ - grow,
+                movementBox.maxX + grow,
+                feetTop + BEDROCK_RAVAGER_PICK_HEIGHT,
+                movementBox.maxZ + grow);
+    }
+
+    private SimpleCollisionBox getTargetBox(PacketEntity reachEntity) {
+        // For a Bedrock client Cult models float positions and the range of positions a pending move spans; the
+        // packet-position margin covers neither.
+        SimpleCollisionBox movementBox = reachEntity.toBoundingBox(
+                player,
+                player.isBedrockMovement()
+                        ? reachEntity.getPossibleMovementCollisionBoxes()
+                        : reachEntity.getPossibleCollisionBoxes());
+        if (player.isBedrockMovement() && reachEntity.type == EntityTypeIds.RAVAGER)
+            return ravagerPickBox(reachEntity, movementBox);
         float movementWidth = BoundingBoxSize.getWidth(player, reachEntity);
         float movementHeight = BoundingBoxSize.getHeight(player, reachEntity);
         float reachWidth = BoundingBoxSize.getReachWidth(player, reachEntity);
@@ -320,7 +635,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
 
     // The size of each possible box getReachBox spans, at most its real size.
     private Vec3 getReachSize(PacketEntity reachEntity) {
-        if (reachEntity.type == EntityTypeIds.END_CRYSTAL) return new Vec3(2, 2, 2);
+        if (reachEntity.type == EntityTypeIds.END_CRYSTAL && !player.isBedrockMovement()) return new Vec3(2, 2, 2);
         if (reachEntity.isAvatar()) {
             double width = reachEntity.leastPoseWidth();
             return new Vec3(width, reachEntity.leastPoseHeight(), width);
@@ -850,7 +1165,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
                 && !isExemptPermission()
                 && !player.checkManager.getCheck(hitboxes()).isExemptPermission()
                 && !player.isDisabled()
-                && targets(target.type)
+                && owns(target.type)
                 && playerAttackQueue.size() <= 10
                 && measured(target)
                 && isEnforced(target);
@@ -896,12 +1211,39 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
         return player.gamemode != GameMode.SPECTATOR;
     }
 
-    // The targets whose picked box Cult models: living entities but shulkers, end crystals, and a Java client's boats,
-    // which AbstractBoat moves only by LinearInterpolationHandler's 3 steps to the position the server sent.
+    // The targets whose picked box Cult models: living entities but shulkers, end crystals, and boats, which
+    // AbstractBoat moves only by LinearInterpolationHandler's 3 steps to the position the server sent.
     private boolean isEnforced(PacketEntity reachEntity) {
+        if (player.isBedrockMovement()) return isEnforcedOnBedrock(reachEntity);
         if (reachEntity.type == EntityTypeIds.END_CRYSTAL) return true;
-        if (reachEntity.isBoat()) return !player.isBedrockMovement();
+        if (reachEntity.isBoat()) return true;
         return reachEntity.isLivingEntity() && reachEntity.type != EntityTypeIds.SHULKER;
+    }
+
+    // Cult judges a Bedrock attack on a player on every version, and on mobs, boats, minecarts and end crystals from
+    // 1.26.60 on, whose positions it models from then; shulkers and the ender dragon are left out, as are mounted
+    // actors and attacks while mounted.
+    private boolean isEnforcedOnBedrock(PacketEntity target) {
+        if (target.getRiding() != null
+                || !target.passengers.isEmpty()
+                || player.compensatedEntities.getSelf().getRiding() != null) return false;
+        if (target.type == EntityTypeIds.PLAYER) return true;
+        if (!lerpsEveryTarget()) return false;
+        if (target.type == EntityTypeIds.END_CRYSTAL || target.isBoat() || target.isMinecart()) return true;
+        return target.isLivingEntity()
+                && target.type != EntityTypeIds.SHULKER
+                && target.type != EntityTypeIds.ENDER_DRAGON;
+    }
+
+    // Whether a hit only in the pick margin counts whatever blocks its ray meets: before 1.26.60.
+    private boolean keepsMarginHitsPastBlocks() {
+        return player.bedrockState == null
+                || player.bedrockState.getProtocolVersion().compareTo(BedrockProtocolVersion.V1_26_60) < 0;
+    }
+
+    private boolean lerpsEveryTarget() {
+        return player.bedrockState != null
+                && player.bedrockState.getProtocolVersion().compareTo(BedrockProtocolVersion.V1_26_60) >= 0;
     }
 
     @Override

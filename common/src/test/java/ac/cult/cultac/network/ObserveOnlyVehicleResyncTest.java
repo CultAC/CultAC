@@ -42,7 +42,7 @@ class ObserveOnlyVehicleResyncTest {
                 // nor its return target may remain available to consume a later client tick.
                 assertEquals(
                         0,
-                        f.player.getSetbackTeleportUtil().queuedVehicleTeleportCount(),
+                        f.player.getSetbackTeleportUtil().vehicleTeleports().queuedVehicleTeleportCount(),
                         "observeOnly=" + observeOnly);
 
                 List<Object> dismount = passengers(f, List.of());

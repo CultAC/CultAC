@@ -34,6 +34,8 @@ public class PacketOrderB extends Check implements CheckListener {
 
     @CultPacketHandler
     public void onSwing(PacketReceiveEvent<ServerboundSwing> event, CultPlayer player, ServerboundSwing packet) {
+        // ClientPacketListener#handleAnimate's swing is not Minecraft#startAttack's.
+        if (player.serverSwingEcho.isEcho()) return;
         // Minecraft#startAttack always swings the main hand.
         if (packet.hand() != Hand.MAIN_HAND) {
             checkPostAttack();

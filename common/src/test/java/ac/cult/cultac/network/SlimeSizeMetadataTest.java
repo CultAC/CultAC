@@ -3,6 +3,7 @@ package ac.cult.cultac.network;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.protocol.ProtocolVersion;
@@ -49,6 +50,29 @@ class SlimeSizeMetadataTest {
                     assertEquals(legacy, BoundingBoxSize.getHeight(cube, version, bedrock));
                 }
             }
+        }
+    }
+
+    /**
+     * SulfurCube inherits AbstractCubeMob#getDefaultDimensions: the type's 0.49 × 0.49 scaled by ID_SIZE, with no age
+     * scale for a baby.
+     */
+    @Test
+    void aSulfurCubeTakesTheCubeMobDimensionsForItsSize() {
+        try (var f = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            var entities = f.player.compensatedEntities;
+            int sulfurCube = EntityTypes.defaults().byKey("sulfur_cube").id();
+            entities.addEntity(1076, sulfurCube, new Vec3(412.5, 67.0, -181.5), 0, 0, 0);
+            entities.addEntity(1077, sulfurCube, new Vec3(420.5, 67.0, -181.5), 0, 0, 0);
+            size(entities, 1076, 2, ProtocolVersion.V26_3);
+            int sizeIndex = WatchableIndexUtil.forModel(ProtocolVersion.V26_3).slimeSize();
+            entities.updateEntityMetadata(
+                    1077,
+                    List.of(
+                            new EntityMetadata.Entry(WatchableIndexUtil.AGEABLE_BABY, true, ByteBuffer.allocate(0)),
+                            new EntityMetadata.Entry(sizeIndex, 1, ByteBuffer.allocate(0))));
+            assertBox(entities.getEntity(1076).getPossibleMovementCollisionBoxes(), 412.5, 67.0, -181.5, 0.49F * 2);
+            assertBox(entities.getEntity(1077).getPossibleMovementCollisionBoxes(), 420.5, 67.0, -181.5, 0.49F);
         }
     }
 

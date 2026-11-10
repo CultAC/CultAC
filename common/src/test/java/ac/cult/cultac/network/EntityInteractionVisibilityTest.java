@@ -244,6 +244,82 @@ class EntityInteractionVisibilityTest {
 
     @ParameterizedTest
     @MethodSource("clients")
+    void aLaunchedFallingBlockFallsAlongItsDeltaMovementEachClientTick(ProtocolVersion version) throws Exception {
+        try (var setup = new Setup(version)) {
+            // A block thrown up by the server, 3016 and 6000 nearer the origin. Three client ticks of gravity and drag
+            // carry it from 3.43 to 2.47 horizontally from the eye, inside the 3-block interaction range.
+            setup.spawn(
+                    42,
+                    "minecraft:falling_block",
+                    new Vec3d(3, 61, 10),
+                    new Vec3d(.29439052676554955, .48940975401330644, .08331807361289134),
+                    14845);
+            setup.sync(42, new Vec3d(3.2943832764895, 61.44939502826654, 10.083329802203));
+            setup.motion(42, new Vec3d(.288469755234084, .4403955319538546, .08167002380516397));
+            for (int tick = 0; tick < 3; tick++) setup.clientTick();
+            setup.place(7.1006406708807, 62, 9.399957336587);
+            assertFalse(setup.route(42, InteractAction.INTERACT_AT).isCancelled());
+            var block = setup.player.compensatedEntities.getEntity(42).clientPhysicalPosition;
+            assertEquals(4.142599761066, block.x, 1.0E-6);
+            assertEquals(62.507518072266, block.y, 1.0E-6);
+            assertEquals(10.323472344810, block.z, 1.0E-6);
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("clients")
+    void aFallingBlockLandsOnTheBlockBelowIt(ProtocolVersion version) throws Exception {
+        try (var setup = new Setup(version)) {
+            setup.player.compensatedWorld.applyBlockChangeRawDANGER(0, 63, 5, state("stone"));
+            setup.spawn(42, "minecraft:falling_block", new Vec3d(.5, 66, 5.5), Vec3d.ZERO, 14845);
+            for (int tick = 0; tick < 12; tick++) setup.clientTick();
+            assertEquals(64, setup.player.compensatedEntities.getEntity(42).clientPhysicalPosition.y, 1.0E-9);
+            setup.place(.5, 64, 2.2);
+            assertFalse(setup.route(42, InteractAction.INTERACT_AT).isCancelled());
+        }
+    }
+
+    @Test
+    void aFallingBlockThatHitsAWallLosesThatAxisOfItsDeltaMovementExceptOn26_2() throws Exception {
+        // Stopped by the wall on the second tick, the block rises past the wall's top on the fourth. 1.21.11's
+        // Entity#move and 26.3's restituteMovementAfterCollisions zero the collided axis; 26.2 keeps it and moves on.
+        for (ClientVersion client : List.of(ClientVersion.V_1_21_11, ClientVersion.V_26_2, ClientVersion.V_26_3)) {
+            try (var setup = new Setup(ProtocolVersion.V26_3)) {
+                JavaTickFixture.setField(CultPlayer.class, setup.player, "resolvedClientVersion", client);
+                setup.player.compensatedWorld.applyBlockChangeRawDANGER(2, 64, 0, state("stone"));
+                setup.spawn(42, "minecraft:falling_block", new Vec3d(.5, 63.6, .5), new Vec3d(.6, .5, 0), 14845);
+                for (int tick = 0; tick < 4; tick++) setup.clientTick();
+                var block = setup.player.compensatedEntities.getEntity(42).clientPhysicalPosition;
+                assertEquals(
+                        client == ClientVersion.V_26_2 ? 2.074715223435975 : 1.5099999904632568,
+                        block.x,
+                        1.0E-9,
+                        client.name());
+                assertEquals(65.1487163682283, block.y, 1.0E-9, client.name());
+            }
+        }
+    }
+
+    @Test
+    void aFallingBlockBouncesOffSlimeOnlyFrom26_3() throws Exception {
+        // 26.3 restitutes client-side at 0.8 of slime's 1.0; earlier clients never bounce a client-side falling block.
+        for (ClientVersion client : List.of(ClientVersion.V_1_21_11, ClientVersion.V_26_2, ClientVersion.V_26_3)) {
+            try (var setup = new Setup(ProtocolVersion.V26_3)) {
+                JavaTickFixture.setField(CultPlayer.class, setup.player, "resolvedClientVersion", client);
+                setup.player.compensatedWorld.applyBlockChangeRawDANGER(0, 63, 5, state("slime_block"));
+                setup.spawn(42, "minecraft:falling_block", new Vec3d(.5, 66, 5.5), Vec3d.ZERO, 14845);
+                for (int tick = 0; tick < 14; tick++) setup.clientTick();
+                assertEquals(
+                        client == ClientVersion.V_26_3 ? 64.7992958047657 : 64,
+                        setup.player.compensatedEntities.getEntity(42).clientPhysicalPosition.y,
+                        1.0E-9,
+                        client.name());
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("clients")
     void aFireballAcceleratesByATenthAndKeepsNinetyFivePercentEachClientTick(ProtocolVersion version) throws Exception {
         try (var setup = new Setup(version)) {
             // Launched at 1 block per tick, a fireball covers 3.261 in three client ticks: 42 is in range from 3.2
@@ -483,7 +559,7 @@ class EntityInteractionVisibilityTest {
     private static PacketEntity afterBundledSync(Setup setup, int type) {
         setup.player.compensatedEntities.addEntity(42, type, SYNC_FROM, 0, 0, 0);
         var entity = setup.player.compensatedEntities.getEntity(42);
-        entity.onBundledPositionSyncTransaction(SYNC_TO.x, SYNC_TO.y, SYNC_TO.z, setup.player);
+        entity.onBundleTransaction(false, true, SYNC_TO.x, SYNC_TO.y, SYNC_TO.z, setup.player);
         return entity;
     }
 

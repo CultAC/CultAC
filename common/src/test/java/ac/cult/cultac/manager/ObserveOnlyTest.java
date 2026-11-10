@@ -21,6 +21,7 @@ import ac.cult.cultac.events.packets.listeners.PacketSelfMetadataListener;
 import ac.cult.cultac.events.packets.patch.ResyncWorldUtil;
 import ac.cult.cultac.manager.config.BaseConfigManager;
 import ac.cult.cultac.manager.player.CheckManager;
+import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -113,7 +114,7 @@ class ObserveOnlyTest {
     void setbacksReturnBeforeTouchingThePlayer() throws ReflectiveOperationException {
         try (var ignored = installConfig(true)) {
             SetbackTeleportUtil setbacks = new SetbackTeleportUtil(player);
-            setbacks.lastKnownGoodPosition = new SetbackPosWithVector(Vec3.ZERO, Vec3.ZERO, 0);
+            SetbackFixtures.seedSafePosition(setbacks, new SetbackPosWithVector(Vec3.ZERO, Vec3.ZERO));
             setbacks.executeForceResync("test");
             setbacks.executeNonSimulatingSetback();
             assertFalse(setbacks.executeViolationSetback());
@@ -153,6 +154,74 @@ class ObserveOnlyTest {
         verify(player).sendMessage(any(Component.class));
     }
 
+    @Test
+    void aNamedFormatAlertSendsItsMessageAndIsNotWithheld() throws ReflectiveOperationException {
+        when(config.getStringElse(eq("staff-suspected"), any())).thenReturn("%check_name% suspected (x%vl%)");
+        assertEquals(
+                List.of("ObserveOnlyProbe suspected (x1)"),
+                alertsFired(List.of("1:0 [alert:staff-suspected]", "1:0 kick probe")));
+        verify(player).sendMessage(any(Component.class));
+    }
+
+    @Test
+    void anUnknownFormatKeySendsAlertsFormatWithOneWarningPerGroupAndKey() throws ReflectiveOperationException {
+        List<String> commands = List.of("1:0 [alert:missing]", "1:1 [alert:missing]", "1:0 [alert:]");
+        assertEquals(List.of("alert", "alert", "alert"), alertsFired(commands));
+
+        List<String> warnings = PunishmentManager.unknownAlertFormats(config);
+        assertEquals(2, warnings.size(), warnings.toString());
+        assertTrue(warnings.get(0).contains("[observeonlyprobe]")
+                && warnings.get(0).contains("[alert:missing]"));
+        assertTrue(warnings.get(1).contains("[alert:]"));
+    }
+
+    @Test
+    void aFormatsLiteralActionTextIsKeptAsText() throws ReflectiveOperationException {
+        when(config.getStringElse(eq("staff-suspected"), any())).thenReturn("[alert] [proxy] %check_name%");
+        assertEquals(List.of("[alert] [proxy] ObserveOnlyProbe"), alertsFired(List.of("1:0 [alert:staff-suspected]")));
+    }
+
+    @Test
+    void theShippedSuspectedFormatIsKnown() {
+        assertTrue(PunishmentManager.unknownAlertFormats(punishments(List.of("1:0 [alert:alerts-format-suspected]")))
+                .isEmpty());
+    }
+
+    /** What the commands of one group holding the probe fire for its first flag while observing only. */
+    private List<String> alertsFired(List<String> commands) throws ReflectiveOperationException {
+        Check check = probe();
+        doReturn(List.of(check)).when(player).getChecks();
+        when(config.getBooleanElse("test-mode", false)).thenReturn(true);
+        when(config.getStringElse(eq("alerts-format"), anyString())).thenReturn("alert");
+        punishments(commands);
+        PunishmentManager punishments = new PunishmentManager(player);
+        punishments.reload(config);
+
+        GrimPlugin plugin = mock(GrimPlugin.class);
+        List<String> fired = new ArrayList<>();
+        CultAPI.INSTANCE
+                .getEventBus()
+                .get(CommandExecuteEvent.class)
+                .onCommandExecuteSupplier(plugin, (user, flagged, verbose, command, cancelled) -> {
+                    fired.add(command);
+                    return cancelled;
+                });
+        try (var ignored = installConfig(true)) {
+            punishments.handleViolation(check);
+            punishments.handleAlert(player, "verbose", check);
+        } finally {
+            CultAPI.INSTANCE.getEventBus().unregisterAllListeners(plugin);
+        }
+        return fired;
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private ConfigManager punishments(List<String> commands) {
+        when(config.getStringListElse(eq("Punishments"), any())).thenReturn((List)
+                List.of(new LinkedHashMap<>(Map.of("checks", List.of("observeonlyprobe"), "commands", commands))));
+        return config;
+    }
+
     /** The client confirms a server teleport (transaction 5, id 7) but reports another position past transaction 6. */
     @Test
     void anIgnoredServerTeleportLeavesNoSetback() throws ReflectiveOperationException {
@@ -164,7 +233,7 @@ class ObserveOnlyTest {
                 assertFalse(teleport.resent(), "mounted=" + mounted);
                 assertEquals(
                         new Vec3(0.5, 64, 0.5),
-                        teleport.setbacks().lastKnownGoodPosition.getPos(),
+                        teleport.setbacks().safePosition().getPos(),
                         "mounted=" + mounted);
             }
             try (var ignored = installConfig(false)) {
@@ -179,13 +248,13 @@ class ObserveOnlyTest {
     void aSetbackPendingWhenObserveOnlyStartsIsReleased() throws ReflectiveOperationException {
         try (var ignored = installConfig(false)) {
             SetbackTeleportUtil setbacks = ignoreServerTeleport(false).setbacks();
-            setbacks.blockOffsets = true;
+            SetbackFixtures.setBlockOffsets(setbacks, true);
             assertTrue(setbacks.isPendingSetback());
 
-            setbacks.observeOnlyStarted();
+            setbacks.policy().observeOnlyStarted();
 
             assertFalse(setbacks.isPendingSetback());
-            assertFalse(setbacks.blockOffsets);
+            assertFalse(setbacks.isBlockingOffsets());
         }
     }
 
@@ -395,11 +464,11 @@ class ObserveOnlyTest {
         when(player.checkManager.getListener(BadPacketsN.class)).thenReturn(mock(BadPacketsN.class));
         SetbackTeleportUtil setbacks = new SetbackTeleportUtil(player);
         when(player.getSetbackTeleportUtil()).thenReturn(setbacks);
-        setbacks.lastKnownGoodPosition = new SetbackPosWithVector(Vec3.ZERO, Vec3.ZERO, 0);
-        setbacks.hasFullyLoaded = true;
-        setbacks.addSentTeleport(new Vec3(10.5, 64, 10.5), 5, new RelativeFlag(0), true, 7);
+        SetbackFixtures.seedSafePosition(setbacks, new SetbackPosWithVector(Vec3.ZERO, Vec3.ZERO));
+        SetbackFixtures.setLoaded(setbacks, true);
+        setbacks.javaTeleports().addSentTeleport(new Vec3(10.5, 64, 10.5), 5, new RelativeFlag(0), true, 7);
         received.set(6);
-        setbacks.checkTeleportQueue(0.5, 64, 0.5);
+        setbacks.javaTeleports().checkTeleportQueue(0.5, 64, 0.5);
         channel.runPendingTasks();
         return new IgnoredTeleport(setbacks, !channel.outboundMessages().isEmpty());
     }

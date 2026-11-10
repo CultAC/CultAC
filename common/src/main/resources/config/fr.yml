@@ -14,6 +14,9 @@ alerts:
         send: false
         # Les alertes reçues des autres serveurs doivent-elles être annoncées sur ce serveur ?
         receive: false
+    # Portée des alertes du staff qui n'en a pas choisi avec /cult alerts scope : server ou global.
+    # global ne s'applique que si les alertes réseau sont actives ; sinon server est utilisé.
+    default-scope: server
 
 verbose:
     print-to-console: false
@@ -146,7 +149,7 @@ Knockback:
 
 Explosion:
     threshold: 0.001
-    setbackvl: 3
+    setbackvl: 0
 
 TimerA:
     setbackvl: 10
@@ -275,16 +278,22 @@ cloud:
   # when the intake service asks, so the cloud portal lists them in this server's organization while it has team
   # sync on. Off by default; CULTAC_CLOUD_TEAM_SYNC (true/1/yes, false/0/no) wins when set.
   team-sync: false
-  # Panel bans: staff ban a player from the cloud panel, and one server that has the command for it runs it as
-  # console, in observe-only mode too. Placeholders: %player% %uuid% %reason% %cheat% %cheat_id% %duration%
-  # (30m, 12h, 7d; empty when permanent) %seconds% %staff% %ban_id% %link% %staff_uuid% (the banning staff
-  # member's Minecraft UUID when the panel knows it) %evidence% (a link to the evidence the ban rests on, such as a
-  # replay); both are empty when unknown.
-  # %reason% and %staff% are free text: put %reason% last, after %duration%, so it is never read as a duration.
+  # Panel bans: staff ban a player from the cloud panel, and the one server that claims the ban runs it once, as
+  # console, in observe-only mode too. Placeholders: %player% %uuid% %reason% %reason_label% (the reason as staff
+  # saw it) %cheat% %cheat_id% %duration% (30m, 12h, 7d; for a permanent ban the value your ban policy sends for
+  # Permanent, empty by default) %seconds% %silent% (the silent flag, such as -s, when staff ticked Silent) %staff%
+  # %ban_id% %link% %staff_uuid% (the banning staff member's Minecraft UUID when the panel knows it) %evidence% (a
+  # link to the evidence the ban rests on, such as a replay); both are empty when unknown.
+  # A word whose placeholder is empty is left out, so --sender=%staff_uuid% disappears rather than leaving --sender=.
+  # %reason%, %reason_label% and %staff% may hold spaces, so they are only safe last: put %reason% at the end.
+  # On a Paper server, use the ban plugin's namespaced command, such as litebans:ban, so a server without the plugin
+  # never runs minecraft:ban. Examples for common ban plugins: docs/cloud-upload.md in CultAC's source.
   staff-ban:
-    # Runs when staff ban a player from the cloud panel. Empty: this server never runs panel bans.
+    # Runs every panel ban when it holds %duration% ("ban %silent% %uuid% %duration% %reason%" for LiteBans), else
+    # permanent bans and bans whose length your server decides. Empty: temp-command runs those it can.
     command: ""
-    # For timed bans. Empty: this server never runs timed panel bans.
+    # Optional: runs timed bans in place of command, such as "tempban %silent% %player% %duration% %reason%". Empty:
+    # command runs timed bans when it holds %duration% or %seconds%, else this server never takes them.
     temp-command: ""
 
 # Permet aux commandes du staff, à l'autocomplétion et aux alertes de fonctionner sur tous vos proxys et serveurs.
@@ -335,4 +344,4 @@ update:
   webhook: ""
 
 config-flavor: V2
-config-version: 17
+config-version: 18

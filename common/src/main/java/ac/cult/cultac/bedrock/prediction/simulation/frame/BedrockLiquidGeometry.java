@@ -56,29 +56,6 @@ public final class BedrockLiquidGeometry {
         return false;
     }
 
-    public static boolean intersectsLiquidSurface(
-            BlockCollisionWorld blockWorld, WorldCollisionBox actorBox, BedrockLiquidKind liquidKind) {
-        if (blockWorld.isEmpty()) {
-            return false;
-        }
-        for (PlacedBlockCollision block : liquidBlocks(blockWorld, liquidKind)) {
-            BlockPosition position = block.position();
-            if (position.x() + 1.0D <= actorBox.minX()
-                    || position.x() >= actorBox.maxX()
-                    || position.z() + 1.0D <= actorBox.minZ()
-                    || position.z() >= actorBox.maxZ()) {
-                continue;
-            }
-            OptionalDouble surfaceY = liquidSurfaceY(block);
-            if (surfaceY.isPresent()
-                    && block.position().y() < actorBox.maxY()
-                    && actorBox.minY() < surfaceY.getAsDouble()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     public static boolean liquidPointInBlock(
             BlockCollisionWorld blockWorld, double x, double y, double z, BedrockLiquidKind liquidKind) {
         BlockPosition position = blockPosition(x, y, z);

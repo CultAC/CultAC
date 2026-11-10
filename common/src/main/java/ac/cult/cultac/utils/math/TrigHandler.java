@@ -7,7 +7,7 @@ public class TrigHandler {
     CultPlayer player;
 
     @Getter
-    private boolean isVanillaMath = true;
+    private volatile boolean isVanillaMath = true;
 
     @Getter
     private boolean preferredVanillaMath = true;

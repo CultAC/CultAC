@@ -199,7 +199,7 @@ public final class ClientBlockActions {
 
     /** This connection's simulator for its current received registry, tag and feature generation. */
     public static ClientComponentRegistries.SimulationActions binding(CultPlayer player) {
-        if (player.registryState == null) player.registryState = new ClientComponentRegistries();
+        player.registryState();
         var source =
                 player.user.getCultConnection().dispatcher().runtime().data().version();
         var client = player.isBedrockMovement()

@@ -85,8 +85,7 @@ class EntityInterpolationAllocationTest {
             double clientTickEnd = totals[2] / (double) MEASURED;
 
             String report = String.format(
-                    "%s: sweep=%.1f B, entityPass=%.1f B, clientTickEnd=%.1f B",
-                    client, sweep, pass, clientTickEnd);
+                    "%s: sweep=%.1f B, entityPass=%.1f B, clientTickEnd=%.1f B", client, sweep, pass, clientTickEnd);
             System.out.println("INTERP-ALLOC " + report);
             if (System.getProperty("interp.alloc.report") != null) return;
 
@@ -120,7 +119,7 @@ class EntityInterpolationAllocationTest {
                         0.0F,
                         player);
             } else {
-                entity.onBundledPositionSyncTransaction(base.x + d, base.y, base.z + d, yaw, 0.0F, player);
+                entity.onBundleTransaction(false, true, base.x + d, base.y, base.z + d, yaw, 0.0F, player);
             }
             long before = bean.getThreadAllocatedBytes(thread);
             entities.updatePassengerPositions();

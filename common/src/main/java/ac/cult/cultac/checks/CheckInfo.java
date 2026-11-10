@@ -1,20 +1,31 @@
 package ac.cult.cultac.checks;
 
+import lombok.Getter;
+import lombok.Setter;
+import lombok.experimental.Accessors;
+
 /**
  * Immutable runtime identity and config defaults for a check, passed to the check's
  * constructor instead of being declared on an annotation. Instances are created through
  * {@link #builder()}; every attribute except {@code name} has a fallback.
  */
+@Getter
 public final class CheckInfo {
     private static final String FALLBACK_DESCRIPTION = "No description provided";
 
     private final String name;
+    /** Display alias, or {@code null} when the check has no alternate name. */
     private final String altName;
+    /** Config section key; {@code null} means "derive it from {@link #getName()}". */
     private final String configName;
+
     private final String stableKey;
     private final String description;
     private final double decay;
+    /** Violation level above which the check may set the player back. */
     private final double setback;
+    /** Whether the check is still experimental. */
+    private final boolean experimental;
 
     private CheckInfo(Builder builder) {
         if (builder.name == null || builder.name.isEmpty()) {
@@ -27,43 +38,15 @@ public final class CheckInfo {
         this.description = builder.description != null ? builder.description : FALLBACK_DESCRIPTION;
         this.decay = builder.decay;
         this.setback = builder.setback;
+        this.experimental = builder.experimental;
     }
 
     public static Builder builder() {
         return new Builder();
     }
 
-    public String getName() {
-        return name;
-    }
-
-    /** Display alias, or {@code null} when the check has no alternate name. */
-    public String getAltName() {
-        return altName;
-    }
-
-    /** Config section key; {@code null} means "derive it from {@link #getName()}". */
-    public String getConfigName() {
-        return configName;
-    }
-
-    public String getStableKey() {
-        return stableKey;
-    }
-
-    public String getDescription() {
-        return description;
-    }
-
-    public double getDecay() {
-        return decay;
-    }
-
-    /** Violation level above which the check may set the player back. */
-    public double getSetback() {
-        return setback;
-    }
-
+    @Setter
+    @Accessors(fluent = true)
     public static final class Builder {
         private String name;
         private String altName;
@@ -72,43 +55,9 @@ public final class CheckInfo {
         private String description;
         private double decay = 0.05;
         private double setback = 25;
+        private boolean experimental;
 
         private Builder() {}
-
-        public Builder name(String name) {
-            this.name = name;
-            return this;
-        }
-
-        public Builder altName(String altName) {
-            this.altName = altName;
-            return this;
-        }
-
-        public Builder configName(String configName) {
-            this.configName = configName;
-            return this;
-        }
-
-        public Builder stableKey(String stableKey) {
-            this.stableKey = stableKey;
-            return this;
-        }
-
-        public Builder description(String description) {
-            this.description = description;
-            return this;
-        }
-
-        public Builder decay(double decay) {
-            this.decay = decay;
-            return this;
-        }
-
-        public Builder setback(double setback) {
-            this.setback = setback;
-            return this;
-        }
 
         public CheckInfo build() {
             return new CheckInfo(this);

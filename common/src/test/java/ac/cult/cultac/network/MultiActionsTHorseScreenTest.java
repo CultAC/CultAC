@@ -3,6 +3,7 @@ package ac.cult.cultac.network;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import ac.cult.cultac.checks.impl.multiactions.MultiActionsT;
+import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.protocol.ConnectionPhase;
@@ -304,6 +305,6 @@ class MultiActionsTHorseScreenTest {
         var packet = new ServerboundSetCarriedItem(slot);
         var event = f.event(ServerboundPackets.SET_CARRIED_ITEM, packet);
         f.player.checkManager.dispatchEarlyReceive(event);
-        f.listener.onSetCarriedItem(event, f.player, packet);
+        CheckManagerListener.receiveGeneric(event, f.player);
     }
 }

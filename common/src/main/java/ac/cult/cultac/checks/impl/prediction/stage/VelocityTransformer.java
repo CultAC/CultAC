@@ -38,6 +38,9 @@ public class VelocityTransformer {
     // The lineage step of the ridden input that the travel's LivingEntity#moveRelative adds.
     public static final String RIDDEN_INPUT = "rideable input";
 
+    /** The reason of the step that adds LivingEntity#jumpFromGround's sprint boost to the jump before it. */
+    public static final String SPRINT_JUMP_REASON = "Jumping sprinting";
+
     public List<PredVector> generateMovementVectors(CultPlayer player, List<PredVector> input) {
         if (ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiddenTravel.clearsWithoutTravel(
                 simulationContext)) {
@@ -861,7 +864,7 @@ public class VelocityTransformer {
                                 ? new Vec3(-sin * 0.2D, 0.0, cos * 0.2D)
                                 : new Vec3(-sin * 0.2F, 0.0, cos * 0.2F);
                         // ensure to not change the original vector
-                        outputs.add(modified.add(jumpBonus, "Jumping sprinting"));
+                        outputs.add(modified.add(jumpBonus, SPRINT_JUMP_REASON));
                         // Java's whole candidate already selected one table before jumpFromGround and moveRelative.
                         if (player.isBedrockMovement())
                             simulationContext.getTrig().toggleShitMath();

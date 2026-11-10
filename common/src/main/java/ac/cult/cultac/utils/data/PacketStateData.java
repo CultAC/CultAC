@@ -10,10 +10,8 @@ public class PacketStateData {
     // A completed server configuration installs a new Java PLAY listener/player.
     public boolean javaLocalPlayerPresent;
     public boolean packetPlayerOnGround = false;
-    public boolean lastPacketWasTeleport = false;
-    // lastPacketWasTeleport lasts one packet; this keeps whether any packet of the client tick accepted a teleport.
+    // A packet of this client tick answered a teleport.
     public boolean teleportedThisClientTick = false;
-    public boolean lastPacketMatchedTeleportPosition = false;
     // Minecraft#tick sends ServerboundClientTickEndPacket after LocalPlayer#tick, proving whether movement happened.
     public boolean receivedMovementThisClientTick = false;
     // This client tick's LocalPlayer#tick start has been applied, and whether LocalPlayer#tick ran in it.
@@ -75,7 +73,6 @@ public class PacketStateData {
     public int serverFrozenTickStepsRemaining = 0;
     // LocalPlayer#tick sends changed raw input before the mounted Rot/MoveVehicle pair.
     public boolean clientMovementInputKnown = false;
-    public boolean clientMovementInputUpdatedThisClientTick = false;
     public Vec3 clientMovementInput = new Vec3(0, 0, 0);
     public Vec3 clientSidePosition = new Vec3(0, 0, 0);
     // LocalPlayer#xLast: the position of the client's last tick movement packet, unknown until one arrives.
@@ -93,13 +90,13 @@ public class PacketStateData {
     private boolean awaitingVehicleMoveAfterPassengerRotation = false;
     private boolean mountedPassengerRotationSeenThisClientTick = false;
     private boolean vehicleMovementFromClientTick = false;
-    public int vehicleMovePacketsThisClientTick = 0;
-    public int clientTickVehicleMovePacketsThisClientTick = 0;
-    public int localAuthoritativeVehicleMovePacketsThisClientTick = 0;
+    public boolean vehicleMovedThisClientTick = false;
+    // A MoveVehicle this client tick came from LocalPlayer#tick, checked or not.
+    public boolean clientTickVehicleMoveThisClientTick = false;
     public boolean carriedItemChangedThisClientTick = false;
     public boolean carriedItemClaimedThisClientTick = false;
-    // A player_command or player_abilities LocalPlayer#tick sent this client tick.
-    public boolean localPlayerTickCommandThisClientTick = false;
+    // A player_input, player_command or player_abilities LocalPlayer#tick sent this client tick.
+    public boolean localPlayerTickInputOrCommandThisClientTick = false;
     // ClientPacketListener#handleSetHeldSlot leaves MultiPlayerGameMode#carriedIndex, so the next tick sends this
     // slot back; -1 when no echo is due.
     public int heldSlotEcho = -1;
@@ -112,12 +109,12 @@ public class PacketStateData {
     public boolean vehicleMovementReportedOnGround = false;
     // Transaction observed at the last tick-end packet; used to prove tick-boundary state ordering.
     public int lastClientTickEndTransaction = Integer.MIN_VALUE;
+    // Transaction observed at the last tick-end of a Java client tick whose LocalPlayer#tick or Entity#rideTick ran.
+    public int lastDeltaConsumedTickEndTransaction = Integer.MIN_VALUE;
 
     /** LocalPlayer#tick sent its player_input, a player_command, player_abilities or its movement this client tick. */
     public boolean localPlayerTickSentThisClientTick() {
-        return receivedMovementThisClientTick
-                || clientMovementInputUpdatedThisClientTick
-                || localPlayerTickCommandThisClientTick;
+        return receivedMovementThisClientTick || localPlayerTickInputOrCommandThisClientTick;
     }
 
     public boolean isVehicleMovementFromClientTick() {
@@ -156,13 +153,19 @@ public class PacketStateData {
         awaitingVehicleMoveAfterPassengerRotation = true;
     }
 
-    public void markVehicleMove(boolean fromClientTick, boolean localAuthoritative) {
-        vehicleMovePacketsThisClientTick++;
-        if (localAuthoritative) {
-            localAuthoritativeVehicleMovePacketsThisClientTick++;
-        }
-        vehicleMovementFromClientTick = fromClientTick && localAuthoritative;
+    /** {@code checkedClientTick}: LocalPlayer#tick moved a root this client controls, and prediction checks it. */
+    public void markVehicleMove(boolean checkedClientTick) {
+        vehicleMovedThisClientTick = true;
+        vehicleMovementFromClientTick = checkedClientTick;
         awaitingVehicleMoveAfterPassengerRotation = false;
+    }
+
+    /**
+     * A packet the client's main thread sent between a mounted Rot and the next MoveVehicle shows LocalPlayer#sendChanges
+     * did not send them together.
+     */
+    public void breakPassengerRotationPair() {
+        if (awaitingVehicleMoveAfterPassengerRotation) clearPendingVehicleMoveAfterPassengerRotation();
     }
 
     public void clearPendingVehicleMoveAfterPassengerRotation() {

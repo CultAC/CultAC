@@ -196,6 +196,7 @@ public class PacketPlayerRespawn {
                     player.boatData.clearInput();
                     player.onGround = player.lastOnGround = false;
                     player.isSneaking = false;
+                    player.pose = Pose.STANDING;
                     player.packetStateData.respawnShiftPending = false;
                     player.isGliding = false;
                     player.isInBed = false;
@@ -306,7 +307,7 @@ public class PacketPlayerRespawn {
         int level = player.compensatedWorld.level();
         final int vehicleSends = player.compensatedEntities.vehicles.serverVehicleSends();
         final Runnable applyRespawnState = () -> {
-            setbacks.respawnUnread = false;
+            setbacks.respawnRead();
             if (level != player.compensatedWorld.level()) return;
             // KEEP_ENTITY_DATA preserves lastSentInput from 1.21.6, but every new KeyboardInput starts empty.
             if (!keepEntityData || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_6)) {
@@ -349,6 +350,7 @@ public class PacketPlayerRespawn {
                     false; // If somewhere else pulls last ground to fix other issues
             player.packetStateData.clientSidePosition = Vec3.ZERO;
             player.packetStateData.lastClientTickEndTransaction = Integer.MIN_VALUE;
+            player.packetStateData.lastDeltaConsumedTickEndTransaction = Integer.MIN_VALUE;
             player.packetStateData.clearPendingVehicleMoveAfterPassengerRotation();
             final ac.cult.cultac.manager.player.ActionManager actions = player.actionManager;
             actions.onRespawn();

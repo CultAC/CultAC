@@ -77,14 +77,6 @@ jobs:
               with:
                   cache-read-only: ${{ github.ref_name != github.event.repository.default_branch && github.ref_name != 'dev' }}
 
-            - name: Cache Gradle Loom Cache
-              uses: actions/cache@v4
-              with:
-                  path: .gradle/loom-cache
-                  key: loom-cache-${{ runner.os }}-${{ hashFiles('**/libs.versions.toml', 'fabric/**/build.gradle.kts') }}
-                  restore-keys: |
-                      loom-cache-${{ runner.os }}
-
             - name: Set Git Environment Variables
               run: |
                   echo "CULT_GIT_REPO=${{ github.event.repository.name }}" >> $GITHUB_ENV
@@ -114,6 +106,17 @@ jobs:
                   echo "BUILD_VERSION=$VERSION" >> $GITHUB_ENV
                   echo "Build version: $VERSION"
 
+            - name: Upload test reports
+              if: failure()
+              uses: actions/upload-artifact@v6
+              with:
+                  name: test-reports
+                  path: |
+                      */build/reports/tests/test/
+                      */build/test-results/test/*.xml
+                  if-no-files-found: ignore
+                  retention-days: 7
+
             - name: Publish Build Scan URL
               # Only run this step if a scan was requested
               if: ${{ inputs.run-build-scan == true }}
@@ -132,18 +135,17 @@ jobs:
                     echo "Could not find build scan URL in build-output.log" >> $GITHUB_STEP_SUMMARY
                   fi
 
+            # The Bukkit shadow jar has a fixed name; publish it under the build's version.
+            - name: Stage Bukkit Artifact
+              run: |
+                  mkdir -p dist
+                  cp bukkit/build/libs/CultAC-paper.jar "dist/cultac-bukkit-$BUILD_VERSION.jar"
+
             - name: Upload Bukkit Artifact
               uses: actions/upload-artifact@v6
               with:
                   name: cultac-bukkit
-                  path: ${{ github.workspace }}/bukkit/build/libs/cultac-bukkit-${{ env.BUILD_VERSION }}.jar
-                  if-no-files-found: error
-
-            - name: Upload Fabric Artifact
-              uses: actions/upload-artifact@v6
-              with:
-                  name: cultac-fabric
-                  path: ${{ github.workspace }}/fabric/build/libs/cultac-fabric-${{ env.BUILD_VERSION }}.jar
+                  path: ${{ github.workspace }}/dist/cultac-bukkit-${{ env.BUILD_VERSION }}.jar
                   if-no-files-found: error
 
             #------------------------------------------------------------------
@@ -251,27 +253,6 @@ jobs:
                     echo "EOF"
                   } >> "$GITHUB_OUTPUT"
 
-            - name: Publish Fabric to Modrinth
-              if: ${{ inputs.publish-artifacts == true && env.MODRINTH_ID != '' && env.MODRINTH_TOKEN != '' }}
-              uses: Kir-Antipov/mc-publish@v3.3
-              with:
-                  modrinth-id: ${{ secrets.MODRINTH_ID }}
-                  modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
-                  modrinth-featured: ${{ inputs.is-release-build }} # Only feature release builds
-
-                  files: fabric/build/libs/cultac-fabric-${{ env.BUILD_VERSION }}.jar
-                  name: Cult Anticheat (Fabric) ${{ env.BUILD_VERSION }}
-                  version: ${{ env.BUILD_VERSION }}
-                  version-type: ${{ inputs.release-version-type }}
-                  changelog: ${{ steps.changelog.outputs.notes }}
-                  loaders: |
-                      fabric
-                  # Union of both shipped variants (mc-publish reads the multi-line
-                  # scalar as OR). Keep in sync with fabric.mod.json depends.minecraft.
-                  game-versions: |
-                      >=1.16.1 <=26.2
-                  dependencies: 'fabric-api'
-
             #------------------------------------------------------------------
             #  Publish to Modrinth & API
             #------------------------------------------------------------------
@@ -283,7 +264,7 @@ jobs:
                   modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
                   modrinth-featured: ${{ inputs.is-release-build }} # Only feature release builds
 
-                  files: bukkit/build/libs/cultac-bukkit-${{ env.BUILD_VERSION }}.jar
+                  files: dist/cultac-bukkit-${{ env.BUILD_VERSION }}.jar
                   name: Cult Anticheat (Bukkit) ${{ env.BUILD_VERSION }}
                   version: ${{ env.BUILD_VERSION }}
                   version-type: ${{ inputs.release-version-type }}

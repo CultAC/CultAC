@@ -23,6 +23,11 @@ public final class EntityReach extends ReachCheck {
     }
 
     @Override
+    protected boolean judgesBedrock() {
+        return false;
+    }
+
+    @Override
     protected Class<? extends Check> hitboxes() {
         return EntityHitboxes.class;
     }

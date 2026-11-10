@@ -4,10 +4,13 @@ import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundAnimate;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundSwingAnimation;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.data.SprintingState;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityUtil;
@@ -32,6 +35,18 @@ public class PacketSelfMetadataListener {
     @CultPacketHandler
     public void onAnimate(PacketSendEvent<ClientboundAnimate> event, CultPlayer player, ClientboundAnimate packet) {
         handleAnimate(event, player, packet);
+    }
+
+    // ViaBackwards' 26.3-to-26.2 rewriter animates a non-NONE swing and cancels an off-hand ServerboundSwingPacket.
+    @CultPacketHandler
+    public void onSwingAnimation(
+            PacketSendEvent<ClientboundSwingAnimation> event, CultPlayer player, ClientboundSwingAnimation packet) {
+        if (player.entityID == packet.entityId()
+                && packet.animationType() != 0
+                && packet.hand() == 0
+                && !event.isCancelled()) {
+            expectSwingEcho(event, player, Hand.MAIN_HAND);
+        }
     }
 
     private void handleSetEntityData(
@@ -239,7 +254,14 @@ public class PacketSelfMetadataListener {
         int action = animation.action();
         // ClientboundAnimatePacket moved WAKE_UP from 2 to 0 in 26.3 when
         // swings became a separate packet. Use the format decoded at this hook.
-        int wakeUp = event.getDecodedProtocol().atLeast(ProtocolVersion.V26_3) ? 0 : 2;
+        boolean swingsInAnimate = !event.getDecodedProtocol().atLeast(ProtocolVersion.V26_3);
+        int wakeUp = swingsInAnimate ? 2 : 0;
+        if (player.entityID == animation.entityId()
+                && swingsInAnimate
+                && (action == 0 || action == 3)
+                && !event.isCancelled()) {
+            expectSwingEcho(event, player, action == 0 ? Hand.MAIN_HAND : Hand.OFF_HAND);
+        }
         if (player.entityID == animation.entityId() && action == wakeUp) {
             // Geyser's LEAVE_BED animation changes only the upstream pose. Its
             // movement translator continues dropping auth movement while the
@@ -263,6 +285,23 @@ public class PacketSelfMetadataListener {
                 player.refreshPlayerPose(Pose.STANDING);
             });
         }
+    }
+
+    // Before 26.3, LocalPlayer#swing sends ServerboundSwingPacket from ClientPacketListener#handleAnimate.
+    private static void expectSwingEcho(PacketSendEvent<?> event, CultPlayer player, Hand hand) {
+        ClientVersion client = player.getClientVersion();
+        // Proof needs the client to handle the pings and the animate as one bundle, which starts at 1.19.4.
+        if (player.isBedrockMovement()
+                || !client.isOlderThan(ClientVersion.V_26_3)
+                || client.isOlderThan(ClientVersion.V_1_19_4)) return;
+        int lead = player.appendLeadingFlushProofTransaction(event);
+        if (lead <= 0) return;
+        CultPlayer.TrackedTransaction response = player.appendResponseProofTransaction(event);
+        if (response == null) return;
+        int responseTransaction = response.transaction();
+        player.serverSwingEcho.expect(hand, lead, responseTransaction);
+        player.latencyUtils.addRealTimeTask(
+                responseTransaction, () -> player.serverSwingEcho.expire(hand, responseTransaction));
     }
 
     private static void bundleSharedFlagsWithProof(PacketSendEvent<?> event, CultPlayer player, Runnable task) {

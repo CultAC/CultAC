@@ -18,9 +18,14 @@ import java.util.List;
  */
 record AttackReach(double entityRange, double itemMin, double itemLimit, List<ClientVisibility.ItemPick> picks) {
     private static final double SQRT_3 = Math.sqrt(3);
+    // InputMode ordinals in PlayerAuthInputPacket.
+    private static final int BEDROCK_MOUSE = 1;
+    private static final int BEDROCK_GAMEPAD = 3;
 
     // MultiPlayerGameMode#attack sends the carried item before the attack, so the claimed slot is exact.
     static AttackReach capture(CultPlayer player, ClientVisibilityProcessor visibility) {
+        if (player.isBedrockMovement())
+            return new AttackReach(bedrockEntityRange(player), Double.NaN, Double.NaN, List.of());
         double entityRange = player.compensatedEntities.getSelf().getEntityInteractionRange();
         List<ClientVisibility.ItemPick> picks = visibility.attackItemPicks();
         if (player.getClientVersion().isOlderThan(ClientVersion.V_1_21_11))
@@ -36,6 +41,21 @@ record AttackReach(double entityRange, double itemMin, double itemLimit, List<Cl
         float min = creative ? range.minCreativeReach() : range.minReach();
         float max = creative ? range.maxCreativeReach() : range.maxReach();
         return new AttackReach(entityRange, min - range.hitboxMargin(), max + range.hitboxMargin(), picks);
+    }
+
+    /**
+     * The farthest eye-to-hit distance of a Bedrock attack, on the target's box grown by the pick margin: 0.1 short of
+     * 3 outside creative and, in creative, of the pick ray's length capped at 7 (5.7 with a mouse, 5.6 with a gamepad,
+     * 12 otherwise). Neither attributes nor held items change it.
+     */
+    private static double bedrockEntityRange(CultPlayer player) {
+        double limit = 3.0D;
+        if (player.gamemode == GameMode.CREATIVE) {
+            var frame = player.bedrockState == null ? null : player.bedrockState.getLastOfferedFrame();
+            int inputMode = frame == null ? -1 : frame.getInputMode();
+            limit = inputMode == BEDROCK_MOUSE ? 5.7D : inputMode == BEDROCK_GAMEPAD ? 5.6D : 7.0D;
+        }
+        return limit - 0.1D;
     }
 
     boolean hasItemLimit() {

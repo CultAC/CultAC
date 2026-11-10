@@ -80,7 +80,7 @@ class JavaVehicleLoadingSwitchTest {
             var strider = f.player.compensatedEntities.getEntity(STRIDER);
             assertFalse(vehicles.canClientAuthoritativelyMoveVisibleRoot(strider));
             assertFalse(vehicles.isVehicleSwitchBufferActiveFor(strider));
-            assertEquals(0, f.player.getSetbackTeleportUtil().queuedVehicleTeleportCount());
+            assertEquals(0, f.player.getSetbackTeleportUtil().vehicleTeleports().queuedVehicleTeleportCount());
         }
     }
 

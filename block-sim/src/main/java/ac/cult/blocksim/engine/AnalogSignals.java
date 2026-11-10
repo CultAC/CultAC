@@ -2,6 +2,7 @@ package ac.cult.blocksim.engine;
 
 import ac.cult.blocksim.data.*;
 import com.google.gson.JsonElement;
+import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Map;
 
@@ -11,13 +12,23 @@ public final class AnalogSignals {
         CONTAINER, CHEST, CAKE, CANDLE_CAKE, LEVEL, HONEY, EYE, BULB, STATUE, ANCHOR,
         COMMAND, CRAFTER, JUKEBOX, LECTERN, SENSOR, DETECTOR_RAIL, CLIENT_ZERO, LAVA_CAULDRON
     }
-    private final Map<BlockDefinition, Kind> kinds = new IdentityHashMap<>();
+    private record Classification(BlockRegistry registry, Map<BlockDefinition, Kind> kinds) {}
+    private static volatile Classification classification;
+    private final Map<BlockDefinition, Kind> kinds;
     private final ItemTemplates templates;
     private final InteractionRegistries registries;
 
     public AnalogSignals(DataTables data, ItemRegistry items, InteractionRegistries registries) {
         templates = new ItemTemplates(items); this.registries = registries;
-        var families = new java.util.HashMap<String, Kind>();
+        kinds = classify(data.registry());
+    }
+
+    /** Published maps are complete and never mutated; only the exact registry instance reuses one. */
+    private static Map<BlockDefinition, Kind> classify(BlockRegistry registry) {
+        var cached = classification;
+        if (cached != null && cached.registry() == registry) return cached.kinds();
+        var kinds = new IdentityHashMap<BlockDefinition, Kind>();
+        var families = new HashMap<String, Kind>();
         for (String name : new String[]{"AbstractFurnaceBlock", "BarrelBlock", "BrewingStandBlock", "DecoratedPotBlock", "DispenserBlock", "HopperBlock", "ShulkerBoxBlock"})
             families.put(name, Kind.CONTAINER);
         families.put("ChestBlock", Kind.CHEST); families.put("CakeBlock", Kind.CAKE);
@@ -31,10 +42,12 @@ public final class AnalogSignals {
         families.put("ChiseledBookShelfBlock", Kind.CLIENT_ZERO); families.put("ShelfBlock", Kind.CLIENT_ZERO);
         families.put("AbstractCauldronBlock", Kind.CLIENT_ZERO);
         families.put("CreakingHeartBlock", Kind.CLIENT_ZERO); families.put("LavaCauldronBlock", Kind.LAVA_CAULDRON);
-        for (var block : data.registry().blocks()) for (String family : block.bindings().get("classHierarchy").split(",")) {
+        for (var block : registry.blocks()) for (String family : block.bindings().get("classHierarchy").split(",")) {
             Kind kind = families.get(family.substring(family.lastIndexOf('.') + 1));
             if (kind != null) { kinds.put(block, kind); break; }
         }
+        classification = new Classification(registry, kinds);
+        return kinds;
     }
 
     public boolean hasOutput(SimLevel level, int state) { return kinds.containsKey(level.registry().block(state)); }

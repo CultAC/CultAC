@@ -345,23 +345,6 @@ public class PacketEntitySelf extends PacketEntity {
     }
 
     @Override
-    public void onBundledPositionSyncTransaction(double x, double y, double z, CultPlayer player) {
-        // Player ignores this
-    }
-
-    @Override
-    public void onBundledPositionSyncTransaction(
-            double x, double y, double z, @Nullable Float yaw, @Nullable Float pitch, CultPlayer player) {
-        // Player ignores this
-    }
-
-    @Override
-    public void onBundledPositionSyncTransaction(
-            double x, double y, double z, boolean hasRotation, float yaw, float pitch, CultPlayer player) {
-        // Player ignores this
-    }
-
-    @Override
     public void onSecondTransaction() {
         // Player ignores this
     }

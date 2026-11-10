@@ -17,17 +17,15 @@ import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.utils.anticheat.NettyScheduler.PlayerTask;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
-import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
 import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 import io.netty.util.concurrent.ScheduledFuture;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
-import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import lombok.AllArgsConstructor;
 
 // We will verify the player's reach against what a lower ping/more stable player would see
@@ -39,7 +37,9 @@ import lombok.AllArgsConstructor;
 //
 public class FairReach extends Check implements CheckListener {
 
-    Map<Integer, FairReachEntity> targetPlayers = new Int2ObjectOpenHashMap<>();
+    private static final Object MOVE_APPLIED = new Object();
+
+    final Int2ObjectOpenHashMap<FairReachEntity> targetPlayers = new Int2ObjectOpenHashMap<>();
 
     TickingStatus playerTickingStatus = TickingStatus.ALLOWED_TO_TICK;
 
@@ -71,10 +71,9 @@ public class FairReach extends Check implements CheckListener {
         if (packet.entityType().equals("minecraft:player")) {
             addEntity(
                     packet.entityId(),
-                    new Vec3(
-                            packet.position().x(),
-                            packet.position().y(),
-                            packet.position().z()));
+                    packet.position().x(),
+                    packet.position().y(),
+                    packet.position().z());
         }
     }
 
@@ -115,14 +114,21 @@ public class FairReach extends Check implements CheckListener {
     private void schedule(PendingMove move) {
         // Ensure the client has received this before MAX_PING_TIME, or apply them sooner if client responds in time
         player.latencyUtils.addRealTimeTaskNext(move);
-        player.user.getPacketExecutor().schedule((Callable<Void>) move, max_ping_compensation, TimeUnit.MILLISECONDS);
+        if (move.get() == MOVE_APPLIED) return;
+        ScheduledFuture<?> deadline = player.user
+                .getPacketExecutor()
+                .schedule((Callable<Void>) move, max_ping_compensation, TimeUnit.MILLISECONDS);
+        // A receipt, or an immediate deadline, can win before schedule returns its future.
+        if (!move.compareAndSet(null, deadline)) deadline.cancel(false);
     }
 
     /**
      * One entity move, applied by whichever of its transaction or its deadline comes first. The deadline runs it as a
-     * {@link Callable} through {@link CultPlayer#runSafely}.
+     * {@link Callable} through {@link CultPlayer#runSafely}. The atomic state is null until its deadline is
+     * installed, that future while pending, or MOVE_APPLIED. A receipt cancels the deadline without leaving a
+     * no-op model task behind; a deadline already dequeued still observes the same exact-once guard.
      */
-    private final class PendingMove extends AtomicBoolean implements Runnable, Callable<Void> {
+    private final class PendingMove extends AtomicReference<Object> implements Runnable, Callable<Void> {
         private final int entityId;
         private final double x;
         private final double y;
@@ -142,18 +148,21 @@ public class FairReach extends Check implements CheckListener {
 
         @Override
         public void run() {
-            applyChanges(entityId, x, y, z, update, holdsShownPosition, this);
+            Object previous = getAndSet(MOVE_APPLIED);
+            if (previous == MOVE_APPLIED) return;
+            if (previous instanceof ScheduledFuture<?> deadline) deadline.cancel(false);
+            applyChanges(entityId, x, y, z, update, holdsShownPosition);
         }
 
         @Override
         public Void call() {
-            player.runSafely(this);
+            if (get() != MOVE_APPLIED) player.runSafely(this);
             return null;
         }
     }
 
-    private void addEntity(int entityId, Vec3 spawnPosition) {
-        targetPlayers.put(entityId, new FairReachEntity(entityId, spawnPosition));
+    private void addEntity(int entityId, double x, double y, double z) {
+        targetPlayers.put(entityId, new FairReachEntity(entityId, x, y, z));
     }
 
     private void handleInteract(final PacketReceiveEvent event, ServerboundInteract attack) {
@@ -238,20 +247,11 @@ public class FairReach extends Check implements CheckListener {
     }
 
     private void applyChanges(
-            int entityId,
-            double x,
-            double y,
-            double z,
-            PositionUpdate update,
-            boolean holdsShownPosition,
-            AtomicBoolean hasAppliedChanges) {
-        if (hasAppliedChanges.getAndSet(true)) return;
-
+            int entityId, double x, double y, double z, PositionUpdate update, boolean holdsShownPosition) {
         FairReachEntity target = targetPlayers.get(entityId);
         if (target == null) return;
         if (holdsShownPosition) {
-            Vec3 shown = target.currentPosition;
-            target.setTarget(shown.x, shown.y, shown.z);
+            target.setTarget(target.currentX, target.currentY, target.currentZ);
         } else if (snaps(target, update, x, y, z)) {
             target.snapTo(x, y, z);
         } else {
@@ -266,8 +266,10 @@ public class FairReach extends Check implements CheckListener {
     private boolean snaps(FairReachEntity target, PositionUpdate update, double x, double y, double z) {
         if (update == PositionUpdate.RELATIVE) return false;
         boolean fromLerpTarget = update == PositionUpdate.TELEPORT && target.lerpTicks > 0;
-        Vec3 from = fromLerpTarget ? target.targetPosition : target.currentPosition;
-        return from.distanceToSqr(x, y, z) > 4096.0;
+        double dx = x - (fromLerpTarget ? target.targetX : target.currentX);
+        double dy = y - (fromLerpTarget ? target.targetY : target.currentY);
+        double dz = z - (fromLerpTarget ? target.targetZ : target.currentZ);
+        return dx * dx + dy * dy + dz * dz > 4096.0;
     }
 
     /** A replacement client level holds none of the old level's players. */
@@ -304,34 +306,50 @@ public class FairReach extends Check implements CheckListener {
 
     class FairReachEntity {
         int entityId;
-        Vec3 currentPosition;
-        Vec3 targetPosition;
+        // The position the client shows.
+        double currentX;
+        double currentY;
+        double currentZ;
+        // The position the client interpolates toward.
+        double targetX;
+        double targetY;
+        double targetZ;
         int lerpTicks = 0;
 
-        private FairReachEntity(int entityId, Vec3 spawnPos) {
+        private FairReachEntity(int entityId, double x, double y, double z) {
             this.entityId = entityId;
-            this.currentPosition = spawnPos;
-            this.targetPosition = spawnPos;
+            this.currentX = x;
+            this.currentY = y;
+            this.currentZ = z;
+            this.targetX = x;
+            this.targetY = y;
+            this.targetZ = z;
         }
 
         private void setTarget(double x, double y, double z) {
-            this.targetPosition = new Vec3(x, y, z);
+            this.targetX = x;
+            this.targetY = y;
+            this.targetZ = z;
             this.lerpTicks = 3;
         }
 
         private void snapTo(double x, double y, double z) {
-            this.currentPosition = new Vec3(x, y, z);
-            this.targetPosition = currentPosition;
+            this.currentX = x;
+            this.currentY = y;
+            this.currentZ = z;
+            this.targetX = x;
+            this.targetY = y;
+            this.targetZ = z;
             this.lerpTicks = 0;
         }
 
         private void tick() {
             if (lerpTicks > 0) {
                 double scale = 1d / lerpTicks;
-                currentPosition = new Vec3(
-                        currentPosition.x + (targetPosition.x - currentPosition.x) * scale,
-                        currentPosition.y + (targetPosition.y - currentPosition.y) * scale,
-                        currentPosition.z + (targetPosition.z - currentPosition.z) * scale);
+                // Each axis reads only its own coordinates, so stepping them in turn is exact.
+                currentX = currentX + (targetX - currentX) * scale;
+                currentY = currentY + (targetY - currentY) * scale;
+                currentZ = currentZ + (targetZ - currentZ) * scale;
                 lerpTicks--;
             }
         }
@@ -340,8 +358,8 @@ public class FairReach extends Check implements CheckListener {
             PacketEntity trackedEntity = player.compensatedEntities.getEntity(entityId);
             float width = trackedEntity == null ? 0.6f : BoundingBoxSize.getReachWidth(player, trackedEntity);
             float height = trackedEntity == null ? 1.8f : BoundingBoxSize.getReachHeight(player, trackedEntity);
-            SimpleCollisionBox thisEntityBox = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                    currentPosition.x, currentPosition.y, currentPosition.z, width, height);
+            SimpleCollisionBox thisEntityBox =
+                    GetBoundingBox.getBoundingBoxFromPosAndSize(currentX, currentY, currentZ, width, height);
 
             return ReachUtils.getMinReachToBox(player, thisEntityBox);
         }

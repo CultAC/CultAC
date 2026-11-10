@@ -23,7 +23,7 @@ public class KeepSprint extends Check implements EngineCheck, PostPredictionList
             .name("KeepSprint")
             .stableKey("cult.combat.keep_sprint")
             .description("Did not take the attack slowdown")
-            .setback(10)
+            .setback(0)
             .decay(0.025)
             .build();
 
@@ -55,8 +55,7 @@ public class KeepSprint extends Check implements EngineCheck, PostPredictionList
         if (offset > offsetToFlag
                 && !player.compensatedEntities.getSelf().isDead
                 && player.gamemode != GameMode.SPECTATOR) {
-            flag("offset=" + NumFormatter.formatNumberStandard(offset));
-            setbackIfAboveSetbackVL();
+            flagWithSetback("offset=" + NumFormatter.formatNumberStandard(offset));
         }
     }
 }

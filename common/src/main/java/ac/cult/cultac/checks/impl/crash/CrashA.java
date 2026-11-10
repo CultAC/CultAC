@@ -22,7 +22,7 @@ public class CrashA extends Check implements CheckListener {
     @CultPacketHandler
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
-        if (player.packetStateData.lastPacketWasTeleport) return;
+        if (event.answersTeleport()) return;
         if (!packet.hasPosition()) return;
 
         // Y technically is uncapped, but no player will reach these values legit

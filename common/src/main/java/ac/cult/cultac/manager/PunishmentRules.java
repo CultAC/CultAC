@@ -69,6 +69,19 @@ public record PunishmentRules(
         return new PunishmentRules(List.copyOf(groups), List.of(), null);
     }
 
+    /** Whether {@code command} is an {@code [alert]} or an {@code [alert:<key>]}. */
+    public static boolean isAlert(@NotNull String command) {
+        return command.equals("[alert]") || alertKey(command) != null;
+    }
+
+    /**
+     * The message key an {@code [alert:<key>]} command names, stripped and possibly empty; null for any other command.
+     */
+    public static @Nullable String alertKey(@NotNull String command) {
+        if (!command.startsWith("[alert:") || !command.endsWith("]")) return null;
+        return command.substring("[alert:".length(), command.length() - 1).strip();
+    }
+
     /**
      * Whether selectors hold the check: each matching selector adds it once, and after every selector it is removed
      * once per matching exclusion so far. A check without a name matches nothing.

@@ -44,12 +44,12 @@ class VehicleMountSnapNudgeTest {
 
             // Each packet is answered from the packet handler, the nudge first.
             var setbacks = f.player.getSetbackTeleportUtil();
-            assertEquals(2, setbacks.queuedVehicleTeleportCount());
-            assertTrue(setbacks.checkVehicleTeleportQueue(VEHICLE, nudge.x, nudge.y, nudge.z)
+            assertEquals(2, setbacks.vehicleTeleports().queuedVehicleTeleportCount());
+            assertTrue(setbacks.vehicleTeleports().checkVehicleTeleportQueue(VEHICLE, nudge.x, nudge.y, nudge.z)
                     .isTeleport());
-            assertTrue(setbacks.checkVehicleTeleportQueue(VEHICLE, tracked.x, tracked.y, tracked.z)
+            assertTrue(setbacks.vehicleTeleports().checkVehicleTeleportQueue(VEHICLE, tracked.x, tracked.y, tracked.z)
                     .isTeleport());
-            assertEquals(0, setbacks.queuedVehicleTeleportCount());
+            assertEquals(0, setbacks.vehicleTeleports().queuedVehicleTeleportCount());
         }
     }
 
@@ -78,7 +78,7 @@ class VehicleMountSnapNudgeTest {
 
             assertEquals(1, moves.size());
             assertEquals(tracked, position(moves.get(0)));
-            assertEquals(1, f.player.getSetbackTeleportUtil().queuedVehicleTeleportCount());
+            assertEquals(1, f.player.getSetbackTeleportUtil().vehicleTeleports().queuedVehicleTeleportCount());
         }
     }
 
@@ -96,7 +96,7 @@ class VehicleMountSnapNudgeTest {
 
             assertEquals(1, moves.size());
             assertEquals(tracked, position(moves.get(0)));
-            assertEquals(1, f.player.getSetbackTeleportUtil().queuedVehicleTeleportCount());
+            assertEquals(1, f.player.getSetbackTeleportUtil().vehicleTeleports().queuedVehicleTeleportCount());
         }
     }
 

@@ -61,7 +61,7 @@ class WithheldTeleportAcknowledgmentTest {
 
     private static void addTeleport(JavaTickFixture f, int transaction, int id, boolean authored) {
         f.player.getSetbackTeleportUtil()
-                .addSentTeleport(TARGET, Vec3.ZERO, transaction, new RelativeFlag(0), false, id, 0, 0, 0, 0, authored);
+                .javaTeleports().addSentTeleport(TARGET, Vec3.ZERO, transaction, new RelativeFlag(0), false, id, 0, 0, 0, 0, authored);
     }
 
     private static Collection<?> acknowledgments(JavaTickFixture f) throws Exception {

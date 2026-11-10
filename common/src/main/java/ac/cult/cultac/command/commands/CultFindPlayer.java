@@ -5,6 +5,9 @@ import ac.cult.cultac.command.BuildableCommand;
 import ac.cult.cultac.command.CloudCommandService;
 import ac.cult.cultac.network.NetworkPlayer;
 import ac.cult.cultac.network.NetworkRouting;
+import ac.cult.cultac.network.NetworkRouting.SearchResult;
+import ac.cult.cultac.network.PlayerSearchFilters;
+import ac.cult.cultac.network.SearchBusyException;
 import ac.cult.cultac.platform.api.manager.cloud.CloudPlatformCommandArguments;
 import ac.cult.cultac.platform.api.sender.Sender;
 import java.util.ArrayList;
@@ -12,8 +15,9 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
@@ -23,11 +27,6 @@ import org.incendo.cloud.parser.standard.StringParser;
 import org.incendo.cloud.suggestion.SuggestionProvider;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * {@code /cult findplayer} counts the client brands of the players online across the network, most players first;
- * {@code /cult findplayer brand=<text>} lists the online players whose brand contains the text, ignoring case, by
- * name. Without network routing both cover this instance's players only. A brand is only ever shown as plain text.
- */
 public class CultFindPlayer implements BuildableCommand {
     static final String PERMISSION = "cult.findplayer";
     static final String FILTER = "brand=";
@@ -42,48 +41,55 @@ public class CultFindPlayer implements BuildableCommand {
     @Override
     public void register(CommandManager<Sender> commandManager, CloudPlatformCommandArguments arguments) {
         commandManager.command(BuildableCommand.root(commandManager)
-                .literal("findplayer", Description.of("Find online players by client brand"))
+                .literal("findplayer", Description.of("Find online players by profile data"))
                 .permission(PERMISSION)
                 .optional(
                         "filter",
                         StringParser.greedyStringParser(),
                         SuggestionProvider.blockingStrings((context, input) ->
                                 suggestions(NetworkRouting.current().roster(), input.remainingInput())))
-                .handler(context -> {
+                .futureHandler(context -> {
                     Sender sender = context.sender();
-                    List<Component> lines = lines(
-                            sender,
-                            NetworkRouting.current().roster(),
-                            context.<String>optional("filter").orElse(""));
-                    for (Component line : lines) sender.sendMessage(line);
+                    String query = context.<String>optional("filter").orElse("").strip();
+                    if (query.isEmpty() || query.equalsIgnoreCase(FILTER)) {
+                        summary(sender, NetworkRouting.current().roster()).forEach(sender::sendMessage);
+                        return CompletableFuture.completedFuture(null);
+                    }
+                    try {
+                        PlayerSearchFilters.parse(query);
+                    } catch (IllegalArgumentException invalid) {
+                        usage(sender).forEach(sender::sendMessage);
+                        return CompletableFuture.completedFuture(null);
+                    }
+                    return NetworkRouting.current()
+                            .search(query, sender.getUniqueId() == null ? Sender.CONSOLE_UUID : sender.getUniqueId())
+                            .thenAccept(
+                                    result -> matching(sender, result, query).forEach(sender::sendMessage))
+                            .exceptionally(failure -> {
+                                Throwable cause = failure.getCause() == null ? failure : failure.getCause();
+                                if (!(cause instanceof SearchBusyException)) throw new CompletionException(cause);
+                                sender.sendMessage(CheckInfoLines.render(
+                                        sender,
+                                        template(
+                                                "findplayer-wait",
+                                                "%prefix% &7Please wait a moment before searching again."),
+                                        Map.of()));
+                                return null;
+                            });
                 }));
     }
 
-    /** What {@code filter}, the text after {@code findplayer}, shows of {@code players}. */
-    static List<Component> lines(Sender sender, Collection<NetworkPlayer> players, String filter) {
-        String typed = filter.strip();
-        if (typed.isEmpty()) return summary(sender, players);
-        if (!typed.regionMatches(true, 0, FILTER, 0, FILTER.length()))
-            return List.of(CheckInfoLines.render(
-                    sender,
-                    template(
-                            "findplayer-usage",
-                            "%prefix% &cTo search, type &f/%command% findplayer brand=lunar &cwith any part of a brand"
-                                    + " name, or leave it out to see every brand."),
-                    Map.of()));
-        String query = typed.substring(FILTER.length()).strip();
-        return query.isEmpty() ? summary(sender, players) : matching(sender, players, query);
+    private static List<Component> usage(Sender sender) {
+        return List.of(CheckInfoLines.render(
+                sender,
+                template(
+                        "findplayer-usage",
+                        "%prefix% &cUse /%command% findplayer brand=lunar [key=value ...]. Keys: brand, mod, channel, sens, vsens, ping, version, platform, server, proxy, name, uuid, fastmath. Text: case-insensitive substring; combine filters with AND. Numbers: x (within 0.5), >x, <x, a-b (inclusive). Sensitivity: 0-200 percent, unknown on Bedrock. Text values support double quotes and backslash escapes. No filters: brand counts."),
+                Map.of()));
     }
 
-    /** {@code FILTER} and each brand online, in the summary's order, that start with {@code typed}. */
     static List<String> suggestions(Collection<NetworkPlayer> players, String typed) {
-        List<String> suggestions = new ArrayList<>();
-        for (Map.Entry<@Nullable String, Integer> brand : counts(players)) {
-            String suggestion = FILTER + (brand.getKey() == null ? UNKNOWN : brand.getKey());
-            if (suggestion.regionMatches(true, 0, typed, 0, typed.length()) && !suggestions.contains(suggestion))
-                suggestions.add(suggestion);
-        }
-        return suggestions;
+        return PlayerSearchFilters.suggestions(players, typed);
     }
 
     private static List<Component> summary(Sender sender, Collection<NetworkPlayer> players) {
@@ -102,54 +108,88 @@ public class CultFindPlayer implements BuildableCommand {
             lines.add(CheckInfoLines.render(sender, template("findplayer-brand", "&8» &f%brand% &7(%count%)"), values)
                     .hoverEvent(HoverEvent.showText(CheckInfoLines.render(
                             sender, template("findplayer-brand-hover", "&7Show who uses %brand%"), values)))
-                    .clickEvent(ClickEvent.runCommand(CloudCommandService.command(
-                            "findplayer " + FILTER + (brand.getKey() == null ? UNKNOWN : brand.getKey())))));
+                    .clickEvent(ClickEvent.runCommand(CloudCommandService.command("findplayer " + FILTER
+                            + PlayerSearchFilters.quote(brand.getKey() == null ? UNKNOWN : brand.getKey())))));
         }
         return lines;
     }
 
-    private static List<Component> matching(Sender sender, Collection<NetworkPlayer> players, String query) {
-        boolean unknownQuery = query.equalsIgnoreCase(UNKNOWN);
-        String needle = query.toLowerCase(Locale.ROOT);
-        List<NetworkPlayer> matches = players.stream()
-                .filter(player -> player.brand() == null
-                        ? unknownQuery
-                        : player.brand().toLowerCase(Locale.ROOT).contains(needle))
-                .sorted(Comparator.comparing(NetworkPlayer::name, String.CASE_INSENSITIVE_ORDER)
+    private static List<Component> matching(Sender sender, SearchResult result, String query) {
+        var filters = PlayerSearchFilters.parse(query);
+        boolean brandOnly = filters.size() == 1 && filters.getFirst().key().equals("brand");
+        String displayQuery = brandOnly ? filters.getFirst().query() : query;
+        List<NetworkPlayer> matches = result.players().stream()
+                .sorted(Comparator.comparing(
+                                (NetworkPlayer p) -> brandOnly ? "" : p.server() == null ? p.instance() : p.server(),
+                                String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(NetworkPlayer::name, String.CASE_INSENSITIVE_ORDER)
                         .thenComparing(NetworkPlayer::name))
                 .toList();
-        if (matches.isEmpty())
+        List<Component> warnings = result.unavailable() == 0
+                ? List.of()
+                : List.of(CheckInfoLines.render(
+                        sender,
+                        template(
+                                "findplayer-unavailable",
+                                "%prefix% &e%count% instance(s) did not answer; results are incomplete."),
+                        Map.of("count", result.unavailable())));
+        if (matches.isEmpty() && warnings.isEmpty())
             return List.of(CheckInfoLines.render(
                     sender,
-                    template("findplayer-none", "%prefix% &7Nobody online uses a brand containing &f%query%&7."),
-                    Map.of("query", query)));
+                    template(
+                            brandOnly ? "findplayer-none" : "findplayer-filter-none",
+                            brandOnly
+                                    ? "%prefix% &7Nobody online uses a brand containing &f%query%&7."
+                                    : "%prefix% &7Nobody online matches &f%query%&7."),
+                    Map.of("query", displayQuery)));
         List<Component> lines = new ArrayList<>();
         lines.add(CheckInfoLines.render(
                 sender,
                 template(
-                        "findplayer-results",
-                        "%prefix% &bPlayers whose brand contains &f%query% &8· &f%count% &7online"),
-                Map.of("query", query, "count", matches.size())));
+                        brandOnly ? "findplayer-results" : "findplayer-filter-results",
+                        brandOnly
+                                ? "%prefix% &bPlayers whose brand contains &f%query% &8· &f%count% &7online"
+                                : "%prefix% &bPlayers matching &f%query% &8· &f%count% &7online"),
+                Map.of("query", displayQuery, "count", result.total())));
+        lines.addAll(warnings);
         String unknown = unknownLabel();
         for (NetworkPlayer player : matches.subList(0, Math.min(matches.size(), MAX_LISTED))) {
             Map<String, Object> values = Map.of(
-                    "player", player.name(),
-                    "server", player.server() == null ? player.instance() : player.server(),
-                    "brand", player.brand() == null ? unknown : player.brand());
+                    "player",
+                    player.name(),
+                    "server",
+                    player.server() == null ? player.instance() : player.server(),
+                    "brand",
+                    player.brand() == null ? unknown : player.brand(),
+                    "values",
+                    filters.stream()
+                            .map(PlayerSearchFilters.Filter::key)
+                            .distinct()
+                            .map(key -> key + "="
+                                    + String.join(", ", player.details().getOrDefault(key, List.of("unknown"))))
+                            .reduce((a, b) -> a + "; " + b)
+                            .orElse(""));
             lines.add(CheckInfoLines.render(
                             sender,
-                            template("findplayer-player", "&8» &f%player% &7on &f%server% &8· &7%brand%"),
+                            template(
+                                    brandOnly ? "findplayer-player" : "findplayer-filter-player",
+                                    brandOnly
+                                            ? "&8» &f%player% &7on &f%server% &8· &7%brand%"
+                                            : "&8» &f%player% &7on &f%server% &8· &7%values%"),
                             values)
                     .hoverEvent(HoverEvent.showText(CheckInfoLines.render(
                             sender, template("findplayer-player-hover", "&7Show %player%'s profile"), values)))
                     .clickEvent(ClickEvent.runCommand(CloudCommandService.command("profile " + player.name()))));
         }
-        if (matches.size() > MAX_LISTED)
+        if (result.total() > MAX_LISTED)
             lines.add(CheckInfoLines.render(
                     sender,
                     template(
-                            "findplayer-more", "&7...and %count% more. Type more of the brand name to narrow it down."),
-                    Map.of("count", matches.size() - MAX_LISTED)));
+                            brandOnly ? "findplayer-more" : "findplayer-filter-more",
+                            brandOnly
+                                    ? "&7...and %count% more. Type more of the brand name to narrow it down."
+                                    : "&7...and %count% more. Add filters to narrow it down."),
+                    Map.of("count", result.total() - MAX_LISTED)));
         return lines;
     }
 

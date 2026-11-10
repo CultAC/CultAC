@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
 
 class PortalSyncServiceTest {
     private static final List<String> LANGUAGES =
-            List.of("de", "en", "es", "fr", "it", "ja", "nl", "pl", "pt", "ro", "ru", "tr", "zh");
+            List.of("de", "en", "es", "fr", "it", "ja", "nl", "pl", "pt", "ro", "ru", "tr", "uk", "zh");
 
     private static CloudSettings cloud(String apiKey, boolean team) {
         return new CloudSettings(

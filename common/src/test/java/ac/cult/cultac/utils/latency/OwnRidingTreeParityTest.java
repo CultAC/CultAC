@@ -153,7 +153,6 @@ class OwnRidingTreeParityTest {
             default -> {}
         }
         var replication = player.packetEntityReplication;
-        replication.tickStartTick();
         List<PacketSendEvent<?>> events = new ArrayList<>();
         for (int id : MOVERS) {
             if (player.compensatedEntities.getEntity(id) != null && (step + id / 100) % 3 != 0) {

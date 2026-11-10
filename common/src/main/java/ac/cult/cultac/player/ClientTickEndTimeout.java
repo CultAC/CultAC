@@ -10,8 +10,6 @@ import java.util.concurrent.TimeUnit;
 /** Closes one synthetic client tick after a minute without a tick end. Owned by the packet executor. */
 public final class ClientTickEndTimeout {
     private static final long TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(60);
-    private static final CheckManagerListener LISTENER = new CheckManagerListener();
-
     private final CultPlayer player;
     private boolean active = true;
     private long lastTickEndNanos = System.nanoTime();
@@ -23,7 +21,6 @@ public final class ClientTickEndTimeout {
     private boolean enabled() {
         return player.user.getCultConnection().channel().isActive()
                 && !player.isBedrockMovement()
-                && player.user.getBedrockBridgeConnection() == null
                 && player.user.getConnectionState() == ConnectionPhase.PLAY
                 && player.user.getEncoderState() == ConnectionPhase.PLAY
                 && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2);
@@ -56,7 +53,7 @@ public final class ClientTickEndTimeout {
         // Run once per timeout, without replaying the wall-clock gap as client ticks or writing a packet.
         lastTickEndNanos = now;
         try {
-            LISTENER.processClientTickEndReceive(
+            CheckManagerListener.processClientTickEndReceive(
                     new PacketReceiveEvent<>(
                             player.user,
                             ConnectionPhase.PLAY,
@@ -65,8 +62,6 @@ public final class ClientTickEndTimeout {
                             true),
                     player);
         } finally {
-            // The receive handler records its own clock; retain the watchdog's timestamp for this boundary.
-            lastTickEndNanos = now;
             player.user.getCultConnection().clientTickEnded();
         }
     }

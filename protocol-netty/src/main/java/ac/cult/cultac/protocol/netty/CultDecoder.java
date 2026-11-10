@@ -192,8 +192,8 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
                         && move.hasPosition()
                         && !event.isTeleportPositionResponse()
                         && player != null
-                        && !player.getSetbackTeleportUtil().hasForwardedPositionThisTick()) {
-                    var pending = player.getSetbackTeleportUtil().takePendingServerMove();
+                        && !player.getSetbackTeleportUtil().sender().hasForwardedPositionThisTick()) {
+                    var pending = player.getSetbackTeleportUtil().sender().takePendingServerMove();
                     if (pending != null) {
                         packet = move.withPosition(pending.x(), pending.y(), pending.z(), pending.onGround());
                         cancelled = false;
@@ -230,10 +230,12 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
                 }
                 if (player != null) {
                     var setbacks = player.getSetbackTeleportUtil();
-                    if (valueType == ServerboundPackets.CLIENT_TICK_END) setbacks.resetForwardedPositionThisTick();
+                    if (valueType == ServerboundPackets.CLIENT_TICK_END)
+                        setbacks.sender().resetForwardedPositionThisTick();
                     else if (packet instanceof ServerboundMovePlayer move
                             && move.hasPosition()
-                            && !event.isTeleportPositionResponse()) setbacks.markForwardedPositionThisTick();
+                            && !event.isTeleportPositionResponse())
+                        setbacks.sender().markForwardedPositionThisTick();
                 }
                 recycle(route, event);
                 if (packet instanceof ServerboundMovePlayer move
@@ -242,6 +244,7 @@ public final class CultDecoder extends ChannelInboundHandlerAdapter {
                         && connection.user() != null
                         && connection.user().getBedrockBridgeConnection() != null) {
                     player.getSetbackTeleportUtil()
+                            .bedrockTeleports()
                             .setBedrockPaperVisiblePosition(
                                     new ac.cult.cultac.utils.math.Vec3(move.x(), move.y(), move.z()));
                 }

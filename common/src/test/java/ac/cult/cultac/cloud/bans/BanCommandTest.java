@@ -1,7 +1,11 @@
 package ac.cult.cultac.cloud.bans;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import ac.cult.cultac.cloud.bans.StaffBans.Term;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -62,17 +66,21 @@ class BanCommandTest {
     }
 
     @Test
-    void aGameplayBanLeavesTheCheatEmpty() {
+    void aGameplayBanLeavesOutTheCheat() {
         StaffBans.Ban gameplay =
                 new StaffBans.Ban(
                         ID, PLAYER, "Notch", "griefing", null, null, null, "Mod", 0, "https://panel/x", null, null);
-        assertEquals("ban Notch griefing [|]", BanCommand.fill("ban %player% %reason% [%cheat%|%cheat_id%]", gameplay));
+        assertEquals("ban Notch griefing", BanCommand.fill("ban %player% %reason% [%cheat%|%cheat_id%]", gameplay));
+        assertEquals("", BanCommand.values(gameplay).get("cheat"));
+        assertEquals("", BanCommand.values(gameplay).get("cheat_id"));
     }
 
     @Test
-    void aPermanentBanLeavesDurationAndSecondsEmpty() {
-        assertEquals(
-                "ban Notch  x", BanCommand.fill("ban %player% %duration%%seconds% x", ban("Notch", "r", null, "s")));
+    void aPermanentBanLeavesOutDurationAndSeconds() {
+        StaffBans.Ban permanent = ban("Notch", "r", null, "s");
+        assertEquals("ban Notch x", BanCommand.fill("ban %player% %duration%%seconds% x", permanent));
+        assertEquals("", BanCommand.values(permanent).get("duration"));
+        assertEquals("", BanCommand.values(permanent).get("seconds"));
     }
 
     @Test
@@ -121,15 +129,15 @@ class BanCommandTest {
     }
 
     @Test
-    void staffUuidAndEvidenceAreEmptyWhenUnknown() {
-        assertEquals("gban staff= evidence= x", BanCommand.fill(
+    void staffUuidAndEvidenceAreLeftOutWhenUnknown() {
+        assertEquals("gban x", BanCommand.fill(
                 "gban staff=%staff_uuid% evidence=%evidence% x", ban("Notch", "r", null, "s")));
     }
 
     @Test
     void staffUuidAndEvidenceDropHostileCharacters() {
         assertEquals(
-                "gban s= evidence=https://x.example/a?b=1&c=2op",
+                "gban evidence=https://x.example/a?b=1&c=2op",
                 BanCommand.fill(
                         "gban s=%staff_uuid% evidence=%evidence%",
                         ban(
@@ -144,9 +152,9 @@ class BanCommandTest {
                 BanCommand.fill(
                         "s=%staff_uuid%", ban("Notch", "r", null, "s", "0A1B2C3D-4E5F-4A6B-8C7D-9E0F1A2B3C4D", null)));
         assertEquals(
-                "s= e=",
+                "gban",
                 BanCommand.fill(
-                        "s=%staff_uuid% e=%evidence%",
+                        "gban s=%staff_uuid% e=%evidence%",
                         ban("Notch", "r", null, "s", "0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d", "javascript:alert(1)")));
     }
 
@@ -187,8 +195,11 @@ class BanCommandTest {
                 "--dead",
                 "-s https://p.example/r");
         assertEquals(
-                PLAYER + "|'-r|'-Fly|'-id|'-Mod|||",
-                BanCommand.fill("%player%|%reason%|%cheat%|%cheat_id%|%staff%|%link%|%staff_uuid%|%evidence%", ban));
+                PLAYER + "|'-r|'-Fly|'-id|'-Mod", BanCommand.fill("%player%|%reason%|%cheat%|%cheat_id%|%staff%", ban));
+        Map<String, String> values = BanCommand.values(ban);
+        assertEquals("", values.get("link"));
+        assertEquals("", values.get("staff_uuid"));
+        assertEquals("", values.get("evidence"));
     }
 
     @Test
@@ -212,5 +223,209 @@ class BanCommandTest {
         assertEquals(
                 "ban Notch %uuid% %unknown%",
                 BanCommand.fill("/ban %player% %reason% %unknown%", ban("Notch", "%uuid%", null, "s")));
+    }
+
+    private static StaffBans.Ban v2(
+            Term term, Long seconds, String duration, String reason, String reasonLabel, String silentFlag) {
+        return new StaffBans.Ban(
+                ID,
+                PLAYER,
+                "Notch",
+                reason,
+                "killaura",
+                "Kill Aura",
+                seconds,
+                "Mod",
+                0,
+                "https://panel/players/" + PLAYER,
+                null,
+                null,
+                term,
+                duration,
+                reasonLabel,
+                silentFlag);
+    }
+
+    private static String refusal(String template, StaffBans.Ban ban) {
+        return assertThrows(BanCommand.Refused.class, () -> BanCommand.fill(template, ban))
+                .getMessage();
+    }
+
+    @Test
+    void theReasonLabelAndTheSilentFlagFill() {
+        StaffBans.Ban ban =
+                v2(Term.TIMED, 2592000L, "30d", "blacklisted_modifications", "Blacklisted modifications", "-s");
+        assertEquals(
+                "ban -s Notch 30d blacklisted_modifications Blacklisted modifications",
+                BanCommand.fill("ban %silent% %player% %duration% %reason% %reason_label%", ban));
+    }
+
+    @Test
+    void aMissingReasonLabelIsTheReasonAndOneSentIsCleanedLikeIt() {
+        assertEquals(
+                "ban Notch fly hacks", BanCommand.fill("ban %player% %reason_label%", ban("Notch", "fly hacks", null, "s")));
+        assertEquals(
+                "ban Notch '-x typedline", BanCommand.fill(
+                        "ban %player% %reason_label%", v2(Term.PERMANENT, null, null, "r", "  -x typed\nline ", "")));
+        assertEquals(
+                "l".repeat(BanCommand.MAX_TEXT),
+                BanCommand.fill("%reason_label%", v2(Term.PERMANENT, null, null, "r", "l".repeat(300), "")));
+    }
+
+    @Test
+    void aPermanentBanSendsThePolicyTokenAsItsDuration() {
+        String template = "ban %player% %duration% seconds=%seconds% %reason%";
+        assertEquals("ban Notch perm r", BanCommand.fill(template, v2(Term.PERMANENT, null, "perm", "r", null, "")));
+        assertEquals("ban Notch r", BanCommand.fill(template, v2(Term.PERMANENT, null, "", "r", null, "")));
+        assertEquals("ban Notch r", BanCommand.fill(template, v2(Term.PERMANENT, null, null, "r", null, "")));
+    }
+
+    @Test
+    void aBanWhoseLengthTheServerDecidesLeavesOutDurationAndSeconds() {
+        StaffBans.Ban ban = v2(Term.SERVER, null, "30d", "exploiting", "Exploit abuse", "");
+        assertEquals(
+                "tempban Notch exploiting", BanCommand.fill("tempban %player% %duration% s=%seconds% %reason%", ban));
+    }
+
+    @Test
+    void aTimedBanTakesTheServiceLengthWhenItIsATokenElseFormatsItsSeconds() {
+        String template = "tempban %player% %duration% %seconds%";
+        assertEquals("tempban Notch 1w 604800", BanCommand.fill(template, v2(Term.TIMED, 604800L, "1w", "r", null, "")));
+        for (String unusable : new String[] {null, "", "7 d;op", "x".repeat(33)}) {
+            assertEquals(
+                    "tempban Notch 7d 604800",
+                    BanCommand.fill(template, v2(Term.TIMED, 604800L, unusable, "r", null, "")),
+                    String.valueOf(unusable));
+        }
+    }
+
+    @Test
+    void aWordWhosePlaceholderFillsEmptyIsLeftOutWhole() {
+        StaffBans.Ban ban = v2(Term.PERMANENT, null, null, "", null, "");
+        assertEquals(
+                "ban Notch --flag %unknown%x",
+                BanCommand.fill(
+                        "ban %player% --sender=%staff_uuid% %silent% --flag %reason%:%unknown% %unknown%x [%duration%]",
+                        ban));
+    }
+
+    @Test
+    void whitespaceCollapsesAndTheEndsAreTrimmed() {
+        assertEquals(
+                "ban Notch fly hacks",
+                BanCommand.fill(
+                        "  /ban \t %silent%   %player%  %duration%\n %reason%  ", ban("Notch", "fly   hacks", null, "s")));
+    }
+
+    @Test
+    void aValueThatWouldAddAFlagIsRefused() {
+        assertEquals(
+                "%reason% has a flag word (- and a letter)",
+                refusal("ban %player% %reason%", ban("Notch", "hacking -s", null, "s")));
+        assertEquals(
+                "%reason% has a flag word (- and a letter)",
+                refusal("ban %player% %reason%", ban("Notch", "hacking\u00A0-s", null, "s")));
+        assertEquals(
+                "%reason_label% has a flag word (- and a letter)",
+                refusal(
+                        "ban %player% %reason_label%",
+                        v2(Term.PERMANENT, null, null, "other", "Other --sender=Console", "")));
+        assertEquals(
+                "%staff% has a flag word (- and a letter)", refusal("ban %player% by %staff%", ban("Notch", "r", null, "Mod -p")));
+        assertEquals(
+                "%cheat% has a flag word (- and a letter)",
+                refusal("ban %player% %cheat%", hostile("killaura", "Kill -Aura", "https://p.example/x")));
+    }
+
+    @Test
+    void aReasonWithANameEqualsWordIsRefusedOnlyInAKeyValueTemplate() {
+        String keyed = "gban target=%uuid% by=%staff% reason=%reason%";
+        assertEquals(
+                "%reason% has a name= word, which this key=value command would read as an option",
+                refusal(keyed, ban("Notch", "x target=" + PLAYER, null, "s")));
+        assertEquals(
+                "%reason% has a name= word, which this key=value command would read as an option",
+                refusal(keyed, ban("Notch", "_a-1=b", null, "s")));
+        assertEquals(
+                "%reason_label% has a name= word, which this key=value command would read as an option",
+                refusal(
+                        "gban target=%uuid% label=%reason_label%",
+                        v2(Term.PERMANENT, null, null, "other", "Other by=Console", "")));
+        assertEquals(
+                "gban target=" + PLAYER + " by=s reason=2+2=4 x = y",
+                BanCommand.fill(keyed, ban("Notch", "2+2=4 x = y", null, "s")));
+        assertEquals(
+                "ban Notch x target=forged", BanCommand.fill("ban %player% %reason%", ban("Notch", "x target=forged", null, "s")));
+    }
+
+    @Test
+    void onlyThePlaceholdersATemplateUsesAreCheckedAndALeadingDashIsQuoted() {
+        assertEquals("ban Notch", BanCommand.fill("ban %player%", ban("Notch", "hacking -s", null, "Mod -p")));
+        assertEquals("ban Notch '-s hacking", BanCommand.fill("ban %player% %reason%", ban("Notch", "-s hacking", null, "s")));
+    }
+
+    @Test
+    void theSilentFlagIsOneFlagStartingWithADash() {
+        String template = "ban %silent% %player%";
+        assertEquals("ban -s Notch", BanCommand.fill(template, v2(Term.PERMANENT, null, null, "r", null, "-s")));
+        assertEquals(
+                "ban --silent Notch", BanCommand.fill(template, v2(Term.PERMANENT, null, null, "r", null, "--silent")));
+        assertEquals("ban Notch", BanCommand.fill(template, v2(Term.PERMANENT, null, null, "r", null, "")));
+        for (String bad : new String[] {"s", "-s -p", "-s x", "-s;op", "-" + "s".repeat(32)}) {
+            assertEquals(
+                    "%silent% is not one flag starting with -",
+                    refusal(template, v2(Term.PERMANENT, null, null, "r", null, bad)),
+                    bad);
+        }
+        assertEquals("ban Notch", BanCommand.fill("ban %player%", v2(Term.PERMANENT, null, null, "r", null, "s")));
+    }
+
+    @Test
+    void aBareDashOrANegativeNumberIsNotAFlag() {
+        assertEquals("ban Notch -1", BanCommand.fill("ban %player% %duration%", v2(Term.PERMANENT, null, "-1", "r", null, "")));
+        assertEquals(
+                "ban Notch fly - see replay",
+                BanCommand.fill("ban %player% %reason%", ban("Notch", "fly - see replay", null, "s")));
+        assertEquals(
+                "%reason% has a flag word (- and a letter)",
+                refusal("ban %player% %reason%", ban("Notch", "fly -s", null, "s")));
+    }
+
+    @Test
+    void aPermanentTokenThatIsAFlagIsRefused() {
+        assertEquals(
+                "%duration% has a flag word (- and a letter)",
+                refusal("ban %player% %duration%", v2(Term.PERMANENT, null, "-perm", "r", null, "")));
+        assertEquals(
+                "ban Notch", BanCommand.fill("ban %player% %duration%", v2(Term.PERMANENT, null, "perm -s", "r", null, "")));
+    }
+
+    @Test
+    void aCommandThatFillsToNothingIsRefused() {
+        assertEquals("the command is empty once filled", refusal("%reason%", ban("Notch", "", null, "s")));
+        assertEquals("the command is empty once filled", refusal("/ %silent%", ban("Notch", "r", null, "s")));
+    }
+
+    @Test
+    void aBanFromAServiceWithoutTheNewFieldsFillsAsBefore() {
+        StaffBans.Ban permanent = ban("Notch", "fly hacks", null, "Mod");
+        StaffBans.Ban timed = ban("Notch", "fly hacks", 43200L, "Mod");
+        assertEquals(Term.PERMANENT, permanent.term());
+        assertEquals(Term.TIMED, timed.term());
+        assertNull(timed.duration());
+        assertNull(timed.reasonLabel());
+        assertEquals("", timed.silentFlag());
+
+        Map<String, String> permanentValues = BanCommand.values(permanent);
+        assertEquals("", permanentValues.get("duration"));
+        assertEquals("", permanentValues.get("seconds"));
+        assertEquals("fly hacks", permanentValues.get("reason_label"));
+        assertEquals("", permanentValues.get("silent"));
+        Map<String, String> timedValues = BanCommand.values(timed);
+        assertEquals("12h", timedValues.get("duration"));
+        assertEquals("43200", timedValues.get("seconds"));
+        assertEquals(
+                "tempban Notch 12h fly hacks [Kill Aura/killaura] 43200s by Mod #" + ID,
+                BanCommand.fill("tempban %player% %duration% %reason% [%cheat%/%cheat_id%] %seconds%s by %staff% #%ban_id%", timed));
     }
 }

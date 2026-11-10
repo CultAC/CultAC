@@ -28,6 +28,9 @@ public class BoundingBoxSize {
     }
 
     public static float getWidth(PacketEntity packetEntity, ClientVersion version, boolean bedrock) {
+        // A Bedrock client sizes an actor's box by the width and height Geyser sent it times its scale, which can
+        // differ from the Java size (a zombie's 1.8 height, a happy ghast's 1.001 scale, a rabbit's 0.55).
+        if (bedrock && packetEntity.hasBedrockSize()) return packetEntity.bedrockWidth * packetEntity.bedrockScale;
         if (bedrock && packetEntity.isBoat()) {
             return (float)
                     (packetEntity.bedrockBoat == null
@@ -49,7 +52,7 @@ public class BoundingBoxSize {
         if (packetEntity instanceof PacketEntityInteraction interaction) return interaction.actionWidth;
         if (packetEntity instanceof PacketEntitySizeable sizeable) {
             int size = size(sizeable, bedrock);
-            if ((packetEntity.type == EntityTypeIds.MAGMA_CUBE) || (packetEntity.type == EntityTypeIds.SLIME)) {
+            if (EntityTypeUtil.isCubeMob(packetEntity.type)) {
                 return scalesCubeMobType(version, bedrock)
                         ? baseDimensions(packetEntity).width() * size
                         : 2.04f * (0.255f * (float) size);
@@ -67,6 +70,9 @@ public class BoundingBoxSize {
             return 0.4F;
         }
         if (javaBeeBefore26Dot2(packetEntity, version, bedrock)) return 0.7F;
+        if (version.isOlderThan(ClientVersion.V_26_1) && packetEntity.type == EntityTypeIds.BEE) {
+            return 0.7F;
+        }
         float exactWidth = baseDimensions(packetEntity).width();
         if (packetEntity instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityPufferfish fish)
             exactWidth *= fish.puffScale();
@@ -79,7 +85,7 @@ public class BoundingBoxSize {
 
     private static float width(PacketEntity entity, ClientVersion version, boolean bedrock) {
         float width = getWidthMinusBaby(entity, version, bedrock);
-        if (entity.isBaby) {
+        if (entity.isBaby && !EntityTypeUtil.isCubeMob(entity.type)) {
             Float independent = independentBabyWidth(entity, version);
             width = independent == null ? width * getBabyScale(entity, version) : independent;
         }
@@ -158,6 +164,21 @@ public class BoundingBoxSize {
             if (entity instanceof PacketEntityShulker shulker) py *= shulker.passengerHeightScale();
             float dimensions = defaultDimensionsScale(entity, player.getClientVersion(), player.isBedrockMovement());
             boolean fixed = type.fixed();
+            float legacyHeight = legacySeatHeight(entity, player.getClientVersion(), player.isBedrockMovement());
+            if (entity instanceof PacketEntityInteraction interaction
+                    && !player.isBedrockMovement()
+                    && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11)) {
+                // Interaction#getDimensions: EntityDimensions.scalable(width, height), whose passenger point is at
+                // height.
+                px = pz = 0;
+                py = interaction.actionHeight;
+                fixed = true;
+            } else if (!Float.isNaN(legacyHeight)) {
+                // EntityAttachment.PASSENGER falls back to the type's height; neither type sets a passenger point.
+                px = pz = 0;
+                py = legacyHeight;
+                fixed = false;
+            }
             if (!player.isBedrockMovement() && entity instanceof PacketEntityArmorStand stand) {
                 // ArmorStand#getDefaultDimensions: a marker's fixed 0 x 0 MARKER_DIMENSIONS, else a small stand's
                 // BABY_DIMENSIONS, the type's scaled by 0.5, attachments included.
@@ -342,6 +363,7 @@ public class BoundingBoxSize {
     }
 
     public static float getHeight(PacketEntity packetEntity, ClientVersion version, boolean bedrock) {
+        if (bedrock && packetEntity.hasBedrockSize()) return packetEntity.bedrockHeight * packetEntity.bedrockScale;
         if (bedrock && packetEntity.isBoat()) {
             return (float)
                     (packetEntity.bedrockBoat == null
@@ -367,7 +389,7 @@ public class BoundingBoxSize {
         if (packetEntity instanceof PacketEntityInteraction interaction) return interaction.actionHeight;
         if (packetEntity instanceof PacketEntitySizeable sizeable) {
             int size = size(sizeable, bedrock);
-            if ((packetEntity.type == EntityTypeIds.MAGMA_CUBE) || (packetEntity.type == EntityTypeIds.SLIME)) {
+            if (EntityTypeUtil.isCubeMob(packetEntity.type)) {
                 return scalesCubeMobType(version, bedrock)
                         ? baseDimensions(packetEntity).height() * size
                         : 2.04f * (0.255f * (float) size);
@@ -379,9 +401,9 @@ public class BoundingBoxSize {
             }
         }
 
-        String path = EntityTypeUtil.getKey(packetEntity.type).getPath();
-        if (version.isOlderThan(ClientVersion.V_26_1) && path.equals("rabbit")) {
-            return 0.5F;
+        float legacyHeight = legacyHeight(packetEntity, version);
+        if (!Float.isNaN(legacyHeight)) {
+            return legacyHeight;
         }
         if (javaBeeBefore26Dot2(packetEntity, version, bedrock)) return 0.6F;
         float exactHeight = baseDimensions(packetEntity).height();
@@ -416,7 +438,7 @@ public class BoundingBoxSize {
     private static float poseFreeHeight(
             PacketEntity entity, ClientVersion version, boolean bedrock, int standAnimation) {
         float height = getHeightMinusBaby(entity, version, bedrock, standAnimation);
-        if (entity.isBaby) {
+        if (entity.isBaby && !EntityTypeUtil.isCubeMob(entity.type)) {
             Float independent = independentBabyHeight(entity, version);
             height = independent == null ? height * getBabyScale(entity, version) : independent;
         }
@@ -443,8 +465,7 @@ public class BoundingBoxSize {
         if (entity.type == EntityTypeIds.PHANTOM && version.isNewerThanOrEquals(ClientVersion.V_1_20_2)) {
             return 1.0F + 0.15F * sizeable.size;
         }
-        if ((entity.type == EntityTypeIds.MAGMA_CUBE || entity.type == EntityTypeIds.SLIME)
-                && scalesCubeMobType(version, false)) {
+        if (EntityTypeUtil.isCubeMob(entity.type) && scalesCubeMobType(version, false)) {
             return sizeable.size;
         }
         return 1.0F;
@@ -551,6 +572,24 @@ public class BoundingBoxSize {
      */
     private static boolean javaBeeBefore26Dot2(PacketEntity entity, ClientVersion version, boolean bedrock) {
         return !bedrock && entity.type == EntityTypeIds.BEE && version.isOlderThan(ClientVersion.V_26_2);
+    }
+
+    /** The 1.21.11 EntityType height of a type 26.x EntityTypes resized, or NaN. */
+    private static float legacyHeight(PacketEntity entity, ClientVersion version) {
+        if (version.isNewerThanOrEquals(ClientVersion.V_26_1)) return Float.NaN;
+        if (entity.type == EntityTypeIds.BEE) return 0.6F;
+        return EntityTypeUtil.isType(entity.type, "rabbit") ? 0.5F : Float.NaN;
+    }
+
+    /**
+     * The EntityType height a Java client from 1.20.5 seats a rider at for a type later EntityTypes resized, or NaN:
+     * its EntityAttachment.PASSENGER falls back to the height the client's own version gives the type.
+     */
+    private static float legacySeatHeight(PacketEntity entity, ClientVersion version, boolean bedrock) {
+        if (bedrock || version.isOlderThan(ClientVersion.V_1_20_5)) return Float.NaN;
+        float legacyHeight = legacyHeight(entity, version);
+        if (Float.isNaN(legacyHeight) && javaBeeBefore26Dot2(entity, version, false)) return 0.6F;
+        return legacyHeight;
     }
 
     private static EntityTypes.Type baseDimensions(PacketEntity packetEntity) {

@@ -42,18 +42,26 @@ public class Phase extends Check implements PostPredictionListener {
 
     SimpleCollisionBox oldBox = null;
     /** The scale of the box the last Java prediction travelled with; NaN once its move is checked. */
-    private float travelScale = Float.NaN;
+    float travelScale = Float.NaN;
     // Read only within one checkMovement call; never stored.
     private final SimpleCollisionBox newBoxScratch = new SimpleCollisionBox();
+    // The ride-tick seat oldBox last started from or a teleport replaced; each seat is a fresh Vec3.
+    private Vec3 seatTaken;
 
-    private void handleMovePlayer(ServerboundMovePlayer packet) {
+    private void handleMovePlayer(ServerboundMovePlayer packet, boolean teleport) {
         // Geyser projections must neither check movement nor replace auth-input history.
         if (player.isBedrockMovement()) return;
+        // Entity#positionRider seats a rider with setPos and client-side stopRiding leaves it there, so the first
+        // move off a vehicle starts on the seat the last ride tick gave it, whatever blocks that seat overlaps.
+        // An accepted teleport moves the client off that seat.
+        Vec3 seat = player.compensatedEntities.lastRideTickSeat();
+        boolean riding = player.inVehicle();
+        if (seat != null && seat != seatTaken && !teleport && !riding) oldBox = boxAt(seat, 1.8f, false);
+        if (teleport || !riding) seatTaken = seat;
         ServerboundMovePlayer flying = packet;
         if (!flying.hasPosition()) return;
 
-        checkMovement(
-                new Vec3(flying.x(), flying.y(), flying.z()), false, player.packetStateData.lastPacketWasTeleport);
+        checkMovement(new Vec3(flying.x(), flying.y(), flying.z()), false, teleport);
     }
 
     @Override
@@ -176,7 +184,7 @@ public class Phase extends Check implements PostPredictionListener {
     }
 
     private SimpleCollisionBox boxAt(SimpleCollisionBox out, Vec3 location, float height, boolean bedrock) {
-        return boxAt(out, location, height, bedrock, player.isBedrockMovement() ? 1.0f : player.getScale());
+        return boxAt(out, location, height, bedrock, player.isBedrockMovement() ? 1.0f : player.dimensionScale);
     }
 
     private SimpleCollisionBox boxAt(
@@ -200,6 +208,6 @@ public class Phase extends Check implements PostPredictionListener {
     @CultPacketHandler
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
-        handleMovePlayer(packet);
+        handleMovePlayer(packet, event.answersTeleport());
     }
 }

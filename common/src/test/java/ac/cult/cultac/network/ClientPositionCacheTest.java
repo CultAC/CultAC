@@ -24,9 +24,9 @@ class ClientPositionCacheTest {
             f.player.lastZ = 0.5;
             var packet = new ServerboundMovePlayer(0.5, 64.0, 0.5, 0, 0, true, false, true, false);
             var event = new PacketReceiveEvent<>(f.user, ConnectionPhase.PLAY, ServerboundPackets.MOVE_PLAYER, packet);
-            f.player.packetStateData.lastPacketWasTeleport = true;
+            event.setAnswersTeleport(true);
             check.onMovePlayer(event, f.player, packet);
-            f.player.packetStateData.lastPacketWasTeleport = false;
+            event.setAnswersTeleport(false);
             f.player.lastInstanceManager.onPredictionComplete(null);
             f.player.lastInstanceManager.onPredictionComplete(null);
             check.onMovePlayer(event, f.player, packet);

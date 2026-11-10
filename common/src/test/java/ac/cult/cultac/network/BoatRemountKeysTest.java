@@ -134,7 +134,7 @@ class BoatRemountKeysTest {
     /** The paddles, the rider's Rot, the boat's move to {@code to} and the tick end. */
     private static PredictionResult rideTick(JavaTickFixture f, boolean paddling, Vec3 to) {
         var paddle = new ServerboundPaddleBoat(paddling, paddling);
-        f.listener.onPaddleBoat(f.event(ServerboundPackets.PADDLE_BOAT, paddle), f.player, paddle);
+        ac.cult.cultac.events.packets.listeners.CheckManagerListener.receiveGeneric(f.event(ServerboundPackets.PADDLE_BOAT, paddle), f.player);
         var rot = new ServerboundMovePlayer(0, 0, 0, BOAT_YAW, 60.0F, false, false, false, true);
         f.listener.onMovePlayer(f.event(ServerboundPackets.MOVE_PLAYER, rot), f.player, rot);
         f.moveVehicle(to, BOAT_YAW, 0, false);

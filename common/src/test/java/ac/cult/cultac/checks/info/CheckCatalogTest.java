@@ -62,6 +62,17 @@ class CheckCatalogTest {
     }
 
     @Test
+    void everyCheckDeclaresAStableKey() {
+        List<String> unkeyed = new ArrayList<>();
+        for (MovementPlatform platform : MovementPlatform.values()) {
+            for (Check check : checks(platform)) {
+                if (check.getStableKey().isEmpty()) unkeyed.add(check.getCheckName());
+            }
+        }
+        assertEquals(List.of(), unkeyed);
+    }
+
+    @Test
     void aCheckIsFoundByItsNameConfigNameOrAltName() {
         assertEquals("SprintD", CheckCatalog.find("sprintd").name());
         assertEquals("AntiKB", CheckCatalog.find("KNOCKBACK").name());

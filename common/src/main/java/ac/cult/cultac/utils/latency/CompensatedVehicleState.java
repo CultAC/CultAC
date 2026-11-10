@@ -125,7 +125,7 @@ public final class CompensatedVehicleState implements Debuggable {
             // Only a loaded player's sendChanges guarantees a MoveVehicle for an item-controlled root.
             itemControlDecisionTick = player.packetStateData.acceptedClientTick;
             itemControlRoot = root;
-            itemControlDecision = player.packetStateData.clientTickVehicleMovePacketsThisClientTick > 0;
+            itemControlDecision = player.packetStateData.clientTickVehicleMoveThisClientTick;
         }
         if (!player.isBedrockMovement()
                 && rootTicked
@@ -217,7 +217,7 @@ public final class CompensatedVehicleState implements Debuggable {
     }
 
     public void updateServerControlledSafeSetbackPositionOnTickEnd() {
-        if (player.packetStateData.vehicleMovePacketsThisClientTick != 0) {
+        if (player.packetStateData.vehicleMovedThisClientTick) {
             return;
         }
 
@@ -237,7 +237,7 @@ public final class CompensatedVehicleState implements Debuggable {
 
         Vec3 safePosition = currentExactServerControlledPosition(root);
         if (safePosition != null) {
-            player.getSetbackTeleportUtil().updateSafeVehiclePosition(safePosition);
+            player.getSetbackTeleportUtil().proveSafeVehiclePosition(root.getEntityId(), safePosition);
         }
     }
 
@@ -331,7 +331,7 @@ public final class CompensatedVehicleState implements Debuggable {
         if (player.isBedrockMovement()
                 && ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl.isSupported(entity)) {
             BedrockVehiclePredictionState.rebase(
-                    entity, player.getSetbackTeleportUtil().getActiveBedrockCoordinateFrame());
+                    entity, player.getSetbackTeleportUtil().bedrockTeleports().getActiveBedrockCoordinateFrame());
         } else if (entity == getVelocityMovementVehicle()) {
             player.checkManager.getSimulationProcessor().seedVehicleStartingVelocity(deltaMovement);
         }
@@ -342,7 +342,7 @@ public final class CompensatedVehicleState implements Debuggable {
         PacketEntity entity = entities.getEntity(entityId);
         if (entity == null) return;
         if (player.isBedrockMovement() && BedrockHorseProperties.supports(entity.type)) {
-            var frame = player.getSetbackTeleportUtil().getActiveBedrockCoordinateFrame();
+            var frame = player.getSetbackTeleportUtil().bedrockTeleports().getActiveBedrockCoordinateFrame();
             var local = frame.toLocal(position);
             position = frame.toWorld(new Vec3((float) local.x, (float) local.y, (float) local.z));
         }
@@ -381,7 +381,7 @@ public final class CompensatedVehicleState implements Debuggable {
             }
         }
         // A no-snap echo serializes the active target without changing the physical transform or interpolation.
-        player.getSetbackTeleportUtil().updateSafeVehiclePosition(vehicle.clientPhysicalPosition);
+        player.getSetbackTeleportUtil().proveSafeVehiclePosition(vehicle.getEntityId(), vehicle.clientPhysicalPosition);
     }
 
     public void applyVehiclePacketPosition(
@@ -442,7 +442,7 @@ public final class CompensatedVehicleState implements Debuggable {
         serverVehicleSends++;
         PacketEntity vehicle = entities.getEntity(vehicleId);
         if (player.isBedrockMovement() && (serverPlayerVehicle == null || serverPlayerVehicle != vehicleId)) {
-            player.getSetbackTeleportUtil().clearVehicleTeleports();
+            player.getSetbackTeleportUtil().vehicleTeleports().clearVehicleTeleports();
         }
         retireVehicleResponsesOnReceipt(transaction);
         // Rebuilding passengers does not interrupt the same first passenger's control of this root.
@@ -496,22 +496,32 @@ public final class CompensatedVehicleState implements Debuggable {
         serverPlayerVehiclePassengers = null;
         serverPlayerVehicleTransaction = null;
         dismountedMountTransaction = null;
-        if (player.isBedrockMovement()) player.getSetbackTeleportUtil().clearVehicleTeleports();
-        else player.getSetbackTeleportUtil().retireVehicleTeleports(player.lastTransactionReceived.get());
+        if (player.isBedrockMovement()) player.getSetbackTeleportUtil().vehicleTeleports().clearVehicleTeleports();
+        else
+            player.getSetbackTeleportUtil()
+                    .vehicleTeleports()
+                    .retireVehicleTeleports(player.lastTransactionReceived.get());
     }
 
     private void retireVehicleResponsesOnReceipt(int transaction) {
         if (!player.isBedrockMovement()) {
             // handleMoveVehicle answers before the trailing ping. Sending a later mount cannot discard those
             // in-flight answers; receipt retires only earlier entries, leaving later mounts' responses intact.
-            player.latencyUtils.addRealTimeTask(
-                    transaction, () -> player.getSetbackTeleportUtil().retireVehicleTeleports(transaction));
+            player.latencyUtils.addRealTimeTask(transaction, () -> player.getSetbackTeleportUtil()
+                    .vehicleTeleports()
+                    .retireVehicleTeleports(transaction));
         }
+    }
+
+    /** The tracked entity the server last seated the player on. */
+    @Nullable
+    public PacketEntity serverVehicleEntity() {
+        return serverPlayerVehicle == null ? null : entities.getEntity(serverPlayerVehicle);
     }
 
     public PacketEntity getVelocityMovementVehicle() {
         if (!player.isBedrockMovement()) return entities.playerEntity.getRiding();
-        PacketEntity serverVehicle = serverPlayerVehicle == null ? null : entities.getEntity(serverPlayerVehicle);
+        PacketEntity serverVehicle = serverVehicleEntity();
         return serverVehicle == null ? entities.playerEntity.getRiding() : serverVehicle;
     }
 
@@ -705,22 +715,23 @@ public final class CompensatedVehicleState implements Debuggable {
     @Nullable
     public PacketEntityHorse getClientVisibleHorseRoot() {
         if (entities.playerEntity.getRiding() instanceof PacketEntityHorse horse) return horse;
-        PacketEntity vehicle = serverPlayerVehicle == null ? null : entities.getEntity(serverPlayerVehicle);
+        PacketEntity vehicle = serverVehicleEntity();
         return vehicle instanceof PacketEntityHorse horse && canServerPlayerVehicleBeLocalAuthoritative()
                 ? horse
                 : null;
     }
 
     public boolean canServerPlayerVehicleBeLocalAuthoritative() {
-        PacketEntity vehicle = serverPlayerVehicle == null ? null : entities.getEntity(serverPlayerVehicle);
-        return hasClientObservedServerVehicle()
+        PacketEntity vehicle = serverVehicleEntity();
+        // Until its dismount's proof, passengerIndex reads the client-visible passengers, which still seat the player.
+        return (hasClientObservedServerVehicle() || hasPendingServerDismount())
                 && vehicle != null
                 && passengerIndex(vehicle) == 0
                 && canLocalClientAuthoritativelyMove(vehicle);
     }
 
     public boolean canServerPlayerVehicleBeLocalAuthoritativeForMovementPacket(boolean fromClientTick) {
-        PacketEntity vehicle = serverPlayerVehicle == null ? null : entities.getEntity(serverPlayerVehicle);
+        PacketEntity vehicle = serverVehicleEntity();
         return vehicle != null
                 && passengerIndex(vehicle) == 0
                 && (fromClientTick && !player.isBedrockMovement() && isItemControlledVehicleType(vehicle)
@@ -730,10 +741,6 @@ public final class CompensatedVehicleState implements Debuggable {
                 && (hasClientObservedServerVehicle() || fromClientTick);
     }
 
-    public boolean canCurrentPlayerControlServerVehicleForClientTickMovement() {
-        return canServerPlayerVehicleBeLocalAuthoritative();
-    }
-
     /**
      * Whether the Java client's own movement tick moves this velocity root, so end-of-tick interpolation skips it and
      * VehiclePredictionRunner runs its per-tick tail instead.
@@ -741,13 +748,12 @@ public final class CompensatedVehicleState implements Debuggable {
     public boolean isLocallyTickedVelocityRoot(@Nullable PacketEntity vehicle) {
         if (!player.isBedrockMovement() && isItemControlledVehicleType(vehicle))
             return vehicle == getVelocityMovementVehicle()
-                    && player.packetStateData.clientTickVehicleMovePacketsThisClientTick > 0;
+                    && player.packetStateData.clientTickVehicleMoveThisClientTick;
         return !player.isBedrockMovement()
                 && vehicle != null
                 && vehicle == getVelocityMovementVehicle()
                 && (canClientAuthoritativelyMoveVisibleRoot(vehicle)
-                        || player.packetStateData.clientTickVehicleMovePacketsThisClientTick > 0
-                        || player.packetStateData.localAuthoritativeVehicleMovePacketsThisClientTick > 0);
+                        || player.packetStateData.clientTickVehicleMoveThisClientTick);
     }
 
     public boolean canClientAuthoritativelyMoveVisibleRoot(@Nullable PacketEntity vehicle) {
@@ -1035,7 +1041,7 @@ public final class CompensatedVehicleState implements Debuggable {
         entities.updatePassengerPositions(keptSeats);
         seedStartingVelocityIfRootChanged(previousRoot);
         if (player.isBedrockMovement() && previousRoot == null && !containsLocalPlayer(passengerIds)) {
-            player.getSetbackTeleportUtil().transferBedrockVehicleSetback(vehicleId);
+            player.getSetbackTeleportUtil().vehicleTeleports().transferBedrockVehicleSetback(vehicleId);
         }
         return true;
     }
@@ -1057,7 +1063,9 @@ public final class CompensatedVehicleState implements Debuggable {
         Vec3 rootDeltaMovement = currentRoot == null ? entities.playerEntity.deltaMovement : currentRoot.deltaMovement;
         player.checkManager.getSimulationProcessor().seedStartingVelocity(rootDeltaMovement);
         if (player.isBedrockMovement() && previousRoot != null && currentRoot == null) {
-            player.getSetbackTeleportUtil().transferBedrockVehicleSetback(previousRoot.getEntityId());
+            player.getSetbackTeleportUtil()
+                    .vehicleTeleports()
+                    .transferBedrockVehicleSetback(previousRoot.getEntityId());
         }
     }
 
@@ -1173,7 +1181,7 @@ public final class CompensatedVehicleState implements Debuggable {
 
     private boolean canLocalClientAuthoritativelyMove(PacketEntity vehicle) {
         if (!player.isBedrockMovement() && isItemControlledVehicleType(vehicle)) {
-            if (player.packetStateData.clientTickVehicleMovePacketsThisClientTick > 0
+            if (player.packetStateData.clientTickVehicleMoveThisClientTick
                     || player.packetStateData.isVehicleMovementFromClientTick()) return hasSaddle(vehicle);
             if (itemControlRoot == vehicle && itemControlDecisionHolds())
                 return hasSaddle(vehicle) && itemControlDecision;

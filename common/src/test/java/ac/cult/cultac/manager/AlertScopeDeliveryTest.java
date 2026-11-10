@@ -8,15 +8,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.manager.AlertManagerImpl.Recipients;
 import ac.cult.cultac.manager.alerts.AlertKind;
+import ac.cult.cultac.manager.alerts.AlertPermits;
 import ac.cult.cultac.manager.alerts.AlertScope;
 import ac.cult.cultac.manager.alerts.AlertScopes;
 import ac.cult.cultac.manager.alerts.AlertSubject;
@@ -26,6 +29,7 @@ import ac.cult.cultac.platform.api.PlatformServer;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.platform.api.sender.Sender;
 import ac.cult.reload.api.HostContext;
+import ac.grim.grimac.api.config.ConfigManager;
 import com.google.gson.JsonObject;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -46,6 +50,10 @@ import org.junit.jupiter.api.Test;
 class AlertScopeDeliveryTest {
     private static final AlertSubject ON_PVP = new AlertSubject(UUID.randomUUID(), "Bob", "pvp");
     private static final AlertSubject BETWEEN_SERVERS = new AlertSubject(UUID.randomUUID(), "Cat", null);
+    private static final Map<AlertKind, String> PERMISSIONS =
+            Map.of(AlertKind.ALERT, "cult.alerts", AlertKind.VERBOSE, "cult.verbose", AlertKind.BRAND, "cult.brand");
+    private static final Map<AlertKind, String> TYPES =
+            Map.of(AlertKind.ALERT, "NORMAL", AlertKind.VERBOSE, "VERBOSE", AlertKind.BRAND, "BRAND");
 
     private final TestNetworks networks = new TestNetworks();
     private final NetworkService service = networks.started("p3");
@@ -56,6 +64,7 @@ class AlertScopeDeliveryTest {
     private final HostContext host = host();
     private boolean proxy = true;
     private boolean relay;
+    private long now;
     private AlertManagerImpl alerts;
     private Object previousServer;
     private boolean consoleAlerts;
@@ -92,7 +101,8 @@ class AlertScopeDeliveryTest {
 
     /** An engine generation of instance {@code running.instanceId()}, sharing the host with every other. */
     private AlertManagerImpl manager(NetworkService running) {
-        AlertManagerImpl manager = new AlertManagerImpl(scopes, () -> running, () -> proxy, host, () -> relay);
+        AlertManagerImpl manager = new AlertManagerImpl(
+                scopes, () -> running, () -> proxy, host, () -> relay, new AlertPermits(() -> now));
         manager.network().attach(running);
         return manager;
     }
@@ -119,6 +129,7 @@ class AlertScopeDeliveryTest {
         when(player.getUniqueId()).thenReturn(UUID.randomUUID());
         when(player.getNative()).thenReturn(handle);
         when(player.serverName()).thenReturn(server);
+        when(player.hasPermission(anyString())).thenReturn(true);
         staff.add(player);
         return player;
     }
@@ -213,6 +224,94 @@ class AlertScopeDeliveryTest {
             leave();
         }
         assertEquals(0, messages(console));
+    }
+
+    @Test
+    void staffWhoLoseThePermissionWhileSubscribedAreUnsubscribed() throws ReflectiveOperationException {
+        for (AlertKind kind : AlertKind.values()) {
+            PlatformPlayer kept = staff("pvp", AlertScope.GLOBAL);
+            PlatformPlayer revoked = staff("pvp", AlertScope.GLOBAL);
+            subscribe(kind, kept, revoked);
+            when(revoked.hasPermission(anyString())).thenReturn(false);
+
+            raise(kind, ON_PVP);
+            alerts.deliverReceived(kind, Component.text(kind.id()), "pvp", null);
+            when(revoked.hasPermission(anyString())).thenReturn(true);
+            raise(kind, ON_PVP);
+
+            assertEquals(3, messages(kept), kind.id());
+            assertEquals(0, messages(revoked), kind.id());
+            assertFalse(AlertSets.subscribed(revoked).contains(TYPES.get(kind)), kind.id());
+            leave();
+        }
+    }
+
+    @Test
+    void eachKindNeedsItsOwnPermissionAndNoOther() {
+        for (AlertKind kind : AlertKind.values()) {
+            PlatformPlayer denied = staff("pvp", AlertScope.GLOBAL);
+            PlatformPlayer othersDenied = staff("pvp", AlertScope.GLOBAL);
+            subscribe(kind, denied, othersDenied);
+            when(denied.hasPermission(PERMISSIONS.get(kind))).thenReturn(false);
+            for (AlertKind other : AlertKind.values()) {
+                if (other != kind)
+                    when(othersDenied.hasPermission(PERMISSIONS.get(other))).thenReturn(false);
+            }
+
+            raise(kind, ON_PVP);
+
+            assertEquals(0, messages(denied), kind.id());
+            assertEquals(1, messages(othersDenied), kind.id());
+            leave();
+        }
+    }
+
+    @Test
+    void theVerbosePermissionKeepsTheAlertsOfAVerboseSubscriberOnly() {
+        PlatformPlayer verbose = staff("pvp", AlertScope.GLOBAL);
+        PlatformPlayer alertsOnly = staff("pvp", AlertScope.GLOBAL);
+        subscribe(AlertKind.VERBOSE, verbose);
+        subscribe(AlertKind.ALERT, alertsOnly);
+        when(verbose.hasPermission("cult.alerts")).thenReturn(false);
+        when(alertsOnly.hasPermission("cult.alerts")).thenReturn(false);
+
+        raise(AlertKind.ALERT, ON_PVP);
+
+        assertEquals(1, messages(verbose));
+        assertEquals(0, messages(alertsOnly));
+    }
+
+    @Test
+    void aVerboseCopyRefusedForThePermissionLeavesTheReceivedAlertToArrive() {
+        PlatformPlayer staffer = staff("pvp", AlertScope.GLOBAL);
+        subscribe(AlertKind.VERBOSE, staffer);
+        when(staffer.hasPermission("cult.verbose")).thenReturn(false);
+
+        alerts.deliverReceived(AlertKind.VERBOSE, Component.text("verbose"), "pvp", "pair");
+        alerts.deliverReceived(AlertKind.ALERT, Component.text("alert"), "pvp", "pair");
+
+        assertEquals(1, messages(staffer));
+    }
+
+    @Test
+    void thePermissionIsAskedOncePerRecheckAndATakenOneStopsMessagesAtTheNext() throws ReflectiveOperationException {
+        PlatformPlayer staffer = staff("pvp", AlertScope.GLOBAL);
+        subscribe(AlertKind.ALERT, staffer);
+
+        raise(AlertKind.ALERT, ON_PVP);
+        raise(AlertKind.ALERT, ON_PVP);
+        when(staffer.hasPermission(anyString())).thenReturn(false);
+        now += AlertPermits.RECHECK_MILLIS - 1;
+        raise(AlertKind.ALERT, ON_PVP);
+
+        assertEquals(3, messages(staffer));
+        verify(staffer, times(1)).hasPermission("cult.alerts");
+
+        now += 1;
+        raise(AlertKind.ALERT, ON_PVP);
+
+        assertEquals(3, messages(staffer));
+        assertFalse(AlertSets.subscribed(staffer).contains("NORMAL"));
     }
 
     @Test
@@ -487,6 +586,35 @@ class AlertScopeDeliveryTest {
     }
 
     @Test
+    void aConfiguredGlobalDefaultAppliesUntilAChoiceAndOnlyWithNetworkAlerts() {
+        alerts.reload(defaultScope("global"));
+        PlatformPlayer player = staff("lobby");
+        assertEquals(AlertScope.GLOBAL, alerts.scope(player));
+        assertNull(alerts.chosenScope(player));
+
+        alerts.chooseScope(player, AlertScope.SERVER);
+        assertEquals(AlertScope.SERVER, alerts.scope(player));
+
+        AlertManagerImpl offline = manager(networks.withoutTransport("p9"));
+        offline.reload(defaultScope("global"));
+        assertEquals(AlertScope.SERVER, offline.scope(staff("lobby")));
+    }
+
+    @Test
+    void anUnknownDefaultScopeIsServer() {
+        alerts.reload(defaultScope("global"));
+        alerts.reload(defaultScope("everywhere"));
+        assertEquals(AlertScope.SERVER, alerts.scope(staff("lobby")));
+    }
+
+    private static ConfigManager defaultScope(String scope) {
+        ConfigManager config = mock(ConfigManager.class);
+        when(config.getStringElse(anyString(), anyString())).thenAnswer(invocation -> invocation.getArgument(1));
+        when(config.getStringElse(eq("alerts.default-scope"), anyString())).thenReturn(scope);
+        return config;
+    }
+
+    @Test
     void theVerboseServersFollowSubscribersAndTheirScope() {
         PlatformPlayer global = staff("lobby", AlertScope.GLOBAL);
         PlatformPlayer server = staff("lobby", AlertScope.SERVER);
@@ -509,8 +637,13 @@ class AlertScopeDeliveryTest {
     void aServerScopedVerboseListenerOnOneProxyGetsVerboseAnotherProxyRaisesAboutAPlayerOnItsServer() {
         PlatformPlayer listener = staff("pvp", AlertScope.SERVER);
         PlatformPlayer elsewhere = staff("lobby", AlertScope.SERVER);
-        AlertManagerImpl other =
-                new AlertManagerImpl(new AlertScopes(null, () -> null), () -> peer, () -> true, host(), () -> false);
+        AlertManagerImpl other = new AlertManagerImpl(
+                new AlertScopes(null, () -> null),
+                () -> peer,
+                () -> true,
+                host(),
+                () -> false,
+                new AlertPermits(() -> now));
         other.network().attach(peer);
         assertFalse(other.hasVerboseListeners());
 

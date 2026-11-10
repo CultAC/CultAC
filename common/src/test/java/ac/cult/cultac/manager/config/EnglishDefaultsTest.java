@@ -10,6 +10,7 @@ class EnglishDefaultsTest {
     private static final List<String> MESSAGE_STRINGS = List.of(
             "alerts-format",
             "alerts-format-proxy",
+            "alerts-format-suspected",
             "experimental-symbol",
             "info-button-all",
             "info-button-all-hover",

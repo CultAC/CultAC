@@ -1,5 +1,6 @@
 package ac.cult.cultac.bedrock.bridge;
 
+import ac.cult.cultac.checks.impl.visibility.BedrockPlaceVisibility;
 import ac.cult.cultac.events.packets.blockplace.PlaceHandler;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
@@ -8,7 +9,9 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.Vec3d;
+import ac.cult.cultac.utils.math.Vec3;
 import org.cloudburstmc.protocol.bedrock.data.inventory.transaction.InventoryTransactionType;
+import org.cloudburstmc.protocol.bedrock.data.inventory.transaction.ItemUseTransaction;
 import org.cloudburstmc.protocol.bedrock.packet.InventoryTransactionPacket;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.util.BlockUtils;
@@ -31,7 +34,8 @@ final class GeyserItemUse {
     static boolean allow(GeyserSession session, CultPlayer player, InventoryTransactionPacket packet) {
         if (packet.getTransactionType() != InventoryTransactionType.ITEM_USE || packet.getActionType() != 0)
             return true;
-        if (!player.getSetbackTeleportUtil().isPendingSetback()) return true;
+        if (!player.getSetbackTeleportUtil().isPendingSetback() && !dropsHiddenUse(session, player, packet))
+            return true;
         var position = packet.getBlockPosition();
         BlockUtils.restoreCorrectBlock(session, position, packet.getHotbarSlot());
         if (packet.getBlockFace() >= 0 && packet.getBlockFace() < FACES.length) {
@@ -40,6 +44,27 @@ final class GeyserItemUse {
                     session, position.add(face.getModX(), face.getModY(), face.getModZ()), packet.getHotbarSlot());
         }
         return false;
+    }
+
+    // Hands a use on a block to BedrockPlaceVisibility before Geyser translates it; true when it must be dropped.
+    private static boolean dropsHiddenUse(GeyserSession session, CultPlayer player, InventoryTransactionPacket packet) {
+        var position = packet.getBlockPosition();
+        if (position == null) return false;
+        var click = packet.getClickPosition();
+        Vec3 point = click != null
+                        && Float.isFinite(click.getX())
+                        && Float.isFinite(click.getY())
+                        && Float.isFinite(click.getZ())
+                ? new Vec3(click.getX(), click.getY(), click.getZ())
+                : null;
+        boolean playerInput = packet.getTriggerType() == ItemUseTransaction.TriggerType.PLAYER_INPUT;
+        return player.checkManager
+                .getCheck(BedrockPlaceVisibility.class)
+                .dropsUse(
+                        GeyserBedrockBridgeRuntime.worldBlock(session, position),
+                        packet.getBlockFace(),
+                        point,
+                        playerInput);
     }
 
     static void observe(

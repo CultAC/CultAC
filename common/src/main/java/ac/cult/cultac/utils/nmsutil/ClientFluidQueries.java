@@ -91,6 +91,15 @@ public final class ClientFluidQueries {
                 && version.isOlderThan(ClientVersion.V_26_1);
     }
 
+    /**
+     * Whether a cell without fluid counts for {@code tag}: 1.21.2 to 1.21.11's
+     * Entity#updateFluidHeightAndDoFluidPushing reads every cell's fluid, and a received tag can hold the empty one.
+     * {@link CompensatedWorld#mayHaveFluid} rules out a range only where this is false.
+     */
+    public static boolean countsEmptyFluid(CultPlayer player, FluidTags tag) {
+        return usesLegacyFluidDepth(player) && ClientFluidTagOrder.contactMatches(player, modelFluid(0), tag);
+    }
+
     /** 1.21.2–1.21.11 add the block Y and float fluid height before widening to double. */
     public static double fluidSurfaceY(CultPlayer player, int blockY, double fluidHeight) {
         return usesLegacyFluidDepth(player) ? (double) ((float) blockY + (float) fluidHeight) : blockY + fluidHeight;
@@ -126,7 +135,7 @@ public final class ClientFluidQueries {
     }
 
     public static ClientComponentRegistries.Tags clientTags(CultPlayer player) {
-        if (player.registryState == null) player.registryState = new ClientComponentRegistries();
+        player.registryState();
         // RegistryTags is decoded into dispatcher MODEL values on both platforms.
         // The observed wire can be older than that native representation.
         var connection = player.user.getCultConnection();
@@ -283,6 +292,13 @@ public final class ClientFluidQueries {
     public static double depth(CultPlayer player, SimpleCollisionBox entityBox, FluidTags tag) {
         if (!hasLoadedFluidNeighborhood(player, entityBox)) return 0.0D;
         SimpleCollisionBox box = entityBox.copy().expand(-0.001D);
+        if (!player.compensatedWorld.mayHaveFluid(
+                (int) Math.floor(box.minX),
+                (int) Math.floor(box.minY),
+                (int) Math.floor(box.minZ),
+                (int) Math.ceil(box.maxX) - 1,
+                (int) Math.ceil(box.maxY) - 1,
+                (int) Math.ceil(box.maxZ) - 1)) return 0.0D;
         // Entity#updateFluidHeightAndDoFluidPushing uses the deflated minimum;
         // 26.1's EntityFluidInteraction instead measures from the original entity box.
         double depthMinY = usesLegacyFluidDepth(player) ? box.minY : entityBox.minY;
@@ -334,6 +350,8 @@ public final class ClientFluidQueries {
                 || x >= Math.ceil(box.maxX)
                 || z < Math.floor(box.minZ)
                 || z >= Math.ceil(box.maxZ)) return 0;
+        if (!player.compensatedWorld.mayHaveFluid(
+                x, (int) Math.floor(box.minY), z, x, (int) Math.ceil(box.maxY) - 1, z)) return 0;
         int holders = 0;
         for (int y = (int) Math.floor(box.minY); y < Math.ceil(box.maxY); y++) {
             BlockPos pos = new BlockPos(x, y, z);

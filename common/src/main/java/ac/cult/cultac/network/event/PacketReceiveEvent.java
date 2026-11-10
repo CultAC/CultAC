@@ -16,6 +16,7 @@ public final class PacketReceiveEvent<R extends ServerboundPacket> extends Packe
     private boolean acceptedTransactionResponse;
     private boolean teleportPositionResponse;
     private boolean authoredTeleportResponse;
+    private boolean answersTeleport;
 
     public PacketReceiveEvent(User user, ConnectionPhase phase, PacketType<R> type, R packet) {
         this(user, phase, type, packet, false);
@@ -51,6 +52,7 @@ public final class PacketReceiveEvent<R extends ServerboundPacket> extends Packe
         acceptedTransactionResponse = false;
         teleportPositionResponse = false;
         authoredTeleportResponse = false;
+        answersTeleport = false;
     }
 
     /** An internal recovery event, with no packet received from the client. */
@@ -82,5 +84,14 @@ public final class PacketReceiveEvent<R extends ServerboundPacket> extends Packe
 
     public void setAuthoredTeleportResponse(boolean response) {
         authoredTeleportResponse = response;
+    }
+
+    /** This movement packet answers a server teleport, so LocalPlayer#tick did not send it as tick movement. */
+    public boolean answersTeleport() {
+        return answersTeleport;
+    }
+
+    public void setAnswersTeleport(boolean answers) {
+        answersTeleport = answers;
     }
 }

@@ -47,6 +47,13 @@ public class NoFall implements EngineCheck {
                 ? move
                 : null;
 
+        SimpleCollisionBox valid = result.getValidMovements().getCollisionIgnoredMaxStartingVelExtents();
+        double stuckSpeedY = result.getSimulationContext().getLastStuckSpeed().y;
+        // Every Entity#move sets onGround from its own collision, so the travel lands by its own displacement:
+        // the reported movement minus the position-only shove.
+        double travelY = result.getTarget().y - result.getPositionOnlyDelta().y / stuckSpeedY;
+        boolean desiredOnGround = canCollideDown;
+
         if (passEndsMove) {
             boolean reported = result.getSimulationContext().isOnGround();
             if (reported != pass.result().state().onGround()) {
@@ -59,25 +66,22 @@ public class NoFall implements EngineCheck {
                 result.addFlag(noFallPseudo, () -> String.valueOf(reported), 0.1);
                 flaggedNoFall = true;
             }
-        } else if (!canCollideDown
-                && result.getSimulationContext().isOnGround()
+        } else if (result.getSimulationContext().isOnGround()
+                && !endsOnFloor(downCollide, travelY, stuckSpeedY)
                 && !STEP_PROOF.canStandAtDestination(player, result)) {
             result.addFlag(noFallPseudo, () -> "true", 0.1);
             flaggedNoFall = true;
+            desiredOnGround = false;
         }
 
-        SimpleCollisionBox valid = result.getValidMovements().getCollisionIgnoredMaxStartingVelExtents();
-        double stuckSpeedY = result.getSimulationContext().getLastStuckSpeed().y;
-        // Every Entity#move sets onGround from its own collision, so the travel lands by its own displacement:
-        // the reported movement minus the position-only shove.
-        double travelY = result.getTarget().y - result.getPositionOnlyDelta().y / stuckSpeedY;
         // The player is off the ground and can collide to the ground
         if (!result.getSimulationContext().isOnGround()
                 && !passEndsMove
                 && forward == null
                 && canCollideDown
                 && valid.maxY + 0.001 < travelY // And their valid Y is below their actual movement
-                && downCollide.inMovementSpace(stuckSpeedY) + 0.001 >= travelY) { // And they recovered by colliding
+                && (downCollide.inMovementSpace(stuckSpeedY) + 0.001 >= travelY // And they recovered by colliding
+                        || stepsUpFromDownwardMove(result, valid))) {
             result.addFlag(noFallPseudo, () -> "false", 0.1);
             flaggedNoFall = true;
         }
@@ -97,7 +101,7 @@ public class NoFall implements EngineCheck {
         if (flaggedNoFall) {
             result.setDesiredOnGround(passEndsMove
                     ? pass.result().state().onGround()
-                    : forward != null ? forward.verticalCollisionBelow() : canCollideDown);
+                    : forward != null ? forward.verticalCollisionBelow() : desiredOnGround);
         }
     }
 
@@ -113,6 +117,29 @@ public class NoFall implements EngineCheck {
         if (reported == moved) return;
         result.addFlag(player.checkManager.getListener(NoFallPseudo.class), () -> String.valueOf(reported), 0.1);
         result.setDesiredOnGround(moved);
+    }
+
+    /**
+     * A travel above the floor it could land on, and above every Y the player requested, that only Entity#collide's
+     * step-up explains. Every requested Y is downward, so the step follows a collision that stopped the downward move:
+     * Entity#move sets verticalCollisionBelow, then onGround, and Entity#checkFallDamage lands the fall. A client that
+     * reports this move airborne skips that landing on the server, which then resets the fall for the upward move.
+     */
+    private static boolean stepsUpFromDownwardMove(PredictionResult result, SimpleCollisionBox valid) {
+        return result.getValidMovements().isCanStep() && valid.maxY < 0.0D;
+    }
+
+    /**
+     * Entity#move sets onGround only when collision stops a downward move, which leaves the travel on the floor it hit.
+     * A travel that ends above the nearest floor the move could reach hit none, however far the move could have gone.
+     * The 0.001 is the recovered-fall check's: it holds Entity#move's setPos guard, which keeps the player where it was
+     * for a clip within sqrt(1.0E-7), and a position LocalPlayer#sendPosition withheld within 2.0E-4.
+     */
+    private static boolean endsOnFloor(CollideAxisData.CollideResult downCollide, double travelY, double stuckSpeedY) {
+        // The clip and the target are both stored divided by Entity#stuckSpeedMultiplier.
+        return downCollide != null
+                && downCollide.isLikelyCollide()
+                && travelY * stuckSpeedY <= downCollide.inMovementSpace(stuckSpeedY) + 0.001;
     }
 
     private static void handleBedrockResult(

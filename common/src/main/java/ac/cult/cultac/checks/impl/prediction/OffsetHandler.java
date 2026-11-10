@@ -65,7 +65,7 @@ public class OffsetHandler extends Check implements PostPredictionListener {
         if ((offset >= threshold || offset >= immediateSetbackThreshold)
                 && flag(
                         V.write(verbose()).f64(offset),
-                        () -> formatOffset(offset) + " " + "\u00a78" + predictionResult.getIdentifier())) {
+                        () -> formatOffset(offset) + " " + "\u00a78" + predictionResult.shownIdentifier())) {
             advantageGained += offset;
 
             boolean isSetback = advantageGained >= maxAdvantage

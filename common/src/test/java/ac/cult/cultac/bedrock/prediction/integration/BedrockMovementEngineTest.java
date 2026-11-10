@@ -122,7 +122,6 @@ public final class BedrockMovementEngineTest {
         BedrockMovementState alternative =
                 state(new Vec3d(10.0D, 64.0D, 20.0D), new Vec3d(0.07D, 0.1D, 0.02D), BedrockCollisionFlags.AIR);
         TeleportData teleport = new TeleportData(new Vec3(10.5D, 64.01D, 20.0D), new RelativeFlag(0), Vec3.ZERO, 0, 0);
-        teleport.setBedrockTransportOnly(true);
 
         PredictionCommit rebased = BedrockMovementEngine.INSTANCE.applyTeleportToCarry(
                 commit(canonical, alternative).carry(), teleport);
@@ -138,7 +137,6 @@ public final class BedrockMovementEngineTest {
         var original = state(new Vec3d(10, 64, 20), new Vec3d(0.1, 0, 0), BedrockCollisionFlags.ON_GROUND);
         var origin = new BedrockCoordinateFrame(4096, 0, 1);
         var teleport = new TeleportData(new Vec3(4106, 64, 20), new RelativeFlag(0), Vec3.ZERO, 1, 7);
-        teleport.setBedrockTransportOnly(true);
         teleport.setBedrockCoordinateFrame(origin);
         teleport.setBedrockOperation(new BedrockTeleportOperation(1, BedrockTeleportProvenance.GEYSER, 7));
         teleport.setBedrockOnGround(false);

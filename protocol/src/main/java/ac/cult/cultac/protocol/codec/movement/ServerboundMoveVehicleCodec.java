@@ -7,6 +7,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
 
+/** 1.21.4 appended the onGround byte. */
 public final class ServerboundMoveVehicleCodec implements WritablePacketCodec<ServerboundMoveVehicle> {
     @Override
     public ServerboundMoveVehicle read(ByteBuf input, ProtocolContext context) {

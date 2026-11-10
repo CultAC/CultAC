@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.IntSupplier;
 import lombok.*;
 
 @Data
@@ -87,6 +88,22 @@ public class PredictionResult {
     @Setter
     int identifier;
 
+    /** Whether showing this result's identifier builds its Cult Log: a check that shows it flagged the result. */
+    @Getter
+    @Setter
+    @EqualsAndHashCode.Exclude
+    boolean logOffered;
+
+    /**
+     * Builds the Cult Log and returns its identifier, or 0 off the thread that predicted this result. Set only while the
+     * prediction's listeners run and nothing has shown the identifier yet.
+     */
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    private IntSupplier logWhenShown;
+
     @Getter
     @Setter
     Boolean desiredOnGround = null;
@@ -102,6 +119,32 @@ public class PredictionResult {
 
     public Vec3 getReportedPredictionVector() {
         return javaReportedMovement == null ? getAcceptedClosestToTarget() : javaReportedMovement;
+    }
+
+    /** Lets the first text that shows the identifier, until {@link #closeLog}, build the Cult Log with {@code log}. */
+    public void buildLogWhenShown(IntSupplier log) {
+        logWhenShown = log;
+    }
+
+    /** The prediction's listeners are done: text rendered from now on shows 0 unless a log was built. */
+    public void closeLog() {
+        logWhenShown = null;
+    }
+
+    /**
+     * The Cult Log identifier, for text that shows it to someone. Text rendered while the prediction's listeners run
+     * builds the log here, so a log exists only for an identifier that something showed; otherwise 0.
+     */
+    public int shownIdentifier() {
+        IntSupplier log = logWhenShown;
+        if (identifier == 0 && log != null) {
+            int built = log.getAsInt();
+            if (built != 0) {
+                identifier = built;
+                logWhenShown = null;
+            }
+        }
+        return identifier;
     }
 
     public <T> T getProfileResult(Class<T> type) {

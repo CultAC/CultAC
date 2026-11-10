@@ -13,6 +13,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
 public class TimerCheck extends AbstractTimerCheck {
     public static final CheckInfo INFO = CheckInfo.builder()
             .name("Timer")
+            .stableKey("grim.timer.timer")
             .description("Game ran faster than normal")
             .configName("TimerA")
             .setback(5)
@@ -31,12 +32,13 @@ public class TimerCheck extends AbstractTimerCheck {
         boolean mountedPassengerRotation = !packet.hasPosition()
                 && (player.compensatedEntities.vehicles.serverPlayerVehicle != null
                         || player.compensatedEntities.getSelf().inVehicle());
-        recordModernMovePlayerPacket(event, !player.packetStateData.lastPacketWasTeleport && !mountedPassengerRotation);
-        recordTimerEvent(event, false, shouldCountMovePlayerForTimer());
+        recordModernMovePlayerPacket(event, !event.answersTeleport() && !mountedPassengerRotation);
+        recordTimerEvent(event, false, shouldCountMovePlayerForTimer(event.answersTeleport()));
     }
 
     @CultPacketHandler("serverbound.client_tick_end")
     public void onClientTickEnd(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
+        if (endRejectedClientTick(event)) return;
         recordTimerEvent(event, false, shouldCountClientTickEndForTimer());
         // A rejected tick end closes no client tick, so the moves after it still count toward the current one.
         if (!event.isCancelled()) recordModernClientTickEndPacket();

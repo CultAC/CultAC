@@ -35,12 +35,13 @@ public class BoatTransform implements UncertaintyHandler {
             PredictionResult lastResult,
             MovementTrace trace,
             Vec3 end) {
-        PredVector velocity = handleUncertainty(player, valid, result, context, lastResult, trace.position(), end);
-        if (velocity == trace.position()) return trace;
+        BoatTickResult tick = boatTick(player, context, trace.position(), end);
+        if (tick == null) return trace;
+        PredVector velocity = trace.position().with(tick.vector(), "boat inputs");
         // AbstractBoat#tick stores the floatBoat and controlBoat result in deltaMovement before Entity#move,
         // so that, not the tick's starting velocity, is what the move carries into the next tick.
         MovementTrace moved = trace.withPosition(velocity).withPreCollisionVelocity(velocity);
-        if (usesProvenWaterEntryPositionSnap(player, context)) {
+        if (tick.landed()) {
             // floatBoat's water-entry setPos is position only. That branch explicitly clears stored Y before
             // controlBoat and Entity#move, so its height correction must never become next tick's buoyancy.
             Vec3 snap = new Vec3(0, velocity.y, 0);
@@ -80,7 +81,12 @@ public class BoatTransform implements UncertaintyHandler {
             PredictionResult lastResult,
             PredVector start,
             Vec3 end) {
-        if (context.getVehicle() == null || !EntityTypeUtil.isBoat(context.getVehicle().type)) return start;
+        BoatTickResult tick = boatTick(player, context, start, end);
+        return tick == null ? start : start.with(tick.vector(), "boat inputs");
+    }
+
+    private static BoatTickResult boatTick(CultPlayer player, SimulationContext context, Vec3 start, Vec3 end) {
+        if (context.getVehicle() == null || !EntityTypeUtil.isBoat(context.getVehicle().type)) return null;
         if (!player.packetStateData.isVehicleMovementFromClientTick()) {
             // MCP-Reborn ClientPacketListener#handleMoveVehicle only snaps the
             // local-authoritative root with Entity#absSnapTo and immediately
@@ -88,11 +94,10 @@ public class BoatTransform implements UncertaintyHandler {
             // packet-handler path never executes AbstractBoat#tick,
             // AbstractBoat#floatBoat, or AbstractBoat#controlBoat, so it cannot
             // create a new controlled-boat movement delta on its own.
-            return start;
+            return null;
         }
 
-        BoatTickResult tick = selectBoatTick(player, context, start, BoatTickState.capture(player), end);
-        return start.with(tick.vector(), "boat inputs");
+        return selectBoatTick(player, context, start, BoatTickState.capture(player), end);
     }
 
     public static void commitAcceptedBoatTickState(CultPlayer player, PredictionResult result) {
@@ -235,10 +240,10 @@ public class BoatTransform implements UncertaintyHandler {
             // checks block, entity, and border collisions; a boat cannot snap down
             // through a collidable passenger-external entity.
             if (waterEntrySnapHasNoCollision(player, context, movedBox)) {
-                return new FloatBoatResult(snapVector, state.withWaterEntrySnap(waterLevel));
+                return new FloatBoatResult(snapVector, state.withWaterEntrySnap(waterLevel), true);
             }
 
-            return new FloatBoatResult(vector, state.withWaterEntryBlocked(waterLevel));
+            return new FloatBoatResult(vector, state.withWaterEntryBlocked(waterLevel), false);
         } else {
             if (state.status() == BoatEntityStatus.IN_WATER) {
                 d2 = (state.waterLevel() - boatY) / boatHeight;
@@ -266,7 +271,8 @@ public class BoatTransform implements UncertaintyHandler {
 
         // MCP-Reborn AbstractBoat#floatBoat multiplies deltaRotation by the same
         // status friction applied to horizontal velocity.
-        return new FloatBoatResult(vector, state.withDeltaRotation(state.deltaRotation() * invFriction));
+        return new FloatBoatResult(
+                vector, state.withDeltaRotation(state.deltaRotation() * invFriction), false);
     }
 
     private static BoatTickResult selectBoatTick(
@@ -319,7 +325,8 @@ public class BoatTransform implements UncertaintyHandler {
         return new BoatTickResult(
                 controlled.vector(),
                 postFloatState.withDeltaRotation(controlled.deltaRotation()),
-                controlled.postControlYaw());
+                controlled.postControlYaw(),
+                floated.landed());
     }
 
     private static boolean waterEntrySnapHasNoCollision(
@@ -485,9 +492,10 @@ public class BoatTransform implements UncertaintyHandler {
         return deltaRotation;
     }
 
-    private record BoatTickResult(Vec3 vector, BoatTickState state, float postControlYaw) {}
+    /** {@code landed}: AbstractBoat#floatBoat set the boat on the water's surface this tick. */
+    private record BoatTickResult(Vec3 vector, BoatTickState state, float postControlYaw, boolean landed) {}
 
-    private record FloatBoatResult(Vec3 vector, BoatTickState state) {}
+    private record FloatBoatResult(Vec3 vector, BoatTickState state, boolean landed) {}
 
     private record BoatControlResult(Vec3 vector, float deltaRotation, float startYaw, float postControlYaw) {}
 

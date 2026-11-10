@@ -49,8 +49,8 @@ class JavaBoatPositionsTest {
                     for (int i = 0; i < boats.length; i++) {
                         PacketEntity boat = f.player.compensatedEntities.getEntity(BOAT + i);
                         double dy = 0.01 * (tick + 1) * (i % 2 == 0 ? 1 : -1);
-                        boat.onBundledPositionSyncTransaction(
-                                boats[i].x, boats[i].y - dy, boats[i].z + 0.003 * (tick + 1), f.player);
+                        boat.onBundleTransaction(
+                                false, true, boats[i].x, boats[i].y - dy, boats[i].z + 0.003 * (tick + 1), f.player);
                     }
                     start(f, NONE, 0.0F);
                     f.tick(START.add(0.0, 0.3, 0.0), true);
@@ -82,11 +82,11 @@ class JavaBoatPositionsTest {
             Vec3 boat = new Vec3(START.x, FLOOR_Y + PLAYER_HEIGHT + 0.05, START.z);
             f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, boat, 0, 0, 0);
             PacketEntity entity = f.player.compensatedEntities.getEntity(BOAT);
-            entity.onBundledPositionSyncTransaction(boat.x, boat.y - 0.01, boat.z + 0.003, f.player);
+            entity.onBundleTransaction(false, true, boat.x, boat.y - 0.01, boat.z + 0.003, f.player);
             start(f, NONE, 0.0F);
             PredictionResult still = f.tick(START, true);
             assertTrue(exact(still), describe(still));
-            entity.onBundledPositionSyncTransaction(boat.x, boat.y - 0.02, boat.z + 0.006, f.player);
+            entity.onBundleTransaction(false, true, boat.x, boat.y - 0.02, boat.z + 0.006, f.player);
             PredictionResult drift = f.tick(START.add(0.0, 0.0, 0.05), true);
             assertRejected(drift, "Speed");
         }
@@ -102,7 +102,7 @@ class JavaBoatPositionsTest {
             f.player
                     .compensatedEntities
                     .getEntity(BOAT)
-                    .onBundledPositionSyncTransaction(south.x, south.y, south.z, f.player);
+                    .onBundleTransaction(false, true, south.x, south.y, south.z, f.player);
             start(f, NONE, 0.0F);
             f.place(START, new Vec3(0.1, GROUNDED_Y, 0.1));
             assertRejected(f.tick(START, true), "Speed");

@@ -4,6 +4,7 @@ import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.manager.alerts.AlertKind;
 import ac.cult.cultac.manager.alerts.AlertNetwork;
 import ac.cult.cultac.manager.alerts.AlertPairs;
+import ac.cult.cultac.manager.alerts.AlertPermits;
 import ac.cult.cultac.manager.alerts.AlertScope;
 import ac.cult.cultac.manager.alerts.AlertScopes;
 import ac.cult.cultac.manager.alerts.AlertSubject;
@@ -51,6 +52,7 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
 
     private final AlertScopes scopes;
     private final AlertPairs pairs;
+    private final AlertPermits permits;
     private final AlertNetwork network;
     private final BooleanSupplier proxy;
     private final BooleanSupplier relay;
@@ -64,18 +66,27 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
             Set<@Nullable PlatformPlayer> players, @Nullable String pair) {}
 
     private enum AlertType {
-        NORMAL(AlertKind.ALERT, "%prefix% &fAlerts enabled", "%prefix% &fAlerts disabled"),
-        VERBOSE(AlertKind.VERBOSE, "%prefix% &fVerbose enabled", "%prefix% &fVerbose disabled"),
-        BRAND(AlertKind.BRAND, "%prefix% &fBrands enabled", "%prefix% &fBrands disabled");
+        NORMAL(AlertKind.ALERT, "cult.alerts", "%prefix% &fAlerts enabled", "%prefix% &fAlerts disabled"),
+        VERBOSE(AlertKind.VERBOSE, "cult.verbose", "%prefix% &fVerbose enabled", "%prefix% &fVerbose disabled"),
+        BRAND(AlertKind.BRAND, "cult.brand", "%prefix% &fBrands enabled", "%prefix% &fBrands disabled");
 
         public final @NotNull AlertKind kind;
+        /** What a subscriber must keep holding to get this type's messages; it can be taken away while they are on. */
+        public final @NotNull String permission;
+
+        private final Predicate<PlatformPlayer> holding = this::holds;
         public @NotNull String enableMessage;
         public @NotNull String disableMessage;
         public final @NotNull Set<@NotNull PlatformPlayer> players;
         private final AtomicBoolean console;
 
-        AlertType(@NotNull AlertKind kind, @NotNull String enableMessage, @NotNull String disableMessage) {
+        AlertType(
+                @NotNull AlertKind kind,
+                @NotNull String permission,
+                @NotNull String enableMessage,
+                @NotNull String disableMessage) {
             this.kind = kind;
+            this.permission = permission;
             this.enableMessage = enableMessage;
             this.disableMessage = disableMessage;
             var host = RuntimeEnvironment.host();
@@ -110,6 +121,7 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         /**
          * @param component the message to send to listeners
          * @param excluding the listeners to exclude, null means console
+         * @param permits what listeners lately held
          * @param covered the listeners whose scope covers the message
          * @param toConsole whether the console may get it
          * @return listeners this message was sent to, null means console
@@ -117,6 +129,7 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         Set<@Nullable PlatformPlayer> send(
                 Component component,
                 @Nullable Set<@Nullable PlatformPlayer> excluding,
+                AlertPermits permits,
                 Predicate<PlatformPlayer> covered,
                 boolean toConsole) {
             Set<@Nullable PlatformPlayer> listeners = new HashSet<>(players);
@@ -127,7 +140,8 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
                 }
                 listeners.removeIf(listener -> excludedNatives.contains(listener.getNative()));
             }
-            listeners.removeIf(listener -> !covered.test(listener));
+            // covered may use up a staff member's share of a verbose/alert pair, so it runs only for those who stay.
+            listeners.removeIf(listener -> !permitted(permits, listener) || !covered.test(listener));
 
             for (PlatformPlayer platformPlayer : listeners) {
                 platformPlayer.sendMessage(component);
@@ -140,6 +154,21 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
 
             return listeners;
         }
+
+        /** Whether {@code listener} still holds what grants this subscription; one who does not is unsubscribed. */
+        private boolean permitted(AlertPermits permits, PlatformPlayer listener) {
+            if (permits.permitted(kind, listener, holding)) return true;
+            players.remove(listener);
+            return false;
+        }
+
+        private boolean holds(PlatformPlayer listener) {
+            // Verbose turns alerts on with it, so cult.verbose keeps the alerts of a verbose subscriber.
+            return listener.hasPermission(permission)
+                    || this == NORMAL
+                            && VERBOSE.players.contains(listener)
+                            && listener.hasPermission(VERBOSE.permission);
+        }
     }
 
     public AlertManagerImpl() {
@@ -148,7 +177,8 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
                 NetworkModule::service,
                 NetworkModule::proxy,
                 RuntimeEnvironment.host(),
-                () -> platformServer != null && platformServer.receivesForwardedAlerts());
+                () -> platformServer != null && platformServer.receivesForwardedAlerts(),
+                new AlertPermits(System::currentTimeMillis));
     }
 
     /**
@@ -161,10 +191,12 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
             Supplier<@Nullable NetworkService> service,
             BooleanSupplier proxy,
             @Nullable HostContext host,
-            BooleanSupplier relay) {
+            BooleanSupplier relay,
+            AlertPermits permits) {
         this.scopes = scopes;
         this.proxy = proxy;
         this.relay = relay;
+        this.permits = permits;
         this.pairs = new AlertPairs(host, System::currentTimeMillis);
         this.network = new AlertNetwork(
                 service,
@@ -214,6 +246,8 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
             setConsoleAlertsEnabled(config.getBooleanElse("alerts.print-to-console", true), true);
             setConsoleVerboseEnabled(config.getBooleanElse("verbose.print-to-console", false), true);
         }
+        scopes.defaultScope(
+                AlertScopes.parseDefault(config.getStringElse("alerts.default-scope", AlertScopes.DEFAULT.id())));
 
         AlertType.NORMAL.enableMessage = config.getStringElse("alerts-enabled", "%prefix% &fAlerts enabled");
         AlertType.NORMAL.disableMessage = config.getStringElse("alerts-disabled", "%prefix% &fAlerts disabled");
@@ -329,6 +363,7 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         AlertType.NORMAL.players.remove(platformPlayer);
         AlertType.VERBOSE.players.remove(platformPlayer);
         AlertType.BRAND.players.remove(platformPlayer);
+        permits.forget(platformPlayer);
         scopes.forget(platformPlayer);
     }
 
@@ -600,7 +635,7 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
         Predicate<PlatformPlayer> covered =
                 subject.none() ? staff -> true : staff -> covers(staff, subject.server(), true);
         Set<@Nullable PlatformPlayer> reached =
-                type.send(component, excluding == null ? null : excluding.players(), covered, true);
+                type.send(component, excluding == null ? null : excluding.players(), permits, covered, true);
         String pair = switch (type) {
             case VERBOSE -> AlertNetwork.newPair();
             case NORMAL -> excluding == null ? null : excluding.pair();
@@ -618,7 +653,7 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
     void deliverReceived(AlertKind kind, Component component, @Nullable String server, @Nullable String pair) {
         Predicate<PlatformPlayer> covered = staff -> covers(staff, server, false);
         if (pair != null) covered = covered.and(staff -> pairs.take(pair, staff.getNative()));
-        AlertType.of(kind).send(component, null, covered, false);
+        AlertType.of(kind).send(component, null, permits, covered, false);
     }
 
     private boolean covers(PlatformPlayer staff, @Nullable String server, boolean local) {
@@ -628,6 +663,20 @@ public final class AlertManagerImpl implements AlertManager, ConfigReloadable, S
     /** Whether verbose lines are wanted here or, while a transport runs, by another instance's staff. */
     public boolean hasVerboseListeners() {
         return AlertType.VERBOSE.hasListeners() || network.verboseWanted();
+    }
+
+    /**
+     * Whether a verbose line about {@code subject} reaches anyone, as {@link #sendVerbose} delivers it: the console,
+     * staff here whose scope covers the subject's server, or, while a transport runs, another instance's staff.
+     */
+    public boolean hasVerboseListeners(@NotNull CultPlayer subject) {
+        if (AlertType.VERBOSE.console.get() || network.verboseWanted()) return true;
+        if (AlertType.VERBOSE.players.isEmpty()) return false;
+        AlertSubject about = AlertSubject.of(subject);
+        for (PlatformPlayer staff : AlertType.VERBOSE.players) {
+            if (about.none() || covers(staff, about.server(), true)) return true;
+        }
+        return false;
     }
 
     @Contract(pure = true)

@@ -75,6 +75,11 @@ public final class EntityTypeUtil {
         return type == EntityTypeIds.CAMEL || isType(type, "camel_husk");
     }
 
+    /** The AbstractCubeMob subclasses, whose getDefaultDimensions scales the type by ID_SIZE and not by age. */
+    public static boolean isCubeMob(int type) {
+        return type == EntityTypeIds.SLIME || type == EntityTypeIds.MAGMA_CUBE || isType(type, "sulfur_cube");
+    }
+
     public static boolean isNautilusFamily(int type) {
         return isType(type, "nautilus") || isType(type, "zombie_nautilus");
     }

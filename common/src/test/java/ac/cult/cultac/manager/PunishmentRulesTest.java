@@ -32,6 +32,29 @@ class PunishmentRulesTest {
     }
 
     @Test
+    void aNamedFormatAlertIsReadAsWrittenAndNamesItsKey() {
+        PunishmentRules rules = PunishmentRules.parse(List.of(group(
+                List.of("Alpha"),
+                List.of("1:0 [alert:alerts-format-suspected]", "5:5 [alert]", "2:0 [alert:]"),
+                null)));
+
+        assertNull(rules.failure());
+        assertEquals(
+                List.of(
+                        new PunishmentRules.Command(1, 0, "[alert:alerts-format-suspected]"),
+                        new PunishmentRules.Command(5, 5, "[alert]"),
+                        new PunishmentRules.Command(2, 0, "[alert:]")),
+                rules.groups().getFirst().commands());
+        assertEquals("alerts-format-suspected", PunishmentRules.alertKey("[alert:alerts-format-suspected]"));
+        assertEquals("", PunishmentRules.alertKey("[alert:]"));
+        assertNull(PunishmentRules.alertKey("[alert]"));
+        assertNull(PunishmentRules.alertKey("say [alert:x]"));
+        assertTrue(PunishmentRules.isAlert("[alert:x]"));
+        assertTrue(PunishmentRules.isAlert("[alert]"));
+        assertFalse(PunishmentRules.isAlert("[proxy]"));
+    }
+
+    @Test
     void matchesByNameOrAlternativeNameMinusExclusions() {
         List<String> selectors = List.of("alpha", "!alphab");
         assertTrue(PunishmentRules.holds(selectors, "alphaa", null));

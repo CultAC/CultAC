@@ -34,6 +34,15 @@ public final class AlertDetails {
         return world == null ? UNKNOWN : withoutDefaultNamespace(world);
     }
 
+    public static @NotNull String worldLocation(@NotNull CultPlayer player) {
+        return world(player) + String.format(Locale.ROOT, " (%.1f %.1f %.1f)", player.x, player.y, player.z);
+    }
+
+    public static @NotNull String sensitivity(double value, boolean raw) {
+        if (!Double.isFinite(value)) return "n/a";
+        return raw ? String.format(Locale.ROOT, "%.5f", value) : Integer.toString((int) Math.round(value * 200));
+    }
+
     /** The dimension type of that level: overworld, the_nether, the_end or a custom type. */
     public static @NotNull String worldType(@NotNull CultPlayer player) {
         String dimension = player.dimension;

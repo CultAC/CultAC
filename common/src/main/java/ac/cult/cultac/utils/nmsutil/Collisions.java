@@ -19,6 +19,7 @@ import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBoxPool;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.VoxelShapeCollisionBox;
+import ac.cult.cultac.utils.debug.DebugText;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedChunk;
 import ac.cult.cultac.utils.latency.CompensatedWorld.CachedSection;
 import ac.cult.cultac.utils.math.CultMath;
@@ -437,7 +438,8 @@ public class Collisions {
         }
     }
 
-    private static List<Axis> getAxisStepOrder(Vec3 movement) {
+    /** {@code Direction#axisStepOrder}. */
+    public static List<Axis> getAxisStepOrder(Vec3 movement) {
         return getAxisStepOrder(movement.x, movement.z);
     }
 
@@ -908,56 +910,9 @@ public class Collisions {
             SimpleCollisionBox playerBB,
             boolean overrideVersion) {
         if (!player.isFlying && player.isSneaking && isAboveGround(player, lastOnGround, playerBB)) {
-            double x = vec3.getX();
-            double z = vec3.getZ();
-
-            double maxStepDown = -player.getMaxUpStep();
-            SimpleCollisionBox probe = player.boundingBox.copy();
-            Vec3 position = feet(player.boundingBox);
-
-            while (x != 0.0
-                    && noCollision(
-                            player, position, probe.set(player.boundingBox).offset(x, maxStepDown, 0.0))) {
-                if (x < 0.05D && x >= -0.05D) {
-                    x = 0.0D;
-                } else if (x > 0.0D) {
-                    x -= 0.05D;
-                } else {
-                    x += 0.05D;
-                }
-            }
-            while (z != 0.0
-                    && noCollision(
-                            player, position, probe.set(player.boundingBox).offset(0.0, maxStepDown, z))) {
-                if (z < 0.05D && z >= -0.05D) {
-                    z = 0.0D;
-                } else if (z > 0.0D) {
-                    z -= 0.05D;
-                } else {
-                    z += 0.05D;
-                }
-            }
-            while (x != 0.0
-                    && z != 0.0
-                    && noCollision(
-                            player, position, probe.set(player.boundingBox).offset(x, maxStepDown, z))) {
-                if (x < 0.05D && x >= -0.05D) {
-                    x = 0.0D;
-                } else if (x > 0.0D) {
-                    x -= 0.05D;
-                } else {
-                    x += 0.05D;
-                }
-
-                if (z < 0.05D && z >= -0.05D) {
-                    z = 0.0D;
-                } else if (z > 0.0D) {
-                    z -= 0.05D;
-                } else {
-                    z += 0.05D;
-                }
-            }
-            vec3 = new Vector3dm(x, vec3.getY(), z);
+            Vec3 backedOff = SneakEdgeBackoff.backOff(
+                    player, player.boundingBox, new Vec3(vec3.getX(), vec3.getY(), vec3.getZ()), player.getMaxUpStep());
+            vec3 = new Vector3dm(backedOff.x, vec3.getY(), backedOff.z);
         }
 
         return vec3;
@@ -1740,20 +1695,23 @@ public class Collisions {
                 || segmentClipsBox(minX, minY, minZ, maxX, maxY, maxZ, fromX, fromY, fromZ, toX, toY, toZ);
     }
 
-    public static String describeStuckSpeedSources(
-            CultPlayer player, SimpleCollisionBox fromAabb, SimpleCollisionBox toAabb, Vec3 axisOrderMovement) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("from=")
-                .append(formatBox(fromAabb))
-                .append(" to=")
-                .append(formatBox(toAabb))
-                .append(" direct=")
-                .append(collectDirectStuckSpeedHits(player, toAabb));
+    /** The blocks that could set a stuck speed for a move from {@code fromAabb} to {@code toAabb}, for the Cult Log. */
+    public static void appendStuckSpeedSources(
+            DebugText.Builder sb,
+            CultPlayer player,
+            SimpleCollisionBox fromAabb,
+            SimpleCollisionBox toAabb,
+            Vec3 axisOrderMovement) {
+        sb.append("from=");
+        appendBox(sb, fromAabb);
+        sb.append(" to=");
+        appendBox(sb, toAabb);
+        sb.append(" direct=").append(collectDirectStuckSpeedHits(player, toAabb));
 
         if (axisOrderMovement == null
                 || boxCenter(toAabb).subtract(boxCenter(fromAabb)).lengthSqr() == 0.0D) {
             sb.append(" swept=").append(collectSweptStuckSpeedHits(player, fromAabb, toAabb));
-            return sb.toString();
+            return;
         }
 
         sb.append(" axisSweep=");
@@ -1778,8 +1736,6 @@ public class Collisions {
         if (!wroteAxis) {
             sb.append("[]");
         }
-
-        return sb.toString();
     }
 
     private static double getAxisValue(Vec3 vector, Axis axis) {
@@ -1892,12 +1848,20 @@ public class Collisions {
         }
     }
 
-    private static String formatBox(SimpleCollisionBox box) {
-        return "["
-                + box.minX + "," + box.minY + "," + box.minZ
-                + " -> "
-                + box.maxX + "," + box.maxY + "," + box.maxZ
-                + "]";
+    private static void appendBox(DebugText.Builder sb, SimpleCollisionBox box) {
+        sb.append('[')
+                .append(box.minX)
+                .append(',')
+                .append(box.minY)
+                .append(',')
+                .append(box.minZ)
+                .append(" -> ")
+                .append(box.maxX)
+                .append(',')
+                .append(box.maxY)
+                .append(',')
+                .append(box.maxZ)
+                .append(']');
     }
 
     private static boolean containsHalfOpen(

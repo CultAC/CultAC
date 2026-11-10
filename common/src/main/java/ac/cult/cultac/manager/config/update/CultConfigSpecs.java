@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.experimental.UtilityClass;
@@ -100,9 +101,11 @@ public final class CultConfigSpecs {
      *
      * <p>v16 → v17: {@code network.type} picks the broker, configured in its own block; see {@link #networkBlocks}.
      * Every step reads the user's file as it was, so a v15 config takes the v16 step inside the v17 one.
+     *
+     * <p>v17 → v18: adds {@code alerts.default-scope}; default rewriting adds the key.
      */
     public static @NotNull ConfigUpdater.Spec mainConfig() {
-        return ConfigUpdater.Spec.builder("/config/", 17, ConfigUpdater.ConfigFlavor.V2)
+        return ConfigUpdater.Spec.builder("/config/", 18, ConfigUpdater.ConfigFlavor.V2)
                 .migration(10, ctx -> {
                     String typeRaw = ctx.input().getString("history.database.type");
                     String type = typeRaw == null ? null : typeRaw.trim().toUpperCase(Locale.ROOT);
@@ -851,10 +854,34 @@ public final class CultConfigSpecs {
         return matcher.matches() ? matcher : null;
     }
 
+    /**
+     * v4 → v5: adds {@code alerts-format-suspected}, the shipped {@code [alert:<key>]} format. Messages the operator
+     * added for {@code [alert:<key>]} survive every upgrade.
+     */
     public static @NotNull ConfigUpdater.Spec messages() {
-        return ConfigUpdater.Spec.builder("/messages/", 3, ConfigUpdater.ConfigFlavor.V2)
+        return ConfigUpdater.Spec.builder("/messages/", 5, ConfigUpdater.ConfigFlavor.V2)
+                .keepOperatorKeys()
+                .migration(4, CultConfigSpecs::spectateAlerts)
                 .build();
     }
+
+    static void spectateAlerts(MigrationContext ctx) {
+        for (String key : List.of("alerts-format", "alerts-format-proxy")) {
+            String format = ctx.input().getString(key);
+            if (format == null || !format.contains("%player%")) continue;
+            int player = format.indexOf("%player%");
+            if (player != format.lastIndexOf("%player%") || format.contains("<click:")
+                    || format.lastIndexOf("<", player) > format.lastIndexOf(">", player)) {
+                Logger.getLogger("cult-config")
+                        .warning("Cannot migrate " + key + ": wrap the player name in " + SPECTATE_PLAYER);
+                continue;
+            }
+            ctx.output().put(key, format.replace("%player%", SPECTATE_PLAYER));
+        }
+    }
+
+    private static final String SPECTATE_PLAYER =
+            "<click:run_command:'/%command% spectate %player%'><hover:show_text:'&7Click to spectate %player%'>%player%</hover></click>";
 
     /**
      * The datastore router config (top-level {@code database:} wrapper).

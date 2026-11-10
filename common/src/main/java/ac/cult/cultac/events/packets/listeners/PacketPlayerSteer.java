@@ -39,7 +39,7 @@ public class PacketPlayerSteer {
         // MCP-Reborn LocalPlayer#tick sends ServerboundPlayerInputPacket before the move packet when
         // lastSentInput changes, and Input contains the full forward/back/left/right key bitset.
         player.packetStateData.clientMovementInputKnown = true;
-        player.packetStateData.clientMovementInputUpdatedThisClientTick = true;
+        player.packetStateData.localPlayerTickInputOrCommandThisClientTick = true;
         player.packetStateData.clientMovementInput = new Vec3(vehicleHoriz, 0, vehicleForward);
         player.boatData.nextVehicleHoriz = vehicleHoriz;
         player.boatData.nextVehicleForward = vehicleForward;

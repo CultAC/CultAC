@@ -133,20 +133,39 @@ public final class PalettedSection {
             IntUnaryOperator mapper,
             int targetRegistrySize,
             SectionPool pool) {
+        return readBlocksPooled(input, version, registrySize, mapper, targetRegistrySize, pool)
+                .states();
+    }
+
+    /** A block container read; {@code pooledFluidCount} is that of the pooled section it shares storage with, or -1. */
+    public record PooledRead(PalettedSection states, int pooledFluidCount) {}
+
+    /**
+     * As {@link #readBlocks(ByteBuf, ProtocolVersion, int, IntUnaryOperator, int, SectionPool)}, also giving a matched
+     * pooled section's fluid count, which wires before 26.1 do not carry.
+     */
+    public static PooledRead readBlocksPooled(
+            ByteBuf input,
+            ProtocolVersion version,
+            int registrySize,
+            IntUnaryOperator mapper,
+            int targetRegistrySize,
+            SectionPool pool) {
         if (pool != null) {
             var shared = pool.sharedBlocks(
                     input, !version.atLeast(ProtocolVersion.V1_21_5), registrySize, mapper, targetRegistrySize);
             if (shared != null) return shared;
-            return countedFullRead(readBlocks(input, version, registrySize, mapper, targetRegistrySize));
+            return new PooledRead(
+                    countedFullRead(readBlocks(input, version, registrySize, mapper, targetRegistrySize)), -1);
         }
-        return readBlocks(input, version, registrySize, mapper, targetRegistrySize);
+        return new PooledRead(readBlocks(input, version, registrySize, mapper, targetRegistrySize), -1);
     }
 
     /** As {@link #readBlocks(ByteBuf)}, sharing the storage of a section in {@code pool} that the container holds. */
     public static PalettedSection readBlocks(ByteBuf input, SectionPool pool) {
         if (pool != null) {
             var shared = pool.sharedBlocks(input, false, BLOCK_STATES, IntUnaryOperator.identity(), BLOCK_STATES);
-            if (shared != null) return shared;
+            if (shared != null) return shared.states();
             return countedFullRead(readBlocks(input));
         }
         return readBlocks(input);
@@ -251,13 +270,15 @@ public final class PalettedSection {
 
     private PalettedSection remap(IntUnaryOperator mapper, int targetRegistrySize, boolean reuseStorage) {
         if (isGlobal()) {
+            int targetBits = 32 - Integer.numberOfLeadingZeros(targetRegistrySize - 1);
+            if (reuseStorage && !sharedStorage && targetBits > maximumLocalBits && targetBits == bits)
+                return remapGlobalWords(mapper, targetRegistrySize);
             var result = new PalettedSection(
                     size,
                     minimumBits,
                     maximumLocalBits,
                     targetRegistrySize,
                     mapped(mapper, get(0), targetRegistrySize));
-            int targetBits = 32 - Integer.numberOfLeadingZeros(targetRegistrySize - 1);
             if (targetBits > maximumLocalBits) result.configure(-1);
             // A smaller target registry is a local configuration on the wire; grow into it.
             for (int i = 0; i < size; i++) {
@@ -281,6 +302,28 @@ public final class PalettedSection {
         for (int i = 0; i < paletteSize; i++) result.palette[i] = mapped(mapper, palette[i], targetRegistrySize);
         result.registrySize = targetRegistrySize;
         return result;
+    }
+
+    /**
+     * {@link #remap}'s global repack written into this section's own words, for a target of this width: the same
+     * mapper calls and failures in the same order, and unused bits cleared.
+     */
+    private PalettedSection remapGlobalWords(IntUnaryOperator mapper, int targetRegistrySize) {
+        mapped(mapper, get(0), targetRegistrySize);
+        int perWord = 64 / bits;
+        long mask = (1L << bits) - 1;
+        for (int word = 0, index = 0; word < words.length; word++) {
+            long source = words[word], packed = 0;
+            int end = Math.min(perWord, size - index) * bits;
+            for (int shift = 0; shift < end; shift += bits, index++) {
+                int code = (int) (source >>> shift & mask);
+                if (code >= registrySize) throw new IllegalStateException("Missing section registry ID " + code);
+                packed |= (long) mapped(mapper, code, targetRegistrySize) << shift;
+            }
+            words[word] = packed;
+        }
+        registrySize = targetRegistrySize;
+        return this;
     }
 
     private static int mapped(IntUnaryOperator mapper, int id, int registrySize) {

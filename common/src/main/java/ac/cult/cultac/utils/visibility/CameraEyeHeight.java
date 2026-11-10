@@ -28,7 +28,7 @@ public final class CameraEyeHeight {
             if (stand.actionMarker()) height = 0;
             else if (shape.maxY() < EntityTypeUtil.modelType(entity.type).height() * entity.scale) height = .9875F;
         } else if (entity instanceof PacketEntitySizeable sizeable) {
-            if (type.equals("slime") || type.equals("magma_cube")) height *= sizeable.size;
+            if (EntityTypeUtil.isCubeMob(entity.type)) height *= sizeable.size;
             else if (type.equals("phantom")) height *= 1.0F + .15F * sizeable.size;
         } else if (entity.isBaby) {
             height = baby(type, height, entity.actionPose, version);

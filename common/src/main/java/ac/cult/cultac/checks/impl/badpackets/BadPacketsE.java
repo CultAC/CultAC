@@ -31,7 +31,7 @@ public class BadPacketsE extends Check implements CheckListener {
             return;
         }
 
-        if (!player.packetStateData.lastPacketWasTeleport && ++noReminderTicks > MAX_NO_REMINDER_TICKS) {
+        if (!event.answersTeleport() && ++noReminderTicks > MAX_NO_REMINDER_TICKS) {
             flag(V.write(verbose()).uint(noReminderTicks));
         }
     }

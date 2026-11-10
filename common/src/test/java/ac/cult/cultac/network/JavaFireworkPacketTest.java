@@ -31,9 +31,9 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 /**
- * A rocket's add_entity, attach metadata and remove_entities through PacketEntityReplication. The client applies
- * each packet at the start of a tick, once it has answered every ping before it, and has applied it once it answers
- * the ping after it. FireworkRocketEntity#tick boosts the player at the end of each tick it holds the rocket.
+ * A rocket's add_entity, attach metadata and remove_entities through PacketEntityReplication. The client handles each
+ * packet with its proof, before the tick that follows the pong. FireworkRocketEntity#tick boosts the player at the end
+ * of each tick it holds the rocket, so a move carries the boosts of the tick before it.
  */
 class JavaFireworkPacketTest {
     private static final int ROCKET = 4242;
@@ -48,32 +48,32 @@ class JavaFireworkPacketTest {
     private static final int OTHER = 777;
     private static final Vec3 CARRIED = new Vec3(0.5, -0.1, 0.8);
 
-    /** The attachment is in flight before tick 1 and proven before tick 2. */
+    /** The attachment is proven before tick 1: the rocket boosts after tick 1's travel, so from tick 2's move. */
     @Test
-    void aRocketBoostsFromTheTickItsAttachmentCanPrecede() throws Exception {
+    void aRocketBoostsFromTheTickAfterItsAttachmentIsHandled() throws Exception {
         assertExact(arrival(0, 0));
         assertNotVanilla(arrival(0, 1));
-        assertExact(arrival(0, 0, 0));
+        assertNotVanilla(arrival(0, 0, 0));
         assertExact(arrival(0, 0, 1));
     }
 
     @Test
     void aProvenRocketBoostsEveryGlidingTick() throws Exception {
         assertExact(arrival(0, 0, 1, 1, 1));
-        assertExact(arrival(0, 0, 0, 1, 1));
-        assertNotVanilla(arrival(0, 0, 0, 0));
         assertNotVanilla(arrival(0, 0, 1, 0));
         assertNotVanilla(arrival(0, 0, 1, 1, 0));
         assertNotVanilla(arrival(0, 0, 1, 2));
     }
 
-    /** The removal is in flight before tick 4 and proven before tick 5. */
+    /**
+     * The removal is sent before tick 4 and proven before tick 5, so the client handles it between those ticks: the
+     * rocket still boosts after tick 4's travel, and no longer after tick 5's.
+     */
     @Test
-    void aRocketMayBoostUntilItsRemovalIsProven() throws Exception {
+    void aRocketBoostsUntilItsRemovalIsHandled() throws Exception {
         assertNotVanilla(removal(0, 0, 1, 1, 0));
-        assertExact(removal(0, 0, 1, 1, 1, 0, 0));
+        assertNotVanilla(removal(0, 0, 1, 1, 1, 0));
         assertExact(removal(0, 0, 1, 1, 1, 1, 0));
-        assertNotVanilla(removal(0, 0, 1, 1, 1, 0, 1));
         assertNotVanilla(removal(0, 0, 1, 1, 1, 1, 1));
     }
 
@@ -135,34 +135,24 @@ class JavaFireworkPacketTest {
         assertNotVanilla(retargeted(0, 0, 1, 1, 1, 0));
     }
 
-    /** The counts after each tick follow the pongs that precede the tick's move. */
+    /** The counts after each tick follow the proofs answered before the tick's move. */
     @Test
-    void theRocketCountsFollowThePongOrder() throws Exception {
+    void theRocketCountsFollowTheProofs() throws Exception {
         try (var f = gliding(FROM)) {
             Vec3[] glide = {FROM, CARRIED};
             spawnRocket(f);
-            int edge = f.player.lastTransactionSent.get();
-            int attachedAt = f.player.sendTrailingTransaction();
+            int attachedAt = f.player.lastTransactionSent.get();
             tick(f, glide, 0);
             assertCounts(f, 0, 0);
-
-            f.pongThrough(edge);
-            tick(f, glide, 0);
-            assertCounts(f, 1, 0);
 
             f.pongThrough(attachedAt);
             tick(f, glide, 0);
             assertCounts(f, 1, 1);
 
-            int before = f.player.sendTrailingTransaction();
             removeRocket(f);
             int removedAt = f.player.lastTransactionSent.get();
             tick(f, glide, 1);
             assertCounts(f, 1, 1);
-
-            f.pongThrough(before);
-            tick(f, glide, 1);
-            assertCounts(f, 1, 0);
 
             f.pongThrough(removedAt);
             tick(f, glide, 1);

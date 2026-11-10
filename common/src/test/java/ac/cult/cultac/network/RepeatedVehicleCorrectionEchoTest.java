@@ -111,7 +111,7 @@ class RepeatedVehicleCorrectionEchoTest {
 
     private static void assertNoRejectedEcho(JavaTickFixture f) {
         assertEquals(0, f.player.checkManager.getCheck(BadPacketsVehicle.class).violations);
-        assertEquals(0, f.player.getSetbackTeleportUtil().queuedVehicleTeleportCount());
+        assertEquals(0, f.player.getSetbackTeleportUtil().vehicleTeleports().queuedVehicleTeleportCount());
         assertEquals(0, f.player.checkManager.getCheck(VehicleOffset.class).violations);
         assertEquals(0, f.player.checkManager.getCheck(OffsetHandler.class).violations);
     }

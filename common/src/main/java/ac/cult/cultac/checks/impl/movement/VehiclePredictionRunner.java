@@ -7,6 +7,7 @@ import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRootGround;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.BoatTransform;
 import ac.cult.cultac.checks.impl.vehicle.VehicleC;
+import ac.cult.cultac.checks.impl.vehicle.VehicleGround;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.checks.type.VehicleListener;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -31,6 +32,16 @@ import java.util.List;
 import java.util.Set;
 
 public class VehiclePredictionRunner extends CultProcessor implements VehicleListener, ClientTickEndListener {
+    // The collision result that replaced this packet's disproven onGround claim.
+    private Boolean correctedOnGround;
+
+    /** The onGround a disproven claim of the last processed packet is replaced with, once; null if none. */
+    public Boolean takeCorrectedOnGround() {
+        Boolean corrected = correctedOnGround;
+        correctedOnGround = null;
+        return corrected;
+    }
+
     public VehiclePredictionRunner(CultPlayer playerData) {
         super(playerData);
     }
@@ -102,6 +113,7 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
 
     @Override
     public void process(final VehiclePositionUpdate vehicleUpdate) {
+        correctedOnGround = null;
         // We previously didn't do vehicle setbacks because vehicle netcode sucks
         // But the only solution is to fix mojang's bugs, as otherwise bypasses and falses will occur
         PredictionResult result = player.checkManager.getSimulationProcessor().onVehiclePositionUpdate(vehicleUpdate);
@@ -109,26 +121,19 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
         if (result == null) {
             return;
         }
-        boolean vehicleMovementFromClientTick = player.packetStateData.isVehicleMovementFromClientTick();
+        // Only LocalPlayer#tick moves of a root this client controls reach here.
         PacketEntity riding = result.getSimulationContext().getVehicle();
         if (riding instanceof PacketEntityCamel camel) {
             camel.lastPredictedInLiquid = result.getSimulationContext().getWorldData().mayBeInLiquid();
         }
 
-        if (vehicleUpdate.getTeleportAcceptData().isTeleport()) {
-            player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.UNKNOWN);
-            return;
+        if (riding instanceof PacketEntityStrider strider) {
+            var moved = result.getJavaCommittedMove();
+            if (moved != null) strider.commitFluidHeights(moved.fluidHeights());
+            var pass = JavaMovementEngine.passAfterTravel(result);
+            if (pass != null) strider.commitFluidHeights(pass.result().fluidHeights());
         }
-
-        if (vehicleMovementFromClientTick) {
-            if (riding instanceof PacketEntityStrider strider) {
-                var moved = result.getJavaCommittedMove();
-                if (moved != null) strider.commitFluidHeights(moved.fluidHeights());
-                var pass = JavaMovementEngine.passAfterTravel(result);
-                if (pass != null) strider.commitFluidHeights(pass.result().fluidHeights());
-            }
-            evaluateItemControlledVehicle(riding);
-        }
+        evaluateItemControlledVehicle(riding);
 
         boolean isStriderInLava = riding != null
                 && riding.isStrider()
@@ -141,18 +146,15 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
 
         for (PredictionResult reality : result.getRealities()) {
             SimpleCollisionBox valid = reality.getValidMovements().getCollisionIgnoredMaxStartingVelExtents();
-            if ((!canCollideDown && !reality.getValidMovements().isCanStep() && !isStriderInLava) || valid.maxY >= 0) {
-                // Must be off of the ground
+            if ((!canCollideDown && !reality.getValidMovements().isCanStep() && !isStriderInLava) || valid.minY >= 0) {
+                // Entity#move can report ground only after a downward collision. A nonnegative
+                // maximum is insufficient: another valid pre-collision Y may still descend.
                 lastOnGround = lastOnGround == null ? DesyncStatus.FALSE : lastOnGround.addBoolean(false);
             }
 
-            // The player is off the ground and must collide onto the ground
-            // Entity#move refreshes onGround after every downward collision,
-            // including consecutive grounded ticks. Legacy vehicle packets have
-            // no wire bit to supply that result after this collision inference.
-            if ((!vehicleUpdate.isHasOnGround()
-                            || !reality.getSimulationContext().isOnGround())
-                    && canCollideDown
+            // Entity#move refreshes onGround after every downward collision, including consecutive
+            // grounded ticks. A client's previous onGround claim cannot suppress this proof.
+            if (canCollideDown
                     && valid.maxY + 0.001 < reality.getTarget().y // And their valid Y is below their actual movement
                     && downCollide.inMovementSpace(
                                             reality.getSimulationContext().getLastStuckSpeed().y)
@@ -164,36 +166,44 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
         }
 
         DesyncStatus nextLastOnGround = lastOnGround == null ? DesyncStatus.UNKNOWN : lastOnGround;
-        if (vehicleMovementFromClientTick && riding != null && !riding.isBoat() && vehicleUpdate.isHasOnGround()) {
+        if (riding instanceof PacketEntityCamel camel
+                && camel.refuseToMove(player.compensatedWorld.endedTickGameTime())
+                && result.getTarget().lengthSqr() <= 1.0E-14
+                && result.getAcceptedClosestToTarget().lengthSqr() <= 1.0E-14) {
+            // The 26.3 seated-camel capture has both onGround values on stationary ticks. Entity#move
+            // sets onGround from its requested Y, so a zero request and a downward move clipped to
+            // zero have the same packet position. Geometry alone cannot distinguish those requests.
+            nextLastOnGround = DesyncStatus.UNKNOWN;
+        }
+        if (riding != null && vehicleUpdate.isHasOnGround()) {
+            boolean reported = vehicleUpdate.isOnGround();
+            player.checkManager.getCheck(VehicleGround.class).onGroundClaim(reported, nextLastOnGround);
+            // Every locally authoritative root sends Entity#move's post-tick onGround, so a claim disproven
+            // by the collision is neither the state Paper should read nor the state the next tick starts from.
+            if (VehicleGround.disproves(reported, nextLastOnGround)) {
+                correctedOnGround = nextLastOnGround.determinePessimistically();
+            }
             // MCP-Reborn LocalPlayer#tick sends ServerboundMoveVehiclePacket.fromEntity(rootVehicle)
             // after the root tick, and ServerboundMoveVehiclePacket#fromEntity copies the
             // root entity's post-tick Entity#onGround exactly on protocol versions
-            // which carry that field. The next ridden LivingEntity tick uses that
-            // carried onGround state to choose grounded vs flying speed. Where the
+            // which carry that field. The next tick starts from this carried state. Where the
             // root's own move set a different ground, the prediction staged it.
-            nextLastOnGround =
-                    DesyncStatus.fromBoolean(player.packetStateData.desiredOnGroundOr(vehicleUpdate.isOnGround()));
-        } else if (vehicleMovementFromClientTick && riding != null && !vehicleUpdate.isHasOnGround()) {
+            if (correctedOnGround == null) {
+                nextLastOnGround = DesyncStatus.fromBoolean(player.packetStateData.desiredOnGroundOr(reported));
+            }
+        } else if (riding != null && !vehicleUpdate.isHasOnGround()) {
             Boolean ground = unreportedRootGround(result);
             if (ground != null) nextLastOnGround = DesyncStatus.fromBoolean(ground);
         }
         player.checkManager.getSimulationProcessor().setLastOnGround(nextLastOnGround);
-        if (vehicleMovementFromClientTick
-                && riding != null
-                && !vehicleUpdate.isHasOnGround()
-                && !nextLastOnGround.isDesync()) {
+        if (riding instanceof PacketEntityHorse && vehicleUpdate.isHasOnGround()) {
+            player.getSetbackTeleportUtil().setStagedHorseOnGround(nextLastOnGround);
+        }
+        if (riding != null && !vehicleUpdate.isHasOnGround() && !nextLastOnGround.isDesync()) {
             // Older MoveVehicle packets omit onGround. Carry ground transitions
             // proved by Entity#move's downward collision instead of overwriting
             // the entity with the packet accessor's absent-field default.
             riding.onGround = nextLastOnGround.determinePessimistically();
-        }
-
-        if (!vehicleMovementFromClientTick) {
-            // MCP-Reborn ClientPacketListener#handleMoveVehicle emits this
-            // packet from the packet handler. It does not run LocalPlayer#tick,
-            // Entity#rideTick, or AbstractBoat#tick, so control input and horse
-            // jump state are not consumed by this packet.
-            return;
         }
 
         if (riding != null && riding.isBoat()) {

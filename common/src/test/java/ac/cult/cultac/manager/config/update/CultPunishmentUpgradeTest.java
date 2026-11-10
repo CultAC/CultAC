@@ -183,7 +183,7 @@ class CultPunishmentUpgradeTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"de", "en", "es", "fr", "it", "ja", "nl", "pt", "ru", "tr", "zh"})
+    @ValueSource(strings = {"de", "en", "es", "fr", "it", "ja", "nl", "pt", "ru", "tr", "uk", "zh"})
     void bundledLanguagesAreAlreadyAtTheNewCultRevision(String language) throws Exception {
         try (var source = CultConfigSpecs.class.getResourceAsStream("/punishments/" + language + ".yml")) {
             assertNotNull(source);

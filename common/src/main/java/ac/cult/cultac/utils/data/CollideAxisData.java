@@ -1,20 +1,39 @@
 package ac.cult.cultac.utils.data;
 
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.debug.DebugText;
 import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Data;
-import lombok.ToString;
 
 @AllArgsConstructor
 @Data
-@ToString
-public class CollideAxisData {
+public class CollideAxisData implements DebugText.Recordable {
     CollideResult x;
     CollideResult yPos;
     CollideResult yNeg;
     CollideResult z;
     List<SimpleCollisionBox> unknown;
+
+    @Override
+    public void appendTo(DebugText.Builder sb) {
+        sb.append("CollideAxisData(x=")
+                .append(x)
+                .append(", yPos=")
+                .append(yPos)
+                .append(", yNeg=")
+                .append(yNeg)
+                .append(", z=")
+                .append(z)
+                .append(", unknown=")
+                .appendAll(unknown)
+                .append(')');
+    }
+
+    @Override
+    public String toString() {
+        return DebugText.print(this);
+    }
 
     public void setX(CollideResult newX) {
         x = x == null ? newX : x.combine(newX);
@@ -159,7 +178,7 @@ public class CollideAxisData {
 
     @AllArgsConstructor
     @Data
-    public static class CollideResult {
+    public static class CollideResult implements DebugText.Recordable {
         boolean isLikelyCollide;
         double result;
         // Direction (+1/-1) the horizontal result was probed in, since a flush result of 0 has no sign; 0 if unknown.
@@ -167,6 +186,11 @@ public class CollideAxisData {
 
         public CollideResult(boolean isLikelyCollide, double result) {
             this(isLikelyCollide, result, 0);
+        }
+
+        @Override
+        public void appendTo(DebugText.Builder sb) {
+            sb.append(isLikelyCollide).append(' ').append(result);
         }
 
         @Override
@@ -179,12 +203,16 @@ public class CollideAxisData {
         }
 
         CollideResult combine(boolean newLikelyCollide, double newResult, int newSide) {
+            boolean ourSideCollided = side != 0 || isLikelyCollide;
+            boolean newSideCollided = newSide != 0 || newLikelyCollide;
             isLikelyCollide = isLikelyCollide || newLikelyCollide;
             boolean areWeGreater = Math.abs(result) > Math.abs(newResult);
             if (areWeGreater) {
                 side = newSide;
             } else if (Math.abs(result) == Math.abs(newResult) && side != newSide) {
-                side = 0;
+                // A probe that stopped at no face gives no side; only two faces of the same reach conflict.
+                if (!ourSideCollided) side = newSide;
+                else if (newSideCollided) side = 0;
             }
             result = areWeGreater ? newResult : result;
             return this;

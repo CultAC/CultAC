@@ -6,23 +6,31 @@ import static org.junit.Assert.assertTrue;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
+import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockFrameProcessor;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
 import ac.cult.cultac.checks.impl.movement.timer.AbstractTimerCheck;
+import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
+import ac.cult.cultac.manager.player.SetbackFixtures;
+import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveVehicle;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPassengers;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.protocol.wire.Wire;
 import ac.cult.cultac.utils.data.SetbackPosWithVector;
 import ac.cult.cultac.utils.math.Vec3;
+import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.reflect.Field;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
@@ -44,6 +52,133 @@ public final class BedrockTransportAuthorityTest {
 
             assertEquals(TimerCheck.BedrockAuthInputDecision.REJECT, timer.onBedrockAuthInput());
             assertEquals(1, player.cancelledPackets.get());
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    /** A Bedrock client tick is its auth frame; Geyser's Java movement only projects the frame. */
+    @Test
+    public void dumbTimerCountsBedrockAuthFramesAndNotTheirJavaProjection() throws Exception {
+        OfflineCultTestBootstrap.installConfig();
+        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            DumbTimer dumb = player.checkManager.getListener(DumbTimer.class);
+            setDumbTimerField(dumb, "limitAbuseOverPing", -1L);
+            setDumbTimerField(dumb, "balance", System.nanoTime() - 10e9);
+            double before = dumbTimerBalance(dumb);
+
+            var move = new ServerboundMovePlayer(.5, 70, .5, 0, 0, false, false, true, true);
+            dumb.onMovePlayer(
+                    new PacketReceiveEvent<>(player.user, ConnectionPhase.PLAY, ServerboundPackets.MOVE_PLAYER, move),
+                    player,
+                    move);
+            assertEquals(before, dumbTimerBalance(dumb), 0.0);
+
+            assertFalse(dumb.onBedrockAuthInput());
+            assertEquals(before + 45e6, dumbTimerBalance(dumb), 0.0);
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    @Test
+    public void bedrockAuthFrameAheadOfRealTimeIsRejected() throws Exception {
+        OfflineCultTestBootstrap.installConfig();
+        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            Vec3 start = new Vec3(.5, 70, .5);
+            player.compensatedWorld.ensureValidationChunkLoaded(0, 0);
+            player.lastTransactionReceived.set(1);
+            SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
+            player.x = player.lastX = start.x;
+            player.y = player.lastY = start.y;
+            player.z = player.lastZ = start.z;
+            player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, start.x, start.y, start.z);
+            assertTrue(BedrockFrameProcessor.process(player, idleFrame(player, 1, start),
+                            BedrockPredictionTrigger.OFFLINE_REPLAY) != null);
+            assertFalse(player.getSetbackTeleportUtil().isPendingSetback());
+
+            // A second of frames already ahead of real time, outside any long-teleport window.
+            DumbTimer dumb = player.checkManager.getListener(DumbTimer.class);
+            setDumbTimerField(dumb, "lastLongTeleport", System.nanoTime() - 3e9);
+            setDumbTimerField(dumb, "balance", System.nanoTime() + 1e9);
+
+            assertTrue(BedrockFrameProcessor.process(player, idleFrame(player, 2, start),
+                            BedrockPredictionTrigger.OFFLINE_REPLAY) == null);
+            assertTrue(player.getSetbackTeleportUtil().isPendingSetback());
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    private static BedrockAuthInputFrame idleFrame(CultPlayer player, long tick, Vec3 position) {
+        return BedrockAuthInputFrame.builder(player.playerUUID)
+                .protocolVersion(2193)
+                .clientTick(tick)
+                .inputMode(1)
+                .playMode(2)
+                .deviceId(3)
+                .position(position)
+                .packetPosition(position.add(0, 1.6200103759765625, 0))
+                .rotation(0, 0, 0)
+                .moveVector(0, 0)
+                .delta(Vec3.ZERO)
+                .reportedEndOfTickVelocity(Vec3.ZERO)
+                .build();
+    }
+
+    private static void setDumbTimerField(DumbTimer dumb, String name, Object value) throws Exception {
+        Field field = DumbTimer.class.getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(dumb, value);
+    }
+
+    private static double dumbTimerBalance(DumbTimer dumb) throws Exception {
+        Field field = DumbTimer.class.getDeclaredField("balance");
+        field.setAccessible(true);
+        return field.getDouble(dumb);
+    }
+
+    @Test
+    public void setbackAfterAcceptedBedrockFrameDoesNotAddAnotherTravelTick() {
+        OfflineCultTestBootstrap.installConfig();
+        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            Vec3 start = new Vec3(.5, 70, .5);
+            player.compensatedWorld.ensureValidationChunkLoaded(0, 0);
+            player.lastTransactionReceived.set(1);
+            SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
+            player.x = player.lastX = start.x;
+            player.y = player.lastY = start.y;
+            player.z = player.lastZ = start.z;
+            player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, start.x, start.y, start.z);
+            var frame = BedrockAuthInputFrame.builder(player.playerUUID)
+                    .protocolVersion(2193)
+                    .clientTick(1)
+                    .inputMode(1)
+                    .playMode(2)
+                    .deviceId(3)
+                    .position(start)
+                    .packetPosition(start.add(0, 1.6200103759765625, 0))
+                    .rotation(0, 0, 0)
+                    .moveVector(0, 0)
+                    .delta(new Vec3(.1, -.3, 0))
+                    .reportedEndOfTickVelocity(new Vec3(.1, -.3, 0))
+                    .build();
+            assertTrue(BedrockFrameProcessor.process(player, frame, BedrockPredictionTrigger.OFFLINE_REPLAY) != null);
+            var safe = player.getSetbackTeleportUtil().safePosition();
+            assertTrue(safe != null);
+            safe.setVector(new Vec3(.1, -.3, 0));
+            assertTrue(safe.getVector().lengthSqr() > 0.01);
+            assertTrue(player.checkManager.getSimulationProcessor().getLastPrediction() != null);
+            assertFalse(player.getSetbackTeleportUtil().isPendingSetback());
+
+            player.getSetbackTeleportUtil().executeForceResync("after accepted Bedrock frame");
+
+            assertTrue(player.getSetbackTeleportUtil().isPendingSetback());
+            assertEquals(safe.getPos(), player.getSetbackTeleportUtil().getRequiredSetBack()
+                    .getTeleportData().getLocation());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
@@ -108,10 +243,8 @@ public final class BedrockTransportAuthorityTest {
         try {
             int vehicleId = 43;
             Vec3 safePosition = new Vec3(8.0D, 72.0D, -4.0D);
-            player.getSetbackTeleportUtil().lastKnownGoodPosition =
-                    new SetbackPosWithVector(safePosition, Vec3.ZERO, 0);
-            player.getSetbackTeleportUtil().hasFullyLoaded = true;
-            player.getSetbackTeleportUtil().hasFullyJoined = true;
+            SetbackFixtures.seedSafePosition(player, new SetbackPosWithVector(safePosition, Vec3.ZERO));
+            SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
             player.compensatedEntities.vehicles.setServerVehicle(
                     vehicleId, new int[] {player.entityID}, player.lastTransactionSent.get());
 
@@ -154,16 +287,16 @@ public final class BedrockTransportAuthorityTest {
             enableTransactionPackets(player);
             var teleports = player.getSetbackTeleportUtil();
             Vec3 earlier = new Vec3(2, 64, 3);
-            teleports.addImmediateBedrockTransportTeleport(earlier, false);
-            Runnable mountReceipt = teleports.captureBedrockVehicleMount();
+            teleports.bedrockTeleports().addImmediateBedrockTransportTeleport(earlier, false);
+            Runnable mountReceipt = teleports.bedrockTeleports().captureBedrockVehicleMount();
             Vec3 later = earlier.add(5, 0, 0);
-            teleports.addImmediateBedrockTransportTeleport(later, false);
+            teleports.bedrockTeleports().addImmediateBedrockTransportTeleport(later, false);
             mountReceipt.run();
-            assertTrue(teleports.hasPendingBedrockTransportTeleport());
+            assertTrue(teleports.bedrockTeleports().hasPendingBedrockTransportTeleport());
             assertEquals(1, teleports.pendingTeleports.size());
             assertEquals(later, teleports.pendingTeleports.peek().getLocation());
-            teleports.captureBedrockVehicleMount().run();
-            assertFalse(teleports.hasPendingBedrockTransportTeleport());
+            teleports.bedrockTeleports().captureBedrockVehicleMount().run();
+            assertFalse(teleports.bedrockTeleports().hasPendingBedrockTransportTeleport());
 
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
@@ -177,17 +310,24 @@ public final class BedrockTransportAuthorityTest {
         try {
             enableTransactionPackets(player);
             var teleports = player.getSetbackTeleportUtil();
-            teleports.addSentTeleport(Vec3.ZERO, player.lastTransactionSent.get(), new RelativeFlag(0), false, 7);
-            teleports.addImmediateBedrockTransportTeleport(
-                    Vec3.ZERO,
-                    false,
-                    BedrockCoordinateFrame.IDENTITY,
-                    null,
-                    new BedrockTeleportOperation(
-                            1,
-                            BedrockTeleportProvenance.CULT_SETBACK,
-                            teleports.getRequiredSetBack().getTeleportData().getTransaction()),
-                    0);
+            teleports
+                    .javaTeleports()
+                    .addSentTeleport(Vec3.ZERO, player.lastTransactionSent.get(), new RelativeFlag(0), false, 7);
+            teleports
+                    .bedrockTeleports()
+                    .addImmediateBedrockTransportTeleport(
+                            Vec3.ZERO,
+                            false,
+                            BedrockCoordinateFrame.IDENTITY,
+                            null,
+                            new BedrockTeleportOperation(
+                                    1,
+                                    BedrockTeleportProvenance.CULT_SETBACK,
+                                    teleports
+                                            .getRequiredSetBack()
+                                            .getTeleportData()
+                                            .getTransaction()),
+                            0);
             var required = teleports.getRequiredSetBack();
             player.compensatedEntities.addEntity(43, EntityTypeIds.OAK_BOAT, Vec3.ZERO, 0, 0, 0);
             var packet = passengersPacket(43, player.entityID);
@@ -195,9 +335,9 @@ public final class BedrockTransportAuthorityTest {
             int proof = player.compensatedEntities.vehicles.serverPlayerVehicleTransaction;
             player.lastTransactionReceived.set(proof);
             player.latencyUtils.handleNettySyncTransaction(proof);
-            assertTrue(teleports.hasPendingBedrockTransportTeleport());
-            teleports.captureBedrockVehicleMount().run();
-            assertFalse(teleports.hasPendingBedrockTransportTeleport());
+            assertTrue(teleports.bedrockTeleports().hasPendingBedrockTransportTeleport());
+            teleports.bedrockTeleports().captureBedrockVehicleMount().run();
+            assertFalse(teleports.bedrockTeleports().hasPendingBedrockTransportTeleport());
             assertFalse(teleports.isPendingSetback());
             assertTrue(required.isComplete());
         } finally {
@@ -212,40 +352,52 @@ public final class BedrockTransportAuthorityTest {
         try {
             var teleports = player.getSetbackTeleportUtil();
             Vec3 target = new Vec3(527.2020263671875, 64.84375, -78.90235137939453);
-            teleports.addSentTeleport(target, 10, new RelativeFlag(0), false, 0);
+            teleports.javaTeleports().addSentTeleport(target, 10, new RelativeFlag(0), false, 0);
             teleports.pendingTeleports.clear();
             var operation = new BedrockTeleportOperation(1, BedrockTeleportProvenance.CULT_SETBACK, 10);
             var origin = new BedrockCoordinateFrame(512, 0, 1);
             Vec3 local = origin.toLocal(target);
             Vec3 packet = local.add(0, 1.6200103759765625, 0);
             var input = teleportInput(player, local, packet).resolveCoordinates(origin);
-            long revision =
-                    teleports.addImmediateBedrockTransportTeleport(target, false, origin, packet, operation, 10);
+            long revision = teleports
+                    .bedrockTeleports()
+                    .addImmediateBedrockTransportTeleport(target, false, origin, packet, operation, 10);
             player.lastTransactionReceived.set(10);
-            assertFalse(teleports.acknowledgeBedrockTeleportFrame(input).isTeleport());
-            Vec3 unrelated = target.add(5, 0, 0);
-            teleports.addImmediateBedrockTransportTeleport(unrelated, false);
-            assertTrue(teleports.acknowledgeBedrockTeleportFrame(unrelated).isTeleport());
-            assertTrue(teleports.isPendingSetback());
-            assertTrue(teleports.hasPendingBedrockTransportTeleport());
-            teleports.confirmBedrockOrigin(revision, operation, origin, packet);
             assertFalse(teleports
+                    .bedrockTeleports()
+                    .acknowledgeBedrockTeleportFrame(input)
+                    .isTeleport());
+            Vec3 unrelated = target.add(5, 0, 0);
+            teleports.bedrockTeleports().addImmediateBedrockTransportTeleport(unrelated, false);
+            assertTrue(teleports
+                    .bedrockTeleports()
+                    .acknowledgeBedrockTeleportFrame(unrelated)
+                    .isTeleport());
+            assertTrue(teleports.isPendingSetback());
+            assertTrue(teleports.bedrockTeleports().hasPendingBedrockTransportTeleport());
+            teleports.bedrockTeleports().confirmBedrockOrigin(revision, operation, origin, packet);
+            assertFalse(teleports
+                    .bedrockTeleports()
                     .acknowledgeBedrockTeleportFrame(
                             teleportInput(player, local.add(0.001, 0, 0), packet.add(0.001, 0, 0))
                                     .resolveCoordinates(origin))
                     .isTeleport());
             double nextWireY = Math.nextUp((float) packet.y);
             assertFalse(teleports
+                    .bedrockTeleports()
                     .acknowledgeBedrockTeleportFrame(teleportInput(
                                     player,
                                     local.add(0, nextWireY - packet.y, 0),
                                     new Vec3(packet.x, nextWireY, packet.z))
                             .resolveCoordinates(origin))
                     .isTeleport());
-            assertTrue(teleports.hasPendingBedrockTransportTeleport());
-            assertTrue(teleports.acknowledgeBedrockTeleportFrame(input).isTeleport());
+            assertTrue(teleports.bedrockTeleports().hasPendingBedrockTransportTeleport());
+            assertTrue(teleports
+                    .bedrockTeleports()
+                    .acknowledgeBedrockTeleportFrame(input)
+                    .isTeleport());
             assertFalse(teleports.isPendingSetback());
-            assertFalse(teleports.hasPendingBedrockTransportTeleport());
+            assertFalse(teleports.bedrockTeleports().hasPendingBedrockTransportTeleport());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }

@@ -102,7 +102,7 @@ public final class CameraAwayDecodedPacketResetTest {
             setBooleanField(elytraC, "glideLastTick", true);
 
             var packet = ac.cult.cultac.protocol.packet.ServerboundPackets.SIGN_UPDATE.opaqueValue();
-            new CheckManagerListener().processInterveningReceive(RecordReceiveTestEvents.signUpdate(player), player);
+            CheckManagerListener.receiveGeneric(RecordReceiveTestEvents.signUpdate(player), player);
 
             assertEquals(0, intField(badPacketsJ, "rotations"));
             assertFalse(booleanField(badPacketsX, "sprint"));

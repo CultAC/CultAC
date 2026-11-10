@@ -137,7 +137,9 @@ class InterpolationTraceTest {
                     entity.onBundleFirstTransaction(true, random.nextInt(6) != 0, dx, dy, dz, yaw, pitch, player);
                 case 2 -> entity.onBundleFirstTransaction(true, true, dx, dy, dz, yaw, pitch, player);
                 case 3 ->
-                    entity.onBundledPositionSyncTransaction(
+                    entity.onBundleTransaction(
+                            false,
+                            true,
                             entity.desyncClientPos.x + dx,
                             entity.desyncClientPos.y + dy,
                             entity.desyncClientPos.z + dz,

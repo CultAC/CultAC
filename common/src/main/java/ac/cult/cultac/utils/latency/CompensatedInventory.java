@@ -113,13 +113,14 @@ public class CompensatedInventory extends CultProcessor implements CheckListener
     /** Resends the server's value for a player storage slot, applied to the model at its proof. */
     public void correctPlayerSlot(int storageSlot) {
         SimItemStack item = serverView.playerSlot(storageSlot);
-        if (item == null) return;
+        int menuSlot = inventory.menuSlotForStorage(storageSlot);
+        if (item == null || menuSlot < 0) return;
         BlockPredictionAckSender.sendCorrections(
                 player,
                 0,
                 false,
                 List.of(),
-                List.of(new InventoryPackets.Slot(0, serverView.playerStateId(), storageSlot, item)),
+                List.of(new InventoryPackets.Slot(0, serverView.playerStateId(), menuSlot, item)),
                 null);
     }
 

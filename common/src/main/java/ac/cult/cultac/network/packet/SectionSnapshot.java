@@ -16,11 +16,16 @@ import java.util.function.IntUnaryOperator;
  */
 public final class SectionSnapshot {
     private final short nonEmpty, fluids;
+    /** The fluid count when the wire (26.1+) or a pooled section with these contents supplied it; -1 otherwise. */
+    private final int knownFluids;
+
     private final PalettedSection blocks, biomes;
 
-    private SectionSnapshot(short nonEmpty, short fluids, PalettedSection blocks, PalettedSection biomes) {
+    private SectionSnapshot(
+            short nonEmpty, short fluids, int knownFluids, PalettedSection blocks, PalettedSection biomes) {
         this.nonEmpty = nonEmpty;
         this.fluids = fluids;
+        this.knownFluids = knownFluids;
         this.blocks = blocks;
         this.biomes = biomes;
     }
@@ -52,11 +57,14 @@ public final class SectionSnapshot {
             IntUnaryOperator biomes,
             SectionPool pool) {
         short nonEmpty = input.readShort();
-        short fluids = version.atLeast(ProtocolVersion.V26_1) ? input.readShort() : 0;
+        boolean wireFluids = version.atLeast(ProtocolVersion.V26_1);
+        short fluids = wireFluids ? input.readShort() : 0;
+        var blocks = PalettedSection.readBlocksPooled(input, version, sourceStates, states, modelStates, pool);
         return new SectionSnapshot(
                 nonEmpty,
                 fluids,
-                PalettedSection.readBlocks(input, version, sourceStates, states, modelStates, pool),
+                wireFluids ? fluids : blocks.pooledFluidCount(),
+                blocks.states(),
                 PalettedSection.readBiomes(input, version, sourceBiomes, biomes, modelBiomes));
     }
 
@@ -65,12 +73,23 @@ public final class SectionSnapshot {
         return new SectionSnapshot(
                 (short) 0,
                 (short) 0,
+                -1,
                 null,
                 PalettedSection.readBiomes(input, version, sourceBiomes, biomes, modelBiomes));
     }
 
     public PalettedSection copyBlocks() {
         return blocks.copyOnWrite();
+    }
+
+    /** The non-air block count the wire carried. */
+    public int nonEmptyBlockCount() {
+        return nonEmpty;
+    }
+
+    /** The wire's fluid count (26.1+), else a pooled section's with the same contents; -1 when neither is known. */
+    public int knownFluidCount() {
+        return knownFluids;
     }
 
     /** The biome of every cell when the palette holds a single entry; -1 otherwise. */

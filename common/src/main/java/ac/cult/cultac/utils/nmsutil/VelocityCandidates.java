@@ -461,6 +461,18 @@ public final class VelocityCandidates {
     }
 
     /**
+     * The onGround the accepted move leaves: Entity#move's verticalCollisionBelow, {@code delta.y != movement.y &&
+     * delta.y < 0.0}, which a locally authoritative entity sets on every move. UNKNOWN when the result holds no
+     * simulated Entity#move.
+     */
+    public static DesyncStatus verticalCollisionBelow(PredictionResult result) {
+        if (result.getValidMovements() == null || !hasEngineTrace(result)) return DesyncStatus.UNKNOWN;
+        JavaMoveCollision forward = forwardMove(result);
+        if (forward != null) return DesyncStatus.fromBoolean(forward.verticalCollisionBelow());
+        return DesyncStatus.fromBoolean(requestedMovementY(result) < 0.0D && collidedVertically(result));
+    }
+
+    /**
      * The deltaMovement Entity#move received. LivingEntity#travelFallFlying and AbstractBoat#tick replace it before
      * the move in every version (1.21.11 LivingEntity.java:2357, AbstractBoat.java:233-239), so a gliding or boat
      * tick never carries the velocity it started from.
@@ -502,10 +514,15 @@ public final class VelocityCandidates {
                 || (ClientBlockProperties.isBed(onBlock) && !BlockIds.is(onBlock, BlockIds.STRAW_BED));
     }
 
+    /** {@code Block#getBounceRestitution}. */
+    public static float blockBounceRestitution(int block) {
+        return BlockIds.is(block, BlockIds.SLIME_BLOCK) ? 1.0F : isBouncyBlock(block) ? 0.75F : 0.0F;
+    }
+
     private static double blockBounciness(int onBlock, boolean living) {
         // MCP-Reborn 26.2 Entity#getBlockBounciness: non-living entities (such as
         // boats and minecarts) only receive 80% of the block's restitution.
-        float restitution = BlockIds.is(onBlock, BlockIds.SLIME_BLOCK) ? 1.0F : isBouncyBlock(onBlock) ? 0.75F : 0.0F;
+        float restitution = blockBounceRestitution(onBlock);
         return living ? restitution : restitution * 0.8F;
     }
 
@@ -522,7 +539,7 @@ public final class VelocityCandidates {
         return restitutedBounceY(deltaY, clippedY, gravity, airDrag, restitution);
     }
 
-    static double restitutedBounceY(
+    public static double restitutedBounceY(
             double deltaY, double clippedY, double gravity, double airDrag, double restitution) {
         // MCP-Reborn 26.2 Entity#restituteMovementAfterCollisions uses this raw
         // ratio. It deliberately does not clamp it: collision resolution can

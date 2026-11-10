@@ -10,6 +10,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerPosition;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerRotation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
 import ac.cult.cultac.protocol.value.Relative;
+import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.TeleportAcceptData;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.data.VehicleTeleportData;
@@ -30,8 +31,9 @@ public class PacketServerTeleport {
             // Geyser's Java acknowledgement does not prove Bedrock processed the teleport.
             return;
         }
-        event.setAuthoredTeleportResponse(player.getSetbackTeleportUtil().takeAuthoredTeleportAcknowledgment(ack.id()));
-        player.getSetbackTeleportUtil().teleportAnswered(ack.id(), ack.position() != null);
+        event.setAuthoredTeleportResponse(
+                player.getSetbackTeleportUtil().javaTeleports().takeAuthoredTeleportAcknowledgment(ack.id()));
+        player.getSetbackTeleportUtil().javaTeleports().teleportAnswered(ack.id(), ack.position() != null);
         // The wire packet is ID-only through 26.2 and carries position in
         // 26.3. The transport preserves the intercepted endpoint's wire format.
         if (ack.position() == null) {
@@ -39,6 +41,7 @@ public class PacketServerTeleport {
         }
 
         TeleportAcceptData accepted = player.getSetbackTeleportUtil()
+                .javaTeleports()
                 .checkExactJavaTeleportQueue(
                         ack.position().x(), ack.position().y(), ack.position().z(), ack.id());
         if (!accepted.isTeleport()) {
@@ -46,6 +49,14 @@ public class PacketServerTeleport {
             // A mismatched or transaction-unproven receipt must never reach it.
             event.setCancelled(true);
             return;
+        }
+        // An accepted passenger's answer is not matched against its coordinates; it is forwarded from the seat.
+        Vec3 forwarded = accepted.getForwardedPosition();
+        Vec3d reported = ack.position();
+        if (forwarded != null
+                && (forwarded.x != reported.x() || forwarded.y != reported.y() || forwarded.z != reported.z())) {
+            event.replace(new ServerboundAcceptTeleportation(
+                    ack.id(), new Vec3d(forwarded.x, forwarded.y, forwarded.z), ack.yaw(), ack.pitch()));
         }
         CheckManagerListener.applyTeleportResponse(player, accepted, ack.yaw(), ack.pitch());
     }
@@ -119,6 +130,7 @@ public class PacketServerTeleport {
         event.getTasksAfterSend().add(player::sendTrailingTransaction);
 
         player.getSetbackTeleportUtil()
+                .javaTeleports()
                 .addSentTeleport(
                         pos,
                         deltaMovement,
@@ -152,6 +164,7 @@ public class PacketServerTeleport {
         int proofTransaction = proof == null ? -1 : proof.transaction();
 
         player.getSetbackTeleportUtil()
+                .javaTeleports()
                 .addImmediatePlayerRotationTeleport(
                         flags,
                         bundleTransaction,
@@ -189,7 +202,7 @@ public class PacketServerTeleport {
         // shares an earlier ping. A setback's echo keeps the transaction of the setback it completes.
         int lastSent = player.lastTransactionSent.get();
         CultPlayer.TrackedTransaction response = player.appendResponseProofTransaction(event);
-        int proofTransaction = player.getSetbackTeleportUtil().isSendingSetback || response == null
+        int proofTransaction = player.getSetbackTeleportUtil().isSendingSetback() || response == null
                 ? lastSent
                 : response.transaction();
         trackClientboundMoveVehicle(
@@ -215,6 +228,7 @@ public class PacketServerTeleport {
         // Authority can change before the next carried-slot claim. Only the handler's non-tick echo proves that
         // this correction was applied; a passive root ignores it even when the following ping is answered.
         player.getSetbackTeleportUtil()
+                .vehicleTeleports()
                 .addVehicleTeleport(
                         rootVehicleId,
                         proofTransaction,

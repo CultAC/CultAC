@@ -8,6 +8,7 @@ import ac.cult.cultac.player.CultPlayer;
 public class Speed extends Check implements PostPredictionListener {
     public static final CheckInfo INFO = CheckInfo.builder()
             .name("Speed")
+            .stableKey("grim.legacy.speed")
             .description("Moved too fast on the ground")
             .build();
 

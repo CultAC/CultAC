@@ -32,6 +32,7 @@ import ac.cult.cultac.utils.lists.EvictingQueue;
 public class PostCheck extends Check implements CheckListener, PostPredictionListener {
     public static final CheckInfo INFO = CheckInfo.builder()
             .name("Post")
+            .stableKey("grim.post.invalid_order")
             .description("Impossible attacks, clicks or item use")
             .build();
     private String post;
@@ -64,9 +65,9 @@ public class PostCheck extends Check implements CheckListener, PostPredictionLis
         }
     }
 
-    private void handleMovePlayer() {
+    private void handleMovePlayer(boolean teleport) {
         // TODO: Rewrite this check to be stronger, as in between tick and and the first transaction?
-        if (player.packetStateData.lastPacketWasTeleport) {
+        if (teleport) {
             return;
         }
         post = null;
@@ -111,7 +112,7 @@ public class PostCheck extends Check implements CheckListener, PostPredictionLis
     @CultPacketHandler
     public void onMovePlayer(
             PacketReceiveEvent<ServerboundMovePlayer> event, CultPlayer player, ServerboundMovePlayer packet) {
-        handleMovePlayer();
+        handleMovePlayer(event.answersTeleport());
     }
 
     @CultPacketHandler("serverbound.client_tick_end")
