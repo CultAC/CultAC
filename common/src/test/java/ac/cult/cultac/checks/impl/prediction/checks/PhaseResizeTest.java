@@ -172,6 +172,7 @@ class PhaseResizeTest {
         // Component boundary: supply the runner's post-push start; this does not replay a piston.
         SimulationContext context = mock(SimulationContext.class);
         when(context.getStart()).thenReturn(physicalStart);
+        when(context.getScale()).thenReturn(player.dimensionScale);
         PredictionResult result = mock(PredictionResult.class);
         when(result.getSimulationContext()).thenReturn(context);
         phase.onPredictionComplete(new PredictionComplete(result));
