@@ -12,7 +12,6 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +23,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.LongFunction;
+import java.util.function.LongSupplier;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
@@ -46,6 +46,10 @@ public abstract class LeasedJobs<J> {
     static final double POLL_SPREAD = 0.2;
 
     public static final long RESULT_RETRY_SECONDS = 10;
+    /** How long a result is retried before it is given up. */
+    public static final Duration MAX_OWED = Duration.ofHours(24);
+    /** The most jobs one round claims; the rest wait for the next. */
+    public static final int MAX_CLAIMS_PER_ROUND = 400;
 
     public static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
     public static final int MAX_BODY = 256 << 10;
@@ -194,6 +198,7 @@ public abstract class LeasedJobs<J> {
         JsonElement jobs = pending.get(kind.plural());
         if (jobs != null && jobs.isJsonArray()) {
             for (JsonElement item : jobs.getAsJsonArray()) {
+                if (runs.size() >= MAX_CLAIMS_PER_ROUND) break;
                 J job = item.isJsonObject() ? parse(item.getAsJsonObject()) : null;
                 if (job != null
                         && generation.whileLatest(
@@ -270,7 +275,8 @@ public abstract class LeasedJobs<J> {
 
     /**
      * Posts a result, again every {@link #RESULT_RETRY_SECONDS} after no answer or a 5xx, whatever configure comes
-     * meanwhile, until the service takes it (200) or refuses it for good (any 4xx).
+     * meanwhile, until the service takes it (200) or refuses it for good (any 4xx), or it is no longer
+     * {@linkplain Handled#owing owed}.
      */
     private CompletableFuture<Void> deliver(String id, String body) {
         return send(request("/api/v1/" + kind.route() + "/" + id + "/result")
@@ -298,7 +304,16 @@ public abstract class LeasedJobs<J> {
                                 kind.label() + ": the cloud service answered HTTP " + reply.status()
                                         + " to a result; retrying every " + RESULT_RETRY_SECONDS + " s");
                     }
-                    after.apply(RESULT_RETRY_SECONDS).execute(() -> deliver(id, body));
+                    after.apply(RESULT_RETRY_SECONDS).execute(() -> {
+                        if (handled.owing(id)) {
+                            deliver(id, body);
+                        } else {
+                            problem(
+                                    "result given up",
+                                    kind.label() + ": stopped retrying a result after "
+                                            + MAX_OWED.toHours() + " h or " + handled.maxOwed() + " owed");
+                        }
+                    });
                     return null;
                 });
     }
@@ -353,16 +368,31 @@ public abstract class LeasedJobs<J> {
 
     /**
      * The ids this instance claimed, the oldest forgotten past {@code max}, and those whose result it still owes, kept
-     * until the service takes it.
+     * until the service takes it, for at most {@link #MAX_OWED} and the {@code max} most recent.
      */
     public static final class Handled {
+        private final int max;
+        private final LongSupplier nanos;
         private final Map<String, Boolean> ids;
-        private final Set<String> owed = new HashSet<>();
+        /** By id, when its result was first owed, in {@link #nanos}. */
+        private final Map<String, Long> owed;
 
         public Handled(int max) {
+            this(max, System::nanoTime);
+        }
+
+        Handled(int max, LongSupplier nanos) {
+            this.max = max;
+            this.nanos = nanos;
             ids = new LinkedHashMap<>() {
                 @Override
                 protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
+                    return size() > max;
+                }
+            };
+            owed = new LinkedHashMap<>() {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, Long> eldest) {
                     return size() > max;
                 }
             };
@@ -370,11 +400,11 @@ public abstract class LeasedJobs<J> {
 
         /** Whether {@code id} was not handled yet; it is from here on. */
         public synchronized boolean add(String id) {
-            return !owed.contains(id) && ids.putIfAbsent(id, Boolean.TRUE) == null;
+            return !owed.containsKey(id) && ids.putIfAbsent(id, Boolean.TRUE) == null;
         }
 
         public synchronized boolean contains(String id) {
-            return ids.containsKey(id) || owed.contains(id);
+            return ids.containsKey(id) || owed.containsKey(id);
         }
 
         /** Forgets a claim that was never run. */
@@ -383,11 +413,24 @@ public abstract class LeasedJobs<J> {
         }
 
         public synchronized void owe(String id) {
-            owed.add(id);
+            owed.putIfAbsent(id, nanos.getAsLong());
         }
 
         public synchronized void paid(String id) {
             owed.remove(id);
+        }
+
+        /** Whether {@code id}'s result is still owed; one owed longer than {@link #MAX_OWED} is forgotten. */
+        public synchronized boolean owing(String id) {
+            Long since = owed.get(id);
+            if (since == null) return false;
+            if (nanos.getAsLong() - since <= MAX_OWED.toNanos()) return true;
+            owed.remove(id);
+            return false;
+        }
+
+        int maxOwed() {
+            return max;
         }
     }
 }

@@ -42,6 +42,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
@@ -281,6 +282,35 @@ class CloudFlagsTest {
         claimStatus = 200;
         flags.pollOnce().get(5, TimeUnit.SECONDS);
         assertEquals(List.of(new Raised(PLAYER, CloudCombat.class)), raised);
+    }
+
+    @Test
+    void aRoundClaimsAtMostItsMost() throws Exception {
+        pace.max(Integer.MAX_VALUE);
+        online.add(PLAYER);
+        leaving.add(PLAYER);
+        JsonArray many = new JsonArray();
+        for (int i = 0; i <= CloudFlags.MAX_CLAIMS_PER_ROUND; i++) {
+            many.add(flag(new UUID(i, i).toString(), PLAYER, "CloudCombat"));
+        }
+        pending = many;
+        AtomicInteger picked = new AtomicInteger();
+        CloudFlags.Host counting = new CloudFlags.Host() {
+            @Override
+            public boolean online(UUID player) {
+                picked.incrementAndGet();
+                return host.online(player);
+            }
+
+            @Override
+            public boolean schedule(UUID player, Class<? extends CloudFlagCheck> type, Consumer<CloudFlagCheck> flag) {
+                return host.schedule(player, type, flag);
+            }
+        };
+
+        flags("arena-1", counting).pollOnce().get(30, TimeUnit.SECONDS);
+
+        assertEquals(CloudFlags.MAX_CLAIMS_PER_ROUND, picked.get());
     }
 
     @Test
