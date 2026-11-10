@@ -23,9 +23,9 @@ import java.util.function.IntPredicate;
 import java.util.function.IntUnaryOperator;
 
 /**
- * Model IDs whose storage a section pool may share across connections; shared storage is copied before mutation. A
- * canonical section, which the canonical reads give for a single-entry container, is shared between threads: it is
- * never written, {@link #getAndSet} on it throws and {@link #copyOnWrite} gives an own copy.
+ * Model IDs whose storage a section pool or the {@link SectionStore} may share across connections; shared storage is
+ * copied before mutation. A canonical section, which the canonical reads give for a single-entry container, is shared
+ * between threads: it is never written, {@link #getAndSet} on it throws and {@link #copyOnWrite} gives an own copy.
  */
 public final class PalettedSection {
     private static final int BLOCK_STATES = DataTables.defaults().registry().stateCount();
@@ -46,6 +46,7 @@ public final class PalettedSection {
     private static final int SCRATCH_CODES = 1 << 8;
     static final int MATCHED = -2;
     static final int NO_WORD_COPY = -1;
+    private static final String STORED_WRITE = "A stored section is never written";
 
     static {
         for (int bits = 1; bits <= 32; bits++) {
@@ -63,6 +64,10 @@ public final class PalettedSection {
     private boolean sharedStorage;
     private boolean sharedByPool;
     private boolean canonical;
+    /** Storage shared only with a {@link SectionStore} entry: an own read would hold it unshared. */
+    private boolean sharedByStore;
+    /** A {@link SectionStore} entry's section, which every thread reads and nothing writes. */
+    private boolean stored;
 
     private PalettedSection(int size, int minimumBits, int maximumLocalBits, int registrySize, int initial) {
         this(size, minimumBits, maximumLocalBits, registrySize, 0, new int[] {initial}, 1, NO_WORDS);
@@ -191,9 +196,13 @@ public final class PalettedSection {
             var shared = pool.sharedBlocks(input, lengthPrefixed, registrySize, mapper, targetRegistrySize);
             if (shared != null) return shared;
         }
+        long fingerprint = SectionStore.fingerprint(input, lengthPrefixed);
+        var stored = SectionStore.shared(input, lengthPrefixed, fingerprint, registrySize, mapper, targetRegistrySize);
+        if (stored != null) return new PooledRead(pool != null ? countedFullRead(stored) : stored, -1);
         var read = canonical
                 ? readCanonical(input, 4096, 4, 8, registrySize, lengthPrefixed, true, mapper, targetRegistrySize)
                 : readBlocks(input, version, registrySize, mapper, targetRegistrySize);
+        SectionStore.offer(fingerprint, read);
         return new PooledRead(pool != null ? countedFullRead(read) : read, -1);
     }
 
@@ -202,9 +211,15 @@ public final class PalettedSection {
         if (pool != null) {
             var shared = pool.sharedBlocks(input, false, BLOCK_STATES, IntUnaryOperator.identity(), BLOCK_STATES);
             if (shared != null) return shared.states();
-            return countedFullRead(readBlocks(input));
         }
-        return readBlocks(input);
+        long fingerprint = SectionStore.fingerprint(input, false);
+        var read =
+                SectionStore.shared(input, false, fingerprint, BLOCK_STATES, IntUnaryOperator.identity(), BLOCK_STATES);
+        if (read == null) {
+            read = readBlocks(input);
+            SectionStore.offer(fingerprint, read);
+        }
+        return pool != null ? countedFullRead(read) : read;
     }
 
     /**
@@ -217,7 +232,13 @@ public final class PalettedSection {
                     pool.sharedBlocks(input, false, BLOCK_STATES, IntUnaryOperator.identity(), BLOCK_STATES, counts);
             if (shared != null) return shared.states();
         }
-        var read = readCanonical(input, 4096, 4, 8, BLOCK_STATES, false, false, null, BLOCK_STATES);
+        long fingerprint = SectionStore.fingerprint(input, false);
+        var read =
+                SectionStore.shared(input, false, fingerprint, BLOCK_STATES, IntUnaryOperator.identity(), BLOCK_STATES);
+        if (read == null) {
+            read = readCanonical(input, 4096, 4, 8, BLOCK_STATES, false, false, null, BLOCK_STATES);
+            SectionStore.offer(fingerprint, read);
+        }
         if (pool != null && read.bits != 0) counts.fullRead();
         return read;
     }
@@ -572,18 +593,20 @@ public final class PalettedSection {
     /** As {@link #copy}, sharing this section's storage until either section is next written. */
     public PalettedSection copyOnWrite() {
         if (canonical) return owned();
+        if (stored) throw new IllegalStateException(STORED_WRITE);
         var result = new PalettedSection(
                 size, minimumBits, maximumLocalBits, registrySize, bits, palette, paletteSize, words);
         result.sharedStorage = true;
         sharedStorage = true;
         sharedByPool = false;
+        sharedByStore = false;
         return result;
     }
 
     /** As {@link #copyOnWrite}, for a pooled section whose storage a wire read shares. */
     PalettedSection copyOnWriteFromPool() {
         if (canonical) return owned();
-        boolean byPool = sharedByPool || !sharedStorage;
+        boolean byPool = sharedByPool || !sharedStorage || sharedByStore;
         var result = copyOnWrite();
         result.sharedByPool = true;
         sharedByPool = byPool;
@@ -623,11 +646,51 @@ public final class PalettedSection {
         return size;
     }
 
+    /**
+     * A {@link SectionStore} entry over this own, unpublished read's storage, which this section then shares; null
+     * for a section the store does not hold: a single-entry, global or empty palette, or a short word array.
+     */
+    PalettedSection storeTwin() {
+        if (canonical
+                || stored
+                || sharedStorage
+                || size != 4096
+                || minimumBits != 4
+                || maximumLocalBits != 8
+                || isGlobal()
+                || bits == 0
+                || paletteSize == 0
+                || paletteSize > 1 << bits
+                || palette.length > 1 << maximumLocalBits
+                || words.length != (size + 64 / bits - 1) / (64 / bits)) return null;
+        var twin = new PalettedSection(
+                size, minimumBits, maximumLocalBits, registrySize, bits, palette, paletteSize, words);
+        twin.sharedStorage = true;
+        twin.stored = true;
+        sharedStorage = true;
+        sharedByStore = true;
+        return twin;
+    }
+
+    /** A section over a {@link SectionStore} entry's storage, as an own read of the same container holds it. */
+    PalettedSection storeView() {
+        var view = new PalettedSection(
+                size, minimumBits, maximumLocalBits, registrySize, bits, palette, paletteSize, words);
+        view.sharedStorage = true;
+        view.sharedByStore = true;
+        return view;
+    }
+
     private void ownStorage() {
         if (canonical) throw new IllegalStateException("A canonical section is never written");
+        if (stored) throw new IllegalStateException(STORED_WRITE);
         if (sharedByPool) {
             SectionPool.sharedCloneCounter.increment();
             sharedByPool = false;
+        }
+        if (sharedByStore) {
+            SectionStore.cloneCounter.increment();
+            sharedByStore = false;
         }
         if (palette != null) palette = palette.clone();
         words = words.clone();

@@ -11,6 +11,7 @@ import ac.cult.cultac.manager.init.stop.TerminateGeyserBedrockBridge;
 import ac.cult.cultac.manager.init.stop.TerminateNetworkManager;
 import ac.cult.cultac.network.routing.NetworkModule;
 import ac.cult.cultac.utils.anticheat.LogUtil;
+import ac.cult.cultac.utils.latency.SectionStore;
 import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import lombok.Getter;
@@ -75,6 +76,7 @@ public class InitManager {
                 // Detach the Geyser session taps before Cult's own networking tears down.
                 .add(new TerminateGeyserBedrockBridge())
                 .add(new TerminateNetworkManager())
+                .add(SectionStore::clear)
                 .add(CultAPI.INSTANCE.getDiscordManager())
                 .add(() -> CultAPI.INSTANCE.getEventBus().unregisterAllListeners(CultAPI.INSTANCE.getGrimPlugin()))
                 .add(ac.cult.cultac.protocol.ProtocolCodecs::close)
