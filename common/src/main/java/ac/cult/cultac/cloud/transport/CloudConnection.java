@@ -56,6 +56,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Flow;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -63,7 +64,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.BooleanSupplier;
+import java.util.function.DoubleSupplier;
 import java.util.function.LongSupplier;
+import java.util.regex.Pattern;
 import org.yaml.snakeyaml.Yaml;
 
 /**
@@ -153,6 +156,8 @@ public final class CloudConnection {
     private static final Duration MAX_BACKOFF = Duration.ofSeconds(30);
     /** A socket must stay open this long before a reconnect skips the backoff. */
     private static final long STABLE_NANOS = TimeUnit.SECONDS.toNanos(30);
+    /** The most random wait added to a backoff step, and the most a reconnect after a stable socket waits. */
+    private static final Duration BACKOFF_SPREAD = Duration.ofSeconds(5);
     /** A socket quiet this long is pinged; quiet as long again after the ping, it is given up. */
     private static final long QUIET_NANOS = TimeUnit.SECONDS.toNanos(30);
     /**
@@ -186,6 +191,7 @@ public final class CloudConnection {
             List.of("network", "nats", "token"));
 
     private static final String SECRET_MARKER = "<secret>";
+    private static final Pattern IPV4 = Pattern.compile("\\d{1,3}(\\.\\d{1,3}){3}");
 
     private final URI connect;
     private final String apiKey;
@@ -278,7 +284,8 @@ public final class CloudConnection {
     /** How long the last socket stayed open, set when it is lost; -1 once the sender has waited for it. */
     private volatile long lastLifeNanos = -1;
 
-    private final Backoff backoff = new Backoff(MIN_BACKOFF, MAX_BACKOFF, STABLE_NANOS);
+    private final Backoff backoff = new Backoff(
+            MIN_BACKOFF, MAX_BACKOFF, STABLE_NANOS, BACKOFF_SPREAD, () -> ThreadLocalRandom.current().nextDouble());
     private final SocketLiveness liveness;
     private final LongSupplier clock;
     private boolean failing;
@@ -370,18 +377,25 @@ public final class CloudConnection {
 
     /**
      * The wait before the next connect: doubling from {@code min} to {@code max} while connects fail or sockets close
-     * within {@code stableNanos} of opening, none after a socket that stayed open that long.
+     * within {@code stableNanos} of opening, plus a random part of up to the step itself and at most {@code spread};
+     * after a socket that stayed open that long, only a random wait of up to {@code spread}.
      */
     static final class Backoff {
         private final Duration min;
         private final Duration max;
         private final long stableNanos;
+        private final Duration spread;
+        /** Uniform in [0, 1). */
+        private final DoubleSupplier random;
+
         private Duration next;
 
-        Backoff(Duration min, Duration max, long stableNanos) {
+        Backoff(Duration min, Duration max, long stableNanos, Duration spread, DoubleSupplier random) {
             this.min = min;
             this.max = max;
             this.stableNanos = stableNanos;
+            this.spread = spread;
+            this.random = random;
             next = min;
         }
 
@@ -390,14 +404,18 @@ public final class CloudConnection {
             Duration wait = next;
             Duration doubled = next.multipliedBy(2);
             next = doubled.compareTo(max) > 0 ? max : doubled;
-            return wait;
+            return wait.plus(part(wait.compareTo(spread) < 0 ? wait : spread));
         }
 
         /** A socket closed after {@code lifeNanos} open: the wait before reconnecting. */
         Duration closed(long lifeNanos) {
             if (lifeNanos < stableNanos) return failed();
             next = min;
-            return Duration.ZERO;
+            return part(spread);
+        }
+
+        private Duration part(Duration most) {
+            return Duration.ofNanos((long) (most.toNanos() * random.getAsDouble()));
         }
     }
 
@@ -975,7 +993,8 @@ public final class CloudConnection {
 
     /**
      * Whether the socket URL connect answered may be sent the key: {@code wss}, or {@code ws} to a loopback host when the
-     * connect itself went over {@code http} to a loopback host, with a host and no user info.
+     * connect itself went over {@code http} to a loopback host, with no user info and a host that is
+     * {@linkplain #sameSite connect's own or under it}.
      */
     static boolean answerAllowed(URI connect, String answer) {
         URI socket;
@@ -985,6 +1004,7 @@ public final class CloudConnection {
             return false;
         }
         if (socket.getScheme() == null || socket.getHost() == null || socket.getRawUserInfo() != null) return false;
+        if (!sameSite(connect.getHost(), socket.getHost())) return false;
         return switch (socket.getScheme().toLowerCase(Locale.ROOT)) {
             case "wss" -> true;
             case "ws" ->
@@ -993,6 +1013,25 @@ public final class CloudConnection {
                         && CloudSettings.loopback(socket.getHost());
             default -> false;
         };
+    }
+
+    /**
+     * Whether {@code socket} is {@code connect} or a subdomain of it, hosts as {@link URI#getHost} gives them, ignoring
+     * case and a trailing dot. An IP literal matches only itself, and loopback hosts match each other.
+     */
+    static boolean sameSite(String connect, String socket) {
+        if (connect == null || socket == null) return false;
+        if (CloudSettings.loopback(connect) && CloudSettings.loopback(socket)) return true;
+        String own = hostName(connect);
+        String named = hostName(socket);
+        if (own.isEmpty()) return false;
+        if (named.equals(own)) return true;
+        return !own.startsWith("[") && !IPV4.matcher(own).matches() && named.endsWith("." + own);
+    }
+
+    private static String hostName(String host) {
+        String lower = host.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".") ? lower.substring(0, lower.length() - 1) : lower;
     }
 
     /** A URL the service names, for a log line: only its scheme, host and port, since its path may echo the key. */
@@ -1322,7 +1361,7 @@ public final class CloudConnection {
                     batch.clear();
                 }
                 if (overdue() || late()) return;
-                byte[] next = ending ? pipeline.take(endByNanos - clock.getAsLong()) : pipeline.take();
+                ByteBuffer next = ending ? pipeline.take(endByNanos - clock.getAsLong()) : pipeline.take();
                 if (next == null) return;
                 write(open, next);
                 logRefused();
@@ -1420,11 +1459,13 @@ public final class CloudConnection {
     /**
      * {@link WebSocket} takes one message at a time, so only the sender thread writes, each after the last. A write
      * fails after 15 s, once a retiring socket's time is up, or, while the sender ends its open message, at
-     * {@link #endByNanos}.
+     * {@link #endByNanos}. Once the socket has taken the whole message, its array goes back to the frame arrays; one it
+     * may still read is let go.
      */
-    private void write(WebSocket open, byte[] message) throws Exception {
+    private void write(WebSocket open, ByteBuffer message) throws Exception {
+        int bytes = message.remaining();
         try {
-            CompletableFuture<WebSocket> sending = open.sendBinary(ByteBuffer.wrap(message), true);
+            CompletableFuture<WebSocket> sending = open.sendBinary(message, true);
             long giveUp = System.nanoTime() + WRITE_NANOS;
             while (true) {
                 try {
@@ -1434,11 +1475,12 @@ public final class CloudConnection {
                     if (overdue() || late() || System.nanoTime() - giveUp > 0) throw slow;
                 }
             }
+            shared.frames.give(message.array());
         } catch (Exception failure) {
             if (!ending) lost(open, "send failed: " + failure);
             throw failure;
         } finally {
-            pipeline.sent(message);
+            pipeline.sent(bytes);
         }
     }
 

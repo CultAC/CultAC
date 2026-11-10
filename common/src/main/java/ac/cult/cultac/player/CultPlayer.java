@@ -360,10 +360,30 @@ public class CultPlayer implements GrimUser {
         return movementPlatform == MovementPlatform.BEDROCK;
     }
 
-    /** LocalPlayer#tick runs only once ClientPacketListener#hasClientLoaded, which 1.21.4 introduced. */
+    /**
+     * LocalPlayer#tick runs only once ClientPacketListener#hasClientLoaded, which 1.21.4 introduced, and not after
+     * LocalPlayer#tickDeath removed the player.
+     */
     public boolean localPlayerTicks() {
         return !isBedrockMovement()
+                && !packetStateData.localPlayerRemoved
                 && (packetStateData.playerLoadedIntoLevel || getClientVersion().isOlderThan(ClientVersion.V_1_21_4));
+    }
+
+    /** LocalPlayer#tickDeath reaches deathTime 20 in this client tick, whose LivingEntity#tick then skips aiStep. */
+    public boolean localPlayerRemovedThisTick() {
+        return localPlayerTicks()
+                && packetStateData.localPlayerDeathTime == 19
+                && !compensatedEntities.getSelf().actionAlive;
+    }
+
+    /**
+     * Advances LocalPlayer#deathTime for a client tick that ran LocalPlayer#tick, from the health its packets left;
+     * ServerboundClientTickEndPacket marks every client tick from 1.21.2.
+     */
+    public void tickLocalPlayerDeath() {
+        if (compensatedEntities.getSelf().actionAlive || getClientVersion().isOlderThan(ClientVersion.V_1_21_2)) return;
+        if (++packetStateData.localPlayerDeathTime == 20) packetStateData.localPlayerRemoved = true;
     }
 
     /** A client tick the model counts ended: a Java tick end, or a Bedrock auth-input frame. */
@@ -383,6 +403,8 @@ public class CultPlayer implements GrimUser {
     /** A login or respawn replaced the LocalPlayer, which has not ticked yet. */
     public void onLocalPlayerCreated() {
         packetStateData.localPlayerTickedSinceSpawn = false;
+        packetStateData.localPlayerDeathTime = 0;
+        packetStateData.localPlayerRemoved = false;
         packetStateData.lastSentTickYaw = 0;
         packetStateData.lastSentTickPitch = 0;
         packetStateData.lastSendPositionYaw = 0;
@@ -401,7 +423,7 @@ public class CultPlayer implements GrimUser {
         float before = yawBeforeLook;
         yawBeforeLook = xRot;
         // Player#aiStep runs in LocalPlayer#tick.
-        if (!localPlayerTicks()) return;
+        if (!localPlayerTicks() || localPlayerRemovedThisTick()) return;
         float boatYawBefore = boatYawBeforeTurn;
         headYaw = xRot;
         unclampedHeadYaw = Float.NaN;
@@ -877,6 +899,7 @@ public class CultPlayer implements GrimUser {
      * same task and proves the packet without another. Standalone packets instead retain a FIFO trailing proof,
      * without claiming bundle atomicity or application before the next client tick. Protocol transitions cannot
      * carry an old-phase proof. Returns null, writing nothing, when no transaction can be sent.
+     * Calls that share one flush-bundle ping may return the same immutable record.
      */
     @Nullable
     public TrackedTransaction appendTrailingProofTransaction(
@@ -886,10 +909,16 @@ public class CultPlayer implements GrimUser {
                 : event.flushPing();
         if (shared > 0) {
             event.getWritesAfterSend().addAll(packetsBeforeProof);
-            return new TrackedTransaction(shared, null);
+            TrackedTransaction proof = sharedProof;
+            if (proof == null || proof.transaction() != shared)
+                sharedProof = proof = new TrackedTransaction(shared, null);
+            return proof;
         }
         return writeTrailingProofTransaction(event, packetsBeforeProof);
     }
+
+    // The last shared flush-bundle proof handed out; a record, so any thread may return it.
+    private TrackedTransaction sharedProof;
 
     /**
      * Writes a tracked ping of its own directly after the event's packet, for a packet whose client handler sends a
@@ -1611,12 +1640,12 @@ public class CultPlayer implements GrimUser {
         return new PacketWorld() {
             @Override
             public int getBlockStateId(int x, int y, int z) {
-                return world.getBlockStateIdAt(x, y, z);
+                return world.peekBlockStateIdAt(x, y, z);
             }
 
             @Override
             public boolean isChunkLoaded(int chunkX, int chunkZ) {
-                return world.isChunkLoaded(chunkX, chunkZ);
+                return world.peekChunkLoaded(chunkX, chunkZ);
             }
         };
     }

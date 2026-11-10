@@ -18,12 +18,21 @@ import java.lang.invoke.VarHandle;
 import java.lang.ref.WeakReference;
 import java.nio.ByteOrder;
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.IntPredicate;
 import java.util.function.IntUnaryOperator;
 
-/** Model IDs whose storage a section pool may share across connections; shared storage is copied before mutation. */
+/**
+ * Model IDs whose storage a section pool may share across connections; shared storage is copied before mutation. A
+ * canonical section, which the canonical reads give for a single-entry container, is shared between threads: it is
+ * never written, {@link #getAndSet} on it throws and {@link #copyOnWrite} gives an own copy.
+ */
 public final class PalettedSection {
     private static final int BLOCK_STATES = DataTables.defaults().registry().stateCount();
+    private static final AtomicReferenceArray<PalettedSection> BLOCK_SINGLES = new AtomicReferenceArray<>(BLOCK_STATES);
+    private static final int BIOME_IDS = 1024, BIOME_WAYS = 4;
+    private static final AtomicReferenceArray<PalettedSection> BIOME_SINGLES =
+            new AtomicReferenceArray<>(BIOME_IDS * BIOME_WAYS);
     private static final int[] VALUES_PER_WORD = new int[33];
     private static final long[] WORD_RECIPROCALS = new long[33];
     private static final long ABSENT_CODE_WEIGHT = 1L << 50;
@@ -53,6 +62,7 @@ public final class PalettedSection {
     private long[] words;
     private boolean sharedStorage;
     private boolean sharedByPool;
+    private boolean canonical;
 
     private PalettedSection(int size, int minimumBits, int maximumLocalBits, int registrySize, int initial) {
         this(size, minimumBits, maximumLocalBits, registrySize, 0, new int[] {initial}, 1, NO_WORDS);
@@ -87,7 +97,7 @@ public final class PalettedSection {
     }
 
     public static int[] readBiomes(ByteBuf input, int registrySize) {
-        var section = read(input, 64, 1, 3, registrySize, false);
+        var section = readCanonical(input, 64, 1, 3, registrySize, false, false, null, registrySize);
         int[] result = new int[64];
         for (int i = 0; i < result.length; i++) result[i] = section.get(i);
         return result;
@@ -98,7 +108,7 @@ public final class PalettedSection {
      * shared array, which no caller may write.
      */
     public static int[] readBiomeValues(ByteBuf input, int registrySize) {
-        var section = read(input, 64, 1, 3, registrySize, false);
+        var section = readCanonical(input, 64, 1, 3, registrySize, false, false, null, registrySize);
         int single = section.singleValue();
         if (single >= 0) return CachedChunk.uniformBiomes(single);
         int[] result = new int[64];
@@ -151,14 +161,40 @@ public final class PalettedSection {
             IntUnaryOperator mapper,
             int targetRegistrySize,
             SectionPool pool) {
+        return readBlocksPooled(input, version, registrySize, mapper, targetRegistrySize, pool, false);
+    }
+
+    /**
+     * As {@link #readBlocksPooled(ByteBuf, ProtocolVersion, int, IntUnaryOperator, int, SectionPool)}; a single-entry
+     * container gives a canonical section.
+     */
+    public static PooledRead readCanonicalBlocksPooled(
+            ByteBuf input,
+            ProtocolVersion version,
+            int registrySize,
+            IntUnaryOperator mapper,
+            int targetRegistrySize,
+            SectionPool pool) {
+        return readBlocksPooled(input, version, registrySize, mapper, targetRegistrySize, pool, true);
+    }
+
+    private static PooledRead readBlocksPooled(
+            ByteBuf input,
+            ProtocolVersion version,
+            int registrySize,
+            IntUnaryOperator mapper,
+            int targetRegistrySize,
+            SectionPool pool,
+            boolean canonical) {
+        boolean lengthPrefixed = !version.atLeast(ProtocolVersion.V1_21_5);
         if (pool != null) {
-            var shared = pool.sharedBlocks(
-                    input, !version.atLeast(ProtocolVersion.V1_21_5), registrySize, mapper, targetRegistrySize);
+            var shared = pool.sharedBlocks(input, lengthPrefixed, registrySize, mapper, targetRegistrySize);
             if (shared != null) return shared;
-            return new PooledRead(
-                    countedFullRead(readBlocks(input, version, registrySize, mapper, targetRegistrySize)), -1);
         }
-        return new PooledRead(readBlocks(input, version, registrySize, mapper, targetRegistrySize), -1);
+        var read = canonical
+                ? readCanonical(input, 4096, 4, 8, registrySize, lengthPrefixed, true, mapper, targetRegistrySize)
+                : readBlocks(input, version, registrySize, mapper, targetRegistrySize);
+        return new PooledRead(pool != null ? countedFullRead(read) : read, -1);
     }
 
     /** As {@link #readBlocks(ByteBuf)}, sharing the storage of a section in {@code pool} that the container holds. */
@@ -182,19 +218,86 @@ public final class PalettedSection {
         return readBiomes(input, version, registrySize).remap(mapper, targetRegistrySize, true);
     }
 
+    /**
+     * As {@link #readBiomes(ByteBuf, ProtocolVersion, int, IntUnaryOperator, int)}; a single-entry container gives a
+     * canonical section.
+     */
+    public static PalettedSection readCanonicalBiomes(
+            ByteBuf input, ProtocolVersion version, int registrySize, IntUnaryOperator mapper, int targetRegistrySize) {
+        return readCanonical(
+                input,
+                64,
+                1,
+                3,
+                registrySize,
+                !version.atLeast(ProtocolVersion.V1_21_5),
+                true,
+                mapper,
+                targetRegistrySize);
+    }
+
+    /**
+     * {@link #read} then, when {@code remap} holds, {@link #remap} in place: the same reads, mapper calls and failures
+     * in the same order. A single-entry container gives the canonical section for its entry.
+     */
+    private static PalettedSection readCanonical(
+            ByteBuf input,
+            int size,
+            int minimumBits,
+            int maximumLocalBits,
+            int registrySize,
+            boolean lengthPrefixed,
+            boolean remap,
+            IntUnaryOperator mapper,
+            int targetRegistrySize) {
+        if (!input.isReadable() || input.getByte(input.readerIndex()) != 0) {
+            var section = read(input, size, minimumBits, maximumLocalBits, registrySize, lengthPrefixed);
+            return remap ? section.remap(mapper, targetRegistrySize, true) : section;
+        }
+        input.skipBytes(1);
+        int value = readId(input, registrySize);
+        if (lengthPrefixed) {
+            int length = Wire.readLength(input, input.readableBytes() / Long.BYTES);
+            if (length != 0) input.skipBytes(length * Long.BYTES);
+        }
+        if (!remap) return single(size, minimumBits, maximumLocalBits, registrySize, value);
+        return single(
+                size, minimumBits, maximumLocalBits, targetRegistrySize, mapped(mapper, value, targetRegistrySize));
+    }
+
+    /** The canonical section holding {@code value} at every index; published whole, so any thread may read it. */
+    private static PalettedSection single(
+            int size, int minimumBits, int maximumLocalBits, int registrySize, int value) {
+        boolean blocks = size == 4096;
+        var singles = blocks ? BLOCK_SINGLES : BIOME_SINGLES;
+        int slot = blocks ? value : value < BIOME_IDS ? value * BIOME_WAYS + (registrySize & BIOME_WAYS - 1) : -1;
+        boolean cached = slot >= 0 && slot < singles.length();
+        var held = cached ? singles.get(slot) : null;
+        if (held != null
+                && held.size == size
+                && held.minimumBits == minimumBits
+                && held.maximumLocalBits == maximumLocalBits
+                && held.registrySize == registrySize) return held;
+        var created = new PalettedSection(size, minimumBits, maximumLocalBits, registrySize, value);
+        created.sharedStorage = true;
+        created.canonical = true;
+        if (cached) singles.set(slot, created);
+        return created;
+    }
+
     private static PalettedSection read(
             ByteBuf input, int size, int minimumBits, int maximumLocalBits, int registrySize, boolean lengthPrefixed) {
         var section = new PalettedSection(size, minimumBits, maximumLocalBits, registrySize, 0, null, 0, NO_WORDS);
         int wireBits = input.readByte();
         section.configure(wireBits);
         if (section.bits == 0 && !section.isGlobal()) {
-            section.palette[0] = section.readId(input);
+            section.palette[0] = readId(input, registrySize);
             section.paletteSize = 1;
         } else if (!section.isGlobal()) {
             section.paletteSize =
                     Wire.readLength(input, section.bits <= 4 ? section.palette.length : input.readableBytes());
             if (section.paletteSize > section.palette.length) section.palette = new int[section.paletteSize];
-            for (int i = 0; i < section.paletteSize; i++) section.palette[i] = section.readId(input);
+            for (int i = 0; i < section.paletteSize; i++) section.palette[i] = readId(input, registrySize);
         }
         if (lengthPrefixed) {
             // 1.21.2-1.21.4 PalettedContainer.read discards readLongArray's result when its
@@ -288,7 +391,7 @@ public final class PalettedSection {
             }
             return result;
         }
-        var result = reuseStorage
+        var result = reuseStorage && !canonical
                 ? this
                 : new PalettedSection(
                         size,
@@ -333,7 +436,7 @@ public final class PalettedSection {
         return result;
     }
 
-    private int readId(ByteBuf input) {
+    private static int readId(ByteBuf input, int registrySize) {
         int id = Wire.readVarInt(input);
         if (id < 0 || id >= registrySize) throw new IllegalArgumentException("Unknown section registry ID " + id);
         return id;
@@ -448,6 +551,7 @@ public final class PalettedSection {
 
     /** As {@link #copy}, sharing this section's storage until either section is next written. */
     public PalettedSection copyOnWrite() {
+        if (canonical) return owned();
         var result = new PalettedSection(
                 size, minimumBits, maximumLocalBits, registrySize, bits, palette, paletteSize, words);
         result.sharedStorage = true;
@@ -458,6 +562,7 @@ public final class PalettedSection {
 
     /** As {@link #copyOnWrite}, for a pooled section whose storage a wire read shares. */
     PalettedSection copyOnWriteFromPool() {
+        if (canonical) return owned();
         boolean byPool = sharedByPool || !sharedStorage;
         var result = copyOnWrite();
         result.sharedByPool = true;
@@ -465,7 +570,36 @@ public final class PalettedSection {
         return result;
     }
 
+    /** This section, or an own copy of a canonical one. */
+    PalettedSection owned() {
+        return canonical ? new PalettedSection(size, minimumBits, maximumLocalBits, registrySize, palette[0]) : this;
+    }
+
+    /** Whether this section holds exactly what {@code single}, a single-entry section, holds, in every field. */
+    boolean sameSingle(PalettedSection single) {
+        return bits == 0
+                && !isGlobal()
+                && paletteSize == 1
+                && palette.length == 1
+                && words.length == 0
+                && size == single.size
+                && minimumBits == single.minimumBits
+                && maximumLocalBits == single.maximumLocalBits
+                && registrySize == single.registrySize
+                && palette[0] == single.singleValue();
+    }
+
+    /** The entry {@link #forEachCount} reports for all {@link #size()} indices, or -1 when it reports others. */
+    int loneEntry() {
+        return paletteSize == 1 ? palette[0] : -1;
+    }
+
+    int size() {
+        return size;
+    }
+
     private void ownStorage() {
+        if (canonical) throw new IllegalStateException("A canonical section is never written");
         if (sharedByPool) {
             SectionPool.sharedCloneCounter.increment();
             sharedByPool = false;

@@ -88,9 +88,9 @@ class CompressionPipelineTest {
                     pipeline.submit(records, bytes(records), true);
                     records.clear();
                 }
-                byte[] message = pipeline.take();
+                byte[] message = ConnectionFixture.bytes(pipeline.take());
                 assertArrayEquals(expected(messages.get(taken++)), ConnectionFixture.decompress(zstd, message));
-                pipeline.sent(message);
+                pipeline.sent(message.length);
             }
             assertNull(pipeline.take());
         }
@@ -128,10 +128,67 @@ class CompressionPipelineTest {
                     exact.submit(records, bytes(records), end);
                     pooled.submitQueued(queued, bytes(records), end, frames);
                 }
-                byte[] written = exact.take();
-                assertArrayEquals(written, pooled.take());
-                exact.sent(written);
-                pooled.sent(written);
+                byte[] written = ConnectionFixture.bytes(exact.take());
+                assertArrayEquals(written, ConnectionFixture.bytes(pooled.take()));
+                exact.sent(written.length);
+                pooled.sent(written.length);
+            }
+        }
+        assertEquals(0, exactQueued.get());
+        assertEquals(0, pooledQueued.get());
+    }
+
+    @Test
+    void messagesInFrameArraysMatchExactOnesAndStayBoundedWhileTheSocketStalls() throws Exception {
+        Random random = new Random(17);
+        FrameBuffers frames = new FrameBuffers();
+        QueuedBytes exactQueued = new QueuedBytes(new AtomicLong());
+        QueuedBytes pooledQueued = new QueuedBytes(new AtomicLong());
+        try (CompressionPipeline exact = pipeline(2, NAME, exactQueued);
+                CompressionPipeline pooled = pipeline(2, NAME + "-frames", pooledQueued);
+                ZstdDecompressCtx exactReader = new ZstdDecompressCtx();
+                ZstdDecompressCtx pooledReader = new ZstdDecompressCtx()) {
+            for (int round = 0; round < 12; round++) {
+                int stalled = 0;
+                while (pooled.hasRoom()) {
+                    List<byte[]> records = new ArrayList<>();
+                    for (int i = 0, count = 1 + random.nextInt(5); i < count; i++) {
+                        byte[] record = new byte[1 + random.nextInt(random.nextInt(8) == 0 ? 90_000 : 600)];
+                        if (random.nextBoolean()) random.nextBytes(record);
+                        records.add(record);
+                    }
+                    List<CloudConnection.Queued> queued = new ArrayList<>();
+                    for (byte[] record : records) queued.add(new CloudConnection.Queued(0, record, 0));
+                    exactQueued.addAndGet(bytes(records));
+                    pooledQueued.addAndGet(bytes(records));
+                    exact.submit(records, bytes(records), true);
+                    pooled.submitQueued(queued, bytes(records), true, frames);
+                    stalled++;
+                }
+                List<ByteBuffer> held = new ArrayList<>();
+                long capacity = 0;
+                long lengths = 0;
+                for (int i = 0; i < stalled; i++) {
+                    ByteBuffer message = pooled.take();
+                    held.add(message);
+                    capacity += message.array().length;
+                    lengths += message.remaining();
+                }
+                assertTrue(
+                        capacity <= 2 * lengths + (1L << FrameBuffers.MIN_SHIFT) * stalled,
+                        capacity + " held for " + lengths + " in " + stalled);
+                for (ByteBuffer message : held) {
+                    byte[] written = ConnectionFixture.bytes(exact.take());
+                    assertEquals(0, message.position());
+                    assertArrayEquals(written, ConnectionFixture.bytes(message));
+                    assertArrayEquals(
+                            ConnectionFixture.decompress(exactReader, written),
+                            ConnectionFixture.decompress(pooledReader, ConnectionFixture.bytes(message)));
+                    exact.sent(written.length);
+                    pooled.sent(message.remaining());
+                    Arrays.fill(message.array(), (byte) 0x5A);
+                    frames.give(message.array());
+                }
             }
         }
         assertEquals(0, exactQueued.get());
@@ -148,7 +205,7 @@ class CompressionPipelineTest {
                 pipeline.submit(records, bytes(records), true);
             }
             assertFalse(pipeline.hasRoom());
-            pipeline.sent(pipeline.take());
+            pipeline.sent(pipeline.take().remaining());
             assertTrue(pipeline.hasRoom());
         }
         assertEquals(0, queued.get());
@@ -168,11 +225,11 @@ class CompressionPipelineTest {
             assertTrue(queued.get() <= raw + messages.size() * 1024L);
             List<byte[]> written = new ArrayList<>();
             byte[] message;
-            while ((message = pipeline.take()) != null) written.add(message);
+            while ((message = ConnectionFixture.bytes(pipeline.take())) != null) written.add(message);
             long writtenBytes = 0;
             for (byte[] each : written) writtenBytes += each.length;
             assertEquals(writtenBytes, queued.get());
-            for (byte[] each : written) pipeline.sent(each);
+            for (byte[] each : written) pipeline.sent(each.length);
         }
         assertEquals(0, queued.get());
     }
@@ -320,7 +377,7 @@ class CompressionPipelineTest {
                     assertArrayEquals(
                             expected(messages.get(i + p)),
                             ConnectionFixture.decompress(
-                                    readers.get(p), pipelines.get(p).take()));
+                                    readers.get(p), ConnectionFixture.bytes(pipelines.get(p).take())));
                 }
             }
         } finally {
@@ -346,7 +403,7 @@ class CompressionPipelineTest {
         assertEquals(2, writers.size());
         assertThrows(IllegalStateException.class, () -> writers.get(0).write(records, 3, true));
         pipeline.submit(records, 3, true);
-        assertTrue(pipeline.take().length > 1);
+        assertTrue(pipeline.take().remaining() > 1);
         assertTrue(pipeline.streaming());
         pipeline.close();
         assertFalse(pipeline.streaming());

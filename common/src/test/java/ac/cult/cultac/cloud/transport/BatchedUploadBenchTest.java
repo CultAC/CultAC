@@ -140,9 +140,9 @@ class BatchedUploadBenchTest {
                     queued.addAndGet(bytes);
                     pipeline.submit(part, bytes, end);
                     if (!end) continue;
-                    byte[] message = pipeline.take();
+                    int message = pipeline.take().remaining();
                     messages++;
-                    compressed += message.length;
+                    compressed += message;
                     pipeline.sent(message);
                 }
             }

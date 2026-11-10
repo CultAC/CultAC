@@ -458,7 +458,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
     // LocalPlayer#aiStep ran: the sprint state settles, and a respawned LocalPlayer's KeyboardInput#tick read the held
     // shift its kept lastSentInput holds.
     private static void onAiStepObserved(CultPlayer player) {
-        if (!player.localPlayerTicks()) return;
+        if (!player.localPlayerTicks() || player.localPlayerRemovedThisTick()) return;
         if (player.packetStateData.respawnShiftPending) {
             player.packetStateData.respawnShiftPending = false;
             player.isSneaking = true;
@@ -972,14 +972,18 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         onLocalPlayerAttackTick(player);
         player.checkManager.dispatchReceiveHandlers(event);
         boolean ticked = player.localPlayerTicks();
+        // LivingEntity#tick skips aiStep on the tick LocalPlayer#tickDeath removes the player.
+        boolean aiStep = ticked && !player.localPlayerRemovedThisTick();
         // FlightToggle reads this tick's ClientSprintState#flagBeforeAiStep, which onClientTickEnd releases.
-        if (ticked) FlightToggle.onClientTick(player);
+        if (aiStep) FlightToggle.onClientTick(player);
         player.sprintState.onClientTickEnd();
 
         player.endCountedClientTick();
         if (ticked) state.localPlayerTickedSinceSpawn = true;
+        // A synthetic tick end is a timeout, not a client tick.
+        if (ticked && !event.isSynthetic()) player.tickLocalPlayerDeath();
         // ClientLevel#tickPassenger runs Entity#rideTick even while LocalPlayer#tick waits for the client to load.
-        if (ticked || player.compensatedEntities.getSelf().inVehicle()) {
+        if (aiStep || player.compensatedEntities.getSelf().inVehicle()) {
             state.lastDeltaConsumedTickEndTransaction = player.lastTransactionReceived.get();
         }
         state.heldSlotEcho = -1;

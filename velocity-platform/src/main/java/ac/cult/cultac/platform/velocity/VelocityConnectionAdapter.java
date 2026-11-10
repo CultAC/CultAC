@@ -30,6 +30,7 @@ final class VelocityConnectionAdapter implements PlatformConnection {
     private Object observedServer;
     private Channel observedBackend;
     private boolean backendTicksClosed;
+    private final InlineBurstEnd inlineBurstEnd = new InlineBurstEnd();
 
     VelocityConnectionAdapter(ProxyServer proxy, Player nativePlayer, VelocityPlayer player, EventExecutor eventLoop) {
         this(proxy, nativePlayer, player, eventLoop, null, null);
@@ -108,7 +109,8 @@ final class VelocityConnectionAdapter implements PlatformConnection {
         var observer = new VelocityBackendTickObserver(partial -> {
             if (nativePlayer.getCurrentServer().orElse(null) != current) return;
             long now = System.nanoTime();
-            connection.execute(() -> backendTicks.onBurstEnd(partial, now));
+            if (connection.owner().inEventLoop()) inlineBurstEnd.execute(partial, now);
+            else connection.execute(() -> backendTicks.onBurstEnd(partial, now));
         });
         backend.eventLoop().execute(() -> {
             if (backend.isActive() && backend.pipeline().get(VelocityBackendTickObserver.NAME) == null)
@@ -116,6 +118,26 @@ final class VelocityConnectionAdapter implements PlatformConnection {
         });
         observedServer = current;
         observedBackend = backend;
+    }
+
+    /**
+     * A burst end handed to {@link CultConnection#execute} on the connection owner, which runs it before returning, so
+     * one instance serves every burst. It reads its fields before the estimator runs.
+     */
+    private final class InlineBurstEnd implements Runnable {
+        private boolean partial;
+        private long now;
+
+        void execute(boolean partial, long now) {
+            this.partial = partial;
+            this.now = now;
+            connection.execute(this);
+        }
+
+        @Override
+        public void run() {
+            backendTicks.onBurstEnd(partial, now);
+        }
     }
 
     private void removeBackendObserver() {

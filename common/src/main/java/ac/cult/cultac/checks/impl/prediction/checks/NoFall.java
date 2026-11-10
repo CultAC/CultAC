@@ -29,7 +29,7 @@ public class NoFall implements EngineCheck {
         if (result.getSimulationContext().getVehicle() != null) return;
 
         boolean flaggedNoFall = false;
-        final NoFallPseudo noFallPseudo = player.checkManager.getListener(NoFallPseudo.class);
+        final NoFallPseudo noFallPseudo = player.checkManager.getNoFallPseudo();
 
         PistonPushes pushes = result.getSimulationContext().getWorldData().getPistonPushes();
         // From 26.3 the shulker box block shoves are the packet's last Entity#move calls, and the last sets onGround.

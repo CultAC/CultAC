@@ -18,6 +18,7 @@ import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.data.ModelBlockStates;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrays;
@@ -50,6 +51,8 @@ public final class CompensatedBlockEntities {
     // Level#blockEntityTickers order: LevelChunk#updateBlockEntityTicker appends a new block entity's ticker and
     // rebinds a replaced one in place, and LevelChunk#removeBlockEntityTicker drops it.
     private Long2LongOpenHashMap added;
+    // The number of entries in each chunk column that holds any; kept with entries.
+    private Long2IntOpenHashMap columnEntries;
     private long nextAdded;
     private final List<ShulkerShove> lastTickShoves = new ArrayList<>(0);
     private final Supplier<InteractionRegistries> registries;
@@ -179,6 +182,11 @@ public final class CompensatedBlockEntities {
         lastTickShoves.clear();
     }
 
+    /** When false, {@link #shulkerShoves} adds nothing for the same arguments. */
+    public boolean mayShove(boolean next, boolean runsNormally) {
+        return next ? runsNormally && ticking != null && !ticking.isEmpty() : !lastTickShoves.isEmpty();
+    }
+
     /**
      * Adds the ShulkerBoxBlockEntity#moveCollidedEntities calls of the client tick that ended last, or with
      * {@code next} those of the client tick that runs next, whose block entities tick when {@code runsNormally}.
@@ -262,6 +270,8 @@ public final class CompensatedBlockEntities {
 
     public void forgetChunk(int x, int z) {
         if (entries == null) return;
+        int remaining = columnEntries.remove(column(x, z));
+        if (remaining == 0) return;
         var iterator = entries.long2ObjectEntrySet().fastIterator();
         while (iterator.hasNext()) {
             long key = iterator.next().getLongKey();
@@ -269,6 +279,7 @@ public final class CompensatedBlockEntities {
                 iterator.remove();
                 ticking.remove(key);
                 added.remove(key);
+                if (--remaining == 0) return;
             }
         }
     }
@@ -277,6 +288,15 @@ public final class CompensatedBlockEntities {
         entries = null;
         ticking = null;
         added = null;
+        columnEntries = null;
+    }
+
+    private static long column(int x, int z) {
+        return (long) x << 32 | (z & 0xFFFFFFFFL);
+    }
+
+    private static long column(long key) {
+        return column((int) (key >> 38) >> 4, (int) (key << 26 >> 38) >> 4);
     }
 
     private Entry get(long key) {
@@ -285,7 +305,8 @@ public final class CompensatedBlockEntities {
 
     private void remove(long key) {
         if (entries != null) {
-            entries.remove(key);
+            if (entries.remove(key) != null && columnEntries.addTo(column(key), -1) == 1)
+                columnEntries.remove(column(key));
             ticking.remove(key);
             added.remove(key);
         }
@@ -296,8 +317,12 @@ public final class CompensatedBlockEntities {
             entries = new Long2ObjectOpenHashMap<>(2);
             ticking = new LongOpenHashSet(2);
             added = new Long2LongOpenHashMap(2);
+            columnEntries = new Long2IntOpenHashMap(2);
         }
-        if (entries.put(key, entry) == null) added.put(key, nextAdded++);
+        if (entries.put(key, entry) == null) {
+            added.put(key, nextAdded++);
+            columnEntries.addTo(column(key), 1);
+        }
         ticking.add(key);
     }
 }

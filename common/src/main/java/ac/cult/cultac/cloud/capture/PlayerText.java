@@ -523,6 +523,15 @@ public final class PlayerText {
 
     /** As {@link #clientbound(int, byte[], boolean, TeamNames)}, read with {@code reader}; null reads afresh. */
     byte[] clientbound(int id, byte[] packet, boolean textStripped, TeamNames teams, Reader reader) {
+        return clientbound(id, packet, 0, packet.length, textStripped, teams, reader);
+    }
+
+    /**
+     * As {@link #clientbound(int, byte[], boolean, TeamNames, Reader)}, for the packet the {@code length} bytes of
+     * {@code packet} from {@code offset}: {@code packet} itself when it goes out as it came.
+     */
+    byte[] clientbound(
+            int id, byte[] packet, int offset, int length, boolean textStripped, TeamNames teams, Reader reader) {
         byte kind =
                 clientboundKinds != null && id >= 0 && id < clientboundKinds.length ? clientboundKinds[id] : WITHHELD;
         if (kind == TEXT_FREE) return packet;
@@ -531,7 +540,7 @@ public final class PlayerText {
             return null;
         }
         if (values == null && !textStripped) return unstripped(packet);
-        return counted(packet, strip(true, clientbound[id], packet, teams, reader));
+        return counted(packet, strip(true, clientbound[id], packet, offset, length, teams, reader));
     }
 
     /** As {@link #clientbound(int, byte[], boolean, TeamNames)}, for a serverbound packet. */
@@ -541,6 +550,14 @@ public final class PlayerText {
 
     /** As {@link #serverbound(int, byte[], boolean)}, read with {@code reader}; null reads afresh. */
     byte[] serverbound(int id, byte[] packet, boolean textStripped, Reader reader) {
+        return serverbound(id, packet, 0, packet.length, textStripped, reader);
+    }
+
+    /**
+     * As {@link #serverbound(int, byte[], boolean, Reader)}, for the packet the {@code length} bytes of {@code packet}
+     * from {@code offset}: {@code packet} itself when it goes out as it came.
+     */
+    byte[] serverbound(int id, byte[] packet, int offset, int length, boolean textStripped, Reader reader) {
         if (serverbound == null) {
             withheld.increment();
             return null;
@@ -552,7 +569,7 @@ public final class PlayerText {
         }
         if (kind == TEXT_FREE) return packet;
         if (values == null && !textStripped) return unstripped(packet);
-        return counted(packet, strip(false, serverbound[id], packet, null, reader));
+        return counted(packet, strip(false, serverbound[id], packet, offset, length, null, reader));
     }
 
     /** Whether a packet goes out unstripped on a socket that said {@code textStripped} false: this protocol has no codec. */
@@ -608,9 +625,24 @@ public final class PlayerText {
 
     /** As {@link #strip(boolean, String, byte[], TeamNames)}, read with {@code reader}; null reads afresh. */
     byte[] strip(boolean clientbound, String identifier, byte[] packet, TeamNames teams, Reader reader) {
+        return strip(clientbound, identifier, packet, 0, packet.length, teams, reader);
+    }
+
+    private byte[] strip(
+            boolean clientbound,
+            String identifier,
+            byte[] packet,
+            int offset,
+            int length,
+            TeamNames teams,
+            Reader reader) {
         if (values == null) return null;
         Walk walk = reader == null ? new Walk() : reader.walk(this);
-        walk.start(reader == null ? Unpooled.wrappedBuffer(packet) : reader.wrap(packet), teams);
+        walk.start(
+                reader == null
+                        ? Unpooled.wrappedBuffer(packet, offset, length)
+                        : reader.wrap(packet, offset, length),
+                teams);
         try {
             try {
                 Wire.readVarInt(walk.in);
@@ -620,25 +652,21 @@ public final class PlayerText {
                 return null;
             }
             if (walk.listed != null) teams.listed(walk.listed);
-            return walk.edits == null ? packet : walk.edits.apply(walk.in, 0, packet.length);
+            return walk.edits == null ? packet : walk.edits.apply(walk.in, 0, length);
         } finally {
             if (reader != null) walk.start(null, null);
         }
     }
 
     /**
-     * One stream's means of reading packets: a walk it reuses, and for each packet length up to
-     * {@link #MAX_KEPT_LENGTH} a buffer of exactly that length a packet is copied into, while their arrays and overhead
-     * fit {@link #MAX_KEPT_BYTES}. Used only on its stream's event loop, one packet at a time.
+     * One stream's means of reading packets: a walk it reuses, and one buffer of up to {@link #MAX_KEPT_BYTES} a packet
+     * that fits is copied into. Used only on its stream's event loop, one packet at a time.
      */
     static final class Reader {
-        static final int MAX_KEPT_LENGTH = 256;
         static final int MAX_KEPT_BYTES = 8 * 1024;
-        /** What a kept buffer costs beyond its array. */
-        private static final int KEPT_OVERHEAD = 64;
+        private static final int MIN_KEPT_BYTES = 256;
 
-        private final ByteBuf[] kept = new ByteBuf[MAX_KEPT_LENGTH + 1];
-        private int keptBytes;
+        private ByteBuf kept;
         private Walk walk;
 
         /** {@code text}'s walk, reset by each start. */
@@ -648,20 +676,24 @@ public final class PlayerText {
         }
 
         /**
-         * A buffer holding {@code packet} as {@link Unpooled#wrappedBuffer(byte[])} does: its bytes, both indices and
-         * marks at 0 and the end, capacity and limit its length. Valid until the next call.
+         * A buffer holding {@code packet} as {@link Unpooled#wrappedBuffer(byte[])} does: its bytes from index 0, the
+         * reader index and marks at 0 and the writer index at its length. Its capacity may be larger: a walk reads only
+         * between the indices. Valid until the next call.
          */
         ByteBuf wrap(byte[] packet) {
-            int length = packet.length;
-            if (length == 0 || length > MAX_KEPT_LENGTH) return Unpooled.wrappedBuffer(packet);
-            ByteBuf in = kept[length];
-            if (in == null) {
-                if (keptBytes + length + KEPT_OVERHEAD > MAX_KEPT_BYTES) return Unpooled.wrappedBuffer(packet);
-                keptBytes += length + KEPT_OVERHEAD;
-                in = Unpooled.wrappedBuffer(new byte[length]);
-                kept[length] = in;
+            return wrap(packet, 0, packet.length);
+        }
+
+        /** As {@link #wrap(byte[])}, for the packet the {@code length} bytes of {@code packet} from {@code offset}. */
+        ByteBuf wrap(byte[] packet, int offset, int length) {
+            if (length == 0 || length > MAX_KEPT_BYTES) return Unpooled.wrappedBuffer(packet, offset, length);
+            ByteBuf in = kept;
+            if (in == null || in.capacity() < length) {
+                int capacity = Math.max(MIN_KEPT_BYTES, Integer.highestOneBit(length - 1) << 1);
+                in = Unpooled.wrappedBuffer(new byte[Math.min(MAX_KEPT_BYTES, capacity)]);
+                kept = in;
             }
-            in.setBytes(0, packet);
+            in.setBytes(0, packet, offset, length);
             in.setIndex(0, 0).markReaderIndex().markWriterIndex().writerIndex(length);
             return in;
         }

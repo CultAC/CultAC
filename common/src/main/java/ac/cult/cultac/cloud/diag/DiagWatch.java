@@ -2,6 +2,7 @@ package ac.cult.cultac.cloud.diag;
 
 import ac.cult.cultac.checks.impl.prediction.BlockGrid;
 import ac.cult.cultac.checks.impl.prediction.PredictionObserver;
+import ac.cult.cultac.utils.debug.DebugText;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -16,7 +17,7 @@ import java.util.function.LongSupplier;
  */
 public final class DiagWatch implements PredictionObserver {
     /** One prediction as its packet thread copied it: the full text less the block grid, printed on the diag thread. */
-    record Raw(DiagWatch watch, long seq, double offset, String trace, String state, BlockGrid grid, long nanos) {}
+    record Raw(DiagWatch watch, long seq, double offset, String trace, DebugText state, BlockGrid grid, long nanos) {}
 
     /** A tick ended: the checks that flagged during it. */
     record TickEnd(DiagWatch watch, long seq, List<String> flags) {}
@@ -89,6 +90,14 @@ public final class DiagWatch implements PredictionObserver {
      */
     @Override
     public void capture(long seq, double offset, String trace, String state, BlockGrid grid, long startNanos) {
+        DebugText text =
+                state == null ? null : new DebugText.Builder().append(state).toText();
+        captureText(seq, offset, trace, text, grid, startNanos);
+    }
+
+    /** As {@link #capture}, the state printed on the diagnostics thread. */
+    @Override
+    public void captureText(long seq, double offset, String trace, DebugText state, BlockGrid grid, long startNanos) {
         if (ended) return;
         if (!owner.offer(new Raw(this, seq, offset, trace, state, grid, System.nanoTime() - startNanos))) dropped(seq);
     }

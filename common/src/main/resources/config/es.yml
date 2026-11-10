@@ -277,6 +277,8 @@ cloud:
   # When true, sends CPU and allocation stack samples of this server to the intake service: short profiles it asks
   # for, recorded off the main thread. Off by default; CULTAC_CLOUD_PERF (true/1/yes, false/0/no) wins when set.
   perf: false
+  # The most minutes of perf recording a socket runs an hour.
+  perf-max-minutes-per-hour: 45
   # When true, the upload sockets also report the UUID, name and portal role (viewer, moderator or admin) of
   # players holding cult.portal.viewer, .moderator or .admin, and the stored role of synced players who are offline
   # when the intake service asks, so the cloud portal lists them in this server's organization while it has team
@@ -299,6 +301,8 @@ cloud:
     # Optional: runs timed bans in place of command, such as "tempban %silent% %player% %duration% %reason%". Empty:
     # command runs timed bans when it holds %duration% or %seconds%, else this server never takes them.
     temp-command: ""
+    # The most panel bans this server claims a minute; the rest run in the minutes after.
+    max-per-minute: 300
 
 # Hace que los comandos del staff, el autocompletado y las alertas funcionen en todos tus proxies y servidores.
 # Guía de configuración: docs/network.md en el código fuente de CultAC. /cult reload aplica los cambios.

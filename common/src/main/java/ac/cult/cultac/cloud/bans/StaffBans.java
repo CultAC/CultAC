@@ -5,6 +5,7 @@ import ac.cult.cultac.cloud.CloudHttp;
 import ac.cult.cultac.cloud.CloudSettings;
 import ac.cult.cultac.cloud.Generation;
 import ac.cult.cultac.cloud.LeasedJobs;
+import ac.cult.cultac.cloud.Pace;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.CommandOutcome;
 import ac.cult.cultac.platform.api.PlatformServer;
@@ -37,7 +38,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.LongFunction;
 import java.util.function.LongSupplier;
-import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 
@@ -48,7 +48,10 @@ import org.jetbrains.annotations.Nullable;
  * The key goes only into the {@code Authorization} header.
  */
 public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
+    /** The least grace an offline player's ban waits. */
     static final long DEFAULT_GRACE_SECONDS = 15;
+    /** {@code cloud.staff-ban.max-per-minute} when unset: the most bans this instance claims a minute. */
+    public static final int DEFAULT_MAX_PER_MINUTE = 300;
     /** How long a dispatch may wait for the server's thread before it is given up unrun, inside the claim's lease. */
     static final Duration DISPATCH_TIMEOUT = Duration.ofSeconds(30);
 
@@ -65,6 +68,8 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
     private static final Generation GENERATION = new Generation();
     /** Ban ids this instance claimed and results it still owes, across reloads. */
     private static final Handled HANDLED = new Handled(MAX_HANDLED);
+    /** Bans claimed this minute, across reloads. */
+    private static final Pace<Object> PACE = new Pace<>(60_000, DEFAULT_MAX_PER_MINUTE);
     private static final Kind KIND = new Kind("Staff bans", "bans", "bans", "ban");
 
     /**
@@ -279,6 +284,7 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
     private final String cmds;
     private final Host host;
     private final LongSupplier clock;
+    private final Pace<Object> pace;
 
     StaffBans(
             String base,
@@ -292,6 +298,7 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
             LongSupplier clock,
             Generation generation,
             Handled handled,
+            Pace<Object> pace,
             LongFunction<Executor> after) {
         super(KIND, base, apiKey, serverId, http, executor, generation, handled, after);
         this.commands = commands;
@@ -300,6 +307,7 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
         this.cmds = commands.cmds();
         this.host = host;
         this.clock = clock;
+        this.pace = pace;
     }
 
     /**
@@ -330,8 +338,14 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
                         System::currentTimeMillis,
                         GENERATION,
                         HANDLED,
+                        PACE,
                         seconds -> CompletableFuture.delayedExecutor(seconds, TimeUnit.SECONDS, CloudHttp.CALLS))
                 .start();
+    }
+
+    /** Sets {@code cloud.staff-ban.max-per-minute}, at least one, from the next claim on. */
+    public static void maxPerMinute(int max) {
+        PACE.max(Math.max(1, max));
     }
 
     /**
@@ -366,12 +380,25 @@ public final class StaffBans extends LeasedJobs<StaffBans.Ban> {
         return ban.id();
     }
 
-    /** The bans with a command here whose player is online here, or whose grace since the ban was made ran out. */
+    /**
+     * The bans with a command here whose player is online here, or whose grace since the ban was made ran out, at most
+     * {@code cloud.staff-ban.max-per-minute} a minute; the rest wait for a later round.
+     */
     @Override
-    protected Predicate<Ban> due(JsonObject pending) {
-        long grace = Math.max(0, number(pending, "graceSeconds", DEFAULT_GRACE_SECONDS));
+    protected Function<Ban, Runnable> due(JsonObject pending) {
+        long grace = Math.max(DEFAULT_GRACE_SECONDS, number(pending, "graceSeconds", DEFAULT_GRACE_SECONDS));
         return ban -> !commands.of(ban.term()).isEmpty()
-                && (host.online(ban.player()) || clock.getAsLong() >= ban.createdAtMillis() + grace * 1000);
+                        && (host.online(ban.player()) || clock.getAsLong() >= ban.createdAtMillis() + grace * 1000)
+                ? paced()
+                : null;
+    }
+
+    private @Nullable Runnable paced() {
+        Runnable unclaimed = pace.take(null);
+        if (unclaimed == null) {
+            problem("paced", "Staff bans: " + pace.max() + " claimed this minute; the rest run in later rounds");
+        }
+        return unclaimed;
     }
 
     @Override

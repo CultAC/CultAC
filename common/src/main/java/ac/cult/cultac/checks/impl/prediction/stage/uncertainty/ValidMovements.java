@@ -29,6 +29,9 @@ public class ValidMovements {
 
     private static final boolean[] MODIFIER_POSITION_ONLY = positionOnly(MODIFIERS);
 
+    /** Per modifier: it reads only the position and overrides {@link UncertaintyHandler}'s positionInto. */
+    private static final boolean[] MODIFIER_POSITION_FORM = positionForm(MODIFIERS, MODIFIER_POSITION_ONLY);
+
     private static final int LAST_MODIFIER = MODIFIERS.length - 1;
 
     // handleMovementTrace reads no probe state, so one instance serves every player.
@@ -212,6 +215,32 @@ public class ValidMovements {
         return positionOnly;
     }
 
+    private static boolean[] positionForm(UncertaintyHandler[] handlers, boolean[] positionOnly) {
+        boolean[] positionForm = new boolean[handlers.length];
+        for (int i = 0; i < handlers.length; i++) {
+            try {
+                positionForm[i] = positionOnly[i]
+                        && handlers[i]
+                                        .getClass()
+                                        .getMethod(
+                                                "positionInto",
+                                                double[].class,
+                                                CultPlayer.class,
+                                                ValidMovements.class,
+                                                PredictionResult.class,
+                                                SimulationContext.class,
+                                                PredictionResult.class,
+                                                PredVector.class,
+                                                Vec3.class)
+                                        .getDeclaringClass()
+                                != UncertaintyHandler.class;
+            } catch (NoSuchMethodException impossible) {
+                throw new IllegalStateException(impossible);
+            }
+        }
+        return positionForm;
+    }
+
     public ValidMovements computeExtents(PredictionResult lastResult) {
         // closestToTarget will call the AABB, so just figure it out now. Also cache it, to prevent infinite recursion
         // to the previous movement.
@@ -307,6 +336,7 @@ public class ValidMovements {
         // Only handlers run between the six traces, and no skip predicate reads what a handler writes.
         long kept = -1L;
         int count = handlers.length;
+        int tail = count;
         PointThreeTesting last = null;
         if (handlers == MODIFIERS) {
             kept = 0L;
@@ -319,24 +349,50 @@ public class ValidMovements {
                 last = (PointThreeTesting) handlers[LAST_MODIFIER];
                 count = LAST_MODIFIER;
             }
+            tail = count;
+            while (tail > 0 && ((kept & (1L << (tail - 1))) == 0 || MODIFIER_POSITION_FORM[tail - 1])) tail--;
         }
-        double posX = extent(kept, count, last, initialStartingVel.withX(LARGE_MOVEMENT), lastResult, 0);
-        double negX = extent(kept, count, last, initialStartingVel.withX(-LARGE_MOVEMENT), lastResult, 0);
-        double posY = extent(kept, count, last, initialStartingVel.withY(LARGE_MOVEMENT), lastResult, 1);
-        double negY = extent(kept, count, last, initialStartingVel.withY(-LARGE_MOVEMENT), lastResult, 1);
-        double posZ = extent(kept, count, last, initialStartingVel.withZ(LARGE_MOVEMENT), lastResult, 2);
-        double negZ = extent(kept, count, last, initialStartingVel.withZ(-LARGE_MOVEMENT), lastResult, 2);
+        double[] xyz = tail < count ? new double[3] : null;
+        double posX = extent(kept, tail, count, last, xyz, initialStartingVel.withX(LARGE_MOVEMENT), lastResult, 0);
+        double negX = extent(kept, tail, count, last, xyz, initialStartingVel.withX(-LARGE_MOVEMENT), lastResult, 0);
+        double posY = extent(kept, tail, count, last, xyz, initialStartingVel.withY(LARGE_MOVEMENT), lastResult, 1);
+        double negY = extent(kept, tail, count, last, xyz, initialStartingVel.withY(-LARGE_MOVEMENT), lastResult, 1);
+        double posZ = extent(kept, tail, count, last, xyz, initialStartingVel.withZ(LARGE_MOVEMENT), lastResult, 2);
+        double negZ = extent(kept, tail, count, last, xyz, initialStartingVel.withZ(-LARGE_MOVEMENT), lastResult, 2);
         runTrace = null;
 
         return new SimpleCollisionBox(negX, negY, negZ, posX, posY, posZ).sort();
     }
 
-    /** Coordinate {@code axis} (0 x, 1 y, 2 z) of the kept handlers' position, then {@code last}'s, towards end. */
+    /**
+     * Coordinate {@code axis} (0 x, 1 y, 2 z) of the kept handlers' position, then {@code last}'s, towards end. The
+     * kept handlers from {@code tail} to {@code count} run on the coordinates in {@code xyz}.
+     */
     private double extent(
-            long kept, int count, PointThreeTesting last, Vec3 end, PredictionResult lastResult, int axis) {
-        PredVector position = positionTowards(kept, count, end, lastResult);
-        if (last != null) return last.coordinate(player, result.getSimulationContext(), position, end, axis);
-        return axis == 0 ? position.x : axis == 1 ? position.y : position.z;
+            long kept,
+            int tail,
+            int count,
+            PointThreeTesting last,
+            double[] xyz,
+            Vec3 end,
+            PredictionResult lastResult,
+            int axis) {
+        PredVector position = positionTowards(kept, tail, end, lastResult);
+        if (tail == count) {
+            if (last != null) return last.coordinate(player, result.getSimulationContext(), position, end, axis);
+            return axis == 0 ? position.x : axis == 1 ? position.y : position.z;
+        }
+        SimulationContext context = result.getSimulationContext();
+        xyz[0] = position.x;
+        xyz[1] = position.y;
+        xyz[2] = position.z;
+        for (int i = tail; i < count; i++) {
+            if ((kept & (1L << i)) == 0) continue;
+            handlers[i].positionInto(
+                    xyz, player, result.getValidMovements(), result, context, lastResult, position, end);
+        }
+        if (last != null) return last.coordinate(player, context, xyz[0], xyz[1], xyz[2], end, axis);
+        return xyz[axis];
     }
 
     public boolean isTestingMaxStartingVelExtents(Vec3 end) {

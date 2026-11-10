@@ -10,6 +10,7 @@ import ac.cult.cultac.cloud.findings.Finding;
 import ac.cult.cultac.cloud.findings.FindingsLog;
 import ac.cult.cultac.cloud.flags.CloudFlags;
 import ac.cult.cultac.cloud.labels.LabelClient;
+import ac.cult.cultac.cloud.perf.Perf;
 import ac.cult.cultac.cloud.transport.CloudConnection;
 import ac.cult.cultac.cloud.transport.CloudConnections;
 import ac.cult.cultac.cloud.wire.IntakeWire;
@@ -94,6 +95,9 @@ public final class CloudService {
         CONNECTIONS.configure(settings);
         LabelClient.refreshCatalogWhile(settings.enabled());
         String ownId = CloudServerIds.own(settings.serverIdTemplate(), settings.proxyId(), proxy);
+        Perf.maxMinutesPerHour(
+                config.getIntElse("cloud.perf-max-minutes-per-hour", Perf.DEFAULT_MAX_MINUTES_PER_HOUR));
+        StaffBans.maxPerMinute(config.getIntElse("cloud.staff-ban.max-per-minute", StaffBans.DEFAULT_MAX_PER_MINUTE));
         StaffBans.configure(settings, StaffBans.Commands.read(config), ownId, proxy);
         CloudFlags.configure(settings, ownId);
         CloudCapture.uplinks(UPLINKS);
@@ -186,7 +190,7 @@ public final class CloudService {
 
     private static void finding(IntakeWire.Event event) {
         FindingsLog log = findings;
-        if (log == null) return;
+        if (log == null || !(event.confidence() >= 0 && event.confidence() <= 1)) return;
         CultPlayer player = CultAPI.INSTANCE.getPlayerDataManager().getPlayer(event.player());
         log.add(
                 event.player(),
@@ -201,11 +205,16 @@ public final class CloudService {
         if (player != null) punish(player, event);
     }
 
-    /** Hands {@code event} to the player's {@link Cloud} check on its packet thread, where checks flag. */
+    /**
+     * Hands {@code event} to the player's {@link Cloud} check on its packet thread, where checks flag, its text
+     * {@linkplain CommandText kept to plain words}.
+     */
     private static void punish(CultPlayer player, IntakeWire.Event event) {
         Cloud cloud = player.checkManager.getCheck(Cloud.class);
         if (cloud == null) return;
-        Runnable flag = () -> cloud.finding(event.checkId(), event.confidence(), event.detail());
+        String checkId = CommandText.shown(event.checkId());
+        String detail = CommandText.shown(event.detail());
+        Runnable flag = () -> cloud.finding(checkId, event.confidence(), detail);
         var owner = player.user.getPacketExecutor();
         if (owner.inEventLoop()) {
             flag.run();

@@ -68,10 +68,10 @@ class BatchedStreamTest {
                 pipeline.submit(part, bytes, false);
             }
             pipeline.submit(List.of(), 0, true);
-            byte[] message = pipeline.take();
+            byte[] message = ConnectionFixture.bytes(pipeline.take());
             assertEquals(message.length, queued.get());
             assertTrue(message.length < raw * 3 / 4, message.length + " of " + raw);
-            pipeline.sent(message);
+            pipeline.sent(message.length);
         }
         assertEquals(0, queued.get());
     }
@@ -132,12 +132,12 @@ class BatchedStreamTest {
                 queued.addAndGet(bytes(part));
                 pipeline.submit(new ArrayList<>(part), bytes(part), end);
                 if (!end) continue;
-                byte[] message = pipeline.take();
+                byte[] message = ConnectionFixture.bytes(pipeline.take());
                 assertEquals(IntakeWire.COMPRESSED, message[0]);
                 wholeBlocks(message, first ? 1 + FRAME_HEADER_BYTES : 1);
                 first = false;
                 out.writeBytes(ConnectionFixture.decompress(zstd, message));
-                pipeline.sent(message);
+                pipeline.sent(message.length);
             }
             assertEquals(0, pipeline.writing());
             assertEquals(0, pipeline.writingBytes());

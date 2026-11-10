@@ -53,6 +53,7 @@ import ac.cult.cultac.checks.type.PositionListener;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
@@ -158,6 +159,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     private final CollisionModifier collisionProbe = new CollisionModifier();
     private final NextTickVelocityDeriver.Scratch velocityScratch = new NextTickVelocityDeriver.Scratch();
     private final StepCollisionMemo stepCollisionMemo = new StepCollisionMemo();
+    private final SimpleCollisionBox changedBlockScratch = new SimpleCollisionBox();
+    private final SimpleCollisionBox changedBlockReachScratch = new SimpleCollisionBox();
 
     public SimulationProcessor(CultPlayer playerData) {
         super(playerData);
@@ -333,7 +336,11 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         if (!this.player.isBedrockMovement()) {
             if (!this.player.compensatedEntities.vehicles.hasClientPlayerPassengerState()
                     && !this.player.packetStateData.hasPassengerRotationThisClientTick()) {
-                if (!this.player.packetStateData.receivedMovementThisClientTick) {
+                // LocalPlayer#tickDeath removes the player at deathTime 20: that tick skips aiStep, later ones skip
+                // LocalPlayer#tick, until login or respawn.
+                if (!this.player.packetStateData.receivedMovementThisClientTick
+                        && !this.player.packetStateData.localPlayerRemoved
+                        && !this.player.localPlayerRemovedThisTick()) {
                     if (this.player.localPlayerTicks()) {
                         Vec3 from = new Vec3(this.player.x, this.player.y, this.player.z);
                         this.player.checkManager.getExplosionHandler().beforeNoPositionTravel(from);
@@ -346,6 +353,13 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                         // one keeps the last sent onGround, judged like that StatusOnly.
                         if (!result.isExempt() && !result.hasFlag(NoFallPseudo.class)) {
                             this.lastOnGround = DesyncStatus.fromBoolean(this.player.onGround);
+                        }
+                        // Player#tick clears a spectator's onGround every tick, and LocalPlayer#sendPosition sends
+                        // nothing while another entity is the camera.
+                        if (this.player.gamemode == GameMode.SPECTATOR
+                                && this.player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11)) {
+                            this.player.onGround = false;
+                            this.lastOnGround = DesyncStatus.FALSE;
                         }
                     } else if (this.ticksWhileLoadingLevel < MAX_LOADING_LEVEL_TICKS) {
                         // Entity#push adds to the waiting player's deltaMovement with no travel or friction between.
@@ -1877,13 +1891,19 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     // must not replace the ordinary move's collision/velocity state.
                     CollideAxisData stepEligibility = probedCollisions;
                     if (engine == JavaMovementEngine.INSTANCE && !stepEligibility.couldCollideHorizontally()) {
-                        stepEligibility = probeCollisions(
-                                player,
-                                engine,
-                                thisResult,
-                                attemptedExtents,
-                                thisResult.getSimulationContext().getTarget(),
-                                true);
+                        // Only couldCollideHorizontally reads this probe, so it may land in the probe's scratch.
+                        collisionProbe.reuseNextResult(true);
+                        try {
+                            stepEligibility = probeCollisions(
+                                    player,
+                                    engine,
+                                    thisResult,
+                                    attemptedExtents,
+                                    thisResult.getSimulationContext().getTarget(),
+                                    true);
+                        } finally {
+                            collisionProbe.reuseNextResult(false);
+                        }
                     }
                     allowStep = stepEligibility.couldCollideHorizontally();
                 }
@@ -2565,8 +2585,9 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             if (!this.player.compensatedEntities.getSelf().inVehicle()) {
                 SimulationContext context = this.lastPrediction.getSimulationContext();
                 if (context != null) {
-                    SimpleCollisionBox blockCollisionBox = new SimpleCollisionBox(pos);
-                    SimpleCollisionBox playerMaxExtent = context.getToMaximumExtent();
+                    SimpleCollisionBox blockCollisionBox = changedBlockScratch.set(
+                            pos.getX(), pos.getY(), pos.getZ(), pos.getX() + 1, pos.getY() + 1, pos.getZ() + 1);
+                    SimpleCollisionBox playerMaxExtent = context.getToMaximumExtent(changedBlockReachScratch);
                     playerMaxExtent.expand(1.0);
                     if (blockCollisionBox.isIntersected(playerMaxExtent)) {
                         if (ClientFluidQueries.modelFluid(to)

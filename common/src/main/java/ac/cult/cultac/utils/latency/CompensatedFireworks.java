@@ -108,7 +108,7 @@ public class CompensatedFireworks extends CultProcessor implements PostPredictio
         }
 
         int received = player.lastTransactionReceived.get();
-        rockets.values().removeIf(rocket -> received >= rocket.removedAt);
+        if (!rockets.isEmpty()) rockets.values().removeIf(rocket -> received >= rocket.removedAt);
 
         SimulationContext context = predictionComplete.getPredictionResult().getSimulationContext();
         boolean fallFlying = context != null && context.isGliding() && !context.stopsFallFlyingAfterTravel();

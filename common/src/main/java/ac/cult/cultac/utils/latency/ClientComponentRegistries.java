@@ -42,6 +42,10 @@ public final class ClientComponentRegistries {
     private ProtocolVersion lastClientTagsSource;
     private ProtocolVersion lastClientTagsClient;
     private final Map<ActionPath, HolderSets.Overlay> simulatorTags = new HashMap<>();
+    // The simulatorTags value of the last path asked for; null whenever simulatorTags is cleared.
+    private HolderSets.Overlay lastSimulatorTags;
+    private ProtocolVersion lastSimulatorTagsSource;
+    private ProtocolVersion lastSimulatorTagsClient;
     private Map<String, RegistryTags.Payload> configurationTags;
     private Map<String, List<WireValueDecoder.RegistryEntry>> configurationRegistries;
     private Map<String, List<WireValueDecoder.RegistryEntry>> receivedRegistries = Map.of();
@@ -275,6 +279,7 @@ public final class ClientComponentRegistries {
             simulationRegistries = null;
             simulationActions = null;
             simulatorTags.clear(); // Dynamic biome tag IDs may name different entries in the new contents.
+            lastSimulatorTags = null;
         }
         if (staged.effective() == null) return;
         if (staged.world() != null) worldRegistries.publish(staged.world());
@@ -301,6 +306,7 @@ public final class ClientComponentRegistries {
         actionTags.clear();
         lastClientTags = null;
         simulatorTags.clear();
+        lastSimulatorTags = null;
         configurationTags = null;
         configurationRegistries = null;
         bedrockWorldContents = null;
@@ -346,6 +352,7 @@ public final class ClientComponentRegistries {
         actionTags.clear();
         lastClientTags = null;
         simulatorTags.clear();
+        lastSimulatorTags = null;
     }
 
     private static boolean samePayload(RegistryTags.Payload current, RegistryTags.Payload previous) {
@@ -374,6 +381,16 @@ public final class ClientComponentRegistries {
     }
 
     public HolderSets.Overlay blockSimulatorTags(ProtocolVersion source, ProtocolVersion client, DataTables defaults) {
+        if (lastSimulatorTags != null && lastSimulatorTagsSource == source && lastSimulatorTagsClient == client)
+            return lastSimulatorTags;
+        var overlay = simulatorTags(source, client, defaults);
+        lastSimulatorTags = overlay;
+        lastSimulatorTagsSource = source;
+        lastSimulatorTagsClient = client;
+        return overlay;
+    }
+
+    private HolderSets.Overlay simulatorTags(ProtocolVersion source, ProtocolVersion client, DataTables defaults) {
         var path = new ActionPath(source, client, ProtocolVersion.V26_3);
         return simulatorTags.computeIfAbsent(path, ignored -> {
             var projected = actionTags(source, client, ProtocolVersion.V26_3);

@@ -80,6 +80,8 @@ public class PacketEntity {
     private final boolean happyGhast;
 
     public PacketEntity riding;
+    // The counted client tick whose Entity#rideTick is this rider's first since it mounted from riding nothing.
+    private int firstRideTick = Integer.MIN_VALUE;
     // Mutated only through mount and eject, which keep the tracker's passenger count.
     public final List<PacketEntity> passengers = new ArrayList<>(0);
     // The tracker whose entityMap holds this entity; null while untracked.
@@ -1611,6 +1613,22 @@ public class PacketEntity {
 
     public PacketEntity getRiding() {
         return riding;
+    }
+
+    /**
+     * Records the mount that just put this entity on {@link #riding}: one from riding nothing makes {@code clientTick}
+     * its first ride tick, in which it is still where Entity#startRiding found it; any other keeps its last seat.
+     */
+    public void onMounted(boolean fromRidingNothing, int clientTick) {
+        firstRideTick = fromRidingNothing ? clientTick : Integer.MIN_VALUE;
+    }
+
+    /**
+     * Whether {@code clientTick} is this rider's first Entity#rideTick since it mounted from riding nothing: that tick's
+     * LivingEntity#tick runs before Entity#positionRider seats it, from where it stood when it mounted.
+     */
+    public boolean ridesFirstTickFromItsMount(int clientTick) {
+        return riding != null && firstRideTick == clientTick;
     }
 
     public void addPotionEffect(MovementEffect effect, int amplifier) {

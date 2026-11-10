@@ -48,6 +48,72 @@ public final class ClientKeyInput {
         return inputVector(context, modified, speed);
     }
 
+    /**
+     * Whether {@link #travelInput} gives an input rather than null in this context, whatever the keys, multipliers and
+     * speed. {@code standing} is working space.
+     */
+    public static boolean decidesTravelInput(CultPlayer player, SimulationContext context, SimpleCollisionBox standing) {
+        if (!player.compensatedEntities.getSelf().actionAlive) return true;
+        Vec3 start = context.getStart();
+        GetBoundingBox.getBoundingBoxFromPosAndSize(
+                        standing,
+                        start.x,
+                        start.y,
+                        start.z,
+                        Pose.STANDING.width * context.getScale(),
+                        Pose.STANDING.height * context.getScale())
+                .expand(-SimpleCollisionBox.COLLISION_EPSILON);
+        return Collisions.isEmpty(player, standing);
+    }
+
+    /**
+     * {@link #travelInput}'s x and z written into {@code out[at]} and {@code out[at + 1]}, in a context
+     * {@link #decidesTravelInput} accepts.
+     */
+    public static void travelInput(
+            double[] out,
+            int at,
+            CultPlayer player,
+            SimulationContext context,
+            KnownInput keys,
+            float itemUseMultiplier,
+            float movingSlowlyFactor,
+            float speed) {
+        if (!player.compensatedEntities.getSelf().actionAlive) {
+            out[at] = Vec3.ZERO.x;
+            out[at + 1] = Vec3.ZERO.z;
+            return;
+        }
+        Vec3 modified = VelocityTransformer.getExactControllerModifiedInputStatic(
+                new Vec3(keys.strafeImpulse(), 0.0D, keys.forwardImpulse()), itemUseMultiplier, movingSlowlyFactor);
+        inputVector(out, at, context, modified, speed);
+    }
+
+    /** {@link #inputVector(SimulationContext, Vec3, float)}'s x and z written into {@code out}. */
+    private static void inputVector(double[] out, int at, SimulationContext context, Vec3 input, float speed) {
+        double lengthSqr = input.lengthSqr();
+        if (lengthSqr < 1.0E-7D) {
+            out[at] = Vec3.ZERO.x;
+            out[at + 1] = Vec3.ZERO.z;
+            return;
+        }
+        double x = input.x;
+        double z = input.z;
+        if (lengthSqr > 1.0D) {
+            // Vec3#normalize.
+            double length = input.length();
+            x = length < 1.0E-5F ? Vec3.ZERO.x : x / length;
+            z = length < 1.0E-5F ? Vec3.ZERO.z : z / length;
+        }
+        double movementX = x * speed;
+        double movementZ = z * speed;
+        float yawRadians = context.getXRot() * ((float) Math.PI / 180F);
+        float sin = context.getTrig().sin(yawRadians);
+        float cos = context.getTrig().cos(yawRadians);
+        out[at] = movementX * cos - movementZ * sin;
+        out[at + 1] = movementZ * cos + movementX * sin;
+    }
+
     /** Entity#getInputVector. */
     private static Vec3 inputVector(SimulationContext context, Vec3 input, float speed) {
         double lengthSqr = input.lengthSqr();

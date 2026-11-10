@@ -13,6 +13,10 @@ import java.util.List;
 final class VanillaStepProof {
     private static final double STEP_Y_MATCH_EPSILON = 1.0E-5D;
     private static final double AXIS_SAMPLE_EPSILON = 1.0E-9D;
+    private static final List<Collisions.Axis> Z_BEFORE_X =
+            List.of(Collisions.Axis.Y, Collisions.Axis.Z, Collisions.Axis.X);
+    private static final List<Collisions.Axis> X_BEFORE_Z =
+            List.of(Collisions.Axis.Y, Collisions.Axis.X, Collisions.Axis.Z);
 
     boolean isInvalidStep(CultPlayer player, PredictionResult result) {
         if (!needsStepProof(player, result)) {
@@ -41,8 +45,10 @@ final class VanillaStepProof {
     }
 
     private boolean hasUnknownCollisionAtDestination(PredictionResult result) {
+        SimpleCollisionBox extent = null;
         for (SimpleCollisionBox box : result.getCollideAxisData().getUnknown()) {
-            if (box.isIntersected(result.getSimulationContext().getToMaximumExtent())) {
+            if (extent == null) extent = result.getSimulationContext().getToMaximumExtent();
+            if (box.isIntersected(extent)) {
                 return true;
             }
         }
@@ -104,7 +110,8 @@ final class VanillaStepProof {
                 && !anyDirectlyBelow(colliders, result.getSimulationContext().getToCubeCollision());
         Vec3 target = result.getTarget();
         double desiredY = result.getInitialStartingVel().y;
-        if (collidesToAcceptedY(player, result, target.x, desiredY, target.z, requireSelectedStep, colliders)) {
+        SimpleCollisionBox pose = new SimpleCollisionBox();
+        if (collidesToAcceptedY(player, result, target.x, desiredY, target.z, requireSelectedStep, colliders, pose)) {
             return true;
         }
 
@@ -121,7 +128,7 @@ final class VanillaStepProof {
             for (double stepDesiredY : candidateY) {
                 for (double desiredZ : candidateZ) {
                     if (collidesToAcceptedY(
-                            player, result, desiredX, stepDesiredY, desiredZ, requireSelectedStep, colliders)) {
+                            player, result, desiredX, stepDesiredY, desiredZ, requireSelectedStep, colliders, pose)) {
                         return true;
                     }
                 }
@@ -138,18 +145,16 @@ final class VanillaStepProof {
             double desiredY,
             double desiredZ,
             boolean requireSelectedStep,
-            List<SimpleCollisionBox> colliders) {
+            List<SimpleCollisionBox> colliders,
+            SimpleCollisionBox pose) {
         // Entity#move scales the delta by the stuck speed before Entity#collide; the target and desired axes are
         // divided by it.
         Vec3 stuck = result.getSimulationContext().getLastStuckSpeed();
         desiredX *= stuck.x;
         desiredY *= stuck.y;
         desiredZ *= stuck.z;
-        List<Collisions.Axis> order = requireSelectedStep
-                ? (Math.abs(desiredX) < Math.abs(desiredZ)
-                        ? List.of(Collisions.Axis.Y, Collisions.Axis.Z, Collisions.Axis.X)
-                        : List.of(Collisions.Axis.Y, Collisions.Axis.X, Collisions.Axis.Z))
-                : null;
+        List<Collisions.Axis> order =
+                requireSelectedStep ? (Math.abs(desiredX) < Math.abs(desiredZ) ? Z_BEFORE_X : X_BEFORE_Z) : null;
         Vec3 collidedMovement;
         Vec3 collisionWithoutStep = null;
         if (order != null && !player.isBedrockMovement()) {
@@ -159,7 +164,7 @@ final class VanillaStepProof {
                     ? memo(player)
                             .steppedCollision(
                                     player,
-                                    result.getSimulationContext().getFromActualPose(),
+                                    result.getSimulationContext().getFromActualPose(pose),
                                     desiredX,
                                     desiredY,
                                     desiredZ,
@@ -167,7 +172,7 @@ final class VanillaStepProof {
                                     onGroundForStep)
                     : Collisions.collideWithStepComparison(
                             player,
-                            result.getSimulationContext().getFromActualPose(),
+                            result.getSimulationContext().getFromActualPose(pose),
                             desiredX,
                             desiredY,
                             desiredZ,
@@ -180,7 +185,7 @@ final class VanillaStepProof {
             collidedMovement = collideLikeClient(
                     player,
                     result,
-                    result.getSimulationContext().getFromActualPose(),
+                    result.getSimulationContext().getFromActualPose(pose),
                     desiredX,
                     desiredY,
                     desiredZ,
@@ -202,7 +207,7 @@ final class VanillaStepProof {
             collisionWithoutStep = collideLikeClient(
                     player,
                     result,
-                    result.getSimulationContext().getFromActualPose(),
+                    result.getSimulationContext().getFromActualPose(pose),
                     desiredX,
                     desiredY,
                     desiredZ,

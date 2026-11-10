@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
@@ -366,6 +367,121 @@ class PerfTest {
         assertEquals(PerfOutcome.PERF_OUTCOME_DISABLED, disabled.getOutcome());
         assertEquals(1, recorder.calls.get());
         perf.close();
+    }
+
+    @Test
+    void aStartRightAfterARecordingEndsIsAccepted() throws Exception {
+        AtomicLong clock = new AtomicLong();
+        DiagUpload upload = new DiagUpload();
+        Perf perf = new Perf(upload, (settings, cancelled) -> new PerfRecorder.Result.Done(new byte[10]), clock::get);
+        perf.connected(1, ON);
+
+        perf.start(1, UUID.randomUUID(), 60);
+        assertEquals(PerfOutcome.PERF_OUTCOME_OK, drain(upload, 1).getLast().getOutcome());
+        clock.incrementAndGet();
+        perf.start(1, UUID.randomUUID(), 60);
+        assertEquals(PerfOutcome.PERF_OUTCOME_OK, drain(upload, 1).getLast().getOutcome());
+        perf.close();
+    }
+
+    @Test
+    void recordingTimePastTheHourlyMostIsBusyUntilItLeavesTheLastHour() throws Exception {
+        Perf.maxMinutesPerHour(Perf.DEFAULT_MAX_MINUTES_PER_HOUR);
+        AtomicLong clock = new AtomicLong();
+        long minute = TimeUnit.MINUTES.toNanos(1);
+        DiagUpload upload = new DiagUpload();
+        Perf perf = new Perf(
+                upload,
+                (settings, cancelled) -> {
+                    clock.addAndGet(25 * minute);
+                    return new PerfRecorder.Result.Done(new byte[10]);
+                },
+                clock::get);
+        perf.connected(1, ON);
+
+        perf.start(1, UUID.randomUUID(), 60);
+        assertEquals(PerfOutcome.PERF_OUTCOME_OK, drain(upload, 1).getLast().getOutcome());
+        clock.addAndGet(minute);
+        perf.start(1, UUID.randomUUID(), 60);
+        assertEquals(PerfOutcome.PERF_OUTCOME_OK, drain(upload, 1).getLast().getOutcome());
+        clock.addAndGet(minute);
+        perf.start(1, UUID.randomUUID(), 60);
+        assertEquals(PerfOutcome.PERF_OUTCOME_BUSY, drain(upload, 1).getLast().getOutcome());
+        clock.set(60 * minute);
+        perf.start(1, UUID.randomUUID(), 60);
+        assertEquals(PerfOutcome.PERF_OUTCOME_BUSY, drain(upload, 1).getLast().getOutcome());
+        clock.set(80 * minute);
+        perf.start(1, UUID.randomUUID(), 60);
+        assertEquals(PerfOutcome.PERF_OUTCOME_OK, drain(upload, 1).getLast().getOutcome());
+        perf.close();
+    }
+
+    /** A perf whose recordings take the seconds they are given on {@code clock}, which {@code seconds} records. */
+    private static Perf timed(DiagUpload upload, AtomicLong clock, List<Integer> seconds) {
+        return new Perf(
+                upload,
+                (settings, cancelled) -> {
+                    seconds.add(settings.seconds());
+                    clock.addAndGet(TimeUnit.SECONDS.toNanos(settings.seconds()));
+                    return new PerfRecorder.Result.Done(new byte[10]);
+                },
+                clock::get);
+    }
+
+    @Test
+    void theHourlyMostCountsTheLastHourAndShortensAWindowToWhatIsLeft() throws Exception {
+        Perf.maxMinutesPerHour(10);
+        try {
+            AtomicLong clock = new AtomicLong();
+            long minute = TimeUnit.MINUTES.toNanos(1);
+            List<Integer> seconds = new CopyOnWriteArrayList<>();
+            DiagUpload upload = new DiagUpload();
+            Perf perf = timed(upload, clock, seconds);
+            perf.connected(1, ON);
+
+            perf.start(1, UUID.randomUUID(), 300);
+            assertEquals(PerfOutcome.PERF_OUTCOME_OK, drain(upload, 1).getLast().getOutcome());
+            clock.set(55 * minute);
+            perf.start(1, UUID.randomUUID(), 300);
+            assertEquals(PerfOutcome.PERF_OUTCOME_OK, drain(upload, 1).getLast().getOutcome());
+            perf.start(1, UUID.randomUUID(), 300);
+            assertEquals(PerfOutcome.PERF_OUTCOME_BUSY, drain(upload, 1).getLast().getOutcome());
+            clock.set(62 * minute);
+            perf.start(1, UUID.randomUUID(), 300);
+            assertEquals(PerfOutcome.PERF_OUTCOME_OK, drain(upload, 1).getLast().getOutcome());
+
+            assertEquals(List.of(300, 300, 120), seconds);
+            perf.close();
+        } finally {
+            Perf.maxMinutesPerHour(Perf.DEFAULT_MAX_MINUTES_PER_HOUR);
+        }
+    }
+
+    @Test
+    void aRecordingThatThrowsCountsTowardsTheHourlyMost() throws Exception {
+        Perf.maxMinutesPerHour(10);
+        try {
+            AtomicLong clock = new AtomicLong();
+            DiagUpload upload = new DiagUpload();
+            Perf perf = new Perf(
+                    upload,
+                    (settings, cancelled) -> {
+                        clock.addAndGet(TimeUnit.SECONDS.toNanos(settings.seconds()));
+                        throw new IllegalStateException("recorder");
+                    },
+                    clock::get);
+            perf.connected(1, ON);
+
+            for (int i = 0; i < 2; i++) {
+                perf.start(1, UUID.randomUUID(), 300);
+                assertEquals(PerfOutcome.PERF_OUTCOME_FAILED, drain(upload, 1).getLast().getOutcome());
+            }
+            perf.start(1, UUID.randomUUID(), 300);
+            assertEquals(PerfOutcome.PERF_OUTCOME_BUSY, drain(upload, 1).getLast().getOutcome());
+            perf.close();
+        } finally {
+            Perf.maxMinutesPerHour(Perf.DEFAULT_MAX_MINUTES_PER_HOUR);
+        }
     }
 
     /** Parts the upload hands the socket of {@code generation}, until a last part or a quiet second after one. */
