@@ -205,11 +205,16 @@ public final class CloudService {
         if (player != null) punish(player, event);
     }
 
-    /** Hands {@code event} to the player's {@link Cloud} check on its packet thread, where checks flag. */
+    /**
+     * Hands {@code event} to the player's {@link Cloud} check on its packet thread, where checks flag, its text
+     * {@linkplain CommandText kept to plain words}.
+     */
     private static void punish(CultPlayer player, IntakeWire.Event event) {
         Cloud cloud = player.checkManager.getCheck(Cloud.class);
         if (cloud == null) return;
-        Runnable flag = () -> cloud.finding(event.checkId(), event.confidence(), event.detail());
+        String checkId = CommandText.shown(event.checkId());
+        String detail = CommandText.shown(event.detail());
+        Runnable flag = () -> cloud.finding(checkId, event.confidence(), detail);
         var owner = player.user.getPacketExecutor();
         if (owner.inEventLoop()) {
             flag.run();

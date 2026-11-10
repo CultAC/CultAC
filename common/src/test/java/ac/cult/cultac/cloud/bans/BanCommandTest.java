@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import ac.cult.cultac.cloud.bans.StaffBans.Term;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -335,6 +336,59 @@ class BanCommandTest {
         assertEquals(
                 "%cheat% has a flag word (- and a letter)",
                 refusal("ban %player% %cheat%", hostile("killaura", "Kill -Aura", "https://p.example/x")));
+    }
+
+    @Test
+    void aReasonStartingWithALengthOrServerWordIsRefused() {
+        String template = "ban %player% %reason%";
+        for (String reason : List.of("7d fly", "1h30m", "2Weeks x", "server:lobby fly", "SERVER:all")) {
+            assertEquals(
+                    "%reason% starts with a length or a server: word",
+                    refusal(template, ban("Notch", reason, null, "s")),
+                    reason);
+        }
+        assertEquals(
+                "%reason_label% starts with a length or a server: word",
+                refusal("ban %player% %reason_label%", ban("Notch", "30d", null, "s")));
+        assertEquals(
+                "ban Notch 30 Days of fly",
+                BanCommand.fill("ban %player% %reason_label%", v2(Term.PERMANENT, null, null, "30d", "30 Days of fly", "")));
+        for (String reason : List.of("fly 7d", "7 days", "d7", "x server:lobby", "7dx")) {
+            assertEquals("ban Notch " + reason, BanCommand.fill(template, ban("Notch", reason, null, "s")), reason);
+        }
+    }
+
+    @Test
+    void aReasonWhoseLengthWordComesOnlyFromCleaningIsRunWithAQuote() {
+        assertEquals("ban Notch '73d fly", BanCommand.fill("ban %player% %reason%", ban("Notch", "§73d fly", null, "s")));
+        assertEquals("ban Notch '3d", BanCommand.fill("ban %player% %reason_label%", ban("Notch", "<3d", null, "s")));
+        assertEquals(
+                "ban Notch 'server:lobby x",
+                BanCommand.fill("ban %player% %reason%", ban("Notch", "<server:lobby x", null, "s")));
+        assertEquals("ban Notch c3d fly", BanCommand.fill("ban %player% %reason%", ban("Notch", "&c3d fly", null, "s")));
+    }
+
+    @Test
+    void reasonStaffAndCheatLoseTagsAndFormatCodes() {
+        StaffBans.Ban ban = new StaffBans.Ban(
+                ID,
+                PLAYER,
+                "Notch",
+                "<red>fly</red> &chacks §lnow",
+                "killaura",
+                "Kill <b>Aura",
+                null,
+                "&4Mod",
+                0,
+                null,
+                null,
+                null);
+        assertEquals(
+                "ban Notch red>fly/red> chacks lnow Kill b>Aura 4Mod",
+                BanCommand.fill("ban %player% %reason% %cheat% %staff%", ban));
+        assertEquals(
+                "ban Notch fly & hacks, 50% (really)!",
+                BanCommand.fill("ban %player% %reason%", ban("Notch", "fly & hacks, 50% (really)!", null, "s")));
     }
 
     @Test
