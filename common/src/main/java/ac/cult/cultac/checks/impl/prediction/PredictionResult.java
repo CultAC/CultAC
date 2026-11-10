@@ -226,8 +226,8 @@ public class PredictionResult {
         }
 
         boolean result = false;
-        for (PredictionResult reality : realities) {
-            if (reality.getValidMovements().isControlsVerticalMovement()) {
+        for (int i = 0, size = realities.size(); i < size; i++) {
+            if (realities.get(i).getValidMovements().isControlsVerticalMovement()) {
                 result = true;
                 break;
             }
@@ -242,8 +242,8 @@ public class PredictionResult {
         }
 
         boolean result = false;
-        for (PredictionResult reality : realities) {
-            if (reality.getValidMovements().isDidTickSkipGravity()) {
+        for (int i = 0, size = realities.size(); i < size; i++) {
+            if (realities.get(i).getValidMovements().isDidTickSkipGravity()) {
                 result = true;
                 break;
             }

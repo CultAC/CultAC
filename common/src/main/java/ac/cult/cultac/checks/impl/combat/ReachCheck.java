@@ -490,7 +490,8 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
     }
 
     private void tickBetterReachCheckWithAngle() {
-        for (QueuedAttack attack : playerAttackQueue) {
+        for (int i = 0, size = playerAttackQueue.size(); i < size; i++) {
+            QueuedAttack attack = playerAttackQueue.get(i);
             if (attack.pick() != null) {
                 judgeBedrock(attack);
                 continue;

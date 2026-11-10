@@ -1753,7 +1753,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         List<ValidMovements> valid = new ArrayList<>();
         MovementEngine engine = MovementEngines.requireForProfile(movementProfile);
 
-        for (SimulationContext curSimulationContext : this.createReleaseSimulationContexts(
+        List<SimulationContext> contexts = this.createReleaseSimulationContexts(
                 player,
                 lastPrediction,
                 target,
@@ -1764,7 +1764,9 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 xRot,
                 yRot,
                 authoredMovementFrame,
-                movementProfile)) {
+                movementProfile);
+        for (int contextIndex = 0, contextCount = contexts.size(); contextIndex < contextCount; contextIndex++) {
+            SimulationContext curSimulationContext = contexts.get(contextIndex);
             List<PredVector> contextPacketStart = engine.applyModifiers(
                     new MovementModifiers(),
                     player,

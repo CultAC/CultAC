@@ -536,8 +536,8 @@ public final class CompensatedWorldPistons {
             return remove;
         });
 
-        for (MovingPistonState state : finished) {
-            finishMovingPistonState(state);
+        for (int i = 0, size = finished.size(); i < size; i++) {
+            finishMovingPistonState(finished.get(i));
         }
     }
 

@@ -1073,12 +1073,14 @@ public class CheckManager {
     }
 
     public void doChecksWithKnownLook() {
-        for (BlockPlace place : placesToCheck) {
-            for (BlockPlaceCheck check : blockPlaceListeners) {
-                if (!shouldDispatch(check)) {
-                    continue;
+        if (!placesToCheck.isEmpty()) {
+            for (BlockPlace place : placesToCheck) {
+                for (BlockPlaceCheck check : blockPlaceListeners) {
+                    if (!shouldDispatch(check)) {
+                        continue;
+                    }
+                    check.onPostFlyingBlockPlace(place);
                 }
-                check.onPostFlyingBlockPlace(place);
             }
         }
         placesToCheck.clear();

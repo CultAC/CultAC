@@ -148,7 +148,9 @@ public class EntityPush implements UncertaintyHandler {
         // ticks before LocalPlayer can push the player before LocalPlayer#sendPosition
         // in the same tick; a later-ticking remote boat pushes after sendPosition and
         // is carried into the following player-body tick.
-        for (PacketEntity entity : state.getEntities().boats()) {
+        List<PacketEntity> boats = state.getEntities().boats();
+        for (int i = 0, size = boats.size(); i < size; i++) {
+            PacketEntity entity = boats.get(i);
             if (!entity.isBoat()
                     || entity.isDead
                     || entity.hasPassenger(player.compensatedEntities.getSelf())
