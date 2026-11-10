@@ -171,8 +171,23 @@ public final class ClientPacketCodecs {
                 "section_blocks_update",
                 WorldPackets.SectionBlocksUpdate.class,
                 worldReader(ModelWorldValues::sectionUpdates));
-        pinned.add(
-                "level_chunk_with_light", WorldPackets.Chunk.class, namedReader(names, ModelWorldValues::chunk, true));
+        pinned.add("level_chunk_with_light", WorldPackets.Chunk.class, new PacketCodec<>() {
+            @Override
+            public boolean requiresModelValues() {
+                return true;
+            }
+
+            @Override
+            public boolean readsEntirePayload() {
+                return true;
+            }
+
+            @Override
+            public WorldPackets.Chunk read(ByteBuf input, ProtocolContext context) {
+                requireModelWire(context);
+                return ModelWorldValues.chunk(input, names.apply(context), context.state());
+            }
+        });
         pinned.add(
                 "block_entity_data",
                 WorldPackets.BlockEntityUpdate.class,

@@ -30,7 +30,7 @@ public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
             for (int i = 0; i < chunks.length; i++) {
                 var section = packet.decodedSections().get(i);
                 chunks[i] = CachedSection.received(
-                        section.copyBlocks(), section.nonEmptyBlockCount(), section.knownFluidCount());
+                        section.takeBlocks(), section.nonEmptyBlockCount(), section.knownFluidCount());
                 biomes[i] = biomeValues(section);
             }
         } else {

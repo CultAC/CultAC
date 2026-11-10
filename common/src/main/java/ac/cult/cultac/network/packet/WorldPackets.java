@@ -146,8 +146,13 @@ public final class WorldPackets {
     }
 
     /**
-     * The decoder supplies an owned section byte array. Read-only views never retain the frame,
+     * The sections arrive as an owned byte array or decoded: a translated chunk carries {@link #decodedSections()} and
+     * no section bytes, and so does a native chunk whose sections the encoder decodes for an attached player in a
+     * resolved dimension; a native column that does not decode keeps its bytes. Read-only views never retain the frame,
      * and each caller gets its own index. The consumer supplies its existing dimension's section count.
+     *
+     * @param decodedSections the decoded sections, or null when the chunk carries section bytes; the world reader takes
+     *     the block storage of natively decoded sections, see {@link SectionSnapshot#takeBlocks}
      */
     public record Chunk(
             int x,
@@ -182,6 +187,11 @@ public final class WorldPackets {
             motionBlocking = motionBlocking == null ? null : motionBlocking.clone();
         }
 
+        /**
+         * The section bytes; for a decoded chunk an encoding of {@link #decodedSections()} made on each call, which is
+         * not the wire bytes and shows the world reader's later writes to the storage it took. Call it on the event loop
+         * during the event, and copy the bytes before keeping them.
+         */
         @Override
         public ByteBuffer sections() {
             return sections == null ? SectionSnapshot.encode(decodedSections) : sections.asReadOnlyBuffer();

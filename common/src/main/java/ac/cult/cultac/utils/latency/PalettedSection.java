@@ -207,6 +207,26 @@ public final class PalettedSection {
         return readBlocks(input);
     }
 
+    /**
+     * As {@link #readBlocks(ByteBuf, SectionPool)}, its pool counts held in {@code counts}; a single-entry container
+     * gives a canonical section.
+     */
+    public static PalettedSection readCanonicalBlocks(ByteBuf input, SectionPool pool, SectionPool.ReadCounts counts) {
+        if (pool != null) {
+            var shared =
+                    pool.sharedBlocks(input, false, BLOCK_STATES, IntUnaryOperator.identity(), BLOCK_STATES, counts);
+            if (shared != null) return shared.states();
+        }
+        var read = readCanonical(input, 4096, 4, 8, BLOCK_STATES, false, false, null, BLOCK_STATES);
+        if (pool != null && read.bits != 0) counts.fullRead();
+        return read;
+    }
+
+    /** {@link #readBiomes(ByteBuf, int)}'s section; a single-entry container gives a canonical section. */
+    public static PalettedSection readCanonicalBiomes(ByteBuf input, int registrySize) {
+        return readCanonical(input, 64, 1, 3, registrySize, false, false, null, registrySize);
+    }
+
     private static PalettedSection countedFullRead(PalettedSection read) {
         if (read.bits != 0) SectionPool.multiValueFullReadCounter.increment();
         return read;
@@ -568,6 +588,11 @@ public final class PalettedSection {
         result.sharedByPool = true;
         sharedByPool = byPool;
         return result;
+    }
+
+    /** Whether this is a canonical section, which every thread shares and nothing writes. */
+    public boolean isCanonical() {
+        return canonical;
     }
 
     /** This section, or an own copy of a canonical one. */
