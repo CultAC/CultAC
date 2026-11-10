@@ -68,6 +68,8 @@ public class CompensatedWorld {
     // Packet locations for blocks
     public Set<ShulkerData> openShulkerBoxes = new HashSet<>();
     public final CompensatedWorldPistons pistons;
+    /** The pushes of a pass with no push source; push consumers only read them. */
+    private final PistonPushes noPushes;
     private final CompensatedGeysers geysers = new CompensatedGeysers();
     private final CompensatedBlockEntities clientBlockEntities;
     private final ClientBlockGeometry geometry;
@@ -159,6 +161,8 @@ public class CompensatedWorld {
         this.geometry = new ClientBlockGeometry(this);
         this.clientBlockEntities = new CompensatedBlockEntities(player);
         this.pistons = new CompensatedWorldPistons(player, this);
+        SimpleCollisionBox empty = new SimpleCollisionBox();
+        this.noPushes = new PistonPushes(empty, empty, empty, Collections.emptySet());
         chunks = new Long2ObjectOpenHashMap<>(81, 0.5f);
         chunkPositions = LongSets.unmodifiable(chunks.keySet());
     }
@@ -1520,11 +1524,7 @@ public class CompensatedWorld {
         if (player.boundingBox == null) return new PistonPushes(new SimpleCollisionBox(), Collections.emptySet());
 
         List<CompensatedBlockEntities.ShulkerShove> shulkerBoxShoves = shulkerBoxShoves();
-        if (openShulkerBoxes.isEmpty() && pistons.hasNoPushSources() && shulkerBoxShoves.isEmpty()) {
-            // Push consumers only read these boxes, so the three empty pushes share one.
-            SimpleCollisionBox empty = new SimpleCollisionBox();
-            return new PistonPushes(empty, empty, empty, Collections.emptySet());
-        }
+        if (openShulkerBoxes.isEmpty() && pistons.hasNoPushSources() && shulkerBoxShoves.isEmpty()) return noPushes;
 
         SimpleCollisionBox queryBox = pistons.createPistonQueryBox(context);
         SimpleCollisionBox shoveQuery = pistons.createPistonShoveQueryBox(context, queryBox);
