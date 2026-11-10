@@ -36,9 +36,10 @@ final class BedrockWorldSnapshotBuilder {
             SimulationContext context,
             BedrockCollisionOverrideCatalog geometry,
             BedrockAuthInputFrame frame,
-            BedrockPlayerContext playerContext) {
+            BedrockPlayerContext playerContext,
+            BedrockCollisionSampleRegion region) {
         BedrockBlockCollisionWorldSampler.BedrockSampledBlockWorld sampledBlockWorld =
-                blockWorld.sample(player, context, geometry, frame, playerContext);
+                blockWorld.sample(player, context, geometry, frame, playerContext, region);
         BlockCollisionWorld collisionWorld = withHardCollidingEntities(
                         sampledBlockWorld.world(), context.getHardCollidingEntityCollisionsForMovementTick())
                 .withCoordinateFrame(frame.getCoordinateFrame());
@@ -52,6 +53,10 @@ final class BedrockWorldSnapshotBuilder {
                 new StandingSurfaceState(java.util.Set.of()),
                 BlockMovementSlowdownState.NONE,
                 HoneySlideState.NONE);
+    }
+
+    BedrockCollisionSampleRegion carriedMoveRegion(SimulationContext context, BedrockPlayerContext playerContext) {
+        return blockWorld.carriedMoveRegion(context, playerContext);
     }
 
     private BedrockMovementContext movementContext(

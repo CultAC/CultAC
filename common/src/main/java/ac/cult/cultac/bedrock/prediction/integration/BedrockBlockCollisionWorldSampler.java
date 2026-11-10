@@ -27,21 +27,30 @@ final class BedrockBlockCollisionWorldSampler {
             SimulationContext context,
             BedrockCollisionOverrideCatalog geometry,
             BedrockAuthInputFrame frame,
-            BedrockPlayerContext playerContext) {
+            BedrockPlayerContext playerContext,
+            BedrockCollisionSampleRegion region) {
         if (player.compensatedWorld == null) {
             throw new IllegalStateException("missing compensated world for Bedrock block sampling");
         }
 
-        BedrockActorCollisionQuery actorQuery = actorQuery(context, playerContext);
-        SimpleCollisionBox actorBox = actorQuery.actorBox();
-        SimpleCollisionBox query = actorQuery.queryBox();
         return sample(
                 player,
                 geometry,
-                actorBox,
-                query,
+                trustedActorCollisionBox(context, playerContext),
+                region.toQueryBox(),
                 playerContext.wearingLeatherBoots(),
                 collisionFallDistance(BedrockProfileState.previousState(context), playerContext, player));
+    }
+
+    /**
+     * The region sampled before the tick is simulated. It is sized from the velocity carried into the tick, so a
+     * move that this tick's impulses lengthen can leave it.
+     */
+    BedrockCollisionSampleRegion carriedMoveRegion(SimulationContext context, BedrockPlayerContext playerContext) {
+        BedrockMovementState previousState = BedrockProfileState.previousState(context);
+        return BedrockCollisionSampleRegion.around(
+                trustedActorCollisionBox(context, playerContext),
+                previousState == null ? 0.0D : previousState.velocity().length());
     }
 
     BedrockWorldSnapshot replayWorld(CultPlayer player, BedrockMovementState state, BedrockWorldSnapshot snapshot) {
@@ -105,12 +114,6 @@ final class BedrockBlockCollisionWorldSampler {
         return new BedrockSampledBlockWorld(new BlockCollisionWorld(blocks));
     }
 
-    private BedrockActorCollisionQuery actorQuery(SimulationContext context, BedrockPlayerContext playerContext) {
-        SimpleCollisionBox actorBox = trustedActorCollisionBox(context, playerContext);
-        return new BedrockActorCollisionQuery(
-                actorBox, actorBox.copy().expand(trustedCollisionQueryExpansion(context)));
-    }
-
     private SimpleCollisionBox trustedActorCollisionBox(SimulationContext context, BedrockPlayerContext playerContext) {
         java.util.Optional<Vec3d> trustedFeetPosition = BedrockProfileState.trustedFeetPosition(context);
         if (trustedFeetPosition.isEmpty()) {
@@ -130,18 +133,6 @@ final class BedrockBlockCollisionWorldSampler {
                 feet.z() + radius);
     }
 
-    private double trustedCollisionQueryExpansion(SimulationContext context) {
-        BedrockMovementState previousState = BedrockProfileState.previousState(context);
-        if (previousState == null) {
-            return 2.0D;
-        }
-        double velocityLength = previousState.velocity().length();
-        if (!Double.isFinite(velocityLength)) {
-            return 2.0D;
-        }
-        return Math.max(2.0D, Math.min(16.0D, velocityLength + 2.0D));
-    }
-
     private static WorldCollisionBox toWorldCollisionBox(SimpleCollisionBox box) {
         return new WorldCollisionBox(box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ);
     }
@@ -158,6 +149,4 @@ final class BedrockBlockCollisionWorldSampler {
     }
 
     record BedrockSampledBlockWorld(BlockCollisionWorld world) {}
-
-    private record BedrockActorCollisionQuery(SimpleCollisionBox actorBox, SimpleCollisionBox queryBox) {}
 }

@@ -4,6 +4,7 @@ import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
 import ac.cult.cultac.bedrock.prediction.BedrockVerticalCollisionVerdict;
 import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
+import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockMovementInputFactory.Input;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockProfileState.Entry;
@@ -118,31 +119,18 @@ public final class BedrockMovementEngine implements MovementEngine {
         for (PredVector vector : input) {
             for (Entry previousEntry : BedrockStartingVelocityProfiles.previousEntriesForJavaStartingVelocity(
                     context, bedrockInput, vector)) {
-                BedrockMovementState boundingBoxState =
-                        player.bedrockState == null || previousEntry.state().isVehicle()
-                                ? previousEntry.state()
-                                : player.bedrockState.applyConfirmedBoundingBoxSize(
-                                        previousEntry.state(), bedrockInput.inputFrame(), context.getScale());
-                Input selectedInput =
-                        bedrockInput.withPreviousState(boundingBoxState, previousEntry.mobJumpComponent());
-                BedrockSimulation.Input simulationInput = new BedrockSimulation.Input(
-                        selectedInput.previousState(),
-                        selectedInput.inputFrame(),
-                        selectedInput.inputIntent(),
-                        selectedInput.worldSnapshot(),
-                        true,
-                        selectedInput.maxUpStep(),
-                        selectedInput.mobJumpComponent(),
-                        selectedInput.actorMovementTick(),
-                        context.isBedrockTeleportTick(),
-                        BedrockControlInput.control(selectedInput.authFrame(), selectedInput.previousState()),
-                        !selectedInput.previousState().isVehicle()
-                                && player.bedrockState.movementEffects.glideBoost(
-                                        selectedInput.authFrame(), selectedInput.actorMovementTick()));
-                simulationInput = player.bedrockState.movementCorrections.prepareInput(simulationInput);
-                selectedInput = selectedInput.withPreviousState(
-                        simulationInput.previousState(), simulationInput.mobJumpComponent());
-                for (Candidate movementCandidate : BedrockForwardTick.simulate(simulationInput)) {
+                SimulatedEntry simulated = simulate(player, context, bedrockInput, previousEntry);
+                BedrockCollisionSampleRegion sampled = bedrockInput.sampledRegion();
+                BedrockCollisionSampleRegion fetched = fetchedRegion(sampled, simulated.candidates());
+                if (fetched != sampled) {
+                    // The sample was sized before this tick's impulses. A move they lengthen fetches shapes the
+                    // sample does not hold, so the tick is simulated again over the region it fetches.
+                    bedrockInput = inputFactory.create(player, context, fetched);
+                    simulated = simulate(player, context, bedrockInput, previousEntry);
+                }
+                Input selectedInput = simulated.input();
+                BedrockSimulation.Input simulationInput = simulated.simulationInput();
+                for (Candidate movementCandidate : simulated.candidates()) {
                     BedrockMovementResult movementResult = movementCandidate.movementResult();
                     addCandidate(
                             output,
@@ -170,6 +158,50 @@ public final class BedrockMovementEngine implements MovementEngine {
         return output.isEmpty()
                 ? BedrockStartingVelocityProfiles.profileStateVelocities(input)
                 : new ArrayList<>(output.values());
+    }
+
+    private SimulatedEntry simulate(
+            CultPlayer player, SimulationContext context, Input bedrockInput, Entry previousEntry) {
+        BedrockMovementState boundingBoxState =
+                player.bedrockState == null || previousEntry.state().isVehicle()
+                        ? previousEntry.state()
+                        : player.bedrockState.applyConfirmedBoundingBoxSize(
+                                previousEntry.state(), bedrockInput.inputFrame(), context.getScale());
+        Input selectedInput = bedrockInput.withPreviousState(boundingBoxState, previousEntry.mobJumpComponent());
+        BedrockSimulation.Input simulationInput = new BedrockSimulation.Input(
+                selectedInput.previousState(),
+                selectedInput.inputFrame(),
+                selectedInput.inputIntent(),
+                selectedInput.worldSnapshot(),
+                true,
+                selectedInput.maxUpStep(),
+                selectedInput.mobJumpComponent(),
+                selectedInput.actorMovementTick(),
+                context.isBedrockTeleportTick(),
+                BedrockControlInput.control(selectedInput.authFrame(), selectedInput.previousState()),
+                !selectedInput.previousState().isVehicle()
+                        && player.bedrockState.movementEffects.glideBoost(
+                                selectedInput.authFrame(), selectedInput.actorMovementTick()));
+        simulationInput = player.bedrockState.movementCorrections.prepareInput(simulationInput);
+        selectedInput =
+                selectedInput.withPreviousState(simulationInput.previousState(), simulationInput.mobJumpComponent());
+        return new SimulatedEntry(selectedInput, simulationInput, BedrockForwardTick.simulate(simulationInput));
+    }
+
+    /** Returns the sampled region itself when it holds every shape the candidates' moves fetch. */
+    private static BedrockCollisionSampleRegion fetchedRegion(
+            BedrockCollisionSampleRegion sampled, List<Candidate> candidates) {
+        if (sampled == null) {
+            return null;
+        }
+        BedrockCollisionSampleRegion fetched = sampled;
+        for (Candidate candidate : candidates) {
+            WorldCollisionBox fetchBox = candidate.movementResult().collisionFetchBox();
+            if (fetchBox != null && !fetched.holds(fetchBox)) {
+                fetched = fetched.including(fetchBox);
+            }
+        }
+        return fetched;
     }
 
     private static void addCandidate(
@@ -579,6 +611,9 @@ public final class BedrockMovementEngine implements MovementEngine {
             axis.setResult(target);
         }
     }
+
+    private record SimulatedEntry(
+            Input input, BedrockSimulation.Input simulationInput, List<Candidate> candidates) {}
 
     private record CandidateKey(
             double x,

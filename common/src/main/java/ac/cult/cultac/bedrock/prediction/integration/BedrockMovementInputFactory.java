@@ -28,6 +28,14 @@ final class BedrockMovementInputFactory {
     }
 
     Input create(CultPlayer player, SimulationContext context) {
+        return create(player, context, null);
+    }
+
+    /**
+     * @param required the region the block collision sample must cover, or null for the region a move at the
+     *     velocity carried into the tick stays in
+     */
+    Input create(CultPlayer player, SimulationContext context, BedrockCollisionSampleRegion required) {
         BedrockAuthInputFrame frame = trustedFrame(player, context);
         if (frame == null) {
             return null;
@@ -38,7 +46,10 @@ final class BedrockMovementInputFactory {
                 : player.bedrockState.getClientPoseState(frame).gliding();
         BedrockCollisionOverrideCatalog geometry = geometryCatalog();
         BedrockPlayerContext playerContext = BedrockPlayerContext.from(player, context, frame, actorGliding);
-        BedrockWorldSnapshot worldSnapshot = worldSnapshots.create(player, context, geometry, frame, playerContext);
+        BedrockCollisionSampleRegion sampledRegion =
+                required == null ? worldSnapshots.carriedMoveRegion(context, playerContext) : required;
+        BedrockWorldSnapshot worldSnapshot =
+                worldSnapshots.create(player, context, geometry, frame, playerContext, sampledRegion);
         BedrockTickInput tickInput = context.getVehicle() instanceof PacketEntityHorse horse
                 ? tickInputs.createHorse(player, frame, profilePreviousState, horse)
                 : context.getVehicle() != null && context.getVehicle().isBoat()
@@ -83,7 +94,8 @@ final class BedrockMovementInputFactory {
                         ? BedrockHorseMovement.maxUpStep(previousState, worldSnapshot.movementContext())
                         : previousState.isBoat() ? boatStep(previousState) : BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
                 mobJumpComponent,
-                actorMovementTick);
+                actorMovementTick,
+                sampledRegion);
     }
 
     private static boolean analogBoatInput(BedrockAuthInputFrame frame) {
@@ -126,7 +138,9 @@ final class BedrockMovementInputFactory {
             BedrockWorldSnapshot worldSnapshot,
             double maxUpStep,
             BedrockMobJumpComponentState mobJumpComponent,
-            boolean actorMovementTick) {
+            boolean actorMovementTick,
+            // Null when the world snapshot was not sampled from a region of the player's world.
+            BedrockCollisionSampleRegion sampledRegion) {
         public Input(
                 BedrockAuthInputFrame authFrame,
                 BedrockMovementState previousState,
@@ -135,7 +149,16 @@ final class BedrockMovementInputFactory {
                 BedrockWorldSnapshot worldSnapshot,
                 double maxUpStep,
                 BedrockMobJumpComponentState mobJumpComponent) {
-            this(authFrame, previousState, tickInput, inputIntent, worldSnapshot, maxUpStep, mobJumpComponent, true);
+            this(
+                    authFrame,
+                    previousState,
+                    tickInput,
+                    inputIntent,
+                    worldSnapshot,
+                    maxUpStep,
+                    mobJumpComponent,
+                    true,
+                    null);
         }
 
         public Input(
@@ -151,7 +174,8 @@ final class BedrockMovementInputFactory {
                     worldSnapshot,
                     BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
                     BedrockMobJumpComponentState.DEFAULT,
-                    true);
+                    true,
+                    null);
         }
 
         public Input {
@@ -212,7 +236,8 @@ final class BedrockMovementInputFactory {
                             ? BedrockHorseMovement.maxUpStep(previousState, movementContext())
                             : maxUpStep,
                     mobJumpComponent,
-                    actorMovementTick);
+                    actorMovementTick,
+                    sampledRegion);
         }
     }
 
