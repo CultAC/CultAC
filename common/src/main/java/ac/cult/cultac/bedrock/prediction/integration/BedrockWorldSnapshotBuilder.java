@@ -1,7 +1,6 @@
 package ac.cult.cultac.bedrock.prediction.integration;
 
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionOverrideCatalog;
-import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.model.AttributeState;
 import ac.cult.cultac.bedrock.prediction.model.BedrockEffectState;
@@ -139,17 +138,14 @@ final class BedrockWorldSnapshotBuilder {
                 || sourceBox.minZ >= sourceBox.maxZ) {
             return null;
         }
-        WorldCollisionBox collisionBox = new WorldCollisionBox(
-                sourceBox.minX, sourceBox.minY, sourceBox.minZ, sourceBox.maxX, sourceBox.maxY, sourceBox.maxZ);
-        String identifier =
-                collision.happyGhast() ? PlacedBlockCollision.HAPPY_GHAST_ACTOR : PlacedBlockCollision.SOLID_ACTOR;
-        return PlacedBlockCollision.manual(
-                new BlockPosition((int) Math.floor(collisionBox.minX()), (int) Math.floor(collisionBox.minY()), (int)
-                        Math.floor(collisionBox.minZ())),
-                identifier,
-                identifier,
-                List.of(collisionBox),
-                List.of(collisionBox),
-                List.of(collisionBox));
+        return collision
+                .depenetrationLimit()
+                .solidActor(new WorldCollisionBox(
+                        sourceBox.minX,
+                        sourceBox.minY,
+                        sourceBox.minZ,
+                        sourceBox.maxX,
+                        sourceBox.maxY,
+                        sourceBox.maxZ));
     }
 }

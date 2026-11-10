@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.prediction;
 
 import ac.cult.blocksim.data.BlockTags;
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockDepenetrationLimit;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAiStepSprint;
@@ -1039,6 +1040,6 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
         return DebugText.print(this);
     }
 
-    /** The box of a solid actor a Bedrock move collides with; a happy ghast lifts a mover inside its top. */
-    public record HardCollidingEntityCollision(SimpleCollisionBox box, boolean happyGhast) {}
+    /** The box of a solid actor a Bedrock move collides with, and the limit it gives every move that collects it. */
+    public record HardCollidingEntityCollision(SimpleCollisionBox box, BedrockDepenetrationLimit depenetrationLimit) {}
 }

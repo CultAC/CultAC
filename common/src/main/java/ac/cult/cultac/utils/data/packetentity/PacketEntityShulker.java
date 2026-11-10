@@ -2,6 +2,8 @@ package ac.cult.cultac.utils.data.packetentity;
 
 import ac.cult.blocksim.data.Box;
 import ac.cult.blocksim.engine.ShulkerGeometry;
+import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockDepenetrationLimit;
+import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMath;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
@@ -21,13 +23,18 @@ import org.jetbrains.annotations.Nullable;
  * its block's bottom centre. A shulker riding outside the local player's riding trees ticks its peek alone, at the seat
  * its vehicle chain gives it, since nothing positions it.
  *
- * <p>For a Bedrock player the same peek steps at the end of each client tick and shoves nothing: a shulker on the
- * floor is a collider 0.98 tall that the physical peek raises ({@link #bedrockShownBox}). Every other Bedrock
- * read keeps the plain entity box.
+ * <p>For a Bedrock player the same peek steps at the end of each client tick and shoves nothing: the shulker is a
+ * collider 0.98 tall that the physical peek opens away from its attach face ({@link #bedrockShownBox}).
  */
 public class PacketEntityShulker extends PacketEntity {
-    /** The height of a closed floor shulker's Bedrock collider. */
-    private static final double BEDROCK_CLOSED_HEIGHT = 0.98;
+    /** The half width of a Bedrock shulker's collider and its height while closed. */
+    private static final float BEDROCK_HALF_WIDTH = 0.5F;
+
+    private static final float BEDROCK_CLOSED_HEIGHT = 0.98F;
+    /** How far a Bedrock shulker's collider stands in from each of its X and Z faces. */
+    private static final float BEDROCK_SIDE_INSET = 1.0E-4F;
+
+    private static final float BEDROCK_DEPENETRATION_PER_PEEK = 1.1F;
 
     /** Shulker#getAttachFace (DATA_ATTACH_FACE_ID). */
     public Direction facing = Direction.DOWN;
@@ -397,23 +404,52 @@ public class PacketEntityShulker extends PacketEntity {
                 z + half + Math.max(0, dz));
     }
 
-    /** Whether this shulker is a Bedrock lid collider: attached to the floor, at scale 1 and not riding. */
-    private boolean hasBedrockLid() {
-        return player.isBedrockMovement() && facing == Direction.DOWN && riding == null && scale == 1.0F;
-    }
-
-    /** The shown box, {@link #BEDROCK_CLOSED_HEIGHT} tall and raised by the physical peek for a lid collider. */
+    /**
+     * The collider a Bedrock client gives the shulker at its shown position: {@link #BEDROCK_HALF_WIDTH} each side of
+     * the feet and {@link #BEDROCK_CLOSED_HEIGHT} tall, its face opposite the attach face moved out by the physical
+     * peek, then {@link #BEDROCK_SIDE_INSET} in from each X and Z face. Scale and riding leave it as it is.
+     */
     @Override
     public SimpleCollisionBox bedrockShownBox(CultPlayer player, SimpleCollisionBox out) {
         super.bedrockShownBox(player, out);
-        if (hasBedrockLid()) out.maxY = out.minY + BEDROCK_CLOSED_HEIGHT + bedrockPhysicalPeek(peek);
-        return out;
+        double x = (out.minX + out.maxX) / 2;
+        double y = out.minY;
+        double z = (out.minZ + out.maxZ) / 2;
+        double minX = x - BEDROCK_HALF_WIDTH, minY = y, minZ = z - BEDROCK_HALF_WIDTH;
+        double maxX = x + BEDROCK_HALF_WIDTH, maxY = y + BEDROCK_CLOSED_HEIGHT, maxZ = z + BEDROCK_HALF_WIDTH;
+        float open = bedrockPhysicalPeek(peek);
+        switch (facing) {
+            case DOWN -> maxY += open;
+            case UP -> minY -= open;
+            case NORTH -> maxZ += open;
+            case SOUTH -> minZ -= open;
+            case WEST -> maxX += open;
+            case EAST -> minX -= open;
+        }
+        return out.set(
+                minX + BEDROCK_SIDE_INSET,
+                minY,
+                minZ + BEDROCK_SIDE_INSET,
+                maxX - BEDROCK_SIDE_INSET,
+                maxY,
+                maxZ - BEDROCK_SIDE_INSET);
     }
 
-    /** The lid's height above the closed box at peek {@code amount}: the square of the sine of that quarter turn. */
-    private static double bedrockPhysicalPeek(float amount) {
-        double sine = Math.sin(amount * (Math.PI / 2.0));
-        return sine * sine;
+    /**
+     * How deep a Bedrock move that collects this shulker may overlap a shape and still leave it: along the axis its
+     * lid opens on only, {@link #BEDROCK_DEPENETRATION_PER_PEEK} times the physical peek.
+     */
+    public BedrockDepenetrationLimit bedrockDepenetrationLimit() {
+        float depth = BEDROCK_DEPENETRATION_PER_PEEK * bedrockPhysicalPeek(peek);
+        return new BedrockDepenetrationLimit(
+                Math.abs(facing.getStepX()) * depth,
+                Math.abs(facing.getStepY()) * depth,
+                Math.abs(facing.getStepZ()) * depth);
+    }
+
+    /** How far the lid of a Bedrock shulker at peek {@code amount} stands out from the closed collider. */
+    private static float bedrockPhysicalPeek(float amount) {
+        return 0.5F - BedrockMath.sin((amount + 0.5F) * BedrockMath.PI) * 0.5F;
     }
 
     /** Shulker#getPhysicalPeek, with the client's Mth#sin. */

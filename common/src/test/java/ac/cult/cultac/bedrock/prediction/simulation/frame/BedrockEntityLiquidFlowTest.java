@@ -12,7 +12,7 @@ import org.junit.Test;
 public class BedrockEntityLiquidFlowTest {
     @Test
     public void entityGeometryDoesNotBecomeAFluidNeighborMaterial() {
-        for (String identifier : List.of(PlacedBlockCollision.SOLID_ACTOR, PlacedBlockCollision.HAPPY_GHAST_ACTOR)) {
+        for (String identifier : List.of(PlacedBlockCollision.SOLID_ACTOR)) {
             var water = PlacedBlockCollision.manual(
                     new BlockPosition(0, 0, 0), "minecraft:water[level=8]", "minecraft:water", List.of());
             var box = new WorldCollisionBox(1, 0, 0, 2, 1, 1);

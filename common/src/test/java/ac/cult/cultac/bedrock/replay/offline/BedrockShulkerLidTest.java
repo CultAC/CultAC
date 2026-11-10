@@ -11,6 +11,7 @@ import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.math.Vec3;
@@ -23,13 +24,82 @@ import org.junit.Test;
 
 /**
  * A Bedrock player on a floor shulker at (61.5, 120, 21.5) stands 0.98 above the shulker's feet and follows its lid,
- * whose peek steps 0.05 towards the last handled peek data at the end of each client tick.
+ * whose peek steps 0.05 towards the last handled peek data at the end of each client tick. A shulker on any other face
+ * opens the same way away from that face.
  */
 public class BedrockShulkerLidTest {
     private static final int SHULKER = 5797;
     private static final double X = 61.5;
     private static final double Z = 21.5;
     private static final float GRAVITY_TICK = -0.0784F;
+
+    /**
+     * Fully open shulkers on each face, and the faces a player walking or jumping into them stops at: the face opposite
+     * the attach face stands the physical peek out, the box 0.98 tall and each X and Z face 0.0001 in.
+     */
+    @Test
+    public void eachAttachFaceOpensTheBoxAwayFromIt() {
+        // attach face, peek, feet X/Y/Z, then min X/Y/Z and max X/Y/Z
+        assertOpenBox(Direction.NORTH, 100, 109.5, 120, -14.5, 109.0001, 120, -14.9999, 109.9999, 120.98, -13.0001);
+        assertOpenBox(Direction.NORTH, 0, 109.5, 120, -14.5, 109.0001, 120, -14.9999, 109.9999, 120.98, -14.0001);
+        assertOpenBox(Direction.SOUTH, 100, 109.5, 120, -16.5, 109.0001, 120, -17.9999, 109.9999, 120.98, -16.0001);
+        assertOpenBox(Direction.WEST, 100, 115.5, 120, -27.5, 115.0001, 120, -27.9999, 116.9999, 120.98, -27.0001);
+        assertOpenBox(Direction.EAST, 100, 114.5, 120, -27.5, 113.0001, 120, -27.9999, 114.9999, 120.98, -27.0001);
+        assertOpenBox(Direction.UP, 100, 108.5, 123, -27.5, 108.0001, 122, -27.9999, 108.9999, 123.98, -27.0001);
+        assertOpenBox(Direction.UP, 50, 108.5, 123, -27.5, 108.0001, 122.5, -27.9999, 108.9999, 123.98, -27.0001);
+    }
+
+    private static void assertOpenBox(Direction face, int peek, double... feetAndBounds) {
+        var feet = new Vec3(feetAndBounds[0], feetAndBounds[1], feetAndBounds[2]);
+        withOpenShulker(face, peek, feet, (player, shulker) -> {
+            SimpleCollisionBox box = shulker.bedrockShownBox(player, new SimpleCollisionBox());
+            double[] actual = {box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ};
+            for (int i = 0; i < 6; i++)
+                assertEquals(face + " " + peek + " bound " + i, feetAndBounds[3 + i], actual[i], 2.0E-6);
+        });
+    }
+
+    /** A move may leave a shulker along the axis its lid opens on only, by up to 1.1 times the lid. */
+    @Test
+    public void aShulkerLimitsTheMoveAlongTheAxisItsLidOpensOnOnly() {
+        var feet = new Vec3(109.5, 120, -14.5);
+        assertLimit(Direction.NORTH, 0, feet, 0.0F, 0.0F, 0.0F);
+        assertLimit(Direction.NORTH, 100, feet, 0.0F, 0.0F, 1.1F);
+        assertLimit(Direction.WEST, 100, feet, 1.1F, 0.0F, 0.0F);
+        assertLimit(Direction.DOWN, 100, feet, 0.0F, 1.1F, 0.0F);
+        assertLimit(Direction.UP, 50, feet, 0.0F, 0.55F, 0.0F);
+    }
+
+    private static void assertLimit(Direction face, int peek, Vec3 feet, float x, float y, float z) {
+        withOpenShulker(face, peek, feet, (player, shulker) -> {
+            var limit = shulker.bedrockDepenetrationLimit();
+            assertEquals(face + " " + peek, x, limit.x(), 1.0E-6F);
+            assertEquals(face + " " + peek, y, limit.y(), 1.0E-6F);
+            assertEquals(face + " " + peek, z, limit.z(), 1.0E-6F);
+        });
+    }
+
+    /** A shulker at {@code feet} on {@code face} whose lid has stepped to {@code peek} data. */
+    private static void withOpenShulker(
+            Direction face, int peek, Vec3 feet, java.util.function.BiConsumer<CultPlayer, PacketEntityShulker> test) {
+        OfflineCultTestBootstrap.installConfig();
+        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            player.compensatedWorld.ensureValidationChunkLoaded(
+                    (int) Math.floor(feet.x) >> 4, (int) Math.floor(feet.z) >> 4);
+            player.compensatedEntities.addEntity(SHULKER, EntityTypeIds.SHULKER, feet, 0, 0, 0);
+            var none = ByteBuffer.allocate(0);
+            player.compensatedEntities.updateEntityMetadata(
+                    SHULKER,
+                    List.of(
+                            new EntityMetadata.Entry(WatchableIndexUtil.SHULKER_ATTACH_FACE, face, none),
+                            new EntityMetadata.Entry(WatchableIndexUtil.SHULKER_PEEK, (byte) peek, none)));
+            for (int tick = 0; tick < 25; tick++) player.checkManager.endBedrockClientTick();
+            test.accept(player, shulker(player));
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
 
     @Test
     public void theBoxIsAUnitWideAndItsLidRaisesTheTop() {
@@ -145,10 +215,10 @@ public class BedrockShulkerLidTest {
 
     private static void assertBox(CultPlayer player, double top) {
         SimpleCollisionBox box = shulker(player).bedrockShownBox(player, new SimpleCollisionBox());
-        assertEquals(61.0, box.minX, 0.0);
-        assertEquals(62.0, box.maxX, 0.0);
-        assertEquals(21.0, box.minZ, 0.0);
-        assertEquals(22.0, box.maxZ, 0.0);
+        assertEquals(61.0001, box.minX, 1.0E-7);
+        assertEquals(61.9999, box.maxX, 1.0E-7);
+        assertEquals(21.0001, box.minZ, 1.0E-7);
+        assertEquals(21.9999, box.maxZ, 1.0E-7);
         assertEquals(120.0, box.minY, 0.0);
         assertEquals(top, box.maxY, 5.0E-5);
     }
