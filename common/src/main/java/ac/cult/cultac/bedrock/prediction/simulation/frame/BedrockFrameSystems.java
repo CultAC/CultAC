@@ -113,7 +113,9 @@ public final class BedrockFrameSystems {
         if (mobJump.active()) {
             velocity = mobJump.applyVelocityMutation(velocity);
         }
-        boolean groundJumpApplied = input.options().travelActive() && mobJump.groundJumpRequest();
+        // The launch and its cooldown start together. A tick that handles a teleport
+        // still launches: it only skips the move, gravity and drag that follow.
+        boolean groundJumpApplied = mobJump.groundJumpRequest();
         if (groundJumpApplied) {
             JumpPreventionState jumpPreventionState = BedrockJumpPreventionResolver.resolve(
                     facts.context(),

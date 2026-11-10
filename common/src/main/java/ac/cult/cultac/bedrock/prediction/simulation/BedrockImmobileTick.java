@@ -109,7 +109,7 @@ public final class BedrockImmobileTick {
                         prepared.cameraWater()),
                 false,
                 prepared.input().previousState().attributes());
-        return new Result(next, prepared.mobJumpComponent());
+        return new Result(next, mobJumpComponent.afterHeldTick(frame.jumping()));
     }
 
     public record Result(BedrockMovementState state, BedrockMobJumpComponentState mobJumpComponent) {

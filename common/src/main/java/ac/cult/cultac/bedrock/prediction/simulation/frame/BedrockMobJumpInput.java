@@ -28,13 +28,21 @@ record BedrockMobJumpInput(
                 climb.climbable().ascending() || frameFacts.rawPowderSnowAtFeetAscendable(),
                 nonSwimmerSwimUp(liquidJumpContact),
                 liquidJumpContact.lavaSwimUpApplies(),
-                BedrockLocalPlayerJumpMovement.requestedLaunch(
+                groundJumpRequest(input, frameFacts, inWater, inLava));
+    }
+
+    private static boolean groundJumpRequest(
+            BedrockTravelInput input, BedrockFrameFacts frameFacts, boolean inWater, boolean inLava) {
+        // Held jump raises a flying player. It neither launches from the ground
+        // nor starts the ground jump cooldown.
+        return !frameFacts.context().movementAbilityFlying()
+                && BedrockLocalPlayerJumpMovement.requestedLaunch(
                         input.previousState(),
                         input.inputFrame(),
                         inWater,
                         inLava,
-                        climb.inScaffolding(),
-                        swimming.swimAmount()));
+                        frameFacts.climb().inScaffolding(),
+                        frameFacts.swimming().swimAmount());
     }
 
     private static boolean autoSurfaceSwim(BedrockLiquidJumpContact liquidJumpContact, boolean swimmingAfterActions) {
