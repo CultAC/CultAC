@@ -69,6 +69,7 @@ public class CompensatedWorld {
     // written straight into this world, and the client may not hold them: Geyser can refuse a use and restore the
     // block on the client without anything reaching this world.
     private final LongOpenHashSet bedrockClientWrites = new LongOpenHashSet();
+    private final BedrockClientOnlyBlocks bedrockClientOnlyBlocks = new BedrockClientOnlyBlocks();
     private final Map<PendingReinternSection, PendingReinternState> pendingReinternSections = new LinkedHashMap<>();
     /** One tick end's reintern candidates, empty outside processPendingReinterns; owned by the packet thread. */
     private final List<PendingReinternCandidate> reinternCandidates = new ArrayList<>();
@@ -688,7 +689,9 @@ public class CompensatedWorld {
         int chunkZ = pos.getZ() >> 4;
         if (serverBlockView.isUnknown(chunkX, chunkZ) || !isChunkLoaded(chunkX, chunkZ)) return UNKNOWN_SERVER_STATE;
         int sent = serverBlockView.sentState(pos.asLong());
-        return sent != ServerBlockView.UNKNOWN ? sent : getServerBlockStateIdAt(pos);
+        if (sent != ServerBlockView.UNKNOWN) return sent;
+        int underneath = bedrockClientOnlyBlocks.serverState(pos.asLong());
+        return underneath != BedrockClientOnlyBlocks.NONE ? underneath : getServerBlockStateIdAt(pos);
     }
 
     public static final int UNKNOWN_SERVER_STATE = ServerBlockView.UNKNOWN;
@@ -700,8 +703,24 @@ public class CompensatedWorld {
     public void handleServerBlockUpdate(int x, int y, int z, int state, int transaction) {
         // Geyser forwards it, but a Bedrock BlockSource#setBlock refuses a Y outside its dimension's heights.
         if (player.isBedrockMovement() && !clientHoldsBlockAt(y)) return;
+        // The client keeps its own block until its translator sends the server's again.
+        if (bedrockClientOnlyBlocks.keepsServerUpdate(BlockPos.asLong(x, y, z), state)) return;
         bedrockClientWrites.remove(BlockPos.asLong(x, y, z));
         updateBlock(x, y, z, state);
+    }
+
+    /**
+     * A block update the Bedrock client's translator sent on its own account, which the client has processed.
+     * {@code state} is the block the client now holds; {@code serverBlock} whether that is the block the server
+     * last sent for the position, as opposed to one only this client has.
+     */
+    public void handleBedrockClientBlockUpdate(BlockPos pos, int state, boolean serverBlock) {
+        if (!clientHoldsBlockAt(pos.getY())) return;
+        long position = pos.asLong();
+        if (serverBlock) bedrockClientOnlyBlocks.removed(position);
+        else bedrockClientOnlyBlocks.placed(position, getServerBlockStateIdAt(pos));
+        bedrockClientWrites.remove(position);
+        updateBlock(pos.getX(), pos.getY(), pos.getZ(), state);
     }
 
     /** Whether a Bedrock client's own prediction wrote this block and no server update has replaced it since. */
@@ -710,6 +729,7 @@ public class CompensatedWorld {
     }
 
     private void forgetBedrockClientWrites(int chunkX, int chunkZ) {
+        bedrockClientOnlyBlocks.forgetChunk(chunkX, chunkZ);
         if (bedrockClientWrites.isEmpty()) return;
         bedrockClientWrites.removeIf((long position) -> {
             BlockPos pos = BlockPos.of(position);
@@ -2274,6 +2294,7 @@ public class CompensatedWorld {
         geysers.clear();
         clientBlockEntities.clear();
         bedrockClientWrites.clear();
+        bedrockClientOnlyBlocks.clear();
         if (cleared != null) {
             for (long position : cleared)
                 listener.columnUnloaded(chunkXFromPosition(position), chunkZFromPosition(position));

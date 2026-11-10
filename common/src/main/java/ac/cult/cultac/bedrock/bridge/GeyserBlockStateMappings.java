@@ -19,15 +19,19 @@ import org.geysermc.geyser.registry.type.BlockMappings;
 
 /** Inverts the session palette through the same server-to-Geyser protocol mappings as collision shapes. */
 final class GeyserBlockStateMappings {
-    private static final Map<BlockMappings, Map<Integer, Integer>> PALETTES = new IdentityHashMap<>();
+    private static final Map<BlockMappings, Tables> TABLES = new IdentityHashMap<>();
 
     private GeyserBlockStateMappings() {}
 
-    static synchronized Map<Integer, Integer> palette(BlockMappings mappings) {
-        return PALETTES.computeIfAbsent(mappings, GeyserBlockStateMappings::create);
+    static Map<Integer, Integer> palette(BlockMappings mappings) {
+        return tables(mappings).palette();
     }
 
-    private static Map<Integer, Integer> create(BlockMappings mappings) {
+    static synchronized Tables tables(BlockMappings mappings) {
+        return TABLES.computeIfAbsent(mappings, GeyserBlockStateMappings::create);
+    }
+
+    private static Tables create(BlockMappings mappings) {
         int server = ProtocolVersion.V26_3.protocol();
         int geyser = GeyserBlockMappingsAccess.javaProtocolVersion();
         if (server != geyser && !ViaVersionUtil.isAvailable()) {
@@ -44,16 +48,22 @@ final class GeyserBlockStateMappings {
                 DataTables.defaults().registry().stateCount(),
                 geyser,
                 mappings.getJavaToBedrockBlocks().length);
-        return invert(mappings, javaIds);
+        return tables(mappings, javaIds);
     }
 
     static Map<Integer, Integer> invert(BlockMappings mappings, int[] javaIds) {
+        return tables(mappings, javaIds).palette();
+    }
+
+    static Tables tables(BlockMappings mappings, int[] javaIds) {
         return invert(mappings, javaIds.length, serverId -> javaIds[serverId], serverId -> serverId);
     }
 
-    private static Map<Integer, Integer> invert(
+    private static Tables invert(
             BlockMappings mappings, int count, IntUnaryOperator javaIdOf, IntUnaryOperator serverIdOf) {
         var states = new HashMap<Integer, Integer>();
+        int[] sentDefinitions = new int[DataTables.defaults().registry().stateCount()];
+        java.util.Arrays.fill(sentDefinitions, -1);
         for (int index = 0; index < count; index++) {
             int javaId = javaIdOf.applyAsInt(index);
             var definition = mappings.getBedrockBlock(javaId);
@@ -61,6 +71,7 @@ final class GeyserBlockStateMappings {
             // Preserve the original registry lookup fallback for IDs outside the model.
             if (stateId < 0 || stateId >= DataTables.defaults().registry().stateCount())
                 stateId = BlockIds.AIR.defaultState();
+            else if (sentDefinitions[stateId] < 0) sentDefinitions[stateId] = definition.getRuntimeId();
             int state = BedrockBlockLayers.dry(stateId);
             states.putIfAbsent(definition.getRuntimeId(), state);
             // Inventory holders deliberately send vanilla definitions even with custom overrides.
@@ -99,8 +110,20 @@ final class GeyserBlockStateMappings {
                                     BlockIds.PLAYER_WALL_HEAD.defaultState(), direction.get3DDataValue()));
             }
         }
-        return Map.copyOf(states);
+        int[] sentStates = new int[sentDefinitions.length];
+        for (int state = 0; state < sentStates.length; state++) {
+            Integer resolved = sentDefinitions[state] < 0 ? null : states.get(sentDefinitions[state]);
+            sentStates[state] = resolved == null ? -1 : resolved;
+        }
+        return new Tables(Map.copyOf(states), sentStates);
     }
+
+    /**
+     * @param palette the server state each Bedrock block resolves to, by runtime id
+     * @param sentStates for each server state, the state {@code palette} resolves the block Geyser sends for it to,
+     *     or -1 where Geyser has no block for it; a sent block resolving to the same state is its translation
+     */
+    record Tables(Map<Integer, Integer> palette, int[] sentStates) {}
 
     static int resolve(Map<Integer, Integer> palette, BlockDefinition definition) {
         Integer state = definition == null ? null : palette.get(definition.getRuntimeId());

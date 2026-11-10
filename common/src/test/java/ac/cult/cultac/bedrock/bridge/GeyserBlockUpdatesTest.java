@@ -32,14 +32,23 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 public class GeyserBlockUpdatesTest {
+    private static final BlockPos POSITION = new BlockPos(2, 64, 3);
+    private static final int SAND =
+            DataTables.defaults().registry().block("minecraft:sand").defaultState();
+    private static final int CHEST =
+            DataTables.defaults().registry().block("minecraft:chest").defaultState();
+    private static final int STAIRS =
+            DataTables.defaults().registry().block("minecraft:oak_stairs").defaultState();
+
     @BeforeClass
     public static void bootstrap() {
         OfflineCultTestBootstrap.installConfig();
     }
 
     @Test
-    public void asynchronousQueueCapturesOnlyAckCorrectionsAndWaitsForReceipt() throws Exception {
+    public void asynchronousQueueLeavesTranslationsToTheJavaListenerAndCorrectionsWaitForReceipt() throws Exception {
         Harness h = new Harness();
+        h.serverSent(POSITION, SAND);
         var session = mock(GeyserSession.class);
         List<BedrockPacket> queue = new ArrayList<>();
         doAnswer(call -> {
@@ -49,25 +58,130 @@ public class GeyserBlockUpdatesTest {
                 .when(session)
                 .sendUpstreamPacket(any());
         session.sendUpstreamPacket(block(0, 17)); // Normal translation remains on the Java listener.
+        session.sendUpstreamPacket(block(1, 99));
         GeyserBlockAckTranslator.bracket(session, () -> {
             session.sendUpstreamPacket(block(0, 99));
             session.sendUpstreamPacket(block(1, 99));
         });
-        session.sendUpstreamPacket(block(0, 17)); // Later unrelated packet must not overwrite correction.
-        assertFalse(h.corrections.active()); // Translation has finished, queue has not drained yet.
+        assertFalse(h.updates.active()); // Translation has finished, queue has not drained yet.
         for (BedrockPacket packet : queue) {
             if (packet instanceof GeyserBlockAckTranslator.Boundary marker) {
-                if (marker.start) h.corrections.begin();
-                else h.end();
+                if (marker.start) {
+                    // The translation before the bracket repeats what the server sent: nothing to prove.
+                    h.finish();
+                    assertTrue(h.receipts.isEmpty());
+                    h.updates.begin();
+                } else h.end();
             } else h.capture(packet);
         }
-        assertFalse(h.corrections.active());
+        assertFalse(h.updates.active());
+        assertFalse(h.updates.pending());
         assertEquals(1, h.receipts.size());
-        verifyZeroInteractions(h.player.compensatedWorld);
+        verify(h.player.compensatedWorld, never()).handleBedrockClientBlockUpdate(any(), anyInt(), anyBoolean());
+        h.receipts.removeFirst().accept(h.player);
+        // The correction leaves air where the server last sent sand: a block only this client has.
+        verify(h.player.compensatedWorld).handleBedrockClientBlockUpdate(POSITION, BlockIds.AIR.defaultState(), false);
+        // Geyser sending sand again gives the client the server's block back, with the server's exact state.
+        h.capture(block(0, 17));
+        assertTrue(h.updates.pending());
+        h.finish();
+        h.receipts.removeFirst().accept(h.player);
+        verify(h.player.compensatedWorld).handleBedrockClientBlockUpdate(POSITION, SAND, true);
+    }
+
+    @Test
+    public void virtualContainerAboveTheHeadIsAClientOnlyBlockUntilGeyserRestoresTheServerBlock() throws Exception {
+        // Geyser places the holder of a container the server opens at the block of the eye position plus one:
+        // (20102, 123, 20080) for feet at y 120.75, the block a 1.8 tall player jumping from y 120 rises into.
+        Harness h = new Harness();
+        h.player.x = 20102.5;
+        h.player.y = 120.7532;
+        h.player.z = 20080.2626;
+        var frame = new BedrockCoordinateFrame(20064, 20080, 9);
+        var holder = new BlockPos(20102, 123, 20080);
+        h.updates.capture(block(Vector3i.from(38, 123, 0), 0, 54), frame, h.tables);
+        assertTrue(h.updates.pending());
+        h.finish();
+        assertFalse(h.updates.pending());
+        assertEquals(1, h.receipts.size());
+        verify(h.player.compensatedWorld, never()).handleBedrockClientBlockUpdate(any(), anyInt(), anyBoolean());
+        h.receipts.removeFirst().accept(h.player);
+        verify(h.player.compensatedWorld).handleBedrockClientBlockUpdate(holder, CHEST, false);
+
+        // The holder sent again changes nothing the client holds.
+        h.updates.capture(block(Vector3i.from(38, 123, 0), 0, 54), frame, h.tables);
+        h.finish();
+        assertTrue(h.receipts.isEmpty());
+
+        // Closing the container sends the real block on layer 0 only.
+        h.updates.capture(block(Vector3i.from(38, 123, 0), 0, 99), frame, h.tables);
+        h.finish();
+        h.receipts.removeFirst().accept(h.player);
+        verify(h.player.compensatedWorld).handleBedrockClientBlockUpdate(holder, BlockIds.AIR.defaultState(), true);
+
+        // From then on the translation of air is the Java listener's again.
+        h.updates.capture(block(Vector3i.from(38, 123, 0), 0, 99), frame, h.tables);
+        h.finish();
+        assertTrue(h.receipts.isEmpty());
+    }
+
+    @Test
+    public void aBlockOnOneLayerKeepsTheOtherLayerTheClientHolds() throws Exception {
+        Harness h = new Harness();
+        h.serverSent(POSITION, BlockIds.WATER.defaultState());
+        h.capture(block(0, 104));
+        h.finish();
+        h.receipts.removeFirst().accept(h.player);
+        // Stairs replace the water on layer 0 and no water lies on layer 1.
+        verify(h.player.compensatedWorld).handleBedrockClientBlockUpdate(POSITION, STAIRS, false);
+        h.capture(block(1, 101));
+        h.finish();
         h.receipts.removeFirst().accept(h.player);
         verify(h.player.compensatedWorld)
-                .handleServerBlockUpdate(new BlockPos(2, 64, 3), BlockIds.AIR.defaultState(), 0);
-        verifyNoMoreInteractions(h.player.compensatedWorld);
+                .handleBedrockClientBlockUpdate(POSITION, BlockProps.WATERLOGGED.with(STAIRS, true), false);
+    }
+
+    @Test
+    public void aRunThatEndsOnTheServerBlockNeedsNoBoundaryAndUnknownBlocksAreSkipped() throws Exception {
+        Harness h = new Harness();
+        h.serverSent(POSITION, SAND);
+        // Geyser refreshes some blocks by sending air first.
+        h.capture(block(0, 99));
+        h.capture(block(0, 17));
+        h.capture(block(0, 4242)); // No server state: cannot be placed in the world.
+        h.finish();
+        assertTrue(h.receipts.isEmpty());
+        // A column that is being replaced holds whatever the new chunk carries.
+        h.serverSent(POSITION, CompensatedWorld.UNKNOWN_SERVER_STATE);
+        h.capture(block(0, 54));
+        h.finish();
+        assertTrue(h.receipts.isEmpty());
+    }
+
+    @Test
+    public void aReplacedColumnForgetsTheClientOnlyBlock() throws Exception {
+        Harness h = new Harness();
+        h.capture(block(0, 54));
+        h.finish();
+        h.receipts.clear();
+        h.updates.forgetChunk(0, 0);
+        // The new chunk carries the server's air, so the holder is a change again and air is not.
+        h.capture(block(0, 99));
+        h.finish();
+        assertTrue(h.receipts.isEmpty());
+        h.capture(block(0, 54));
+        h.finish();
+        assertEquals(1, h.receipts.size());
+    }
+
+    @Test
+    public void distantClientOnlyBlocksUseTheExistingProof() throws Exception {
+        Harness h = new Harness();
+        h.player.x = 40;
+        h.capture(block(0, 54));
+        h.finish();
+        assertTrue(h.receipts.isEmpty());
+        verify(h.player).addBedrockTransactionTask(isNull(), any());
     }
 
     @Test
@@ -93,28 +207,35 @@ public class GeyserBlockUpdatesTest {
     @Test
     public void layersAreCombinedForOneAckAndForgottenBeforeTheNext() throws Exception {
         Harness h = new Harness();
-        h.corrections.begin();
+        h.updates.begin();
         h.capture(block(0, 104));
         h.capture(block(1, 101));
         h.end();
         h.receipts.removeFirst().accept(h.player);
         verify(h.player.compensatedWorld)
-                .handleServerBlockUpdate(
-                        new BlockPos(2, 64, 3),
-                        BlockProps.WATERLOGGED.with(
-                                DataTables.defaults()
-                                        .registry()
-                                        .block("minecraft:oak_stairs")
-                                        .defaultState(),
-                                true),
-                        0);
-        h.corrections.begin();
+                .handleBedrockClientBlockUpdate(POSITION, BlockProps.WATERLOGGED.with(STAIRS, true), false);
+        h.updates.begin();
         h.capture(block(0, 101));
         h.capture(block(1, 99));
         h.end();
         h.receipts.removeFirst().accept(h.player);
         verify(h.player.compensatedWorld)
-                .handleServerBlockUpdate(new BlockPos(2, 64, 3), BlockIds.WATER.defaultState(), 0);
+                .handleBedrockClientBlockUpdate(POSITION, BlockIds.WATER.defaultState(), false);
+        // A correction to the block the server sent applies although the tap saw nothing else there: the client's
+        // own prediction may have replaced it.
+        h.updates.begin();
+        h.capture(block(0, 99));
+        h.capture(block(1, 99));
+        h.end();
+        h.receipts.removeFirst().accept(h.player);
+        verify(h.player.compensatedWorld).handleBedrockClientBlockUpdate(POSITION, BlockIds.AIR.defaultState(), true);
+        h.updates.begin();
+        h.capture(block(0, 99));
+        h.capture(block(1, 99));
+        h.end();
+        h.receipts.removeFirst().accept(h.player);
+        verify(h.player.compensatedWorld, times(2))
+                .handleBedrockClientBlockUpdate(POSITION, BlockIds.AIR.defaultState(), true);
     }
 
     @Test
@@ -129,27 +250,23 @@ public class GeyserBlockUpdatesTest {
                 .add(new BlockChangeEntry(pos, definition(17), 3, -1, BlockChangeEntry.MessageType.NONE));
         packet.getExtraBlocks()
                 .add(new BlockChangeEntry(pos, definition(99), 3, -1, BlockChangeEntry.MessageType.NONE));
-        h.corrections.begin();
-        h.corrections.capture(packet, new BedrockCoordinateFrame(0, -2960, 1), h.palette);
+        h.updates.begin();
+        h.updates.capture(packet, new BedrockCoordinateFrame(0, -2960, 1), h.tables);
         h.end();
         packet.getStandardBlocks().clear();
         packet.getExtraBlocks().clear();
         h.receipts.removeFirst().accept(h.player);
-        verify(h.player.compensatedWorld)
-                .handleServerBlockUpdate(
-                        new BlockPos(1827, 65, -3384),
-                        DataTables.defaults().registry().block("minecraft:sand").defaultState(),
-                        0);
+        verify(h.player.compensatedWorld).handleBedrockClientBlockUpdate(new BlockPos(1827, 65, -3384), SAND, false);
     }
 
     @Test
     public void emptyAndNestedScopesDoNotGenerateExtraTransactions() throws Exception {
         Harness h = new Harness();
-        h.corrections.begin();
+        h.updates.begin();
         h.end();
         assertTrue(h.receipts.isEmpty());
-        h.corrections.begin();
-        h.corrections.begin();
+        h.updates.begin();
+        h.updates.begin();
         h.capture(block(0, 17));
         h.capture(block(1, 99));
         h.end();
@@ -179,8 +296,12 @@ public class GeyserBlockUpdatesTest {
     }
 
     private static UpdateBlockPacket block(int layer, int id) {
+        return block(Vector3i.from(2, 64, 3), layer, id);
+    }
+
+    private static UpdateBlockPacket block(Vector3i position, int layer, int id) {
         var packet = new UpdateBlockPacket();
-        packet.setBlockPosition(Vector3i.from(2, 64, 3));
+        packet.setBlockPosition(position);
         packet.setDataLayer(layer);
         packet.setDefinition(definition(id));
         return packet;
@@ -188,32 +309,41 @@ public class GeyserBlockUpdatesTest {
 
     private static final class Harness {
         final CultPlayer player = mock(CultPlayer.class);
-        final GeyserBlockUpdates corrections = new GeyserBlockUpdates();
-        final Map<Integer, Integer> palette = Map.of(
-                17,
-                DataTables.defaults().registry().block("minecraft:sand").defaultState(),
-                99,
-                BlockIds.AIR.defaultState(),
-                101,
-                BlockIds.WATER.defaultState(),
-                104,
-                DataTables.defaults().registry().block("minecraft:oak_stairs").defaultState());
+        final GeyserBlockUpdates updates = new GeyserBlockUpdates();
+        final GeyserBlockStateMappings.Tables tables;
         final List<Consumer<CultPlayer>> receipts = new ArrayList<>();
 
         Harness() throws Exception {
+            // Each of these blocks is its own translation, as for every state Geyser maps one to one.
+            int[] sent = new int[DataTables.defaults().registry().stateCount()];
+            for (int state = 0; state < sent.length; state++) sent[state] = state;
+            tables = new GeyserBlockStateMappings.Tables(
+                    Map.of(
+                            17, SAND, 54, CHEST, 99, BlockIds.AIR.defaultState(), 101, BlockIds.WATER.defaultState(),
+                            104, STAIRS),
+                    sent);
             player.compensatedWorld = mock(CompensatedWorld.class);
+            when(player.compensatedWorld.getServerSentBlockStateIdAt(any())).thenReturn(BlockIds.AIR.defaultState());
             player.y = 64;
             var received = CultPlayer.class.getField("lastTransactionReceived");
             received.setAccessible(true);
             received.set(player, new AtomicInteger());
         }
 
+        void serverSent(BlockPos position, int state) {
+            when(player.compensatedWorld.getServerSentBlockStateIdAt(position)).thenReturn(state);
+        }
+
         void capture(BedrockPacket packet) {
-            corrections.capture(packet, BedrockCoordinateFrame.IDENTITY, palette);
+            updates.capture(packet, BedrockCoordinateFrame.IDENTITY, tables);
         }
 
         void end() {
-            corrections.end(player, receipts::add);
+            updates.end(player, receipts::add);
+        }
+
+        void finish() {
+            updates.finish(player, receipts::add);
         }
     }
 }

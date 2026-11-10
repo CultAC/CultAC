@@ -230,7 +230,8 @@ public class GeyserItemUseTest {
 
             var corrections = new GeyserBlockUpdates();
             List<Consumer<CultPlayer>> receipts = new ArrayList<>();
-            Map<Integer, Integer> palette = Map.of(99, BlockIds.AIR.defaultState());
+            var palette =
+                    new GeyserBlockStateMappings.Tables(Map.of(99, BlockIds.AIR.defaultState()), new int[] {0});
             corrections.begin();
             for (int layer = 0; layer < 2; layer++) {
                 var restore = new UpdateBlockPacket();

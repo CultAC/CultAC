@@ -1522,7 +1522,9 @@ public final class GeyserBedrockBridgeRuntime {
 
     private static final class OutboundPacketTap extends ChannelDuplexHandler {
         private final PacketTapHandler owner;
-        private final GeyserBlockUpdates blockCorrections = new GeyserBlockUpdates();
+        private final GeyserBlockUpdates blockUpdates = new GeyserBlockUpdates();
+        /** The last block update of a run no boundary proves yet. */
+        private BedrockPacketWrapper blockUpdateSource;
 
         private OutboundPacketTap(PacketTapHandler owner) {
             this.owner = owner;
@@ -1559,6 +1561,15 @@ public final class GeyserBedrockBridgeRuntime {
         /** A flush that carries entity updates ends with the latency marker that proves them, in the same batch. */
         @Override
         public void flush(ChannelHandlerContext context) throws Exception {
+            BedrockPacketWrapper blocks = blockUpdateSource;
+            if (blocks != null && !owner.detached.get() && !blockUpdates.active()) {
+                blockUpdateSource = null;
+                inModel(
+                        owner.currentPlayer(),
+                        () -> blockUpdates.finish(
+                                owner.currentPlayer(),
+                                acknowledgement -> owner.writeLatencyBoundary(context, blocks, acknowledgement)));
+            }
             BedrockPacketWrapper source = owner.entityUpdateSource;
             if (source != null && !owner.detached.get()) {
                 owner.entityUpdateSource = null;
@@ -1724,6 +1735,7 @@ public final class GeyserBedrockBridgeRuntime {
             }
             if (packet instanceof StartGamePacket startGame) {
                 owner.loadingScreen.startGame();
+                blockUpdates.clear();
                 owner.poses.clear();
                 owner.actorCreationSequence++;
                 owner.collisionDefinition = null;
@@ -1745,21 +1757,38 @@ public final class GeyserBedrockBridgeRuntime {
                             ownTeleport);
             CultPlayer observedPlayer = owner.currentPlayer();
             if (packet instanceof GeyserBlockAckTranslator.Boundary boundary) {
-                if (boundary.start) blockCorrections.begin();
+                if (boundary.start) blockUpdates.begin();
                 else
-                    blockCorrections.end(
+                    blockUpdates.end(
                             observedPlayer,
                             acknowledgement -> owner.writeLatencyBoundary(context, wrapper, acknowledgement));
                 io.netty.util.ReferenceCountUtil.release(message);
                 promise.trySuccess();
                 return;
             }
-            if (blockCorrections.active() && GeyserBlockUpdates.supports(packet)) {
-                if (emission == null) throw new IllegalStateException("Missing correction coordinate origin");
-                blockCorrections.capture(
-                        packet,
-                        emission.frame(),
-                        GeyserBlockStateMappings.palette(owner.connection.getBlockMappings()));
+            if (GeyserBlockUpdates.supports(packet)) {
+                if (emission != null) {
+                    blockUpdates.capture(
+                            packet,
+                            emission.frame(),
+                            GeyserBlockStateMappings.tables(owner.connection.getBlockMappings()));
+                    blockUpdateSource = wrapper;
+                } else if (blockUpdates.active()) {
+                    throw new IllegalStateException("Missing correction coordinate origin");
+                }
+            } else if (blockUpdates.pending()
+                    && !blockUpdates.active()
+                    && !(packet instanceof org.cloudburstmc.protocol.bedrock.packet.BlockEntityDataPacket)) {
+                // The boundary directly follows the run it proves; block entity data only accompanies the blocks.
+                blockUpdateSource = null;
+                blockUpdates.finish(
+                        observedPlayer,
+                        acknowledgement -> owner.writeLatencyBoundary(context, wrapper, acknowledgement));
+            }
+            if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.LevelChunkPacket chunk && emission != null) {
+                blockUpdates.forgetChunk(
+                        chunk.getChunkX() + (emission.frame().originX() >> 4),
+                        chunk.getChunkZ() + (emission.frame().originZ() >> 4));
             }
             if (ownTeleport != null
                     && (observedPlayer == null
@@ -1793,6 +1822,7 @@ public final class GeyserBedrockBridgeRuntime {
                 return;
             }
             if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.ChangeDimensionPacket dimension) {
+                blockUpdates.clear();
                 owner.entityPositions.clear();
                 owner.loadingScreen.changeDimension(dimension.getLoadingScreenId());
             }
