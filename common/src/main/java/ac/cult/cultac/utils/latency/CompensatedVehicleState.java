@@ -779,13 +779,16 @@ public final class CompensatedVehicleState implements Debuggable {
         for (PacketEntity passenger : vehicle.passengers) {
             if (!containsId(passengerIds, passenger.getEntityId())) entities.settleIfUntrackedRider(passenger);
         }
-        for (PacketEntity passenger : List.copyOf(vehicle.passengers)) passenger.eject();
+        List<PacketEntity> previousPassengers = List.copyOf(vehicle.passengers);
+        for (PacketEntity passenger : previousPassengers) passenger.eject();
         for (int passengerId : passengerIds) {
             PacketEntity passenger = entities.getEntity(passengerId);
             if (passenger == null || passenger == vehicle) continue;
             // Entity#startRiding refuses a vehicle the passenger already rides or one that rides the passenger.
             if (passenger.getRiding() == vehicle || entities.ridesIndirectly(vehicle, passenger)) continue;
+            boolean fromRidingNothing = passenger.getRiding() == null && !previousPassengers.contains(passenger);
             passenger.mount(vehicle);
+            passenger.onMounted(fromRidingNothing, player.packetStateData.acceptedClientTick);
             // The seat is placed before the client's next ride tick confirms it.
             passenger.markPositionInexact();
         }
