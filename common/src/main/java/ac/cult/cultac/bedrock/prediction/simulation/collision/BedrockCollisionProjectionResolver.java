@@ -47,7 +47,8 @@ public final class BedrockCollisionProjectionResolver {
                 blockWorld,
                 movementResult.movementContext().playerDimensionsState(),
                 movementResult.canStep(),
-                movementResult.maxUpStep());
+                movementResult.maxUpStep(),
+                movementResult.movementContext().movementAbilityFlying());
         BedrockEntityMove.FinalizedMove finalizedMove = BedrockEntityMove.finalizeMoveOutput(
                 movementResult.previousState(),
                 movementResult.movementContext().playerDimensionsState(),

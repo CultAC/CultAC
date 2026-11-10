@@ -190,7 +190,8 @@ public final class BedrockBlockCollisionResolverTest {
                 PlayerDimensionsState.DEFAULT,
                 attemptedMove,
                 true,
-                BedrockSimulation.DEFAULT_MAX_AUTO_STEP);
+                BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
+                false);
 
         assertFalse(probe.toString(), probe.zCollision());
         assertEquals(attemptedMove.z(), probe.zResult(), 1.0E-6D);
@@ -221,7 +222,8 @@ public final class BedrockBlockCollisionResolverTest {
                 world,
                 PlayerDimensionsState.DEFAULT,
                 true,
-                BedrockSimulation.DEFAULT_MAX_AUTO_STEP);
+                BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
+                false);
 
         assertEquals(82.0D, move.baseMove().position().y(), 1.0E-6D);
         assertTrue(move.toString(), move.stepRetryAllowed());
@@ -247,7 +249,8 @@ public final class BedrockBlockCollisionResolverTest {
                 world,
                 PlayerDimensionsState.DEFAULT,
                 true,
-                BedrockSimulation.DEFAULT_MAX_AUTO_STEP);
+                BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
+                false);
 
         assertFalse(move.stepRetryAllowed());
         assertEquals(requestedMove.x(), move.selectedMove().appliedDelta().x(), 1.0E-6D);
@@ -290,7 +293,8 @@ public final class BedrockBlockCollisionResolverTest {
                 world,
                 PlayerDimensionsState.DEFAULT,
                 true,
-                BedrockSimulation.DEFAULT_MAX_AUTO_STEP);
+                BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
+                false);
         BedrockEntityMove.Result result = BedrockEntityMove.move(
                 airState(currentFeet),
                 BedrockInputFrame.idle(0L),
@@ -584,7 +588,8 @@ public final class BedrockBlockCollisionResolverTest {
                 PlayerDimensionsState.DEFAULT,
                 requestedMove,
                 false,
-                BedrockSimulation.DEFAULT_MAX_AUTO_STEP);
+                BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
+                false);
 
         BedrockEntityMove.Result result = BedrockEntityMove.move(
                 current,
@@ -627,7 +632,8 @@ public final class BedrockBlockCollisionResolverTest {
                 PlayerDimensionsState.DEFAULT,
                 tick84Delta,
                 true,
-                BedrockSimulation.DEFAULT_MAX_AUTO_STEP);
+                BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
+                false);
         assertEquals(tick84Delta.x(), tick84Step.x(), 1.0E-6D);
         assertEquals(0.0D, tick84Step.y(), 1.0E-6D);
         assertEquals(tick84Delta.z(), tick84Step.z(), 1.0E-6D);
@@ -640,7 +646,8 @@ public final class BedrockBlockCollisionResolverTest {
                 PlayerDimensionsState.DEFAULT,
                 tick161Delta,
                 true,
-                BedrockSimulation.DEFAULT_MAX_AUTO_STEP);
+                BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
+                false);
         assertEquals(tick161Delta.x(), tick161Step.x(), 1.0E-6D);
         assertEquals(0.0D, tick161Step.y(), 1.0E-6D);
         assertEquals(tick161Delta.z(), tick161Step.z(), 1.0E-6D);
@@ -653,7 +660,7 @@ public final class BedrockBlockCollisionResolverTest {
         Vec3d requestedMove = new Vec3d(0.6D, 0.0D, 0.0D);
 
         BedrockEntityMove.CollisionMove result = BedrockEntityMove.collide(
-                groundedState(currentFeet), requestedMove, world, PlayerDimensionsState.DEFAULT, true, 0.5625D);
+                groundedState(currentFeet), requestedMove, world, PlayerDimensionsState.DEFAULT, true, 0.5625D, false);
 
         assertTrue(result.steppedUp());
         assertEquals(1.1D, result.selectedMove().position().x(), 1.0E-5D);
@@ -669,7 +676,7 @@ public final class BedrockBlockCollisionResolverTest {
         Vec3d requestedMove = new Vec3d(0.6D, 0.0D, 0.0D);
 
         BedrockEntityMove.CollisionMove result = BedrockEntityMove.collide(
-                groundedState(currentFeet), requestedMove, world, PlayerDimensionsState.DEFAULT, true, 0.5625D);
+                groundedState(currentFeet), requestedMove, world, PlayerDimensionsState.DEFAULT, true, 0.5625D, false);
 
         assertFalse(result.steppedUp());
         assertEquals(result.baseMove().position(), result.selectedMove().position());

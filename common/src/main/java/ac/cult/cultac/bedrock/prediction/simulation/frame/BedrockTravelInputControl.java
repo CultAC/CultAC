@@ -64,7 +64,9 @@ public final class BedrockTravelInputControl {
 
     private static float sneakMoveScale(
             BedrockMovementState current, BedrockInputFrame frame, BedrockMovementContext context) {
+        // Sneak lowers a flying player; it does not slow its horizontal input.
         return !context.inWater()
+                        && !context.movementAbilityFlying()
                         && !current.swimming()
                         && !context.actorSwimming()
                         && actualSneakingMovement(frame, current)

@@ -134,7 +134,7 @@ public final class BedrockTravelHorizontalControl {
                                         : onGroundTravel ? standingGroundControl : AIR_CONTROL);
     }
 
-    private static double groundOrAirFriction(StandingSurfaceState standingSurfaceState, boolean onGroundTravel) {
+    static double groundOrAirFriction(StandingSurfaceState standingSurfaceState, boolean onGroundTravel) {
         return onGroundTravel ? standingSurfaceState.blockFriction() * AIR_FRICTION : AIR_FRICTION;
     }
 

@@ -40,6 +40,7 @@ public final class BedrockPostMoveSystems {
         }
         boolean travel = plan.frame().input().options().travelActive();
         if (travel) {
+            frame = context.applyFlyingGroundContact(frame);
             frame = context.applyWaterJumpGroundReset(frame);
             frame = context.applyStandingBounce(frame, blockMove.position(), collision.collisionFetchBox());
             frame = context.applyBlockMovementSlowdownClear(frame);

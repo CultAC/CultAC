@@ -39,7 +39,8 @@ public final class BedrockStepProjectionResolver {
                 blockWorld,
                 dimensions,
                 true,
-                movementResult.maxUpStep());
+                movementResult.maxUpStep(),
+                movementResult.movementContext().movementAbilityFlying());
         BedrockCollisionSweep.MoveResult baseMove = collisionMove.baseMove();
         boolean horizontalMovementChanged = horizontalMovementChanged(requestedDelta, baseMove);
         if (!horizontalMovementChanged) {

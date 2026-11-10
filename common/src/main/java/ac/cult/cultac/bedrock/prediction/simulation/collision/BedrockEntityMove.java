@@ -47,7 +47,8 @@ public final class BedrockEntityMove {
                 velocity,
                 moveY,
                 canStep,
-                BedrockSimulation.DEFAULT_MAX_AUTO_STEP);
+                BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
+                false);
     }
 
     public static Result move(
@@ -59,7 +60,8 @@ public final class BedrockEntityMove {
             Vec3d velocity,
             double moveY,
             boolean canStep,
-            double maxUpStep) {
+            double maxUpStep,
+            boolean flying) {
         if (blockCollisionWorld.isEmpty()) {
             WorldCollisionBox box = BedrockActorBox.move(
                     current.collisionBox(dimensions),
@@ -71,7 +73,7 @@ public final class BedrockEntityMove {
 
         Vec3d requestedDelta = requestedPosition.subtract(current.physicalFeetPosition());
         ActorMove actorMove = actorMove(current, requestedDelta, blockCollisionWorld, dimensions);
-        CollisionMove collisionMove = autoStep(current, actorMove, dimensions, canStep, maxUpStep);
+        CollisionMove collisionMove = autoStep(current, actorMove, dimensions, canStep, maxUpStep, flying);
         return finalizeMove(current, frame, dimensions, velocity, actorMove.requestedDelta(), collisionMove);
     }
 
@@ -180,13 +182,15 @@ public final class BedrockEntityMove {
     }
 
     public static AutoStepRequest autoStepRequest(
-            BedrockMovementState current, ActorMove actorMove, boolean canStep, double maxUpStep) {
+            BedrockMovementState current, ActorMove actorMove, boolean canStep, double maxUpStep, boolean flying) {
         Vec3d requestedDelta = actorMove.requestedDelta();
         BedrockCollisionSweep.MoveResult baseMove = actorMove.baseMove();
-        boolean groundedOrDownwardCollision =
-                current.collisionFlags().onGround() || baseMove.yCollision() && requestedDelta.y() < 0.0D;
+        // A flying actor steps whether it rises, hovers or falls; otherwise it must stand or fall onto a floor.
+        boolean verticalStateAllowsStep = flying
+                || current.collisionFlags().onGround()
+                || baseMove.yCollision() && requestedDelta.y() < 0.0D;
         boolean horizontalMovementChanged = horizontalMovementChanged(requestedDelta, baseMove);
-        boolean stepRetryAllowed = maxUpStep > 0.0D && groundedOrDownwardCollision && horizontalMovementChanged;
+        boolean stepRetryAllowed = maxUpStep > 0.0D && verticalStateAllowsStep && horizontalMovementChanged;
         return new AutoStepRequest(canStep && stepRetryAllowed, stepRetryAllowed);
     }
 
@@ -218,8 +222,9 @@ public final class BedrockEntityMove {
             ActorMove actorMove,
             PlayerDimensionsState dimensions,
             boolean canStep,
-            double maxUpStep) {
-        AutoStepRequest autoStepRequest = autoStepRequest(current, actorMove, canStep, maxUpStep);
+            double maxUpStep,
+            boolean flying) {
+        AutoStepRequest autoStepRequest = autoStepRequest(current, actorMove, canStep, maxUpStep, flying);
         return autoStep(current, actorMove, dimensions, autoStepRequest, maxUpStep);
     }
 
@@ -229,14 +234,16 @@ public final class BedrockEntityMove {
             BlockCollisionWorld blockCollisionWorld,
             PlayerDimensionsState dimensions,
             boolean canStep,
-            double maxUpStep) {
+            double maxUpStep,
+            boolean flying) {
         return collide(
                 current,
                 requestedDelta,
                 BedrockCollisionSweep.collisionObstacles(blockCollisionWorld),
                 dimensions,
                 canStep,
-                maxUpStep);
+                maxUpStep,
+                flying);
     }
 
     static CollisionMove collide(
@@ -245,9 +252,10 @@ public final class BedrockEntityMove {
             List<BlockCollision> obstacles,
             PlayerDimensionsState dimensions,
             boolean canStep,
-            double maxUpStep) {
+            double maxUpStep,
+            boolean flying) {
         ActorMove actorMove = actorMove(current, requestedDelta, obstacles, dimensions);
-        return autoStep(current, actorMove, dimensions, canStep, maxUpStep);
+        return autoStep(current, actorMove, dimensions, canStep, maxUpStep, flying);
     }
 
     private static boolean horizontalMovementChanged(Vec3d requestedDelta, BedrockCollisionSweep.MoveResult move) {

@@ -46,7 +46,8 @@ public final class BedrockVehicleDepenetrationTest {
                 requested,
                 requested.y(),
                 true,
-                1.0625D);
+                1.0625D,
+                false);
 
         // The engine leaves the block in its vertical phase and then still applies the 0.0000238 it was asked to
         // move along x; the client reported exactly the flush position.
@@ -76,7 +77,8 @@ public final class BedrockVehicleDepenetrationTest {
                 requested,
                 requested.y(),
                 true,
-                1.0625D);
+                1.0625D,
+                false);
 
         assertEquals(33.650875F, (float) result.position().z(), 2.0E-6F);
         assertEquals(25.502789F + 2.3806033E-5F, (float) result.position().x(), 2.0E-6F);

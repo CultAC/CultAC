@@ -117,6 +117,17 @@ record BedrockPostMoveContext(BedrockTravelPlan plan, BedrockMoveRequest moveReq
         return BedrockPostMoveFrame.initial(velocity, flags, context(), standingBounceBounced, horizontalFriction());
     }
 
+    /**
+     * A flying player is on the ground only on a tick whose move the ground stopped. Hovering
+     * at ground level with no vertical move leaves it, as any other airborne tick would.
+     */
+    BedrockPostMoveFrame applyFlyingGroundContact(BedrockPostMoveFrame frame) {
+        if (playerFlying() && frame.flags().onGround() && !frame.flags().verticalCollisionBelow()) {
+            return frame.withFlags(frame.flags().withOnGround(false));
+        }
+        return frame;
+    }
+
     BedrockPostMoveFrame applyWaterJumpGroundReset(BedrockPostMoveFrame frame) {
         if (mobJump().zeroedWaterVelocity()) {
             return frame.withFlags(frame.flags().withOnGround(false));

@@ -126,7 +126,13 @@ public final class BedrockVelocitySystems {
                 ? 1.0F
                 : control.moveInputScale();
         if (branch.playerFlyingTravel()) {
-            return BedrockFlyingTravelMovement.speed(facts.context(), moveInputScale);
+            return BedrockFlyingTravelMovement.speed(
+                    facts.context(),
+                    moveInputScale,
+                    frame.travelActorSprinting(),
+                    BedrockTravelHorizontalControl.groundOrAirFriction(
+                            facts.standingSurfaceState(),
+                            frame.input().previousState().collisionFlags().onGround()));
         }
         if (branch.airTravel()) {
             return BedrockAirTravelMovement.resolveHorizontal(frame);
