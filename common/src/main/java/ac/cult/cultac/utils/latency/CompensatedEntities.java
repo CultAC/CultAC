@@ -1654,9 +1654,10 @@ public class CompensatedEntities {
     }
 
     private void applyAgeableMetadata(PacketEntity entity, List<EntityMetadata.Entry> watchableObjects) {
-        if (!entity.isAgeable()) return;
+        int babyIndex = WatchableIndexUtil.babyIndex(entity.type);
+        if (babyIndex < 0) return;
 
-        EntityMetadata.Entry babyData = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.AGEABLE_BABY);
+        EntityMetadata.Entry babyData = WatchableIndexUtil.getIndex(watchableObjects, babyIndex);
         if (babyData == null) return;
 
         Object value = babyData.value();
@@ -1666,7 +1667,7 @@ public class CompensatedEntities {
         } else if (value instanceof Byte) {
             entity.isBaby = ((Byte) value) < 0;
         }
-        // AgeableMob#onSyncedDataUpdated refreshes the actual box immediately on DATA_BABY_ID.
+        // AgeableMob, Zombie, Zoglin and Piglin#onSyncedDataUpdated refresh the actual box immediately on DATA_BABY_ID.
         // Position interpolation keeps its feet; it must not keep the previous age's dimensions.
         if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2))
             entity.refreshDimensions(player);
