@@ -671,6 +671,14 @@ public class WorldStageBuilder {
                 }
             }
         }
+        if (player.isBedrockMovement() && player.bedrockState != null) {
+            // Actors only the Bedrock client holds are solid for it and for the vehicle it rides.
+            List<HardCollidingEntityCollision> solid =
+                    hardCollidingEntityCollisions == null ? new ArrayList<>() : hardCollidingEntityCollisions;
+            player.bedrockState.clientActors.colliders(
+                    movementReach(context), box -> solid.add(new HardCollidingEntityCollision(box, false, false)));
+            if (!solid.isEmpty()) hardCollidingEntityCollisions = solid;
+        }
         context.cacheEntityCollisionBoxesForMovementTick(
                 entityCollisionBoxes == null ? List.of() : List.copyOf(entityCollisionBoxes));
         context.cacheHardCollidingEntityCollisionsForMovementTick(
@@ -732,6 +740,15 @@ public class WorldStageBuilder {
         return entity instanceof PacketEntityPlayer remote
                 && remote.profile != null
                 && remote.actionSpectator(entities.clientPlayerModes);
+    }
+
+    /** The boxes the moving actor, the player or the vehicle it rides, may hold through the movement, and touch. */
+    private static SimpleCollisionBox movementReach(SimulationContext context) {
+        Vec3 from = context.getStart();
+        SimpleCollisionBox reach = GetBoundingBox.getBoundingBoxFromPosAndSize(
+                new SimpleCollisionBox(), from.x, from.y, from.z, context.getMaxWidth(), context.getMaxHeight());
+        reach.union(context.getToMaximumExtent());
+        return pusherContactBox(reach);
     }
 
     /** The boxes the player's own box may hold through the context's movement. */

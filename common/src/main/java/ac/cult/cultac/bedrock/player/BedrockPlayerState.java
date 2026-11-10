@@ -22,6 +22,7 @@ public final class BedrockPlayerState {
     public boolean acknowledgedSprinting;
     public final BedrockBlockBreakActions blockBreakActions = new BedrockBlockBreakActions();
     public final BedrockMovementEffects movementEffects = new BedrockMovementEffects();
+    public final BedrockClientActors clientActors = new BedrockClientActors();
     public final ac.cult.cultac.bedrock.prediction.integration.BedrockMovementCorrections movementCorrections =
             new ac.cult.cultac.bedrock.prediction.integration.BedrockMovementCorrections();
     /** The session's view of its world registries through Geyser. */
@@ -77,6 +78,7 @@ public final class BedrockPlayerState {
         movementCorrections.clear();
         lastMovementTick = -1;
         movementEffects.clear();
+        clientActors.clear();
         observedActorRuntimeId = runtimeEntityId;
         ridingJump = BedrockRidingJumpState.INITIAL;
         ridingJumpFrame = null;

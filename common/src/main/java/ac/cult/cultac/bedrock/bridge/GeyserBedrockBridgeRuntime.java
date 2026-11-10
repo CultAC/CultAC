@@ -616,6 +616,7 @@ public final class GeyserBedrockBridgeRuntime {
         private final GeyserPoseConfirmations poses = new GeyserPoseConfirmations();
         private final GeyserVehicleAttributes vehicleAttributes = new GeyserVehicleAttributes();
         private final GeyserEntityPositions entityPositions = new GeyserEntityPositions();
+        private final GeyserClientActors clientActors = new GeyserClientActors();
         // Markers written per client tick only to narrow when entity updates are handled; the markers that prove
         // updates are not counted.
         private static final int MARKERS_PER_TICK = 2;
@@ -1119,6 +1120,7 @@ public final class GeyserBedrockBridgeRuntime {
             latencyScope.insert(nativeLatencyCallback(connection, transaction.id()), () -> {
                 player.markBedrockTransactionClientbound(transaction.id());
                 entityPositions.boundary(player, transaction);
+                clientActors.boundary(player, transaction);
                 entityAttributes.boundary(player, transaction);
                 context.write(
                         BedrockPacketWrapper.create(
@@ -1573,7 +1575,9 @@ public final class GeyserBedrockBridgeRuntime {
             BedrockPacketWrapper source = owner.entityUpdateSource;
             if (source != null && !owner.detached.get()) {
                 owner.entityUpdateSource = null;
-                if (owner.entityPositions.hasPending() || owner.entityAttributes.hasPending()) {
+                if (owner.entityPositions.hasPending()
+                        || owner.entityAttributes.hasPending()
+                        || owner.clientActors.hasPending()) {
                     inModel(owner.currentPlayer(), () -> owner.writeLatencyBoundary(context, source, player -> {}));
                 }
             }
@@ -1824,6 +1828,7 @@ public final class GeyserBedrockBridgeRuntime {
             if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.ChangeDimensionPacket dimension) {
                 blockUpdates.clear();
                 owner.entityPositions.clear();
+                owner.clientActors.clear();
                 owner.loadingScreen.changeDimension(dimension.getLoadingScreenId());
             }
             if (packet instanceof StartGamePacket
@@ -1843,18 +1848,19 @@ public final class GeyserBedrockBridgeRuntime {
                     owner.countMarker();
                 }
             }
-            if (observedPlayer != null)
-                owner.entityPositions.capture(
-                        owner.connection,
-                        observedPlayer,
-                        packet,
-                        emission == null ? BedrockCoordinateFrame.IDENTITY : emission.frame());
+            if (observedPlayer != null) {
+                BedrockCoordinateFrame frame = emission == null ? BedrockCoordinateFrame.IDENTITY : emission.frame();
+                owner.entityPositions.capture(owner.connection, observedPlayer, packet, frame);
+                owner.clientActors.capture(owner.connection, packet, frame);
+            }
             // The preceding attribute packet already includes this effect's speed change.
             var replayUpdate = normalizedVehicleEffect ? null : GeyserReplayUpdate.capture(packet);
             if (observedPlayer != null && replayUpdate != null) {
                 owner.entityAttributes.capture(owner.connection, observedPlayer, replayUpdate);
             }
-            if (owner.entityPositions.hasPending() || owner.entityAttributes.hasPending()) {
+            if (owner.entityPositions.hasPending()
+                    || owner.entityAttributes.hasPending()
+                    || owner.clientActors.hasPending()) {
                 owner.entityUpdateSource = wrapper;
             }
             if (packet instanceof CorrectPlayerMovePredictionPacket correction) {
