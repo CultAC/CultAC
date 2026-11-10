@@ -109,6 +109,40 @@ public class BedrockPendingTeleportTickTest {
         }
     }
 
+    // A capture of a respawn into a column the client has not received: the tick after the
+    // teleport reports no step and delta y -0.0784, the next steps -0.0784 with -0.155232,
+    // the next -0.155232 with -0.230527. Nothing holds the actor and nothing stops it.
+    @Test
+    public void actorFallsThroughAColumnTheClientHasNotApplied() {
+        OfflineCultTestBootstrap.installConfig();
+        var player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            player.gamemode = GameMode.SURVIVAL;
+            Vec3 spawn = new Vec3(1.5, 64, 1.5);
+            player.x = player.lastX = spawn.x;
+            player.y = player.lastY = spawn.y;
+            player.z = player.lastZ = spawn.z;
+            player.onGround = player.lastOnGround = false;
+            player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, spawn.x, spawn.y, spawn.z);
+            assertNull(player.compensatedWorld.getChunk(0, 0));
+
+            double[] steps = {0, -0.0784, -0.155232};
+            double[] velocities = {-0.0784, -0.155232, -0.230527};
+            Vec3 position = spawn;
+            for (int tick = 0; tick < steps.length; tick++) {
+                position = position.add(0, steps[tick], 0);
+                assertNotNull(process(player, frame(player, 700 + tick, position, velocities[tick], false, false)));
+                assertEquals(tick + 1, entry(player).state().simulationTick());
+                assertEquals(
+                        position.y, entry(player).state().physicalFeetPosition().y(), 1.0E-5);
+                assertEquals(velocities[tick], entry(player).state().velocity().y(), 1.0E-5);
+            }
+            assertEquals(0, player.checkManager.getListener(BedrockMovement.class).violations, 0);
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
     private static BedrockAuthInputFrame startupFrame(
             CultPlayer player, long tick, Vec3 position, double futureVelocity, boolean handlesTeleport) {
         long flags = 1L << PlayerAuthInputData.VERTICAL_COLLISION.ordinal();

@@ -15,8 +15,6 @@ import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
-import ac.cult.cultac.utils.latency.CompensatedWorld;
-import ac.cult.cultac.utils.math.CultMath;
 
 final class BedrockMovementInputFactory {
     private final BedrockTickInputBuilder tickInputs;
@@ -81,8 +79,9 @@ final class BedrockMovementInputFactory {
                     previousState, tickInput.inputFrame(), context.getScale());
         }
         worldSnapshot = BedrockSnapshotResolver.forState(worldSnapshot, previousState, tickInput.inputFrame());
-        boolean actorMovementTick =
-                !player.bedrockState.loadingScreen.active() && hasAcknowledgedStartChunk(player, context);
+        // Only the loading screen holds the actor. A column the client has not applied holds no
+        // blocks in the compensated world, so the actor falls through it as it does on the client.
+        boolean actorMovementTick = !player.bedrockState.loadingScreen.active();
         player.bedrockState.movementEffects.glideBoost(frame, actorMovementTick);
         return new Input(
                 frame,
@@ -121,13 +120,6 @@ final class BedrockMovementInputFactory {
             return null;
         }
         return frame;
-    }
-
-    private static boolean hasAcknowledgedStartChunk(CultPlayer player, SimulationContext context) {
-        int chunkX = CultMath.floor(context.getStart().x) >> 4;
-        int chunkZ = CultMath.floor(context.getStart().z) >> 4;
-        CompensatedWorld.CachedChunk chunk = player.compensatedWorld.getChunk(chunkX, chunkZ);
-        return chunk != null && chunk.getTransaction() <= player.lastTransactionReceived.get();
     }
 
     public record Input(
