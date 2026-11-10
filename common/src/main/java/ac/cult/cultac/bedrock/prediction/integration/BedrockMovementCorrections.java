@@ -26,6 +26,9 @@ public final class BedrockMovementCorrections {
     private Pending pending;
     private boolean exemptMovement;
     private int requestedTransaction = -1;
+    // Where the server last held the vehicle, and the generation that placement began.
+    private Vec3 serverPosition;
+    private long serverPositionGeneration = -1;
 
     public long generation() {
         return generation;
@@ -68,6 +71,35 @@ public final class BedrockMovementCorrections {
                 .resetBedrockVehicle(vehicle, position, velocity, yaw, pitch, onGround, setback);
         requestedTransaction = transaction;
         pending = null;
+    }
+
+    /**
+     * The server rejected a move of {@code vehicleId} and holds it at {@code position}. Only the position is the
+     * server's: the vehicle keeps its velocity, rotation and ground state, and the next frame corrects the client to
+     * the result. It raises no vehicle teleport, so it opens no window in which movement goes unjudged.
+     */
+    public void requestServerPosition(CultPlayer player, int vehicleId, Vec3 position, int transaction) {
+        var vehicle = BedrockVehicleControl.controlledVehicle(player);
+        if (vehicle == null || vehicle.getEntityId() != vehicleId) return;
+        // A setback places the vehicle itself, and the server answers no move until it completes.
+        if (player.getSetbackTeleportUtil().isPendingSetback()) return;
+        // The server answers every move it rejects. Until a frame moves the vehicle from the position, a repeat of it
+        // answers a move sent before the vehicle was placed there.
+        if (serverPositionGeneration == generation && processedTicks == 0 && position.equals(serverPosition)) return;
+        clear();
+        player.checkManager
+                .getSimulationProcessor()
+                .resetBedrockVehicle(
+                        vehicle,
+                        position,
+                        vehicle.deltaMovement,
+                        vehicle.clientPhysicalYaw,
+                        vehicle.clientPhysicalPitch,
+                        vehicle.onGround,
+                        null);
+        requestedTransaction = transaction;
+        serverPosition = position;
+        serverPositionGeneration = generation;
     }
 
     public void requestSetback(int vehicleId, int transaction) {

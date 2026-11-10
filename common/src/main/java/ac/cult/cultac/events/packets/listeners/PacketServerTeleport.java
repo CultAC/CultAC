@@ -1,5 +1,6 @@
 package ac.cult.cultac.events.packets.listeners;
 
+import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -78,8 +79,35 @@ public class PacketServerTeleport {
     @CultPacketHandler
     public void onMoveVehicle(
             PacketSendEvent<ClientboundMoveVehicle> event, CultPlayer player, ClientboundMoveVehicle packet) {
-        if (player.isBedrockMovement()) return;
+        if (player.isBedrockMovement()) {
+            handleBedrockMoveVehicle(event, player, packet);
+            return;
+        }
         handleMoveVehicle(event, player, packet);
+    }
+
+    /**
+     * ServerGamePacketListenerImpl#handleMoveVehicle keeps the vehicle where it was when it rejects a move, and answers
+     * with that position. Geyser relays the answer as a teleporting actor move, which a Bedrock client does not snap
+     * its predicted vehicle to: a capture shows it close a third of the distance on each tick an answer arrives. A
+     * prediction correction places a predicted vehicle, as for a teleport of it, so the answer becomes one.
+     */
+    private void handleBedrockMoveVehicle(
+            PacketSendEvent<ClientboundMoveVehicle> event, CultPlayer player, ClientboundMoveVehicle vehicleMove) {
+        PacketEntity vehicle = BedrockVehicleControl.controlledVehicle(player);
+        Integer serverVehicle = player.compensatedEntities.vehicles.serverPlayerVehicle;
+        if (vehicle == null || serverVehicle == null || serverVehicle != vehicle.getEntityId() || event.isCancelled())
+            return;
+        event.setCancelled(true);
+        int vehicleId = vehicle.getEntityId();
+        Vec3 position = new Vec3(
+                vehicleMove.position().x(),
+                vehicleMove.position().y(),
+                vehicleMove.position().z());
+        // Only the position is the server's: it took its rotation from the move it rejected.
+        int transaction = player.lastTransactionSent.get();
+        player.runSafely(() -> player.bedrockState.movementCorrections.requestServerPosition(
+                player, vehicleId, position, transaction));
     }
 
     private void handlePlayerPosition(
