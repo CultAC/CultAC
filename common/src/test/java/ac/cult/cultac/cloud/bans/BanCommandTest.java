@@ -392,6 +392,44 @@ class BanCommandTest {
     }
 
     @Test
+    void aFormatCodeThatOtherRemovalsExposeIsDroppedToo() {
+        StaffBans.Ban ban = new StaffBans.Ban(
+                ID,
+                PLAYER,
+                "Notch",
+                "​&c3d fly",
+                "killaura",
+                "Kill &4Aura",
+                null,
+                "&=c Mod​",
+                0,
+                null,
+                null,
+                null);
+        assertEquals("ban Notch c3d fly Kill 4Aura c Mod", BanCommand.fill("ban %player% %reason% %cheat% %staff%", ban));
+        assertEquals("ban Notch '73d", BanCommand.fill("ban %player% %reason%", ban("Notch", "​&73d", null, "s")));
+        assertEquals(
+                "ban Notch '-s x", BanCommand.fill("ban %player% %reason%", ban("Notch", "​<-s x", null, "s")));
+    }
+
+    @Test
+    void cleanedTextIsAFixedPoint() {
+        for (String text : List.of(
+                "​&c3d fly",
+                "&=c",
+                "a &4b",
+                "<&<cx",
+                "§&§7 & &&ab",
+                "x &k y",
+                " ​ <&c> ")) {
+            for (boolean keyless : new boolean[] {false, true}) {
+                String once = BanCommand.plain(text, keyless, BanCommand.MAX_TEXT);
+                assertEquals(once, BanCommand.plain(once, keyless, BanCommand.MAX_TEXT), text);
+            }
+        }
+    }
+
+    @Test
     void aReasonWithANameEqualsWordIsRefusedOnlyInAKeyValueTemplate() {
         String keyed = "gban target=%uuid% by=%staff% reason=%reason%";
         assertEquals(

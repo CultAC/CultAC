@@ -29,9 +29,9 @@ import org.jetbrains.annotations.Nullable;
  * holds {@code =%} (a {@code key=value} command) and {@code reason} or {@code reason_label} holds a word starting
  * {@code name=}, and when the {@code reason} as the service sent it, used as {@code reason} or as a {@code reason_label}
  * that is the reason, starts with a {@linkplain #LENGTH_WORD length or server word}. {@code reason},
- * {@code reason_label}, {@code staff} and {@code cheat} lose {@code <}, section signs and {@code &} format codes, and
- * a {@code reason} or {@code reason_label} that starts with a length or server word only once they are gone gains a
- * leading {@code '}.
+ * {@code reason_label}, {@code staff} and {@code cheat} lose {@code <}, section signs and {@code &} format codes, also
+ * those the other removals expose, and a {@code reason} or {@code reason_label} that starts with a length or server
+ * word only once they are gone gains a leading {@code '}.
  */
 public final class BanCommand {
     static final int MAX_TEXT = 200;
@@ -153,8 +153,7 @@ public final class BanCommand {
         values.put("uuid", uuid);
         values.put("reason", reason(ban.reason()));
         values.put("reason_label", reason(ban.reasonLabel() == null ? ban.reason() : ban.reasonLabel()));
-        values.put(
-                "cheat", keyless(plain(ban.cheatName() == null ? ban.cheat() : ban.cheatName()), Integer.MAX_VALUE));
+        values.put("cheat", plainKeyless(ban.cheatName() == null ? ban.cheat() : ban.cheatName(), Integer.MAX_VALUE));
         values.put("cheat_id", keyless(ban.cheat(), Integer.MAX_VALUE));
         values.put("duration", duration(ban));
         values.put(
@@ -163,7 +162,7 @@ public final class BanCommand {
                         ? Long.toString(ban.durationSeconds())
                         : "");
         values.put("silent", clean(ban.silentFlag(), Integer.MAX_VALUE));
-        values.put("staff", keyless(plain(ban.staff()), MAX_TEXT));
+        values.put("staff", plainKeyless(ban.staff(), MAX_TEXT));
         values.put("ban_id", keyless(ban.id(), Integer.MAX_VALUE));
         values.put("link", url(ban.link()));
         values.put("staff_uuid", staffUuid(ban.staffUuid()));
@@ -192,19 +191,29 @@ public final class BanCommand {
      * before a {@link #LENGTH_WORD} that only its removals bring to the front.
      */
     static String reason(@Nullable String text) {
-        String shown = unflagged(clean(plain(text), MAX_TEXT), MAX_TEXT);
+        String shown = unflagged(plain(text, false, MAX_TEXT), MAX_TEXT);
         return lengthFirst(shown) && !lengthFirst(clean(text, Integer.MAX_VALUE))
                 ? "'" + cut(shown, MAX_TEXT - 1)
                 : shown;
     }
 
-    private static @Nullable String plain(@Nullable String text) {
-        return text == null ? null : CommandText.plain(text);
+    /**
+     * {@code text} {@linkplain #clean cleaned} to at most {@code max} characters, without {@code <}, section signs and
+     * {@code &} format codes, and without {@code =} when {@code keyless}; cleaning it again changes nothing.
+     */
+    static String plain(@Nullable String text, boolean keyless, int max) {
+        if (text == null) return "";
+        return clean(CommandText.plain(clean(keyless ? text.replace("=", "") : text, Integer.MAX_VALUE)), max);
     }
 
     /** {@code text} cleaned to at most {@code max} characters without {@code =}, so it never reads as a key. */
     static String keyless(@Nullable String text, int max) {
         return unflagged(clean(text == null ? null : text.replace("=", ""), max), max);
+    }
+
+    /** {@code text} {@linkplain #plain plain} and {@linkplain #keyless keyless} within {@code max}. */
+    static String plainKeyless(@Nullable String text, int max) {
+        return unflagged(plain(text, true, max), max);
     }
 
     /** {@code text} as a lower-case dashed UUID; empty unless it is one. */
