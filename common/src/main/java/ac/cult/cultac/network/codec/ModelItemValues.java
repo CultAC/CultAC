@@ -7,6 +7,7 @@ import ac.cult.blocksim.data.ItemRegistry;
 import ac.cult.blocksim.data.ItemTemplate;
 import ac.cult.blocksim.data.nbt.NbtValue;
 import ac.cult.blocksim.engine.SimItemStack;
+import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.protocol.ProtocolResolutionException;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.WireValueDecoder;
@@ -14,6 +15,8 @@ import ac.cult.cultac.protocol.data.ModelIdMappings;
 import ac.cult.cultac.protocol.data.ModelRegistryData;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -246,6 +249,62 @@ public final class ModelItemValues {
             }
             for (NbtValue child : ((NbtValue.Sequence) value).values()) if (!total(child, depth + 1)) return false;
             return true;
+        }
+    }
+
+    /**
+     * As {@link #item(WireValueDecoder.DecodedItem)}, throwing what it throws; a stack that {@link Pending#defers}
+     * converts when first read, on whichever thread reads it. Only for an item registry whose answers never change.
+     */
+    Object itemOnRead(WireValueDecoder.DecodedItem<NbtValue> value) {
+        if (!Pending.defers(value)) return item(value);
+        String key = key(value.id());
+        items.item(key);
+        return new SharedPending(items, key, value);
+    }
+
+    /** As {@link Pending}, for readers on any thread: the first conversion published is the one every read returns. */
+    static final class SharedPending implements EntityMetadata.Deferred {
+        private static final VarHandle STACK, VALUE;
+
+        static {
+            try {
+                var lookup = MethodHandles.lookup();
+                STACK = lookup.findVarHandle(SharedPending.class, "stack", SimItemStack.class);
+                VALUE = lookup.findVarHandle(SharedPending.class, "value", WireValueDecoder.DecodedItem.class);
+            } catch (ReflectiveOperationException e) {
+                throw new ExceptionInInitializerError(e);
+            }
+        }
+
+        private final ItemRegistry items;
+        private final String key;
+
+        @SuppressWarnings("unused") // Through VALUE.
+        private WireValueDecoder.DecodedItem<NbtValue> value;
+
+        @SuppressWarnings("unused") // Through STACK.
+        private SimItemStack stack;
+
+        SharedPending(ItemRegistry items, String key, WireValueDecoder.DecodedItem<NbtValue> value) {
+            this.items = items;
+            this.key = key;
+            this.value = value;
+        }
+
+        @Override
+        @SuppressWarnings("unchecked")
+        public SimItemStack get() {
+            var converted = (SimItemStack) STACK.getAcquire(this);
+            if (converted != null) return converted;
+            var decoded = (WireValueDecoder.DecodedItem<NbtValue>) VALUE.getAcquire(this);
+            // The value is cleared only after the stack is published.
+            if (decoded == null) return (SimItemStack) STACK.getAcquire(this);
+            converted = ModelItemValues.stack(items, key, decoded.count(), patch(decoded), decoded.wirePatch());
+            var witness = (SimItemStack) STACK.compareAndExchangeRelease(this, null, converted);
+            if (witness != null) return witness;
+            VALUE.setRelease(this, null);
+            return converted;
         }
     }
 

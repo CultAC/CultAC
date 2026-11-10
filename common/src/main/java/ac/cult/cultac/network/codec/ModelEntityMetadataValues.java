@@ -119,7 +119,7 @@ final class ModelEntityMetadataValues {
     @SuppressWarnings("unchecked") // The metadata call uses the same NBT factory as item conversion.
     private Object value(String kind, Object value) {
         return switch (kind) {
-            case "item" -> items.item((WireValueDecoder.DecodedItem<NbtValue>) value);
+            case "item" -> items.itemOnRead((WireValueDecoder.DecodedItem<NbtValue>) value);
             case "painting_variant" ->
                 value instanceof int[] dimensions
                         ? new PaintingSize(dimensions[0], dimensions[1])

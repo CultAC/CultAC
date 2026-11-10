@@ -27,6 +27,18 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
     }
 
     /**
+     * An entry value built on its first read. {@link Entry#value()} and {@link Entries#value(int)} return what
+     * {@link #get()} returns, and every call returns the same object, on any thread.
+     */
+    public interface Deferred {
+        Object get();
+    }
+
+    private static Object value(Object value) {
+        return value instanceof Deferred deferred ? deferred.get() : value;
+    }
+
+    /**
      * The immutable list of entries {@code 0..size-1}, entry {@code i} as {@link Entry#of(int, Object, byte[], int,
      * int)} makes it from index {@code indices[i]}, value {@code values[i]} and the {@code lengths[i]} bytes of
      * {@code payload} from index {@code offsets[i] - payloadStart}. Only {@code payload} is kept.
@@ -138,7 +150,7 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
         /** The value of the first entry with {@code index}; null when there is none. */
         public Object value(int index) {
             int position = position(index);
-            return position < 0 ? null : values[position];
+            return position < 0 ? null : EntityMetadata.value(values[position]);
         }
 
         /** The first entry with {@code index}; null when there is none. */
@@ -477,7 +489,7 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
         }
 
         public Object value() {
-            return value;
+            return EntityMetadata.value(value);
         }
 
         /**
@@ -549,19 +561,20 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
         public boolean equals(Object other) {
             return other instanceof Entry entry
                     && id == entry.id
-                    && Objects.equals(value, entry.value)
+                    && Objects.equals(value(), entry.value())
                     && bytes().equals(entry.bytes());
         }
 
         @Override
         public int hashCode() {
-            return 31 * (31 * Integer.hashCode(id) + Objects.hashCode(value)) + bytes().hashCode();
+            return 31 * (31 * Integer.hashCode(id) + Objects.hashCode(value())) + bytes().hashCode();
         }
 
         @Override
         public String toString() {
             boolean released = payload instanceof FrameLease lease && !lease.live();
-            return "Entry[id=" + id + ", value=" + value + ", bytes=" + (released ? "<released frame>" : bytes()) + "]";
+            return "Entry[id=" + id + ", value=" + value() + ", bytes=" + (released ? "<released frame>" : bytes())
+                    + "]";
         }
     }
 }
