@@ -6,6 +6,7 @@ import ac.cult.cultac.cloud.intake.v3.PerfLimits;
 import ac.cult.cultac.cloud.intake.v3.PerfOutcome;
 import ac.cult.cultac.utils.anticheat.LogThrottle;
 import com.google.protobuf.ByteString;
+import java.util.ArrayDeque;
 import java.util.UUID;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
@@ -24,6 +25,7 @@ public final class Perf {
     /** How long one part may wait for room before the profile ends {@code FAILED}: the service's grace for a profile. */
     static final long STALL_NANOS = TimeUnit.SECONDS.toNanos(120);
     private static final long HOUR_NANOS = TimeUnit.HOURS.toNanos(1);
+    private static final long SECOND_NANOS = TimeUnit.SECONDS.toNanos(1);
     /** {@code cloud.perf-max-minutes-per-hour} when unset. */
     public static final int DEFAULT_MAX_MINUTES_PER_HOUR = 45;
 
@@ -67,11 +69,8 @@ public final class Perf {
     private Job job;
     /** The accepted recording the perf thread has not taken yet. */
     private Job waiting;
-    /** When the current hour of recording time began, in {@link #nanos}; valid while {@link #hourStarted}. */
-    private long hourStart;
-    private boolean hourStarted;
-    /** Recording time spent in the current hour. */
-    private long hourUsed;
+    /** The start and length of each recording that ended within the last hour, in {@link #nanos}, oldest first. */
+    private final ArrayDeque<long[]> recent = new ArrayDeque<>();
 
     private Thread thread;
 
@@ -119,8 +118,8 @@ public final class Perf {
 
     /**
      * The service's {@code PerfStart} on the socket of {@code generation}: records {@code seconds}, or refuses at once.
-     * It is busy while a recording runs and once {@code cloud.perf-max-minutes-per-hour} of recording time is spent in
-     * the hour.
+     * It is busy while a recording runs and while less than a second of {@code cloud.perf-max-minutes-per-hour} is left
+     * over the recording time of the last hour; a window longer than what is left records what is left.
      */
     public synchronized void start(long generation, UUID profile, int seconds) {
         if (closed || generation != this.generation) return;
@@ -132,17 +131,16 @@ public final class Perf {
             refuse(profile, PerfOutcome.PERF_OUTCOME_BUSY, "busy");
             return;
         }
-        long now = nanos.getAsLong();
-        if (!hourStarted || now - hourStart >= HOUR_NANOS) {
-            hourStarted = true;
-            hourStart = now;
-            hourUsed = 0;
-        }
-        if (hourUsed >= maxNanosPerHour) {
+        long left = maxNanosPerHour - usedInLastHour(nanos.getAsLong());
+        if (left < SECOND_NANOS) {
             refuse(profile, PerfOutcome.PERF_OUTCOME_BUSY, "busy");
             return;
         }
-        job = new Job(generation, profile, PerfSettings.of(limits, seconds), partBytes(limits));
+        PerfSettings settings = PerfSettings.of(limits, seconds);
+        if (TimeUnit.SECONDS.toNanos(settings.seconds()) > left) {
+            settings = PerfSettings.of(limits, (int) TimeUnit.NANOSECONDS.toSeconds(left));
+        }
+        job = new Job(generation, profile, settings, partBytes(limits));
         waiting = job;
         if (thread == null) startThread();
     }
@@ -251,15 +249,28 @@ public final class Perf {
         maxNanosPerHour = TimeUnit.MINUTES.toNanos(Math.max(1, minutes));
     }
 
-    /** A recording that began at {@code started} returned at {@code ended}. */
+    /** A recording that began at {@code started} returned or threw at {@code ended}. */
     private synchronized void recorded(long started, long ended) {
-        hourUsed += Math.max(0, ended - started);
+        recent.addLast(new long[] {started, Math.max(0, ended - started)});
+    }
+
+    /** The recording time between {@code now} less an hour and {@code now}; forgets recordings that ended before. */
+    private long usedInLastHour(long now) {
+        long from = now - HOUR_NANOS;
+        recent.removeIf(recording -> recording[0] + recording[1] - from <= 0);
+        long used = 0;
+        for (long[] recording : recent) used += Math.min(recording[1], recording[0] + recording[1] - from);
+        return used;
     }
 
     private void record(Job job) throws GaveUp {
         long started = nanos.getAsLong();
-        PerfRecorder.Result result = recorder.record(job.settings, () -> job.cancelled);
-        recorded(started, nanos.getAsLong());
+        PerfRecorder.Result result;
+        try {
+            result = recorder.record(job.settings, () -> job.cancelled);
+        } finally {
+            recorded(started, nanos.getAsLong());
+        }
         switch (result) {
             case PerfRecorder.Result.Done done -> send(job, done.zstdProfile(), done.reason());
             case PerfRecorder.Result.Skipped skipped ->
