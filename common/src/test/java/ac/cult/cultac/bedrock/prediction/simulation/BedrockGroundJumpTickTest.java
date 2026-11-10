@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.model.AttributeState;
@@ -21,6 +22,7 @@ import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
 import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
 import ac.cult.cultac.bedrock.prediction.world.EntityContactState;
 import ac.cult.cultac.bedrock.prediction.world.FluidState;
+import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import ac.cult.cultac.bedrock.prediction.world.WorldContactState;
 import java.util.List;
 import java.util.Set;
@@ -139,6 +141,77 @@ public final class BedrockGroundJumpTickTest {
         assertEquals(10, onFoot.mobJumpComponent().jumpCooldownTicks());
     }
 
+    // A teleport onto a ladder the last move never touched, jump held: the client reports
+    // delta (0, 0.2, 0) at the teleported position and climbs by it on the next tick.
+    @Test
+    public void teleportTickClimbsTheLadderAtTheTeleportedFeet() {
+        var ladder = context(new BlockCollisionWorld(List.of(PlacedBlockCollision.manual(
+                new BlockPosition(0, 64, 0), "minecraft:ladder", "minecraft:ladder", List.of()))));
+        var airborne = airborne();
+        assertFalse(airborne.climbableContact().climbing());
+
+        var teleport = tick(airborne, held(1L), BedrockMobJumpComponentState.DEFAULT, true, ladder);
+        var climbing = teleport.movementResult();
+
+        assertFalse(climbing.travelActive());
+        assertFalse(climbing.groundJumpApplied());
+        assertEquals(FEET, climbing.predictedPosition());
+        assertEquals(new Vec3d(0.0D, 0.2F, 0.0D), climbing.predictedVelocity());
+        assertEquals(0, teleport.mobJumpComponent().jumpCooldownTicks());
+    }
+
+    // The same teleport tick without a ladder at the feet keeps the velocity it started with.
+    @Test
+    public void teleportTickBesideALadderDoesNotClimb() {
+        var ladder = context(new BlockCollisionWorld(List.of(PlacedBlockCollision.manual(
+                new BlockPosition(1, 64, 0), "minecraft:ladder", "minecraft:ladder", List.of()))));
+        var airborne = airborne();
+
+        var teleport = tick(airborne, held(1L), BedrockMobJumpComponentState.DEFAULT, true, ladder);
+
+        assertEquals(Vec3d.ZERO, teleport.movementResult().predictedVelocity());
+    }
+
+    // A teleport into still water with jump held: the swim-up impulse alone, no gravity or drag.
+    @Test
+    public void teleportTickInWaterAddsTheSwimUpImpulse() {
+        var water = context(new BlockCollisionWorld(List.of(water(0, 64, 0, 0), water(0, 65, 0, 0))));
+        var airborne = airborne();
+
+        var teleport = tick(airborne, held(1L), BedrockMobJumpComponentState.DEFAULT, true, water);
+
+        assertEquals(FEET, teleport.movementResult().predictedPosition());
+        assertEquals(new Vec3d(0.0D, 0.04F, 0.0D), teleport.movementResult().predictedVelocity());
+    }
+
+    // A teleport into flowing water, nothing held: the client reports the flow push alone.
+    @Test
+    public void teleportTickInFlowingWaterTakesTheFlowPush() {
+        var water = context(new BlockCollisionWorld(List.of(
+                water(0, 64, -1, 0),
+                water(0, 64, 0, 1),
+                water(0, 64, 1, 2),
+                water(0, 63, -1, 0),
+                water(0, 63, 0, 0),
+                water(0, 63, 1, 0))));
+        var airborne = airborne();
+
+        var teleport = tick(airborne, BedrockInputFrame.idle(1L), BedrockMobJumpComponentState.DEFAULT, true, water);
+
+        assertEquals(FEET, teleport.movementResult().predictedPosition());
+        assertEquals(new Vec3d(0.0D, 0.0D, 0.014D), teleport.movementResult().predictedVelocity());
+    }
+
+    private static BedrockMovementState airborne() {
+        return BedrockMovementState.fromPhysicalFeet(
+                FEET, Vec3d.ZERO, BedrockInputFrame.idle(0L), BedrockCollisionFlags.AIR);
+    }
+
+    private static PlacedBlockCollision water(int x, int y, int z, int level) {
+        return PlacedBlockCollision.manual(
+                new BlockPosition(x, y, z), "minecraft:water[level=" + level + "]", "minecraft:water", List.of());
+    }
+
     private static BedrockSimulation.Candidate tick(
             BedrockMovementState state,
             BedrockInputFrame frame,
@@ -169,11 +242,19 @@ public final class BedrockGroundJumpTickTest {
                 new MovementModifierState(false, true, true, false, 0.05D, false, false, false, false, 0.35D, 0L));
     }
 
+    private static BedrockMovementContext context(BlockCollisionWorld world) {
+        return context(MovementModifierState.NONE, world);
+    }
+
     private static BedrockMovementContext context(MovementModifierState modifiers) {
+        return context(modifiers, BlockCollisionWorld.EMPTY);
+    }
+
+    private static BedrockMovementContext context(MovementModifierState modifiers, BlockCollisionWorld world) {
         return new BedrockMovementContext(
                 BedrockEffectState.NONE,
                 AttributeState.DEFAULT,
-                new WorldContactState(Medium.AIR, FluidState.NONE, BlockCollisionWorld.EMPTY),
+                new WorldContactState(Medium.AIR, FluidState.NONE, world),
                 EquipmentState.NONE,
                 EntityContactState.NONE,
                 modifiers,

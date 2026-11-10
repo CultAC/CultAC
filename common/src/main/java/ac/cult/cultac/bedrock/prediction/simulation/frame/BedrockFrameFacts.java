@@ -6,6 +6,7 @@ import ac.cult.cultac.bedrock.prediction.model.BedrockEffectState;
 import ac.cult.cultac.bedrock.prediction.model.BlockMovementSlowdownState;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
+import ac.cult.cultac.bedrock.prediction.world.BedrockClimbableContact;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
 import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
 import ac.cult.cultac.bedrock.prediction.world.HoneySlideState;
@@ -61,7 +62,7 @@ public record BedrockFrameFacts(
                 resolvedDimensions.mode(),
                 movementDimensions,
                 BedrockSwimmingMovement.initial(current, context, frame),
-                BedrockClimbMovement.resolveSurface(current.climbableContact(), context.inWater(), context.inLava()),
+                BedrockClimbMovement.resolveSurface(climbableContact(input), context.inWater(), context.inLava()),
                 inWaterFlag,
                 lavaTravelFlag,
                 inPowderSnow,
@@ -126,6 +127,23 @@ public record BedrockFrameFacts(
                 blockMovementSlowdownState,
                 honeySlideState,
                 standingSurfaceState);
+    }
+
+    /**
+     * The last move left the contact a tick starts from. A tick that handles a teleport stands
+     * where no move has run: held jump climbs by the block at the teleported feet, while the
+     * scaffolding contact stays the last move's.
+     */
+    private static BedrockClimbableContact climbableContact(BedrockTravelInput input) {
+        BedrockClimbableContact carried = input.previousState().climbableContact();
+        if (input.options().travelActive()) {
+            return carried;
+        }
+        return new BedrockClimbableContact(
+                input.worldSnapshot().initialClimbableContact().climbing(),
+                carried.scaffolding(),
+                carried.descendAllowed(),
+                carried.ascendableBlock());
     }
 
     public BedrockEffectState effectState() {
