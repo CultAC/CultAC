@@ -440,7 +440,9 @@ public final class BedrockMovementEngine implements MovementEngine {
                     // MovePlayer TELEPORT resets velocity; any subsequent SetEntityMotion
                     // enters through the existing packet modifiers, not Java teleport delta flags.
                     Vec3d velocity = Vec3d.ZERO;
-                    BedrockMovementState rebased = restoreCorrectedState(state, position, velocity);
+                    BedrockMovementState rebased = teleport.isBedrockDimensionChange()
+                            ? state.afterDimensionChange(position)
+                            : restoreCorrectedState(state, position, velocity);
                     if (teleport.getBedrockOnGround() != null) {
 
                         rebased = rebased.withVelocityAndCollisionFlags(

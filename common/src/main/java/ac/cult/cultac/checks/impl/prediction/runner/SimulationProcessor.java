@@ -12,6 +12,7 @@ import ac.cult.cultac.bedrock.prediction.integration.BedrockVectorAdapter;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.impl.bedrock.BedrockMovement;
@@ -65,6 +66,7 @@ import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.value.GameMode;
@@ -1003,6 +1005,28 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             TeleportData teleport = teleportAcceptData.getTeleportData();
             this.commitPlayerPosition(teleport.getLocation());
         }
+    }
+
+    /**
+     * The client puts its actor at a dimension change's position, at rest, as it starts that change's loading screen.
+     * Its ticks stay there until it takes the teleport that follows the change.
+     */
+    public void applyBedrockDimensionChange(Vec3 wireFeetPosition) {
+        BedrockCoordinateFrame frame =
+                this.player.getSetbackTeleportUtil().bedrockTeleports().getActiveBedrockCoordinateFrame();
+        TeleportData placement = new TeleportData(
+                frame.toWorld(wireFeetPosition),
+                new RelativeFlag(0),
+                Vec3.ZERO,
+                this.player.lastTransactionReceived.get(),
+                0);
+        placement.setPositionOnly(true);
+        placement.setBedrockCoordinateFrame(frame);
+        placement.setBedrockDimensionChange(true);
+        TeleportAcceptData accepted = new TeleportAcceptData();
+        accepted.setTeleport(true);
+        accepted.setTeleportData(placement);
+        this.applyAcceptedBedrockTeleport(accepted);
     }
 
     /** A passive root's movement packet can overwrite ground before its rider takes control again. */

@@ -87,6 +87,10 @@ public class TeleportData {
     @Setter
     Boolean bedrockOnGround;
 
+    /** A Bedrock dimension change's placement: the actor rests there, and its next actor tick travels. */
+    @Setter
+    boolean bedrockDimensionChange;
+
     /**
      * The onGround this teleport's client bundle leaves the player with, through ClientPacketListener#handleTeleportEntity
      * on the player itself; null when the bundle sets none.
@@ -150,6 +154,7 @@ public class TeleportData {
         copy.packetYaw = packetYaw;
         copy.packetPitch = packetPitch;
         copy.bedrockOnGround = bedrockOnGround;
+        copy.bedrockDimensionChange = bedrockDimensionChange;
         copy.sentOnGround = sentOnGround;
         copy.bedrockTransportRevision = bedrockTransportRevision;
         copy.bedrockOperation = bedrockOperation;

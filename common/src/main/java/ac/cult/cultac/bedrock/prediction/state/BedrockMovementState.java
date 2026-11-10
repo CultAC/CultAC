@@ -589,6 +589,12 @@ public record BedrockMovementState(
                 attributes);
     }
 
+    /** A dimension change puts the actor at its position at rest; unlike a teleport, its next actor tick travels. */
+    public BedrockMovementState afterDimensionChange(Vec3d physicalFeetPosition) {
+        BedrockMovementState placed = afterServerTeleport(physicalFeetPosition, Vec3d.ZERO);
+        return new BedrockMovementState(placed.motion, placed.actor, placed.memory, hasTeleported, placed.attributes);
+    }
+
     public BedrockMovementState withPhysicalFeetPosition(Vec3d physicalFeetPosition, Vec3d lastPhysicalDisplacement) {
         Vec3d position = BedrockPositionTranslator.normalizePhysicalFeetPosition(
                 physicalFeetPosition, coordinateFrame(), packetYOffset());

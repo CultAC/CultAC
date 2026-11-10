@@ -1,9 +1,11 @@
 package ac.cult.cultac.bedrock.replay.offline;
 
+import static org.cloudburstmc.protocol.bedrock.data.ServerboundLoadingScreenPacketType.*;
 import static org.junit.Assert.*;
 
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
+import ac.cult.cultac.bedrock.prediction.geometry.BedrockPositionTranslator;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockFrameProcessor;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockProfileState;
 import ac.cult.cultac.bedrock.protocol.*;
@@ -143,6 +145,85 @@ public class BedrockPendingTeleportTickTest {
         }
     }
 
+    // A capture of a hop out of the Nether through Geyser: the client starts the dimension change's loading screen
+    // before auth 25586 and reports the change's position at rest through the screen. After the screen ends it falls
+    // from rest there (deltas -0.0784, -0.155232, -0.230527) until it takes the respawn teleport on auth 25596.
+    @Test
+    public void aDimensionChangePlacesTheActorWhileItsRespawnTeleportIsPending() {
+        OfflineCultTestBootstrap.installConfig();
+        var player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            player.gamemode = GameMode.SURVIVAL;
+            player.compensatedWorld.ensureValidationChunkLoaded(0, 0);
+            for (int x = 0; x < 4; x++)
+                for (int z = 0; z < 4; z++)
+                    player.compensatedWorld.updateBlock(
+                            x,
+                            105,
+                            z,
+                            DataTables.defaults()
+                                    .registry()
+                                    .block("minecraft:netherrack")
+                                    .defaultState());
+            Vec3 pad = new Vec3(1.5, 106, 1.5);
+            player.x = player.lastX = pad.x;
+            player.y = player.lastY = pad.y;
+            player.z = player.lastZ = pad.z;
+            player.onGround = player.lastOnGround = true;
+            player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, pad.x, pad.y, pad.z);
+            assertNotNull(process(player, startupFrame(player, 25585, pad, -0.0784, false)));
+
+            Vec3 station = new Vec3(18.5, 120, 26.5);
+            var teleports = player.getSetbackTeleportUtil();
+            teleports
+                    .bedrockTeleports()
+                    .addImmediateBedrockTransportTeleport(
+                            station,
+                            true,
+                            BedrockCoordinateFrame.IDENTITY,
+                            null,
+                            new BedrockTeleportOperation(12, BedrockTeleportProvenance.GEYSER, 12),
+                            12);
+            player.lastTransactionReceived.set(100);
+            assertTrue(teleports.bedrockTeleports().mustAcknowledgeBedrockTransportTeleport());
+
+            Vec3 spawn = new Vec3(0, 32767, 0);
+            var loading = player.bedrockState.loadingScreen;
+            loading.changeDimension(null, spawn);
+            assertTrue(loading.accept(START_LOADING_SCREEN, null));
+            player.checkManager.getSimulationProcessor().applyBedrockDimensionChange(loading.placement());
+            assertEquals(spawn, new Vec3(player.x, player.y, player.z));
+            // The client reports float eye positions; the bridge subtracts the double eye offset.
+            Vec3 reported = feet(32768.62F);
+            for (long tick = 25586; tick <= 25592; tick++) {
+                assertNull(process(player, startupFrame(player, tick, reported, 0, false)));
+                assertEquals(reported.y, entry(player).state().physicalFeetPosition().y(), 1.0E-9);
+                assertEquals(0, entry(player).state().velocity().y(), 0);
+            }
+
+            assertTrue(loading.accept(END_LOADING_SCREEN, null));
+            float[] eyes = {32768.62F, 32768.543F, 32768.39F};
+            double[] velocities = {-0.0784, -0.155232, -0.230527};
+            for (int i = 0; i < velocities.length; i++) {
+                assertNull(process(player, frame(player, 25593 + i, feet(eyes[i]), velocities[i], false, false)));
+                assertEquals(
+                        feet(eyes[i]).y, entry(player).state().physicalFeetPosition().y(), 1.0E-9);
+                assertEquals(velocities[i], entry(player).state().velocity().y(), 1.0E-5);
+                assertEquals(
+                        0,
+                        player.checkManager.getSimulationProcessor().getLastPrediction().getOffset(),
+                        1.0E-5);
+            }
+
+            assertNotNull(process(player, frame(player, 25596, station, 0, false, true)));
+            assertFalse(teleports.bedrockTeleports().mustAcknowledgeBedrockTransportTeleport());
+            assertEquals(station.y, entry(player).state().physicalFeetPosition().y(), 0);
+            assertEquals(0, player.checkManager.getListener(BedrockMovement.class).violations, 0);
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
     @Test
     public void acceptingAFarTeleportOpensTheTimerWindowOfALongTeleport() throws Exception {
         assertTrue(timerWindowOpenedAt(acceptTeleportOver(100)));
@@ -203,6 +284,10 @@ public class BedrockPendingTeleportTickTest {
         assertTrue(teleports.bedrockTeleports().mustAcknowledgeBedrockTransportTeleport());
         process(player, frame(player, tick, target, 0, false, true));
         assertFalse(teleports.bedrockTeleports().mustAcknowledgeBedrockTransportTeleport());
+    }
+
+    private static Vec3 feet(float eyeY) {
+        return new Vec3(0, eyeY - BedrockPositionTranslator.PLAYER_PACKET_Y_OFFSET, 0);
     }
 
     private static BedrockAuthInputFrame startupFrame(

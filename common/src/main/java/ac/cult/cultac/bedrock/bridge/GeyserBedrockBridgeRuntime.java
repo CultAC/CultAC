@@ -719,7 +719,14 @@ public final class GeyserBedrockBridgeRuntime {
                             instanceof
                             org.cloudburstmc.protocol.bedrock.packet.ServerboundLoadingScreenPacket loading) {
                         // Unexpected transitions leave the tracked loading state unchanged (should we disconnect?)
-                        loadingScreen.accept(loading.getType(), loading.getLoadingScreenId());
+                        if (loadingScreen.accept(loading.getType(), loading.getLoadingScreenId())
+                                && loadingScreen.placement() != null
+                                && currentPlayer() != null) {
+                            currentPlayer()
+                                    .checkManager
+                                    .getSimulationProcessor()
+                                    .applyBedrockDimensionChange(loadingScreen.placement());
+                        }
                     }
                     if (currentPlayer() == null) {
                         // Login traffic must establish the Java connection before ownership can bind.
@@ -1835,7 +1842,9 @@ public final class GeyserBedrockBridgeRuntime {
                 blockUpdates.clear();
                 owner.entityPositions.clear();
                 owner.clientActors.clear();
-                owner.loadingScreen.changeDimension(dimension.getLoadingScreenId());
+                var position = dimension.getPosition();
+                owner.loadingScreen.changeDimension(
+                        dimension.getLoadingScreenId(), new Vec3(position.getX(), position.getY(), position.getZ()));
             }
             if (packet instanceof StartGamePacket
                     || packet instanceof org.cloudburstmc.protocol.bedrock.packet.ChangeDimensionPacket) {
