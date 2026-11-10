@@ -284,7 +284,7 @@ For entities, track:
 - passenger and vehicle relationships
 - despawn boundaries
 
-Like Grim, only the local player's own riding tree is positioned and ticked; a rider on any other entity is untracked, and every reader of another entity's position skips `CompensatedEntities#isUntrackedRider` (see `AGENTS.md`, "Entity tracking").
+Java riders outside the local player's riding trees use lazy compensated seat boxes and still run their eligible state ticks. All Java position readers include them through `PacketEntity`'s normal box APIs; `isUntrackedRider` identifies the lazy storage policy. Preserve the pre-tick seat, packet interpolation before pushes, independent block-entity shoves, and ticking-chunk membership (see `AGENTS.md`, "Entity tracking").
 
 Player entities are living entities and can be pushable. If movement false positives appear when players overlap, first verify:
 

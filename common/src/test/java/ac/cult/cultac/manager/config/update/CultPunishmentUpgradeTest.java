@@ -2,8 +2,11 @@ package ac.cult.cultac.manager.config.update;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ac.cult.cultac.manager.PunishmentRules;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
@@ -41,8 +44,8 @@ class CultPunishmentUpgradeTest {
         var data = read(file);
         assertTrue(result.migrated);
         assertEquals(1, result.oldVersion);
-        assertEquals(5, result.newVersion);
-        assertEquals(5, data.get("cult-config-version"));
+        assertEquals(6, result.newVersion);
+        assertEquals(6, data.get("cult-config-version"));
         assertEquals(List.of("Knockback", "Explosion", "KeepSprint"), checks(data, "Knockback"));
         assertEquals(
                 List.of("Interact", "Aim", "AttackPlayerVisibility", "AttackMobVisibility"), checks(data, "Combat"));
@@ -137,7 +140,7 @@ class CultPunishmentUpgradeTest {
                 + "  Simulation:\n    checks: [Simulation, Timer]\n    commands: ['1:1 [log]']\n");
         upgrade(file);
         var data = read(file);
-        assertEquals(List.of("Simulation", "Timer", "BedrockMovement"), checks(data, "Simulation"));
+        assertEquals(List.of("Simulation", "Timer", "BedrockMovement", "Phase"), checks(data, "Simulation"));
         assertEquals(List.of("Knockback", "Explosion", "KeepSprint"), checks(data, "Knockback"));
         assertEquals(
                 List.of("Interact", "Aim", "AttackPlayerVisibility", "AttackMobVisibility"), checks(data, "Combat"));
@@ -162,7 +165,7 @@ class CultPunishmentUpgradeTest {
         var result = upgrade(file);
         assertTrue(result.migrated);
         assertEquals(2, result.oldVersion);
-        assertEquals(5, result.newVersion);
+        assertEquals(6, result.newVersion);
         assertEquals(List.of("Vehicle", "NoSlow", "NoSneakSlow", "Sprint", "SkinBlinker"), checks(read(file), "Misc"));
     }
 
@@ -185,7 +188,7 @@ class CultPunishmentUpgradeTest {
         try (var source = CultConfigSpecs.class.getResourceAsStream("/punishments/" + language + ".yml")) {
             assertNotNull(source);
             Map<String, Object> data = new Yaml().load(source);
-            assertEquals(5, data.get("cult-config-version"));
+            assertEquals(6, data.get("cult-config-version"));
             assertTrue(checks(data, "Knockback").contains("KeepSprint"));
             assertTrue(checks(data, "Combat").containsAll(List.of("AttackPlayerVisibility", "AttackMobVisibility")));
             List<?> misc = checks(data, "Misc");
@@ -193,6 +196,8 @@ class CultPunishmentUpgradeTest {
             assertEquals("SkinBlinker", misc.get(misc.indexOf("Exploit") + 1));
             assertTrue(misc.contains("!Cloud"));
             assertEquals(List.of("Cloud"), checks(data, "Cloud"));
+            List<?> simulation = checks(data, "Simulation");
+            assertEquals("Phase", simulation.get(simulation.indexOf("NoFall") + 1));
         }
     }
 
@@ -239,6 +244,15 @@ class CultPunishmentUpgradeTest {
     private static final String REVISION_4 = """
             cult-config-version: 4
             Punishments:
+              Simulation:
+                checks:
+                  - "Simulation"
+                  - "BedrockMovement"
+                  - "GroundSpoof"
+                  - "Timer"
+                  - "NoFall"
+                commands:
+                  - "100:40 [alert]"
               Misc:
                 remove-violations-after: 300
                 checks:
@@ -267,6 +281,158 @@ class CultPunishmentUpgradeTest {
                 commands:
                   - "1:1 [alert]"
             """;
+
+    @Test
+    void addsPhaseToTheSimulationGroupAfterNoFall() throws Exception {
+        Path file = write(REVISION_4);
+        var result = upgrade(file);
+        assertTrue(result.migrated);
+        assertEquals(4, result.oldVersion);
+        assertEquals(6, result.newVersion);
+        assertEquals(
+                List.of("Simulation", "BedrockMovement", "GroundSpoof", "Timer", "NoFall", "Phase"),
+                checks(read(file), "Simulation"));
+    }
+
+    @Test
+    void leavesPhaseToAGroupThatAlreadySelectsOrExcludesIt() throws Exception {
+        Path own = write(REVISION_4 + "  Movement:\n    checks: [Phase]\n    commands: ['1:1 [alert]']\n");
+        upgrade(own);
+        assertEquals(
+                List.of("Simulation", "BedrockMovement", "GroundSpoof", "Timer", "NoFall"),
+                checks(read(own), "Simulation"));
+        assertEquals(List.of("Phase"), checks(read(own), "Movement"));
+
+        Path excluded = write(REVISION_4.replace("      - \"NoFall\"", "      - \"NoFall\"\n      - \"!Phase\""));
+        upgrade(excluded);
+        assertEquals(
+                List.of("Simulation", "BedrockMovement", "GroundSpoof", "Timer", "NoFall", "!Phase"),
+                checks(read(excluded), "Simulation"));
+    }
+
+    private static final String DOTTED_GROUP = """
+            cult-config-version: 5
+            Punishments:
+              Movement.Java:
+                remove-violations-after: 300
+                checks:
+                  - Simulation
+                  - GroundSpoof
+                  - Timer
+                  - NoFall
+                commands:
+                  - "100:40 [alert]"
+            """;
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Movement.Java", "\"Movement.Java\"", "'Movement.Java'"})
+    void extendsAGroupWhoseNameHasDotsWithoutLosingItsChecks(String key) throws Exception {
+        Path file = write(DOTTED_GROUP.replace("Movement.Java", key));
+        upgrade(file);
+        var data = read(file);
+        Map<?, ?> groups = (Map<?, ?>) data.get("Punishments");
+        assertEquals(List.of("Movement.Java"), List.copyOf(groups.keySet()));
+        assertEquals(List.of("Simulation", "GroundSpoof", "Timer", "NoFall", "Phase"), checks(data, "Movement.Java"));
+        assertEquals(List.of("100:40 [alert]"), group(data, "Movement.Java").get("commands"));
+        // PunishmentManager reads the groups as Configuralize's list of their values.
+        var rules = PunishmentRules.parse(new ArrayList<>(groups.values()));
+        assertNull(rules.failure());
+        for (String check : List.of("simulation", "groundspoof", "timer", "nofall", "phase")) {
+            assertTrue(rules.groups().get(0).holds(check, null), check);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "  Simulation: {checks: [Simulation, GroundSpoof, Timer, NoFall], commands: ['100:40 [alert]']}\n",
+                "  Simulation: {\n    checks: [Simulation, GroundSpoof,\n      Timer, NoFall],\n"
+                        + "    commands: ['100:40 [alert]']\n  }\n",
+                "  Simulation:\n    checks: [Simulation, GroundSpoof,\n      Timer, NoFall]\n"
+                        + "    commands: ['100:40 [alert]']\n"
+            })
+    void extendsAFlowStyleGroupAsValidYaml(String simulation) throws Exception {
+        Path file = write("cult-config-version: 5\nPunishments:\n" + simulation
+                + "  Misc:\n    checks: [Vehicle]  # kept\n    commands: ['1:1 [log]']\n");
+        upgrade(file);
+        var data = read(file);
+        assertEquals(List.of("Simulation", "GroundSpoof", "Timer", "NoFall", "Phase"), checks(data, "Simulation"));
+        assertEquals(List.of("100:40 [alert]"), group(data, "Simulation").get("commands"));
+        assertEquals(List.of("Vehicle"), checks(data, "Misc"));
+        assertTrue(Files.readString(file).contains("# kept"));
+        assertNull(PunishmentRules.parse(new ArrayList<>(((Map<?, ?>) data.get("Punishments")).values()))
+                .failure());
+    }
+
+    @Test
+    void addsGroupsInsideAFlowStylePunishmentsMap() throws Exception {
+        Path file = write("cult-config-version: 1\n"
+                + "Punishments: {Custom: {checks: [Reach], commands: ['1:1 custom']}}  # compact\n");
+        upgrade(file);
+        var data = read(file);
+        assertEquals(List.of("Reach"), checks(data, "Custom"));
+        assertEquals(List.of("1:1 custom"), group(data, "Custom").get("commands"));
+        assertEquals(List.of("KeepSprint"), checks(data, "Knockback"));
+        assertEquals(List.of("Cloud"), checks(data, "Cloud"));
+        assertEquals(1800, group(data, "Cloud").get("remove-violations-after"));
+        assertEquals(6, data.get("cult-config-version"));
+        assertTrue(Files.readString(file).contains("# compact"));
+    }
+
+    @Test
+    void extendsAFlowStyleGroupWhoseCommandsAliasAnAnchorElsewhere() throws Exception {
+        Path file = write("""
+                cult-config-version: 5
+                base-commands: &commands
+                  - '1:1 [alert]'
+                Punishments:
+                  Simulation: {checks: [Simulation], commands: *commands}
+                """);
+        assertTrue(upgrade(file).migrated);
+        var data = read(file);
+        assertEquals(6, data.get("cult-config-version"));
+        assertEquals(List.of("Simulation", "Phase"), checks(data, "Simulation"));
+        assertEquals(List.of("1:1 [alert]"), group(data, "Simulation").get("commands"));
+        assertTrue(Files.readString(file).contains("commands: *commands}"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                // Block-style selectors aliasing a list written elsewhere, in either style.
+                "base-checks: &checks\n  - Simulation\nPunishments:\n  Simulation:\n    checks: *checks\n"
+                        + "    commands: ['1:1 [alert]']\n",
+                "base-checks: &checks [Simulation]\nPunishments:\n  Simulation:\n    checks: *checks\n"
+                        + "    commands: ['1:1 [alert]']\n",
+                // A flow-style group holding an anchor another group aliases.
+                "Punishments:\n  Simulation: {checks: [Simulation], commands: &commands ['1:1 [alert]']}\n"
+                        + "  Combat: {checks: [Reach], commands: *commands}\n",
+                // An anchored flow-style group, and anchored inline selectors.
+                "Punishments:\n  Simulation: &sim {checks: [Simulation], commands: ['1:1 [alert]']}\n  Copy: *sim\n",
+                "Punishments:\n  Simulation:\n    checks: &sim [Simulation]\n    commands: ['1:1 [alert]']\n"
+                        + "  Copy:\n    checks: *sim\n    commands: ['1:1 [log]']\n"
+            })
+    void extendsAGroupAsYamlWhoseAnchorsAndAliasesStillResolve(String punishments) throws Exception {
+        Path file = write("cult-config-version: 5\n" + punishments);
+        assertTrue(upgrade(file).migrated);
+        var data = read(file);
+        assertEquals(6, data.get("cult-config-version"));
+        assertEquals(List.of("Simulation", "Phase"), checks(data, "Simulation"));
+        assertEquals(List.of("1:1 [alert]"), group(data, "Simulation").get("commands"));
+    }
+
+    @Test
+    void leavesTheFileAndItsVersionAsTheyWereWhenAPatchWouldBreakIt() throws Exception {
+        // The new Simulation group rewrites the one-line Punishments map, which cannot keep the anchor `other` names.
+        String original = """
+                cult-config-version: 5
+                Punishments: {Custom: {checks: [Reach], commands: &cmds ['1:1 custom']}}
+                other: *cmds
+                """;
+        Path file = write(original);
+        assertThrows(IOException.class, () -> upgrade(file));
+        assertEquals(original, Files.readString(file));
+    }
 
     @Test
     void excludesTheCloudChecksFromAnUnmodifiedDefaultMisc() throws Exception {

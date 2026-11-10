@@ -30,7 +30,6 @@ import ac.cult.cultac.checks.impl.prediction.stage.MovementModifiers;
 import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CollisionModifier;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CollisionModifier.ProbeDimensions;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.PistonShulkerPush;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.StepTransform;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHandler;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
@@ -101,9 +100,8 @@ public final class BedrockMovementEngine implements MovementEngine {
             CultPlayer player,
             Set<Vec3> startingVelocities,
             SimulationContext context,
-            PredictionResult lastPrediction,
-            boolean canTickSkip) {
-        return modifiers.applyBedrockModifiers(player, startingVelocities, context, lastPrediction, canTickSkip);
+            PredictionResult lastPrediction) {
+        return modifiers.applyBedrockModifiers(player, startingVelocities, context, lastPrediction);
     }
 
     public List<PredVector> startingVelocities(

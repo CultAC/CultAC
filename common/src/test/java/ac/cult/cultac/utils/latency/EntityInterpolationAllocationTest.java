@@ -70,7 +70,7 @@ class EntityInterpolationAllocationTest {
         try {
             CompensatedEntities entities = player.compensatedEntities;
             assertSame(entities.getEntity(VEHICLE), entities.selfRidingRoot());
-            Consumer<PacketEntity> onMovement = entity -> entity.onMovement(player, true);
+            Consumer<PacketEntity> onMovement = entity -> entity.onMovement(player);
             boolean stepped = client.version.isNewerThanOrEquals(ClientVersion.V_26_3);
             Runnable entityPass = stepped
                     ? () -> entities.tickClientEntities(onMovement)
@@ -113,7 +113,11 @@ class EntityInterpolationAllocationTest {
             Vec3 base = entity.desyncClientPos;
             if (stepped && entity.isLivingEntity()) {
                 entity.onPositionPath(
-                        EntityPositionPath.linear(new Vec3(base.x + d, base.y, base.z + d)), true, yaw, 0.0F, player);
+                        EntityPositionPath.linear(new Vec3(base.x + d, base.y, base.z + d)),
+                        true,
+                        yaw,
+                        0.0F,
+                        player);
             } else {
                 entity.onBundleTransaction(false, true, base.x + d, base.y, base.z + d, yaw, 0.0F, player);
             }

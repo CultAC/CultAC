@@ -15,14 +15,39 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.FluidFallingAdjustedMovement;
+import ac.cult.cultac.utils.nmsutil.VelocityCandidates;
 
 public class Ladder implements UncertaintyHandler {
     /** The reason of the vector LivingEntity#handleOnClimbable leaves, whose last vector is the one it clamped. */
     public static final String CLAMP_REASON = "ladder";
 
+    /** A late-pass replay already ran the travel's clamp; its later spatial shove is not deltaMovement. */
+    @Override
+    public MovementTrace handleMovementTrace(
+            CultPlayer player,
+            ValidMovements valid,
+            PredictionResult result,
+            SimulationContext context,
+            PredictionResult lastResult,
+            MovementTrace trace,
+            Vec3 end) {
+        var pass = trace.passAfterTravel();
+        if (pass != null) {
+            Vec3 scale = context.getLastStuckSpeed();
+            Vec3 shove = pass.movement().multiply(1 / scale.x, 1 / scale.y, 1 / scale.z);
+            PredVector travel = trace.position().with(trace.position().subtract(shove), "travel before late shove");
+            PredVector clamped =
+                    handleUncertainty(player, valid, result, context, lastResult, travel, end.subtract(shove));
+            // Carry derivation and the source replay clamp the input-inclusive pre-collision velocity themselves.
+            return trace.withPosition(clamped.add(shove, "late shove after climb clamp"));
+        }
+        return UncertaintyHandler.super.handleMovementTrace(player, valid, result, context, lastResult, trace, end);
+    }
+
     @Override
     public boolean skipsContext(CultPlayer player, SimulationContext context, PredictionResult lastResult) {
         boolean previousClimbBoost = lastResult != null
+                && !VelocityCandidates.carriesClimbBoost(lastResult)
                 && lastResult
                         .getSimulationContext()
                         .getWorldData()
@@ -32,7 +57,7 @@ public class Ladder implements UncertaintyHandler {
         return !previousClimbBoost
                 && (!context.getWorldData().getClimbingAtStart().determineOptimistically()
                         || context.usesFallFlyingMovement()
-                        || context.getWorldData().mustBeInLiquid());
+                        || context.getWorldData().isInTravelLiquid());
     }
 
     @Override
@@ -46,6 +71,7 @@ public class Ladder implements UncertaintyHandler {
             Vec3 end) {
         // TODO: Stop people in lava from climbing ladders
         boolean previousClimbBoost = lastResult != null
+                && !VelocityCandidates.carriesClimbBoost(lastResult)
                 && lastResult
                         .getSimulationContext()
                         .getWorldData()
@@ -66,21 +92,18 @@ public class Ladder implements UncertaintyHandler {
                     grav = Math.min(grav, 0.01D);
                 if (!player.compensatedEntities.getEntityInControl().hasGravity) grav = 0;
 
-                // TODO: Handle unknown fluid correctly
                 // AbstractNautilus#travelInWater replaces LivingEntity#travelInWater and its climbing 0.2.
-                if (lastResult
-                                .getSimulationContext()
-                                .getWorldData()
-                                .getInWater()
-                                .determinePessimistically()
-                        && !(lastResult.getSimulationContext().getVehicle() instanceof PacketEntityNautilus)) {
+                if (lastResult.getSimulationContext().getVehicle() instanceof PacketEntityNautilus
+                        && lastResult.getSimulationContext().getWorldData().isInWater()) continue;
+                if (lastResult.getSimulationContext().getWorldData().isInWater()
+                        && !lastResult.getSimulationContext().getWorldData().isCanStandOnStartFluid()) {
                     Vec3 modified = start.withY(0.2D * 0.8F);
                     modified = FluidFallingAdjustedMovement.getFluidFallingAdjustedMovement(
                             player, grav, falling, modified);
                     double carried = afterPacketsThisTick(player, start, modified.y);
                     maximumPossibleY = Math.max(maximumPossibleY, carried);
                     minimumPossibleY = Math.min(minimumPossibleY, carried);
-                } else if (!lastResult.getSimulationContext().getWorldData().mustBeInLiquid()) {
+                } else if (!lastResult.getSimulationContext().getWorldData().isInTravelLiquid()) {
                     double carried = afterPacketsThisTick(player, start, (0.2D - grav) * 0.98F);
                     maximumPossibleY = Math.max(maximumPossibleY, carried);
                     minimumPossibleY = Math.min(minimumPossibleY, carried);
@@ -101,6 +124,12 @@ public class Ladder implements UncertaintyHandler {
         if (clamps == DesyncStatus.FALSE) return start;
 
         Vec3 clamped = handleOnClimbable(player, context, start);
+        if (clamps == DesyncStatus.TRUE && start.getVelocityRange() != null) {
+            // The clamp is per axis and monotonic, so a velocity range maps through it end by end.
+            Vec3 low = handleOnClimbable(player, context, new Vec3(-1.0E9, -1.0E9, -1.0E9));
+            Vec3 high = handleOnClimbable(player, context, new Vec3(1.0E9, 1.0E9, 1.0E9));
+            return start.clamped(low, high, CLAMP_REASON);
+        }
         double clampedX = clamped.x;
         double clampedY = clamped.y;
         double clampedZ = clamped.z;
@@ -137,10 +166,8 @@ public class Ladder implements UncertaintyHandler {
         WorldData world = context.getWorldData();
         if (!world.getClimbingAtStart().determineOptimistically()
                 || context.usesFallFlyingMovement()
-                || world.mustBeInLiquid()) return DesyncStatus.FALSE;
-        return world.getClimbingAtStart().isDesync() || world.maybeInLiquid()
-                ? DesyncStatus.UNKNOWN
-                : DesyncStatus.TRUE;
+                || world.isInTravelLiquid()) return DesyncStatus.FALSE;
+        return world.getClimbingAtStart().isDesync() ? DesyncStatus.UNKNOWN : DesyncStatus.TRUE;
     }
 
     /** LivingEntity#handleOnClimbable's deltaMovement for {@code delta} on a climbable at the start of {@code context}. */

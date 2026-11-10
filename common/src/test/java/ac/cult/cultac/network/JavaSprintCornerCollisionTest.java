@@ -362,38 +362,6 @@ class JavaSprintCornerCollisionTest {
         }
     }
 
-    /**
-     * Keep-sprint into a wall after an accepted tick skip: a zero-flag tick-skip start, or one without a trace, that
-     * reaches the move without the wall leaves the hard collision of the selected start standing.
-     */
-    @Test
-    void aTickSkipOrUntracedStartDoesNotSoftenAHardCollision() throws Exception {
-        try (var f = new JavaTickFixture(ProtocolVersion.V26_3, ClientVersion.V_1_21_11)) {
-            f.input(SPRINT);
-            Vec3 target = new Vec3(-7.248394140333403E-4, -0.046906671964435986, -0.04582122501415142);
-            Vec3 clipped = new Vec3(-0.02082176970108284, -0.46085035948982184, -0.0228242643455535);
-            CollideResult wall = new CollideResult(true, target.x, -1);
-            CollideResult alongZ = new CollideResult(false, target.z);
-            CollideResult free = new CollideResult(false, target.x);
-            List<PredictionResult> realities = new ArrayList<>();
-            PredictionResult selected =
-                    collision(f, -154.49982F, 0.026F, clipped, point(clipped), target, wall, alongZ, realities);
-            PredictionResult tickSkip =
-                    collision(f, -154.49982F, 0.026F, Vec3.ZERO, point(Vec3.ZERO), target, free, alongZ, realities);
-            tickSkip.getInitialStartingVel().setTickSkip(true);
-            PredictionResult untraced =
-                    collision(f, -154.49982F, 0.026F, Vec3.ZERO, point(Vec3.ZERO), target, free, alongZ, realities);
-            doReturn(null).when(untraced.getValidMovements()).getClosestTrace();
-            realities.add(tickSkip);
-            realities.add(untraced);
-            realities.add(selected);
-            assertEquals(DesyncStatus.TRUE, ClientHorizontalCollision.hard(selected));
-
-            tickSkip.getInitialStartingVel().setTickSkip(false);
-            assertEquals(DesyncStatus.FALSE, ClientHorizontalCollision.hard(selected));
-        }
-    }
-
     private static SimpleCollisionBox point(Vec3 start) {
         return new SimpleCollisionBox(start.x, start.y, start.z, start.x, start.y, start.z, false);
     }

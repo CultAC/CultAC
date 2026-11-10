@@ -3,6 +3,7 @@ package ac.cult.cultac.manager.player.setback;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
+import ac.cult.cultac.manager.player.SetbackTeleportUtil.HandledVehicleTeleport;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
@@ -14,6 +15,7 @@ import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.Supplier;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Vehicle teleports and their answers. ClientPacketListener#handleMoveVehicle answers a move_vehicle for the vehicle
@@ -88,8 +90,30 @@ public final class VehicleTeleportTracker {
             }
 
             Vec3 position = teleportPos.position();
+            VehicleTeleportData state = teleportPos.state();
+            if (teleportPos.handled() != null) {
+                // A response comes from the handler, before any later tick; a tick move follows the proof that
+                // resolved it.
+                state = teleportPos.handled().state(!tickMove);
+                position = state == null ? null : state.getPosition();
+            }
+            boolean correction =
+                    state != null && state.getApplication() != VehicleTeleportData.Application.ENTITY_TELEPORT;
+            if (correction) {
+                var root = player.compensatedEntities.getEntity(teleportPos.vehicleId());
+                Vec3 serialized = root == null
+                        ? null
+                        : root.newPacketLocation != null && root.newPacketLocation.hasActiveInterpolationTarget()
+                                ? root.newPacketLocation.targetPosition()
+                                : root.clientPhysicalPosition;
+                // Receipt can follow more client ticks than send. handleMoveVehicle compares the target it has NOW.
+                boolean snaps = serialized == null || state.getPosition().distanceTo(serialized) > (double) 1.0E-5F;
+                position = snaps ? state.getPosition() : serialized;
+                state = VehicleTeleportData.correction(
+                        state.getEntityId(), state.getPosition(), state.getYaw(), state.getPitch(), snaps);
+            }
 
-            if (reissue.isDebug()) {
+            if (reissue.isDebug() && position != null) {
                 LogUtil.info("Vehicle queue: id: " + teleportPos.vehicleId() + " pt: " + teleportPos.transaction()
                         + " lt: " + lastTransaction + " | x=" + (position.x - x) + " y=" + (position.y - y) + " z="
                         + (position.z - z));
@@ -104,13 +128,14 @@ public final class VehicleTeleportTracker {
                 break;
             }
 
-            if (matchesVehicleTeleportPosition(position, x, y, z, teleportPos.responseDistanceTolerance())) {
+            if (position != null
+                    && matchesVehicleTeleportPosition(position, x, y, z, teleportPos.responseDistanceTolerance())) {
                 if (!tickMove) {
                     final VehicleTeleport matchedEntry = vehicleTeleports.poll();
-                    return completeVehicleTeleport(teleportPos);
+                    return completeVehicleTeleport(teleportPos, position, state);
                 }
                 // A ticking boat interpolates onto a TELEPORT_ENTITY target and the client sends no response for it.
-                if (teleportPos.state() != null
+                if (state != null
                         && !isRequiredSetbackVehicleTeleport(teleportPos)
                         && lastTransaction >= teleportPos.transaction()) {
                     vehicleTeleports.poll();
@@ -123,7 +148,7 @@ public final class VehicleTeleportTracker {
             // match above is proof; otherwise wait for transaction ordering.
             if (lastTransaction < teleportPos.transaction()) {
                 break;
-            } else if (lastTransaction > teleportPos.transaction() + 1) {
+            } else if (lastTransaction > teleportPos.transaction() + 1 || correction) {
                 boolean ignoredRequiredSetbackVehicleTeleport = isRequiredSetbackVehicleTeleport(teleportPos);
                 final VehicleTeleport ignoredEntry = vehicleTeleports.poll();
 
@@ -144,9 +169,13 @@ public final class VehicleTeleportTracker {
     }
 
     private TeleportAcceptData completeVehicleTeleport(VehicleTeleport teleport) {
+        return completeVehicleTeleport(teleport, teleport.position(), teleport.state());
+    }
+
+    private TeleportAcceptData completeVehicleTeleport(
+            VehicleTeleport teleport, Vec3 position, VehicleTeleportData state) {
         TeleportAcceptData accepted = new TeleportAcceptData();
-        TeleportData data =
-                new TeleportData(teleport.position(), new RelativeFlag(0), player.lastTransactionReceived.get(), 0);
+        TeleportData data = new TeleportData(position, new RelativeFlag(0), player.lastTransactionReceived.get(), 0);
         if (reissue.isDebug()) {
             LogUtil.info("Vehicle queue accepted (size: " + vehicleTeleports.size() + ")");
         }
@@ -160,7 +189,8 @@ public final class VehicleTeleportTracker {
             data = required.getTeleportData();
         }
         accepted.setTeleportData(data);
-        accepted.setVehicleTeleportData(teleport.state());
+        accepted.setVehicleTeleportData(state);
+        accepted.setVehicleTeleportId(teleport.vehicleId());
         accepted.setTeleport(true);
         return accepted;
     }
@@ -233,11 +263,16 @@ public final class VehicleTeleportTracker {
             responseDistanceTolerance = 0.0D;
         }
         vehicleTeleports.add(
-                new VehicleTeleport(vehicleId, transaction, position, state, responseDistanceTolerance, false));
+                new VehicleTeleport(vehicleId, transaction, position, state, responseDistanceTolerance, false, null));
+    }
+
+    /** A teleport of {@code vehicleId} whose target the client fixes only when it handles it. */
+    public void addVehicleTeleport(int vehicleId, int transaction, HandledVehicleTeleport teleport) {
+        vehicleTeleports.add(new VehicleTeleport(vehicleId, transaction, null, null, 0.0D, false, teleport));
     }
 
     public void addBedrockVehicleTeleport(int vehicleId, int transaction, Vec3 position) {
-        vehicleTeleports.add(new VehicleTeleport(vehicleId, transaction, position, null, 0.0D, true));
+        vehicleTeleports.add(new VehicleTeleport(vehicleId, transaction, position, null, 0.0D, true, null));
     }
 
     /** Receipt alone cannot complete a rewind. Called only after movement from the corrected state passes. */
@@ -260,6 +295,13 @@ public final class VehicleTeleportTracker {
         return required == null
                 || required.isComplete()
                 || required.getTeleportData().getTransaction() != correction.teleportTransaction();
+    }
+
+    /** A trailing passenger proof follows every correction response in that mount/dismount sequence. */
+    public void retireVehicleTeleports(int transaction) {
+        vehicleTeleports.removeIf(teleport -> !teleport.rewind()
+                && teleport.transaction() <= transaction
+                && !isRequiredSetbackVehicleTeleport(teleport));
     }
 
     public void clearVehicleTeleports() {
@@ -328,7 +370,8 @@ public final class VehicleTeleportTracker {
             Vec3 position,
             VehicleTeleportData state,
             double responseDistanceTolerance,
-            boolean rewind) {}
+            boolean rewind,
+            @Nullable HandledVehicleTeleport handled) {}
 
     public boolean hasUnacknowledgedSetbackVehicleTeleport() {
         SetBackData required = corrections.required();

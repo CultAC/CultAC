@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.cultac.checks.impl.badpackets.BadPacketsH;
 import ac.cult.cultac.checks.impl.visibility.BreakVisibility;
 import ac.cult.cultac.checks.impl.visibility.PlaceVisibility;
 import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
@@ -151,6 +152,21 @@ class VisibilityRejectionRollbackTest {
                             .pendingPredictionSnapshot()
                             .getFirst()
                             .sequence());
+        }
+    }
+
+    @Test
+    void aSequenceIdSpentOnARejectedPlaceIsNotReportedSkipped() throws Exception {
+        try (var setup = new Setup()) {
+            setup.player.setExperimentalChecks(true);
+            BadPacketsH sequences = setup.player.checkManager.getCheck(BadPacketsH.class);
+            sequences.setEnabled(true);
+            setup.held("stone", 3);
+            setup.reject(place(TARGET, Direction.NORTH, 1));
+            setup.confirm(setup.output());
+            setup.block(new BlockPos(2, 63, 0), "stone");
+            setup.fixture.forward(setup.encode(place(new BlockPos(2, 63, 0), Direction.UP, 2)));
+            assertEquals(0, sequences.violations);
         }
     }
 

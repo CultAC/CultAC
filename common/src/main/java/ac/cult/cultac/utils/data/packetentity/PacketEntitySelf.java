@@ -3,15 +3,16 @@ package ac.cult.cultac.utils.data.packetentity;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.sprint.SprintD;
 import ac.cult.cultac.network.packet.EntityPositionPath;
-import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.AttributeModifier;
 import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ClientAttributeInstance;
+import ac.cult.cultac.utils.data.ClientFrost;
+import ac.cult.cultac.utils.data.MainSupportingBlockData;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
-import java.util.ArrayList;
+import ac.cult.cultac.utils.math.Vec3;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -35,13 +36,49 @@ public class PacketEntitySelf extends PacketEntity {
     @Setter
     int opLevel;
 
+    // LivingEntity's constructor sets DATA_HEALTH_ID to getMaxHealth(), a new player's default max_health of 20.
     @Getter
-    double health;
+    double health = 20.0D;
 
     public void setHealth(double health) {
         this.health = health;
         // SET_HEALTH and entity metadata both write LivingEntity's DATA_HEALTH_ID on the client.
         this.actionAlive = health > 0.0D;
+    }
+
+    /**
+     * ClientPacketListener#handleRespawn with KEEP_ENTITY_DATA gives the new LocalPlayer the old one's non-default
+     * synched data, in every supported release. LivingEntity defines DATA_HEALTH_ID as 1.0F, so any other health,
+     * a dead player's included, carries over with the death isDead tracks; at exactly 1.0F the new player keeps its
+     * max health. It is still a new LocalPlayer: its LivingEntity#deathTime counts from 0 and it is in the level.
+     */
+    public void keepEntityDataFrom(PacketEntitySelf old) {
+        if (Float.compare((float) old.health, 1.0F) == 0) return;
+        setHealth(old.health);
+        isDead = old.isDead;
+    }
+
+    // LivingEntity#deathTime: the client ticks LivingEntity#baseTick has run LocalPlayer#tickDeath in.
+    private int deathTime;
+    private boolean removedFromLevel;
+
+    /**
+     * LivingEntity#baseTick's tickDeath for one LocalPlayer#tick. It runs while LivingEntity#isDeadOrDying, which on
+     * the client is a player's health at most 0, and ClientLevel#shouldTickDeath, which the player's own chunk always
+     * passes at distance 0. LocalPlayer#tickDeath removes the player on its 20th dead tick, before LivingEntity#tick
+     * reaches aiStep. Health above 0 pauses the count without resetting it; only a new LocalPlayer starts over.
+     */
+    public void tickDeath() {
+        if (actionAlive || removedFromLevel) return;
+        if (++deathTime == 20) removedFromLevel = true;
+    }
+
+    /**
+     * Whether LocalPlayer#tickDeath removed this player. ClientLevel#tickEntities skips a removed entity and
+     * Minecraft#tick runs no LocalPlayer#sendChanges for it, so it neither travels nor sends movement again.
+     */
+    public boolean isRemovedFromLevel() {
+        return removedFromLevel;
     }
 
     // Player#blockInteractionRange and #entityInteractionRange read these attributes. Only server
@@ -121,19 +158,19 @@ public class PacketEntitySelf extends PacketEntity {
             default -> null;
         };
         if (instance == null) return;
-        instance.onServerSnapshot(instance == movementSpeedAttribute ? withoutClientFrost(snapshot) : snapshot);
+        instance.onServerSnapshot(snapshot);
         refreshAttributeValues();
     }
 
     /**
-     * LivingEntity#aiStep runs removeFrost and tryAddFrost only on the server since 1.21.5, so the client moves with
-     * the server's minecraft:powder_snow modifier. Older clients replace it every tick with their own.
+     * {@link ClientFrost} after travel, for the clients that run it. The synchronized frozen count is not advanced
+     * locally. Attribute packets can replace this modifier again before the next travel; from 1.21.5 only those
+     * packets change frost on the client.
      */
-    private AttributeSnapshot withoutClientFrost(AttributeSnapshot snapshot) {
-        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5)) return snapshot;
-        List<AttributeModifier> kept = new ArrayList<>(snapshot.modifiers());
-        kept.removeIf(modifier -> modifier.id().equals(CompensatedEntities.SNOW_MODIFIER_ID));
-        return new AttributeSnapshot(snapshot.attribute(), snapshot.base(), kept);
+    public void updateClientFrost(Vec3 position, MainSupportingBlockData supportingBlock) {
+        if (!ClientFrost.replacedAfterTravel(player)) return;
+        ClientFrost.replace(player, movementSpeedAttribute, player.powderSnowFrozenTicks, position, supportingBlock);
+        playerSpeed = movementSpeedAttribute.value();
     }
 
     /** movement_speed with {@code sprinting} as its minecraft:sprinting modifier; {@link #playerSpeed} has none. */
@@ -236,7 +273,8 @@ public class PacketEntitySelf extends PacketEntity {
             movementEfficiencyAttribute.clearModifiers();
             waterMovementEfficiencyAttribute.clearModifiers();
             refreshAttributeValues();
-            if (scale != keptScale) player.refreshPlayerPose();
+            // AttributeMap#assignBaseValues refreshes dimensions for the current pose; it does not choose another.
+            if (scale != keptScale) player.refreshPlayerPose(player.pose);
         }
     }
 

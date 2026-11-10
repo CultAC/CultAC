@@ -77,7 +77,9 @@ public class CompensatedCooldown extends CultProcessor implements PositionListen
             possible.put(group, new CooldownData(ticks, player.lastTransactionReceived.get()));
     }
 
-    public void clearPossibleCooldowns() {
+    /** Player#cooldowns belongs to the player entity: every new LocalPlayer starts with empty ItemCooldowns. */
+    public void clearForNewLocalPlayer() {
+        cooldowns.clear();
         possible.clear();
     }
 

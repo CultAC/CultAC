@@ -134,7 +134,7 @@ class JavaNautilusDashReleaseTest {
         f.setPassengers(VEHICLE, List.of(f.player.entityID));
         f.pongThrough(f.player.lastTransactionSent.get());
         f.input(IDLE);
-        f.player.boatData.useNextInputForBoatTick();
+        f.player.boatData.useNextInputForVehicleTick();
         f.player.checkManager.getSimulationProcessor().seedStartingVelocity(Vec3.ZERO);
         return f;
     }

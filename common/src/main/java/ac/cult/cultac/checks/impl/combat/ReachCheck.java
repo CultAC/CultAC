@@ -565,7 +565,8 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
 
     private List<Vec3> getMountedPacketDerivedOrigins(PacketEntity self, PacketEntity riding) {
         List<Vec3> candidates = new ArrayList<>();
-        for (SimpleCollisionBox vehicleBox : riding.getPossibleMovementCollisionBoxCandidates()) {
+        // Entity#positionRider seats from the vehicle's position, not a shell a shulker's peek opened.
+        for (SimpleCollisionBox vehicleBox : riding.getPositionCollisionBoxCandidates()) {
             candidates.add(BoundingBoxSize.getRidingOffsetFromVehicle(riding, self, player, vehicleBox));
         }
         if (candidates.isEmpty()) {
@@ -586,7 +587,10 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
                 isPrediction);
     }
 
-    /** {@code reachEntity}'s lag-compensated box as the client's pick sees it. */
+    /**
+     * {@code reachEntity}'s lag-compensated box as the client's pick sees it. An end crystal's is its 2 by 2 type box,
+     * which a crystal riding another entity holds at the seat Entity#positionRider gives it, not at its last packet.
+     */
     public SimpleCollisionBox getReachBox(PacketEntity reachEntity) {
         SimpleCollisionBox box = getTargetBox(reachEntity);
         if (player.isBedrockMovement()) box.expand(BEDROCK_PICK_MARGIN);
@@ -608,11 +612,6 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
     }
 
     private SimpleCollisionBox getTargetBox(PacketEntity reachEntity) {
-        if (reachEntity.type == EntityTypeIds.END_CRYSTAL && !player.isBedrockMovement()) { // Hardcode end crystal box
-            return new SimpleCollisionBox(
-                    reachEntity.desyncClientPos.subtract(1, 0, 1), reachEntity.desyncClientPos.add(1, 2, 1));
-        }
-
         // For a Bedrock client Cult models float positions and the range of positions a pending move spans; the
         // packet-position margin covers neither.
         SimpleCollisionBox movementBox = reachEntity.toBoundingBox(
@@ -641,8 +640,8 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
             double width = reachEntity.leastPoseWidth();
             return new Vec3(width, reachEntity.leastPoseHeight(), width);
         }
-        // BoundingBoxSize scales linearly; the camel's sitting, the goat's long jump and the warden's digging and
-        // emerging poses still take the standing size.
+        // BoundingBoxSize scales linearly and sizes a sitting camel by its pose; the goat's long jump and the warden's
+        // digging and emerging poses still take the standing size.
         double least = reachEntity.leastScale() / reachEntity.scale;
         double width = least
                 * Math.max(
@@ -1207,8 +1206,7 @@ public abstract class ReachCheck extends Check implements CheckListener, ClientT
 
         if (entity.type == EntityTypeIds.ARMOR_STAND) return false;
 
-        // Riders outside the local player's own riding tree have no simulated position.
-        if (player.compensatedEntities.isUntrackedRider(entity)) return false;
+        if (player.isBedrockMovement() && player.compensatedEntities.isUntrackedRider(entity)) return false;
 
         return player.gamemode != GameMode.SPECTATOR;
     }

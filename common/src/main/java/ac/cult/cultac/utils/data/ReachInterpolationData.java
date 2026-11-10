@@ -145,7 +145,17 @@ public class ReachInterpolationData {
             float targetYaw,
             float targetPitch,
             PacketEntity entity) {
-        this(startingLocation.copy(), player, x, y, z, currentYaw, currentPitch, targetYaw, targetPitch, entity);
+        this(
+                startingLocation.copy(),
+                player,
+                x,
+                y,
+                z,
+                currentYaw,
+                currentPitch,
+                targetYaw,
+                targetPitch,
+                entity);
     }
 
     /** The constructor without its defensive copy: the result owns {@code startingLocation}. */
@@ -161,7 +171,16 @@ public class ReachInterpolationData {
             float targetPitch,
             PacketEntity entity) {
         return new ReachInterpolationData(
-                startingLocation, player, x, y, z, currentYaw, currentPitch, targetYaw, targetPitch, entity);
+                startingLocation,
+                player,
+                x,
+                y,
+                z,
+                currentYaw,
+                currentPitch,
+                targetYaw,
+                targetPitch,
+                entity);
     }
 
     private ReachInterpolationData(
@@ -257,12 +276,7 @@ public class ReachInterpolationData {
         this.startingLocation = startingLocation;
         this.heldStep = -1;
         this.targetLocation = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                target,
-                x,
-                y,
-                z,
-                BoundingBoxSize.getWidth(player, entity),
-                BoundingBoxSize.getHeight(player, entity));
+                target, x, y, z, BoundingBoxSize.getWidth(player, entity), BoundingBoxSize.getHeight(player, entity));
         this.targetFeetKnown = true;
         this.targetFeetX = x;
         this.targetFeetY = y;
@@ -295,6 +309,26 @@ public class ReachInterpolationData {
     /** Whether this follows the 26.3 client's InterpolationHandler, which Entity#commonTick runs for every entity. */
     public boolean followsInterpolationHandler() {
         return interpolationPlayer != null;
+    }
+
+    /**
+     * Entity#recreateFromPacket places a newly constructed entity without starting a lerp. From 26.3,
+     * LivingEntity#recreateFromPacket absSnapTo's the spawn position, and the new SteppedInterpolationHandler has no
+     * steps and a zero target. The spawn box need not rebuild the spawn position bit for bit, so the path the
+     * constructor may have started from it is dropped and the handler holds the exact spawn position.
+     */
+    public void finishInitialPlacement() {
+        boundsValid = false;
+        if (interpolationQueue != null) {
+            // Nothing has moved the target since the constructor built it from the spawn position.
+            steppedCurrent =
+                    lastStep = new Transform(new Vec3(targetFeetX, targetFeetY, targetFeetZ), targetYaw, targetPitch);
+            steppedTarget = new Transform(Vec3.ZERO, 0.0F, 0.0F);
+            currentStepTicks = 0.0F;
+            cancelSteppedInterpolation();
+            return;
+        }
+        interpolationStepsLowBound = interpolationStepsHighBound = getInterpolationSteps();
     }
 
     public boolean usesSteppedInterpolation() {
@@ -558,6 +592,9 @@ public class ReachInterpolationData {
         // A Bedrock client lerps every actor over 3 ticks. From 26.51 the move's own tick count can raise that, which
         // Geyser never sets.
         if (player.isBedrockMovement()) return 3;
+        if (!player.isBedrockMovement()
+                && entity.type == EntityTypeIds.FISHING_BOBBER
+                && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_6)) return 3;
         if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11)) {
             // ExperienceOrb's handler takes the default 3 steps.
             if (entity.type == EntityTypeIds.EXPERIENCE_ORB) return 3;
@@ -574,8 +611,11 @@ public class ReachInterpolationData {
         if (EntityTypeUtil.isMinecart(entity.type)) {
             // Without FeatureFlags.MINECART_IMPROVEMENTS, AbstractMinecart uses
             // OldMinecartBehavior, whose InterpolationHandler is constructed with
-            // the default 3 client ticks.
-            return 3;
+            // the default 3 client ticks. Through 1.21.4 its lerpTo (AbstractMinecart#lerpTo before 1.21.2) runs
+            // the packet's 3 steps plus 2.
+            return !player.isBedrockMovement() && player.getClientVersion().isOlderThan(ClientVersion.V_1_21_5)
+                    ? 5
+                    : 3;
         }
         if (entity.type == EntityTypeIds.SHULKER) {
             return 1;
@@ -781,7 +821,7 @@ public class ReachInterpolationData {
     }
 
     /**
-     * Writes into {@code out} the location {@link #copyAdvancedForClientTick copyAdvancedForClientTick(true, true)}
+     * Writes into {@code out} the location {@link #copyAdvancedForClientTick copyAdvancedForClientTick(true)}
      * would report. Call only when {@link #hasExactMovementLocationAfterClientTick()}.
      */
     public SimpleCollisionBox exactMovementLocationAfterClientTick(SimpleCollisionBox out) {
@@ -812,13 +852,10 @@ public class ReachInterpolationData {
      */
     public Vec3 exactPositionAfterClientTickFromPhysical(Vec3 physical) {
         double lerpAmount = 1.0D / (getInterpolationSteps() - interpolationStepsLowBound);
-        double targetX = targetFeetKnown ? targetFeetX : targetCenterX();
-        double targetY = targetFeetKnown ? targetFeetY : targetMinY();
-        double targetZ = targetFeetKnown ? targetFeetZ : targetCenterZ();
         return new Vec3(
-                lerp(physical.x, targetX, lerpAmount),
-                lerp(physical.y, targetY, lerpAmount),
-                lerp(physical.z, targetZ, lerpAmount));
+                lerp(physical.x, targetCenterX(), lerpAmount),
+                lerp(physical.y, targetMinY(), lerpAmount),
+                lerp(physical.z, targetCenterZ(), lerpAmount));
     }
 
     public SimpleCollisionBox getExactMovementLocation() {
@@ -868,21 +905,24 @@ public class ReachInterpolationData {
         return getInterpolationSteps() - interpolationStepsLowBound;
     }
 
-    /** The feet position of the target location, as computed from {@link #getTargetLocation()}. */
+    /**
+     * InterpolationHandler#position while the target is active: the packet position itself, kept exact while known,
+     * since the centre of {@link #getTargetLocation()} need not rebuild it bit for bit.
+     */
     public Vec3 targetPosition() {
         return new Vec3(targetCenterX(), targetMinY(), targetCenterZ());
     }
 
     public double targetCenterX() {
-        return (targetLocation.maxX - targetLocation.minX) / 2.0D + targetLocation.minX;
+        return targetFeetKnown ? targetFeetX : (targetLocation.maxX - targetLocation.minX) / 2.0D + targetLocation.minX;
     }
 
     public double targetMinY() {
-        return targetLocation.minY;
+        return targetFeetKnown ? targetFeetY : targetLocation.minY;
     }
 
     public double targetCenterZ() {
-        return (targetLocation.maxZ - targetLocation.minZ) / 2.0D + targetLocation.minZ;
+        return targetFeetKnown ? targetFeetZ : (targetLocation.maxZ - targetLocation.minZ) / 2.0D + targetLocation.minZ;
     }
 
     public float getCurrentYaw() {
@@ -1033,7 +1073,25 @@ public class ReachInterpolationData {
         }
     }
 
+    /** 26.3 AbstractInterpolationHandler#applyPredictedMovement: target collision gates only the path shift. */
+    public void applyPredictedMovement(CultPlayer player, PacketEntity entity, Vec3 movement) {
+        applyPredictedMovement(player, entity, movement, entity.clientPhysicalPosition);
+    }
+
+    public void applyPredictedMovement(CultPlayer player, PacketEntity entity, Vec3 movement, Vec3 physicalPosition) {
+        SimpleCollisionBox previous = getExactMovementLocation();
+        shiftRootVehicleTargetIfCollisionFree(player, entity, movement, physicalPosition);
+        // lastPositionAndRotation always receives the mover's delta, even when its target is blocked.
+        // Keep ordinary travel outside this update so interpolate can carry that travel next tick.
+        if (previous != null) setExactMovementLocation(previous.offset(movement));
+    }
+
     public void shiftRootVehicleTargetIfCollisionFree(CultPlayer player, PacketEntity entity, Vec3 movement) {
+        shiftRootVehicleTargetIfCollisionFree(player, entity, movement, entity.clientPhysicalPosition);
+    }
+
+    private void shiftRootVehicleTargetIfCollisionFree(
+            CultPlayer player, PacketEntity entity, Vec3 movement, Vec3 physicalPosition) {
         settled = false;
         if (movement.lengthSqr() == 0.0D) {
             return;
@@ -1044,7 +1102,7 @@ public class ReachInterpolationData {
                 targetLocation.minY,
                 (targetLocation.minZ + targetLocation.maxZ) / 2.0D);
         if (RootVehicleInterpolationCollision.shouldShiftRootInterpolationTarget(
-                player, entity, targetPosition, movement)) {
+                player, entity, targetPosition, movement, physicalPosition)) {
             boundsValid = false;
             targetLocation.offset(movement);
             if (targetFeetKnown) {
@@ -1188,9 +1246,9 @@ public class ReachInterpolationData {
         return unchanged;
     }
 
-    public ReachInterpolationData copyAdvancedForClientTick(boolean incrementLowBound, boolean tickingReliably) {
+    public ReachInterpolationData copyAdvancedForClientTick(boolean incrementLowBound) {
         ReachInterpolationData copy = new ReachInterpolationData(this);
-        copy.tickMovement(incrementLowBound, tickingReliably);
+        copy.tickMovement(incrementLowBound);
         return copy;
     }
 
@@ -1254,7 +1312,8 @@ public class ReachInterpolationData {
         return true;
     }
 
-    public void tickMovement(boolean incrementLowBound, boolean tickingReliably) {
+    /** One client tick: CLIENT_TICK_END proves each tick of every supported Java client. */
+    public void tickMovement(boolean incrementLowBound) {
         settled = false;
         boundsValid = false;
         if (interpolationQueue != null) {
@@ -1264,7 +1323,6 @@ public class ReachInterpolationData {
             currentPitch = transform.pitch();
             return;
         }
-        if (!tickingReliably) this.interpolationStepsHighBound = getInterpolationSteps();
         if (incrementLowBound)
             this.interpolationStepsLowBound = Math.min(interpolationStepsLowBound + 1, getInterpolationSteps());
         this.interpolationStepsHighBound = Math.min(interpolationStepsHighBound + 1, getInterpolationSteps());

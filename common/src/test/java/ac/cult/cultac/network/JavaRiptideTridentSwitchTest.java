@@ -3,7 +3,7 @@ package ac.cult.cultac.network;
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
@@ -11,42 +11,45 @@ import ac.cult.blocksim.data.nbt.CanonicalSnbt;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.events.packets.listeners.PacketPlayerDigging;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSetCarriedItem;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.value.BlockPos;
-import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.Hand;
-import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.inventory.Inventory;
 import ac.cult.cultac.utils.math.VanillaMath;
 import ac.cult.cultac.utils.math.Vec3;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * A riptide trident charged in shallow water, then the hotbar switched before the release on the ground.
  * LivingEntity#updatingUsingItem keeps the use on another trident and moves it to the held stack in the entity tick,
  * after Minecraft#handleKeybinds; from 1.21.5 LivingEntity#releaseUsingItem moves it there first.
+ *
+ * <p>A hotbar key in Minecraft#handleKeybinds and a scroll back before the next tick's MultiPlayerGameMode#tick leave
+ * the slot that tick's entity tick held unreported, so through 1.21.4 the release may spin with any trident the hotbar
+ * held then. MultiPlayerGameMode#releaseUsingItem reports the selection before the release, which proves the slot the
+ * release reads from 1.21.5.
  */
 class JavaRiptideTridentSwitchTest {
     private static final ServerboundPlayerInput NONE =
             new ServerboundPlayerInput(false, false, false, false, false, false, false);
     static final Vec3 SHALLOWS = new Vec3(0.5, FLOOR_Y, 0.5);
-    /** LivingEntity#travelInFluid's gravity on a player resting on the floor of the water. */
+    /**
+     * LivingEntity#travelInWater's gravity on a player resting on the floor of the water. It moves before it applies
+     * the gravity, so a player that stays on the floor ends each tick at {@link #SHALLOWS} with this velocity.
+     */
     static final Vec3 SETTLED = new Vec3(0, -0.005, 0);
 
     private static final float LIFT = 1.1999999F;
     private static final float PITCH = -10.0F;
 
+    /** Through 1.21.4 the previous entity tick may have bound either trident; from 1.21.5 the release reads slot 1. */
     @ParameterizedTest
-    @CsvSource({"V_1_21_4, 1, true", "V_1_21_4, 3, false", "V_26_3, 1, true", "V_26_3, 3, false"})
+    @CsvSource({"V_1_21_4, 1, true", "V_1_21_4, 3, true", "V_26_3, 1, true", "V_26_3, 3, false"})
     void aSwitchBeforeTheReleaseTickSpinsAtTheHeldTridentsLevel(ClientVersion version, int level, boolean exact)
             throws Exception {
         try (var f = new JavaTickFixture(ProtocolVersion.V26_3, version)) {
@@ -75,24 +78,27 @@ class JavaRiptideTridentSwitchTest {
             charge(f, trident(3), trident(1));
             select(f, 1);
             release(f);
-            PredictionResult result = level == 0 ? f.tick(SHALLOWS.add(SETTLED), true) : f.tick(lifted(level), false);
+            PredictionResult result = level == 0 ? f.tick(SHALLOWS, true) : f.tick(lifted(level), false);
             assertTrue(exact(result) == exact, describe(result));
         }
     }
 
+    /**
+     * The tick on the stick would end the use in LivingEntity#updatingUsingItem, so a release after it proves the
+     * client held the trident then. Through 1.21.4 that trident spins; from 1.21.5 the release reads the stick.
+     */
     @ParameterizedTest
-    @EnumSource(
-            value = ClientVersion.class,
-            names = {"V_1_21_4", "V_26_3"})
-    void aSwitchToAnotherItemBeforeTheReleaseTickStopsTheUse(ClientVersion version) throws Exception {
+    @CsvSource({"V_1_21_4, 3", "V_26_3, 0"})
+    void aSwitchToAnotherItemBeforeTheReleaseTickReleasesTheKeptTrident(ClientVersion version, int level)
+            throws Exception {
         try (var f = new JavaTickFixture(ProtocolVersion.V26_3, version)) {
             charge(f, trident(3), stick());
             select(f, 1);
             f.tick(SHALLOWS, true);
             release(f);
-            PredictionResult result = f.tick(SHALLOWS.add(SETTLED), true);
+            PredictionResult result = level == 0 ? f.tick(SHALLOWS, true) : f.tick(lifted(level), false);
             assertTrue(exact(result), describe(result));
-            assertFalse(f.player.riptideSpinCertain, "the release spins");
+            assertEquals(level > 0, f.player.riptideSpinCertain, "whether the release certainly spins");
         }
     }
 
@@ -104,7 +110,7 @@ class JavaRiptideTridentSwitchTest {
             charge(f, trident(3), stick());
             select(f, 1);
             release(f);
-            PredictionResult result = level == 0 ? f.tick(SHALLOWS.add(SETTLED), true) : f.tick(lifted(level), false);
+            PredictionResult result = level == 0 ? f.tick(SHALLOWS, true) : f.tick(lifted(level), false);
             assertTrue(exact(result) == exact, describe(result));
         }
     }
@@ -124,8 +130,12 @@ class JavaRiptideTridentSwitchTest {
         }
     }
 
+    /**
+     * Through 1.21.4 the previous entity tick may have held slot 2: key 3 in its Minecraft#handleKeybinds, then a scroll
+     * to slot 1 that this tick's MultiPlayerGameMode#tick reports before key 3 again.
+     */
     @ParameterizedTest
-    @CsvSource({"V_1_21_4, 1, true", "V_1_21_4, 3, false", "V_26_3, 3, true", "V_26_3, 1, false"})
+    @CsvSource({"V_1_21_4, 1, true", "V_1_21_4, 3, true", "V_26_3, 3, true", "V_26_3, 1, false"})
     void aSwitchPastAnotherItemInTheReleaseTickSpinsAtTheLevelTheClientReleases(
             ClientVersion version, int level, boolean exact) throws Exception {
         try (var f = new JavaTickFixture(ProtocolVersion.V26_3, version)) {
@@ -149,7 +159,7 @@ class JavaRiptideTridentSwitchTest {
             f.tick(SHALLOWS, true);
             select(f, 0);
             release(f);
-            PredictionResult result = level == 0 ? f.tick(SHALLOWS.add(SETTLED), true) : f.tick(lifted(level), false);
+            PredictionResult result = level == 0 ? f.tick(SHALLOWS, true) : f.tick(lifted(level), false);
             assertTrue(exact(result) == exact, describe(result));
         }
     }
@@ -177,8 +187,7 @@ class JavaRiptideTridentSwitchTest {
         for (int slot = 0; slot < hotbar.length; slot++) storage.setItem(Inventory.HOTBAR_OFFSET + slot, hotbar[slot]);
         f.place(SHALLOWS, SETTLED);
         f.input(NONE);
-        var use = new ServerboundUseItem(hand, 1, 0, PITCH);
-        new PacketPlayerDigging().onUseItem(f.event(ServerboundPackets.USE_ITEM, use), f.player, use);
+        f.useItem(hand, 0, PITCH);
         hold(f, ticks);
     }
 
@@ -193,13 +202,11 @@ class JavaRiptideTridentSwitchTest {
         var packet = new ServerboundSetCarriedItem(slot);
         var event = f.event(ServerboundPackets.SET_CARRIED_ITEM, packet);
         f.player.getInventory().onSetCarriedItem(event, f.player, packet);
-        new PacketPlayerDigging().onSetCarriedItem(event, f.player, packet);
+        f.selectHotbarSlot(slot);
     }
 
     static void release(JavaTickFixture f) {
-        var release =
-                new ServerboundPlayerAction(PlayerAction.RELEASE_USE_ITEM, new BlockPos(0, 0, 0), Direction.DOWN, 0);
-        new PacketPlayerDigging().onPlayerAction(f.event(ServerboundPackets.PLAYER_ACTION, release), f.player, release);
+        f.releaseUsingItem();
     }
 
     /** The release tick's position: TridentItem#releaseUsing's push at {@code level}, then its lift. */

@@ -1,6 +1,8 @@
 package ac.cult.cultac.utils.data.packetentity;
 
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -20,6 +22,9 @@ public class PacketEntityPolarBear extends PacketEntity {
     private Map<Integer, Integer> states = new HashMap<>(Map.of(0, 0));
     // The largest clientSideStandAnimation the bounding box may have been made at.
     private int standAnimation;
+    // The standAnimation before the refresh of client tick refreshedAt, which that tick's push still met.
+    private int pushStandAnimation;
+    private int refreshedAt = Integer.MIN_VALUE;
     private boolean atRest = true;
 
     public PacketEntityPolarBear(CultPlayer player, int entityId, int type, double x, double y, double z) {
@@ -57,9 +62,9 @@ public class PacketEntityPolarBear extends PacketEntity {
     }
 
     @Override
-    public void onMovement(CultPlayer player, boolean tickingReliably) {
+    public void onMovement(CultPlayer player) {
         if (!player.isBedrockMovement()) tickStand();
-        super.onMovement(player, tickingReliably);
+        super.onMovement(player);
     }
 
     /**
@@ -68,7 +73,7 @@ public class PacketEntityPolarBear extends PacketEntity {
      * DATA_STANDING_ID, or toward any later one the client handles before the step.
      */
     private void tickStand() {
-        if (atRest || !ticksOnClient(player)) return;
+        if (atRest || !player.compensatedEntities.ticksInClientTick(this)) return;
         Map<Integer, Integer> next = new HashMap<>();
         List<Map.Entry<Integer, Integer>> latestFirst = new ArrayList<>(states.entrySet());
         latestFirst.sort(Map.Entry.comparingByValue(Comparator.reverseOrder()));
@@ -90,7 +95,19 @@ public class PacketEntityPolarBear extends PacketEntity {
         int box = 0;
         for (int state : states.keySet()) box = Math.max(box, state / 7);
         if (box == standAnimation) return;
+        pushStandAnimation = standAnimation;
+        refreshedAt = player.packetStateData.acceptedClientTick;
         standAnimation = box;
         refreshDimensions(player);
+    }
+
+    /**
+     * Gives {@code box}, this bear's bounding box, the height its LivingEntity#pushEntities pushes from: PolarBear#tick
+     * refreshes the dimensions after super.tick(), so a push in the client tick of a refresh meets the box before it.
+     */
+    public SimpleCollisionBox toPushBox(CultPlayer player, SimpleCollisionBox box) {
+        if (refreshedAt == player.packetStateData.acceptedClientTick && !player.isBedrockMovement())
+            box.maxY = box.minY + BoundingBoxSize.getPolarBearHeight(player, this, pushStandAnimation);
+        return box;
     }
 }

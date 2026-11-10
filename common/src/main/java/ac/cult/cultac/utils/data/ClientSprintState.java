@@ -33,6 +33,9 @@ public final class ClientSprintState {
     private Outcomes certainOutcomes = new Outcomes(null, false, 0, 0);
     // Counts possible attack resets; a restore keeps vanilla's modifier possible after any since its snapshot.
     private int possibleResets;
+    // An aiStep since the latest certain event may have removed the modifier. Only certain events end it, so a restore
+    // keeps it.
+    private boolean clearedPossible;
     private boolean sprintResetThisTick;
     private boolean flagUncertain;
     private boolean flagBeforeAiStep;
@@ -74,7 +77,8 @@ public final class ClientSprintState {
 
     /**
      * MultiPlayerGameMode#attack ran Player#attack before this tick's aiStep. When its causeExtraKnockback called
-     * setSprinting(false), aiStep can re-sprint without a START_SPRINTING, re-adding the modifier.
+     * setSprinting(false), aiStep can re-sprint without a START_SPRINTING, re-adding the modifier. With the flag
+     * already clear the call announces nothing either, but still removes the modifier.
      */
     public void onAttack(AttackReset reset) {
         if (reset == AttackReset.NONE) return;
@@ -84,13 +88,56 @@ public final class ClientSprintState {
             modifier = null;
             onCertainEvent();
         } else {
+            if (!flag) onModifierPossiblyCleared();
             flagUncertain = true;
         }
+    }
+
+    /**
+     * LocalPlayer#aiStep certainly ran LivingEntity#setSprinting(false) with the flag clear, removing the modifier
+     * without a STOP_SPRINTING. A setback does not undo it.
+     */
+    public void onModifierCleared() {
+        modifier = null;
+        onCertainEvent();
+    }
+
+    /**
+     * LocalPlayer#aiStep may have run LivingEntity#setSprinting(false) with the flag clear. The client holds the
+     * modifier or none until a certain event; a setback does not undo it.
+     */
+    public void onModifierPossiblyCleared() {
+        if (modifier()) clearedPossible = true;
+    }
+
+    /**
+     * 1.21.4's LocalPlayer#aiStep certainly ran setSprinting(false) and then setSprinting(true) on a flag it left set,
+     * replacing the held modifier with vanilla's without announcing either. A setback does not undo it.
+     */
+    public void onModifierRestarted() {
+        modifier = CompensatedEntities.SPRINTING_SPEED_MODIFIER;
+        onCertainEvent();
+    }
+
+    /**
+     * 1.21.4's LocalPlayer#aiStep may have restarted the sprint: vanilla's modifier stays possible beside the held one,
+     * as after a possible attack reset, which a setback does not undo either.
+     */
+    public void onModifierPossiblyRestarted() {
+        if (CompensatedEntities.SPRINTING_SPEED_MODIFIER.equals(modifier)) return;
+        canonicalPossible = true;
+        possibleResets++;
+    }
+
+    /** Whether an earlier aiStep may have removed every modifier the client can hold. */
+    public boolean clearedPossible() {
+        return clearedPossible;
     }
 
     private void onCertainEvent() {
         canonicalPossible = false;
         resetOutcomePending = false;
+        clearedPossible = false;
         certainEvents++;
         certainOutcomes = outcomes();
     }
@@ -103,15 +150,15 @@ public final class ClientSprintState {
     /**
      * Reconciles a completed LocalPlayer#aiStep with its known sprint flag. A tick that reaches
      * sendIsSprintingIfNeeded makes it equal the last announcement; a noncontrolling passenger can stop sprinting
-     * without announcing it. A changed flag proves setSprinting ran and resynchronized the modifier. An already-false
-     * flag does not remove a modifier installed independently by an attribute packet.
+     * without announcing it. A changed flag proves setSprinting ran and resynchronized the modifier. An unchanged
+     * clear flag keeps it here: whether aiStep's setSprinting(false) still removed it depends on the tick's world,
+     * which the travel decides ({@link #onModifierCleared}, {@link #onModifierPossiblyCleared}).
      */
     public void onClientTick(boolean sprinting) {
         if (!aiStepReconciled) {
             flagBeforeAiStep = flag;
             aiStepReconciled = true;
         }
-        // Unmodeled: wall-sprinting start->stop in one aiStep can clear the modifier early; this only errs lenient.
         // An attack reset that aiStep re-sprinted re-added the modifier.
         if (flag != sprinting) {
             modifier = sprinting ? CompensatedEntities.SPRINTING_SPEED_MODIFIER : null;

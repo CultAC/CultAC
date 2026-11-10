@@ -117,8 +117,8 @@ public final class SetbackPolicy {
 
     public boolean executeTooHighLatencySetback(String cause) {
         if (isExempt()) return false;
-        // Latency is measured by movement: a dead client's movement is cancelled before prediction, and a client
-        // that has not accepted its placement teleport has no movement to send yet.
+        // Latency is measured by movement: a dead client stops sending it once LocalPlayer#tickDeath removes the
+        // player, and a client that has not accepted its placement teleport has no movement to send yet.
         if (player.compensatedEntities.getSelf().isDead || !gate.hasFullyLoaded()) return false;
         if (debug.getAsBoolean()) {
             LogUtil.warn("Setback sent to " + player.getName() + ", high latency, " + cause);
@@ -258,7 +258,7 @@ public final class SetbackPolicy {
         // if the player must move
         if (player.checkManager
                 .getSimulationProcessor()
-                .tryToAchievePointThree(new Vec3(player.x, player.y, player.z), player.xRot, player.yRot)
+                .predictStationaryTick(new Vec3(player.x, player.y, player.z), player.xRot, player.yRot)
                 .getFlags()
                 .isEmpty()) {
             return;

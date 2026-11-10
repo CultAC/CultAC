@@ -14,6 +14,9 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import java.util.ArrayList;
+import java.util.List;
+import org.jetbrains.annotations.Nullable;
 
 public class BoatData {
     public record BoatStatusSample(BoatEntityStatus status, double waterLevel, float landFriction) {}
@@ -31,19 +34,27 @@ public class BoatData {
     public float vehicleHoriz = 0f;
     public float vehicleForward = 0f;
     public boolean vehicleJump = false;
+    /** LocalPlayer#input.keyPresses: the raw keys of the last PLAYER_INPUT. */
     public KnownInput nextVehicleKeys = KnownInput.DEFAULT;
-    public KnownInput vehicleKeys = KnownInput.DEFAULT;
+
     public float deltaRotation = 0f;
     public SimpleCollisionBox fluidInteractionBox;
     public boolean oldStatusMayBeInAir;
     private PacketEntity controlledBoat;
+    // The client tick a reported or replayed AbstractBoat#tick of controlledBoat ran in.
+    private int controlledBoatTickedAt = Integer.MIN_VALUE;
+    /**
+     * From 26.3, the boats the player stopped controlling that still hold a turn. AbstractBoat#tick zeroes it on the
+     * first tick each runs uncontrolled, which an unloaded chunk or a frozen tick rate can postpone.
+     */
+    private final List<PacketEntity> turningBoats = new ArrayList<>(1);
 
     /** A new LocalPlayer's keys: Input.EMPTY until its first PLAYER_INPUT. */
     public void clearInput() {
         nextVehicleHoriz = vehicleHoriz = 0f;
         nextVehicleForward = vehicleForward = 0f;
         nextVehicleJump = vehicleJump = false;
-        nextVehicleKeys = vehicleKeys = KnownInput.DEFAULT;
+        nextVehicleKeys = KnownInput.DEFAULT;
     }
 
     /**
@@ -56,31 +67,72 @@ public class BoatData {
     }
 
     /**
-     * Runs at the end of each client tick. From 26.3 AbstractBoat#tick zeroes deltaRotation on every tick the client's
-     * instance does not control the boat.
+     * Runs at the end of each client tick. ClientLevel#tickPassenger ran LocalPlayer#rideTick after the boat's own
+     * tick, and while the player is its boat's first passenger (Entity#getControlledVehicle) that rideTick's
+     * AbstractBoat#setInput gave the boat this tick's keys for its next tick. From 26.3 AbstractBoat#tick also zeroes
+     * deltaRotation on every tick the client's instance does not control the boat. Neither happens on a tick
+     * ClientLevel#tickEntities skipped the boat, which ClientTickEnd alone does not rule out.
      */
     public void onClientTickEnd(CultPlayer player) {
-        if (controlledBoat == null || player.getClientVersion().isOlderThan(ClientVersion.V_26_3)) return;
-        if (!controlledBoat.passengers.isEmpty()
-                && controlledBoat.passengers.get(0) == player.compensatedEntities.getSelf()) {
-            return;
+        PacketEntity self = player.compensatedEntities.getSelf();
+        PacketEntity riding = self.getRiding();
+        if (riding != null && riding.isBoat() && drives(self, riding) && ticked(player, riding)) {
+            setBoatInput(riding, nextVehicleKeys);
         }
-        deltaRotation = 0f;
+        if (player.getClientVersion().isOlderThan(ClientVersion.V_26_3)) return;
+        if (controlledBoat != null && !drives(self, controlledBoat) && ticked(player, controlledBoat)) {
+            deltaRotation = 0f;
+        }
+        for (int i = turningBoats.size() - 1; i >= 0; i--) {
+            PacketEntity boat = turningBoats.get(i);
+            if (player.compensatedEntities.getEntity(boat.getEntityId()) != boat) {
+                turningBoats.remove(i);
+            } else if (!drives(self, boat) && ticked(player, boat)) {
+                boat.boatDeltaRotation = 0f;
+                turningBoats.remove(i);
+            }
+        }
     }
 
-    public void useNextInputForBoatTick() {
+    private static boolean drives(PacketEntity self, PacketEntity boat) {
+        return !boat.passengers.isEmpty() && boat.passengers.get(0) == self;
+    }
+
+    /**
+     * Whether ClientLevel#tickEntities ran {@code boat}'s tick in the client tick in progress: it skips an entity
+     * outside tickingEntities, whose chunk the client has not loaded, and while the tick rate is frozen one
+     * TickRateManager#isEntityFrozen holds for, with no player among its passengers. A reported or replayed tick of the
+     * boat the player controls proves it ran, and may have moved the boat out of the section it ticked from.
+     */
+    private boolean ticked(CultPlayer player, PacketEntity boat) {
+        return boat == controlledBoat && controlledBoatTickedAt == player.packetStateData.acceptedClientTick
+                || player.compensatedEntities.ticksInClientTick(boat);
+    }
+
+    /** The status the controlled {@code boat}'s AbstractBoat#tick took this client tick before it moved, else null. */
+    public @Nullable BoatEntityStatus statusThisTick(CultPlayer player, PacketEntity boat) {
+        return boat == controlledBoat && controlledBoatTickedAt == player.packetStateData.acceptedClientTick
+                ? status
+                : null;
+    }
+
+    /** AbstractBoat#setInput keeps only the four movement keys. */
+    private static void setBoatInput(PacketEntity boat, KnownInput keys) {
+        KnownInput held = boat.boatInput;
+        if (held.forward() == keys.forward()
+                && held.backward() == keys.backward()
+                && held.left() == keys.left()
+                && held.right() == keys.right()) {
+            return;
+        }
+        boat.boatInput =
+                new KnownInput(keys.forward(), keys.backward(), keys.left(), keys.right(), false, false, false);
+    }
+
+    public void useNextInputForVehicleTick() {
         vehicleHoriz = nextVehicleHoriz;
         vehicleForward = nextVehicleForward;
         vehicleJump = nextVehicleJump;
-        vehicleKeys = nextVehicleKeys;
-    }
-
-    /** The keys AbstractBoat#controlBoat reads on {@code boat} before LocalPlayer#rideTick gives it new ones. */
-    public void useInputOf(PacketEntity boat) {
-        vehicleKeys = boat.boatInput;
-        vehicleHoriz = vehicleKeys.strafeImpulse();
-        vehicleForward = vehicleKeys.forwardImpulse();
-        vehicleJump = vehicleKeys.jump();
     }
 
     public boolean usesWaterEntryPositionSnap() {
@@ -117,48 +169,33 @@ public class BoatData {
         if (vehicle != null && EntityTypeUtil.isBoat(vehicle.type)) {
             SimpleCollisionBox boatBox = getControlledBoatCurrentBox(player, vehicle);
             fluidInteractionBox = boatBox.copy();
-            int boatEntityId = vehicle.getEntityId();
             if (controlledBoat != vehicle) {
                 // MCP-Reborn AbstractBoat stores deltaRotation, status, oldStatus,
                 // waterLevel, landFriction, and lastYd on the boat entity. When
                 // local control switches to a different boat, none of those fields
                 // can leak from the old controlled boat. Before 26.3 a boat keeps
                 // its deltaRotation on the ticks the client's instance does not
-                // control it; from 26.3 AbstractBoat#tick zeroes it on those ticks.
-                //
-                // MCP-Reborn LocalPlayer#tick sends ServerboundMoveVehiclePacket
-                // from the controlled root before ClientLevel#tickPassenger runs
-                // LocalPlayer#rideTick to copy the latest key state into
-                // AbstractBoat#setInput. The first controlled packet for a newly
-                // mounted/switched boat therefore still uses that boat's exact
-                // pre-switch current input state, not the latest staged raw
-                // key bitset.
-                if (controlledBoat != null) controlledBoat.boatDeltaRotation = deltaRotation;
+                // control it; from 26.3 AbstractBoat#tick zeroes it on those ticks,
+                // which onClientTickEnd follows for every boat still turning.
+                // The keys AbstractBoat#controlBoat reads are the boat's own
+                // PacketEntity#boatInput, so switching boats changes none of them.
+                if (controlledBoat != null) {
+                    controlledBoat.boatDeltaRotation = deltaRotation;
+                    if (deltaRotation != 0f && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)) {
+                        turningBoats.add(controlledBoat);
+                    }
+                }
+                turningBoats.remove(vehicle);
                 controlledBoat = vehicle;
-                deltaRotation =
-                        player.getClientVersion().isOlderThan(ClientVersion.V_26_3) ? vehicle.boatDeltaRotation : 0f;
+                deltaRotation = vehicle.boatDeltaRotation;
                 status = vehicle.boatStatus;
                 oldStatus = null;
                 waterLevel = 0.0D;
                 landFriction = 0.0F;
                 lastYd = 0.0D;
-                if (hasCompletedPassengerTickAfterObservedMount(player, boatEntityId)) {
-                    // MCP-Reborn ClientLevel ticks the root boat before passenger
-                    // rideTick, and LocalPlayer#rideTick copies the latest keys
-                    // into AbstractBoat#setInput after LocalPlayer#tick sends the
-                    // vehicle packet. If a tick-end packet after the mount
-                    // transaction has already arrived, that passenger copy has
-                    // completed and the next root boat tick starts from the staged
-                    // input, not the keys the boat kept from before the mount.
-                    vehicleHoriz = nextVehicleHoriz;
-                    vehicleForward = nextVehicleForward;
-                    vehicleJump = nextVehicleJump;
-                    vehicleKeys = nextVehicleKeys;
-                } else {
-                    useInputOf(vehicle);
-                }
             }
 
+            controlledBoatTickedAt = player.packetStateData.acceptedClientTick;
             midTickY = 0;
             nullifyNextY = false;
             oldStatusMayBeInAir = false;
@@ -166,25 +203,20 @@ public class BoatData {
             // MCP-Reborn AbstractBoat#tick copies status to oldStatus, then
             // samples getStatus() from the current pre-move bounding box.
             oldStatus = status;
-            BoatStatusSample sample = sampleStatus(player, boatBox);
-            status = sample.status();
-            waterLevel = sample.waterLevel();
-            if (sample.landFriction() > 0.0F) {
-                landFriction = sample.landFriction();
-            }
+            sampleCurrentPosition(player, boatBox);
         } else {
             fluidInteractionBox = null;
             oldStatusMayBeInAir = false;
         }
     }
 
-    private static boolean hasCompletedPassengerTickAfterObservedMount(CultPlayer player, int boatEntityId) {
-        Integer serverVehicle = player.compensatedEntities.vehicles.serverPlayerVehicle;
-        Integer serverVehicleTransaction = player.compensatedEntities.vehicles.serverPlayerVehicleTransaction;
-        return serverVehicle != null
-                && serverVehicle == boatEntityId
-                && serverVehicleTransaction != null
-                && player.packetStateData.lastClientTickEndTransaction >= serverVehicleTransaction;
+    /** getStatus and baseTick sample the same position, including an earlier shulker move. */
+    public void sampleCurrentPosition(CultPlayer player, SimpleCollisionBox boatBox) {
+        fluidInteractionBox = boatBox.copy();
+        BoatStatusSample sample = sampleStatus(player, boatBox);
+        status = sample.status();
+        waterLevel = sample.waterLevel();
+        if (sample.landFriction() > 0.0F) landFriction = sample.landFriction();
     }
 
     private static SimpleCollisionBox getControlledBoatCurrentBox(CultPlayer player, PacketEntity vehicle) {
@@ -242,8 +274,11 @@ public class BoatData {
                         if (j2 <= 0 || k2 != k && k2 != l - 1) {
                             int blockData = player.compensatedWorld.getBlockStateIdAt(l1, k2, i2);
 
+                            // AbstractBoat#getGroundFriction reads BlockState#getCollisionShape(level, pos), the
+                            // CollisionContext.empty() shape: scaffolding's legs count below its top, powder snow
+                            // never does, whatever the boat's own height or fall distance.
                             if (!BlockIds.is(blockData, BlockIds.LILY_PAD)
-                                    && ClientBlockShapes.movementWithoutEntity(player, blockData, l1, k2, i2)
+                                    && ClientBlockShapes.contextFreeMovement(player, blockData, l1, k2, i2)
                                             .isIntersected(axisalignedbb1)) {
                                 f += BlockProperties.getMaterialFriction(blockData);
                                 ++k1;

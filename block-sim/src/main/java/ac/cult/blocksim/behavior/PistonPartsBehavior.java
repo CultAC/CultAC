@@ -15,6 +15,12 @@ public final class PistonPartsBehavior extends BlockBehavior {
         return part == Part.MOVING ? level.movingPistonCollisionAt(pos) : super.collisionShape(level, state, pos);
     }
 
+    /** MovingPistonBlock keeps BlockBehaviour#getBlockSupportShape: its block entity's empty-context collision. */
+    @Override
+    public ac.cult.blocksim.engine.shapes.VoxelShape supportShape(SimLevel level, int state, BlockPos pos) {
+        return part == Part.MOVING ? collisionShape(level, state, pos) : super.supportShape(level, state, pos);
+    }
+
     @Override
     public boolean canSurvive(SimLevel level, int state, BlockPos pos) {
         if (part == Part.MOVING) return true;

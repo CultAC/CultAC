@@ -87,7 +87,7 @@ class JavaPassengerSprintTest {
             for (int tick = 0; tick < 3; tick++) {
                 PredictionResult result = f.rideTick(START, true);
                 assertTrue(
-                        result.getSimulationContext().getWorldData().getInWater().determinePessimistically(),
+                        result.getSimulationContext().getWorldData().isInWater(),
                         "tick " + tick + " in water: " + describe(result));
                 assertEquals(0.0, sprintG.violations, "SprintG on tick " + tick);
                 assertTrue(exact(result), "tick " + tick + ": " + describe(result));
@@ -153,7 +153,7 @@ class JavaPassengerSprintTest {
         f.pongThrough(f.player.lastTransactionSent.get());
         PredictionResult swimTick = f.tick(swim, false);
         assertTrue(
-                swimTick.getSimulationContext().getWorldData().getInWater().determinePessimistically(),
+                swimTick.getSimulationContext().getWorldData().isInWater(),
                 describe(swimTick));
 
         Vec3 riderSeat = at(341.85004090365834, 63.29260225903804, -61.47112666406791);

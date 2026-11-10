@@ -39,6 +39,7 @@ class SpawnInfoCodecsTest {
                     var login = new LoginCodec().read(bytes, context);
                     assertEquals(42, login.playerId());
                     assertTrue(login.showDeathScreen());
+                    assertEquals(10, login.chunkRadius());
                     assertEquals(
                             new PlayerSpawnInfo(2, "cult:level", GameMode.ADVENTURE, 130, 1234), login.spawnInfo());
                     assertEquals(1, bytes.readableBytes());

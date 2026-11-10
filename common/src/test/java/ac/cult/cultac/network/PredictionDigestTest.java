@@ -173,10 +173,6 @@ class PredictionDigestTest {
                 .append(box(valid.getCollisionIgnoredMaxStartingVelExtents()))
                 .append(" step ")
                 .append(valid.isCanStep())
-                .append(" vertical ")
-                .append(valid.isControlsVerticalMovement())
-                .append(" skip ")
-                .append(valid.isDidTickSkipGravity())
                 .append("\n trace ")
                 .append(valid.getClosestTrace());
     }

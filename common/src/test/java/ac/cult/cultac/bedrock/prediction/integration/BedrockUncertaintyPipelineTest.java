@@ -5,6 +5,7 @@ import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.input.BedrockTickInput;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockMovementInputFactory.Input;
+import ac.cult.cultac.bedrock.prediction.integration.ExternalMovementUncertainty.Snapshot;
 import ac.cult.cultac.bedrock.prediction.model.AttributeState;
 import ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags;
 import ac.cult.cultac.bedrock.prediction.model.BedrockEffectState;
@@ -28,11 +29,8 @@ import ac.cult.cultac.checks.impl.prediction.PredVector.StepCandidate;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CollisionModifier;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ExternalMovementUncertainty;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ExternalMovementUncertainty.Snapshot;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.InsideBlock;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.PistonShulkerPush;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.StepTransform;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHandler;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
@@ -46,7 +44,6 @@ import ac.cult.cultac.utils.latency.CompensatedFireworks;
 import ac.cult.cultac.utils.math.Vec3;
 import java.lang.reflect.Field;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import org.junit.Assert;
 import org.junit.Test;
@@ -123,6 +120,15 @@ public final class BedrockUncertaintyPipelineTest {
         Assert.assertEquals(Vec3.ZERO, trace.positionOnlyDelta());
         Assert.assertEquals(Vec3.ZERO, trace.collisionBaseOffset());
         Assert.assertEquals(-0.2, start.collisionIgnoredExtents(Vec3.ZERO).minY, 0.0);
+
+        player.debugUncertainty = new Vec3(0.0, 0.05, 0.0);
+        valid.computeClosest(null);
+        valid.applyDebugUncertainty();
+        MovementTrace debug = valid.getClosestTrace();
+        Assert.assertEquals(0.05, debug.position().y, 1.0E-12);
+        Assert.assertSame(start, debug.preCollisionVelocity());
+        Assert.assertSame(start, debug.position().firstInLineage(BedrockPredVector.class));
+        Assert.assertEquals(-0.05, debug.positionOnlyDelta().y, 1.0E-12);
     }
 
     @Test
@@ -139,7 +145,7 @@ public final class BedrockUncertaintyPipelineTest {
         PredictionResult last = result(start, previous.context(), Vec3.ZERO, neutralCollisions());
         CultPlayer player = bedrockPlayer();
         ValidMovements valid = new ValidMovements(start, player, result, false, List.of());
-        Snapshot snapshot = ExternalMovementUncertainty.capture(player, current.context(), last);
+        Snapshot snapshot = ExternalMovementUncertainty.capture(current.context(), last);
         Assert.assertEquals(-0.1, snapshot.combinedTargetEnvelope().minX, 0.0);
         Assert.assertEquals(0.2, snapshot.combinedTargetEnvelope().maxX, 0.0);
         MovementTrace trace = new PistonShulkerPush()
@@ -378,7 +384,7 @@ public final class BedrockUncertaintyPipelineTest {
 
     private static PistonPushes pushes(SimpleCollisionBox piston, SimpleCollisionBox shulker) {
         return new PistonPushes(
-                piston.isEmpty() ? shulker.copy() : piston.copy().union(shulker), piston, shulker, Set.of());
+                piston.isEmpty() ? shulker.copy() : piston.copy().union(shulker), piston, shulker);
     }
 
     private static SimpleCollisionBox pointEnvelope(double x) {

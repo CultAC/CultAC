@@ -13,7 +13,9 @@ import org.jetbrains.annotations.Nullable;
  * <p>Dotted paths walk nested maps: {@code get("a.b.c")} reads
  * {@code root["a"]["b"]["c"]}. Intermediate maps are auto-created on
  * {@link #put} so a migration can synthesise a new nested key without
- * preallocating the structure.
+ * preallocating the structure. A key the operator wrote can itself contain
+ * dots, such as a punishment group named {@code Movement.Java}; address it with
+ * the literal-key overloads, which never split a key.
  *
  * <p>Reads return {@code null} when the path doesn't exist or the value is the
  * wrong type for the typed accessor (e.g. {@link #getInt} on a string returns
@@ -24,6 +26,10 @@ public interface YamlMap {
 
     @Nullable
     Object get(@NotNull String dottedPath);
+
+    /** The value under these literal keys, each one map level. */
+    @Nullable
+    Object get(@NotNull List<String> keys);
 
     @Nullable
     String getString(@NotNull String dottedPath);
@@ -44,4 +50,13 @@ public interface YamlMap {
      */
     @NotNull
     YamlMap put(@NotNull String dottedPath, @NotNull Object value);
+
+    /** {@link #put(String, Object)} at these literal keys, each one map level. */
+    @NotNull
+    YamlMap put(@NotNull List<String> keys, @NotNull Object value);
+
+    /** The literal keys of a dotted path. */
+    static @NotNull List<String> keys(@NotNull String dottedPath) {
+        return dottedPath.isEmpty() ? List.of() : List.of(dottedPath.split("\\."));
+    }
 }

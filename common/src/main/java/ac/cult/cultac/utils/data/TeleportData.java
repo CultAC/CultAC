@@ -3,6 +3,7 @@ package ac.cult.cultac.utils.data;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerRotation;
 import ac.cult.cultac.protocol.value.Direction;
@@ -43,6 +44,12 @@ public class TeleportData {
     float sourcePitch;
     float finalYaw;
     float finalPitch;
+    private ClientVersion clientVersion = ClientVersion.V_26_3;
+    private float velocityPitch;
+    /** A player_position's own rotation, absolute or relative by {@link #flags}; NaN when the source is given. */
+    private float packetYaw = Float.NaN;
+
+    private float packetPitch = Float.NaN;
 
     @Setter
     int transaction;
@@ -72,6 +79,10 @@ public class TeleportData {
     /** The client sent this pending teleport's whole answer: its ID with the position, or its ID and a PosRot. */
     @Setter
     boolean answered;
+
+    /** CultAC emitted this player_position; its client replies are not backend movement. */
+    @Setter
+    boolean authored;
 
     @Setter
     Boolean bedrockOnGround;
@@ -107,6 +118,7 @@ public class TeleportData {
         this.sourcePitch = sourcePitch;
         this.finalYaw = finalYaw;
         this.finalPitch = finalPitch;
+        this.velocityPitch = finalPitch;
         this.transaction = transaction;
         this.teleportId = teleportId;
         this.positionOnly = false;
@@ -132,10 +144,47 @@ public class TeleportData {
         copy.playerRotation = playerRotation;
         copy.sentWhileVehicle = sentWhileVehicle;
         copy.sentDuringVehicleDismount = sentDuringVehicleDismount;
+        copy.authored = authored;
+        copy.clientVersion = clientVersion;
+        copy.velocityPitch = velocityPitch;
+        copy.packetYaw = packetYaw;
+        copy.packetPitch = packetPitch;
         copy.bedrockOnGround = bedrockOnGround;
         copy.sentOnGround = sentOnGround;
         copy.bedrockTransportRevision = bedrockTransportRevision;
         copy.bedrockOperation = bedrockOperation;
+        return copy;
+    }
+
+    /** calculateAbsolute clamps before rotating deltas from 1.21.5; older setXRot clamps only afterward. */
+    public void configureJavaRotation(ClientVersion version, float absolutePitch) {
+        clientVersion = version;
+        velocityPitch = version.isOlderThan(ClientVersion.V_1_21_5) ? absolutePitch : clampPitch(absolutePitch);
+        finalPitch = clientPitch(version, absolutePitch);
+    }
+
+    public static float clientPitch(ClientVersion version, float absolutePitch) {
+        return clampPitch(version.isOlderThan(ClientVersion.V_1_21_5) ? absolutePitch % 360.0F : absolutePitch);
+    }
+
+    public void setPacketRotation(float yaw, float pitch) {
+        packetYaw = yaw;
+        packetPitch = pitch;
+    }
+
+    /**
+     * ClientPacketListener#handleMovePlayer builds PositionMoveRotation#of from the rotation the client holds when it
+     * handles the packet, not the one it had reported when the packet was sent: {@code yaw}/{@code pitch}, its last
+     * report or what an earlier teleport it handled since left.
+     */
+    public TeleportData resolvePositionRotation(float yaw, float pitch) {
+        if (Float.isNaN(packetYaw)) return this;
+        TeleportData copy = copyWithLocation(location);
+        copy.sourceYaw = yaw;
+        copy.sourcePitch = pitch;
+        copy.finalYaw = (flags.isSet(RelativeFlag.Y_ROT.getMask()) ? yaw : 0.0F) + packetYaw;
+        copy.configureJavaRotation(
+                clientVersion, (flags.isSet(RelativeFlag.X_ROT.getMask()) ? pitch : 0.0F) + packetPitch);
         return copy;
     }
 
@@ -146,7 +195,8 @@ public class TeleportData {
         copy.sourceYaw = yaw;
         copy.sourcePitch = pitch;
         copy.finalYaw = (playerRotation.relativeYaw() ? yaw : 0.0F) + playerRotation.yaw();
-        copy.finalPitch = clampPitch((playerRotation.relativePitch() ? pitch : 0.0F) + playerRotation.pitch());
+        copy.configureJavaRotation(
+                clientVersion, (playerRotation.relativePitch() ? pitch : 0.0F) + playerRotation.pitch());
         return copy;
     }
 
@@ -231,8 +281,9 @@ public class TeleportData {
         }
 
         float yawDelta = sourceYaw - finalYaw;
-        float pitchDelta = sourcePitch - finalPitch;
-        return vector.xRot((float) Math.toRadians(pitchDelta)).yRot((float) Math.toRadians(yawDelta));
+        float pitchDelta = sourcePitch - velocityPitch;
+        return vector.xRot(clientVersion, (float) Math.toRadians(pitchDelta))
+                .yRot(clientVersion, (float) Math.toRadians(yawDelta));
     }
 
     private double applyDeltaAxis(double current, double change, boolean relative) {

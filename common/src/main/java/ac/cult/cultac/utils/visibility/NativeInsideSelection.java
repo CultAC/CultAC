@@ -37,23 +37,7 @@ final class NativeInsideSelection {
                     ExactFraction.of(Math.max(low[axis] - error, origin[axis] - maximumSample))
                             .subtract(ExactFraction.of(origin[axis]))));
         }
-        int dominant = switch (face) {
-            case WEST, EAST -> 0;
-            case DOWN, UP -> 1;
-            case NORTH, SOUTH -> 2;
-        };
-        int sign = switch (face) {
-            case WEST, DOWN, NORTH -> 1;
-            case EAST, UP, SOUTH -> -1;
-        };
-        planes.add(new Plane(normal(dominant, -sign), ExactFraction.ZERO));
-        for (int axis = 0; axis < 3; axis++)
-            if (axis != dominant)
-                for (int otherSign : new int[] {-1, 1}) {
-                    ExactFraction[] n = normal(dominant, -sign);
-                    n[axis] = ExactFraction.of(otherSign);
-                    planes.add(new Plane(n, ExactFraction.ZERO));
-                }
+        for (ExactFraction[] normal : rays(face)) planes.add(new Plane(normal, ExactFraction.ZERO));
         ExactFraction minimum = feasible(planes, zero()) ? ExactFraction.ZERO : null, maximum = null;
         // A quadratic minimum lies on a face, edge or vertex; a maximum of the
         // norm over this bounded polytope lies at a vertex. Enumerate those active
@@ -76,6 +60,32 @@ final class NativeInsideSelection {
         ExactFraction lo = ExactFraction.of(minimumSample),
                 hi = ExactFraction.of(Math.min(interactionRange, Math.sqrt(3) * maximumSample));
         return minimum.compareTo(hi.multiply(hi)) <= 0 && maximum.compareTo(lo.multiply(lo)) >= 0;
+    }
+
+    /**
+     * The rays {@code r} an inside hit reports as {@code face}, Direction#getApproximateNearest(r).getOpposite():
+     * {@code n·r <= 0} for every normal. Dominant-axis ties are kept, as the float cast may resolve them either way.
+     */
+    static List<ExactFraction[]> rays(Direction face) {
+        int dominant = switch (face) {
+            case WEST, EAST -> 0;
+            case DOWN, UP -> 1;
+            case NORTH, SOUTH -> 2;
+        };
+        int sign = switch (face) {
+            case WEST, DOWN, NORTH -> 1;
+            case EAST, UP, SOUTH -> -1;
+        };
+        List<ExactFraction[]> normals = new ArrayList<>();
+        normals.add(normal(dominant, -sign));
+        for (int axis = 0; axis < 3; axis++)
+            if (axis != dominant)
+                for (int otherSign : new int[] {-1, 1}) {
+                    ExactFraction[] n = normal(dominant, -sign);
+                    n[axis] = ExactFraction.of(otherSign);
+                    normals.add(n);
+                }
+        return normals;
     }
 
     private static ExactFraction[] project(List<Plane> planes) {

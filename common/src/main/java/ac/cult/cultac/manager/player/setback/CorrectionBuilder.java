@@ -109,7 +109,7 @@ public final class CorrectionBuilder {
         // prove both the motion and a later explosion.
         final boolean explosionIsNewer = inputs.playerImpulsesApply()
                 && isPendingImpulse(inputs, sentExplosion)
-                && (sentKnockback == null || TransactionVel.compareClientOrder(sentExplosion, sentKnockback) > 0);
+                && (sentKnockback == null || sentExplosion.getOutboundSequence() > sentKnockback.getOutboundSequence());
         if (explosionIsNewer) {
             clientVel = clientVel.add(sentExplosion.getVel());
         }
@@ -197,8 +197,8 @@ public final class CorrectionBuilder {
                 clientVel = SetbackPhysics.simulateFriction(
                         player,
                         clientVel,
-                        context.getWorldData().getInWater().determineOptimistically(),
-                        context.getWorldData().getInLava().determineOptimistically(),
+                        context.getWorldData().mayBeInWater(),
+                        context.getWorldData().mayBeInLava(),
                         context.usesFallFlyingMovement(),
                         context.getLastOnGround().determineOptimistically(),
                         stuckSpeedMultiplier != null,
@@ -213,8 +213,7 @@ public final class CorrectionBuilder {
             // The vehicle's simulated tick from the safe state: its Entity#move and the deltaMovement it carries on.
             Vec3 movement = flagged.getAcceptedClosestToTarget();
             position = flagged.getSimulationContext().getStart().add(movement);
-            clientVel = NextTickVelocityDeriver.findVelocitiesForNextTick(
-                            player, flagged, lastPrediction, movement, null)
+            clientVel = NextTickVelocityDeriver.findVelocitiesForNextTick(player, flagged, lastPrediction, null)
                     .iterator()
                     .next();
         }
@@ -263,13 +262,10 @@ public final class CorrectionBuilder {
 
     /**
      * Whether the client has yet to take {@code impulse} from the safe state. The safe vector carries one the safe tick
-     * took, and the latest Java correction's delta movement replaced one the client applied before that teleport. A
-     * push the client's own tick applies after travel follows the packets its transaction proves and precedes the rest.
+     * took, and the latest Java correction's delta movement replaced one the client applied before that teleport.
      */
     private static boolean isPendingImpulse(Inputs inputs, TransactionVel impulse) {
         if (impulse == null || inputs.safe().carries(impulse)) return false;
-        return impulse.isAppliedAfterTravel()
-                ? impulse.getTransaction() > inputs.correctionTransaction()
-                : impulse.getTransaction() >= inputs.correctionTransaction();
+        return impulse.getTransaction() >= inputs.correctionTransaction();
     }
 }

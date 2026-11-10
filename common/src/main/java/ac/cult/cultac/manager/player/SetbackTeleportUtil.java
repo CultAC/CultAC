@@ -22,8 +22,10 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.data.*;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.Collection;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import lombok.Getter;
+import org.jetbrains.annotations.Nullable;
 
 public class SetbackTeleportUtil extends CultProcessor
         implements PostPredictionListener, SafePositionTracker.Corrections, MovementGate.Teleports, CorrectionReissue {
@@ -63,6 +65,16 @@ public class SetbackTeleportUtil extends CultProcessor
     public void onPredictionComplete(final PredictionComplete predictionComplete) {
         capture.capture(predictionComplete);
     }
+
+    /**
+     * SimulationProcessor committed {@code result}, carrying {@code carried} into the next client tick, the selected
+     * travel's first. That is the deltaMovement LivingEntity#travel left after Entity#move cleared each collided axis
+     * and the travel's friction: the velocity of a safe state taken from this prediction.
+     */
+    public void onJavaPredictionCommitted(PredictionResult result, Collection<Vec3> carried) {
+        capture.onJavaPredictionCommitted(result, carried);
+    }
+
     /** The entity a setback moves now. */
     @Override
     public SetbackEntity setbackEntity() {
@@ -312,6 +324,24 @@ public class SetbackTeleportUtil extends CultProcessor
     public boolean mustAcknowledgeBedrockTransportTeleport() {
         return bedrock.mustAcknowledgeBedrockTransportTeleport();
     }
+
+    /** {@link JavaTeleportTracker#takeAuthoredTeleportAcknowledgment(int)}. */
+    public boolean takeAuthoredTeleportAcknowledgment(int teleportId) {
+        return javaTeleports.takeAuthoredTeleportAcknowledgment(teleportId);
+    }
+
+    /** {@link VehicleTeleportTracker#retireVehicleTeleports(int)}. */
+    public void retireVehicleTeleports(int transaction) {
+        vehicles.retireVehicleTeleports(transaction);
+    }
+
+    /** A vehicle teleport whose target the client fixes only when it handles the packet. */
+    public interface HandledVehicleTeleport {
+        /** The teleport as the client handled it, or, unless {@code resolve}, null while nothing has resolved it. */
+        @Nullable
+        VehicleTeleportData state(boolean resolve);
+    }
+
     /** The Java client's answers to player_position and rotation teleports. */
     public JavaTeleportTracker javaTeleports() {
         return javaTeleports;

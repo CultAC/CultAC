@@ -84,6 +84,11 @@ public final class EntityTypeUtil {
         return isType(type, "nautilus") || isType(type, "zombie_nautilus");
     }
 
+    /** Whether the entity is a TamableAnimal: a wolf, cat, parrot or nautilus. */
+    public static boolean isTamableAnimal(int type) {
+        return isType(type, "wolf") || isType(type, "cat") || isType(type, "parrot") || isNautilusFamily(type);
+    }
+
     public record EntityKey(String namespace, String path) {
         private static EntityKey parse(String value) {
             int separator = value.indexOf(':');

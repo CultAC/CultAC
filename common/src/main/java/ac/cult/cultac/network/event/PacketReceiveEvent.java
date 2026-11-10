@@ -15,6 +15,7 @@ public final class PacketReceiveEvent<R extends ServerboundPacket> extends Packe
     private boolean synthetic;
     private boolean acceptedTransactionResponse;
     private boolean teleportPositionResponse;
+    private boolean authoredTeleportResponse;
     private boolean answersTeleport;
 
     public PacketReceiveEvent(User user, ConnectionPhase phase, PacketType<R> type, R packet) {
@@ -50,6 +51,7 @@ public final class PacketReceiveEvent<R extends ServerboundPacket> extends Packe
         releaseEvent();
         acceptedTransactionResponse = false;
         teleportPositionResponse = false;
+        authoredTeleportResponse = false;
         answersTeleport = false;
     }
 
@@ -73,6 +75,15 @@ public final class PacketReceiveEvent<R extends ServerboundPacket> extends Packe
 
     public void setTeleportPositionResponse(boolean response) {
         teleportPositionResponse = response;
+    }
+
+    /** A normally processed reply to a teleport CultAC emitted instead of the backend. */
+    public boolean isAuthoredTeleportResponse() {
+        return authoredTeleportResponse;
+    }
+
+    public void setAuthoredTeleportResponse(boolean response) {
+        authoredTeleportResponse = response;
     }
 
     /** This movement packet answers a server teleport, so LocalPlayer#tick did not send it as tick movement. */

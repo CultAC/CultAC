@@ -3,6 +3,9 @@ package ac.cult.cultac.checks.impl.prediction;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.prediction.checks.HorizontalAnalyzer;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFallDistance;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassState;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaTravelInputs;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHelper;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
@@ -40,6 +43,14 @@ public class PredictionResult {
     @ToString.Exclude
     JavaFallDistance.Moved javaCommittedMove;
 
+    /**
+     * Where the last pass the runner replayed after this result's commit left its actor: the block entities after a
+     * pre-26.3 report, or the shulkers ticking before the next travel. Null until such a pass moves it.
+     */
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    JavaPassState javaReplayedPassState;
+
     List<Flag> flags = List.of();
     double flagSeverity = 0; // Cache for performance and to allow exempting
 
@@ -48,8 +59,6 @@ public class PredictionResult {
     @EqualsAndHashCode.Exclude
     @ToString.Exclude
     private double selectionOffset = Double.NaN;
-    private Boolean cachedAnyRealityControlsVerticalMovement;
-    private Boolean cachedAnyRealityDidTickSkipGravity;
 
     /** VanillaStepProof's source-proven step for this result; one handleResult pass reads it from two checks. */
     @EqualsAndHashCode.Exclude
@@ -104,6 +113,13 @@ public class PredictionResult {
 
     @Setter
     Vec3 profilePredictionVector;
+
+    /** The source packet position, when MoveVehicle reports a path target rather than physical travel. */
+    Vec3 javaReportedMovement;
+
+    public Vec3 getReportedPredictionVector() {
+        return javaReportedMovement == null ? getAcceptedClosestToTarget() : javaReportedMovement;
+    }
 
     /** Lets the first text that shows the identifier, until {@link #closeLog}, build the Cult Log with {@code log}. */
     public void buildLogWhenShown(IntSupplier log) {
@@ -182,6 +198,7 @@ public class PredictionResult {
     }
 
     public double getOffset() {
+        if (javaReportedMovement != null) return javaReportedMovement.distanceTo(getTarget());
         Vec3 predicted = getLegacyLikePredictionVector();
         return predicted.distanceTo(getTarget());
     }
@@ -207,48 +224,30 @@ public class PredictionResult {
         return !isExempt && flagSeverity > 0.0D;
     }
 
-    public boolean anyRealityControlsVerticalMovement() {
-        if (cachedAnyRealityControlsVerticalMovement != null) {
-            return cachedAnyRealityControlsVerticalMovement;
-        }
-
-        boolean result = false;
-        for (PredictionResult reality : realities) {
-            if (reality.getValidMovements().isControlsVerticalMovement()) {
-                result = true;
-                break;
-            }
-        }
-        cachedAnyRealityControlsVerticalMovement = result;
-        return result;
-    }
-
-    public boolean anyRealityDidTickSkipGravity() {
-        if (cachedAnyRealityDidTickSkipGravity != null) {
-            return cachedAnyRealityDidTickSkipGravity;
-        }
-
-        boolean result = false;
-        for (PredictionResult reality : realities) {
-            if (reality.getValidMovements().isDidTickSkipGravity()) {
-                result = true;
-                break;
-            }
-        }
-        cachedAnyRealityDidTickSkipGravity = result;
-        return result;
-    }
-
     public int getEffectiveFlagCount() {
         return hasEffectiveFlags() ? flags.size() : 0;
     }
 
     public Vec3 getLegacyLikePredictionVector() {
+        // Ridden input is already in the physical trace. An interpolation-target report supplies no
+        // extra moveRelative input and must never turn a server-authored path into carried velocity.
+        if (javaReportedMovement != null) return getAcceptedClosestToTarget();
         if (profilePredictionVector != null) {
             return profilePredictionVector;
         }
         Vec3 closest = getAcceptedClosestToTarget();
-        return UncertaintyHelper.handleCircularInput(new PredVector(closest), getTarget(), getHorizontalInputRadius());
+        // Every Java Entity#move includes its input before clipping. No input may be added after that collision.
+        if (collideAxisData instanceof ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision)
+            return closest;
+        Vec3 inputTarget = getTarget();
+        var pass = JavaMovementEngine.passAfterTravel(this);
+        if (pass != null && !simulationContext.isWithheldPosition()) {
+            inputTarget = new Vec3(
+                    pass.result().fixedX() ? closest.x : inputTarget.x,
+                    inputTarget.y,
+                    pass.result().fixedZ() ? closest.z : inputTarget.z);
+        }
+        return UncertaintyHelper.handleCircular(new PredVector(closest), inputTarget, getHorizontalInputRadius());
     }
 
     /** Radius of the circular horizontal input allowance around the closest movement. */
@@ -257,11 +256,24 @@ public class PredictionResult {
     }
 
     public Vec3 getInputVectorAndVerticals() {
-        Vec3 closest = getAcceptedClosestToTarget();
-        Vec3 diff = getTarget().subtract(closest);
-        Vec3 minimumInputRequired = HorizontalAnalyzer.getBestTheoreticalPlayerInput(
-                diff, getSimulationContext().getXRot(), getSimulationContext().getVersion());
-        return new Vec3(minimumInputRequired.x, closest.y, minimumInputRequired.z);
+        Vec3 input = getHorizontalInput();
+        return new Vec3(input.x, getAcceptedClosestToTarget().y, input.z);
+    }
+
+    /**
+     * The strafe (x) and forward (z) input of this result's travel at its moveRelative speed, before
+     * Entity#getInputVector rotates it. An exact-input candidate already added that input in LivingEntity#moveRelative
+     * before Entity#move, so what is left of the report past it is no input; otherwise the input is the least that
+     * explains that remainder.
+     */
+    public Vec3 getHorizontalInput() {
+        Vec3 movement = JavaTravelInputs.isExact(initialStartingVel)
+                ? initialStartingVel.getTravelInput()
+                : getTarget().subtract(getAcceptedClosestToTarget());
+        return HorizontalAnalyzer.getBestTheoreticalPlayerInput(
+                movement,
+                getSimulationContext().getXRot(),
+                getSimulationContext().getVersion());
     }
 
     public boolean isBetterThan(PredictionResult other) {
@@ -284,8 +296,7 @@ public class PredictionResult {
     }
 
     public DesyncStatus getIsFalling() {
-        if (initialStartingVel.isTickSkip() || validMovements.getCollisionIgnoredMaxStartingVelExtents() == null)
-            return DesyncStatus.UNKNOWN;
+        if (validMovements.getCollisionIgnoredMaxStartingVelExtents() == null) return DesyncStatus.UNKNOWN;
         DesyncStatus falling =
                 DesyncStatus.fromBoolean(validMovements.getCollisionIgnoredMaxStartingVelExtents().minY <= 0);
         if (falling.determineOptimistically() && validMovements.getCollisionIgnoredMaxStartingVelExtents().maxY > 0) {
@@ -305,7 +316,7 @@ public class PredictionResult {
         double gravity = getSimulationContext().getEntities().getEntityInControl().gravity;
         if (!hasSlowFalling) {
             return Collections.singletonList(gravity);
-        } else if (initialStartingVel.isTickSkip() || (minVelocityY <= 0.0D && maxVelocityY > 0.0D)) {
+        } else if (minVelocityY <= 0.0D && maxVelocityY > 0.0D) {
             return Arrays.asList(Math.min(gravity, 0.01D), gravity);
         } else {
             return Collections.singletonList(maxVelocityY <= 0.0D ? Math.min(gravity, 0.01D) : gravity);

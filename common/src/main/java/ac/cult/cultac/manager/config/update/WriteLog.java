@@ -19,18 +19,19 @@ abstract class WriteLog {
     }
 
     /**
+     * @param path the literal keys, one per map level
      * @param value null for {@linkplain Op#REMOVE REMOVE}
      */
-    record Entry(Op op, String path, Object value) {}
+    record Entry(Op op, List<String> path, Object value) {}
 
-    abstract void recordPut(@NotNull String path, @NotNull Object value);
+    abstract void recordPut(@NotNull List<String> path, @NotNull Object value);
 
     /**
      * Snapshot of the log collapsed into a path -> value map (latest write
      * wins per path; null sentinel = REMOVE). Used by the updater for
      * own-file writes; sibling-file writes use {@link #drainQueue} instead.
      */
-    abstract @NotNull Map<String, Object> finalState();
+    abstract @NotNull Map<List<String>, Object> finalState();
 
     static @NotNull WriteLog active() {
         return new ActiveLog();
@@ -53,14 +54,14 @@ abstract class WriteLog {
         private final List<Entry> entries = new ArrayList<>();
 
         @Override
-        void recordPut(@NotNull String path, @NotNull Object value) {
+        void recordPut(@NotNull List<String> path, @NotNull Object value) {
             entries.add(new Entry(Op.PUT, path, value));
         }
 
         @Override
         @NotNull
-        Map<String, Object> finalState() {
-            Map<String, Object> out = new LinkedHashMap<>();
+        Map<List<String>, Object> finalState() {
+            Map<List<String>, Object> out = new LinkedHashMap<>();
             for (Entry e : entries) {
                 out.put(e.path, e.op == Op.PUT ? e.value : null);
             }
@@ -72,11 +73,11 @@ abstract class WriteLog {
         static final NoopLog INSTANCE = new NoopLog();
 
         @Override
-        void recordPut(@NotNull String path, @NotNull Object value) {}
+        void recordPut(@NotNull List<String> path, @NotNull Object value) {}
 
         @Override
         @NotNull
-        Map<String, Object> finalState() {
+        Map<List<String>, Object> finalState() {
             return Map.of();
         }
     }
@@ -91,13 +92,13 @@ abstract class WriteLog {
         }
 
         @Override
-        void recordPut(@NotNull String path, @NotNull Object value) {
+        void recordPut(@NotNull List<String> path, @NotNull Object value) {
             sharedQueue.computeIfAbsent(siblingName, k -> new ArrayList<>()).add(new Entry(Op.PUT, path, value));
         }
 
         @Override
         @NotNull
-        Map<String, Object> finalState() {
+        Map<List<String>, Object> finalState() {
             // Sibling logs flush via the shared queue, not finalState().
             return Map.of();
         }

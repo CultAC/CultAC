@@ -18,6 +18,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.UUID;
 import java.util.function.Function;
 
 /**
@@ -64,8 +65,7 @@ final class ModelEntityMetadataValues {
         try {
             decoder.metadata(version, input, registries, ModelNbtFactory.INSTANCE, scratch);
             int size = scratch.size;
-            int payloadLength =
-                    size == 0 ? 0 : scratch.offsets[size - 1] + scratch.lengths[size - 1] - payloadStart;
+            int payloadLength = size == 0 ? 0 : scratch.offsets[size - 1] + scratch.lengths[size - 1] - payloadStart;
             byte[] payload = lease == null ? ByteBufUtil.getBytes(input, payloadStart, payloadLength) : null;
             if (size == 0) return new EntityMetadata(id, List.of());
             var first = scratch.entry(this, 0, payload, payloadStart, lease);
@@ -133,6 +133,7 @@ final class ModelEntityMetadataValues {
             case "direction" -> Direction.from3DDataValue((int) value);
             case "optional_position" -> value == null ? Optional.empty() : Optional.of(position((int[]) value));
             case "optional_int" -> value == null ? OptionalInt.empty() : OptionalInt.of((int) value);
+            case "optional_uuid" -> Optional.ofNullable((UUID) value);
             default -> value;
         };
         if (converted == null && kind.equals("painting_variant")) return null;

@@ -63,8 +63,8 @@ public class GhostFriction extends Check implements PostPredictionListener {
         if (context.getVehicle() != null
                 || context.usesFallFlyingMovement()
                 || player.isFlying
-                || context.getWorldData().getInWater().determineOptimistically()
-                || context.getWorldData().getInLava().determineOptimistically()
+                || context.getWorldData().isInWater()
+                || context.getWorldData().isInLava()
                 || result.getValidMovements() == null
                 || result.getValidMovements().getClosestTrace() == null) {
             clear();
@@ -136,7 +136,7 @@ public class GhostFriction extends Check implements PostPredictionListener {
         Vec3 nearest = null;
         double nearestDistance = Double.MAX_VALUE;
         for (Vec3 velocity : NextTickVelocityDeriver.findVelocitiesForNextTick(
-                player, result, player.checkManager.getSimulationProcessor().getLastPrediction(), target, null)) {
+                player, result, player.checkManager.getSimulationProcessor().getLastPrediction(), null)) {
             double distance = Math.hypot(velocity.x - carriedX, velocity.z - carriedZ);
             if (distance < nearestDistance) {
                 nearest = velocity;

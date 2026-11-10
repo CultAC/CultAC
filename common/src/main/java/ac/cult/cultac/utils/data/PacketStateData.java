@@ -2,6 +2,7 @@ package ac.cult.cultac.utils.data;
 
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.List;
 
 // This is to keep all the packet data out of the main player class
 // Helps clean up the player class and makes devs aware they are sync'd to the netty thread
@@ -13,6 +14,12 @@ public class PacketStateData {
     public boolean teleportedThisClientTick = false;
     // Minecraft#tick sends ServerboundClientTickEndPacket after LocalPlayer#tick, proving whether movement happened.
     public boolean receivedMovementThisClientTick = false;
+    // This client tick's LocalPlayer#tick start has been applied, and whether LocalPlayer#tick ran in it.
+    public boolean localPlayerTickStarted = false;
+    public boolean localPlayerTickRan = false;
+    // Entity#noPhysics as the last Player#tick assigned it (isSpectator); the entities ticking before the player
+    // read it in Entity#push until this tick's Player#tick reassigns it.
+    public boolean localPlayerNoPhysics = false;
     // A flight stop LocalPlayer#aiStep may have sent after travel on landing; that tick still travelled flying.
     public boolean flyingStopAfterTravel = false;
     // A flight start LocalPlayer#aiStep sent this client tick, ahead of its player_input and move.
@@ -27,8 +34,8 @@ public class PacketStateData {
     public int jumpTriggerTimes = 1;
     // Entity#isSwimming can be true from the last client tick's baseTick on; the server's entity data overwrites it.
     public boolean swimmingPossible = false;
-    // Entity#wasEyeInWater at the next client tick's baseTick: the eye fluid at the last client tick's start.
-    public boolean eyeInWaterBeforeTick = false;
+    // Eye contact read at the next baseTick: 26.3 queries current tags on the cached raw holders.
+    public int eyeFluidContactBeforeTick = 0;
     // Geyser forwards each auth frame before its movement. A horse move
     // precedes the rider's rotation; tick-end closes frames without movement.
     public final BedrockTranslatedMovementGate bedrockTranslatedMovement = new BedrockTranslatedMovementGate();
@@ -41,10 +48,6 @@ public class PacketStateData {
     // A tick end of a client tick that ran LocalPlayer#tick came since the last login or respawn. Java attacks before
     // it are cancelled: ServerGamePacketListenerImpl#hasClientLoaded drops them on vanilla.
     public boolean localPlayerTickedSinceSpawn = true;
-    // LocalPlayer#deathTime, which LocalPlayer#tickDeath advances each tick the player is dead; deathTime 20 removes
-    // the player, and ClientLevel#tickEntities skips it until login or respawn creates a new one.
-    public int localPlayerDeathTime;
-    public boolean localPlayerRemoved;
     public int lastSlotSelected;
     // Packet-ordered mirror of LocalPlayer's active item state.  Checks must not
     // read Bukkit's server-thread active item because the attack/use ordering is
@@ -55,15 +58,16 @@ public class PacketStateData {
     // A respawned LocalPlayer's kept lastSentInput holds shift, which its KeyboardInput reads at the first aiStep.
     public boolean respawnShiftPending;
     public int riptideLevel = 0;
-    public int riptideAlternativeLevel = 0;
+    // Other riptide levels this tick's release may spin with: through 1.21.4 it releases whichever trident the last
+    // entity tick bound, which an unreported hotbar selection leaves open.
+    public List<Integer> riptideAlternativeLevels = List.of();
     public boolean riptideReleaseCertain = false;
     public int acceptedClientTick = 0;
+    public Boolean glidingBeforeClientAction;
     public int riptideUseStartClientTick = Integer.MIN_VALUE;
     public Hand riptideUseHand = null;
-    public int riptideUseSlot;
-    public int riptideSelectClientTick = Integer.MIN_VALUE;
-    public int riptideSlotBeforeSelect;
-    public int riptideFirstSelectSlot;
+    public boolean invalidRiptideRelease = false;
+    public String invalidRiptideReleaseReason = "";
     public float serverTickRate = 20.0F;
     public boolean serverTicksFrozen = false;
     public int serverFrozenTickStepsRemaining = 0;
@@ -101,6 +105,8 @@ public class PacketStateData {
     public boolean vehicleMovementStartOnGround = false;
     // Original-client-reported ground, excluding fields synthesized by protocol translation.
     public boolean vehicleMovementOnGroundPresent = true;
+    // The root's Entity#onGround the vehicle move reported, when vehicleMovementOnGroundPresent.
+    public boolean vehicleMovementReportedOnGround = false;
     // Transaction observed at the last tick-end packet; used to prove tick-boundary state ordering.
     public int lastClientTickEndTransaction = Integer.MIN_VALUE;
     // Transaction observed at the last tick-end of a Java client tick whose LocalPlayer#tick or Entity#rideTick ran.
@@ -117,6 +123,11 @@ public class PacketStateData {
 
     public void stageDesiredOnGround(boolean onGround) {
         desiredOnGround = onGround;
+    }
+
+    /** The ground staged for the packet being handled, or {@code reported} when none is staged. */
+    public boolean desiredOnGroundOr(boolean reported) {
+        return desiredOnGround == null ? reported : desiredOnGround;
     }
 
     public Boolean consumeDesiredOnGround() {

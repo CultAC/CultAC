@@ -5,12 +5,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
+import ac.cult.cultac.network.protocol.ClientVersion;
+import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.data.SetBackData;
 import ac.cult.cultac.utils.math.Vec3;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * A setback that rejects a movement sends the position and velocity the 26.3 client reaches by one input-less tick
@@ -67,6 +71,35 @@ class SetbackVelocityTest {
                     (bounced - GRAVITY) * VERTICAL_DRAG,
                     f.player.getSetbackTeleportUtil().safePosition().getVector().y,
                     1.0E-12);
+        }
+    }
+
+    /**
+     * Entity#move clears the deltaMovement of an axis it collides on before LivingEntity#travel's friction, so a travel
+     * into a wall carries none of that axis into the next tick; neither does the safe state, which a setback that runs
+     * no tick of its own sends as is.
+     */
+    @ParameterizedTest
+    @EnumSource(
+            value = ClientVersion.class,
+            names = {"V_1_21_5", "V_26_3"})
+    void theSafeStateOfATravelIntoAWallCarriesNoVelocityIntoIt(ClientVersion version) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
+            for (int y = 0; y < 2; y++) {
+                f.player.compensatedWorld.updateBlock(
+                        new BlockPos(1, JavaTickFixture.FLOOR_Y + y, 0), BlockIds.STONE.defaultState());
+            }
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            f.place(new Vec3(.6, JavaTickFixture.FLOOR_Y, .5), new Vec3(.2, -0.0784000015258789, 0));
+            var result = f.tick(new Vec3(.7, JavaTickFixture.FLOOR_Y, .5), true);
+            assertTrue(JavaTickFixture.exact(result), JavaTickFixture.describe(result));
+
+            SetbackTeleportUtil teleports = f.player.getSetbackTeleportUtil();
+            assertEquals(0.0D, teleports.safePosition().getVector().x);
+            f.pongThrough(f.player.sendTrailingTransaction());
+            teleports.executeNonSimulatingSetback();
+            assertEquals(0.0D, teleports.getRequiredSetBack().getVelocity().x);
         }
     }
 

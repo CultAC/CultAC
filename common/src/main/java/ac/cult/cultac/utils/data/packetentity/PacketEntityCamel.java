@@ -21,7 +21,7 @@ public class PacketEntityCamel extends PacketEntityHorse {
     private void applyCamelAttributeDefaults() {
         // Vanilla camel attribute defaults.
         this.jumpStrength = 0.42F;
-        this.movementSpeedAttribute = 0.09f;
+        defaultMovementSpeed(0.09F);
         this.stepHeightAttribute = 1.5D;
     }
 
@@ -39,6 +39,15 @@ public class PacketEntityCamel extends PacketEntityHorse {
             dashCooldown--;
         }
         firstTick = false;
+    }
+
+    /**
+     * Camel#onPlayerJump: a saddled camel takes the riding jump only on the ground with no dash cooldown left. The
+     * rider's LocalPlayer#aiStep releases it after Camel#tick, so read this after the camel's move and
+     * tickDashCooldown.
+     */
+    public boolean takesRidingJump() {
+        return hasSaddle && dashCooldown <= 0 && onGround;
     }
 
     public boolean isCamelSitting() {
@@ -60,12 +69,15 @@ public class PacketEntityCamel extends PacketEntityHorse {
         return isCamelSitting() || isInPoseTransition(gameTime);
     }
 
-    /** Camel#tickRidden: a controller with positive zza stands a fully seated camel up at {@code gameTime}. */
-    public void tickRidden(boolean forward, long gameTime) {
-        if (forward && isCamelSitting() && !isInPoseTransition(gameTime)) {
-            actionPose = EntityPose.STANDING;
-            lastPoseChangeTick = gameTime;
-        }
+    /** Camel#tickRidden: whether a controller with positive zza stands a fully seated camel up at {@code gameTime}. */
+    public boolean standsUpInTickRidden(boolean forward, long gameTime) {
+        return forward && isCamelSitting() && !isInPoseTransition(gameTime);
+    }
+
+    /** Camel#standUp at {@code gameTime}. Its pose change refreshes the camel's dimensions at once. */
+    public void standUp(long gameTime) {
+        actionPose = EntityPose.STANDING;
+        lastPoseChangeTick = gameTime;
     }
 
     /** Camel#standUpInstantly, which Camel#tick runs on the client for a sitting camel in water. */

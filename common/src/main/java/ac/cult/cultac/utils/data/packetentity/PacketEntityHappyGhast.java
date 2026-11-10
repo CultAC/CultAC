@@ -1,17 +1,57 @@
 package ac.cult.cultac.utils.data.packetentity;
 
+import ac.cult.blocksim.engine.SimItemStack;
+import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.EquipmentSlot;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.inventory.ClientEquippable;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 
 public class PacketEntityHappyGhast extends PacketEntityTrackXRot {
-    public boolean hasBodyArmor = false;
+    private final CultPlayer player;
+    // The EquipmentSlot.BODY item, which a harness fills.
+    public SimItemStack bodyItem = SimItemStack.EMPTY;
     public boolean staysStill = false;
     public float movementSpeedAttribute = 0.05F;
     public float flyingSpeedAttribute = 0.05F;
 
     public PacketEntityHappyGhast(CultPlayer player, int entityId, int type, double x, double y, double z, float yaw) {
         super(player, entityId, type, x, y, z, yaw);
+        this.player = player;
+    }
+
+    /**
+     * HappyGhast#canBeCollidedWith on the client, for {@code other} at {@code otherPosition} and this ghast at
+     * {@code box}: an adult, live ghast collides with a Player at or above the top of its box, and otherwise with a
+     * happy ghast while it carries a rider, or with anything while it stays still. The client never sets the server's
+     * still timeout. LivingEntity#isAlive reads the health, which entity data can zero before any death event.
+     */
+    public boolean canBeCollidedWith(PacketEntity other, Vec3 otherPosition, SimpleCollisionBox box) {
+        if (isBaby || !actionAlive) return false;
+        if (other.type == EntityTypeIds.PLAYER && otherPosition.y >= box.maxY) return true;
+        return !passengers.isEmpty() && other instanceof PacketEntityHappyGhast || staysStill;
+    }
+
+    /**
+     * HappyGhast#sanitizeScale caps the scale at 1 on every Java version with happy ghasts. Geyser sends Bedrock the
+     * uncapped scale.
+     */
+    @Override
+    protected float sanitizeScale(float scale) {
+        return player.isBedrockMovement() ? scale : Math.min(scale, 1.0F);
+    }
+
+    /**
+     * Mob#isWearingBodyArmor: the BODY item fits a happy ghast's BODY slot, which HappyGhast#canUseSlot opens only to a
+     * live adult. Vanilla reads this each time, so a death or a change of age decides control without new equipment.
+     */
+    public boolean isWearingBodyArmor() {
+        return !bodyItem.isEmpty()
+                && actionAlive
+                && !isBaby
+                && ClientEquippable.fitsSlot(player, this, bodyItem, EquipmentSlot.BODY);
     }
 
     public float getRiddenTickYaw(float controllerYaw) {
@@ -19,8 +59,10 @@ public class PacketEntityHappyGhast extends PacketEntityTrackXRot {
         return rootYaw + CultMath.wrapDegrees(controllerYaw - rootYaw) * 0.08F;
     }
 
+    /** {@code rawInputState} is the rider's xxa/zza on Java, and the raw keys on Bedrock. */
     public Vec3 getRiddenInput(Vec3 rawInputState, boolean jumping, float controllerPitch) {
-        Vec3 controllerInput = getExactControllerModifiedInput(rawInputState);
+        Vec3 controllerInput =
+                player.isBedrockMovement() ? getExactControllerModifiedInput(rawInputState) : rawInputState;
         float xxa = (float) controllerInput.x;
         float zza = (float) controllerInput.z;
         float vertical = 0.0F;
@@ -28,8 +70,9 @@ public class PacketEntityHappyGhast extends PacketEntityTrackXRot {
 
         if (zza != 0.0F) {
             float pitchRadians = controllerPitch * ((float) Math.PI / 180F);
-            vertical = -CultMath.sin(pitchRadians);
-            forward = CultMath.cos(pitchRadians);
+            vertical =
+                    -(player.isBedrockMovement() ? CultMath.sin(pitchRadians) : player.trigHandler.sin(pitchRadians));
+            forward = player.isBedrockMovement() ? CultMath.cos(pitchRadians) : player.trigHandler.cos(pitchRadians);
             if (zza < 0.0F) {
                 vertical *= -0.5F;
                 forward *= -0.5F;

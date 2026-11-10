@@ -32,7 +32,7 @@ class ConfigPatcherTest {
         Path file = directory.resolve("messages.yml");
         Files.writeString(file, "format: \"old\"\nother: kept\n");
         ConfigPatcher patcher = new ConfigPatcher(file.toFile());
-        patcher.applyChange(new ConfigPatcher.PendingChange(patcher.getNodePosition("format"), value));
+        patcher.applyChange(new ConfigPatcher.PendingChange(patcher.getNodePosition(java.util.List.of("format")), value));
         patcher.save();
         Map<String, Object> patched = new Yaml().load(Files.readString(file));
         assertEquals(value, patched.get("format"));
@@ -43,7 +43,7 @@ class ConfigPatcherTest {
         Path file = directory.resolve("config.yml");
         Files.writeString(file, yaml);
         ConfigPatcher patcher = new ConfigPatcher(file.toFile());
-        patcher.addMissingValue(path, value);
+        patcher.addMissingValue(java.util.List.of(path.split("\\.")), value);
         patcher.save();
         return new Yaml().load(Files.readString(file));
     }

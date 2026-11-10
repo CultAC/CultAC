@@ -190,6 +190,8 @@ public final class BedrockTransportAuthorityTest {
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
             int playerVehicle = 17;
+            // Geyser's JavaSetPassengersTranslator, like ClientPacketListener, ignores an unknown vehicle.
+            player.compensatedEntities.addEntity(playerVehicle, EntityTypeIds.OAK_BOAT, Vec3.ZERO, 0.0F, 0.0F, 0);
             ClientboundSetPassengers mount = passengersPacket(playerVehicle, player.entityID);
             player.packetEntityReplication.onSetPassengers(sendEvent(player, mount), player, mount);
 

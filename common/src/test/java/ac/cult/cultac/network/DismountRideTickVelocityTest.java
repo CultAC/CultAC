@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
@@ -29,6 +30,7 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.TeleportData;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.math.Vec3;
 import java.lang.reflect.Field;
@@ -290,6 +292,60 @@ class DismountRideTickVelocityTest {
         }
     }
 
+    /**
+     * LivingEntity#jumpOutOfFluid after the rider presses into a wall: the isFree box ends on the wall's face. 26.3's
+     * LevelReader#findBlocksIn includes the cell beyond that face, so a waterlogged trapdoor there keeps the 26.3 rider
+     * in the water's fluid gravity, while older clients scan only to the face and hop.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"V_26_3", "V_26_2", "V_1_21_4"})
+    void aLiquidCellPastTheWallFaceBlocksOnly26_3sPassengerHop(String release) throws Exception {
+        ClientVersion version = ClientVersion.valueOf(release);
+        try (var f = fixture(version);
+                var ignored = observeOnly(true)) {
+            var registry = DataTables.defaults().registry();
+            int trapdoor = registry.with(registry.block("minecraft:oak_trapdoor").defaultState(), "facing", "east");
+            trapdoor = registry.with(registry.with(trapdoor, "open", "true"), "waterlogged", "true");
+            for (int z = -1; z <= 1; z++) {
+                for (int y = FLOOR_Y; y <= FLOOR_Y + 3; y++) {
+                    for (int x = -1; x <= 1; x++) {
+                        f.player.compensatedWorld.updateBlock(new BlockPos(x, y, z),
+                                y <= FLOOR_Y + 1 ? BlockIds.WATER.defaultState() : BlockIds.AIR.defaultState());
+                    }
+                    f.player.compensatedWorld.updateBlock(new BlockPos(2, y, z),
+                            y == FLOOR_Y + 2 && z == 0 ? trapdoor : BlockIds.STONE.defaultState());
+                }
+            }
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            // The seat's feet sit at 65.5, in the upper water cell; the isFree box starts above the water.
+            Vec3 stand = new Vec3(1.69, FLOOR_Y + 0.125, 0.5);
+            f.place(new Vec3(stand.x, FLOOR_Y, stand.z), Vec3.ZERO);
+            f.player.xRot = -90;
+            f.tick(new Vec3(stand.x, FLOOR_Y, stand.z), true);
+            f.player.compensatedEntities.addEntity(VEHICLE, EntityTypeIds.ARMOR_STAND, stand, 0, 0, 0);
+            f.setPassengers(VEHICLE, List.of(f.player.entityID));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            assertTrue(f.player.compensatedEntities.getSelf().inVehicle());
+            f.input(FORWARD);
+            f.rideTick();
+            f.rideTick();
+            f.input(NONE);
+            dismount(f, false);
+            for (int z = -1; z <= 1; z++) {
+                for (int y = FLOOR_Y; y <= FLOOR_Y + 3; y++) {
+                    for (int x = -1; x <= 2; x++) {
+                        f.player.compensatedWorld.updateBlock(new BlockPos(x, y, z), BlockIds.AIR.defaultState());
+                    }
+                }
+            }
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            // LivingEntity#travelInWater: the 0.8 drag of a zero delta, then the fluid gravity of 0.08 / 16.
+            double carried = version.isNewerThanOrEquals(ClientVersion.V_26_3) ? -0.005 : 0.3F;
+            PredictionResult move = f.tick(position(f).add(0, carried, 0), false);
+            assertTrue(exact(move), describe(move));
+        }
+    }
+
     /** A ride tick in powder snow travels in air, then PowderSnowBlock#entityInside sticks the first move. */
     @ParameterizedTest
     @MethodSource("endings")
@@ -326,6 +382,114 @@ class DismountRideTickVelocityTest {
             f.player.compensatedWorld.updateBlock(feet, BlockIds.AIR.defaultState());
             PredictionResult move = f.tick(position(f).add(0, (0.2 - 0.08) * 0.98F, 0), false);
             assertTrue(exact(move), describe(move));
+        }
+    }
+
+    /**
+     * Player#onClimbable is false in flight, so neither LivingEntity#handleOnClimbable nor the 0.2 climb runs:
+     * the rider keeps LocalPlayer#aiStep's flying ascent, less gravity and drag. Player#travel flies a passenger
+     * through LivingEntity#travel, and the first free flight moves by that velocity.
+     */
+    @ParameterizedTest
+    @MethodSource("endings")
+    void aFlyingRiderOnALadderDoesNotClimb(ClientVersion version, boolean removeSeat) throws Exception {
+        try (var f = fixture(version);
+                var ignored = observeOnly(true)) {
+            ride(f);
+            f.player.canFly = f.player.isFlying = true;
+            f.player.flySpeed = 0.05F;
+            Vec3 seat = rideTickSeat(f);
+            BlockPos feet = BlockPos.containing(seat.x, seat.y, seat.z);
+            f.player.compensatedWorld.updateBlock(feet, BlockIds.LADDER.defaultState());
+            f.input(JUMP);
+            f.rideTick();
+            dismount(f, removeSeat);
+            f.input(NONE);
+            f.player.compensatedWorld.updateBlock(feet, BlockIds.AIR.defaultState());
+            double ascent = (f.player.flySpeed * 3.0F - 0.08) * 0.98F;
+            assertEquals(ascent, f.player.compensatedEntities.getSelf().deltaMovement.y, 1e-9);
+            // Flight exempts the move; its offset still measures the carried velocity.
+            PredictionResult move = f.tick(position(f).add(0, ascent, 0), false);
+            assertTrue(move.getOffset() < 1.0E-5, describe(move));
+        }
+    }
+
+    /**
+     * Entity#baseTick pushes the rider by the water current before LocalPlayer#aiStep's double-tap starts flight on
+     * a saddled horse it controls, so the takeoff tick keeps the current: Player#isPushedByFluid reads the flight
+     * the tick started with. The flight's travelInAir then drags it by 0.91.
+     */
+    @ParameterizedTest
+    @MethodSource("endings")
+    void aTakeoffOnAHorseKeepsTheCurrentItsRideTickStartedIn(ClientVersion version, boolean removeSeat)
+            throws Exception {
+        try (var f = fixture(version);
+                var ignored = observeOnly(true)) {
+            f.place(VEHICLE_AT, new Vec3(0, FALL, 0));
+            PredictionResult standing = f.tick(VEHICLE_AT, true);
+            assertTrue(exact(standing), describe(standing));
+            f.player.compensatedEntities.addEntity(VEHICLE, EntityTypeIds.HORSE, VEHICLE_AT, 0, 0, 0);
+            ((PacketEntityHorse) f.player.compensatedEntities.getEntity(VEHICLE)).hasSaddle = true;
+            f.setPassengers(VEHICLE, List.of(f.player.entityID));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            f.player.canFly = true;
+            f.player.flySpeed = 0.05F;
+            f.rideTick();
+            // A layer through the rider's body whose level rises towards +X, so its block flows along +X alone.
+            int layer = (int) Math.floor(rideTickSeat(f).y) + 1;
+            var registry = DataTables.defaults().registry();
+            for (int x = -8; x <= 8; x++) {
+                int water = registry.with(
+                        BlockIds.WATER.defaultState(), "level", Integer.toString(Math.max(1, Math.min(7, x + 4))));
+                for (int z = -8; z <= 8; z++) f.player.compensatedWorld.updateBlock(new BlockPos(x, layer, z), water);
+            }
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            // The first press arms Player#jumpTriggerTime; the second toggles before travel.
+            f.input(JUMP);
+            f.rideTick();
+            f.input(NONE);
+            f.rideTick();
+            f.input(JUMP);
+            f.abilities(true);
+            f.rideTick();
+            dismount(f, removeSeat);
+            // A player's current is not normalized: one block's unit flow scaled by 0.014.
+            assertEquals(0.014 * 0.91F, f.player.compensatedEntities.getSelf().deltaMovement.x, 1e-9);
+        }
+    }
+
+    /**
+     * FishingHook#pullEntity adds to the rider's delta movement in the packet handler, and the next Entity#rideTick
+     * zeroes it before the passenger travels: a pull with a ride tick after it leaves only that tick's fall.
+     */
+    @ParameterizedTest
+    @MethodSource("endings")
+    void aPullBeforeARideTickIsZeroedByIt(ClientVersion version, boolean removeSeat) throws Exception {
+        try (var f = fixture(version);
+                var ignored = observeOnly(true)) {
+            ride(f);
+            pull(f);
+            f.rideTick();
+            dismount(f, removeSeat);
+            PredictionResult move = f.tick(position(f).add(0, FALL, 0), false);
+            assertTrue(exact(move), describe(move));
+        }
+    }
+
+    /** A pull the dismount follows before any ride tick stays in the delta movement the first free move starts from. */
+    @ParameterizedTest
+    @MethodSource("endings")
+    void aPullTheDismountFollowsCarriesIntoTheFirstFreeMove(ClientVersion version, boolean removeSeat)
+            throws Exception {
+        try (var f = fixture(version);
+                var ignored = observeOnly(true)) {
+            ride(f);
+            Vec3 pull = pull(f);
+            dismount(f, removeSeat);
+            Vec3 velocity = new Vec3(0, FALL, 0).add(pull);
+            Vec3 move = new Vec3(velocity.x, velocity.y, velocity.z);
+            PredictionResult result = f.tick(position(f).add(move), false);
+            assertTrue(exact(result), describe(result));
         }
     }
 
@@ -389,6 +553,24 @@ class DismountRideTickVelocityTest {
         }
     }
 
+    private static final int HOOK_OWNER = 80, HOOK = 81;
+
+    /** A remote angler 3 blocks along +X whose hook is in the rider; FishingHook#pullEntity's addition. */
+    private static Vec3 pull(JavaTickFixture f) {
+        Vec3 owner = new Vec3(f.player.x + 3, f.player.y, f.player.z);
+        Vec3 bobber = new Vec3(f.player.x, f.player.y + 0.5, f.player.z);
+        f.addRemotePlayer(HOOK_OWNER, owner, ac.cult.cultac.protocol.value.GameMode.SURVIVAL);
+        f.player.compensatedEntities.addEntity(HOOK, EntityTypeIds.FISHING_BOBBER, bobber, 0, 0, HOOK_OWNER);
+        var hook = (ac.cult.cultac.utils.data.packetentity.PacketEntityHook)
+                f.player.compensatedEntities.getEntity(HOOK);
+        hook.setAttached(f.player, f.player.entityID);
+        f.player.compensatedEntities.fishingPulls.receive(
+                f.player, HOOK, f.player.lastTransactionReceived.get(), f.player.nextImpulseSequence());
+        var pending = f.player.compensatedEntities.fishingPulls.pending(f.player.compensatedEntities.getSelf());
+        assertEquals(1, pending.size());
+        return pending.getFirst().impulses().getFirst();
+    }
+
     private static void levitation(JavaTickFixture f, boolean gain) {
         if (gain) {
             var packet = new ClientboundUpdateMobEffect(f.player.entityID, "minecraft:levitation", 0);
@@ -437,7 +619,7 @@ class DismountRideTickVelocityTest {
 
     /** As {@link #ride(JavaTickFixture, ServerboundPlayerInput)}, with the vehicle at {@code at}. */
     private static void ride(JavaTickFixture f, Vec3 at, ServerboundPlayerInput input) {
-        f.place(at, Vec3.ZERO);
+        f.place(at, new Vec3(0, FALL, 0));
         PredictionResult standing = f.tick(at, true);
         assertTrue(exact(standing), describe(standing));
         mount(f, at);

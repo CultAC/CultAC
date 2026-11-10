@@ -34,13 +34,11 @@ class InterpolationAllocBenchTest {
     void movementCycles() throws Exception {
         String out = System.getenv("CULT_INTERP_BENCH");
         assumeTrue(out != null && !out.isEmpty());
-        String[] names = {"legacy move", "legacy bundle", "legacy sync", "1.8 move", "stepped move", "stepped bundle"};
+        String[] names = {"legacy bundle", "legacy sync", "1.8 bundle", "stepped bundle"};
         InterpolationTraceTest.Workload[] workloads = {
-            new InterpolationTraceTest.Workload(ClientVersion.V_1_21_4, 1L, ENTITIES),
             new InterpolationTraceTest.Workload(ClientVersion.V_1_21_4, 2L, ENTITIES),
             new InterpolationTraceTest.Workload(ClientVersion.V_1_21_4, 3L, ENTITIES),
             new InterpolationTraceTest.Workload(ClientVersion.V_1_8, 4L, ENTITIES),
-            new InterpolationTraceTest.Workload(ClientVersion.V_26_3, 5L, ENTITIES),
             new InterpolationTraceTest.Workload(ClientVersion.V_26_3, 6L, ENTITIES)
         };
         Cycle[] cycles = new Cycle[names.length];
@@ -52,12 +50,9 @@ class InterpolationAllocBenchTest {
                 float yaw = (n & 2) == 0 ? 10.0F : -10.0F;
                 for (PacketEntity entity : w.entities) {
                     switch (kind) {
-                        case 0, 3 -> entity.onBundleFirstTransaction(true, true, d, 0, d, yaw, 0.0F, w.player);
-                        case 1 -> entity.onBundleFirstTransaction(true, true, d, 0, d, yaw, 0.0F, w.player);
-                        case 2 ->
-                            entity.onBundleTransaction(
-                                    false,
-                                    true,
+                        case 0, 2 -> entity.onBundleFirstTransaction(true, true, d, 0, d, yaw, 0.0F, w.player);
+                        case 1 ->
+                            entity.onBundledPositionSyncTransaction(
                                     entity.desyncClientPos.x + d,
                                     entity.desyncClientPos.y,
                                     entity.desyncClientPos.z + d,
@@ -75,10 +70,10 @@ class InterpolationAllocBenchTest {
                         }
                     }
                 }
-                w.tick(true);
+                w.tick();
                 for (PacketEntity entity : w.entities) entity.onSecondTransaction();
-                w.tick(true);
-                w.tick(true);
+                w.tick();
+                w.tick();
             };
         }
         var bean = (ThreadMXBean) ManagementFactory.getThreadMXBean();

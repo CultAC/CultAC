@@ -10,12 +10,23 @@ import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.yaml.snakeyaml.DumperOptions;
+import org.yaml.snakeyaml.LoaderOptions;
+import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.constructor.SafeConstructor;
+import org.yaml.snakeyaml.nodes.CollectionNode;
+import org.yaml.snakeyaml.nodes.MappingNode;
+import org.yaml.snakeyaml.nodes.Node;
+import org.yaml.snakeyaml.nodes.NodeTuple;
+import org.yaml.snakeyaml.nodes.ScalarNode;
 
 public final class ConfigPatcher {
 
     private final File file;
     private final List<String> lines;
-    private final Map<String, NodePosition> locationMap;
+    private final Map<List<String>, NodePosition> locationMap;
+    // Flow collections ({a: 1} or [a, b]) by the literal keys of the node they are, with the text they span.
+    private final Map<List<String>, FlowSpan> flowCollections = new HashMap<>();
 
     // ... (formatValue and YAML_KEYWORDS/SPECIAL_CHARS constants are unchanged) ...
     private static final Set<String> YAML_KEYWORDS_TO_QUOTE = new HashSet<>(Arrays.asList(
@@ -30,7 +41,8 @@ public final class ConfigPatcher {
         mapFile();
     }
 
-    public NodePosition getNodePosition(String path) {
+    /** The block-style node at these literal keys, one per map level. */
+    public NodePosition getNodePosition(List<String> path) {
         return locationMap.get(path);
     }
 
@@ -43,37 +55,98 @@ public final class ConfigPatcher {
     }
 
     /** Insert a new setting beneath its closest existing parent, keeping surrounding text. */
-    public void addMissingValue(String path, Object value) {
-        String[] parts = path.split("\\.");
-        int parentDepth = parts.length - 1;
+    public void addMissingValue(List<String> path, Object value) {
+        int parentDepth = path.size() - 1;
         NodePosition parent = null;
         while (parentDepth > 0) {
-            parent = locationMap.get(String.join(".", Arrays.copyOf(parts, parentDepth)));
+            parent = locationMap.get(path.subList(0, parentDepth));
             if (parent != null) break;
             parentDepth--;
         }
         Object nested = value;
-        for (int i = parts.length - 1; i >= parentDepth; i--) {
-            nested = Collections.singletonMap(parts[i], nested);
+        for (int i = path.size() - 1; i >= parentDepth; i--) {
+            nested = Collections.singletonMap(path.get(i), nested);
         }
         org.yaml.snakeyaml.DumperOptions options = new org.yaml.snakeyaml.DumperOptions();
         options.setDefaultFlowStyle(org.yaml.snakeyaml.DumperOptions.FlowStyle.BLOCK);
         String yaml = new org.yaml.snakeyaml.Yaml(options).dump(nested);
-        String indent = " ".repeat(
-                parent == null ? 0 : childIndent(String.join(".", Arrays.copyOf(parts, parentDepth)), parent));
+        String indent = " ".repeat(parent == null ? 0 : childIndent(path.subList(0, parentDepth), parent));
         List<String> inserted = yaml.lines().map(line -> indent + line).toList();
         lines.addAll(parent == null ? lines.size() : parent.lineIndex() + 1, inserted);
-        locationMap.clear();
-        mapFile();
+        remap();
     }
 
+    /** Whether the node at path is, or lies inside, a flow collection, whose text the line map does not cover. */
+    public boolean inFlowCollection(List<String> path) {
+        return flowCollectionHolding(path) != null;
+    }
+
+    /**
+     * Sets path inside the innermost flow collection holding it, rewriting that collection as one flow-style value in
+     * place of its text. The text around the collection, its key, anchor and a trailing comment included, stays.
+     */
+    public void replaceInFlowCollection(List<String> path, Object value) {
+        List<String> holder = flowCollectionHolding(path);
+        if (holder == null) throw new IllegalArgumentException("no flow collection holds " + path);
+        FlowSpan span = flowCollections.get(holder);
+        String text = String.join("\n", lines);
+        int start = text.offsetByCodePoints(0, span.startIndex());
+        int end = text.offsetByCodePoints(0, span.endIndex());
+        // Built from the whole document's node: an alias to an anchor outside the collection resolves.
+        Object collection = new NodeConstructor().construct(span.node());
+        DumperOptions options = new DumperOptions();
+        options.setDefaultFlowStyle(DumperOptions.FlowStyle.FLOW);
+        options.setSplitLines(false);
+        String flow = new Yaml(options)
+                .dump(withValue(collection, path.subList(holder.size(), path.size()), value))
+                .strip();
+        // The node's text starts at its anchor, which aliases later in the file may name.
+        if (span.node().getAnchor() != null) flow = "&" + span.node().getAnchor() + " " + flow;
+        String rewritten = text.substring(0, start) + flow + text.substring(end);
+        lines.clear();
+        lines.addAll(Arrays.asList(rewritten.split("\n", -1)));
+        remap();
+    }
+
+    /** Builds one composed node's value, its aliases resolved within the document it was composed from. */
+    private static final class NodeConstructor extends SafeConstructor {
+        NodeConstructor() {
+            super(new LoaderOptions());
+        }
+
+        Object construct(Node node) {
+            return constructDocument(node);
+        }
+    }
+
+    private List<String> flowCollectionHolding(List<String> path) {
+        for (int depth = path.size(); depth >= 0; depth--) {
+            List<String> keys = path.subList(0, depth);
+            if (flowCollections.containsKey(keys)) return keys;
+        }
+        return null;
+    }
+
+    /** {@code collection} with the value at keys set, the way {@link YamlMap#put} nests missing maps. */
+    @SuppressWarnings("unchecked")
+    private static Object withValue(Object collection, List<String> keys, Object value) {
+        if (keys.isEmpty()) return value;
+        Map<Object, Object> map = collection instanceof Map<?, ?> existing
+                ? new LinkedHashMap<>((Map<Object, Object>) existing)
+                : new LinkedHashMap<>();
+        map.put(keys.get(0), withValue(map.get(keys.get(0)), keys.subList(1, keys.size()), value));
+        return map;
+    }
+
+    /** A flow collection's node, and its text as code point indexes into the lines joined by {@code \n}. */
+    private record FlowSpan(Node node, int startIndex, int endIndex) {}
+
     /** The indent of {@code parentPath}'s existing children, or two past the parent's when it has none. */
-    private int childIndent(String parentPath, NodePosition parent) {
-        String prefix = parentPath + ".";
-        for (Map.Entry<String, NodePosition> entry : locationMap.entrySet()) {
-            String path = entry.getKey();
-            if (path.startsWith(prefix)
-                    && path.indexOf('.', prefix.length()) < 0
+    private int childIndent(List<String> parentPath, NodePosition parent) {
+        for (Map.Entry<List<String>, NodePosition> entry : locationMap.entrySet()) {
+            List<String> path = entry.getKey();
+            if (path.size() == parentPath.size() + 1
+                    && path.subList(0, parentPath.size()).equals(parentPath)
                     && entry.getValue().indent() > parent.indent()) return entry.getValue().indent();
         }
         return parent.indent() + 2;
@@ -91,28 +164,98 @@ public final class ConfigPatcher {
         }
     }
 
+    /** Maps the edited text again, after changes that moved the lines the map points at. */
+    public void remap() {
+        locationMap.clear();
+        flowCollections.clear();
+        mapFile();
+    }
+
     private void mapFile() {
+        // A line inside a flow collection holds no block-style key, even where it reads like one.
+        BitSet insideFlow = mapFlowCollections();
         List<String> pathStack = new ArrayList<>();
         List<Integer> indentStack = new ArrayList<>();
         Pattern keyPattern = Pattern.compile("^(\\s*)([^#:]+):(.*)");
 
         for (int i = 0; i < lines.size(); i++) {
             String line = lines.get(i);
-            if (line.trim().isEmpty() || line.trim().startsWith("#")) continue;
+            if (line.trim().isEmpty() || line.trim().startsWith("#") || insideFlow.get(i)) continue;
             Matcher matcher = keyPattern.matcher(line);
             if (matcher.matches()) {
                 int currentIndent = matcher.group(1).length();
-                String key = matcher.group(2).trim();
+                String key = literalKey(matcher.group(2).trim());
                 while (!indentStack.isEmpty() && currentIndent <= indentStack.get(indentStack.size() - 1)) {
                     pathStack.remove(pathStack.size() - 1);
                     indentStack.remove(indentStack.size() - 1);
                 }
                 pathStack.add(key);
                 indentStack.add(currentIndent);
-                String currentPath = String.join(".", pathStack);
-                locationMap.put(currentPath, new NodePosition(i, currentIndent));
+                locationMap.put(List.copyOf(pathStack), new NodePosition(i, currentIndent));
             }
         }
+    }
+
+    /**
+     * Records every flow collection, those inside another one included; returns the lines the outermost ones span,
+     * other than their key's.
+     */
+    private BitSet mapFlowCollections() {
+        BitSet insideFlow = new BitSet();
+        String text = String.join("\n", lines);
+        Node root;
+        try {
+            root = new Yaml().compose(new java.io.StringReader(text));
+        } catch (RuntimeException unparseable) {
+            return insideFlow;
+        }
+        if (root != null) mapFlowCollections(root, List.of(), null, text, insideFlow, false);
+        return insideFlow;
+    }
+
+    private void mapFlowCollections(
+            Node node, List<String> keys, Node keyNode, String text, BitSet insideFlow, boolean inFlow) {
+        // An alias composes to its anchor's node, written before the key: none of that text is this value's.
+        if (keyNode != null
+                && node.getStartMark().getIndex() < keyNode.getEndMark().getIndex()) return;
+        boolean flow = node instanceof CollectionNode<?> collection
+                && collection.getFlowStyle() == DumperOptions.FlowStyle.FLOW;
+        if (flow) {
+            int start = node.getStartMark().getIndex();
+            int end = node.getEndMark().getIndex();
+            flowCollections.put(keys, new FlowSpan(node, start, end));
+            if (!inFlow) {
+                insideFlow.set(line(text, start), line(text, end) + 1);
+                if (keyNode != null)
+                    insideFlow.clear(line(text, keyNode.getStartMark().getIndex()));
+            }
+        }
+        if (!(node instanceof MappingNode mapping)) return;
+        for (NodeTuple tuple : mapping.getValue()) {
+            if (!(tuple.getKeyNode() instanceof ScalarNode key)) continue;
+            List<String> child = new ArrayList<>(keys);
+            child.add(key.getValue());
+            mapFlowCollections(tuple.getValueNode(), List.copyOf(child), key, text, insideFlow, inFlow || flow);
+        }
+    }
+
+    /** The line holding a code point index into the lines joined by {@code \n}. */
+    private static int line(String text, int codePointIndex) {
+        int offset = text.offsetByCodePoints(0, Math.min(codePointIndex, text.codePointCount(0, text.length())));
+        int line = 0;
+        for (int i = text.indexOf('\n'); i >= 0 && i < offset; i = text.indexOf('\n', i + 1)) line++;
+        return line;
+    }
+
+    /** The key a quoted YAML key names; a plain key, dots included, is already literal. */
+    private static String literalKey(String key) {
+        if (key.length() < 2) return key;
+        char quote = key.charAt(0);
+        if (quote != key.charAt(key.length() - 1)) return key;
+        String quoted = key.substring(1, key.length() - 1);
+        if (quote == '\'') return quoted.replace("''", "'");
+        if (quote == '"') return quoted.replace("\\\"", "\"").replace("\\\\", "\\");
+        return key;
     }
 
     private void replaceScalarValue(NodePosition position, Object value) {
@@ -235,10 +378,10 @@ public final class ConfigPatcher {
 
     /**
      * If the key on {@code lineIndex} has an inline list value
-     * ({@code key: [a, b, c]}), rewrite the line to {@code key:} so the
-     * block-list rewrite below the key doesn't end up doubling the values.
-     * Trailing comments are preserved. Lines without an inline-list shape
-     * are left untouched.
+     * ({@code key: [a, b, c]}) or an alias ({@code key: *name}), rewrite the
+     * line to {@code key:} so the block-list rewrite below the key is its
+     * only value. Trailing comments are preserved. Lines without either
+     * shape are left untouched.
      */
     private void scrubInlineListFromKeyLine(int lineIndex) {
         String line = lines.get(lineIndex);
@@ -265,14 +408,22 @@ public final class ConfigPatcher {
         String valuePart = (hashIdx >= 0 ? afterColon.substring(0, hashIdx) : afterColon).trim();
         String trailingComment =
                 hashIdx >= 0 ? "  " + afterColon.substring(hashIdx).trim() : "";
-        if (valuePart.startsWith("[") && valuePart.endsWith("]")) {
-            // Inline-list form. Keep "key:" + any trailing comment; let the
-            // block-list rewrite happen below.
+        // A plain scalar cannot start with '*', so this is an alias.
+        if (valuePart.startsWith("*") || (valuePart.startsWith("[") && valuePart.endsWith("]"))) {
+            // Keep "key:" + any trailing comment; let the block-list
+            // rewrite happen below.
             lines.set(lineIndex, line.substring(0, colonIdx + 1) + trailingComment);
         }
     }
 
+    /** Writes the patched text, unless it no longer parses; then the file, and its version, stay as they were. */
     public void save() throws IOException {
+        try {
+            new Yaml().load(String.join("\n", lines));
+        } catch (RuntimeException broken) {
+            throw new IOException(
+                    "patching " + file.getName() + " would leave it unparseable; left it unchanged", broken);
+        }
         Path target = file.toPath().toAbsolutePath();
         Path temporary = Files.createTempFile(target.getParent(), ".cult-config-", ".tmp");
         try {

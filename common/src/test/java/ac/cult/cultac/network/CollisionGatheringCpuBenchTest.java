@@ -39,7 +39,7 @@ class CollisionGatheringCpuBenchTest {
             Field version = player.getClass().getDeclaredField("resolvedClientVersion");
             version.setAccessible(true);
             var queries = queries();
-            var actor = new JavaCollisionState(0, false, false, false);
+            var actor = new JavaCollisionState(0, false, false, false, false);
             var thread = (ThreadMXBean) ManagementFactory.getThreadMXBean();
             String jfr = System.getenv("CULT_COLLISION_BENCH_JFR");
             Recording recording = null;

@@ -1,10 +1,6 @@
 package ac.cult.cultac.utils.collisions;
 
-import ac.cult.blocksim.data.BlockIds;
-import ac.cult.blocksim.engine.BlockPos;
-import ac.cult.blocksim.engine.EntityCollisionContext;
 import ac.cult.blocksim.engine.shapes.Shapes;
-import ac.cult.blocksim.engine.shapes.VoxelShape;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.CollisionBox;
@@ -33,7 +29,7 @@ public final class ClientBlockShapes {
                 y,
                 z,
                 entityBottom,
-                BlockIds.is(state, BlockIds.POWDER_SNOW) ? JavaCollisionState.current(player) : null);
+                JavaCollisionState.readsActor(state) ? JavaCollisionState.current(player) : null);
     }
 
     public static CollisionBox movement(
@@ -43,13 +39,13 @@ public final class ClientBlockShapes {
         return selectIfDifferent(latestJava, movementAlternative(player, state, x, y, z, entityBottom));
     }
 
-    /** BlockState#getCollisionShape(BlockGetter, BlockPos): the shape under CollisionContext.empty(). */
-    public static CollisionBox movementWithoutEntity(CultPlayer player, int state, int x, int y, int z) {
-        VoxelShape shape = NativeBlockCollisionHelper.getCollisionShape(
-                player, state, new BlockPos(x, y, z), Double.NaN, null, EntityCollisionContext.emptyContext());
-        return selectIfDifferent(
-                NativeBlockCollisionHelper.fromShape(shape, x, y, z),
-                movementAlternative(player, state, x, y, z, player.y));
+    /**
+     * The client's BlockState#getCollisionShape(BlockGetter, BlockPos): the shape under CollisionContext.empty(), not
+     * the moving entity's. Vanilla queries it where no entity is passed, e.g. AbstractBoat#getGroundFriction.
+     */
+    public static CollisionBox contextFreeMovement(CultPlayer player, int state, int x, int y, int z) {
+        CollisionBox latestJava = NativeBlockCollisionHelper.getContextFreeCollisionBox(player, state, x, y, z);
+        return selectIfDifferent(latestJava, contextFreeMovementAlternative(player, state, x, y, z));
     }
 
     /** Source-proven unit cube with no client mapping override; safe for a boolean-only scan. */
@@ -152,6 +148,19 @@ public final class ClientBlockShapes {
         }
         Optional<CollisionBox> viaReplacement =
                 ViaClientBlockShapeMappings.movement(player, state, x, y, z, entityBottom);
+        if (viaReplacement.isPresent()) {
+            return viaReplacement;
+        }
+        return VersionedJavaBlockShapes.movement(player, state, x, y, z);
+    }
+
+    private static Optional<CollisionBox> contextFreeMovementAlternative(
+            CultPlayer player, int state, int x, int y, int z) {
+        Optional<CollisionBox> bedrock = BedrockClientBlockShapeMappings.movement(player, state, x, y, z);
+        if (bedrock.isPresent()) {
+            return bedrock;
+        }
+        Optional<CollisionBox> viaReplacement = ViaClientBlockShapeMappings.contextFreeMovement(player, state, x, y, z);
         if (viaReplacement.isPresent()) {
             return viaReplacement;
         }

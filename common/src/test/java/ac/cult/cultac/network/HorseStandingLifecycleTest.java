@@ -1,5 +1,6 @@
 package ac.cult.cultac.network;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -13,6 +14,7 @@ import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.events.packets.listeners.PacketPingListener;
 import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.network.event.PacketListenerPriority;
+import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
@@ -22,7 +24,9 @@ import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPassengers;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.value.GameMode;
+import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.math.Vec3;
 import io.netty.buffer.ByteBuf;
@@ -111,6 +115,31 @@ class HorseStandingLifecycleTest {
             tickEnd(f);
             assertFalse(horse.isRearing, "a no-AI horse cannot rear");
         }
+    }
+
+    /**
+     * AbstractHorse#onPlayerJump clamps a negative amount to the tapped charge, and only a non-negative one allows
+     * stand sliding and calls standIfPossible().
+     */
+    @Test
+    void aNegativeReleaseTakesTheTappedChargeWithoutStanding() throws Exception {
+        try (var services = new RecordConsumerServices();
+                var f = fixture()) {
+            PacketEntityHorse horse = ride(f, EntityTypeIds.HORSE);
+            ridingJump(f, -61);
+            tickEnd(f);
+            assertEquals(0.4F, horse.horseJump, "onPlayerJump clamps the amount to 0");
+            assertFalse(horse.isRearing, "a negative amount does not call standIfPossible");
+            assertFalse(horse.allowStandSliding, "a negative amount does not allow stand sliding");
+        }
+    }
+
+    /** LocalPlayer#sendRidingJump's START_RIDING_JUMP with {@code amount}, as PacketEntityAction receives it. */
+    private static void ridingJump(RecordReceiveFixture f, int amount) {
+        var packet =
+                new ServerboundPlayerCommand(f.player.entityID, PlayerCommandAction.START_JUMPING_WITH_HORSE, amount);
+        var event = new PacketReceiveEvent<>(f.user, ConnectionPhase.PLAY, ServerboundPackets.PLAYER_COMMAND, packet);
+        new PacketEntityAction().onPlayerCommand(event, f.player, packet);
     }
 
     private static void release(PacketEntityHorse horse) {

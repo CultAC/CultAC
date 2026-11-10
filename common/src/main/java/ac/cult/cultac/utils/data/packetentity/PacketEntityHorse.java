@@ -18,7 +18,10 @@ public class PacketEntityHorse extends PacketEntityTrackXRot {
     private int standCounter = 0;
 
     private boolean nextStandIfPossible = false;
+    /** AbstractHorse#getRiddenSpeed: movementSpeed's value as a float. */
     public float movementSpeedAttribute = 0.225f;
+
+    public final ClientMovementSpeed movementSpeed = new ClientMovementSpeed(0.225F);
     public float standAnim = 0.0F;
     public float standAnimO = 0.0F;
     public long horseFlagsRevision;
@@ -28,14 +31,30 @@ public class PacketEntityHorse extends PacketEntityTrackXRot {
 
         if (EntityTypeUtil.isChestedHorseFamily(type)) {
             jumpStrength = 0.5;
-            movementSpeedAttribute = 0.175f;
+            defaultMovementSpeed(0.175F);
         }
 
         if (type == EntityTypeIds.ZOMBIE_HORSE || type == EntityTypeIds.SKELETON_HORSE) {
-            movementSpeedAttribute = 0.2f;
+            defaultMovementSpeed(0.2F);
         }
         // Geyser supplies this initial value when spawning a horse.
         if (player.isBedrockMovement()) jumpStrength = 0.5F;
+    }
+
+    /** This type's movement_speed base before the server sends one. */
+    protected final void defaultMovementSpeed(float base) {
+        movementSpeed.defaultBase(base);
+        movementSpeedAttribute = base;
+    }
+
+    @Override
+    public ClientMovementSpeed riddenMovementSpeed() {
+        return movementSpeed;
+    }
+
+    @Override
+    public void refreshRiddenMovementSpeed() {
+        movementSpeedAttribute = (float) movementSpeed.value();
     }
 
     /** AbstractHorse#isTamed: FLAG_TAME of DATA_ID_FLAGS. */
@@ -44,8 +63,8 @@ public class PacketEntityHorse extends PacketEntityTrackXRot {
     }
 
     @Override
-    public void onMovement(CultPlayer player, boolean highBound) {
-        super.onMovement(player, highBound);
+    public void onMovement(CultPlayer player) {
+        super.onMovement(player);
         if (player.isBedrockMovement() && bedrockPrediction != null) {
             BedrockVehiclePredictionState.tickRemote(this);
         } else {

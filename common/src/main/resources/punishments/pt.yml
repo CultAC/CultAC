@@ -19,6 +19,7 @@ Punishments:
       - "GroundSpoof"
       - "Timer"
       - "NoFall"
+      - "Phase"
     # Limiar: Intervalo entre comandos
     #
     # Exemplo, para expulsar um jogador com a mensagem: "movimento incorreto!" depois de 100 violações, sem
@@ -132,4 +133,4 @@ Punishments:
       - "3:3 [webhook]"
       - "3:3 [proxy]"
 
-cult-config-version: 5
+cult-config-version: 6

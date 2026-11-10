@@ -5,8 +5,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
-import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
-import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -42,36 +40,6 @@ class WorldAllocationTest {
                     "minecraft:moving_piston",
                     "minecraft:bamboo")) {
                 assertNull(geometry.staticCollision(registry.block(dynamic).defaultState()), dynamic);
-            }
-        }
-    }
-
-    @Test
-    void primitiveIterationRetainsExactExpirationAndFluidCleanup() throws Exception {
-        try (var services = new RecordConsumerServices();
-                var fixture = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
-            var world = fixture.player.compensatedWorld;
-            var collision = (Long2IntOpenHashMap) field(world, "recentClientCollisionChanges");
-            var fluid = (Long2IntOpenHashMap) field(world, "recentClientFluidChanges");
-            var kinds = (Long2ByteOpenHashMap) field(world, "recentClientFluidChangeKinds");
-            for (int i = 0; i < 100; i++) {
-                collision.put(i, i % 3 + 1);
-                fluid.put(i, i % 3 + 1);
-                kinds.put(i, (byte) 3);
-            }
-            for (int tick = 1; tick <= 3; tick++) {
-                invoke(world, "tickRecentClientCollisionChanges");
-                invoke(world, "tickRecentClientFluidChanges");
-                for (int i = 0; i < 100; i++) {
-                    int remaining = i % 3 + 1 - tick;
-                    assertEquals(remaining > 0, collision.containsKey(i));
-                    assertEquals(remaining > 0, fluid.containsKey(i));
-                    assertEquals(remaining > 0, kinds.containsKey(i));
-                    if (remaining > 0) {
-                        assertEquals(remaining, collision.get(i));
-                        assertEquals(remaining, fluid.get(i));
-                    }
-                }
             }
         }
     }

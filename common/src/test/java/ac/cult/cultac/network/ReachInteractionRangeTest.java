@@ -64,6 +64,7 @@ import ac.cult.cultac.utils.visibility.ClientVisibilityProcessor;
 import ac.grim.grimac.api.event.events.FlagEvent;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -876,8 +877,8 @@ class ReachInteractionRangeTest {
     private static void snapAwayAndBack(Setup setup, PacketEntity entity) {
         setup.moveAwayAndBack(entity, 2);
         Vec3 at = entity.newPacketLocation.targetPosition();
-        setup.bundledPositionSync(entity.getEntityId(), at.add(100, 0, 0));
-        setup.bundledPositionSync(entity.getEntityId(), at);
+        setup.positionSync(entity.getEntityId(), at.add(100, 0, 0));
+        setup.positionSync(entity.getEntityId(), at);
         setup.moveAwayAndBack(entity, 2);
     }
 
@@ -1083,8 +1084,20 @@ class ReachInteractionRangeTest {
             setup.player.compensatedEntities.addEntity(id, EntityTypeIds.ZOMBIE, new Vec3(.5, 64, 1), 0, 0, 0);
             PacketEntity entity = setup.player.compensatedEntities.getEntity(id);
             entity.onPositionPath(EntityPositionPath.linear(new Vec3(1.5, 64, 1)), true, null, null, setup.player);
-            entity.onMovement(setup.player, true);
-            setup.bundledPositionSync(id, new Vec3(-63.3, 64, 1));
+            entity.onMovement(setup.player);
+            setup.positionSync(id, new Vec3(-63.3, 64, 1));
+            assertFalse(entity.newPacketLocation.hasExactPosition());
+        }
+    }
+
+    // Answering the ping before an unbundled sync does not prove the client handled it.
+    @Test
+    void anUnbundledFarSyncAtItsFirstBoundaryKeepsTheMargin() throws Exception {
+        try (var setup = new Setup()) {
+            int id = 101;
+            setup.player.compensatedEntities.addEntity(id, EntityTypeIds.ZOMBIE, new Vec3(.5, 64, 1), 0, 0, 0);
+            PacketEntity entity = setup.player.compensatedEntities.getEntity(id);
+            setup.pongThrough(setup.sendUnbundledPositionSync(id, new Vec3(100.5, 64, 1)));
             assertFalse(entity.newPacketLocation.hasExactPosition());
         }
     }
@@ -1628,6 +1641,14 @@ class ReachInteractionRangeTest {
             attribute(id, "minecraft:scale", base);
         }
 
+        // The end of this entity's next LivingEntity#tick: refreshDirtyAttributes sizes its box by the scale attribute
+        // it holds by then, which until that tick was only dirty.
+        private PacketEntity refreshed(int id) {
+            PacketEntity entity = player.compensatedEntities.getEntity(id);
+            entity.refreshDimensions(player);
+            return entity;
+        }
+
         // An update_attributes setting this base of this entity's attribute.
         private void attribute(int id, String attribute, double base) {
             bind();
@@ -1653,7 +1674,7 @@ class ReachInteractionRangeTest {
             scale(id, 2);
             assertNull(player.compensatedEntities.getEntity(id));
             pongThrough(player.lastTransactionSent.get() + 1);
-            PacketEntity horse = player.compensatedEntities.getEntity(id);
+            PacketEntity horse = refreshed(id);
             assertEquals(2F, horse.scale);
             assertEquals(2F, horse.leastScale());
             rotate(0, 0);
@@ -1869,6 +1890,33 @@ class ReachInteractionRangeTest {
             for (int move = 1; move <= moves; move++) {
                 Vec3 to = move % 2 == 0 ? at : at.add(0, 0, .5);
                 entity.onPositionPath(EntityPositionPath.linear(to), true, null, null, player);
+            }
+        }
+
+        // A position sync outside any bundle, its first and second transactions answered.
+        void positionSync(int id, Vec3 to) {
+            pongThrough(sendUnbundledPositionSync(id, to) + 1);
+        }
+
+        // Sends a position sync outside any bundle; returns its first transaction, unanswered.
+        int sendUnbundledPositionSync(int id, Vec3 to) {
+            bind();
+            useBundleDelimiter(false);
+            try {
+                sendPositionSync(id, to);
+                return player.lastTransactionSent.get();
+            } finally {
+                useBundleDelimiter(true);
+            }
+        }
+
+        private void useBundleDelimiter(boolean use) {
+            try {
+                Field field = player.packetEntityReplication.getClass().getDeclaredField("useReachBundleDelimiter");
+                field.setAccessible(true);
+                field.setBoolean(player.packetEntityReplication, use);
+            } catch (ReflectiveOperationException e) {
+                throw new IllegalStateException(e);
             }
         }
 

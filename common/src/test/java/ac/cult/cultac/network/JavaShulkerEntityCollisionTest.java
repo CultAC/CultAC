@@ -6,6 +6,7 @@ import static ac.cult.cultac.network.JavaTickFixture.exact;
 import static ac.cult.cultac.network.JavaTickFixture.setField;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
@@ -40,6 +41,27 @@ class JavaShulkerEntityCollisionTest {
     // A 1.21.4 client's offset from the shulker's position, the block centre the shulker sits on.
     private static final double X = 0.66393651849273;
     private static final double Z = 0.37791566111454;
+
+    @Test
+    void aFreshShulkerHasReadableMovementAndReachBoxes() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.player.compensatedEntities.addEntity(
+                    SHULKER, EntityTypeIds.SHULKER, new Vec3(5.5, FLOOR_Y, 5.5), 0, 0, 0);
+            var shulker = f.player.compensatedEntities.getEntity(SHULKER);
+            assertNull(shulker.oldPacketLocation);
+            SimpleCollisionBox movement = shulker.getPossibleMovementCollisionBoxes();
+            assertEquals(5.0, movement.minX);
+            assertEquals(FLOOR_Y, movement.minY);
+            assertEquals(5.0, movement.minZ);
+            assertEquals(6.0, movement.maxX);
+            assertEquals(FLOOR_Y + 1, movement.maxY);
+            assertEquals(6.0, movement.maxZ);
+            SimpleCollisionBox reach = shulker.getPossibleCollisionBoxes();
+            assertTrue(reach.minX <= movement.minX && reach.maxX >= movement.maxX);
+            assertTrue(reach.minY <= movement.minY && reach.maxY >= movement.maxY);
+            assertTrue(reach.minZ <= movement.minZ && reach.maxZ >= movement.maxZ);
+        }
+    }
 
     /**
      * A 1.21.4 client rides a closing shulker down: twenty client ticks after it handles DATA_PEEK_ID 0, its last
@@ -215,7 +237,7 @@ class JavaShulkerEntityCollisionTest {
             for (int tick = 0; tick < 10; tick++) amount += 0.05F;
             SimpleCollisionBox closed = new SimpleCollisionBox(0.0, FLOOR_Y, 0.0, 1.0, FLOOR_Y + 1, 1.0);
             double grow = Math.max(physicalPeek(amount), physicalPeek(amount + 0.05F));
-            assertEquals(FLOOR_Y + 1 + grow, shulker.boundingBox(closed).maxY);
+            assertEquals(FLOOR_Y + 1 + grow, shulker.movementBoxAt(closed).maxY);
         }
     }
 

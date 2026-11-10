@@ -3,8 +3,12 @@ package ac.cult.cultac.manager.player.setback;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsB;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsN;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
+import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
 import ac.cult.cultac.utils.data.SetBackData;
@@ -35,6 +39,9 @@ public final class JavaTeleportTracker {
     private final CultPlayer player;
     // Sync to netty
     private final ConcurrentLinkedDeque<TeleportData> pendingTeleports;
+    // PosRot may consume pendingTeleports before its ID arrives on 1.21.2/3. Keep the sent order for
+    // acknowledgments independently, including backend entries whose IDs can equal an authored ID.
+    private final ConcurrentLinkedDeque<TeleportData> javaTeleportAcknowledgments = new ConcurrentLinkedDeque<>();
     private final CorrectionState corrections;
     private final SafePositionTracker safePositions;
     private final TeleportAnswers answers;
@@ -62,6 +69,7 @@ public final class JavaTeleportTracker {
      */
     public void loginSent() {
         pendingTeleports.removeIf(JavaTeleportTracker::isJavaIdTeleport);
+        javaTeleportAcknowledgments.clear();
     }
 
     private static final float ROTATION_TELEPORT_EPSILON = 1.0E-4F;
@@ -140,16 +148,21 @@ public final class JavaTeleportTracker {
                 return completeMountedTeleport(teleportPos);
             }
 
-            Vec3 shove = teleportPos.isRelativeX() || teleportPos.isRelativeY() || teleportPos.isRelativeZ()
-                    ? player.compensatedWorld.lastTickShulkerBoxShove()
-                    : Vec3.ZERO;
-            double trueTeleportX = (teleportPos.isRelativeX() ? player.x + shove.x : 0) + teleportPos.getLocation().x;
-            double trueTeleportY = (teleportPos.isRelativeY() ? player.y + shove.y : 0) + teleportPos.getLocation().y;
-            double trueTeleportZ = (teleportPos.isRelativeZ() ? player.z + shove.z : 0) + teleportPos.getLocation().z;
+            double trueTeleportX = (teleportPos.isRelativeX() ? player.x : 0) + teleportPos.getLocation().x;
+            double trueTeleportY = (teleportPos.isRelativeY() ? player.y : 0) + teleportPos.getLocation().y;
+            double trueTeleportZ = (teleportPos.isRelativeZ() ? player.z : 0) + teleportPos.getLocation().z;
 
             // There seems to be a version difference in teleports past 30 million... just clamp the vector
             // I'm not sure how teleports work on 26.1
             Vec3 clamped = VectorUtils.clampVector(new Vec3(trueTeleportX, trueTeleportY, trueTeleportZ));
+            SimulationProcessor simulation = player.checkManager.getSimulationProcessor();
+            JavaPredictionCarry.TeleportMatch pistonTeleport = player.getClientVersion() == ClientVersion.V_1_21_9
+                            && simulation.getCurrentPredictionCarry() instanceof JavaPredictionCarry carry
+                            && carry.actor() == player.compensatedEntities.getSelf()
+                    ? carry.matchRelativeTeleport(
+                            teleportPos, physicalFeetPosition, exactPosition ? 0 : player.getMovementThreshold())
+                    : null;
+            if (pistonTeleport != null && pistonTeleport.matched()) clamped = pistonTeleport.position();
 
             // There was some previous claims that rounding was performed here, I see no evidence of this.
             // TODO: Investigate vehicle teleports working for players too on 26.1?
@@ -170,12 +183,15 @@ public final class JavaTeleportTracker {
                 LogUtil.info("dx=" + xDiff + " dy=" + yDiff + " dz=" + zDiff + " | trans=" + receivedTransaction + " | "
                         + teleportPos.getTransaction());
 
-            boolean exactTeleportPosition = xPass && yPass && zPass;
+            boolean exactTeleportPosition =
+                    xPass && yPass && zPass && (pistonTeleport == null || pistonTeleport.matched());
             if (exactTeleportPosition
                     && (teleportPos.isPositionOnly() || receivedTransaction == teleportPos.getTransaction())) {
                 pendingTeleports.poll();
-                player.compensatedWorld.onClientPositionSet();
-                TeleportAcceptData accepted = answers.complete(teleportPos, clamped, true);
+                if (pistonTeleport != null) simulation.acceptRelativePistonTeleport(pistonTeleport);
+                // The rotation this response replaces is the one the client handled the teleport with.
+                TeleportAcceptData accepted = answers.complete(
+                        teleportPos.resolvePositionRotation(player.xRot, player.yRot), clamped, true);
                 accepted.setForwardedPosition(clamped);
                 return accepted;
             } else if (teleportPos.isPositionOnly() && receivedTransaction <= teleportPos.getTransaction()) {
@@ -323,21 +339,10 @@ public final class JavaTeleportTracker {
                 sourcePitch,
                 finalYaw,
                 finalPitch,
-                null);
+                false);
     }
 
-    /**
-     * Cult's own player correction, whose bundle leaves the client's onGround at {@code onGround}. The ground stays with
-     * the queued teleport, so the correction's answer applies it even after a later teleport replaced the correction as
-     * the required one.
-     */
-    public void addSentCorrection(
-            Vec3 position, Vec3 deltaMovement, int transaction, RelativeFlag flags, int teleportId, boolean onGround) {
-        addSentTeleport(
-                position, deltaMovement, transaction, flags, false, teleportId, 0.0F, 0.0F, 0.0F, 0.0F, onGround);
-    }
-
-    private void addSentTeleport(
+    public void addSentTeleport(
             Vec3 position,
             Vec3 deltaMovement,
             int transaction,
@@ -348,9 +353,104 @@ public final class JavaTeleportTracker {
             float sourcePitch,
             float finalYaw,
             float finalPitch,
+            boolean authored) {
+        addSentTeleport(
+                position,
+                deltaMovement,
+                transaction,
+                flags,
+                plugin,
+                teleportId,
+                sourceYaw,
+                sourcePitch,
+                finalYaw,
+                finalPitch,
+                authored,
+                Float.NaN,
+                Float.NaN);
+    }
+
+    /**
+     * {@code authored}: Cult emitted the teleport instead of the backend. {@code packetYaw}/{@code packetPitch} are a
+     * player_position's own rotation, whose source the acceptance resolves; NaN keeps {@code sourceYaw}/{@code
+     * sourcePitch}.
+     */
+    public void addSentTeleport(
+            Vec3 position,
+            Vec3 deltaMovement,
+            int transaction,
+            RelativeFlag flags,
+            boolean plugin,
+            int teleportId,
+            float sourceYaw,
+            float sourcePitch,
+            float finalYaw,
+            float finalPitch,
+            boolean authored,
+            float packetYaw,
+            float packetPitch) {
+        trackSentTeleport(
+                position,
+                deltaMovement,
+                transaction,
+                flags,
+                plugin,
+                teleportId,
+                sourceYaw,
+                sourcePitch,
+                finalYaw,
+                finalPitch,
+                authored,
+                packetYaw,
+                packetPitch,
+                null);
+    }
+
+    /**
+     * Cult's own player correction, whose bundle leaves the client's onGround at {@code onGround}. The ground stays with
+     * the queued teleport, so the correction's answer applies it even after a later teleport replaced the correction as
+     * the required one.
+     */
+    public void addSentCorrection(
+            Vec3 position, Vec3 deltaMovement, int transaction, RelativeFlag flags, int teleportId, boolean onGround) {
+        // Cult emits its correction instead of the backend: its acknowledgment answers no backend teleport.
+        trackSentTeleport(
+                position,
+                deltaMovement,
+                transaction,
+                flags,
+                false,
+                teleportId,
+                0.0F,
+                0.0F,
+                0.0F,
+                0.0F,
+                true,
+                Float.NaN,
+                Float.NaN,
+                onGround);
+    }
+
+    private void trackSentTeleport(
+            Vec3 position,
+            Vec3 deltaMovement,
+            int transaction,
+            RelativeFlag flags,
+            boolean plugin,
+            int teleportId,
+            float sourceYaw,
+            float sourcePitch,
+            float finalYaw,
+            float finalPitch,
+            boolean authored,
+            float packetYaw,
+            float packetPitch,
             Boolean sentOnGround) {
         TeleportData data = new TeleportData(
                 position, flags, deltaMovement, transaction, teleportId, sourceYaw, sourcePitch, finalYaw, finalPitch);
+        if (!player.isBedrockMovement()) data.configureJavaRotation(player.getClientVersion(), finalPitch);
+        data.setPacketRotation(packetYaw, packetPitch);
+        data.setAuthored(authored);
         data.setSentOnGround(sentOnGround);
         data.setSentWhileVehicle(player.compensatedEntities.vehicles.serverPlayerVehicle != null
                 || player.compensatedEntities.getSelf().inVehicle());
@@ -370,6 +470,15 @@ public final class JavaTeleportTracker {
                 flags.isSet(RelativeFlag.Z.getMask()) ? position.z + from.z : position.z);
 
         pendingTeleports.add(data);
+        if (!player.isBedrockMovement()
+                && player.user
+                        .getCultConnection()
+                        .packets()
+                        .observed()
+                        .supports(ServerboundPackets.ACCEPT_TELEPORTATION)) {
+            retireWithheldTeleportAcknowledgments();
+            javaTeleportAcknowledgments.add(data);
+        }
 
         data = data.copyWithLocation(safePosition);
         corrections.require(new SetBackData(data, player.xRot, player.yRot, null, false, plugin));
@@ -382,6 +491,34 @@ public final class JavaTeleportTracker {
                 new SetbackPosWithVector(safePosition, !plugin && absoluteDelta ? deltaMovement : Vec3.ZERO)
                         .provenBy(SetbackEntity.PLAYER, SafeProof.placement(transaction)),
                 SafePositionTracker.Write.PLACEMENT);
+    }
+
+    /**
+     * Whether Cult emitted the teleport this ID acknowledges. The first sent occurrence of this ID owns its
+     * acknowledgment. A repeated ID is not evidence of origin, and a pre-proof reply cannot consume the outstanding
+     * occurrence.
+     */
+    public boolean takeAuthoredTeleportAcknowledgment(int teleportId) {
+        retireWithheldTeleportAcknowledgments();
+        for (TeleportData sent : javaTeleportAcknowledgments) {
+            if (sent.getTeleportId() != teleportId) continue;
+            if (player.lastTransactionReceived.get() >= sent.getTransaction()) {
+                javaTeleportAcknowledgments.remove(sent);
+            }
+            return sent.isAuthored();
+        }
+        return false;
+    }
+
+    /**
+     * ClientPacketListener#handleMovePlayer answers a teleport's ID while handling it, before it handles any ping sent
+     * after the teleport. Once such a ping is answered, an acknowledgment still owed was withheld and can never be
+     * claimed; a later reply with that ID belongs to the next occurrence.
+     */
+    private void retireWithheldTeleportAcknowledgments() {
+        if (javaTeleportAcknowledgments.isEmpty()) return;
+        int received = player.lastTransactionReceived.get();
+        javaTeleportAcknowledgments.removeIf(sent -> received > sent.getTransaction());
     }
 
     /**

@@ -38,7 +38,11 @@ public class PacketOrderO extends Check implements CheckListener {
             return;
         }
 
-        if (!flying || event.getPacketType() == ServerboundPackets.MOVE_VEHICLE) {
+        // Minecraft#tick can save options when the tutorial advances, after sendChanges and before tick end.
+        // Options#save broadcasts CLIENT_INFORMATION when its remote copy differs.
+        if (!flying
+                || event.getPacketType() == ServerboundPackets.MOVE_VEHICLE
+                || event.getPacketType() == ServerboundPackets.CLIENT_INFORMATION) {
             return;
         }
 
