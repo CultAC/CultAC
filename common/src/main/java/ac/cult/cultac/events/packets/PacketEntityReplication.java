@@ -866,7 +866,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         // aiStep reads it.
         boolean selfHealth = !player.isBedrockMovement()
                 && packet.id() == player.entityID
-                && WatchableIndexUtil.getIndex(metadata, WatchableIndexUtil.LIVING_HEALTH) != null;
+                && WatchableIndexUtil.has(metadata, WatchableIndexUtil.LIVING_HEALTH);
         int proven = proveHandled(event, selfHealth ? Proof.BEFORE_NEXT_TICK : entityProof());
         player.latencyUtils.addRealTimeTask(
                 proven, () -> player.compensatedEntities.updateEntityMetadata(packet.id(), metadata, proven));
@@ -875,7 +875,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
 
     /** Retires the entity's size replacements at {@code proven} when the metadata replaces its pose. */
     private void retirePoseAt(int entityId, List<EntityMetadata.Entry> metadata, int proven) {
-        if (WatchableIndexUtil.getIndex(metadata, WatchableIndexUtil.ENTITY_POSE) != null) {
+        if (WatchableIndexUtil.has(metadata, WatchableIndexUtil.ENTITY_POSE)) {
             retireSizeAt(entityId, proven);
         }
     }

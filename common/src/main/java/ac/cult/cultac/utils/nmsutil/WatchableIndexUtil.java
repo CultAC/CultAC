@@ -78,7 +78,21 @@ public final class WatchableIndexUtil {
         return version.atLeast(ProtocolVersion.V26_1) ? 18 : 17;
     }
 
+    /** Whether {@link #getIndex} finds an entry. */
+    public static boolean has(List<EntityMetadata.Entry> objects, int index) {
+        if (objects instanceof EntityMetadata.Entries entries) return entries.has(index);
+        return getIndex(objects, index) != null;
+    }
+
+    /** The value of the entry {@link #getIndex} finds; null when there is none. */
+    public static Object value(List<EntityMetadata.Entry> objects, int index) {
+        if (objects instanceof EntityMetadata.Entries entries) return entries.value(index);
+        var entry = getIndex(objects, index);
+        return entry == null ? null : entry.value();
+    }
+
     public static EntityMetadata.Entry getIndex(List<EntityMetadata.Entry> objects, int index) {
+        if (objects instanceof EntityMetadata.Entries entries) return entries.entry(index);
         for (int i = 0; i < objects.size(); i++) {
             EntityMetadata.Entry object = objects.get(i);
             if (object.id() == index) return object;

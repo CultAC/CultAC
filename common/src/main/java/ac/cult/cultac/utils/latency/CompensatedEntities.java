@@ -1064,20 +1064,18 @@ public class CompensatedEntities {
             cat.updateActionMetadata(
                     watchableObjects, player.user.getCultConnection().getObservedProtocol());
         if (entity instanceof PacketEntityArmorStand stand) stand.updateActionMetadata(watchableObjects);
-        var flags = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.ENTITY_SHARED_FLAGS);
-        if (flags != null && flags.value() instanceof Byte value) entity.actionSharedFlags = value;
+        if (WatchableIndexUtil.value(watchableObjects, WatchableIndexUtil.ENTITY_SHARED_FLAGS) instanceof Byte value)
+            entity.actionSharedFlags = value;
         if (entity.isDisplay()) {
-            var duration = WatchableIndexUtil.getIndex(
-                    watchableObjects, WatchableIndexUtil.DISPLAY_POS_ROT_INTERPOLATION_DURATION);
-            if (duration != null && duration.value() instanceof Integer value) entity.onDisplayTeleportDuration(value);
+            if (WatchableIndexUtil.value(watchableObjects, WatchableIndexUtil.DISPLAY_POS_ROT_INTERPOLATION_DURATION)
+                    instanceof Integer value) entity.onDisplayTeleportDuration(value);
         }
         if (entity.isLivingEntity()) {
-            var pose = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.ENTITY_POSE);
-            if (pose != null && pose.value() instanceof EntityPose value) {
+            if (WatchableIndexUtil.value(watchableObjects, WatchableIndexUtil.ENTITY_POSE)
+                    instanceof EntityPose value) {
                 entity.onPose(value, provenAt);
             }
-            var health = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.LIVING_HEALTH);
-            if (health != null && health.value() instanceof Float value) {
+            if (WatchableIndexUtil.value(watchableObjects, WatchableIndexUtil.LIVING_HEALTH) instanceof Float value) {
                 if (entity instanceof PacketEntitySelf self) {
                     self.setHealth(value);
                     // Gui#tick opens the death screen once DATA_HEALTH_ID makes LivingEntity#isDeadOrDying true.
@@ -1088,39 +1086,35 @@ public class CompensatedEntities {
             }
         }
         if (entity instanceof PacketEntityCreaking creaking) {
-            var canMove = WatchableIndexUtil.getIndex(watchableObjects, 16);
-            if (canMove != null && canMove.value() instanceof Boolean value) creaking.actionCanMove = value;
+            if (WatchableIndexUtil.value(watchableObjects, 16) instanceof Boolean value) creaking.actionCanMove = value;
         }
         if (entity instanceof PacketEntitySpider spider) {
-            var climbing = WatchableIndexUtil.getIndex(watchableObjects, 16);
-            if (climbing != null && climbing.value() instanceof Byte value) spider.actionClimbing = (value & 1) != 0;
+            if (WatchableIndexUtil.value(watchableObjects, 16) instanceof Byte value)
+                spider.actionClimbing = (value & 1) != 0;
         }
         if (entity instanceof PacketEntityInteraction interaction) {
-            var width = WatchableIndexUtil.getIndex(watchableObjects, 8);
-            var height = WatchableIndexUtil.getIndex(watchableObjects, 9);
-            if (width != null && width.value() instanceof Float value) interaction.actionWidth = value;
-            if (height != null && height.value() instanceof Float value) interaction.actionHeight = value;
+            if (WatchableIndexUtil.value(watchableObjects, 8) instanceof Float value) interaction.actionWidth = value;
+            if (WatchableIndexUtil.value(watchableObjects, 9) instanceof Float value) interaction.actionHeight = value;
             // Interaction#onSyncedDataUpdated refreshes its dimensions on either field.
-            if (width != null || height != null) interaction.refreshDimensions(player);
+            if (WatchableIndexUtil.has(watchableObjects, 8) || WatchableIndexUtil.has(watchableObjects, 9))
+                interaction.refreshDimensions(player);
         }
         var modelType = EntityTypeUtil.modelType(entity.type);
         if (modelType != null && modelType.has(ac.cult.blocksim.entity.EntityTypes.ARROW)) {
-            var inGround = WatchableIndexUtil.getIndex(watchableObjects, 10);
-            if (inGround != null && inGround.value() instanceof Boolean value) entity.actionArrowInGround = value;
+            if (WatchableIndexUtil.value(watchableObjects, 10) instanceof Boolean value)
+                entity.actionArrowInGround = value;
         }
 
-        WatchableIndexUtil.Layout layout = WatchableIndexUtil.forModel(player.user.getCultConnection());
+        var version = player.user.getCultConnection().getObservedProtocol();
+        WatchableIndexUtil.Layout layout = WatchableIndexUtil.forModel(version);
         applyAgeableMetadata(entity, watchableObjects);
         applySizeMetadata(entity, watchableObjects, layout);
         if (entity instanceof PacketEntityShulker) {
             applyShulkerMetadata(entity, watchableObjects, provenAt);
         }
         if (entity instanceof PacketEntityPolarBear bear) {
-            var standing = WatchableIndexUtil.getIndex(
-                    watchableObjects,
-                    WatchableIndexUtil.polarBearStanding(
-                            player.user.getCultConnection().getObservedProtocol()));
-            if (standing != null && standing.value() instanceof Boolean value) bear.onStanding(value, provenAt);
+            if (WatchableIndexUtil.value(watchableObjects, WatchableIndexUtil.polarBearStanding(version))
+                    instanceof Boolean value) bear.onStanding(value, provenAt);
         }
         if (entity instanceof PacketEntityRideable) {
             applyRideableMetadata(entity, watchableObjects, layout);
@@ -1132,31 +1126,27 @@ public class CompensatedEntities {
             applyHappyGhastMetadata(happyGhast, watchableObjects, layout);
         }
         if (entity instanceof PacketEntityNautilus nautilus) {
-            EntityMetadata.Entry dashData = WatchableIndexUtil.getIndex(watchableObjects, layout.nautilusDash());
-            if (dashData != null && dashData.value() instanceof Boolean dashing) {
+            if (WatchableIndexUtil.value(watchableObjects, layout.nautilusDash()) instanceof Boolean dashing) {
                 nautilus.setDashingFromMetadata(dashing);
             }
-            EntityMetadata.Entry tameData = WatchableIndexUtil.getIndex(
-                    watchableObjects,
-                    WatchableIndexUtil.tameableFlags(
-                            player.user.getCultConnection().getObservedProtocol()));
-            if (tameData != null && tameData.value() instanceof Byte tameFlags) {
+            if (WatchableIndexUtil.value(watchableObjects, WatchableIndexUtil.tameableFlags(version))
+                    instanceof Byte tameFlags) {
                 nautilus.isTame = (tameFlags & 0x04) != 0;
             }
         }
         applyGravityMetadata(entity, watchableObjects);
 
         if (entity.type == EntityTypeIds.FIREWORK_ROCKET) {
-            EntityMetadata.Entry fireworkData =
-                    WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.FIREWORK_ATTACHED_TO_TARGET);
-            if (fireworkData == null) return;
-            trackFireworkAttachment(entityID, fireworkData.value(), provenAt);
+            if (!WatchableIndexUtil.has(watchableObjects, WatchableIndexUtil.FIREWORK_ATTACHED_TO_TARGET)) return;
+            trackFireworkAttachment(
+                    entityID,
+                    WatchableIndexUtil.value(watchableObjects, WatchableIndexUtil.FIREWORK_ATTACHED_TO_TARGET),
+                    provenAt);
         }
 
         if (entity instanceof PacketEntityHook) {
-            EntityMetadata.Entry hookedData =
-                    WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.FISHING_HOOKED_ENTITY);
-            if (!(hookedData != null && hookedData.value() instanceof Integer hooked)) return;
+            if (!(WatchableIndexUtil.value(watchableObjects, WatchableIndexUtil.FISHING_HOOKED_ENTITY)
+                    instanceof Integer hooked)) return;
             ((PacketEntityHook) entity).attached = hooked - 1; // the server adds 1 to the ID
         }
 
@@ -1168,10 +1158,7 @@ public class CompensatedEntities {
     private void applyAgeableMetadata(PacketEntity entity, List<EntityMetadata.Entry> watchableObjects) {
         if (!entity.isAgeable()) return;
 
-        EntityMetadata.Entry babyData = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.AGEABLE_BABY);
-        if (babyData == null) return;
-
-        Object value = babyData.value();
+        Object value = WatchableIndexUtil.value(watchableObjects, WatchableIndexUtil.AGEABLE_BABY);
         // Required because bukkit Ageable doesn't align with minecraft's ageable
         if (value instanceof Boolean) {
             entity.isBaby = (boolean) value;
@@ -1185,10 +1172,9 @@ public class CompensatedEntities {
         if (!entity.isSize()) return;
 
         int sizeIndex = entity.type == EntityTypeIds.PHANTOM ? WatchableIndexUtil.PHANTOM_SIZE : layout.slimeSize();
-        EntityMetadata.Entry sizeData = WatchableIndexUtil.getIndex(watchableObjects, sizeIndex);
-        if (sizeData == null) return;
+        if (!WatchableIndexUtil.has(watchableObjects, sizeIndex)) return;
 
-        Object value = sizeData.value();
+        Object value = WatchableIndexUtil.value(watchableObjects, sizeIndex);
         if (value instanceof Integer) {
             ((PacketEntitySizeable) entity).size = (int) value;
         } else if (value instanceof Byte) {
@@ -1223,16 +1209,14 @@ public class CompensatedEntities {
             ((PacketEntityRideable) entity).hasSaddle = (boolean) saddleData.value();
         }
         if (entity.type == EntityTypeIds.PIG) {
-            EntityMetadata.Entry boostData = WatchableIndexUtil.getIndex(watchableObjects, layout.pigBoostTime());
-            if (boostData != null && boostData.value() instanceof Integer boost) {
+            if (WatchableIndexUtil.value(watchableObjects, layout.pigBoostTime()) instanceof Integer boost) {
                 ((PacketEntityRideable) entity).boost.onSynced(boost);
             }
             return;
         }
 
         if (entity instanceof PacketEntityStrider) {
-            EntityMetadata.Entry boostData = WatchableIndexUtil.getIndex(watchableObjects, layout.striderBoostTime());
-            if (boostData != null && boostData.value() instanceof Integer boost) {
+            if (WatchableIndexUtil.value(watchableObjects, layout.striderBoostTime()) instanceof Integer boost) {
                 ((PacketEntityRideable) entity).boost.onSynced(boost);
             }
         }
@@ -1240,8 +1224,7 @@ public class CompensatedEntities {
 
     private void applyHorseMetadata(
             PacketEntity entity, List<EntityMetadata.Entry> watchableObjects, WatchableIndexUtil.Layout layout) {
-        EntityMetadata.Entry flagsData = WatchableIndexUtil.getIndex(watchableObjects, layout.horseFlags());
-        if (flagsData != null && flagsData.value() instanceof Byte flags) {
+        if (WatchableIndexUtil.value(watchableObjects, layout.horseFlags()) instanceof Byte flags) {
             PacketEntityHorse horse = (PacketEntityHorse) entity;
             horse.isTame = (flags & 0x02) != 0;
             // Through 1.21.4, AbstractHorse#isSaddled reads flag 0x04 from
@@ -1255,13 +1238,11 @@ public class CompensatedEntities {
         }
 
         if (entity instanceof PacketEntityCamel camel) {
-            EntityMetadata.Entry dashData = WatchableIndexUtil.getIndex(watchableObjects, layout.camelDash());
-            if (dashData != null && dashData.value() instanceof Boolean dashing) {
+            if (WatchableIndexUtil.value(watchableObjects, layout.camelDash()) instanceof Boolean dashing) {
                 camel.setDashingFromMetadata(dashing);
             }
             // Camel defines LAST_POSE_CHANGE_TICK directly after DASH.
-            EntityMetadata.Entry poseTickData = WatchableIndexUtil.getIndex(watchableObjects, layout.camelDash() + 1);
-            if (poseTickData != null && poseTickData.value() instanceof Number poseTick) {
+            if (WatchableIndexUtil.value(watchableObjects, layout.camelDash() + 1) instanceof Number poseTick) {
                 camel.lastPoseChangeTick = poseTick.longValue();
             }
         }
@@ -1271,17 +1252,14 @@ public class CompensatedEntities {
             PacketEntityHappyGhast happyGhast,
             List<EntityMetadata.Entry> watchableObjects,
             WatchableIndexUtil.Layout layout) {
-        EntityMetadata.Entry staysStillData =
-                WatchableIndexUtil.getIndex(watchableObjects, layout.happyGhastStaysStill());
-        if (staysStillData != null && staysStillData.value() instanceof Boolean staysStill) {
+        if (WatchableIndexUtil.value(watchableObjects, layout.happyGhastStaysStill()) instanceof Boolean staysStill) {
             happyGhast.staysStill = staysStill;
         }
     }
 
     private void applyGravityMetadata(PacketEntity entity, List<EntityMetadata.Entry> watchableObjects) {
-        EntityMetadata.Entry gravityData =
-                WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.ENTITY_NO_GRAVITY);
-        if (gravityData != null && gravityData.value() instanceof Boolean noGravity) {
+        if (WatchableIndexUtil.value(watchableObjects, WatchableIndexUtil.ENTITY_NO_GRAVITY)
+                instanceof Boolean noGravity) {
             // Vanilla uses hasNoGravity, which is a bad name IMO
             // hasGravity > hasNoGravity
             entity.hasGravity = !noGravity;
