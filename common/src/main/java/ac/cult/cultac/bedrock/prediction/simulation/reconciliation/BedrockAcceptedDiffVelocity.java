@@ -155,6 +155,7 @@ final class BedrockAcceptedDiffVelocity {
         return BedrockBlockSurfaceMovement.applyStandingAfterMove(
                 velocity,
                 state.physicalFeetPosition(),
+                state.isHorse(),
                 state.inputFrame().sneaking(),
                 flags.onGround(),
                 movementResult.movementContext().worldState().blockCollisionWorld(),

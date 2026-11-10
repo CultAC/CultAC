@@ -26,10 +26,16 @@ public final class BedrockBlockSurfaceMovement {
     public static Vec3d applyStandingAfterMove(
             Vec3d currentVelocity,
             Vec3d physicalFeetPosition,
+            boolean riddenMount,
             boolean sneaking,
             boolean onGround,
             BlockCollisionWorld blockCollisionWorld,
             PlayerDimensionsState playerDimensions) {
+        // Honey and slime slow an actor on foot. A ridden mount keeps its speed on them, on the tick it
+        // lands and on every grounded tick after it.
+        if (riddenMount) {
+            return currentVelocity;
+        }
         return standingSlowdownVelocity(
                 currentVelocity,
                 sneaking,

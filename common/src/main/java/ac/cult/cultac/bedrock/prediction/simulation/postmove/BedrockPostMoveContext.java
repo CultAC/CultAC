@@ -153,6 +153,7 @@ record BedrockPostMoveContext(BedrockTravelPlan plan, BedrockMoveRequest moveReq
         Vec3d velocity = BedrockBlockSurfaceMovement.applyStandingAfterMove(
                 frame.velocity(),
                 nextPosition,
+                current().isHorse(),
                 frame().sneaking(),
                 frame.flags().onGround(),
                 blockCollisionWorld(),
