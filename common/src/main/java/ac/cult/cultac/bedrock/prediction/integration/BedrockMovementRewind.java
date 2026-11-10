@@ -78,13 +78,23 @@ final class BedrockMovementRewind {
                         updates.stream().filter(update -> !ordinaryMovement(update)))
                 .toList();
         for (Update update : ordered) {
-            if (update.historical() && update.tick() >= authoritative.newestTick()) {
+            boolean attributes = attributes(update);
+            if (!attributes && update.historical() && update.tick() >= authoritative.newestTick()) {
                 deferred.add(update);
                 continue;
             }
             boolean stale = update.historical() && update.tick() < authoritative.oldestTick();
             var event = stale ? update.event().ordinary() : update.event();
-            if (ordinaryMovement(update) || !update.historical() && event instanceof BedrockReplayEvent.HorseMetadata) {
+            if (attributes) {
+                // The client uses an attribute value from its first tick after the packet and never re-runs
+                // the ticks since the stamp with it. A stamped value equal to that tick's own changes nothing.
+                if (update.historical() && !stale && authoritative.matches(update.tick(), event)) continue;
+                entries = entries.stream()
+                        .map(entry -> entry.withState(event.state(entry.state())))
+                        .toList();
+                continue;
+            }
+            if (!update.historical() && event instanceof BedrockReplayEvent.HorseMetadata) {
                 // Apply ordinary updates to live state; replaying metadata would restore stale attributes.
                 entries = entries.stream()
                         .map(entry -> entry.withState(event.state(entry.state())))
@@ -126,10 +136,13 @@ final class BedrockMovementRewind {
                 new BedrockNextTickStates(entries), BedrockNextTickVelocityDerivation.profileStateVelocities(entries));
     }
 
-    private boolean ordinaryMovement(Update update) {
-        boolean attributes = update.event() instanceof BedrockReplayAttributeEvent
+    private static boolean attributes(Update update) {
+        return update.event() instanceof BedrockReplayAttributeEvent
                 || update.event() instanceof BedrockReplayContextEvent context && context.movementAttribute() != null;
-        return attributes && (!update.historical() || update.tick() < authoritative.oldestTick());
+    }
+
+    private boolean ordinaryMovement(Update update) {
+        return attributes(update) && (!update.historical() || update.tick() < authoritative.oldestTick());
     }
 
     BedrockSimulation.Input prepareInput(BedrockSimulation.Input input) {

@@ -81,33 +81,99 @@ public class BedrockActorAttributesTest {
     }
 
     @Test
-    public void horseHistoricalReplacementWaitsThenReplaysUsingItsOwnAttributes() {
+    public void horseStampedReplacementAppliesToTheNextFrameWithoutReplayingItsStampFrame() {
         var history = new BedrockActorHistory();
         var first = BedrockActorHistoryTest.forward(
                 entry(attributes(0.2F, false).state(horse())), 1, BedrockActorHistoryTest.ground(), new Vec3d(0, 0, 1));
         history.record(first);
         var rewind = new BedrockMovementRewind(history);
-        var current = commit(history.current());
         rewind.queue(1, true, attributes(0.35F, true));
-        assertSame(current, rewind.apply(null, current));
-        var second = BedrockActorHistoryTest.forward(
-                first.end().getFirst(), 2, BedrockActorHistoryTest.ground(), new Vec3d(0, 0, 1));
-        history.record(second);
         var published = rewind.apply(null, commit(history.current()));
         var actual = BedrockProfileState.previousState(published.carry());
+        var recorded = first.end().getFirst().state();
+        assertEquals(recorded.physicalFeetPosition(), actual.physicalFeetPosition());
+        assertEquals(recorded.velocity(), actual.velocity());
+        assertEquals(0.35F, actual.movementAttribute().current(), 0);
         var expected = BedrockActorHistoryTest.forward(
-                        entry(attributes(0.35F, false)
-                                .state(first.end().getFirst().state())),
+                        entry(attributes(0.35F, false).state(recorded)),
                         2,
                         BedrockActorHistoryTest.ground(),
                         new Vec3d(0, 0, 1))
                 .end()
                 .getFirst()
                 .state();
-        assertEquals(expected.physicalFeetPosition(), actual.physicalFeetPosition());
-        assertEquals(expected.velocity(), actual.velocity());
-        assertEquals(0.35F, actual.movementAttribute().current(), 0);
-        assertEquals(0.2F, second.end().getFirst().state().movementAttribute().current(), 0);
+        var next = BedrockActorHistoryTest.forward(
+                        entry(actual), 2, BedrockActorHistoryTest.ground(), new Vec3d(0, 0, 1))
+                .end()
+                .getFirst()
+                .state();
+        assertEquals(expected.physicalFeetPosition(), next.physicalFeetPosition());
+        assertEquals(expected.velocity(), next.velocity());
+    }
+
+    @Test
+    public void speedStampedTicksAgoChangesOnlyTheTicksAfterItsAcknowledgement() {
+        // A capture over a delayed connection: 0.3 stamped five ticks before the client acknowledged it.
+        // The ticks in between moved at 0.1, and the first tick after it gained 0.98 * (0.3 - 0.1).
+        var history = BedrockActorHistoryTest.history(1, 6);
+        var before = history.frames();
+        var rewind = new BedrockMovementRewind(history);
+        rewind.queue(1, true, attributes(0.3F, true));
+        var published = rewind.apply(null, commit(history.current()));
+        var applied = BedrockProfileState.previousState(published.carry());
+        var newest = before.getLast().end().getFirst().state();
+        assertEquals(6, applied.clientTick());
+        assertEquals(newest.physicalFeetPosition(), applied.physicalFeetPosition());
+        assertEquals(newest.velocity(), applied.velocity());
+        assertEquals(0.3F, applied.movementAttribute().current(), 0);
+        for (int i = 0; i < before.size(); i++) {
+            assertEquals(
+                    before.get(i).end().getFirst().state().physicalFeetPosition(),
+                    history.frames().get(i).end().getFirst().state().physicalFeetPosition());
+        }
+        var slow = step(newest, 7);
+        var fast = step(applied, 7);
+        // Positions are floats near x=289: one step resolves to about 3e-5.
+        assertEquals(0.98 * (0.3 - 0.1), fast.subtract(slow).length(), 1e-4);
+    }
+
+    @Test
+    public void speedStampedWithTheNewestTickSlowsTheVeryNextTick() {
+        // A capture over a direct connection: 0.05 stamped 882 was acknowledged before input 883, and
+        // tick 883 already accelerated by a sixth of what tick 882 did at 0.3.
+        var history = new BedrockActorHistory();
+        var entry = entry(attributes(0.3F, false)
+                .state(BedrockMovementState.fromPhysicalFeet(
+                        new Vec3d(289, 82, -86),
+                        new Vec3d(0, -0.0784F, 0),
+                        BedrockInputFrame.idle(0),
+                        BedrockCollisionFlags.ON_GROUND)));
+        for (long tick = 1; tick <= 3; tick++) {
+            var frame =
+                    BedrockActorHistoryTest.forward(entry, tick, BedrockActorHistoryTest.ground(), new Vec3d(0, 0, 1));
+            history.record(frame);
+            entry = frame.end().getFirst();
+        }
+        var newest = entry.state();
+        var rewind = new BedrockMovementRewind(history);
+        rewind.queue(3, true, attributes(0.05F, true));
+        var applied = BedrockProfileState.previousState(
+                rewind.apply(null, commit(history.current())).carry());
+        assertEquals(newest.physicalFeetPosition(), applied.physicalFeetPosition());
+        assertEquals(0.05F, applied.movementAttribute().current(), 0);
+        double carried = Math.hypot(newest.velocity().x(), newest.velocity().z());
+        assertEquals(0.98 * 0.3, step(newest, 4).length() - carried, 1e-4);
+        assertEquals(0.98 * 0.05, step(applied, 4).length() - carried, 1e-4);
+    }
+
+    private static Vec3d step(BedrockMovementState state, long tick) {
+        var end = BedrockActorHistoryTest.forward(
+                        entry(state), tick, BedrockActorHistoryTest.ground(), new Vec3d(0, 0, 1))
+                .end()
+                .getFirst()
+                .state();
+        var moved = end.physicalFeetPosition().subtract(state.physicalFeetPosition());
+        return new Vec3d(moved.x(), 0, moved.z());
     }
 
     @Test
