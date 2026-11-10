@@ -2,8 +2,6 @@ package ac.cult.cultac.events.packets;
 
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
-import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
-import ac.cult.cultac.checks.impl.movement.timer.VehicleTimer;
 import ac.cult.cultac.checks.type.CheckListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -61,9 +59,12 @@ public class PacketServerTickingState extends CultProcessor implements CheckList
         });
     }
 
+    /**
+     * Minecraft#getTickTargetMillis is at least 50 ms in every ticking state, so Timer and VehicleTimer keep their
+     * balance: restarting it from this proof's arrival would hold later ticks to the delay of that one pong.
+     * DumbTimer pauses while the server does not tick normally and restarts its backlog here.
+     */
     private void resetTimerWindows() {
-        player.checkManager.getCheck(TimerCheck.class).resetTimerWindow();
-        player.checkManager.getCheck(VehicleTimer.class).resetTimerWindow();
         player.checkManager.getListener(DumbTimer.class).resetTimerWindow();
     }
 
