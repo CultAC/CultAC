@@ -31,6 +31,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Set;
 import java.util.SplittableRandom;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import org.junit.jupiter.api.Test;
@@ -116,6 +117,74 @@ class SectionStoreWorldTest {
         }
     }
 
+    @Test
+    void playersSharingALevelBuildTheSameWorldsWithTheStoreColdAndWarm() throws Exception {
+        for (boolean lent : new boolean[] {false, true}) {
+            try (var services = new RecordConsumerServices()) {
+                SectionStore.clear();
+                String cold = sharedLevel(lent, 0x5EA1L, false);
+                SectionStore.clear();
+                long hits = SectionStore.hitCounter.sum();
+                String warm = sharedLevel(lent, 0x5EA1L, true);
+                hits = SectionStore.hitCounter.sum() - hits;
+                assertEquals(cold, warm, "lent " + lent);
+                assertTrue(hits > 20, "warm hits " + hits);
+            }
+        }
+    }
+
+    /**
+     * Two players' worlds in one level after the same columns, on a store that a closed player in another level
+     * filled when {@code primed}: the later player shares the earlier one's pooled sections, empties one section and
+     * writes others, the earlier one writes too, and both reintern every written section.
+     */
+    private static String sharedLevel(boolean lent, long seed, boolean primed) {
+        var random = new SplittableRandom(seed);
+        int[][] columns = {{0, 0}, {1, 0}, {2, -3}};
+        var bodies = new ArrayList<byte[]>();
+        for (int[] column : columns) bodies.add(body(random, column[0], column[1]));
+        if (primed) {
+            var primer = new Player(lent);
+            try {
+                for (byte[] body : bodies) primer.receive(body);
+            } finally {
+                primer.close();
+            }
+        }
+        String level = "test:store-shared-" + LEVELS.incrementAndGet();
+        var first = new Player(lent, level);
+        var second = new Player(lent, level);
+        try {
+            for (byte[] body : bodies) first.receive(body);
+            for (byte[] body : bodies) second.receive(body);
+            int emptied = MIN_Y + 16 * 2;
+            for (int y = 0; y < 16; y++)
+                for (int z = 0; z < 16; z++) for (int x = 0; x < 16; x++) second.block(x, emptied + y, z, 0);
+            for (int i = 0; i < 40; i++) {
+                int[] column = columns[random.nextInt(columns.length)];
+                var writer = i % 2 == 0 ? first : second;
+                writer.block(
+                        column[0] * 16 + random.nextInt(16),
+                        MIN_Y + random.nextInt(384),
+                        column[1] * 16 + random.nextInt(16),
+                        random.nextInt(STATES));
+            }
+            first.settle(columns);
+            second.settle(columns);
+            assertTrue(
+                    second.fixture.player.compensatedWorld.getChunk(0, 0).getSection(2).isShared(),
+                    "the emptied section reinterns");
+            var out = new StringBuilder();
+            for (var player : List.of(first, second))
+                for (int[] column : columns)
+                    out.append(player.observable(column[0], column[1])).append('\n');
+            return out.toString();
+        } finally {
+            first.close();
+            second.close();
+        }
+    }
+
     /**
      * One player's world after a stream of columns: first sends, a resend of the same bytes, block writes, a
      * resend with other bytes, an unload and reload, and biome changes; every column and every field but storage
@@ -155,10 +224,16 @@ class SectionStoreWorldTest {
     private static final class Player {
         final RecordReceiveFixture fixture = new RecordReceiveFixture(ProtocolVersion.V26_3, true);
         final boolean lent;
-        final String level = "test:store-world-" + LEVELS.incrementAndGet();
+        final String level;
 
         Player(boolean lent) {
+            this(lent, "test:store-world-" + LEVELS.incrementAndGet());
+        }
+
+        /** A player in {@code level}, whose section pools every player in that level shares. */
+        Player(boolean lent, String level) {
             this.lent = lent;
+            this.level = level;
             var dimension = fixture.player.getWorldRegistries().dimension("minecraft:overworld");
             fixture.player.compensatedWorld.setLastClientboundDimension(level, dimension.dimension());
             fixture.player.compensatedWorld.setDimension(level, dimension);
@@ -216,6 +291,21 @@ class SectionStoreWorldTest {
 
         void block(int x, int y, int z, int state) {
             fixture.player.compensatedWorld.applyBlockChangeRawDANGER(x, y, z, state);
+        }
+
+        /** Every written section of the loaded columns counts as stable, then a client tick ends and reinterns them. */
+        void settle(int[][] columns) {
+            long stable = System.nanoTime() - TimeUnit.SECONDS.toNanos(60);
+            for (int[] at : columns) {
+                var column = fixture.player.compensatedWorld.getChunk(at[0], at[1]);
+                if (column == null) continue;
+                for (int i = 0; i < column.sectionCount(); i++) {
+                    var section = column.getSection(i);
+                    if (section != null && !section.isShared())
+                        section.setLastMutatedNanos(stable);
+                }
+            }
+            fixture.player.compensatedWorld.onClientTickEnd();
         }
 
         void unload(int x, int z) {
