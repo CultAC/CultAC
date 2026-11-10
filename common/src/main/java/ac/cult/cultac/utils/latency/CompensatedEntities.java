@@ -17,7 +17,6 @@ import ac.cult.cultac.protocol.value.EquipmentSlot;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ClientSprintState;
-import ac.cult.cultac.utils.data.ShulkerData;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.packetentity.*;
 import ac.cult.cultac.utils.inventory.Inventory;
@@ -1678,23 +1677,6 @@ public class CompensatedEntities {
         EntityMetadata.Entry peekData = WatchableIndexUtil.getIndex(watchableObjects, WatchableIndexUtil.SHULKER_PEEK);
         Byte peekValue = peekData != null && peekData.value() instanceof Byte value ? value : null;
         ((PacketEntityShulker) entity).onShapeData(attachFace, peekValue);
-
-        // Java clients replay the peek and its Shulker#onPeekAmountChange moves; Bedrock keeps the push envelope.
-        if (!player.isBedrockMovement() || peekValue == null) return;
-        int peek = Byte.toUnsignedInt(peekValue);
-        if (peek == 0) {
-            ShulkerData opened = new ShulkerData(entity, player.lastTransactionSent.get(), true);
-            player.compensatedWorld.openShulkerBoxes.remove(opened);
-            player.compensatedWorld.openShulkerBoxes.add(opened);
-            return;
-        }
-
-        // MCP-Reborn Shulker#updatePeekAmount changes currentPeekAmount
-        // by 0.05 toward DATA_PEEK_ID * 0.01 each client tick.
-        int closingTicks = Math.max(1, (peek + 4) / 5);
-        ShulkerData closing = new ShulkerData(entity, player.lastTransactionSent.get(), false, closingTicks);
-        player.compensatedWorld.openShulkerBoxes.remove(closing);
-        player.compensatedWorld.openShulkerBoxes.add(closing);
     }
 
     private void applyRideableMetadata(

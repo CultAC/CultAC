@@ -41,7 +41,9 @@ final class BedrockWorldSnapshotBuilder {
         BedrockBlockCollisionWorldSampler.BedrockSampledBlockWorld sampledBlockWorld =
                 blockWorld.sample(player, context, geometry, frame, playerContext, region);
         BlockCollisionWorld collisionWorld = withHardCollidingEntities(
-                        sampledBlockWorld.world(), context.getHardCollidingEntityCollisionsForMovementTick())
+                        withHardCollidingEntities(
+                                sampledBlockWorld.world(), context.getHardCollidingEntityCollisionsForMovementTick()),
+                        BedrockShulkerColliders.of(player, context))
                 .withCoordinateFrame(frame.getCoordinateFrame());
         BedrockMovementContext movementContext = movementContext(collisionWorld, playerContext, player, context);
         return new BedrockWorldSnapshot(

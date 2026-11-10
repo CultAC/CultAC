@@ -19,9 +19,16 @@ import org.jetbrains.annotations.Nullable;
  * of currentPeekAmount, which Shulker#tick steps 0.05 towards DATA_PEEK_ID each client tick; a growing peek moves every
  * entity in the newly opened part with MoverType.SHULKER (Shulker#onPeekAmountChange). Shulker#setPos puts a root on
  * its block's bottom centre. A shulker riding outside the local player's riding trees ticks its peek alone, at the seat
- * its vehicle chain gives it, since nothing positions it. Bedrock clients keep the plain entity box.
+ * its vehicle chain gives it, since nothing positions it.
+ *
+ * <p>For a Bedrock player the same peek steps at the end of each client tick and shoves nothing: a shulker on the
+ * floor is a collider 0.98 tall that the physical peek raises ({@link #bedrockCollisionBox}). Every other Bedrock
+ * read keeps the plain entity box.
  */
 public class PacketEntityShulker extends PacketEntity {
+    /** The height of a closed floor shulker's Bedrock collider. */
+    private static final double BEDROCK_CLOSED_HEIGHT = 0.98;
+
     /** Shulker#getAttachFace (DATA_ATTACH_FACE_ID). */
     public Direction facing = Direction.DOWN;
 
@@ -71,6 +78,8 @@ public class PacketEntityShulker extends PacketEntity {
 
     @Override
     public void onMovement(CultPlayer player) {
+        // Bedrock entities step once a client tick's move is predicted: the next tick's move meets this step.
+        if (player.isBedrockMovement()) stepPeek();
         if (untrackedRider()) {
             tickAsUntrackedRider();
             return;
@@ -386,6 +395,40 @@ public class PacketEntityShulker extends PacketEntity {
                 x + half + Math.max(0, dx),
                 y + size + Math.max(0, dy),
                 z + half + Math.max(0, dz));
+    }
+
+    /** Whether this shulker is a Bedrock lid collider: attached to the floor, at scale 1 and not riding. */
+    private boolean hasBedrockLid() {
+        return player.isBedrockMovement() && facing == Direction.DOWN && riding == null && scale == 1.0F;
+    }
+
+    /**
+     * The box a Bedrock player on foot collides with, or null for a shulker that is not such a collider: the position
+     * boxes, {@link #BEDROCK_CLOSED_HEIGHT} tall and raised by the physical peek the last client tick left.
+     */
+    public @Nullable SimpleCollisionBox bedrockCollisionBox(SimpleCollisionBox out, SimpleCollisionBox scratch) {
+        if (!hasBedrockLid()) return null;
+        double minY = Double.POSITIVE_INFINITY;
+        double maxY = Double.NEGATIVE_INFINITY;
+        for (int i = 0, count = possibleMovementCollisionBoxCandidateCount(); i < count; i++) {
+            SimpleCollisionBox position = super.possibleMovementCollisionBoxCandidate(i, scratch);
+            minY = Math.min(minY, position.minY);
+            maxY = Math.max(maxY, position.minY);
+        }
+        super.getPossibleMovementCollisionBoxes(out, scratch);
+        return out.set(
+                out.minX,
+                minY,
+                out.minZ,
+                out.maxX,
+                maxY + BEDROCK_CLOSED_HEIGHT + bedrockPhysicalPeek(peek),
+                out.maxZ);
+    }
+
+    /** The lid's height above the closed box at peek {@code amount}: the square of the sine of that quarter turn. */
+    private static double bedrockPhysicalPeek(float amount) {
+        double sine = Math.sin(amount * (Math.PI / 2.0));
+        return sine * sine;
     }
 
     /** Shulker#getPhysicalPeek, with the client's Mth#sin. */
