@@ -6,6 +6,7 @@ import ac.cult.cultac.bedrock.prediction.model.BedrockEffectState;
 import ac.cult.cultac.bedrock.prediction.model.EquipmentState;
 import ac.cult.cultac.bedrock.prediction.model.MovementModifierState;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
+import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockActorDimensions;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockClientPoseState;
@@ -27,7 +28,6 @@ record BedrockPlayerContext(
         BedrockEffectState effects) {
     private static final double BEDROCK_PLAYER_WIDTH = Double.parseDouble(Float.toString(0.6F));
     private static final double BEDROCK_STANDING_HEIGHT = Double.parseDouble(Float.toString(1.8F));
-    private static final double BEDROCK_SNEAKING_HEIGHT = Double.parseDouble(Float.toString(1.49F));
     private static final double BEDROCK_LOW_POSE_HEIGHT = Double.parseDouble(Float.toString(0.6F));
     private static final int BEDROCK_ELYTRA_MAX_DAMAGE = 432;
 
@@ -104,13 +104,16 @@ record BedrockPlayerContext(
         return equipment.elytraEquipped();
     }
 
+    /** The player's scale is the one its client acknowledged. It scales the sneaking height too. */
     private static PlayerDimensionsState dimensions(
             BedrockClientPoseState pose, boolean actorGliding, SimulationContext context) {
-
+        float scale = context.getScale();
         double height = pose.lowHeightPose() || actorGliding
-                ? BEDROCK_LOW_POSE_HEIGHT
-                : pose.sneaking() ? BEDROCK_SNEAKING_HEIGHT : BEDROCK_STANDING_HEIGHT;
-        return new PlayerDimensionsState(BEDROCK_PLAYER_WIDTH, height * context.getScale());
+                ? BEDROCK_LOW_POSE_HEIGHT * scale
+                : pose.sneaking()
+                        ? BedrockActorDimensions.sneakingHeight(scale)
+                        : BEDROCK_STANDING_HEIGHT * scale;
+        return new PlayerDimensionsState(BEDROCK_PLAYER_WIDTH * scale, height);
     }
 
     static AttributeState attributes(CultPlayer player) {

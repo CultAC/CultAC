@@ -241,6 +241,16 @@ public class PacketEntitySelf extends PacketEntity {
     }
 
     /**
+     * The scale a Bedrock client acknowledged in its own entity data: Geyser's entity scale times the Java attribute.
+     * It is this player's only scale, and the client resizes its box when it receives it.
+     */
+    public void onBedrockScale(float scale) {
+        scaleAttribute.replace(scale, List.of());
+        refreshAttributeValues();
+        player.refreshPlayerPose();
+    }
+
+    /**
      * MultiPlayerGameMode#setLocalMode leaves Java range attributes untouched. Bedrock keeps the
      * existing game-mode defaults, which attribute packets may then replace.
      */

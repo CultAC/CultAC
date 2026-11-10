@@ -66,7 +66,7 @@ final class BedrockMovementRewind {
                     .map(entry -> entry.state().isVehicle()
                             ? entry
                             : entry.withState(player.bedrockState.applyConfirmedBoundingBoxSize(
-                                    entry.state(), entry.state().inputFrame())))
+                                    entry.state(), entry.state().inputFrame(), player.dimensionScale)))
                     .toList();
         }
         var live = entries.getFirst().state();

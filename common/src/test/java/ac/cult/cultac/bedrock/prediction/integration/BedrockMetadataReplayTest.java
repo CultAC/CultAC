@@ -97,7 +97,7 @@ public final class BedrockMetadataReplayTest {
         assertTrue(restored.gliding());
         assertEquals(1.8F, restored.playerDimensions().height(), 0);
         assertEquals(0.6F, restored.acknowledgedPlayerDimensions().height(), 0);
-        assertSame(restored, player.bedrockState.applyConfirmedBoundingBoxSize(restored, restored.inputFrame()));
+        assertSame(restored, player.bedrockState.applyConfirmedBoundingBoxSize(restored, restored.inputFrame(), 1.0F));
 
         var leaves = PlacedBlockCollision.manual(
                 new BlockPosition(281, 71, -164),
@@ -116,7 +116,7 @@ public final class BedrockMetadataReplayTest {
                 <= 0.001);
 
         player.bedrockState.applyAcknowledgedBoundingBoxMetadata(0.7F, null);
-        var resized = player.bedrockState.applyConfirmedBoundingBoxSize(restored, restored.inputFrame());
+        var resized = player.bedrockState.applyConfirmedBoundingBoxSize(restored, restored.inputFrame(), 1.0F);
         assertEquals(0.7F, resized.playerDimensions().width(), 0);
         assertEquals(0.6F, resized.playerDimensions().height(), 0);
     }

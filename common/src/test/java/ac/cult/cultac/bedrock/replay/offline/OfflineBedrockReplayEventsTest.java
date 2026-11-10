@@ -405,7 +405,7 @@ public final class OfflineBedrockReplayEventsTest {
                     {"type":"bounding_box_ack","width":0.6,"height":1.5}
                     """));
             BedrockMovementState acknowledged =
-                    player.bedrockState.applyConfirmedBoundingBoxSize(nativeSneak, nativeSneak.inputFrame());
+                    player.bedrockState.applyConfirmedBoundingBoxSize(nativeSneak, nativeSneak.inputFrame(), 1.0F);
             assertEquals(1.5D, acknowledged.playerDimensions().height(), 0.0D);
             assertTrue(acknowledged.explicitPlayerDimensions());
         } finally {

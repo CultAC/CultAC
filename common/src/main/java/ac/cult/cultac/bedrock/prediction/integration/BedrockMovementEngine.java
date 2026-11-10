@@ -122,7 +122,7 @@ public final class BedrockMovementEngine implements MovementEngine {
                         player.bedrockState == null || previousEntry.state().isVehicle()
                                 ? previousEntry.state()
                                 : player.bedrockState.applyConfirmedBoundingBoxSize(
-                                        previousEntry.state(), bedrockInput.inputFrame());
+                                        previousEntry.state(), bedrockInput.inputFrame(), context.getScale());
                 Input selectedInput =
                         bedrockInput.withPreviousState(boundingBoxState, previousEntry.mobJumpComponent());
                 BedrockSimulation.Input simulationInput = new BedrockSimulation.Input(

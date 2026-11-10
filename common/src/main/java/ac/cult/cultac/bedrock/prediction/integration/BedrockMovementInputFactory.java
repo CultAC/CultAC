@@ -66,7 +66,8 @@ final class BedrockMovementInputFactory {
                     .withPlayerDimensions(
                             previousState.boat().actor().bedrockBoat.dimensions(), true);
         } else if (player.bedrockState != null) {
-            previousState = player.bedrockState.applyConfirmedBoundingBoxSize(previousState, tickInput.inputFrame());
+            previousState = player.bedrockState.applyConfirmedBoundingBoxSize(
+                    previousState, tickInput.inputFrame(), context.getScale());
         }
         worldSnapshot = BedrockSnapshotResolver.forState(worldSnapshot, previousState, tickInput.inputFrame());
         boolean actorMovementTick =

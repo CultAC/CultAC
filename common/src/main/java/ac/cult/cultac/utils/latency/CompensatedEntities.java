@@ -985,6 +985,9 @@ public class CompensatedEntities {
                 }
 
                 if (matchesAttribute(snapshot, "scale")) {
+                    // A Bedrock client never receives this attribute: Geyser sends its scale as entity data, which
+                    // PacketEntitySelf#onBedrockScale takes when the client acknowledges it.
+                    if (player.isBedrockMovement()) continue;
                     selfScaleChanged = true;
                 }
 
@@ -1098,9 +1101,7 @@ public class CompensatedEntities {
         }
 
         // A Java player's own dimensions refresh at LivingEntity#tick's end; the vehicle runner has no such refresh.
-        if (selfScaleChanged
-                && (player.isBedrockMovement()
-                        || player.compensatedEntities.getSelf().inVehicle())) {
+        if (selfScaleChanged && player.compensatedEntities.getSelf().inVehicle()) {
             player.refreshPlayerPose();
         }
         if (entityScaleChanged && entityID != player.entityID) {

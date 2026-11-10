@@ -900,6 +900,7 @@ public final class GeyserBedrockBridgeRuntime {
                 BedrockPacketWrapper source,
                 Float width,
                 Float height,
+                Float scale,
                 Boolean gliding,
                 Boolean crawling,
                 Boolean swimming,
@@ -916,6 +917,7 @@ public final class GeyserBedrockBridgeRuntime {
             }
             if ((width == null
                             && height == null
+                            && scale == null
                             && gliding == null
                             && crawling == null
                             && swimming == null
@@ -925,17 +927,29 @@ public final class GeyserBedrockBridgeRuntime {
                             && usingItem == null
                             && sprinting == null)
                     || (width != null && (!Float.isFinite(width) || width <= 0.0F))
-                    || (height != null && (!Float.isFinite(height) || height <= 0.0F))) {
+                    || (height != null && (!Float.isFinite(height) || height <= 0.0F))
+                    || (scale != null && (!Float.isFinite(scale) || scale <= 0.0F))) {
                 return;
             }
 
             writeLatencyBoundary(context, source, player -> {
                 if (isCurrentConnection()) {
+                    // The scale belongs to the actor: it outlives the correction generation it was sent in.
+                    if (scale != null) player.compensatedEntities.getSelf().onBedrockScale(scale);
+                    PlayerDimensionsState scaledDefinition =
+                            scale == null ? null : player.bedrockState.scaledCollisionDefinition(player.getScale());
                     var metadata = player.bedrockState.movementCorrections.metadata(
                             generation,
                             tick,
                             new BedrockReplayEvent.Metadata(
-                                    width, height, gliding, crawling, swimming, spinning, sprinting),
+                                    width,
+                                    height,
+                                    gliding,
+                                    crawling,
+                                    swimming,
+                                    spinning,
+                                    sprinting,
+                                    scaledDefinition),
                             flagWords);
                     if (metadata == null) {
                         if (sleeping != null)
@@ -2129,6 +2143,8 @@ public final class GeyserBedrockBridgeRuntime {
                 ChannelHandlerContext context, Object message, ChannelPromise promise, SetEntityDataPacket metadata) {
             Float width = metadata.getMetadata().get(EntityDataTypes.WIDTH);
             Float height = metadata.getMetadata().get(EntityDataTypes.HEIGHT);
+            // Geyser sends a scale change to the player as this value alone: the entity scale times the attribute.
+            Float scale = metadata.getMetadata().get(EntityDataTypes.SCALE);
             Boolean gliding = metadata.getMetadata().get(EntityDataTypes.FLAGS) == null
                     ? null
                     : metadata.getMetadata().getFlag(EntityFlag.GLIDING);
@@ -2187,6 +2203,7 @@ public final class GeyserBedrockBridgeRuntime {
             }
             if (width != null
                     || height != null
+                    || scale != null
                     || gliding != null
                     || crawling != null
                     || swimming != null
@@ -2200,6 +2217,7 @@ public final class GeyserBedrockBridgeRuntime {
                         (BedrockPacketWrapper) message,
                         width,
                         height,
+                        scale,
                         gliding,
                         crawling,
                         swimming,

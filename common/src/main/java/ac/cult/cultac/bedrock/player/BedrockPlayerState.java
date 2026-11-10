@@ -4,6 +4,7 @@ import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.model.BedrockBoundingBoxMode;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
+import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockActorDimensions;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockRidingJumpState;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
@@ -200,10 +201,21 @@ public final class BedrockPlayerState {
         return swimmingRequested;
     }
 
+    /**
+     * The collision definition the client holds at {@code scale}: it multiplies the definition it was given by the
+     * scale in its own entity data. Null until the definition is confirmed.
+     */
+    public PlayerDimensionsState scaledCollisionDefinition(float scale) {
+        return collisionDefinition == null
+                ? null
+                : BedrockActorDimensions.scaledDefinition(collisionDefinition, scale);
+    }
+
+    /** {@code scale} is the player's scale, which for a Bedrock player is the one its client acknowledged. */
     public BedrockMovementState applyConfirmedBoundingBoxSize(
-            BedrockMovementState source, BedrockInputFrame currentFrame) {
+            BedrockMovementState source, BedrockInputFrame currentFrame, float scale) {
         if (source != null && !source.isVehicle() && collisionDefinition != null) {
-            source = source.withCollisionDefinition(collisionDefinition);
+            source = BedrockActorDimensions.withCollisionDefinition(source, scaledCollisionDefinition(scale));
         }
         if (source == null
                 || confirmedBoundingBoxSize == null
