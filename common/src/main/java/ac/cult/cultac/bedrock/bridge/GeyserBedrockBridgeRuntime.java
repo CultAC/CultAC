@@ -1819,11 +1819,10 @@ public final class GeyserBedrockBridgeRuntime {
                 owner.connection.disconnect("CultAC: entity update bypassed the coordinate hook. Please reconnect.");
                 return;
             }
-            if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.SetEntityLinkPacket link
+            boolean seatsRider = packet instanceof org.cloudburstmc.protocol.bedrock.packet.SetEntityLinkPacket link
                     && link.getEntityLink().getTo()
-                            == owner.connection.getPlayerEntity().geyserId()) {
-                owner.clientRiding.link(link.getEntityLink());
-            }
+                            == owner.connection.getPlayerEntity().geyserId()
+                    && owner.clientRiding.link(link.getEntityLink());
             if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.SetEntityLinkPacket link
                     && observedPlayer != null
                     && link.getEntityLink().getTo()
@@ -1833,9 +1832,12 @@ public final class GeyserBedrockBridgeRuntime {
                 Runnable received = observedPlayer
                         .getSetbackTeleportUtil()
                         .bedrockTeleports()
-                        .captureBedrockVehicleMount();
+                        .captureBedrockVehicleMount(link.getEntityLink().getFrom());
                 context.write(message, promise);
-                owner.writeLatencyBoundary(context, wrapper, player -> received.run());
+                owner.writeLatencyBoundary(context, wrapper, player -> {
+                    received.run();
+                    if (seatsRider) player.bedrockState.seatRider(link.getEntityLink().getVehicleAngularVelocity());
+                });
                 return;
             }
             if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.ChangeDimensionPacket dimension) {

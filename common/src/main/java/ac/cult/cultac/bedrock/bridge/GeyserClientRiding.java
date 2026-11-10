@@ -7,9 +7,11 @@ import org.cloudburstmc.protocol.bedrock.packet.MovePlayerPacket;
 final class GeyserClientRiding {
     private boolean riding;
 
-    /** A link of the player written to the client. */
-    void link(EntityLinkData link) {
+    /** A link of the player written to the client; whether it seats a client that was not riding. */
+    boolean link(EntityLinkData link) {
+        boolean seats = !riding && link.getType() != EntityLinkData.Type.REMOVE;
         riding = link.getType() != EntityLinkData.Type.REMOVE;
+        return seats;
     }
 
     /**

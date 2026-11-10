@@ -1,6 +1,7 @@
 package ac.cult.cultac.bedrock.prediction.integration;
 
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
+import ac.cult.cultac.bedrock.prediction.state.BedrockBoatState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 
@@ -18,7 +19,8 @@ public final class BedrockControlInput {
 
     static Vec3d control(BedrockAuthInputFrame frame, BedrockMovementState state) {
         if (!validControl(frame)) throw new IllegalArgumentException("Invalid movement control");
-        if (state.isBoat() && !state.boat().analogPaddles()) {
+        if (state.isBoat() && state.boat().paddleInput() == BedrockBoatState.PaddleInput.NONE) return Vec3d.ZERO;
+        if (state.isBoat() && state.boat().paddleInput() == BedrockBoatState.PaddleInput.DIGITAL) {
             return new Vec3d(
                     frame.hasRawInputFlag(org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData.PADDLE_LEFT)
                             ? 1

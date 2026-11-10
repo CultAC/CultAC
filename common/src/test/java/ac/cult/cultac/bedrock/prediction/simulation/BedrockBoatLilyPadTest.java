@@ -127,7 +127,7 @@ public final class BedrockBoatLilyPadTest {
                         0,
                         BedrockBoatState.Paddle.INITIAL,
                         BedrockBoatState.Paddle.INITIAL,
-                        true))
+                        BedrockBoatState.PaddleInput.ANALOG))
                 .withPhysicalFeetPosition(feet, 0)
                 .withPlayerDimensions(BedrockBoatProperties.DIMENSIONS, true);
     }

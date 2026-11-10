@@ -8,6 +8,7 @@ import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockHorseMovement;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockSnapshotResolver;
+import ac.cult.cultac.bedrock.prediction.state.BedrockBoatState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
 import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
@@ -68,10 +69,14 @@ final class BedrockMovementInputFactory {
                     .horse()
                     .forFrame(horse.horseFlagsRevision, horse.isRearing, player.bedrockState.horseJumpRelease(frame)));
         } else if (previousState.isBoat()) {
+            var boat = previousState
+                    .boat()
+                    .withProperties(previousState.boat().actor().bedrockBoat, paddleInput(player, frame));
+            // The link that seats the rider sets the boat's angular velocity before the tick.
+            if (player.bedrockState.seatsRider(frame.getClientTick()))
+                boat = boat.withAngularVelocity(player.bedrockState.seatedVehicleAngularVelocity());
             previousState = previousState
-                    .withBoat(previousState
-                            .boat()
-                            .withProperties(previousState.boat().actor().bedrockBoat, analogBoatInput(frame)))
+                    .withBoat(boat)
                     .withPlayerDimensions(
                             previousState.boat().actor().bedrockBoat.dimensions(), true);
         } else if (player.bedrockState != null) {
@@ -97,10 +102,14 @@ final class BedrockMovementInputFactory {
                 sampledRegion);
     }
 
-    private static boolean analogBoatInput(BedrockAuthInputFrame frame) {
+    private static BedrockBoatState.PaddleInput paddleInput(CultPlayer player, BedrockAuthInputFrame frame) {
+        // The rider's input reaches the boat from the tick after the one that seats it.
+        if (player.bedrockState.seatsRider(frame.getClientTick())) return BedrockBoatState.PaddleInput.NONE;
         return frame.getInputMode() != org.cloudburstmc.protocol.bedrock.data.InputMode.TOUCH.ordinal()
-                || frame.getInteractionModel()
-                        != org.cloudburstmc.protocol.bedrock.data.InputInteractionModel.CLASSIC.ordinal();
+                        || frame.getInteractionModel()
+                                != org.cloudburstmc.protocol.bedrock.data.InputInteractionModel.CLASSIC.ordinal()
+                ? BedrockBoatState.PaddleInput.ANALOG
+                : BedrockBoatState.PaddleInput.DIGITAL;
     }
 
     private static double boatStep(BedrockMovementState state) {
@@ -204,14 +213,15 @@ final class BedrockMovementInputFactory {
                         .forFrame(snapshot.metadataRevision(), snapshot.standing(), snapshot.release()));
             }
             if (previousState.isBoat()) {
+                var frameBoat = this.previousState.boat();
+                var boat = previousState.boat().withProperties(frameBoat.properties(), frameBoat.paddleInput());
+                // A tick whose rider's input does not reach the boat is the one a link seats it on, and every
+                // candidate starts it with the angular velocity of that link.
+                if (frameBoat.paddleInput() == BedrockBoatState.PaddleInput.NONE)
+                    boat = boat.withAngularVelocity(frameBoat.angularVelocity());
                 previousState = previousState
-                        .withBoat(previousState
-                                .boat()
-                                .withProperties(
-                                        this.previousState.boat().properties(),
-                                        this.previousState.boat().analogPaddles()))
-                        .withPlayerDimensions(
-                                this.previousState.boat().properties().dimensions(), true);
+                        .withBoat(boat)
+                        .withPlayerDimensions(frameBoat.properties().dimensions(), true);
             }
             if (java.util.Objects.equals(this.previousState, previousState)) {
                 if (java.util.Objects.equals(this.mobJumpComponent, mobJumpComponent)) {

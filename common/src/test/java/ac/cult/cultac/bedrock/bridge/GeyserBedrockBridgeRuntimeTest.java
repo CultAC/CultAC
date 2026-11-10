@@ -739,12 +739,27 @@ public final class GeyserBedrockBridgeRuntimeTest {
         packet.setMode(MovePlayerPacket.Mode.TELEPORT);
 
         assertFalse(riding.stopsRiding(packet));
-        riding.link(new EntityLinkData(7, 3, EntityLinkData.Type.RIDER, false, false, 0.0F));
-        riding.link(new EntityLinkData(7, 3, EntityLinkData.Type.REMOVE, false, false, 0.0F));
+        assertTrue(riding.link(new EntityLinkData(7, 3, EntityLinkData.Type.RIDER, false, false, 0.0F)));
+        assertFalse(riding.link(new EntityLinkData(7, 3, EntityLinkData.Type.REMOVE, false, false, 0.0F)));
         assertFalse(riding.stopsRiding(packet));
         riding.link(new EntityLinkData(7, 3, EntityLinkData.Type.RIDER, false, false, 0.0F));
         riding.clear();
         assertFalse(riding.stopsRiding(packet));
+    }
+
+    @Test
+    public void onlyALinkToAClientOffTheVehicleSeatsIt() {
+        var riding = new GeyserClientRiding();
+        var rider = new EntityLinkData(7, 3, EntityLinkData.Type.RIDER, false, false, 0.0F);
+        assertTrue(riding.link(rider));
+        // The server sends the passengers of a ridden vehicle again.
+        assertFalse(riding.link(rider));
+        riding.link(new EntityLinkData(7, 3, EntityLinkData.Type.REMOVE, false, false, 0.0F));
+        assertTrue(riding.link(rider));
+        MovePlayerPacket teleport = new MovePlayerPacket();
+        teleport.setMode(MovePlayerPacket.Mode.TELEPORT);
+        assertTrue(riding.stopsRiding(teleport));
+        assertTrue(riding.link(rider));
     }
 
     @Test

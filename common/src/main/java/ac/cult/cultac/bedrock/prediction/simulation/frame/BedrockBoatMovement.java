@@ -56,7 +56,7 @@ public final class BedrockBoatMovement {
         float side = (float) input.x(), forward = (float) input.z();
         var left = boat.left();
         var right = boat.right();
-        if (boat.analogPaddles()) {
+        if (boat.paddleInput() == BedrockBoatState.PaddleInput.ANALOG) {
             float magnitude = (float) Math.sqrt(forward * forward + side * side);
             if (forward < 0) {
                 magnitude *= -0.15F;
@@ -99,7 +99,7 @@ public final class BedrockBoatMovement {
                 boat.paddleTick() + 1,
                 left,
                 right,
-                boat.analogPaddles());
+                boat.paddleInput());
         return new Step(next, new Vec3d(x, velocity.y(), z), yaw, friction);
     }
 

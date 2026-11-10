@@ -34,6 +34,10 @@ public final class BedrockPlayerState {
     public ac.cult.cultac.player.CultPlayer.BedrockTransaction lastClientboundTransaction;
     // The vehicle the client predicted on its last tick; null after a tick it predicted none.
     public ac.cult.cultac.utils.data.packetentity.PacketEntity predictedVehicle;
+    // The last tick the client ran before it took a link that seated it on a vehicle it was not riding.
+    private long riderSeatedAfterTick = Long.MIN_VALUE;
+    // The angular velocity that link gives the vehicle.
+    private float seatedVehicleAngularVelocity;
     private final UUID playerUuid;
 
     private BedrockProtocolVersion protocolVersion = BedrockProtocolVersion.UNKNOWN;
@@ -161,6 +165,24 @@ public final class BedrockPlayerState {
     /** Prediction runs synchronously after recordProcessedAuthInputFrame; raw client ticks cannot advance it. */
     public long authoritativeInputTick() {
         return processedAuthInputSequence;
+    }
+
+    /**
+     * The client takes a link that seats it on a vehicle it was not riding, before its next tick, and gives the vehicle
+     * the link's angular velocity.
+     */
+    public void seatRider(float vehicleAngularVelocity) {
+        riderSeatedAfterTick = processedClientTick();
+        seatedVehicleAngularVelocity = vehicleAngularVelocity;
+    }
+
+    public float seatedVehicleAngularVelocity() {
+        return seatedVehicleAngularVelocity;
+    }
+
+    /** Whether {@code clientTick} is the client's first tick on the vehicle a link seated it on. */
+    public boolean seatsRider(long clientTick) {
+        return riderSeatedAfterTick != Long.MIN_VALUE && clientTick == riderSeatedAfterTick + 1;
     }
 
     /** Wire timestamp paired with the latest processed input, not the simulation sequence. */

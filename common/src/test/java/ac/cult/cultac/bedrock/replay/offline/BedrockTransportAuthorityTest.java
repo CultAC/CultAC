@@ -288,14 +288,14 @@ public final class BedrockTransportAuthorityTest {
             var teleports = player.getSetbackTeleportUtil();
             Vec3 earlier = new Vec3(2, 64, 3);
             teleports.bedrockTeleports().addImmediateBedrockTransportTeleport(earlier, false);
-            Runnable mountReceipt = teleports.bedrockTeleports().captureBedrockVehicleMount();
+            Runnable mountReceipt = teleports.bedrockTeleports().captureBedrockVehicleMount(71L);
             Vec3 later = earlier.add(5, 0, 0);
             teleports.bedrockTeleports().addImmediateBedrockTransportTeleport(later, false);
             mountReceipt.run();
             assertTrue(teleports.bedrockTeleports().hasPendingBedrockTransportTeleport());
             assertEquals(1, teleports.pendingTeleports.size());
             assertEquals(later, teleports.pendingTeleports.peek().getLocation());
-            teleports.bedrockTeleports().captureBedrockVehicleMount().run();
+            teleports.bedrockTeleports().captureBedrockVehicleMount(71L).run();
             assertFalse(teleports.bedrockTeleports().hasPendingBedrockTransportTeleport());
 
         } finally {
@@ -336,7 +336,7 @@ public final class BedrockTransportAuthorityTest {
             player.lastTransactionReceived.set(proof);
             player.latencyUtils.handleNettySyncTransaction(proof);
             assertTrue(teleports.bedrockTeleports().hasPendingBedrockTransportTeleport());
-            teleports.bedrockTeleports().captureBedrockVehicleMount().run();
+            teleports.bedrockTeleports().captureBedrockVehicleMount(71L).run();
             assertFalse(teleports.bedrockTeleports().hasPendingBedrockTransportTeleport());
             assertFalse(teleports.isPendingSetback());
             assertTrue(required.isComplete());

@@ -178,7 +178,7 @@ public final class BedrockActorHistoryTest {
                 0,
                 ac.cult.cultac.bedrock.prediction.state.BedrockBoatState.Paddle.INITIAL,
                 ac.cult.cultac.bedrock.prediction.state.BedrockBoatState.Paddle.INITIAL,
-                true));
+                ac.cult.cultac.bedrock.prediction.state.BedrockBoatState.PaddleInput.ANALOG));
         for (var initial : List.of(horseState, boatState)) {
             var history = new BedrockActorHistory();
             var entry = new Entry(initial, BedrockMobJumpComponentState.DEFAULT);

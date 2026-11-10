@@ -42,6 +42,11 @@ public final class BedrockMovementCorrections {
         return generation;
     }
 
+    /** Whether the frames are of the client predicting the vehicle {@code actorRuntimeId}. */
+    public boolean predicts(long actorRuntimeId) {
+        return controlled != null && runtimeId == actorRuntimeId;
+    }
+
     public boolean hasPendingCorrection() {
         return pending != null || requestedTransaction >= 0 || placement != null;
     }

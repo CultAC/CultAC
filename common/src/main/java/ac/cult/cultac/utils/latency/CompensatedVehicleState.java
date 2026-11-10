@@ -902,10 +902,18 @@ public final class CompensatedVehicleState implements Debuggable {
                 && canLocalClientAuthoritativelyMove(vehicle);
     }
 
-    /** The resync is a ClientboundMoveVehicle, which the client neither applies nor echoes for a stacked vehicle. */
+    /**
+     * The resync is a ClientboundMoveVehicle, which the client neither applies nor echoes for a stacked vehicle. A
+     * Bedrock client keeps a vehicle it already predicts where it has it when its rider is taken off and put back, and
+     * the server's position for that vehicle is only what the client reported earlier, so nothing places it.
+     */
     public boolean shouldProtocolResyncOnMount(@Nullable PacketEntity vehicle, int[] passengers) {
         return canLocalClientAuthoritativelyMoveMountedVehicle(vehicle, passengers)
-                && !ridesAnotherEntityAsSent(vehicle.getEntityId());
+                && !ridesAnotherEntityAsSent(vehicle.getEntityId())
+                && !(player.isBedrockMovement()
+                        && vehicle
+                                == ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl
+                                        .controlledVehicle(player));
     }
 
     public boolean hasClientObservedServerVehicle() {

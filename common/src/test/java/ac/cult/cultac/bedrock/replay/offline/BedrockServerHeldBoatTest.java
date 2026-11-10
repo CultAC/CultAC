@@ -79,6 +79,38 @@ public final class BedrockServerHeldBoatTest {
         }
     }
 
+    /**
+     * A capture of a mount shows a correction of the first ridden tick sent before the server links the rider to the
+     * vehicle again; the client takes the correction on its third ridden tick all the same.
+     */
+    @Test
+    public void aLinkSeatingTheRiderAgainKeepsACorrectionOnItsWay() {
+        OfflineCultTestBootstrap.installConfig();
+        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            PacketEntity boat = spawn(player);
+            mount(player);
+            var corrections = player.bedrockState.movementCorrections;
+            frame(player, boat, 5922);
+            frame(player, boat, 5923);
+
+            answer(player, HELD);
+            BedrockMovementState sent = frame(player, boat, 5924);
+            var correction = corrections.correction(input(player, 5924), boat, sent, 0);
+            Runnable relink = player.getSetbackTeleportUtil().bedrockTeleports().captureBedrockVehicleMount(RUNTIME_ID);
+            corrections.observe(player, correction);
+            corrections.acknowledge(correction.sequence());
+            relink.run();
+            assertTrue(corrections.predicts(RUNTIME_ID));
+
+            frame(player, boat, 5925);
+            BedrockMovementState taken = frame(player, boat, 5926);
+            assertEquals(HELD.z, taken.physicalFeetPosition().z(), 1.0E-3);
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
     private static PacketSendEvent<ClientboundMoveVehicle> answer(CultPlayer player, Vec3 position) {
         var packet = new ClientboundMoveVehicle(
                 new ac.cult.cultac.protocol.value.Vec3d(position.x, position.y, position.z), 0.0F, 0.0F);

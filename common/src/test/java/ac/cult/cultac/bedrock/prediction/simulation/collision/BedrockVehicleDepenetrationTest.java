@@ -199,7 +199,7 @@ public final class BedrockVehicleDepenetrationTest {
                 0,
                 BedrockBoatState.Paddle.INITIAL,
                 BedrockBoatState.Paddle.INITIAL,
-                true));
+                BedrockBoatState.PaddleInput.ANALOG));
     }
 
     private static BedrockMovementState horse(PlayerDimensionsState dimensions) {

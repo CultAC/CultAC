@@ -177,7 +177,8 @@ public final class BedrockTeleportTracker {
         return answers.complete(matching, actual, true);
     }
 
-    public Runnable captureBedrockVehicleMount() {
+    /** The client handles a link that seats the player on the vehicle {@code vehicleRuntimeId}. */
+    public Runnable captureBedrockVehicleMount(long vehicleRuntimeId) {
         long revision = bedrockTeleportRevision.get();
         SetBackData setback = corrections.required();
         int transaction = setback == null ? -1 : setback.getTeleportData().getTransaction();
@@ -204,9 +205,11 @@ public final class BedrockTeleportTracker {
                 vehicles.clearBedrockVehicleSetback();
             }
             gate.setLoaded(true);
+            // A link that seats the player again on the vehicle it predicts leaves the client's corrections of it.
             if (corrections.required() == setback
                     && (setback == null || setback.getTeleportData().getTransaction() == transaction)
-                    && player.bedrockState.movementCorrections.generation() == correctionGeneration) {
+                    && player.bedrockState.movementCorrections.generation() == correctionGeneration
+                    && !player.bedrockState.movementCorrections.predicts(vehicleRuntimeId)) {
                 player.bedrockState.movementCorrections.clear();
             }
         };
