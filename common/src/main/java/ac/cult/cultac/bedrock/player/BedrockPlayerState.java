@@ -40,10 +40,14 @@ public final class BedrockPlayerState {
     private long processedAuthInputSequence;
     private long lastMovementTick = -1;
 
-    /** The client state this player's block collision shapes read. */
+    /** The client state this player's block collision shapes read, in the coordinate frame of its latest input. */
     public ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext blockShapeContext() {
-        return new ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext(position -> shulkerBoxLids.lift(
-                ac.cult.cultac.protocol.value.BlockPos.asLong(position.x(), position.y(), position.z())));
+        return new ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext(
+                position -> shulkerBoxLids.lift(
+                        ac.cult.cultac.protocol.value.BlockPos.asLong(position.x(), position.y(), position.z())),
+                lastOfferedFrame == null
+                        ? ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame.IDENTITY
+                        : lastOfferedFrame.getCoordinateFrame());
     }
 
     public long lastMovementTick() {

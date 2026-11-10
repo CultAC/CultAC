@@ -118,7 +118,8 @@ public class BedrockShulkerBoxLidTest {
     private static void assertLidFace(String facing, float openness, double lift) {
         float shown = BedrockShulkerBoxLids.lift(openness);
         var context = new ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext(
-                position -> shown);
+                position -> shown,
+                ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame.IDENTITY);
         var builder = new BedrockCollisionWorldBuilder(BedrockClientBlockShapeMappings.catalog(), context);
         var position = new BlockPosition(BOX.getX(), BOX.getY(), BOX.getZ());
         var boxes = builder.build(Map.of(position, shulkerBox(facing)))

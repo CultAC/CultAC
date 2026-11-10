@@ -88,7 +88,15 @@ public final class BedrockCollisionWorldBuilder {
 
     /** Whether the shape of {@code state} depends on client state kept for the position it is at. */
     public static boolean positionDependentMovement(int state) {
-        return shulkerBoxBlock(state);
+        return shulkerBoxBlock(state) || maxPositionOffset(state) > 0.0F;
+    }
+
+    /** How far a hash of its position shifts the shape of {@code state} on X and Z; 0 for a shape it does not. */
+    private static float maxPositionOffset(int state) {
+        if (BlockIds.is(state, BlockIds.BAMBOO)) {
+            return 0.25F;
+        }
+        return BlockIds.is(state, BlockIds.POINTED_DRIPSTONE) ? 0.125F : 0.0F;
     }
 
     public static boolean clientComputedMovement(int state) {
@@ -177,9 +185,10 @@ public final class BedrockCollisionWorldBuilder {
         if (shulkerBoxBlock(state)) {
             return List.of(shulkerBoxCollisionBox(position, state));
         }
+        float maxOffset = maxPositionOffset(state);
         return catalog.override(state)
-                .map(shape -> bambooBlock(state)
-                        ? BedrockBambooCollisionShape.at(position, shape)
+                .map(shape -> maxOffset > 0.0F
+                        ? BedrockOffsetBlockShape.at(position, shape, maxOffset, context.frame())
                         : overrideCollisionBoxes(position, shape))
                 .orElseGet(List::of);
     }
@@ -236,10 +245,6 @@ public final class BedrockCollisionWorldBuilder {
 
     private static boolean powderSnowBlock(int state) {
         return BlockFamilies.POWDER_SNOW.test(state) || BlockIds.is(state, BlockIds.POWDER_SNOW);
-    }
-
-    private static boolean bambooBlock(int state) {
-        return BlockIds.is(state, BlockIds.BAMBOO);
     }
 
     private static boolean shulkerBoxBlock(int state) {
