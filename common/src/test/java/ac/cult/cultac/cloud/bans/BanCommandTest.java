@@ -369,6 +369,16 @@ class BanCommandTest {
     }
 
     @Test
+    void aReasonLabelStartingWithALengthOrServerWordIsRunWithAQuote() {
+        String template = "ban %player% %reason_label%";
+        assertEquals("ban Notch '7d fly", BanCommand.fill(template, v2(Term.PERMANENT, null, null, "r", "7d fly", "")));
+        assertEquals(
+                "ban Notch 'server:lobby", BanCommand.fill(template, v2(Term.PERMANENT, null, null, "r", "server:lobby", "")));
+        assertEquals("ban Notch '1h30m", BanCommand.fill(template, v2(Term.PERMANENT, null, null, "r", "<1h30m", "")));
+        assertEquals("ban Notch fly 7d", BanCommand.fill(template, v2(Term.PERMANENT, null, null, "r", "fly 7d", "")));
+    }
+
+    @Test
     void reasonStaffAndCheatLoseTagsAndFormatCodes() {
         StaffBans.Ban ban = new StaffBans.Ban(
                 ID,

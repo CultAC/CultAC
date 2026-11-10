@@ -30,8 +30,8 @@ import org.jetbrains.annotations.Nullable;
  * {@code name=}, and when the {@code reason} as the service sent it, used as {@code reason} or as a {@code reason_label}
  * that is the reason, starts with a {@linkplain #LENGTH_WORD length or server word}. {@code reason},
  * {@code reason_label}, {@code staff} and {@code cheat} lose {@code <}, section signs and {@code &} format codes, also
- * those the other removals expose, and a {@code reason} or {@code reason_label} that starts with a length or server
- * word only once they are gone gains a leading {@code '}.
+ * those the other removals expose. A {@code reason} that starts with a length or server word only once they are gone
+ * gains a leading {@code '}, and so does a {@code reason_label} the ban carries that starts with one.
  */
 public final class BanCommand {
     static final int MAX_TEXT = 200;
@@ -152,7 +152,7 @@ public final class BanCommand {
         values.put("player", NAME.matcher(name).matches() && !name.startsWith("-") ? name : uuid);
         values.put("uuid", uuid);
         values.put("reason", reason(ban.reason()));
-        values.put("reason_label", reason(ban.reasonLabel() == null ? ban.reason() : ban.reasonLabel()));
+        values.put("reason_label", ban.reasonLabel() == null ? reason(ban.reason()) : label(ban.reasonLabel()));
         values.put("cheat", plainKeyless(ban.cheatName() == null ? ban.cheat() : ban.cheatName(), Integer.MAX_VALUE));
         values.put("cheat_id", keyless(ban.cheat(), Integer.MAX_VALUE));
         values.put("duration", duration(ban));
@@ -191,10 +191,20 @@ public final class BanCommand {
      * before a {@link #LENGTH_WORD} that only its removals bring to the front.
      */
     static String reason(@Nullable String text) {
+        return quoted(text, !lengthFirst(clean(text, Integer.MAX_VALUE)));
+    }
+
+    /**
+     * {@code text} plain, cleaned and {@linkplain #unflagged unflagged} within {@link #MAX_TEXT}, with a {@code '}
+     * before a leading {@link #LENGTH_WORD}.
+     */
+    static String label(String text) {
+        return quoted(text, true);
+    }
+
+    private static String quoted(@Nullable String text, boolean quoteLength) {
         String shown = unflagged(plain(text, false, MAX_TEXT), MAX_TEXT);
-        return lengthFirst(shown) && !lengthFirst(clean(text, Integer.MAX_VALUE))
-                ? "'" + cut(shown, MAX_TEXT - 1)
-                : shown;
+        return quoteLength && lengthFirst(shown) ? "'" + cut(shown, MAX_TEXT - 1) : shown;
     }
 
     /**
