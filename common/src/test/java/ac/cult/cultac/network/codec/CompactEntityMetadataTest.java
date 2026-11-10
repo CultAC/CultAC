@@ -68,10 +68,7 @@ class CompactEntityMetadataTest {
     void everyReaderDecodesWhatEntryObjectsBuiltOneByOneDecode() {
         int failed = 0, unresolved = 0;
         for (ProtocolVersion version : ProtocolVersion.values()) {
-            var registries = new WireRegistryState(version, () -> null);
-            var paintings = new ArrayList<WireValueDecoder.RegistryEntry>();
-            for (int i = 0; i < 40; i++) paintings.add(new WireValueDecoder.RegistryEntry("p" + i, null));
-            registries.append(new WireValueDecoder.RegistryValues("minecraft:painting_variant", paintings));
+            var registries = registries(version);
             var held = new ModelEntityMetadataValues(ProtocolCodecs.decoder(), version, registries, PAINTINGS);
             var serializers = Serializers.probe(version, registries);
             var random = new Random(version.ordinal() * 31L + 7);
@@ -96,6 +93,49 @@ class CompactEntityMetadataTest {
         }
         assertTrue(
                 packedSeen > 1_000 && failed > 1_000 && unresolved > 10, packedSeen + " " + failed + " " + unresolved);
+    }
+
+    @Test
+    void aSinglePacketReadInsideAnotherOnTheSameThreadDecodesBothExactly() {
+        var version = ProtocolVersion.V26_3;
+        var registries = registries(version);
+        var serializers = Serializers.probe(version, registries);
+        var random = new Random(11);
+        int[] nested = {0};
+        Function<String, PaintingSize> reentrant = name -> {
+            byte[] inner = packet(random, serializers);
+            assertEquals(
+                    decode(inner, false, (input, lease) -> legacy(version, registries, input, lease)),
+                    decode(
+                            inner,
+                            false,
+                            (input, lease) -> new ModelEntityMetadataValues(
+                                            ProtocolCodecs.decoder(), version, registries, PAINTINGS)
+                                    .readOnce(input, lease)));
+            nested[0]++;
+            return PAINTINGS.apply(name);
+        };
+        for (int packet = 0; packet < PACKETS; packet++) {
+            byte[] wire = packet(random, serializers);
+            var expected = decode(wire, false, (input, lease) -> legacy(version, registries, input, lease));
+            var once = decode(
+                    wire,
+                    false,
+                    (input, lease) -> new ModelEntityMetadataValues(
+                                    ProtocolCodecs.decoder(), version, registries, reentrant)
+                            .readOnce(input, lease));
+            assertEquals(expected, once, "packet " + packet);
+        }
+        assertTrue(nested[0] > 100, nested[0] + " nested reads");
+    }
+
+    /** {@code version}'s registries, with 40 wire painting variants. */
+    private static WireRegistryState registries(ProtocolVersion version) {
+        var registries = new WireRegistryState(version, () -> null);
+        var paintings = new ArrayList<WireValueDecoder.RegistryEntry>();
+        for (int i = 0; i < 40; i++) paintings.add(new WireValueDecoder.RegistryEntry("p" + i, null));
+        registries.append(new WireValueDecoder.RegistryValues("minecraft:painting_variant", paintings));
+        return registries;
     }
 
     @Test

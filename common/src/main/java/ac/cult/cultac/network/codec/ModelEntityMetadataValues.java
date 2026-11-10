@@ -14,8 +14,9 @@ import ac.cult.cultac.protocol.value.EntityPose;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
+import io.netty.util.concurrent.FastThreadLocal;
+import java.lang.ref.WeakReference;
 import java.util.Arrays;
-import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.function.Function;
@@ -28,6 +29,9 @@ final class ModelEntityMetadataValues {
     private static final class Defaults {
         private static final ItemRegistry ITEMS = new ItemRegistry(DataTables.defaults());
     }
+
+    // Host-owned threads outlive a runtime generation, so their map holds only host-loaded types.
+    private static final FastThreadLocal<WeakReference<Scratch>> THREAD_SCRATCH = new FastThreadLocal<>();
 
     private final WireValueDecoder decoder;
     private final ProtocolVersion version;
@@ -97,45 +101,18 @@ final class ModelEntityMetadataValues {
 
     /** As {@link #read(ByteBuf, FrameLease)}, for a reader that decodes a single packet. */
     EntityMetadata readOnce(ByteBuf input, FrameLease lease) {
-        int id = Wire.readVarInt(input);
-        int payloadStart = input.readerIndex();
-        var decoded = decoder.metadata(version, input, registries, ModelNbtFactory.INSTANCE);
-        int payloadLength = decoded.isEmpty()
-                ? 0
-                : decoded.getLast().offset() + decoded.getLast().length() - payloadStart;
-        byte[] payload = lease == null ? ByteBufUtil.getBytes(input, payloadStart, payloadLength) : null;
-        var entries = new EntityMetadata.Entry[decoded.size()];
-        for (int i = 0; i < entries.length; i++) {
-            var value = decoded.get(i);
-            entries[i] = entry(
-                    value.index(),
-                    value.kind(),
-                    value.value(),
-                    value.offset(),
-                    value.length(),
-                    payload,
-                    payloadStart,
-                    lease);
-            if (entries[i] == null) return null;
+        WeakReference<Scratch> reference = THREAD_SCRATCH.get();
+        Scratch scratch = reference == null ? null : reference.get();
+        if (scratch == null) THREAD_SCRATCH.set(new WeakReference<>(scratch = new Scratch()));
+        else if (scratch.busy) return read(input, lease, new Scratch());
+        scratch.busy = true;
+        try {
+            return read(input, lease, scratch);
+        } finally {
+            scratch.busy = false;
+            if (scratch.kinds.length > Scratch.HELD) THREAD_SCRATCH.remove();
+            else scratch.clear();
         }
-        return new EntityMetadata(id, List.of(entries));
-    }
-
-    /** Null when {@code value} is a painting variant this connection cannot resolve. */
-    private EntityMetadata.Entry entry(
-            int index,
-            String kind,
-            Object value,
-            int offset,
-            int length,
-            byte[] payload,
-            int payloadStart,
-            FrameLease lease) {
-        Object converted = value(kind, value);
-        if (converted == null && kind.equals("painting_variant")) return null;
-        return lease == null
-                ? EntityMetadata.Entry.of(index, converted, payload, offset - payloadStart, length)
-                : EntityMetadata.Entry.of(index, converted, lease, offset, length);
     }
 
     /** The model value of a decoded {@code kind} value; null for a painting variant this connection cannot resolve. */
@@ -163,6 +140,8 @@ final class ModelEntityMetadataValues {
         private String[] kinds = new String[4];
         private Object[] values = new Object[4];
         private int size;
+        /** Whether a single packet read on this scratch's thread is using it. */
+        private boolean busy;
 
         @Override
         public void accept(int index, String kind, Object value, int offset, int length) {
