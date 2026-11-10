@@ -8,6 +8,7 @@ import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityCamel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
@@ -36,7 +37,11 @@ class EntityViewCountParityTest {
                         "pose",
                         entities::poseCollisionCandidates,
                         e -> e.isBoat() || e.type == EntityTypeIds.SHULKER || e.isHappyGhast()),
-                new View("unknown", entities::unknownCollisionCandidates, unknown));
+                new View("unknown", entities::unknownCollisionCandidates, unknown),
+                new View(
+                        "collisionOrPlayer",
+                        entities::collisionOrPlayerCandidates,
+                        unknown.or(e -> e instanceof PacketEntityPlayer)));
     }
 
     private static List<PacketEntity> filtered(CompensatedEntities entities, Predicate<PacketEntity> accept) {
@@ -57,7 +62,7 @@ class EntityViewCountParityTest {
             EntityTypes.defaults().byKey("minecraft:camel").id(),
             EntityTypeIds.ITEM
         };
-        int[] nonEmpty = new int[5];
+        int[] nonEmpty = new int[6];
         int emptyAfterNonEmpty = 0;
         for (int seed = 0; seed < 4; seed++) {
             try (var f = new JavaTickFixture()) {

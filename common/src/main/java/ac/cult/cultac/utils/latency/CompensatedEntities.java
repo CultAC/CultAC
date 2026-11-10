@@ -76,6 +76,8 @@ public class CompensatedEntities {
     private List<PacketEntityCamel> camels = List.of();
     private List<PacketEntity> poseCollisionCandidates = List.of();
     private List<PacketEntity> unknownCollisionCandidates = List.of();
+    // Refilled in place by refreshTypeViews.
+    private final ArrayList<PacketEntity> collisionOrPlayerCandidates = new ArrayList<>();
 
     CultPlayer player;
 
@@ -161,6 +163,19 @@ public class CompensatedEntities {
         return unknownCollisionCandidates;
     }
 
+    /**
+     * The boats, shulkers, {@link PacketEntityHappyGhast}s and {@link PacketEntityPlayer}s, in entityMap iteration
+     * order. Read only, and only until the next entityMap change: the next view read after it refills the list.
+     */
+    public List<PacketEntity> collisionOrPlayerCandidates() {
+        if (entityMap.viewCount(EntityMap.COLLISION_OR_PLAYER) <= 0) {
+            collisionOrPlayerCandidates.clear();
+            return List.of();
+        }
+        refreshTypeViews();
+        return collisionOrPlayerCandidates;
+    }
+
     // Builds only the views with a nonzero count; the getters return List.of() for the others.
     private void refreshTypeViews() {
         if (typeViewsAt == entityMap.mutations) return;
@@ -170,6 +185,9 @@ public class CompensatedEntities {
         ArrayList<PacketEntityCamel> camelList = camelCount <= 0 ? null : new ArrayList<>(camelCount);
         ArrayList<PacketEntity> pose = presized(EntityMap.POSE_COLLISION);
         ArrayList<PacketEntity> unknown = presized(EntityMap.UNKNOWN_COLLISION);
+        ArrayList<PacketEntity> collisionOrPlayer = collisionOrPlayerCandidates;
+        collisionOrPlayer.clear();
+        boolean anyCollisionOrPlayer = entityMap.viewCount(EntityMap.COLLISION_OR_PLAYER) > 0;
         for (PacketEntity entity : entityMap.values()) {
             if (pushOrCollide != null && entity.mayPushOrCollide()) pushOrCollide.add(entity);
             boolean boat = entity.isBoat();
@@ -177,7 +195,10 @@ public class CompensatedEntities {
             if (boatList != null && boat) boatList.add(entity);
             if (camelList != null && entity instanceof PacketEntityCamel camel) camelList.add(camel);
             if (pose != null && (boat || shulker || entity.isHappyGhast())) pose.add(entity);
-            if (unknown != null && (boat || shulker || entity instanceof PacketEntityHappyGhast)) unknown.add(entity);
+            boolean collision = boat || shulker || entity instanceof PacketEntityHappyGhast;
+            if (unknown != null && collision) unknown.add(entity);
+            if (anyCollisionOrPlayer && (collision || entity instanceof PacketEntityPlayer))
+                collisionOrPlayer.add(entity);
         }
         pushOrCollideCandidates = pushOrCollide == null ? List.of() : pushOrCollide;
         boats = boatList == null ? List.of() : boatList;
@@ -1410,9 +1431,10 @@ public class CompensatedEntities {
         static final int CAMELS = 2;
         static final int POSE_COLLISION = 3;
         static final int UNKNOWN_COLLISION = 4;
+        static final int COLLISION_OR_PLAYER = 5;
 
         private int mutations;
-        private final int[] viewCounts = new int[5];
+        private final int[] viewCounts = new int[6];
 
         public EntityMap() {
             super(40, 0.7f);
@@ -1426,7 +1448,9 @@ public class CompensatedEntities {
             if (boat) mask |= 1 << BOATS;
             if (entity instanceof PacketEntityCamel) mask |= 1 << CAMELS;
             if (boat || shulker || entity.isHappyGhast()) mask |= 1 << POSE_COLLISION;
-            if (boat || shulker || entity instanceof PacketEntityHappyGhast) mask |= 1 << UNKNOWN_COLLISION;
+            boolean unknown = boat || shulker || entity instanceof PacketEntityHappyGhast;
+            if (unknown) mask |= 1 << UNKNOWN_COLLISION;
+            if (unknown || entity instanceof PacketEntityPlayer) mask |= 1 << COLLISION_OR_PLAYER;
             return mask;
         }
 
