@@ -227,10 +227,15 @@ final class JavaAutoJumpGeometry {
     }
 
     static List<SimpleCollisionBox> block(CultPlayer player, int x, int y, int z) {
-        var result = new ArrayList<SimpleCollisionBox>();
+        return block(player, x, y, z, new ArrayList<>());
+    }
+
+    /** {@link #block(CultPlayer, int, int, int)} written into {@code into}, cleared first. */
+    static List<SimpleCollisionBox> block(CultPlayer player, int x, int y, int z, List<SimpleCollisionBox> into) {
+        into.clear();
         ClientBlockShapes.movement(player, player.compensatedWorld.getBlockStateIdAt(x, y, z), x, y, z, player.y)
-                .downCast(result);
-        return result;
+                .downCast(into);
+        return into;
     }
 
     static boolean intersects(SimpleCollisionBox box, Vec3 from, Vec3 to) {

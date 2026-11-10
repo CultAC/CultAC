@@ -24,6 +24,9 @@ public final class JavaAutoJump extends CultProcessor implements PostPredictionL
     private boolean jumpedThisTick;
     private boolean possible;
     private int movedClientTick = -1;
+    private final SimpleCollisionBox fromScratch = new SimpleCollisionBox(), regionScratch = new SimpleCollisionBox();
+    private final SimpleCollisionBox entityScratch = new SimpleCollisionBox();
+    private final List<SimpleCollisionBox> blockScratch = new ArrayList<>();
 
     public JavaAutoJump(CultPlayer player) {
         super(player);
@@ -119,25 +122,14 @@ public final class JavaAutoJump extends CultProcessor implements PostPredictionL
      * horizontal movement from the start box: the largest of the candidates' extents, plus a block.
      */
     private boolean cannotHaveLanded(PredictionResult result, SimpleCollisionBox end, double margin) {
-        List<PredictionResult> candidates = new ArrayList<>();
-        candidates.add(result);
-        candidates.addAll(result.getRealities());
-        double reach = -1;
-        for (PredictionResult candidate : candidates) {
-            if (candidate.getValidMovements() == null) continue;
-            SimpleCollisionBox extents = candidate.getValidMovements().getCollisionIgnoredMaxStartingVelExtents();
-            if (extents == null) continue;
-            reach = Math.max(
-                    reach,
-                    Math.max(
-                            Math.max(Math.abs(extents.minX), Math.abs(extents.maxX)),
-                            Math.max(Math.abs(extents.minZ), Math.abs(extents.maxZ))));
-        }
-        SimpleCollisionBox from = result.getSimulationContext().getFromActualPose();
+        double reach = reach(result, -1);
+        List<PredictionResult> realities = result.getRealities();
+        for (int i = 0; i < realities.size(); i++) reach = reach(realities.get(i), reach);
+        SimpleCollisionBox from = result.getSimulationContext().getFromActualPose(fromScratch);
         if (reach < 0 || from == null) return false;
         reach += 1.0;
         double low = end.minY - KEPT_IN_PLACE - margin, high = end.minY + margin;
-        var region = new SimpleCollisionBox(
+        var region = regionScratch.set(
                 Math.min(from.minX, end.minX) - reach,
                 low - 1.0E-3,
                 Math.min(from.minZ, end.minZ) - reach,
@@ -153,21 +145,37 @@ public final class JavaAutoJump extends CultProcessor implements PostPredictionL
                         grounds(minY, low, high, end.maxY, margin) || grounds(maxY, low, high, end.maxY, margin));
     }
 
+    private static double reach(PredictionResult candidate, double reach) {
+        if (candidate.getValidMovements() == null) return reach;
+        SimpleCollisionBox extents = candidate.getValidMovements().getCollisionIgnoredMaxStartingVelExtents();
+        if (extents == null) return reach;
+        return Math.max(
+                reach,
+                Math.max(
+                        Math.max(Math.abs(extents.minX), Math.abs(extents.maxX)),
+                        Math.max(Math.abs(extents.minZ), Math.abs(extents.maxZ))));
+    }
+
     private static boolean grounds(double y, double low, double high, double top, double margin) {
         return y >= low && y <= high || Math.abs(y - top) <= margin;
     }
 
     // updateAutoJump returns when the block at the box's top, or the one above it, has a collision shape.
     private boolean ceilingBlocks(SimpleCollisionBox end, double margin) {
-        for (double dx : new double[] {-margin, margin}) {
-            for (double dy : new double[] {-margin, margin}) {
-                for (double dz : new double[] {-margin, margin}) {
+        for (int i = 0; i < 2; i++) {
+            double dx = i == 0 ? -margin : margin;
+            for (int j = 0; j < 2; j++) {
+                double dy = j == 0 ? -margin : margin;
+                for (int k = 0; k < 2; k++) {
+                    double dz = k == 0 ? -margin : margin;
                     int x = (int) Math.floor(player.x + dx),
                             y = (int) Math.floor(end.maxY + dy),
                             z = (int) Math.floor(player.z + dz);
                     if (player.compensatedWorld.getChunk(x >> 4, z >> 4) == null) return false;
-                    if (JavaAutoJumpGeometry.block(player, x, y, z).isEmpty()
-                            && JavaAutoJumpGeometry.block(player, x, y + 1, z).isEmpty()) return false;
+                    if (JavaAutoJumpGeometry.block(player, x, y, z, blockScratch)
+                                    .isEmpty()
+                            && JavaAutoJumpGeometry.block(player, x, y + 1, z, blockScratch)
+                                    .isEmpty()) return false;
                 }
             }
         }
@@ -179,12 +187,10 @@ public final class JavaAutoJump extends CultProcessor implements PostPredictionL
      * move's length) past the move; only a box that crosses that height can stop them.
      */
     private boolean nothingAhead(SimulationContext context, double margin) {
-        double speed = 0;
-        for (boolean canonical : new boolean[] {true, false}) {
-            speed = Math.max(
-                    speed,
-                    player.compensatedEntities.getMaxPlayerMovementSpeed(canonical, ClientSprintState.Outcome.ANY));
-        }
+        double speed =
+                Math.max(0, player.compensatedEntities.getMaxPlayerMovementSpeed(true, ClientSprintState.Outcome.ANY));
+        speed = Math.max(
+                speed, player.compensatedEntities.getMaxPlayerMovementSpeed(false, ClientSprintState.Outcome.ANY));
         Vec3 start = context.getStart();
         double moved = Math.hypot(player.x - start.x, player.z - start.z) + 2 * margin;
         double reach = moved
@@ -193,7 +199,7 @@ public final class JavaAutoJump extends CultProcessor implements PostPredictionL
                 + margin
                 + 1.0E-3;
         double height = player.y + 0.51F;
-        var region = new SimpleCollisionBox(
+        var region = regionScratch.set(
                 player.x - reach,
                 height - margin - 1.0E-3,
                 player.z - reach,
@@ -201,7 +207,8 @@ public final class JavaAutoJump extends CultProcessor implements PostPredictionL
                 height + margin + 1.0E-3,
                 player.z + reach);
         if (!JavaAutoJumpGeometry.loaded(player, region)
-                || JavaAutoJumpGeometry.hasEntityCollision(player, region.copy().expand(0, 1, 0))) return false;
+                || JavaAutoJumpGeometry.hasEntityCollision(
+                        player, entityScratch.set(region).expand(0, 1, 0))) return false;
         return !JavaAutoJumpGeometry.anyBlockCollision(
                 player, region, (minY, maxY) -> minY < height + margin && maxY > height - margin);
     }
@@ -249,8 +256,9 @@ public final class JavaAutoJump extends CultProcessor implements PostPredictionL
         int ceilingX = (int) Math.floor(player.x),
                 ceilingY = (int) Math.floor(player.boundingBox.maxY),
                 ceilingZ = (int) Math.floor(player.z);
-        if (!JavaAutoJumpGeometry.block(player, ceilingX, ceilingY, ceilingZ).isEmpty()
-                || !JavaAutoJumpGeometry.block(player, ceilingX, ++ceilingY, ceilingZ)
+        if (!JavaAutoJumpGeometry.block(player, ceilingX, ceilingY, ceilingZ, blockScratch)
+                        .isEmpty()
+                || !JavaAutoJumpGeometry.block(player, ceilingX, ++ceilingY, ceilingZ, blockScratch)
                         .isEmpty()) return false;
         float jumpHeight = 1.2F;
         if (amplifier != null) jumpHeight += (amplifier + 1) * 0.75F;
@@ -269,7 +277,7 @@ public final class JavaAutoJump extends CultProcessor implements PostPredictionL
             Vec3 center = box.getCenter();
             int x = (int) Math.floor(center.x), y = (int) Math.floor(center.y), z = (int) Math.floor(center.z);
             for (int steps = 1; steps < jumpHeight; steps++) {
-                var above = JavaAutoJumpGeometry.block(player, x, y + steps, z);
+                var above = JavaAutoJumpGeometry.block(player, x, y + steps, z, blockScratch);
                 if (!above.isEmpty()) {
                     // VoxelShape.max returns a local coordinate before the client's float promotion.
                     double max = Double.NEGATIVE_INFINITY;
@@ -278,7 +286,7 @@ public final class JavaAutoJump extends CultProcessor implements PostPredictionL
                     if (obstacleHeight - player.y > jumpHeight) return false;
                 }
                 if (steps > 1
-                        && !JavaAutoJumpGeometry.block(player, ceilingX, ++ceilingY, ceilingZ)
+                        && !JavaAutoJumpGeometry.block(player, ceilingX, ++ceilingY, ceilingZ, blockScratch)
                                 .isEmpty()) return false;
             }
             float rise = (float) (obstacleHeight - player.y);
