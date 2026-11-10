@@ -246,4 +246,22 @@ class CaptureStreamCompactTest {
         }
         assertEquals(CaptureStream.micros(nanos), micros);
     }
+
+    @Test
+    void aLaterJoinTimesItsRecordsFromItsOwnClock() {
+        TestSink first = new TestSink(PROTOCOL_5);
+        CaptureStream stream = joined(first);
+        for (int index = 1; index <= 3; index++) tick(stream, index, index * 1_700_300L);
+        TestSink second = new TestSink(PROTOCOL_5);
+        long base = 9_000_000;
+        stream.join(second, IntakeWire.join(PLAYER, 773, "vanilla", -64, 384, null, null, 0), base, SESSION);
+        stream.capture(new int[] {TICK_END, PONG}, new int[] {PING}, new int[0]);
+        tick(stream, 4, base + 1_200_400);
+        tick(stream, 5, base + 2_500_600);
+
+        long micros = 0;
+        for (List<Record> frame : frames(second)) for (Record record : frame) micros += record.getAdvanceNanos();
+        assertEquals(2, frames(second).size());
+        assertEquals(CaptureStream.micros(2_500_600), micros);
+    }
 }
