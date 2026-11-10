@@ -12,6 +12,7 @@ import ac.cult.cultac.checks.impl.prediction.SuperDebug;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.function.Consumer;
 
 /** One outstanding correction on the owning movement loop. */
 public final class BedrockMovementCorrections {
@@ -29,6 +30,8 @@ public final class BedrockMovementCorrections {
     // Where the server last held the vehicle, and the generation that placement began.
     private Vec3 serverPosition;
     private long serverPositionGeneration = -1;
+    // Where the queued attribute updates go if the queue is dropped before a frame consumes them.
+    private Consumer<BedrockReplayAttributeEvent> queuedAttributeCarry;
 
     public long generation() {
         return generation;
@@ -160,14 +163,28 @@ public final class BedrockMovementCorrections {
         var active = BedrockVehicleControl.controlledVehicle(player);
         if ((self && active == null || entity == active) && (runtimeId == Long.MIN_VALUE || controlled == active)) {
             rewind.queue(tick, event.historical(), event);
+            queuedAttributeCarry = self ? queued -> applyToPlayer(player, queued) : queued -> apply(entity, queued);
         } else if (self) {
             player.checkManager.getSimulationProcessor().applyInactiveBedrockAttributes(event);
-        } else if (entity.bedrockPrediction != null) {
-            var previous = entity.bedrockPrediction;
-            entity.bedrockPrediction = new BedrockVehiclePredictionState(
-                    ((BedrockReplayAttributeEvent) event.ordinary()).apply(previous.commit()),
-                    previous.previousPrediction());
+        } else {
+            apply(entity, event);
         }
+    }
+
+    private static void applyToPlayer(CultPlayer player, BedrockReplayAttributeEvent event) {
+        var processor = player.checkManager.getSimulationProcessor();
+        var state = BedrockProfileState.previousState(
+                processor.getCurrentPredictionCommit().carry());
+        // During a vehicle frame the processor holds the vehicle's carry, never the player's.
+        if (state != null && !state.isVehicle()) processor.applyInactiveBedrockAttributes(event);
+    }
+
+    private static void apply(PacketEntity entity, BedrockReplayAttributeEvent event) {
+        var previous = entity.bedrockPrediction;
+        if (previous == null) return;
+        entity.bedrockPrediction = new BedrockVehiclePredictionState(
+                ((BedrockReplayAttributeEvent) event.ordinary()).apply(previous.commit()),
+                previous.previousPrediction());
     }
 
     public PredictionCommit prepareFrame(CultPlayer player, BedrockAuthInputFrame frame, PredictionCommit current) {
@@ -275,6 +292,9 @@ public final class BedrockMovementCorrections {
     public void clear() {
         exemptMovement = false;
         generation++;
+        // The client keeps an acknowledged attribute whatever resets this history; so must the actor's carry.
+        if (queuedAttributeCarry != null) rewind.drainAttributes().forEach(queuedAttributeCarry);
+        queuedAttributeCarry = null;
         rewind.clear();
         lastTick = -1;
         processedTicks = 0;

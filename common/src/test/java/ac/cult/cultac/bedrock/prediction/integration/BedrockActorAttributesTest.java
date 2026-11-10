@@ -166,6 +166,89 @@ public class BedrockActorAttributesTest {
         assertEquals(0.98 * 0.05, step(applied, 4).length() - carried, 1e-4);
     }
 
+    @Test
+    public void jumpStrengthAcknowledgedWithAReplaySurvivesItAndEveryLaterReplay() {
+        // A capture: the restore to 0.42 was acknowledged in the same input window as a correction, and
+        // no later packet repeats it.
+        for (boolean replayFirst : List.of(true, false)) {
+            var history = new BedrockActorHistory();
+            var entry = entry(jumpStrength(0.5F)
+                    .state(BedrockMovementState.fromPhysicalFeet(
+                            new Vec3d(289, 82, -86),
+                            new Vec3d(0, -0.0784F, 0),
+                            BedrockInputFrame.idle(0),
+                            BedrockCollisionFlags.ON_GROUND)));
+            for (long tick = 1; tick <= 3; tick++) {
+                var frame = BedrockActorHistoryTest.forward(
+                        entry, tick, BedrockActorHistoryTest.ground(), new Vec3d(0, 0, 1));
+                history.record(frame);
+                entry = frame.end().getFirst();
+            }
+            var rewind = new BedrockMovementRewind(history);
+            var correction = new BedrockReplayEvent.Motion(new Vec3d(0, -0.0784F, 0));
+            if (replayFirst) rewind.queue(1, true, correction);
+            rewind.queue(0, false, jumpStrength(0.42F));
+            if (!replayFirst) rewind.queue(1, true, correction);
+            var published = rewind.apply(null, commit(history.current()));
+            var state = BedrockProfileState.previousState(published.carry());
+            assertNotEquals("The correction replayed", entry.state().physicalFeetPosition(), state.physicalFeetPosition());
+            assertEquals(0.42F, state.attributes().current("minecraft:horse.jump_strength", 0), 0);
+            // It takes effect after the newest frame; the replayed frames before it keep 0.5.
+            assertEquals(
+                    0.5F,
+                    history.frames()
+                            .get(1)
+                            .end()
+                            .getFirst()
+                            .state()
+                            .attributes()
+                            .current("minecraft:horse.jump_strength", 0),
+                    0);
+
+            history.record(BedrockActorHistoryTest.forward(
+                    history.current().getFirst(), 4, BedrockActorHistoryTest.ground(), new Vec3d(0, 0, 1)));
+            rewind.queue(2, true, new BedrockReplayEvent.Motion(new Vec3d(0, -0.0784F, 0)));
+            state = BedrockProfileState.previousState(
+                    rewind.apply(null, commit(history.current())).carry());
+            assertEquals(4, state.clientTick());
+            assertEquals(0.42F, state.attributes().current("minecraft:horse.jump_strength", 0), 0);
+        }
+    }
+
+    @Test
+    public void riddenHorseAttributesAcknowledgedWithAReplaySurviveIt() {
+        for (boolean replayFirst : List.of(true, false)) {
+            var history = new BedrockActorHistory();
+            var entry = entry(jumpStrength(0.8F).state(attributes(0.35245588F, false).state(horse())));
+            for (long tick = 1; tick <= 3; tick++) {
+                var frame = BedrockActorHistoryTest.forward(
+                        entry, tick, BedrockActorHistoryTest.ground(), new Vec3d(0, 0, 1));
+                history.record(frame);
+                entry = frame.end().getFirst();
+            }
+            var rewind = new BedrockMovementRewind(history);
+            var correction = new BedrockReplayEvent.Motion(Vec3d.ZERO);
+            if (replayFirst) rewind.queue(1, true, correction);
+            rewind.queue(0, false, attributes(0.2961814F, false));
+            rewind.queue(0, false, jumpStrength(0.67052144F));
+            if (!replayFirst) rewind.queue(1, true, correction);
+            var state = BedrockProfileState.previousState(
+                    rewind.apply(null, commit(history.current())).carry());
+            assertTrue(state.isHorse());
+            assertNotEquals("The correction replayed", entry.state().physicalFeetPosition(), state.physicalFeetPosition());
+            assertEquals(0.2961814F, state.movementAttribute().current(), 0);
+            assertEquals(0.67052144F, state.attributes().current("minecraft:horse.jump_strength", 0), 0);
+            var replayed = history.frames().get(1).end().getFirst().state();
+            assertEquals(0.35245588F, replayed.movementAttribute().current(), 0);
+            assertEquals(0.8F, replayed.attributes().current("minecraft:horse.jump_strength", 0), 0);
+        }
+    }
+
+    private static BedrockReplayAttributeEvent jumpStrength(float value) {
+        return new BedrockReplayAttributeEvent(
+                Map.of("minecraft:horse.jump_strength", BedrockMovementAttributeState.serverValue(value, false)), false);
+    }
+
     private static Vec3d step(BedrockMovementState state, long tick) {
         var end = BedrockActorHistoryTest.forward(
                         entry(state), tick, BedrockActorHistoryTest.ground(), new Vec3d(0, 0, 1))

@@ -71,13 +71,8 @@ final class BedrockMovementRewind {
         }
         var live = entries.getFirst().state();
         var deferred = new ArrayList<Update>();
-        // Ordinary attribute delivery precedes the corrected-frame processing phase. A replay
-        // published at that phase can supersede it even when the packet followed the correction.
-        var ordered = java.util.stream.Stream.concat(
-                        updates.stream().filter(this::ordinaryMovement),
-                        updates.stream().filter(update -> !ordinaryMovement(update)))
-                .toList();
-        for (Update update : ordered) {
+        // Arrival order: an attribute update and a replay acknowledged together must both survive.
+        for (Update update : updates) {
             boolean attributes = attributes(update);
             if (!attributes && update.historical() && update.tick() >= authoritative.newestTick()) {
                 deferred.add(update);
@@ -89,6 +84,8 @@ final class BedrockMovementRewind {
                 // The client uses an attribute value from its first tick after the packet and never re-runs
                 // the ticks since the stamp with it. A stamped value equal to that tick's own changes nothing.
                 if (update.historical() && !stale && authoritative.matches(update.tick(), event)) continue;
+                // Recorded on the newest frame, so a replay from an earlier frame applies it again there.
+                authoritative.ordinary(event);
                 entries = entries.stream()
                         .map(entry -> entry.withState(event.state(entry.state())))
                         .toList();
@@ -141,8 +138,16 @@ final class BedrockMovementRewind {
                 || update.event() instanceof BedrockReplayContextEvent context && context.movementAttribute() != null;
     }
 
-    private boolean ordinaryMovement(Update update) {
-        return attributes(update) && (!update.historical() || update.tick() < authoritative.oldestTick());
+    /** Removes the queued attribute updates and returns those that change the actor, in arrival order. */
+    List<BedrockReplayAttributeEvent> drainAttributes() {
+        var changes = new ArrayList<BedrockReplayAttributeEvent>();
+        updates.removeIf(update -> {
+            if (!(update.event() instanceof BedrockReplayAttributeEvent event)) return false;
+            boolean stale = update.historical() && update.tick() < authoritative.oldestTick();
+            if (!update.historical() || stale || !authoritative.matches(update.tick(), event)) changes.add(event);
+            return true;
+        });
+        return changes;
     }
 
     BedrockSimulation.Input prepareInput(BedrockSimulation.Input input) {

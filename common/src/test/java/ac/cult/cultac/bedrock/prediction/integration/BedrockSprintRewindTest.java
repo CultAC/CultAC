@@ -67,24 +67,25 @@ public class BedrockSprintRewindTest {
     }
 
     @Test
-    public void replayPublicationCanSupersedeALaterOrdinaryReplacement() {
-        var history = BedrockActorHistoryTest.history(1, 1);
-        var anchor = history.current().getFirst().state();
-        history.record(forward(history.current().getFirst(), 2, Set.of("START_SPRINTING")));
-        var rewind = new BedrockMovementRewind(history);
-        rewind.queue(1, true, new BedrockReplayEvent.Motion(anchor.velocity()));
-        rewind.queue(
-                0,
-                false,
-                attribute(new BedrockMovementAttributeState(0.13000001F, 0, 1024, 0, 1024, 0.1F, List.of()), false));
-        var published = rewind.apply(null, commit(history.current()));
-        var state = BedrockProfileState.previousState(published.carry());
-        assertTrue(state.movementAttribute().hasSprintModifier());
-        var stop = forward(
-                new BedrockProfileState.Entry(state, BedrockMobJumpComponentState.DEFAULT),
-                3,
-                Set.of("SPRINTING", "STOP_SPRINTING"));
-        assertEquals(0.1F, stop.end().getFirst().state().movementAttribute().current(), 0);
+    public void anOrdinaryReplacementAcknowledgedWithAReplayIsKeptInEitherOrder() {
+        var replacement =
+                attribute(new BedrockMovementAttributeState(0.13000001F, 0, 1024, 0, 1024, 0.1F, List.of()), false);
+        for (boolean replayFirst : List.of(true, false)) {
+            var history = BedrockActorHistoryTest.history(1, 1);
+            var anchor = history.current().getFirst().state();
+            history.record(forward(history.current().getFirst(), 2, Set.of("START_SPRINTING")));
+            var rewind = new BedrockMovementRewind(history);
+            var motion = new BedrockReplayEvent.Motion(anchor.velocity());
+            if (replayFirst) rewind.queue(1, true, motion);
+            rewind.queue(0, false, replacement);
+            if (!replayFirst) rewind.queue(1, true, motion);
+            var published = rewind.apply(null, commit(history.current()));
+            var state = BedrockProfileState.previousState(published.carry());
+            // The replay re-runs the sprint start; the replacement the client also received still stands after it.
+            assertTrue(state.sprinting());
+            assertFalse(state.movementAttribute().hasSprintModifier());
+            assertEquals(0.13000001F, state.movementAttribute().current(), 0);
+        }
     }
 
     @Test
