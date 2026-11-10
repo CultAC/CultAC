@@ -2,7 +2,10 @@ package ac.cult.cultac.protocol;
 
 import io.netty.buffer.ByteBuf;
 
-/** Platform-side model values decoded directly from an older observation, without projected frames. */
+/**
+ * Platform-side model values decoded directly from an older observation, without projected frames. Calls on one
+ * connection may receive the same immutable {@link ProtocolContext} instance.
+ */
 public interface PacketValueAdapter {
     /** Null when the value needs connection state this connection lacks; see {@link CodecState#requiresValues}. */
     Object read(ByteBuf input, ProtocolContext context);
