@@ -640,6 +640,7 @@ public final class GeyserBedrockBridgeRuntime {
         private long actorCreationSequence;
         private PlayerDimensionsState collisionDefinition;
         private final GeyserTeleportRecovery teleportRecovery = new GeyserTeleportRecovery();
+        private final GeyserClientRiding clientRiding = new GeyserClientRiding();
 
         private PacketTapHandler(
                 GeyserSession connection,
@@ -1812,6 +1813,11 @@ public final class GeyserBedrockBridgeRuntime {
                 return;
             }
             if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.SetEntityLinkPacket link
+                    && link.getEntityLink().getTo()
+                            == owner.connection.getPlayerEntity().geyserId()) {
+                owner.clientRiding.link(link.getEntityLink());
+            }
+            if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.SetEntityLinkPacket link
                     && observedPlayer != null
                     && link.getEntityLink().getTo()
                             == owner.connection.getPlayerEntity().geyserId()
@@ -1834,6 +1840,7 @@ public final class GeyserBedrockBridgeRuntime {
             if (packet instanceof StartGamePacket
                     || packet instanceof org.cloudburstmc.protocol.bedrock.packet.ChangeDimensionPacket) {
                 owner.teleportRecovery.clear();
+                owner.clientRiding.clear();
             }
             if (observedPlayer != null) {
                 BedrockCoordinateFrame frame = emission == null ? BedrockCoordinateFrame.IDENTITY : emission.frame();
@@ -2037,9 +2044,13 @@ public final class GeyserBedrockBridgeRuntime {
                 Long revision = owner.registerOutboundGeyserTeleport(move, emission);
                 if (revision != null) beginTeleportRecovery(context, wrapper, revision, emission);
                 context.write(message, promise);
-                if (revision != null && emission != null) {
-                    owner.writeLatencyBoundary(
-                            context, wrapper, player -> owner.confirmOrigin(player, revision, emission, localTarget));
+                boolean dismounts = owner.clientRiding.stopsRiding(move);
+                boolean confirmsOrigin = revision != null && emission != null;
+                if (dismounts || confirmsOrigin) {
+                    owner.writeLatencyBoundary(context, wrapper, player -> {
+                        if (dismounts) player.compensatedEntities.vehicles.applyClientTeleportDismount();
+                        if (confirmsOrigin) owner.confirmOrigin(player, revision, emission, localTarget);
+                    });
                 }
                 return;
             }

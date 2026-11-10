@@ -985,6 +985,18 @@ public final class CompensatedVehicleState implements Debuggable {
         seedStartingVelocityIfRootChanged(previousRoot);
     }
 
+    /**
+     * A Bedrock client handles a teleport of itself on foot: it stops riding first, so its vehicle control ends at
+     * the teleport while the server may still seat it, until a later passenger link seats it again.
+     */
+    public void applyClientTeleportDismount() {
+        PacketEntity previousRoot = entities.playerEntity.getRiding();
+        if (previousRoot == null) return;
+        entities.playerEntity.eject();
+        if (serverPlayerVehicle != null && serverPlayerVehicle == previousRoot.getEntityId()) clearServerVehicle();
+        seedStartingVelocityIfRootChanged(previousRoot);
+    }
+
     public int passengerIndex(PacketEntity vehicle) {
         if (serverPlayerVehicle != null
                 && serverPlayerVehicle == vehicle.getEntityId()
