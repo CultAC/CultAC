@@ -146,12 +146,15 @@ public final class JavaAutoJump extends CultProcessor implements PostPredictionL
                 Math.max(from.maxZ, end.maxZ) + reach);
         if (!JavaAutoJumpGeometry.loaded(player, region) || JavaAutoJumpGeometry.hasEntityCollision(player, region))
             return false;
-        for (SimpleCollisionBox box : JavaAutoJumpGeometry.blockCollisions(player, region)) {
-            for (double y : new double[] {box.minY, box.maxY}) {
-                if (y >= low && y <= high || Math.abs(y - end.maxY) <= margin) return false;
-            }
-        }
-        return true;
+        return !JavaAutoJumpGeometry.anyBlockCollision(
+                player,
+                region,
+                (minY, maxY) ->
+                        grounds(minY, low, high, end.maxY, margin) || grounds(maxY, low, high, end.maxY, margin));
+    }
+
+    private static boolean grounds(double y, double low, double high, double top, double margin) {
+        return y >= low && y <= high || Math.abs(y - top) <= margin;
     }
 
     // updateAutoJump returns when the block at the box's top, or the one above it, has a collision shape.
@@ -199,10 +202,8 @@ public final class JavaAutoJump extends CultProcessor implements PostPredictionL
                 player.z + reach);
         if (!JavaAutoJumpGeometry.loaded(player, region)
                 || JavaAutoJumpGeometry.hasEntityCollision(player, region.copy().expand(0, 1, 0))) return false;
-        for (SimpleCollisionBox box : JavaAutoJumpGeometry.blockCollisions(player, region)) {
-            if (box.minY < height + margin && box.maxY > height - margin) return false;
-        }
-        return true;
+        return !JavaAutoJumpGeometry.anyBlockCollision(
+                player, region, (minY, maxY) -> minY < height + margin && maxY > height - margin);
     }
 
     private static ClientSprintState.Outcome sprintOutcome(PredictionResult result) {
