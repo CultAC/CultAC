@@ -17,11 +17,27 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
 class CapturePacketCopiesTest {
     private static final long SECOND = TimeUnit.SECONDS.toNanos(1);
+    private static final int CHUNK_COST = CapturePacketCopies.MAX_RETAINED_BYTES / CapturePacketCopies.MAX_CHUNKS;
+
+    /** One copy: the array it is in, where it starts, and how long it is. */
+    private record Copy(byte[] array, int offset, int length) {
+        byte[] bytes() {
+            return Arrays.copyOfRange(array, offset, offset + length);
+        }
+    }
+
+    private static Copy copy(CapturePacketCopies copies, ByteBuf source, long nanos) {
+        int length = source.readableBytes();
+        byte[] array = copies.copy(source, nanos);
+        return new Copy(array, copies.offset(), length);
+    }
 
     @Test
     void copiesRemainDistinctAndOwnedUntilTheFrameIsReleased() {
@@ -32,20 +48,22 @@ class CapturePacketCopiesTest {
             try {
                 source.writeByte(9).writeInt(42).readerIndex(1);
                 source.markReaderIndex();
-                byte[] first = copies.copy(source, 0);
+                Copy first = copy(copies, source, 0);
                 source.setInt(1, 71);
-                byte[] second = copies.copy(source, 0);
-                assertArrayEquals(new byte[] {0, 0, 0, 42}, first);
-                assertArrayEquals(new byte[] {0, 0, 0, 71}, second);
-                assertNotSame(first, second);
+                Copy second = copy(copies, source, 0);
+                assertArrayEquals(new byte[] {0, 0, 0, 42}, first.bytes());
+                assertArrayEquals(new byte[] {0, 0, 0, 71}, second.bytes());
+                assertSame(first.array(), second.array());
+                assertEquals(first.offset() + 4, second.offset());
                 assertEquals(1, source.readerIndex());
                 assertEquals(5, source.writerIndex());
                 assertEquals(1, source.refCnt());
                 source.resetReaderIndex();
                 assertEquals(1, source.readerIndex());
                 copies.clear(0);
-                byte[] reused = copies.copy(source, 0);
-                assertSame(first, reused);
+                Copy reused = copy(copies, source, 0);
+                assertSame(first.array(), reused.array());
+                assertEquals(0, reused.offset());
                 copies.clear(0);
             } finally {
                 source.release();
@@ -59,22 +77,30 @@ class CapturePacketCopiesTest {
     void largeAndSaturatedFramesRemainCompleteWithoutUnboundedRetention() {
         CapturePacketCopies.Budget budget = new CapturePacketCopies.Budget();
         CapturePacketCopies copies = CapturePacketCopies.of(budget, 0);
-        ByteBuf source = Unpooled.buffer(512).writeZero(512);
+        int large = CapturePacketCopies.MAX_PACKET_BYTES + 1;
+        ByteBuf source = Unpooled.buffer(large).writeZero(large);
         try {
-            assertNotSame(copies.copy(source, 0), copies.copy(source, 0));
+            Copy one = copy(copies, source, 0);
+            Copy two = copy(copies, source, 0);
+            assertNotSame(one.array(), two.array());
+            assertEquals(large, one.array().length);
+            assertEquals(0, one.offset());
             assertEquals(0, copies.retainedBytes());
-            source.writerIndex(256);
-            var held = new ArrayList<byte[]>();
-            for (int i = 0; i < 2048; i++) {
-                source.setInt(0, i);
-                held.add(copies.copy(source, 0));
+            var held = new ArrayList<Copy>();
+            for (int length : new int[] {256, 1, 0, 37, CapturePacketCopies.MAX_PACKET_BYTES}) {
+                source.writerIndex(length);
+                for (int i = 0; i < 512; i++) {
+                    if (length >= 2) source.setShort(0, held.size());
+                    held.add(copy(copies, source, 0));
+                }
             }
             assertTrue(copies.retainedBytes() <= CapturePacketCopies.MAX_RETAINED_BYTES);
             assertEquals(CapturePacketCopies.POOL_BYTES + copies.retainedBytes(), budget.bytes());
             for (int i = 0; i < held.size(); i++) {
-                byte[] bytes = held.get(i);
-                assertEquals(i, ((bytes[2] & 255) << 8) | (bytes[3] & 255));
-                assertEquals(256, bytes.length);
+                Copy copy = held.get(i);
+                assertTrue(copy.offset() + copy.length() <= copy.array().length);
+                byte[] bytes = copy.bytes();
+                if (bytes.length >= 2) assertEquals(i & 0xFFFF, ((bytes[0] & 255) << 8) | (bytes[1] & 255));
             }
         } finally {
             source.release();
@@ -84,19 +110,32 @@ class CapturePacketCopiesTest {
     }
 
     @Test
-    void tinyPacketBurstsRetainOnlyTheBoundedPrefix() {
+    void aBurstPastItsChunksCopiesIntoFreshArraysAndTheChunksAreReusedInOrder() {
         CapturePacketCopies copies = CapturePacketCopies.of(new CapturePacketCopies.Budget(), 0);
-        ByteBuf source = Unpooled.buffer(1).writeByte(42);
+        ByteBuf source = Unpooled.buffer(100).writeZero(100);
+        int perChunk = CapturePacketCopies.CHUNK_BYTES / 100;
         try {
-            var first = new ArrayList<byte[]>();
-            for (int i = 0; i < CapturePacketCopies.MAX_COPIES + 20; i++) first.add(copies.copy(source, 0));
-            assertTrue(copies.retainedBytes() <= CapturePacketCopies.MAX_RETAINED_BYTES);
+            List<byte[]> chunks = new ArrayList<>();
+            List<Copy> burst = new ArrayList<>();
+            for (int i = 0; i < CapturePacketCopies.MAX_CHUNKS * perChunk + 5; i++) {
+                source.setInt(0, i);
+                Copy copy = copy(copies, source, 0);
+                burst.add(copy);
+                if (copy.array().length == CapturePacketCopies.CHUNK_BYTES && !chunks.contains(copy.array()))
+                    chunks.add(copy.array());
+            }
+            assertEquals(CapturePacketCopies.MAX_CHUNKS, chunks.size());
+            Copy last = burst.getLast();
+            assertEquals(100, last.array().length);
+            assertEquals(0, last.offset());
+            for (int i = 0; i < burst.size(); i++) {
+                byte[] bytes = burst.get(i).bytes();
+                assertEquals(
+                        i, (bytes[0] & 255) << 24 | (bytes[1] & 255) << 16 | (bytes[2] & 255) << 8 | bytes[3] & 255);
+            }
             copies.clear(0);
-            for (int i = 0; i < first.size(); i++) {
-                byte[] next = copies.copy(source, 0);
-                assertArrayEquals(new byte[] {42}, next);
-                if (i < CapturePacketCopies.MAX_COPIES) assertSame(first.get(i), next);
-                else assertNotSame(first.get(i), next);
+            for (byte[] chunk : chunks) {
+                for (int i = 0; i < perChunk; i++) assertSame(chunk, copy(copies, source, 0).array());
             }
         } finally {
             source.release();
@@ -105,30 +144,30 @@ class CapturePacketCopiesTest {
     }
 
     @Test
-    void sizesIdleForThirtySecondsGiveTheirCapacityBack() {
+    void chunksIdleForThirtySecondsGiveTheirCapacityBack() {
         CapturePacketCopies.Budget budget = new CapturePacketCopies.Budget();
         CapturePacketCopies copies = CapturePacketCopies.of(budget, 0);
-        ByteBuf small = Unpooled.buffer(8).writeZero(8);
-        ByteBuf large = Unpooled.buffer(200).writeZero(200);
+        int length = CapturePacketCopies.MAX_PACKET_BYTES;
+        ByteBuf source = Unpooled.buffer(length).writeZero(length);
         try {
-            byte[] kept = copies.copy(small, 0);
-            copies.copy(large, 0);
+            byte[] kept = copies.copy(source, 0);
+            for (int i = 0; i < CapturePacketCopies.CHUNK_BYTES / length; i++) copies.copy(source, 0);
             copies.clear(0);
             long warmed = budget.bytes();
-            assertSame(kept, copies.copy(small, 20 * SECOND));
+            assertEquals(CapturePacketCopies.POOL_BYTES + 2L * CHUNK_COST, warmed);
+            assertSame(kept, copies.copy(source, 20 * SECOND));
             copies.clear(20 * SECOND);
             assertEquals(warmed, budget.bytes());
 
             copies.clear(40 * SECOND);
 
-            assertTrue(budget.bytes() < warmed - 200, budget.bytes() + " of " + warmed);
-            assertSame(kept, copies.copy(small, 40 * SECOND));
+            assertEquals(warmed - CHUNK_COST, budget.bytes());
+            assertSame(kept, copies.copy(source, 40 * SECOND));
             copies.clear(80 * SECOND);
             assertEquals(CapturePacketCopies.POOL_BYTES, budget.bytes());
             assertEquals(0, copies.retainedBytes());
         } finally {
-            small.release();
-            large.release();
+            source.release();
             copies.release();
         }
         assertEquals(0, budget.bytes());
@@ -147,12 +186,13 @@ class CapturePacketCopiesTest {
         CapturePacketCopies last = pools.getLast();
         ByteBuf source = Unpooled.buffer(4).writeInt(7);
         try {
-            byte[] first = last.copy(source, 0);
+            Copy first = copy(last, source, 0);
             last.clear(0);
-            byte[] second = last.copy(source, 0);
-            assertArrayEquals(new byte[] {0, 0, 0, 7}, first);
-            assertArrayEquals(new byte[] {0, 0, 0, 7}, second);
-            assertNotSame(first, second);
+            Copy second = copy(last, source, 0);
+            assertArrayEquals(new byte[] {0, 0, 0, 7}, first.array());
+            assertArrayEquals(new byte[] {0, 0, 0, 7}, second.array());
+            assertEquals(0, first.offset());
+            assertNotSame(first.array(), second.array());
             assertEquals(0, last.retainedBytes());
             assertEquals(CapturePacketCopies.PLAYER_BYTES, budget.bytes());
         } finally {

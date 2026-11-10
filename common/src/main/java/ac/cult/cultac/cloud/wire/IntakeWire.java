@@ -728,13 +728,23 @@ public final class IntakeWire {
      * packet. Only such a probe goes out as a marker.
      */
     public static long bareId(byte[] packet, int id, long absent) {
-        if (!bare(packet, id)) return absent;
-        return pingId(packet, id, absent);
+        return bareId(packet, 0, packet.length, id, absent);
+    }
+
+    /** As {@link #bareId(byte[], int, long)}, for the packet the {@code length} bytes from {@code offset}. */
+    public static long bareId(byte[] packet, int offset, int length, int id, long absent) {
+        if (!bare(length, id)) return absent;
+        return pingId(packet, offset, length, id, absent);
     }
 
     /** Whether a probe's packet is as long as its id and a 4-byte body, {@code id} being its packet id. */
     public static boolean bare(byte[] packet, int id) {
-        return id >= 0 && packet.length == varLongBytes(id) + 4;
+        return bare(packet.length, id);
+    }
+
+    /** As {@link #bare(byte[], int)}, for a packet of {@code length} bytes. */
+    public static boolean bare(int length, int id) {
+        return id >= 0 && length == varLongBytes(id) + 4;
     }
 
     /** A clientbound ping's wire id from its packet bytes, {@code id} being the ping's packet id; null if not one. */
@@ -745,9 +755,15 @@ public final class IntakeWire {
 
     /** As {@link #pingId(byte[], int)}, {@code absent} where that is null. */
     public static long pingId(byte[] packet, int id, long absent) {
-        if (packetId(packet) != id || id < 0) return absent;
+        return pingId(packet, 0, packet.length, id, absent);
+    }
+
+    /** As {@link #pingId(byte[], int, long)}, for the packet the {@code length} bytes from {@code offset}. */
+    public static long pingId(byte[] packet, int offset, int length, int id, long absent) {
+        if (packetId(packet, offset, length) != id || id < 0) return absent;
         int start = varLongBytes(id);
-        if (packet.length < start + 4) return absent;
+        if (length < start + 4) return absent;
+        start += offset;
         return (packet[start] & 0xFF) << 24
                 | (packet[start + 1] & 0xFF) << 16
                 | (packet[start + 2] & 0xFF) << 8
@@ -788,6 +804,7 @@ public final class IntakeWire {
         private int[] kinds = new int[32];
         private long[] sinceLast = new long[32];
         private byte[][] payloads = new byte[32][];
+        private int[] offsets = new int[32];
         private int[] lengths = new int[32];
         private int[] tickDeltas = new int[32];
         private int[] pingKinds = new int[32];
@@ -805,10 +822,24 @@ public final class IntakeWire {
          */
         public void add(
                 int kind, long sinceLast, byte[] payload, int length, int tickDelta, int pingKind, int skipped) {
+            add(kind, sinceLast, payload, 0, length, tickDelta, pingKind, skipped);
+        }
+
+        /** As {@link #add(int, long, byte[], int, int, int, int)}, the body the {@code length} bytes from {@code offset}. */
+        public void add(
+                int kind,
+                long sinceLast,
+                byte[] payload,
+                int offset,
+                int length,
+                int tickDelta,
+                int pingKind,
+                int skipped) {
             if (count == kinds.length) {
                 kinds = Arrays.copyOf(kinds, count * 2);
                 this.sinceLast = Arrays.copyOf(this.sinceLast, count * 2);
                 payloads = Arrays.copyOf(payloads, count * 2);
+                offsets = Arrays.copyOf(offsets, count * 2);
                 lengths = Arrays.copyOf(lengths, count * 2);
                 tickDeltas = Arrays.copyOf(tickDeltas, count * 2);
                 pingKinds = Arrays.copyOf(pingKinds, count * 2);
@@ -818,6 +849,7 @@ public final class IntakeWire {
             kinds[count] = kind;
             this.sinceLast[count] = sinceLast;
             payloads[count] = payload;
+            offsets[count] = offset;
             lengths[count] = length;
             tickDeltas[count] = tickDelta;
             pingKinds[count] = pingKind;
@@ -879,7 +911,7 @@ public final class IntakeWire {
                     } else {
                         stream.writeTag(kinds[i], 2);
                         stream.writeUInt32NoTag(lengths[i]);
-                        stream.writeRawBytes(payloads[i], 0, lengths[i]);
+                        stream.writeRawBytes(payloads[i], offsets[i], lengths[i]);
                     }
                     if (sinceLast[i] != 0) stream.writeUInt64(ADVANCE_NANOS, sinceLast[i]);
                     if (tickDeltas[i] != 0) stream.writeSInt32(TICK_DELTA, tickDeltas[i]);
@@ -902,6 +934,7 @@ public final class IntakeWire {
                 kinds = new int[RESTING_RECORDS];
                 sinceLast = new long[RESTING_RECORDS];
                 payloads = new byte[RESTING_RECORDS][];
+                offsets = new int[RESTING_RECORDS];
                 lengths = new int[RESTING_RECORDS];
                 tickDeltas = new int[RESTING_RECORDS];
                 pingKinds = new int[RESTING_RECORDS];
@@ -1383,9 +1416,13 @@ public final class IntakeWire {
 
     /** The packet id leading a packet's bytes; -1 when they do not start with a whole varint. */
     public static int packetId(byte[] packet) {
+        return packetId(packet, 0, packet.length);
+    }
+
+    private static int packetId(byte[] packet, int offset, int length) {
         int value = 0;
-        for (int i = 0; i < 5 && i < packet.length; i++) {
-            int b = packet[i] & 0xFF;
+        for (int i = 0; i < 5 && i < length; i++) {
+            int b = packet[offset + i] & 0xFF;
             value |= (b & 0x7F) << 7 * i;
             if ((b & 0x80) == 0) return value;
         }

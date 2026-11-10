@@ -45,6 +45,23 @@ public final class FrameCopies {
         else frame.getBytes(frame.readerIndex(), bytes);
     }
 
+    /** Copies the frame's readable bytes into {@code bytes} from {@code offset}; its indices are unchanged. */
+    public static void copyInto(ByteBuf frame, byte[] bytes, int offset) {
+        int from = frame.readerIndex();
+        int length = frame.readableBytes();
+        if (frame.hasArray()) {
+            frame.getBytes(from, bytes, offset, length);
+        } else if (scalar(frame, length)) {
+            int at = 0;
+            for (; at + Long.BYTES <= length; at += Long.BYTES) LONGS.set(bytes, offset + at, frame.getLong(from + at));
+            for (; at < length; at++) bytes[offset + at] = frame.getByte(from + at);
+        } else if (frame.nioBufferCount() == 1) {
+            frame.internalNioBuffer(from, length).get(bytes, offset, length);
+        } else {
+            frame.getBytes(from, bytes, offset, length);
+        }
+    }
+
     private static boolean scalar(ByteBuf frame, int length) {
         return length <= SCALAR_COPY_BYTES && frame.order() == ByteOrder.BIG_ENDIAN;
     }
