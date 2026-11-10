@@ -105,6 +105,15 @@ public class PacketEntity {
     // have handled the replacements.
     private int replacedPoses;
     private float replacedScale = Float.NaN;
+    // The scale attribute a Java client holds dirty, and the transaction whose answer proves it received it.
+    private float dirtyScale = Float.NaN;
+    private float dirtyLeastScale = Float.NaN;
+    private int dirtyScaleProvenAt = Integer.MIN_VALUE;
+    // The scale and dimensions the dirty scale last replaced, and the client tick it did.
+    private float scaleBeforeRefresh;
+    private float widthBeforeRefresh;
+    private float heightBeforeRefresh;
+    private int scaleRefreshedAt = Integer.MIN_VALUE;
     // The transaction whose answer proves the client applied every replacement.
     private int sizeProvenAt = Integer.MIN_VALUE;
     // The transaction whose answer proves the client applied the last entity data.
@@ -1022,6 +1031,65 @@ public class PacketEntity {
         sizeProvenAt = Math.max(sizeProvenAt, provenAt);
     }
 
+    /**
+     * An attribute update replacing the scale on a Java client, which has it once it answers provenAt.
+     * ClientPacketListener#handleUpdateAttributes only marks the attribute dirty: the box keeps the previous scale
+     * until LivingEntity#tick ends with refreshDirtyAttributes, or an earlier Entity#refreshDimensions reads it.
+     */
+    public void onScaleAttribute(float scale, int provenAt) {
+        scale = sanitizeScale(scale);
+        // A tick between two unproven updates would have refreshed the box with the earlier one.
+        if (dirtyScale == dirtyScale && !(dirtyLeastScale <= dirtyScale)) dirtyLeastScale = dirtyScale;
+        dirtyScale = scale;
+        dirtyScaleProvenAt = Math.max(dirtyScaleProvenAt, provenAt);
+    }
+
+    /** Whether a scale attribute waits for this entity's box to be refreshed. */
+    public boolean hasDirtyScale() {
+        return dirtyScale == dirtyScale;
+    }
+
+    /**
+     * The scale this entity's box had through LivingEntity#aiStep in the client tick whose refreshDirtyAttributes has
+     * since resized it, or NaN when no scale attribute resized it this client tick.
+     */
+    public float scaleBeforeTickRefresh(CultPlayer player) {
+        return scaleRefreshedAt == player.packetStateData.acceptedClientTick ? scaleBeforeRefresh : Float.NaN;
+    }
+
+    /** {@code positionBox}, one of this entity's position boxes, sized by {@link #scaleBeforeTickRefresh}. */
+    public SimpleCollisionBox positionBoxBeforeTickRefresh(SimpleCollisionBox positionBox) {
+        return GetBoundingBox.getBoundingBoxFromPosAndSize(
+                positionBox,
+                (positionBox.minX + positionBox.maxX) * 0.5D,
+                positionBox.minY,
+                (positionBox.minZ + positionBox.maxZ) * 0.5D,
+                widthBeforeRefresh,
+                heightBeforeRefresh);
+    }
+
+    /** Entity#refreshDimensions sizes the box by LivingEntity#getScale, the attribute's value by then. */
+    private void takeDirtyScale(CultPlayer player) {
+        if (dirtyScale != dirtyScale) return;
+        scaleBeforeRefresh = this.scale;
+        widthBeforeRefresh = BoundingBoxSize.getWidth(player, this);
+        heightBeforeRefresh = BoundingBoxSize.getHeight(player, this);
+        scaleRefreshedAt = player.packetStateData.acceptedClientTick;
+        float scale = dirtyScale;
+        float least = dirtyLeastScale;
+        int provenAt = dirtyScaleProvenAt;
+        dirtyScale = Float.NaN;
+        dirtyLeastScale = Float.NaN;
+        dirtyScaleProvenAt = Integer.MIN_VALUE;
+        // A client that has not answered the updates' proof may still hold a scale the last one replaces.
+        if (player.lastTransactionReceived.get() < provenAt) {
+            if (least < scale) onScale(least, provenAt);
+            onScale(scale, provenAt);
+        } else {
+            this.scale = scale;
+        }
+    }
+
     /** LivingEntity#sanitizeScale of the scale attribute, which LivingEntity#getScale returns. */
     protected float sanitizeScale(float scale) {
         return scale;
@@ -1125,8 +1193,10 @@ public class PacketEntity {
     }
 
     private boolean hasChangingTickPosition() {
+        // A dirty scale resizes the boxes at the end of the tick, as a step moves them.
         return oldPacketLocation != null
                 || blockEntityPhysicalBox != null
+                || dirtyScale == dirtyScale
                 || newPacketLocation.hasActiveInterpolationTarget();
     }
 
@@ -1824,6 +1894,7 @@ public class PacketEntity {
 
     /** {@code Entity#refreshDimensions}: the current, pending and seated positions take the entity's new dimensions. */
     public void refreshDimensions(CultPlayer player) {
+        takeDirtyScale(player);
         if (runPhysicsPaths(() -> refreshDimensions(player))) return;
         float width = BoundingBoxSize.getWidth(player, this);
         float height = BoundingBoxSize.getHeight(player, this);

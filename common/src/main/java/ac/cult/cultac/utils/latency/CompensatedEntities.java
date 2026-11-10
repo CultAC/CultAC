@@ -1035,8 +1035,13 @@ public class CompensatedEntities {
                 }
 
                 if (matchesAttribute(snapshot, "scale")) {
-                    entity.onScale((float) calculateAttribute(snapshot, 0.0625, 16.0), provenAt);
-                    entityScaleChanged = true;
+                    float scale = (float) calculateAttribute(snapshot, 0.0625, 16.0);
+                    if (player.isBedrockMovement()) {
+                        entity.onScale(scale, provenAt);
+                        entityScaleChanged = true;
+                    } else {
+                        entity.onScaleAttribute(scale, provenAt);
+                    }
                 }
 
                 if (matchesAttribute(snapshot, "gravity")) {
@@ -1324,8 +1329,10 @@ public class CompensatedEntities {
         if (held != null) {
             // Each held update keeps its own proof; those already answered retire with the spawn.
             for (HeldAttributes update : held) {
-                if (update.leastScale() == update.leastScale())
-                    packetEntity.onScale(update.leastScale(), update.provenAt());
+                if (update.leastScale() == update.leastScale()) {
+                    if (player.isBedrockMovement()) packetEntity.onScale(update.leastScale(), update.provenAt());
+                    else packetEntity.onScaleAttribute(update.leastScale(), update.provenAt());
+                }
                 updateAttributes(entityID, update.values(), update.provenAt());
                 replayedProof = Math.max(replayedProof, update.provenAt());
             }
@@ -2089,6 +2096,8 @@ public class CompensatedEntities {
         if (entity != getSelf()) {
             if (lazy) tickLazyRider(entity, tick);
             else tick.accept(entity);
+            // LivingEntity#tick ends with refreshDirtyAttributes, after aiStep and before its riders tick.
+            if (entity.hasDirtyScale()) entity.refreshDimensions(player);
         }
         if (!lazy && entity.getRiding() != null && !vehicles.isRiddenDrivenBoat(entity))
             seatPassenger(entity.getRiding(), entity);

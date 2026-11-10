@@ -1749,6 +1749,14 @@ class ReachInteractionRangeTest {
             attribute(id, "minecraft:scale", base);
         }
 
+        // The end of this entity's next LivingEntity#tick: refreshDirtyAttributes sizes its box by the scale attribute
+        // it holds by then, which until that tick was only dirty.
+        private PacketEntity refreshed(int id) {
+            PacketEntity entity = player.compensatedEntities.getEntity(id);
+            entity.refreshDimensions(player);
+            return entity;
+        }
+
         // An update_attributes setting this base of this entity's attribute.
         private void attribute(int id, String attribute, double base) {
             bind();
@@ -1880,7 +1888,7 @@ class ReachInteractionRangeTest {
                         int data = player.lastTransactionSent.get();
                         assertEquals(before + 1, data);
                         scale(id, 2);
-                        assertEquals(2F, player.compensatedEntities.getEntity(id).scale);
+                        assertEquals(2F, refreshed(id).scale);
                         pongThrough(data);
                         if (scaleProven) pongThrough(data + 1);
                         beforeAttack.accept(player.compensatedEntities.getEntity(id));
@@ -1907,7 +1915,7 @@ class ReachInteractionRangeTest {
             }
             pongThrough(spawn);
             if (scaleProven) pongThrough(spawn + 1);
-            PacketEntity horse = player.compensatedEntities.getEntity(id);
+            PacketEntity horse = refreshed(id);
             assertEquals(scale, horse.scale);
             assertEquals(leastScale, horse.leastScale());
             List<String> flagged = attackEntity(id, EntityTypeIds.HORSE, () -> rotate(0, 0));
@@ -1935,8 +1943,7 @@ class ReachInteractionRangeTest {
             assertEquals(4, player.compensatedEntities.heldAttributeUpdates(id));
             for (int answered = spawn; answered < last; answered++) {
                 pongThrough(answered);
-                assertEquals(
-                        leastScale, player.compensatedEntities.getEntity(id).leastScale(), "after " + answered);
+                assertEquals(leastScale, refreshed(id).leastScale(), "after " + answered);
             }
             pongThrough(last);
             PacketEntity horse = player.compensatedEntities.getEntity(id);
@@ -1959,7 +1966,7 @@ class ReachInteractionRangeTest {
             scale(id, 2);
             assertNull(player.compensatedEntities.getEntity(id));
             pongThrough(player.lastTransactionSent.get() + 1);
-            PacketEntity horse = player.compensatedEntities.getEntity(id);
+            PacketEntity horse = refreshed(id);
             assertEquals(2F, horse.scale);
             assertEquals(2F, horse.leastScale());
             rotate(0, 0);

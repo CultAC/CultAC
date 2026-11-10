@@ -199,7 +199,9 @@ public final class JavaEntityVelocityTicks {
                         // block-entity shove. Its shell is shaped at that position, before this tick's peek.
                         impulse = shulker.livingPushImpulse(rider ? from : null, box, position);
                     } else {
-                        var physical = JavaLivingEntityPushes.physicalBox(player, entity, from);
+                        var physical = boat
+                                ? JavaLivingEntityPushes.physicalBox(player, entity, from)
+                                : JavaLivingEntityPushes.pushingBox(player, entity, from);
                         // AbstractBoat#tick pushes from its box inflated by 0.2, -0.01, 0.2; boatPush tests that.
                         if (rider && !boat && !JavaLivingEntityPushes.intersects(physical, box)) continue;
                         impulse = boat

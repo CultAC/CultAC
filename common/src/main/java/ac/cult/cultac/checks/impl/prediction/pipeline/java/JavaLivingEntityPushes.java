@@ -67,6 +67,27 @@ public final class JavaLivingEntityPushes {
         return pushBox(player, entity, entity.toBoundingBox(player, position.copy()));
     }
 
+    /**
+     * {@link #physicalBox} as LivingEntity#pushEntities reads it: aiStep runs before the tick's refreshDirtyAttributes,
+     * so an entity whose scale attribute resized its box this client tick still pushed with the box before it.
+     */
+    public static SimpleCollisionBox pushingBox(CultPlayer player, PacketEntity entity, SimpleCollisionBox position) {
+        return pushingBox(player, entity, position, new SimpleCollisionBox());
+    }
+
+    private static SimpleCollisionBox pushingBox(
+            CultPlayer player, PacketEntity entity, SimpleCollisionBox position, SimpleCollisionBox out) {
+        float scale = entity.scaleBeforeTickRefresh(player);
+        if (scale != scale) {
+            return entity.isAvatar()
+                    ? avatarBox(entity, position, out, entity.scale)
+                    : pushBox(player, entity, entity.toBoundingBox(player, out.set(position)));
+        }
+        if (entity.isAvatar()) return avatarBox(entity, position, out, scale);
+        SimpleCollisionBox before = entity.positionBoxBeforeTickRefresh(out.set(position));
+        return pushBox(player, entity, entity.toBoundingBox(player, before));
+    }
+
     private static SimpleCollisionBox pushBox(CultPlayer player, PacketEntity entity, SimpleCollisionBox box) {
         return entity instanceof PacketEntityPolarBear bear ? bear.toPushBox(player, box) : box;
     }
@@ -85,16 +106,18 @@ public final class JavaLivingEntityPushes {
             SimpleCollisionBox physical) {
         for (int i = 0, count = entity.possibleMovementCollisionBoxCandidateCount(); i < count; i++) {
             entity.possibleMovementCollisionBoxCandidate(i, candidate);
-            SimpleCollisionBox box = entity.isAvatar()
-                    ? avatarBox(entity, candidate, physical)
-                    : pushBox(player, entity, entity.toBoundingBox(player, physical.set(candidate)));
-            if (intersects(box, playerBox)) return true;
+            if (intersects(pushingBox(player, entity, candidate, physical), playerBox)) return true;
         }
         return false;
     }
 
     private static SimpleCollisionBox avatarBox(
             PacketEntity entity, SimpleCollisionBox position, SimpleCollisionBox out) {
+        return avatarBox(entity, position, out, entity.scale);
+    }
+
+    private static SimpleCollisionBox avatarBox(
+            PacketEntity entity, SimpleCollisionBox position, SimpleCollisionBox out, float scale) {
         double x = (position.minX + position.maxX) * 0.5D;
         double z = (position.minZ + position.maxZ) * 0.5D;
         return ac.cult.cultac.utils.nmsutil.GetBoundingBox.getBoundingBoxFromPosAndSize(
@@ -102,8 +125,8 @@ public final class JavaLivingEntityPushes {
                 x,
                 position.minY,
                 z,
-                PacketEntity.avatarWidth(entity.actionPose, entity.scale),
-                PacketEntity.avatarHeight(entity.actionPose, entity.scale));
+                PacketEntity.avatarWidth(entity.actionPose, scale),
+                PacketEntity.avatarHeight(entity.actionPose, scale));
     }
 
     /** The impulse a pusher whose physical box is {@code box} gives the player at {@code position}, or zero. */
