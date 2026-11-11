@@ -29,19 +29,19 @@ public final class OfflineCultTestBootstrap {
         }
         initializeProtocolRuntime();
         installPlatformLoader();
-        // The config outlives every test in the fork, so it records no invocations.
-        ConfigManager config = Mockito.mock(ConfigManager.class, Mockito.withSettings().stubOnly());
-        Mockito.when(config.getIntElse(Mockito.anyString(), Mockito.anyInt()))
-                .thenAnswer(invocation -> invocation.getArgument(1));
-        Mockito.when(config.getBooleanElse(Mockito.anyString(), Mockito.anyBoolean()))
-                .thenAnswer(invocation -> invocation.getArgument(1));
-
-        Mockito.when(config.getBooleanElse("experimental-checks", false)).thenReturn(true);
-        Mockito.when(config.getDoubleElse(Mockito.anyString(), Mockito.anyDouble()))
-                .thenAnswer(invocation ->
-                        DOUBLE_CONFIG_OVERRIDES.getOrDefault(invocation.getArgument(0), invocation.getArgument(1)));
-        Mockito.when(config.getStringElse(Mockito.anyString(), Mockito.anyString()))
-                .thenAnswer(invocation -> invocation.getArgument(1));
+        // The config outlives every test in the fork and is read on every player's creation: a plain proxy keeps
+        // those reads cheap. It answers each default, with the experimental checks on and any double override.
+        ConfigManager config = (ConfigManager) Proxy.newProxyInstance(
+                ConfigManager.class.getClassLoader(), new Class<?>[] {ConfigManager.class}, (proxy, method, args) -> {
+                    String name = method.getName();
+                    if (name.equals("getBooleanElse") && "experimental-checks".equals(args[0])) return true;
+                    if (name.equals("getDoubleElse")) return DOUBLE_CONFIG_OVERRIDES.getOrDefault(args[0], (Double) args[1]);
+                    if (name.endsWith("Else") && args != null && args.length == 2) return args[1];
+                    if (name.equals("hashCode")) return System.identityHashCode(proxy);
+                    if (name.equals("equals")) return proxy == args[0];
+                    if (name.equals("toString")) return "OfflineCultTestConfig";
+                    return unconfigured(method.getReturnType());
+                });
 
         BaseConfigManager configManager = new ReplayConfigManager(config);
 
@@ -53,6 +53,20 @@ public final class OfflineCultTestBootstrap {
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException("failed to install offline Cult config", exception);
         }
+    }
+
+    /** What an unconfigured config answers: nothing, zero, false or an empty collection. */
+    private static Object unconfigured(Class<?> type) {
+        if (type == boolean.class) return false;
+        if (type == int.class) return 0;
+        if (type == long.class) return 0L;
+        if (type == double.class) return 0.0D;
+        if (type == float.class) return 0.0F;
+        if (type == java.util.List.class) return java.util.List.of();
+        if (type == java.util.Set.class) return java.util.Set.of();
+        if (type == java.util.Map.class) return Map.of();
+        if (type == java.util.Optional.class) return java.util.Optional.empty();
+        return null;
     }
 
     private static void initializeProtocolRuntime() {
@@ -218,8 +232,8 @@ public final class OfflineCultTestBootstrap {
         }
 
         // isExperimentalChecks()/getMaxPingTransaction() overrides dropped: neither exists on the
-        // merged BaseConfigManager (experimental checks are stubbed on the mock above; the engine
-        // reads the clamped max-transaction-time key, which the mock default-answers).
+        // merged BaseConfigManager (experimental checks are on in the config above; the engine
+        // reads the clamped max-transaction-time key, which the config default-answers).
         @Override
         public int getMaxPingKnockback() {
             return 1000;

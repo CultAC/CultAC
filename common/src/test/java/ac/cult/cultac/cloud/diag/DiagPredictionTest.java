@@ -43,7 +43,6 @@ import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
-import ac.grim.grimac.api.config.ConfigManager;
 import com.github.luben.zstd.ZstdInputStream;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.util.ReferenceCountUtil;
@@ -66,7 +65,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
 /**
  * Diagnostics over real predictions: offline Java players on a stone floor beside a wall of stairs, fences, slabs and
@@ -98,9 +96,6 @@ class DiagPredictionTest {
     static void bootstrap() throws ReflectiveOperationException {
         OfflineCultTestBootstrap.installConfig();
         Class.forName(VerboseCodecs.class.getName());
-        ConfigManager config = CultAPI.INSTANCE.getConfigManager().getConfig();
-        Mockito.when(config.getLongElse(Mockito.anyString(), Mockito.anyLong()))
-                .thenAnswer(invocation -> invocation.getArgument(1));
         // A flag records itself through the data store, which a plugin-less test has to provide.
         dataStore = CultAPI.class.getDeclaredField("dataStoreLifecycle");
         dataStore.setAccessible(true);

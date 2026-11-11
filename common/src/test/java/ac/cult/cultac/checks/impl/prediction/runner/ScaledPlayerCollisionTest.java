@@ -29,7 +29,6 @@ import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
-import ac.grim.grimac.api.config.ConfigManager;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -39,7 +38,6 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
 /**
  * Entity#collide clips a scaled player at its scaled box. A recorded player at scale 2 sprint-jumps beside a
@@ -66,9 +64,6 @@ class ScaledPlayerCollisionTest {
     static void bootstrap() throws ReflectiveOperationException {
         OfflineCultTestBootstrap.installConfig();
         Class.forName(VerboseCodecs.class.getName());
-        ConfigManager config = CultAPI.INSTANCE.getConfigManager().getConfig();
-        Mockito.when(config.getLongElse(Mockito.anyString(), Mockito.anyLong()))
-                .thenAnswer(invocation -> invocation.getArgument(1));
         dataStore = CultAPI.class.getDeclaredField("dataStoreLifecycle");
         dataStore.setAccessible(true);
         previousDataStore = dataStore.get(CultAPI.INSTANCE);
