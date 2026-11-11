@@ -14,7 +14,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityPositionSync;
 import ac.cult.cultac.protocol.value.PositionPath;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
-import java.util.ArrayList;
+import java.util.List;
 
 public final class EntityPositionSyncCodec implements PacketCodec<ClientboundEntityPositionSync> {
     @Override
@@ -36,8 +36,8 @@ public final class EntityPositionSyncCodec implements PacketCodec<ClientboundEnt
         int count = Wire.readVarInt(input);
         if (count <= 0 || count > input.readableBytes() / 25)
             throw new MalformedPacketException("Invalid position step count " + count);
-        var steps = new ArrayList<PositionPath.Step>(count);
-        for (int i = 0; i < count; i++) steps.add(new PositionPath.Step(Wire.readVec3(input), Wire.readVarInt(input)));
-        return new PositionPath.Stepped(steps);
+        var steps = new PositionPath.Step[count];
+        for (int i = 0; i < count; i++) steps[i] = new PositionPath.Step(Wire.readVec3(input), Wire.readVarInt(input));
+        return new PositionPath.Stepped(List.of(steps));
     }
 }

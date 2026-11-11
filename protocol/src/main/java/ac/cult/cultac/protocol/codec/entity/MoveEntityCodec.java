@@ -14,7 +14,6 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveEntity;
 import ac.cult.cultac.protocol.value.EntityDelta;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -70,12 +69,12 @@ public final class MoveEntityCodec implements VariantCodec<ClientboundMoveEntity
         if (steps == 0) return readLinear(input);
         if (steps > input.readableBytes() / 7)
             throw new MalformedPacketException("Entity delta step count exceeds remaining bytes: " + steps);
-        var result = new ArrayList<EntityDelta.Step>(steps);
+        var result = new EntityDelta.Step[steps];
         for (int i = 0; i < steps; i++) {
             int ticks = Wire.readVarInt(input);
-            result.add(new EntityDelta.Step(input.readShort(), input.readShort(), input.readShort(), ticks));
+            result[i] = new EntityDelta.Step(input.readShort(), input.readShort(), input.readShort(), ticks);
         }
-        return new EntityDelta.Stepped(result);
+        return new EntityDelta.Stepped(List.of(result));
     }
 
     private static EntityDelta.Linear readLinear(ByteBuf input) {
