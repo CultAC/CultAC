@@ -135,18 +135,19 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
         }
         evaluateItemControlledVehicle(riding);
 
-        boolean isStriderInLava = riding != null
-                && riding.isStrider()
-                && result.getSimulationContext().getWorldData().mayBeInLava();
-
         CollideAxisData.CollideResult downCollide = result.getCollideAxisData().getYNeg();
         boolean canCollideDown = downCollide != null && downCollide.isLikelyCollide();
 
         DesyncStatus lastOnGround = null;
 
         for (PredictionResult reality : result.getRealities()) {
+            // Strider#floatStrider runs after the travel and sets the ground whether or not Entity#move landed.
+            if (JavaRootGround.floatStriderGrounds(player, reality)) {
+                lastOnGround = lastOnGround == null ? DesyncStatus.TRUE : lastOnGround.addBoolean(true);
+                continue;
+            }
             SimpleCollisionBox valid = reality.getValidMovements().getCollisionIgnoredMaxStartingVelExtents();
-            if ((!canCollideDown && !isStriderInLava) || valid.minY >= 0) {
+            if (!canCollideDown || valid.minY >= 0) {
                 // Entity#move can report ground only after a downward collision. A nonnegative
                 // maximum is insufficient: another valid pre-collision Y may still descend.
                 lastOnGround = lastOnGround == null ? DesyncStatus.FALSE : lastOnGround.addBoolean(false);

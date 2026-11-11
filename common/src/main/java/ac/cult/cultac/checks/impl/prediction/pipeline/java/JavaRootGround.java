@@ -24,4 +24,13 @@ public final class JavaRootGround {
         else return null;
         return travel || JavaStriderFloat.grounds(player, result);
     }
+
+    /**
+     * Whether Strider#floatStrider's Entity#setOnGround(true) is the root's ground after {@code result}'s tick, whatever
+     * the travel's Entity#move collided with: no 26.3 block-entity pass moves the strider after it.
+     */
+    public static boolean floatStriderGrounds(CultPlayer player, PredictionResult result) {
+        JavaPassAfterTravel pass = JavaMovementEngine.passAfterTravel(result);
+        return (pass == null || !pass.result().moved()) && JavaStriderFloat.grounds(player, result);
+    }
 }
