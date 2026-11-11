@@ -152,7 +152,7 @@ public final class JavaMovementEngine implements MovementEngine {
 
     /**
      * The box heights the collision probe spans. A crouching player moves its crouching box: Player#updatePlayerPose
-     * sets the pose at the end of the tick before (1.21.11 and 26.2/26.3 Player#tick), and Entity#collide clips that
+     * sets the pose at the end of the tick before (1.21.11 to 26.3 Player#tick), and Entity#collide clips that
      * box, so a ceiling above it but within standing height never stops the move.
      */
     private static CollisionModifier.ProbeDimensions probeDimensions(CultPlayer player, SimulationContext context) {
@@ -169,7 +169,7 @@ public final class JavaMovementEngine implements MovementEngine {
     }
 
     private static boolean collidesAtCrouchingPose(ClientVersion version) {
-        return version == ClientVersion.V_1_21_11 || version.isNewerThanOrEquals(ClientVersion.V_26_2);
+        return version.isNewerThanOrEquals(ClientVersion.V_1_21_11);
     }
 
     @Override

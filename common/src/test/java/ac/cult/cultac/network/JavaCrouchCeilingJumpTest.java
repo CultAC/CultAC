@@ -20,7 +20,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /**
- * A 1.21.11, 26.2 or 26.3 client holding shift jumps under a ceiling three blocks above the floor. Player#updatePlayerPose keeps it
+ * A 1.21.11, 26.1, 26.2 or 26.3 client holding shift jumps under a ceiling three blocks above the floor. Player#updatePlayerPose keeps it
  * crouching, so Entity#collide moves its 1.5-tall box, which clears the ceiling at the jump's apex where a standing
  * 1.8-tall box would not.
  */
@@ -50,7 +50,7 @@ class JavaCrouchCeilingJumpTest {
     };
 
     static Stream<ClientVersion> versions() {
-        return Stream.of(ClientVersion.V_1_21_11, ClientVersion.V_26_2, ClientVersion.V_26_3);
+        return Stream.of(ClientVersion.V_1_21_11, ClientVersion.V_26_1, ClientVersion.V_26_2, ClientVersion.V_26_3);
     }
 
     @ParameterizedTest
@@ -217,6 +217,7 @@ class JavaCrouchCeilingJumpTest {
 
     private static JavaTickFixture client(ClientVersion version) throws Exception {
         if (version == ClientVersion.V_1_21_11) return new JavaTickFixture(ProtocolVersion.V1_21_11, version);
+        if (version == ClientVersion.V_26_1) return new JavaTickFixture(ProtocolVersion.V26_1, version);
         if (version == ClientVersion.V_26_2) return new JavaTickFixture(ProtocolVersion.V26_2, version);
         return new JavaTickFixture(ProtocolVersion.V26_3, version);
     }
