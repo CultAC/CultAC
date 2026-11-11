@@ -4,7 +4,6 @@ import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockAerialMovement;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockClimbMovement;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
-import ac.cult.cultac.bedrock.prediction.world.BedrockClimbableContact;
 import java.util.List;
 
 final class BedrockClimbEndTickVelocityBranches {
@@ -20,11 +19,7 @@ final class BedrockClimbEndTickVelocityBranches {
             return List.of(BedrockAerialMovement.airDraggedVelocityWithoutGravity(
                     BedrockClimbMovement.SCAFFOLDING_DESCEND_VELOCITY));
         }
-        if (!endTickBranchApplies(movementResult, state)) {
-            return List.of();
-        }
-
-        return List.of(BedrockClimbMovement.LADDER_ASCEND_VELOCITY);
+        return List.of();
     }
 
     private static boolean descendingThroughBlockMove(BedrockMovementResult movementResult) {
@@ -34,21 +29,5 @@ final class BedrockClimbEndTickVelocityBranches {
                 BedrockClimbMovement.SCAFFOLDING_DESCEND_VELOCITY);
         return Math.abs(requestedY - BedrockClimbMovement.SCAFFOLDING_DESCEND_VELOCITY) <= 1.0E-9D
                 && Math.abs(movementResult.collisionInputVelocity().y() - draggedY) <= 1.0E-9D;
-    }
-
-    private static boolean endTickBranchApplies(BedrockMovementResult movementResult, BedrockMovementState state) {
-        if (movementResult.predictedState().autoClimbTravel()) {
-            return true;
-        }
-        if (!state.collisionFlags().horizontalCollision()) {
-            return false;
-        }
-        BedrockClimbableContact contact = BedrockClimbableContact.fromBlockWorld(
-                movementResult.movementContext().worldState().blockCollisionWorld(),
-                state.physicalFeetPosition(),
-                movementResult.movementContext().playerDimensionsState().width(),
-                movementResult.movementContext().playerDimensionsState().height(),
-                movementResult.movementContext().equipmentState().leatherBoots());
-        return contact.climbing() && !contact.scaffolding();
     }
 }

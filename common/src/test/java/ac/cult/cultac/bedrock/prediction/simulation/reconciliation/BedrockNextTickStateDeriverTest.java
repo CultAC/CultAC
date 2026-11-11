@@ -67,6 +67,23 @@ public final class BedrockNextTickStateDeriverTest {
         assertFalse(states.getFirst().climbableContact().climbing());
     }
 
+    // A capture of a ground jump started against a ladder wall: the client reports 0.3332 after the 0.42 launch,
+    // not the 0.2 a horizontal collision on a climbable sets when no jump starts.
+    @Test
+    public void ladderWallJumpCarriesOnlyTheSimulatedVelocity() {
+        var world = new BlockCollisionWorld(List.of(PlacedBlockCollision.manual(
+                new BlockPosition(0, 64, 0), "minecraft:ladder", "minecraft:ladder", List.of())));
+        var previous = state(POSITION, ZERO, BedrockCollisionFlags.ON_GROUND, Medium.AIR);
+        var wall = new BedrockCollisionFlags(false, true, false, true, false, false, false, true);
+        var launched = state(
+                new Vec3d(0.5, 64.42, 0.5), new Vec3d(0.0, (0.42 - 0.08) * 0.98, 0.0), wall, Medium.AIR);
+        var states = BedrockNextTickStateDeriver.fromSimulated(
+                movementResult(previous, launched, context(Medium.AIR, world)), launched);
+        assertEquals(1, states.size());
+        assertTrue(states.getFirst().climbableContact().climbing());
+        assertEquals(launched.velocity(), states.getFirst().velocity());
+    }
+
     private static BedrockMovementState state(
             Vec3d position, Vec3d velocity, BedrockCollisionFlags flags, Medium movementBranch) {
         return BedrockMovementState.fromPhysicalFeet(
