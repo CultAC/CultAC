@@ -73,8 +73,8 @@ public final class BedrockVelocitySystems {
             boolean lavaSwimUpApplied) {
         BedrockTravelMoveVector.Step move =
                 BedrockTravelMoveVector.resolve(velocity, frame.frameFacts().climb());
-        BedrockResolvedMove resolvedMove =
-                new BedrockResolvedMove(lavaSwimUpApplied, move.move(), move.collisionInputVelocity());
+        BedrockResolvedMove resolvedMove = new BedrockResolvedMove(
+                lavaSwimUpApplied, BedrockTravelMoveRequest.clampedMove(move.move()), move.collisionInputVelocity());
         BedrockMoveRequest request = new BedrockMoveRequest(
                 resolvedMove,
                 BedrockTravelMoveRequest.requestedPosition(frame.input().previousState(), resolvedMove.move()));
