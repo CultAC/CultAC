@@ -781,11 +781,18 @@ public class CultPlayer implements GrimUser {
      * needs the tick's own ping.
      */
     private void endServerTick(int kind, int serverTick) {
-        user.executeAfterWrites(() -> {
-            PlayerObserver observer = this.observer;
-            if (kind == PING_END_OF_TICK && observer != null) observer.serverTickEnded(serverTick);
-            if (user.getCultConnection().provingPing() <= 0) sendTransaction(false, kind, serverTick);
-        });
+        user.executeAfterWrites(
+                kind == PING_LEADING && serverTick == 0
+                        ? endEstimatedServerTick
+                        : () -> endServerTickAfterWrites(kind, serverTick));
+    }
+
+    private final Runnable endEstimatedServerTick = () -> endServerTickAfterWrites(PING_LEADING, 0);
+
+    private void endServerTickAfterWrites(int kind, int serverTick) {
+        PlayerObserver observer = this.observer;
+        if (kind == PING_END_OF_TICK && observer != null) observer.serverTickEnded(serverTick);
+        if (user.getCultConnection().provingPing() <= 0) sendTransaction(false, kind, serverTick);
     }
 
     private int sendTransaction(boolean async, int kind, int serverTick) {
