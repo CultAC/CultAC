@@ -163,7 +163,7 @@ cloud:
     - hub-*
 ```
 
-- It follows each player: a switch onto a listed backend ends the player's capture there, as a switch does today, and
+- It follows each player: a switch onto a listed backend ends the player's capture there, as any switch does, and
   a switch off it starts a new one at the next backend's login. Each player is decided on their own, by the backend
   they are on.
 - While a player is on a listed backend nothing of their play is uploaded, so the intake service holds nothing of
