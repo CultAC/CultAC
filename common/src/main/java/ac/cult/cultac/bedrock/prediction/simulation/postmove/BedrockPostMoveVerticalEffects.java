@@ -25,7 +25,10 @@ final class BedrockPostMoveVerticalEffects {
     }
 
     static Vec3d applyLevitation(BedrockPostMoveContext input, BedrockMovementContext effectContext, Vec3d velocity) {
-        if (medium(input) != EffectMedium.AIR || input.effectState().levitationLevel() <= 0) {
+        // In water the client levitates the velocity its water drag left.
+        EffectMedium medium = medium(input);
+        if (medium != EffectMedium.AIR && medium != EffectMedium.WATER
+                || input.effectState().levitationLevel() <= 0) {
             return velocity;
         }
         return new Vec3d(
@@ -70,7 +73,8 @@ final class BedrockPostMoveVerticalEffects {
 
     static Vec3d applyPlayerWaterGravity(
             BedrockPostMoveContext input, BedrockMovementContext effectContext, Vec3d velocity) {
-        if (input.playerFlying() || input.current().isHorse()) {
+        // A levitating player takes no water gravity.
+        if (input.playerFlying() || input.current().isHorse() || input.effectState().levitationLevel() > 0) {
             return velocity;
         }
         return switch (medium(input)) {

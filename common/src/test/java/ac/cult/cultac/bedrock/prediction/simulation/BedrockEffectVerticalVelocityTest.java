@@ -143,6 +143,27 @@ public final class BedrockEffectVerticalVelocityTest {
         assertEquals(0.17D, result.predictedVelocity().y(), 1.0E-6D);
     }
 
+    @Test
+    public void levitationInWaterFollowsTheWaterDragWithoutWaterGravity() {
+        // Levitation II under water: the client moves -0.00505 and reports 0.016768, its velocity dragged by 0.8
+        // and then levitated, -0.00404 + (0.1 + 0.00404) * 0.2, with no water gravity.
+        PlacedBlockCollision[] water = new PlacedBlockCollision[3];
+        for (int y = 1; y <= 3; y++) {
+            water[y - 1] = PlacedBlockCollision.manual(
+                    new BlockPosition(0, y, 0), "minecraft:water[level=0]", "minecraft:water", List.of());
+        }
+        BedrockMovementState swimming = BedrockMovementState.fromPhysicalFeet(
+                new Vec3d(0.5D, 1.5D, 0.5D),
+                new Vec3d(0.0D, -0.00505D, 0.0D),
+                BedrockInputFrame.idle(1L),
+                BedrockCollisionFlags.AIR);
+
+        BedrockMovementResult result = move(swimming, BedrockInputFrame.idle(2L), LEVITATION_II, false, water);
+
+        assertEquals(1.5D - 0.00505D, result.predictedPosition().y(), 1.0E-6D);
+        assertEquals(0.016768D, result.predictedVelocity().y(), 1.0E-6D);
+    }
+
     private static double moveY(BedrockMovementResult result) {
         return result.predictedPosition().y()
                 - result.previousState().physicalFeetPosition().y();
