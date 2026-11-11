@@ -25,7 +25,7 @@ public final class JavaAutoJump extends CultProcessor implements PostPredictionL
     private boolean possible;
     private int movedClientTick = -1;
     private final SimpleCollisionBox fromScratch = new SimpleCollisionBox(), regionScratch = new SimpleCollisionBox();
-    private final SimpleCollisionBox entityScratch = new SimpleCollisionBox();
+    private final SimpleCollisionBox entityScratch = new SimpleCollisionBox(), endScratch = new SimpleCollisionBox();
     private final List<SimpleCollisionBox> blockScratch = new ArrayList<>();
 
     public JavaAutoJump(CultPlayer player) {
@@ -98,7 +98,8 @@ public final class JavaAutoJump extends CultProcessor implements PostPredictionL
                 context.getWorldData().getMainSupportingBlockPos(),
                 new Vec3(player.x, player.y, player.z))) return true;
         double margin = positionMargin();
-        SimpleCollisionBox end = GetBoundingBox.getCollisionBoxForPlayer(player, player.x, player.y, player.z);
+        SimpleCollisionBox end =
+                GetBoundingBox.getCollisionBoxForPlayer(endScratch, player, player.x, player.y, player.z);
         return cannotHaveLanded(result, end, margin) || ceilingBlocks(end, margin) || nothingAhead(context, margin);
     }
 

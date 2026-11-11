@@ -79,6 +79,9 @@ public class WorldStageBuilder {
     private final SimpleCollisionBox pusherContactBox = new SimpleCollisionBox();
     private final SimpleCollisionBox entityBoundsBox = new SimpleCollisionBox();
     private final SimpleCollisionBox entityScratchBox = new SimpleCollisionBox();
+    private final SimpleCollisionBox spinStartBox = new SimpleCollisionBox();
+    private final SimpleCollisionBox spinSweepBox = new SimpleCollisionBox();
+    private final SimpleCollisionBox spinExtentBox = new SimpleCollisionBox();
     // One computeBubbleColumns call's sweep and counts, which bubbleColumnVisitor reads and writes.
     private final Collisions.StatePredicate bubbleColumnVisitor = this::visitBubbleColumn;
     private CultPlayer bubblePlayer;
@@ -650,16 +653,16 @@ public class WorldStageBuilder {
      * positive: the player's boxes before and after the travel, the box before it lifted by a release on the ground.
      * Every LivingEntity but a spectator counts, armor stands included.
      */
-    private static SpinTarget spinTarget(CultPlayer player, SimulationContext context) {
+    private SpinTarget spinTarget(CultPlayer player, SimulationContext context) {
         if (context.getVehicle() != null || player.riptideSpinAttackTicks <= 0) return SpinTarget.NONE;
         Vec3 from = context.getStart();
-        SimpleCollisionBox start = GetBoundingBox.getPlayerBoundingBox(player, from.x, from.y, from.z);
-        SimpleCollisionBox sweep = start.copy().union(context.getToMaximumExtent());
+        SimpleCollisionBox start = GetBoundingBox.getPlayerBoundingBox(spinStartBox, player, from.x, from.y, from.z);
+        SimpleCollisionBox sweep = spinSweepBox.set(start).union(context.getToMaximumExtent(spinExtentBox));
         if (RiptideUtil.releasedOnTheGround(player)) {
             for (SimpleCollisionBox lifted : RiptideUtil.liftedBoxes(player, start)) sweep.union(lifted);
         }
-        SimpleCollisionBox entityBounds = new SimpleCollisionBox();
-        SimpleCollisionBox entityScratch = new SimpleCollisionBox();
+        SimpleCollisionBox entityBounds = entityBoundsBox;
+        SimpleCollisionBox entityScratch = entityScratchBox;
         CompensatedEntities entities = context.getEntities();
         PacketEntity selfRidingRoot = entities.selfRidingRoot();
         PacketEntity serverVehicleRoot = entities.serverVehicleRoot();
