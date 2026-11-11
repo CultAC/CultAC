@@ -124,12 +124,77 @@ public final class BedrockPlayerFlyingTravelTest {
         assertEquals(0.156876D, Math.abs(moved(result).z()), 1.0E-5D);
     }
 
+    // A creative player starting to fly the tick forward is released, with 0.261237 forward carried, the client steps the
+    // carried 0.26124 and reports 0.089147 = 0.26124 * 0.91 * 0.375: the flight brake follows the air friction.
+    @Test
+    public void theTickFlightStartsBrakesTheHorizontalVelocityAfterTheMove() {
+        BedrockInputFrame start = new BedrockInputFrame(
+                1L,
+                0.0F,
+                0.0F,
+                true,
+                false,
+                false,
+                Set.of("JUMPING", "WANT_UP", "START_FLYING"));
+
+        var result = tick(aloft(new Vec3d(0.0D, 0.083078D, 0.261237D)), start, Vec3d.ZERO, creative(0.05D));
+
+        assertEquals(0.233078D, moved(result).y(), 2.0E-5D);
+        assertEquals(0.150016D, result.predictedVelocity().y(), 1.0E-5D);
+        assertEquals(0.26124D, moved(result).z(), 2.0E-5D);
+        assertEquals(0.089147D, result.predictedVelocity().z(), 2.0E-5D);
+    }
+
+    // Released vertical input with forward held, the client steps the carried 0.224991 and reports 0.6 of it.
     @Test
     public void releasedVerticalInputLeavesTheVelocityToTheDrag() {
-        var result = tick(aloft(new Vec3d(0.0D, 0.225D, 0.0D)), BedrockInputFrame.idle(1L), Vec3d.ZERO, flying(0.05D));
+        var result = tick(aloft(new Vec3d(0.0D, 0.224991D, 0.0D)), BedrockInputFrame.idle(1L), FORWARD, creative(0.05D));
 
-        assertEquals(0.225D, moved(result).y(), 2.0E-5D);
-        assertEquals(0.135D, result.predictedVelocity().y(), 1.0E-6D);
+        assertEquals(0.224991D, moved(result).y(), 2.0E-5D);
+        assertEquals(0.134995D, result.predictedVelocity().y(), 1.0E-6D);
+    }
+
+    // A creative player hovering without input after starting to fly with 0.150016 carried
+    // steps 0.056259 and reports 0.033754, then steps 0.012657: 0.375 of the carried velocity, then
+    // the drag of flight.
+    @Test
+    public void hoveringWithoutInputBrakesTheVerticalVelocityBeforeTheMove() {
+        var first = tick(aloft(new Vec3d(0.0D, 0.150016D, 0.0D)), BedrockInputFrame.idle(1L), Vec3d.ZERO, creative(0.05D));
+        assertEquals(0.056259D, moved(first).y(), 2.0E-5D);
+        assertEquals(0.033754D, first.predictedVelocity().y(), 2.0E-5D);
+
+        var second = tick(first.predictedState(), BedrockInputFrame.idle(1L), Vec3d.ZERO, creative(0.05D));
+        assertEquals(0.012657D, moved(second).y(), 2.0E-5D);
+    }
+
+    // Releasing forward and sneak together while descending at -0.549843 with 1.083359 forward, the
+    // client steps -0.123718 and still 0.985855 forward, then 0.336426 forward: the vertical velocity
+    // is braked before the move and the horizontal velocity after the friction.
+    @Test
+    public void releasingAllInputBrakesTheVerticalVelocityBeforeAndTheHorizontalAfterTheMove() {
+        var released =
+                tick(aloft(new Vec3d(0.0D, -0.329906D, 0.985857D)), BedrockInputFrame.idle(1L), Vec3d.ZERO, creative(0.05D));
+
+        assertEquals(-0.123718D, moved(released).y(), 2.0E-5D);
+        assertEquals(0.985857D, moved(released).z(), 2.0E-5D);
+        assertEquals(0.336426D, released.predictedVelocity().z(), 2.0E-5D);
+        assertEquals(0.336426D, moved(tick(released.predictedState(), BedrockInputFrame.idle(1L), Vec3d.ZERO, creative(0.05D))).z(), 2.0E-5D);
+    }
+
+    // A survival player that may fly releases forward with 0.420313 carried: it steps the carried
+    // 0.42031 and reports 0.286864 = 0.42031 * 0.91 * 0.75, then steps 0.286864. A hover without
+    // input leaves its vertical velocity to the drag: from 0.224837 carried it steps 0.224838.
+    @Test
+    public void otherGameModesBrakeOnlyTheHorizontalVelocityByAQuarter() {
+        var released = tick(
+                aloft(new Vec3d(0.0D, 0.0D, 0.420313D)), BedrockInputFrame.idle(1L), Vec3d.ZERO, flying(0.05D));
+        assertEquals(0.42031D, moved(released).z(), 2.0E-5D);
+        assertEquals(0.286864D, released.predictedVelocity().z(), 2.0E-5D);
+
+        var hover = tick(
+                aloft(new Vec3d(0.0D, 0.224837D, 0.0D)), BedrockInputFrame.idle(1L), Vec3d.ZERO, flying(0.05D));
+        assertEquals(0.224838D, moved(hover).y(), 2.0E-5D);
+        assertEquals(0.134902D, hover.predictedVelocity().y(), 2.0E-5D);
     }
 
     // Rising at 0.375 a tick (0.225 carried), the tick sneak joins held jump the client steps 0
@@ -248,6 +313,12 @@ public final class BedrockPlayerFlyingTravelTest {
 
     private static BedrockMovementContext flying(double flySpeed) {
         return flying(flySpeed, floor());
+    }
+
+    private static BedrockMovementContext creative(double flySpeed) {
+        return context(
+                new MovementModifierState(false, true, true, true, flySpeed, false, false, false, false, 0.35D, 0L),
+                floor());
     }
 
     private static BedrockMovementContext flying(double flySpeed, List<PlacedBlockCollision> blocks) {

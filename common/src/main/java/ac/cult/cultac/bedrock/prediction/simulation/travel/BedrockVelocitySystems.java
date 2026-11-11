@@ -56,7 +56,11 @@ public final class BedrockVelocitySystems {
                     velocity,
                     frame.input().inputFrame(),
                     frame.inputIntent(),
-                    BedrockLiquidVerticalMovement.descendInput(frame.inputIntent()));
+                    BedrockLiquidVerticalMovement.descendInput(frame.inputIntent()),
+                    frame.input().control(),
+                    facts.context().movementAbilityInstabuild());
+            horizontal = BedrockFlyingTravelMovement.brakeHorizontal(
+                    horizontal, frame.input().control(), facts.context().movementAbilityInstabuild());
         }
         velocity = BedrockBlockSurfaceMovement.applyHoneySlideBeforeMove(
                 velocity,
