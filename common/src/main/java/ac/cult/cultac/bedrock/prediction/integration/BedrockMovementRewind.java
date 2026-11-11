@@ -43,6 +43,11 @@ final class BedrockMovementRewind {
         initialUpdates = false;
     }
 
+    /** Whether an acknowledged update still waits for the frame after its tick, which the client takes it on. */
+    boolean defersUpdates() {
+        return !updates.isEmpty();
+    }
+
     void queue(long tick, boolean historical, BedrockReplayEvent event) {
         updates.add(new Update(tick, historical, event));
     }

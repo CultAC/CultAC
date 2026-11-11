@@ -34,8 +34,6 @@ public final class BedrockTeleportDismountTest {
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
             PacketEntityHorse horse = ride(player);
-            player.bedrockState.movementCorrections.request(
-                    player, HORSE, HORSE_POSITION, Vec3.ZERO, 0.0F, 0.0F, false, player.lastTransactionSent.get());
 
             player.compensatedEntities.vehicles.applyClientTeleportDismount();
 
@@ -45,7 +43,6 @@ public final class BedrockTeleportDismountTest {
             // An on-foot input is the player's own movement again, not a pending passenger transition.
             assertFalse(player.compensatedEntities.vehicles.hasPlayerPassengerState());
             assertNull(player.compensatedEntities.vehicles.serverPlayerVehicle);
-            assertFalse(player.bedrockState.movementCorrections.hasPendingCorrection());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }

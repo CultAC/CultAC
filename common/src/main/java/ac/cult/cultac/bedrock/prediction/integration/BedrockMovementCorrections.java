@@ -3,11 +3,11 @@ package ac.cult.cultac.bedrock.prediction.integration;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.bridge.GeyserBedrockBridgeRuntime;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
+import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
 import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.checks.impl.prediction.PredictionSetbackState;
 import ac.cult.cultac.checks.impl.prediction.SuperDebug;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
@@ -27,9 +27,14 @@ public final class BedrockMovementCorrections {
     private Pending pending;
     private boolean exemptMovement;
     private int requestedTransaction = -1;
-    // Where the server last held the vehicle, and the generation that placement began.
+    // Where the server last held the vehicle, the generation that placement began, and whether a frame after the
+    // client took it moved the vehicle away.
     private Vec3 serverPosition;
     private long serverPositionGeneration = -1;
+    private boolean movedFromServerPosition;
+    // The placement the next correction carries; until the client acknowledges it the model keeps its own path. A
+    // relink of the rider keeps it, so it is dropped only once its vehicle is no longer the controlled one.
+    private Placement placement;
     // Where the queued attribute updates go if the queue is dropped before a frame consumes them.
     private Consumer<BedrockReplayAttributeEvent> queuedAttributeCarry;
 
@@ -38,9 +43,13 @@ public final class BedrockMovementCorrections {
     }
 
     public boolean hasPendingCorrection() {
-        return pending != null || requestedTransaction >= 0;
+        return pending != null || requestedTransaction >= 0 || placement != null;
     }
 
+    /**
+     * Places the controlled vehicle {@code vehicleId}: the client takes the placement only from the correction the next
+     * frame sends, and the model keeps the client's own path until the client acknowledges it.
+     */
     public void request(
             CultPlayer player,
             int vehicleId,
@@ -50,59 +59,34 @@ public final class BedrockMovementCorrections {
             float pitch,
             boolean onGround,
             int transaction) {
-        request(player, vehicleId, position, velocity, yaw, pitch, onGround, transaction, null);
-    }
-
-    public void request(
-            CultPlayer player,
-            int vehicleId,
-            Vec3 position,
-            Vec3 velocity,
-            float yaw,
-            float pitch,
-            boolean onGround,
-            int transaction,
-            PredictionSetbackState setback) {
         var vehicle = BedrockVehicleControl.controlledVehicle(player);
         if (vehicle == null || vehicle.getEntityId() != vehicleId) return;
         player.checkManager
                 .getListener(ac.cult.cultac.checks.impl.bedrock.BedrockMovement.class)
                 .onVehicleTeleport();
         clear();
-        player.checkManager
-                .getSimulationProcessor()
-                .resetBedrockVehicle(vehicle, position, velocity, yaw, pitch, onGround, setback);
-        requestedTransaction = transaction;
-        pending = null;
+        placement = new Placement(vehicleId, transaction, position, velocity, yaw, pitch, onGround);
     }
 
     /**
      * The server rejected a move of {@code vehicleId} and holds it at {@code position}. Only the position is the
      * server's: the vehicle keeps its velocity, rotation and ground state, and the next frame corrects the client to
-     * the result. It raises no vehicle teleport, so it opens no window in which movement goes unjudged.
+     * them. It raises no vehicle teleport, so it opens no window in which movement goes unjudged.
      */
     public void requestServerPosition(CultPlayer player, int vehicleId, Vec3 position, int transaction) {
         var vehicle = BedrockVehicleControl.controlledVehicle(player);
         if (vehicle == null || vehicle.getEntityId() != vehicleId) return;
         // A setback places the vehicle itself, and the server answers no move until it completes.
         if (player.getSetbackTeleportUtil().isPendingSetback()) return;
-        // The server answers every move it rejects. Until a frame moves the vehicle from the position, a repeat of it
-        // answers a move sent before the vehicle was placed there.
-        if (serverPositionGeneration == generation && processedTicks == 0 && position.equals(serverPosition)) return;
-        clear();
-        player.checkManager
-                .getSimulationProcessor()
-                .resetBedrockVehicle(
-                        vehicle,
-                        position,
-                        vehicle.deltaMovement,
-                        vehicle.clientPhysicalYaw,
-                        vehicle.clientPhysicalPitch,
-                        vehicle.onGround,
-                        null);
-        requestedTransaction = transaction;
+        // The server answers every move it rejects. Until the client has moved the vehicle from the position, a repeat
+        // of it answers a move sent before the client took the correction to it.
+        if (serverPositionGeneration == generation && position.equals(serverPosition) && !movedFromServerPosition)
+            return;
+        // A correction already on its way still reaches the client, and the model follows it when the client takes it.
+        placement = new Placement(vehicleId, transaction, position, null, Float.NaN, Float.NaN, null);
         serverPosition = position;
         serverPositionGeneration = generation;
+        movedFromServerPosition = false;
     }
 
     public void requestSetback(int vehicleId, int transaction) {
@@ -118,6 +102,8 @@ public final class BedrockMovementCorrections {
                         && (controlled.getEntityId() != correction.vehicleId() || runtimeId != correction.runtimeId()))
             return;
         pending = new Pending(correction, processedTicks);
+        // The placement is on its way to the client.
+        placement = null;
     }
 
     public void acknowledge(long sequence) {
@@ -228,6 +214,12 @@ public final class BedrockMovementCorrections {
         processedTicks++;
         var state = BedrockProfileState.previousState(commit.carry());
         if (state == null) return;
+        // Once the client has taken the server's position, the model follows it from there.
+        if (serverPositionGeneration == generation
+                && placement == null
+                && (pending == null || pending.received && !rewind.defersUpdates())
+                && !BedrockVectorAdapter.toJava(state.physicalFeetPosition()).equals(serverPosition))
+            movedFromServerPosition = true;
         if (player.getSetbackTeleportUtil().bedrockTeleports().hasPendingBedrockTransportTeleport()) return;
         double positionLimit = CultAPI.INSTANCE.getConfigManager().getBedrockMovementPositionFlagThreshold();
         double velocityLimit = CultAPI.INSTANCE.getConfigManager().getBedrockMovementVelocityFlagThreshold();
@@ -255,38 +247,55 @@ public final class BedrockMovementCorrections {
                         .completeBedrockMovementCorrection(pending.correction)) {
             pending = null;
         }
+        if (placement != null && (vehicle == null || vehicle.getEntityId() != placement.vehicleId())) placement = null;
         if (frame.getClientTick() == 0
                 || requestedTransaction < 0
+                        && placement == null
                         && (converged
                                 || pending != null
                                         && (!pending.received
                                                 || processedTicks - pending.sentAt < CORRECTION_INTERVAL_TICKS)))
             return;
-        int transaction = requestedTransaction >= 0
-                ? requestedTransaction
-                : pending == null ? -1 : pending.correction.teleportTransaction();
-        var correction = new BedrockMovementCorrection(
+        int transaction = placement != null
+                ? placement.transaction()
+                : requestedTransaction >= 0
+                        ? requestedTransaction
+                        : pending == null ? -1 : pending.correction.teleportTransaction();
+        var correction = correction(frame, vehicle, state, transaction);
+        pending = new Pending(correction, processedTicks);
+        int debugId = player.checkManager.getDebugHandler().hasRewindListeners()
+                ? SuperDebug.ensureBedrockCorrectionLog(player, result)
+                : 0;
+        if (GeyserBedrockBridgeRuntime.sendMovementCorrection(player.user, correction, frame.getPosition(), debugId)) {
+            requestedTransaction = -1;
+            placement = null;
+        } else pending = null;
+    }
+
+    /** The correction a frame sends: the placement requested for the vehicle, else the state the frame ends with. */
+    public BedrockMovementCorrection correction(
+            BedrockAuthInputFrame frame, PacketEntity vehicle, BedrockMovementState state, int transaction) {
+        var placed = placement;
+        float rotationOffset = state.isBoat() ? 90.0F : 0.0F;
+        return new BedrockMovementCorrection(
                 0,
                 generation,
                 vehicle == null ? -1 : vehicle.getEntityId(),
                 runtimeId,
                 frame.getClientTick(),
-                BedrockVectorAdapter.toJava(state.physicalFeetPosition()),
-                BedrockVectorAdapter.toJava(state.velocity()),
-                state.inputFrame().yaw(),
-                state.inputFrame().pitch(),
-                state.collisionFlags().onGround(),
+                placed == null ? BedrockVectorAdapter.toJava(state.physicalFeetPosition()) : placed.position(),
+                placed == null || placed.velocity() == null
+                        ? BedrockVectorAdapter.toJava(state.velocity())
+                        : placed.velocity(),
+                placed == null || Float.isNaN(placed.yaw()) ? state.inputFrame().yaw() : placed.yaw() + rotationOffset,
+                placed == null || Float.isNaN(placed.pitch()) ? state.inputFrame().pitch() : placed.pitch(),
+                placed == null || placed.onGround() == null
+                        ? state.collisionFlags().onGround()
+                        : placed.onGround(),
                 state.coordinateFrame(),
                 transaction,
                 state.isBoat() ? state.boat().angularVelocity() : null,
                 state.isVehicle());
-        pending = new Pending(correction, processedTicks);
-        int debugId = player.checkManager.getDebugHandler().hasRewindListeners()
-                ? SuperDebug.ensureBedrockCorrectionLog(player, result)
-                : 0;
-        if (GeyserBedrockBridgeRuntime.sendMovementCorrection(player.user, correction, frame.getPosition(), debugId))
-            requestedTransaction = -1;
-        else pending = null;
     }
 
     public void clear() {
@@ -303,6 +312,10 @@ public final class BedrockMovementCorrections {
         pending = null;
         requestedTransaction = -1;
     }
+
+    /** A placement of the vehicle; a null or NaN component keeps the value the frame ends with. */
+    private record Placement(
+            int vehicleId, int transaction, Vec3 position, Vec3 velocity, float yaw, float pitch, Boolean onGround) {}
 
     private static final class Pending {
         final BedrockMovementCorrection correction;

@@ -5,7 +5,6 @@ import ac.cult.cultac.bedrock.bridge.GeyserBedrockBridgeRuntime;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
-import ac.cult.cultac.checks.impl.prediction.PredictionSetbackState;
 import ac.cult.cultac.checks.impl.prediction.runner.KnockbackHandler;
 import ac.cult.cultac.events.packets.patch.ResyncWorldUtil;
 import ac.cult.cultac.network.CultWrite;
@@ -191,8 +190,7 @@ public class CorrectionSender {
                                 player.xRot,
                                 player.yRot,
                                 data.isExpectedOnGround(),
-                                transaction,
-                                data.getProfileState());
+                                transaction);
                     }
                 } else {
                     boolean vehicleRotation = !Float.isNaN(data.getVehicleYaw());
@@ -327,20 +325,8 @@ public class CorrectionSender {
 
     public void sendBedrockMovementCorrection(
             int vehicleId, Vec3 position, Vec3 velocity, float yaw, float pitch, boolean onGround, int transaction) {
-        sendBedrockMovementCorrection(vehicleId, position, velocity, yaw, pitch, onGround, transaction, null);
-    }
-
-    private void sendBedrockMovementCorrection(
-            int vehicleId,
-            Vec3 position,
-            Vec3 velocity,
-            float yaw,
-            float pitch,
-            boolean onGround,
-            int transaction,
-            PredictionSetbackState setback) {
         player.runSafely(() -> player.bedrockState.movementCorrections.request(
-                player, vehicleId, position, velocity, yaw, pitch, onGround, transaction, setback));
+                player, vehicleId, position, velocity, yaw, pitch, onGround, transaction));
     }
     /** Observe-only lets go of the held stand-in move. */
     public void dropPendingServerMove() {

@@ -1348,38 +1348,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         return result;
     }
 
-    public void resetBedrockVehicle(
-            PacketEntity vehicle,
-            Vec3 position,
-            Vec3 velocity,
-            float yaw,
-            float pitch,
-            boolean onGround,
-            PredictionSetbackState setback) {
-        PredictionCommit old = setback != null
-                ? setback.commit()
-                : vehicle.bedrockPrediction == null ? null : vehicle.bedrockPrediction.commit();
-        vehicle.clientPhysicalPosition = position;
-        vehicle.deltaMovement = velocity;
-        vehicle.onGround = onGround;
-        if (old == null) return;
-        var entries = BedrockProfileState.profileEntries(old.carry()).stream()
-                .map(entry -> {
-                    var state = entry.state();
-                    return entry.withState(
-                            state.withPhysicalFeetPosition(BedrockVectorAdapter.toBedrock(position), 0.0D)
-                                    .withRotation(yaw + (state.isBoat() ? 90.0F : 0.0F), pitch)
-                                    .withVelocityAndCollisionFlags(
-                                            BedrockVectorAdapter.toBedrock(velocity),
-                                            state.collisionFlags().withTeleportOnGround(onGround)));
-                })
-                .toList();
-        PredictionCommit commit = new PredictionCommit(
-                new ac.cult.cultac.bedrock.prediction.integration.BedrockNextTickStates(entries), Set.of(velocity));
-        vehicle.bedrockPrediction = new BedrockVehiclePredictionState(commit, null);
-        BedrockVehiclePredictionState.commitTransform(vehicle, commit.carry());
-    }
-
     private static boolean canonicalBedrockGround(PredictionResult result, boolean fallback) {
         BedrockPredictionResult bedrockResult =
                 (BedrockPredictionResult) result.getProfileResult(BedrockPredictionResult.class);

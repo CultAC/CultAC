@@ -38,7 +38,8 @@ import org.junit.Test;
 /**
  * The server keeps a ridden horse where it was when it rejects a move, and answers with that position. A capture of a
  * horse walked against a wall shows the server answer every move with (25.502745, 120, 33.301758) while the engine
- * predicted the horse at (25.502998, 120, 33.855717) moving 0.112100765 a tick.
+ * predicted the horse at (25.502998, 120, 33.855717) moving 0.112100765 a tick. The client goes on from its own
+ * position until a correction reaches it.
  */
 public final class BedrockRejectedVehicleMoveTest {
     private static final int HORSE = 71;
@@ -48,7 +49,7 @@ public final class BedrockRejectedVehicleMoveTest {
     private static final float YAW = -0.0055084233F;
 
     @Test
-    public void serverPositionReplacesOnlyThePredictedPositionAndIsNotRelayed() {
+    public void serverPositionIsCorrectedToWithoutMovingTheModelFirst() {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
@@ -60,15 +61,22 @@ public final class BedrockRejectedVehicleMoveTest {
             var answer = answer(player, SERVER, 12.0F, 25.502998F);
 
             assertTrue(answer.isCancelled());
-            assertTrue(corrections.generation() > generation);
+            // A correction already on its way stays valid: the client still takes it.
+            assertEquals(generation, corrections.generation());
             assertTrue(corrections.hasPendingCorrection());
+            // The client keeps its own path until the correction reaches it, and so does the model.
             var state = BedrockProfileState.previousState(horse.bedrockPrediction.commit().carry());
-            assertEquals(SERVER, BedrockVectorAdapter.toJava(state.physicalFeetPosition()));
-            assertEquals(SERVER, horse.clientPhysicalPosition);
-            assertEquals(VELOCITY, BedrockVectorAdapter.toJava(state.velocity()));
-            assertEquals(YAW, state.inputFrame().yaw(), 0.0F);
-            assertEquals(0.0F, state.inputFrame().pitch(), 0.0F);
-            assertTrue(state.collisionFlags().onGround());
+            assertEquals(PREDICTED, BedrockVectorAdapter.toJava(state.physicalFeetPosition()));
+            assertEquals(PREDICTED, horse.clientPhysicalPosition);
+
+            // The correction carries only the server's position.
+            var correction = corrections.correction(frame(player, 20629), horse, state, 0);
+            assertEquals(SERVER, correction.position());
+            assertEquals(VELOCITY, correction.velocity());
+            assertEquals(YAW, correction.yaw(), 0.0F);
+            assertEquals(0.0F, correction.pitch(), 0.0F);
+            assertTrue(correction.onGround());
+            assertEquals(20629, correction.tick());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
@@ -79,7 +87,7 @@ public final class BedrockRejectedVehicleMoveTest {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
-            ride(player);
+            PacketEntityHorse horse = ride(player);
             // Past the ticks the mount itself goes unjudged for.
             player.packetStateData.acceptedClientTick += 5;
             var check = player.checkManager.getListener(BedrockMovement.class);
@@ -88,12 +96,12 @@ public final class BedrockRejectedVehicleMoveTest {
             answer(player, SERVER, YAW, 0.0F);
             // Movement goes unjudged only while the correction itself is outstanding.
             assertFalse(check.canFlagMovement());
-            player.bedrockState.movementCorrections.clear();
+            settle(player, horse);
             assertTrue(check.canFlagMovement());
 
             // A teleport of the vehicle does open one.
             player.bedrockState.movementCorrections.request(player, HORSE, SERVER, Vec3.ZERO, YAW, 0.0F, true, 0);
-            player.bedrockState.movementCorrections.clear();
+            settle(player, horse);
             assertFalse(check.canFlagMovement());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
@@ -101,33 +109,34 @@ public final class BedrockRejectedVehicleMoveTest {
     }
 
     @Test
-    public void repeatedAnswerPlacesTheHorseAgainOnlyAfterAFrameMovedIt() {
+    public void repeatedAnswerIsIgnoredUntilTheClientTakesTheCorrection() {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
             PacketEntityHorse horse = ride(player);
             var corrections = player.bedrockState.movementCorrections;
             answer(player, SERVER, YAW, 0.0F);
-            long placed = corrections.generation();
-
-            // An answer to a move sent before the horse was placed is still cancelled, and changes nothing.
-            assertTrue(answer(player, SERVER, YAW, 0.0F).isCancelled());
-            assertEquals(placed, corrections.generation());
+            assertEquals(SERVER, placement(player, horse));
 
             // The server moved the horse itself before it answered the earlier move.
             Vec3 moved = new Vec3(25.502745F, 120.0F, 32.952637F);
             answer(player, moved, YAW, 0.0F);
-            long movedGeneration = corrections.generation();
-            assertTrue(movedGeneration > placed);
-            assertEquals(moved, horse.clientPhysicalPosition);
+            assertEquals(moved, placement(player, horse));
 
-            // Once a frame has moved the horse from the position, the same answer rejects that frame's move.
-            predict(horse, new Vec3(25.502745F, 120.0F, 33.064737F));
+            // The correction leaves for the client, which acknowledges it before its next tick but takes it only on
+            // the tick after: an answer to a move sent until then changes nothing.
             corrections.record(player, frame(player, 20629), horse, null, horse.bedrockPrediction.commit());
-            assertEquals(movedGeneration, corrections.generation());
-            answer(player, moved, YAW, 0.0F);
-            assertTrue(corrections.generation() > movedGeneration);
-            assertEquals(moved, horse.clientPhysicalPosition);
+            var correction = corrections.correction(
+                    frame(player, 20629),
+                    horse,
+                    BedrockProfileState.previousState(horse.bedrockPrediction.commit().carry()),
+                    0);
+            corrections.observe(player, correction);
+            corrections.acknowledge(correction.sequence());
+            predict(horse, new Vec3(25.502745F, 120.0F, 33.064737F));
+            corrections.record(player, frame(player, 20630), horse, null, horse.bedrockPrediction.commit());
+            assertTrue(answer(player, moved, YAW, 0.0F).isCancelled());
+            assertEquals(new Vec3(25.502745F, 120.0F, 33.064737F), placement(player, horse));
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
@@ -173,6 +182,32 @@ public final class BedrockRejectedVehicleMoveTest {
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
+    }
+
+    /** The correction leaves for the client and is done with. */
+    private static void settle(CultPlayer player, PacketEntityHorse horse) {
+        var corrections = player.bedrockState.movementCorrections;
+        corrections.beginFrame(player, 20629, HORSE, HORSE);
+        corrections.observe(
+                player,
+                corrections.correction(
+                        frame(player, 20629),
+                        horse,
+                        BedrockProfileState.previousState(horse.bedrockPrediction.commit().carry()),
+                        0));
+        corrections.clear();
+    }
+
+    /** Where the next correction places the horse. */
+    private static Vec3 placement(CultPlayer player, PacketEntityHorse horse) {
+        return player.bedrockState
+                .movementCorrections
+                .correction(
+                        frame(player, 20631),
+                        horse,
+                        BedrockProfileState.previousState(horse.bedrockPrediction.commit().carry()),
+                        0)
+                .position();
     }
 
     private static PacketSendEvent<ClientboundMoveVehicle> answer(
