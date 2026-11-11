@@ -284,6 +284,11 @@ public class PacketPlayerRespawn {
             player.compensatedEntities.vehicles.clearSentRiding();
             clearFairReachLevel(player);
             player.compensatedWorld.serverWorldChangeSent();
+        } else if (!player.isBedrockMovement()) {
+            // In the same level, ClientLevel#addEntity of ClientPacketListener#handleRespawn's new LocalPlayer
+            // discards the old one under its ID: Entity#setRemoved stops it riding and ejects its passengers.
+            // KEEP_ENTITY_DATA copies synched data, delta movement and rotation, never a riding link.
+            player.compensatedEntities.vehicles.onSentRemoval(player.entityID);
         }
         // ClientPacketListener#handleRespawn creates a LocalPlayer with full food, adjusts its abilities to the
         // game mode, and on a dimension change starts a ClientLevel whose block predictions count from 1.

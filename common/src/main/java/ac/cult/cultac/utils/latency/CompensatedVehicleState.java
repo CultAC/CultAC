@@ -834,7 +834,7 @@ public final class CompensatedVehicleState implements Debuggable {
         sentRiding.setPassengers(vehicleId, passengers);
     }
 
-    /** Records a sent remove_entities of {@code entityId}. */
+    /** Records the client discarding {@code entityId}: a sent remove_entities, or a new entity added under its ID. */
     public void onSentRemoval(int entityId) {
         sentRiding.remove(entityId);
     }
