@@ -37,6 +37,7 @@ class BedrockVisibilityTest {
     private static final Vec3 LOW_ZOMBIE_HIT = new Vec3(0.5, 64.6, 0.35);
     private static final BlockPos TARGET = new BlockPos(0, 64, 2);
     private static final int NORTH = 2;
+    private static final int SOUTH = 3;
 
     @Test
     void anAttackThroughAWallIsFlaggedAndOneInTheOpenIsNot() throws Exception {
@@ -174,6 +175,28 @@ class BedrockVisibilityTest {
             assertEquals(1, visibility.violations, "a use the client's tick made waits for the tick end");
             setup.tick();
             assertEquals(2, visibility.violations);
+        }
+    }
+
+    @Test
+    void aZeroPointOnAUseTheClientsTickMadeNamesNoPoint() throws Exception {
+        try (var setup = new Setup()) {
+            var visibility = setup.check(BedrockPlaceVisibility.class);
+            // The stone's top shows over the block north of it, but the blocks around its corner at 0, 64, 2 hide it.
+            for (int y = 63; y <= 64; y++) {
+                setup.block(0, y, 1, "stone");
+                setup.block(-1, y, 1, "stone");
+                setup.block(-1, y, 2, "stone");
+            }
+            setup.block(0, 63, 2, "stone");
+            Vec3 zero = new Vec3(0, 0, 0);
+
+            visibility.dropsUse(TARGET, SOUTH, zero, false);
+            setup.tick();
+            assertEquals(0, visibility.violations, "the client's tick built on the stone, which is in plain view");
+
+            visibility.dropsUse(TARGET, SOUTH, zero, true);
+            assertEquals(1, visibility.violations, "the player's input picked the hidden corner");
         }
     }
 
