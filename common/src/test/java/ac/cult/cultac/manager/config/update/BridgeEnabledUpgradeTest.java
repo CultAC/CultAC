@@ -36,7 +36,7 @@ class BridgeEnabledUpgradeTest {
         try (var source = CultConfigSpecs.class.getResourceAsStream("/config/" + language + ".yml")) {
             assertNotNull(source);
             Map<String, Object> data = new Yaml().load(source);
-            assertEquals(19, data.get("config-version"));
+            assertEquals(20, data.get("config-version"));
             assertEquals(Map.of("enabled", true, "secret", ""), bridge(data));
         }
     }
@@ -49,7 +49,7 @@ class BridgeEnabledUpgradeTest {
                 .update(file.toFile(), CultConfigSpecs.mainConfig())
                 .migrated);
         Map<String, Object> data = new Yaml().load(Files.readString(file));
-        assertEquals(19, data.get("config-version"));
+        assertEquals(20, data.get("config-version"));
         return data;
     }
 

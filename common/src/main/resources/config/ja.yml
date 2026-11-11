@@ -365,4 +365,4 @@ update:
   webhook: ""
 
 config-flavor: V2
-config-version: 19
+config-version: 20
