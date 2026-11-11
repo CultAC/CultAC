@@ -1542,7 +1542,10 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         Vec3 position = new Vec3(trackedPosition.getX(), trackedPosition.getY(), trackedPosition.getZ());
         return new VehicleMountResyncState(
                 position,
-                snapNudge(player.compensatedEntities.getEntity(vehicleId), position),
+                snapNudge(
+                        player.compensatedEntities.getEntity(vehicleId),
+                        position,
+                        player.compensatedEntities.vehicles.isServerPlayerFirstPassengerOf(vehicleId)),
                 trackedPosition.getXRot(),
                 trackedPosition.getYRot(),
                 null,
@@ -1557,12 +1560,18 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
      * packet at the returned nudge forces that snap, and the resync packet behind it in the same bundle snaps the
      * vehicle back before its next tick, so no tick runs at the nudge. Geyser's JavaMoveVehicleTranslator applies
      * every MoveVehicle, so a Bedrock client never needs one.
+     *
+     * <p>A vehicle the client does not already drive as sent holds the last position sent to it, as its interpolation
+     * target or as its position once reached, even before that packet's proof returns. The resync at the tracked
+     * position never moves it, so it always takes the nudge.
      */
     @Nullable
-    private Vec3 snapNudge(@Nullable PacketEntity vehicle, Vec3 position) {
+    private Vec3 snapNudge(@Nullable PacketEntity vehicle, Vec3 position, boolean drivenAsSent) {
         if (player.isBedrockMovement()) return null;
         Vec3 target = currentSerializedVehiclePosition(vehicle);
-        if (target == null || position.distanceTo(target) > 1.0E-5F) return null;
+        if (!drivenAsSent) {
+            if (target == null) target = position;
+        } else if (target == null || position.distanceTo(target) > 1.0E-5F) return null;
         // Each axis points away from the target, so the nudge is at least its own length from it.
         return new Vec3(
                 position.x + snapNudgeAwayFrom(position.x, target.x),

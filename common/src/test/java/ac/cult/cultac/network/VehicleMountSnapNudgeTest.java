@@ -8,9 +8,15 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveVehicle;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundPacket;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetPassengers;
+import ac.cult.cultac.protocol.value.EntityDelta;
+import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.math.Vec3;
@@ -68,17 +74,44 @@ class VehicleMountSnapNudgeTest {
         }
     }
 
+    /** A boat the client already drives as sent stays where the client moved it, which the resync alone snaps. */
     @Test
-    void aResyncThatAlreadySnapsIsSentAlone() throws Exception {
+    void aResyncThatAlreadySnapsADrivenVehicleIsSentAlone() throws Exception {
         try (var f = new JavaTickFixture()) {
             Vec3 tracked = new Vec3(0.75, FLOOR_Y, 0.5);
             addVehicle(f, EntityTypeIds.OAK_BOAT, new Vec3(0.5, FLOOR_Y, 0.5), tracked);
+            mountMoves(f);
+            int queued = f.player.getSetbackTeleportUtil().vehicleTeleports().queuedVehicleTeleportCount();
 
             List<ClientboundMoveVehicle> moves = mountMoves(f);
 
             assertEquals(1, moves.size());
             assertEquals(tracked, position(moves.get(0)));
-            assertEquals(1, f.player.getSetbackTeleportUtil().vehicleTeleports().queuedVehicleTeleportCount());
+            assertEquals(
+                    queued + 1, f.player.getSetbackTeleportUtil().vehicleTeleports().queuedVehicleTeleportCount());
+        }
+    }
+
+    /**
+     * A boat the client does not drive yet holds the last position sent to it as its interpolation target, here a
+     * move whose proof has not returned when the set_passengers is sent: the resync at that position takes the nudge.
+     */
+    @Test
+    void aMountBehindAnUnprovenMoveStillNudges() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            Vec3 spawn = new Vec3(0.5, FLOOR_Y + 2, 1.5);
+            send(f, ClientboundPackets.ADD_ENTITY, new ClientboundAddEntity(
+                    VEHICLE, "minecraft:oak_boat", new Vec3d(spawn.x, spawn.y, spawn.z), 0, 0, 0));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            send(f, ClientboundPackets.MOVE_ENTITY, new ClientboundMoveEntity(
+                    VEHICLE, new EntityDelta.Linear((short) 0, (short) -1024, (short) 0), 0, 0, false, true, false));
+            Vec3 tracked = spawn.add(0.0, -0.25, 0.0);
+
+            List<ClientboundMoveVehicle> moves = mountMoves(f);
+
+            assertEquals(2, moves.size());
+            assertTrue(position(moves.get(0)).distanceTo(tracked) > SNAP_DISTANCE, "the nudge must snap");
+            assertEquals(tracked, position(moves.get(1)));
         }
     }
 
@@ -98,6 +131,21 @@ class VehicleMountSnapNudgeTest {
             assertEquals(tracked, position(moves.get(0)));
             assertEquals(1, f.player.getSetbackTeleportUtil().vehicleTeleports().queuedVehicleTeleportCount());
         }
+    }
+
+    private static <T extends ClientboundPacket> void send(JavaTickFixture f, PacketType<T> type, T packet) {
+        var event = new PacketSendEvent<>(f.fixture.user, ConnectionPhase.PLAY, type, packet, false);
+        if (packet instanceof ClientboundAddEntity add) {
+            f.player.packetEntityReplication.onAddEntity(cast(event), f.player, add);
+        } else if (packet instanceof ClientboundMoveEntity move) {
+            f.player.packetEntityReplication.onMoveEntity(cast(event), f.player, move);
+        }
+        event.tasksAfter().forEach(Runnable::run);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> PacketSendEvent<T> cast(PacketSendEvent<?> event) {
+        return (PacketSendEvent<T>) event;
     }
 
     private static void addVehicle(JavaTickFixture f, int type, Vec3 client, Vec3 tracked) {

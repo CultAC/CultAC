@@ -928,6 +928,15 @@ public final class CompensatedVehicleState implements Debuggable {
                 && serverPlayerVehicleTransaction != null;
     }
 
+    /** Whether the local player was last sent as the first passenger of {@code vehicleId}. */
+    public boolean isServerPlayerFirstPassengerOf(int vehicleId) {
+        return serverPlayerVehicle != null
+                && serverPlayerVehicle == vehicleId
+                && serverPlayerVehiclePassengers != null
+                && serverPlayerVehiclePassengers.length > 0
+                && serverPlayerVehiclePassengers[0] == player.entityID;
+    }
+
     public boolean isServerPlayerPassengerOf(int vehicleId) {
         return serverPlayerVehicle != null
                 && serverPlayerVehicle == vehicleId
