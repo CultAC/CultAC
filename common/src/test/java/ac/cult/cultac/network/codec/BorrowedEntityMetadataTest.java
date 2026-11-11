@@ -125,6 +125,69 @@ class BorrowedEntityMetadataTest {
     }
 
     @Test
+    void anEndedBorrowNeverReadsTheFrameItsLeaseLendsNext() {
+        var lender = new FrameLease.Lender();
+        var stale = new ArrayList<EntityMetadata>();
+        for (int round = 0; round < 64; round++) {
+            int entries = round % 2 == 0 ? 2 : 16;
+            byte[] original = packet(entries);
+            ByteBuf frame = direct(original);
+            ByteBuf nested = direct(packet(2));
+            try {
+                FrameLease lease = lender.open(frame);
+                EntityMetadata metadata = values.read(frame.readerIndex(0), lender.lease(frame));
+                FrameLease inner = lender.open(nested);
+                EntityMetadata innerMetadata = values.read(nested.readerIndex(0), lender.lease(nested));
+                lender.close(inner);
+                lender.close(lease);
+                for (EntityMetadata old : stale) assertEnded(old);
+                ByteBuf output = Unpooled.buffer();
+                try {
+                    encodeBorrowed(output, metadata);
+                    assertArrayEquals(original, ByteBufUtil.getBytes(output));
+                    output.clear();
+                    encodeBorrowed(output, innerMetadata);
+                    assertArrayEquals(packet(2), ByteBufUtil.getBytes(output));
+                } finally {
+                    output.release();
+                }
+                lender.end(inner);
+                lender.end(lease);
+                assertEnded(metadata);
+                assertEnded(innerMetadata);
+                stale.add(metadata);
+                stale.add(innerMetadata);
+            } finally {
+                frame.release();
+                nested.release();
+            }
+        }
+    }
+
+    private static void assertEnded(EntityMetadata metadata) {
+        String message = "Borrowed frame bytes read after their frame was released";
+        for (var entry : metadata.packedItems()) {
+            assertEquals(
+                    message,
+                    assertThrows(IllegalStateException.class, entry::bytes).getMessage());
+            assertEquals(
+                    message,
+                    assertThrows(IllegalStateException.class, entry::detach).getMessage());
+            assertEquals(
+                    message,
+                    assertThrows(IllegalStateException.class, entry::hashCode).getMessage());
+            assertTrue(entry.toString().endsWith("bytes=<released frame>]"), entry.toString());
+            ByteBuf output = Unpooled.buffer();
+            try {
+                assertThrows(IllegalStateException.class, () -> entry.writeTo(output));
+                assertEquals(0, output.writerIndex());
+            } finally {
+                output.release();
+            }
+        }
+    }
+
+    @Test
     void detachedEntriesReEncodeIdenticallyAfterTheFrameIsReleased() {
         byte[] original = packet(16);
         ByteBuf frame = direct(original);

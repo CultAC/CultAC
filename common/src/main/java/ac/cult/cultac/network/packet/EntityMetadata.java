@@ -47,7 +47,7 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
             int size, int[] indices, Object[] values, int[] offsets, int[] lengths, byte[] payload, int payloadStart) {
         for (int i = 0; i < size; i++)
             Objects.checkFromIndexSize(offsets[i] - payloadStart, lengths[i], payload.length);
-        return build(size, indices, values, offsets, lengths, payload, -payloadStart);
+        return build(size, indices, values, offsets, lengths, payload, 0, -payloadStart);
     }
 
     /**
@@ -59,26 +59,33 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
             int size, int[] indices, Object[] values, int[] offsets, int[] lengths, FrameLease lease) {
         for (int i = 0; i < size; i++)
             Objects.checkFromIndexSize(offsets[i], lengths[i], lease.frame().writerIndex());
-        return build(size, indices, values, offsets, lengths, lease, 0);
+        return build(size, indices, values, offsets, lengths, lease, size == 0 ? 0 : lease.generation(), 0);
     }
 
     private static List<Entry> build(
-            int size, int[] indices, Object[] values, int[] offsets, int[] lengths, Object payload, int shift) {
+            int size,
+            int[] indices,
+            Object[] values,
+            int[] offsets,
+            int[] lengths,
+            Object payload,
+            int generation,
+            int shift) {
         switch (size) {
             case 0:
                 return List.of();
             case 1:
-                return List.of(new Entry(indices[0], values[0], payload, offsets[0] + shift, lengths[0]));
+                return List.of(new Entry(indices[0], values[0], payload, generation, offsets[0] + shift, lengths[0]));
             case 2:
                 return List.of(
-                        new Entry(indices[0], values[0], payload, offsets[0] + shift, lengths[0]),
-                        new Entry(indices[1], values[1], payload, offsets[1] + shift, lengths[1]));
+                        new Entry(indices[0], values[0], payload, generation, offsets[0] + shift, lengths[0]),
+                        new Entry(indices[1], values[1], payload, generation, offsets[1] + shift, lengths[1]));
             default:
-                var packed = Entries.pack(size, indices, values, offsets, lengths, payload, shift);
+                var packed = Entries.pack(size, indices, values, offsets, lengths, payload, generation, shift);
                 if (packed != null) return packed;
                 var entries = new Entry[size];
                 for (int i = 0; i < size; i++)
-                    entries[i] = new Entry(indices[i], values[i], payload, offsets[i] + shift, lengths[i]);
+                    entries[i] = new Entry(indices[i], values[i], payload, generation, offsets[i] + shift, lengths[i]);
                 return List.of(entries);
         }
     }
@@ -103,6 +110,8 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
 
         /** A read-only {@link ByteBuffer}, a {@code byte[]} or a {@link FrameLease}. */
         private final Object payload;
+        /** The {@link FrameLease} generation the entries borrow; 0 for any other payload. */
+        private final int generation;
         /** Where the first entry's bytes begin in {@link #payload}. */
         private final int start;
         /** Per entry, its end relative to {@link #start} shifted left by 8 bits, with its index in the low byte. */
@@ -116,8 +125,9 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
         @SuppressWarnings("unused") // Through MATERIALIZED.
         private Object[] materialized;
 
-        private Entries(Object payload, int start, int[] packed, Object[] values, long present) {
+        private Entries(Object payload, int generation, int start, int[] packed, Object[] values, long present) {
             this.payload = payload;
+            this.generation = generation;
             this.start = start;
             this.packed = packed;
             this.values = values;
@@ -126,7 +136,14 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
 
         /** Null unless every index fits a byte and each entry's bytes directly follow the previous entry's. */
         private static Entries pack(
-                int size, int[] indices, Object[] values, int[] offsets, int[] lengths, Object payload, int shift) {
+                int size,
+                int[] indices,
+                Object[] values,
+                int[] offsets,
+                int[] lengths,
+                Object payload,
+                int generation,
+                int shift) {
             int first = offsets[0];
             int[] packed = new int[size];
             long present = 0;
@@ -139,7 +156,7 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
                 if (index < 64) present |= 1L << index;
                 expected = offsets[i] + lengths[i];
             }
-            return new Entries(payload, first + shift, packed, Arrays.copyOf(values, size), present);
+            return new Entries(payload, generation, first + shift, packed, Arrays.copyOf(values, size), present);
         }
 
         /** Whether an entry has {@code index}. */
@@ -172,7 +189,7 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
             entries = new Object[packed.length];
             for (int i = 0, from = 0; i < entries.length; i++) {
                 int end = packed[i] >>> 8;
-                entries[i] = new Entry(packed[i] & 0xFF, values[i], payload, start + from, end - from);
+                entries[i] = new Entry(packed[i] & 0xFF, values[i], payload, generation, start + from, end - from);
                 from = end;
             }
             var witness = (Object[]) MATERIALIZED.compareAndExchangeRelease(this, null, entries);
@@ -440,18 +457,22 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
         private final Object value;
         /** A read-only {@link ByteBuffer}, a {@code byte[]} or a {@link FrameLease}. */
         private final Object payload;
+        /** The {@link FrameLease} generation the bytes borrow; 0 for any other payload. */
+        private final int generation;
+
         private final int offset;
         private final int length;
 
         /** The entry's bytes are {@code bytes}' remaining bytes, kept through a read-only view of their own. */
         public Entry(int id, Object value, ByteBuffer bytes) {
-            this(id, value, bytes.asReadOnlyBuffer(), bytes.position(), bytes.remaining());
+            this(id, value, bytes.asReadOnlyBuffer(), 0, bytes.position(), bytes.remaining());
         }
 
-        private Entry(int id, Object value, Object payload, int offset, int length) {
+        private Entry(int id, Object value, Object payload, int generation, int offset, int length) {
             this.id = id;
             this.value = value;
             this.payload = payload;
+            this.generation = generation;
             this.offset = offset;
             this.length = length;
         }
@@ -463,7 +484,7 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
         public static Entry of(int id, Object value, ByteBuffer payload, int offset, int length) {
             if (!payload.isReadOnly()) throw new IllegalArgumentException("Entry payload must be read-only");
             Objects.checkFromIndexSize(offset, length, payload.limit());
-            return new Entry(id, value, payload, offset, length);
+            return new Entry(id, value, payload, 0, offset, length);
         }
 
         /**
@@ -472,7 +493,7 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
          */
         public static Entry of(int id, Object value, byte[] payload, int offset, int length) {
             Objects.checkFromIndexSize(offset, length, payload.length);
-            return new Entry(id, value, payload, offset, length);
+            return new Entry(id, value, payload, 0, offset, length);
         }
 
         /**
@@ -481,7 +502,7 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
          */
         public static Entry of(int id, Object value, FrameLease lease, int offset, int length) {
             Objects.checkFromIndexSize(offset, length, lease.frame().writerIndex());
-            return new Entry(id, value, lease, offset, length);
+            return new Entry(id, value, lease, lease.generation(), offset, length);
         }
 
         public int id() {
@@ -500,7 +521,7 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
         public ByteBuffer bytes() {
             if (payload instanceof ByteBuffer buffer) return buffer.slice(offset, length);
             if (payload instanceof FrameLease lease)
-                return ByteBuffer.wrap(ByteBufUtil.getBytes(lease.frame(), offset, length))
+                return ByteBuffer.wrap(ByteBufUtil.getBytes(lease.frame(generation), offset, length))
                         .asReadOnlyBuffer();
             return ByteBuffer.wrap((byte[]) payload, offset, length).slice().asReadOnlyBuffer();
         }
@@ -512,7 +533,7 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
          */
         public void writeTo(ByteBuf output) {
             if (payload instanceof FrameLease lease) {
-                ByteBuf frame = lease.frame();
+                ByteBuf frame = lease.frame(generation);
                 // Netty copies out of a direct buffer it cannot address through a fresh duplicate per call.
                 if (!frame.hasArray() && frame.nioBufferCount() == 1)
                     output.writeBytes(frame.internalNioBuffer(offset, length));
@@ -527,7 +548,7 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
          */
         public Entry detach() {
             if (!(payload instanceof FrameLease lease)) return this;
-            return new Entry(id, value, ByteBufUtil.getBytes(lease.frame(), offset, length), 0, length);
+            return new Entry(id, value, ByteBufUtil.getBytes(lease.frame(generation), offset, length), 0, 0, length);
         }
 
         /** EntityDataSerializers.BYTE is serializer 0 in every supported observed version. */
@@ -572,7 +593,7 @@ public record EntityMetadata(int id, List<Entry> packedItems) implements Clientb
 
         @Override
         public String toString() {
-            boolean released = payload instanceof FrameLease lease && !lease.live();
+            boolean released = payload instanceof FrameLease lease && !lease.live(generation);
             return "Entry[id=" + id + ", value=" + value() + ", bytes=" + (released ? "<released frame>" : bytes())
                     + "]";
         }
