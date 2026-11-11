@@ -19,8 +19,8 @@ public final class BedrockTravelHorizontalControl {
     private static final double GROUND_CONTROL =
             GROUND_CONTROL_NUMERATOR / (DEFAULT_BLOCK_FRICTION * DEFAULT_BLOCK_FRICTION * DEFAULT_BLOCK_FRICTION);
     private static final double AIR_CONTROL = DRY_AIR_TRAVEL_SPEED * INPUT_FRICTION;
-    public static final double AIR_FRICTION = 0.91D;
-    private static final double GROUND_FRICTION = DEFAULT_BLOCK_FRICTION * AIR_FRICTION;
+    public static final double AIR_FRICTION = 0.91F;
+    private static final double GROUND_FRICTION = groundFriction(DEFAULT_BLOCK_FRICTION);
 
     private static final double SPRINTING_SPEED_ATTRIBUTE_MODIFIER = 0.3D;
     private static final double SPRINT_MOVEMENT_SPEED_MULTIPLIER = 1.0D + SPRINTING_SPEED_ATTRIBUTE_MODIFIER;
@@ -104,7 +104,7 @@ public final class BedrockTravelHorizontalControl {
                 preparedSpeed.inputRadiusSpeed() * control,
                 moveInputScale,
                 sprintSpeedInput && !preparedSpeed.horizontalAttributeSpeed());
-        double horizontalFriction = groundOrAirFriction(standingSurfaceState, onGroundTravel)
+        double horizontalFriction = (float) groundOrAirFriction(standingSurfaceState, onGroundTravel)
                 * context.attributeState().frictionModifier();
         return new Step(horizontalInputLimit, horizontalFriction);
     }
@@ -115,7 +115,7 @@ public final class BedrockTravelHorizontalControl {
             boolean onGroundTravel,
             BedrockHorizontalSpeedControl.PreparedSpeed preparedSpeed) {
         double standingBlockFriction = standingSurfaceState.blockFriction();
-        double standingGroundFriction = standingBlockFriction * AIR_FRICTION;
+        double standingGroundFriction = groundFriction(standingBlockFriction);
         float standingGroundControl = groundControl(standingBlockFriction);
         boolean onSoulSand = standingSurfaceState.hasSurface(Surface.SOUL_SAND);
         return (float)
@@ -133,7 +133,12 @@ public final class BedrockTravelHorizontalControl {
     }
 
     static double groundOrAirFriction(StandingSurfaceState standingSurfaceState, boolean onGroundTravel) {
-        return onGroundTravel ? standingSurfaceState.blockFriction() * AIR_FRICTION : AIR_FRICTION;
+        return onGroundTravel ? groundFriction(standingSurfaceState.blockFriction()) : AIR_FRICTION;
+    }
+
+    /** The friction the client keeps on a block: its block friction times the air friction, a float product. */
+    private static double groundFriction(double blockFriction) {
+        return (float) blockFriction * (float) AIR_FRICTION;
     }
 
     public static double waterHorizontalDrag(
