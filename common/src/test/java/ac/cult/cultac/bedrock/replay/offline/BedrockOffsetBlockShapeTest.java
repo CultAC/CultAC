@@ -6,6 +6,7 @@ import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
 import ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext;
+import ac.cult.cultac.bedrock.prediction.api.BedrockCollisionShapeQuery;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionWorldBuilder;
 import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
@@ -21,7 +22,6 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.function.Consumer;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.junit.After;
@@ -154,9 +154,7 @@ public class BedrockOffsetBlockShapeTest {
     private static WorldCollisionBox box(int state, BlockPosition position, BedrockCoordinateFrame frame) {
         var context = new BedrockBlockShapeContext(at -> 0.0F, BedrockBlockShapeContext.NONE.movingBlockBoxes(), frame);
         var boxes = new BedrockCollisionWorldBuilder(BedrockClientBlockShapeMappings.catalog(), context)
-                .build(Map.of(position, state))
-                .blockAt(position)
-                .orElseThrow()
+                .block(position, state, BedrockCollisionShapeQuery.NONE)
                 .collisionBoxes();
         assertEquals(1, boxes.size());
         return boxes.getFirst();

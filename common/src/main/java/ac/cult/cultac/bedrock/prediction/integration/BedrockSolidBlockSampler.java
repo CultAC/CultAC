@@ -5,6 +5,7 @@ import ac.cult.blocksim.data.BlockRegistry;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.StateFacts;
 import ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext;
+import ac.cult.cultac.bedrock.prediction.api.BedrockCollisionShapeQuery;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionOverrideCatalog;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionWorldBuilder;
 import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
@@ -15,11 +16,17 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.ClientBlockShapes;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
 
 final class BedrockSolidBlockSampler {
+    /** The order the client gathers block cells in: X outermost, then Z, then Y. */
+    static final Comparator<BlockPosition> GATHER_ORDER = Comparator.comparingInt(BlockPosition::x)
+            .thenComparingInt(BlockPosition::z)
+            .thenComparingInt(BlockPosition::y);
+
     private static final BlockRegistry REGISTRY = DataTables.defaults().registry();
     private final BedrockFluidBlockSampler fluidBlocks;
 
@@ -27,27 +34,44 @@ final class BedrockSolidBlockSampler {
         this.fluidBlocks = fluidBlocks;
     }
 
-    BedrockSolidBlockSample sample(
-            CultPlayer player, SimpleCollisionBox query, BedrockCollisionOverrideCatalog geometry) {
+    /**
+     * The blocks the sweep collides with, cell by cell in {@link #GATHER_ORDER}, each cell's solid block before its
+     * fluid. A moving block a cell outside the sampled cells takes its place in that order.
+     */
+    BlockCollisionWorld sample(
+            CultPlayer player,
+            SimpleCollisionBox query,
+            BedrockCollisionOverrideCatalog geometry,
+            BedrockCollisionShapeQuery shapeQuery) {
         SampleBounds bounds = SampleBounds.from(player, query);
-        SampleAccumulator sampled = new SampleAccumulator(player, geometry);
-        for (int y = bounds.minY(); y <= bounds.maxY(); y++) {
-            for (int z = bounds.minZ(); z <= bounds.maxZ(); z++) {
-                for (int x = bounds.minX(); x <= bounds.maxX(); x++) {
-                    sampled.add(x, y, z);
+        Set<BlockPosition> movingBlocks = movingBlocksBeside(player, bounds);
+        SampleBounds cells = movingBlocks.isEmpty() ? bounds : bounds.grown();
+        SampleAccumulator sampled = new SampleAccumulator(player, geometry, shapeQuery);
+        for (int x = cells.minX(); x <= cells.maxX(); x++) {
+            for (int z = cells.minZ(); z <= cells.maxZ(); z++) {
+                for (int y = cells.minY(); y <= cells.maxY(); y++) {
+                    if (bounds.contains(x, y, z) || movingBlocks.contains(new BlockPosition(x, y, z))) {
+                        sampled.add(x, y, z);
+                    }
                 }
             }
         }
-        if (player.bedrockState != null) {
-            // A moving block collides up to a cell away from its own, along its piston.
-            player.bedrockState.pistonBlocks.forEachMovingBlock(position -> {
-                if (bounds.besides(position.getX(), position.getY(), position.getZ())
-                        && BlockIds.is(player.compensatedWorld.getBlockStateIdAt(position), BlockIds.MOVING_PISTON)) {
-                    sampled.add(position.getX(), position.getY(), position.getZ());
-                }
-            });
+        return sampled.blocks.isEmpty() ? BlockCollisionWorld.EMPTY : new BlockCollisionWorld(sampled.blocks);
+    }
+
+    /** The moving blocks outside {@code bounds} and within a cell of them: one collides up to a cell from its own. */
+    private static Set<BlockPosition> movingBlocksBeside(CultPlayer player, SampleBounds bounds) {
+        if (player.bedrockState == null) {
+            return Set.of();
         }
-        return sampled.build();
+        Set<BlockPosition> movingBlocks = new HashSet<>();
+        player.bedrockState.pistonBlocks.forEachMovingBlock(position -> {
+            if (bounds.besides(position.getX(), position.getY(), position.getZ())
+                    && BlockIds.is(player.compensatedWorld.getBlockStateIdAt(position), BlockIds.MOVING_PISTON)) {
+                movingBlocks.add(new BlockPosition(position.getX(), position.getY(), position.getZ()));
+            }
+        });
+        return movingBlocks;
     }
 
     private static PlacedBlockCollision javaCollisionBlock(
@@ -75,43 +99,18 @@ final class BedrockSolidBlockSampler {
                 BedrockCollisionWorldBuilder.contactBehaviors(blockState));
     }
 
-    record BedrockSolidBlockSample(
-            List<BlockPosition> powderSnowBlocks,
-            BlockCollisionWorld staticGeneratedWorld,
-            BlockCollisionWorld actorIndependentWorld,
-            Map<BlockPosition, Integer> dynamicGeneratedBlockStates,
-            List<PlacedBlockCollision> javaCollisionBlocks,
-            List<PlacedBlockCollision> fluidCollisionBlocks) {
-        BedrockSolidBlockSample {
-            powderSnowBlocks = powderSnowBlocks == null ? List.of() : List.copyOf(powderSnowBlocks);
-            staticGeneratedWorld = staticGeneratedWorld == null ? BlockCollisionWorld.EMPTY : staticGeneratedWorld;
-            actorIndependentWorld = actorIndependentWorld == null ? BlockCollisionWorld.EMPTY : actorIndependentWorld;
-            dynamicGeneratedBlockStates = immutableMap(dynamicGeneratedBlockStates);
-            javaCollisionBlocks = javaCollisionBlocks == null ? List.of() : List.copyOf(javaCollisionBlocks);
-            fluidCollisionBlocks = fluidCollisionBlocks == null ? List.of() : List.copyOf(fluidCollisionBlocks);
-        }
-
-        private static Map<BlockPosition, Integer> immutableMap(Map<BlockPosition, Integer> input) {
-            if (input == null || input.isEmpty()) {
-                return Map.of();
-            }
-            return java.util.Collections.unmodifiableMap(new LinkedHashMap<>(input));
-        }
-    }
-
     private final class SampleAccumulator {
         private final CultPlayer player;
         private final BedrockCollisionOverrideCatalog geometry;
+        private final BedrockCollisionShapeQuery shapeQuery;
         private final BedrockCollisionWorldBuilder worldBuilder;
-        private final List<BlockPosition> powderSnowBlocks = new ArrayList<>();
-        private final Map<BlockPosition, Integer> staticGeneratedBlockStates = new LinkedHashMap<>();
-        private final Map<BlockPosition, Integer> dynamicGeneratedBlockStates = new LinkedHashMap<>();
-        private final List<PlacedBlockCollision> javaCollisionBlocks = new ArrayList<>();
-        private final List<PlacedBlockCollision> fluidCollisionBlocks = new ArrayList<>();
+        private final List<PlacedBlockCollision> blocks = new ArrayList<>();
 
-        private SampleAccumulator(CultPlayer player, BedrockCollisionOverrideCatalog geometry) {
+        private SampleAccumulator(
+                CultPlayer player, BedrockCollisionOverrideCatalog geometry, BedrockCollisionShapeQuery shapeQuery) {
             this.player = player;
             this.geometry = geometry;
+            this.shapeQuery = shapeQuery;
             this.worldBuilder = new BedrockCollisionWorldBuilder(
                     geometry,
                     player.bedrockState == null
@@ -128,51 +127,31 @@ final class BedrockSolidBlockSampler {
             }
             BlockPosition position = new BlockPosition(x, y, z);
             String javaState = BedrockCollisionWorldBuilder.javaIdentifier(blockState);
+            if (!air && !fluidBlocks.isFluid(blockState)) {
+                blocks.add(
+                        BedrockCollisionWorldBuilder.hasBedrockBehavior(blockState, geometry)
+                                ? worldBuilder.block(position, blockState, shapeQuery)
+                                : javaCollisionBlock(player, blockState, position, javaState, worldBuilder));
+            }
             PlacedBlockCollision fluidBlock = fluidBlocks.fluidBlock(player, x, y, z, blockState, javaState);
             if (fluidBlock != null) {
-                fluidCollisionBlocks.add(fluidBlock);
+                blocks.add(fluidBlock);
             }
-            if (BlockIds.is(blockState, BlockIds.POWDER_SNOW)) {
-                powderSnowBlocks.add(position);
-            }
-            if (air || fluidBlocks.isFluid(blockState)) {
-                return;
-            }
-            if (!BedrockCollisionWorldBuilder.hasBedrockBehavior(blockState, geometry)) {
-                javaCollisionBlocks.add(javaCollisionBlock(player, blockState, position, javaState, worldBuilder));
-            } else if (BedrockCollisionWorldBuilder.dynamicMovement(blockState)) {
-                dynamicGeneratedBlockStates.put(position, blockState);
-            } else {
-                staticGeneratedBlockStates.put(position, blockState);
-            }
-        }
-
-        private BedrockSolidBlockSample build() {
-            BlockCollisionWorld staticGeneratedWorld = staticGeneratedBlockStates.isEmpty()
-                    ? BlockCollisionWorld.EMPTY
-                    : worldBuilder.build(staticGeneratedBlockStates);
-            List<PlacedBlockCollision> actorIndependentBlocks = new ArrayList<>(
-                    staticGeneratedWorld.blocks().size() + javaCollisionBlocks.size() + fluidCollisionBlocks.size());
-            actorIndependentBlocks.addAll(staticGeneratedWorld.blocks());
-            actorIndependentBlocks.addAll(javaCollisionBlocks);
-            actorIndependentBlocks.addAll(fluidCollisionBlocks);
-            return new BedrockSolidBlockSample(
-                    powderSnowBlocks,
-                    staticGeneratedWorld,
-                    actorIndependentBlocks.isEmpty()
-                            ? BlockCollisionWorld.EMPTY
-                            : new BlockCollisionWorld(actorIndependentBlocks),
-                    dynamicGeneratedBlockStates,
-                    javaCollisionBlocks,
-                    fluidCollisionBlocks);
         }
     }
 
     private record SampleBounds(int minX, int maxX, int minY, int maxY, int minZ, int maxZ) {
+        private boolean contains(int x, int y, int z) {
+            return x >= minX && x <= maxX && y >= minY && y <= maxY && z >= minZ && z <= maxZ;
+        }
+
+        private SampleBounds grown() {
+            return new SampleBounds(minX - 1, maxX + 1, minY - 1, maxY + 1, minZ - 1, maxZ + 1);
+        }
+
         /** Whether a cell lies outside these bounds and within one cell of them. */
         private boolean besides(int x, int y, int z) {
-            boolean inside = x >= minX && x <= maxX && y >= minY && y <= maxY && z >= minZ && z <= maxZ;
-            return !inside
+            return !contains(x, y, z)
                     && x >= minX - 1
                     && x <= maxX + 1
                     && y >= minY - 1

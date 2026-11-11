@@ -8,6 +8,7 @@ import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.bedrock.player.BedrockPistonBlocks;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
+import ac.cult.cultac.bedrock.prediction.api.BedrockCollisionShapeQuery;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionWorldBuilder;
 import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
@@ -22,7 +23,6 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.function.ToIntFunction;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.junit.After;
@@ -201,9 +201,7 @@ public class BedrockMovingBlockTest {
         var position = new BlockPosition(MOVING.getX(), MOVING.getY(), MOVING.getZ());
         var engine = new BedrockCollisionWorldBuilder(
                         BedrockClientBlockShapeMappings.catalog(), player.bedrockState.blockShapeContext(player))
-                .build(Map.of(position, MOVING_BLOCK))
-                .blockAt(position)
-                .orElseThrow()
+                .block(position, MOVING_BLOCK, BedrockCollisionShapeQuery.NONE)
                 .collisionBoxes();
         assertEquals(message, 1, engine.size());
         assertEquals(message, minX, engine.getFirst().minX(), 0.0);

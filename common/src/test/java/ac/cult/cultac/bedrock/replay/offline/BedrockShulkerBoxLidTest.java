@@ -6,6 +6,7 @@ import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.bedrock.player.BedrockShulkerBoxLids;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
+import ac.cult.cultac.bedrock.prediction.api.BedrockCollisionShapeQuery;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionWorldBuilder;
 import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
@@ -17,7 +18,6 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.collisions.BedrockClientBlockShapeMappings;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
-import java.util.Map;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.junit.Test;
 
@@ -123,9 +123,7 @@ public class BedrockShulkerBoxLidTest {
                 ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame.IDENTITY);
         var builder = new BedrockCollisionWorldBuilder(BedrockClientBlockShapeMappings.catalog(), context);
         var position = new BlockPosition(BOX.getX(), BOX.getY(), BOX.getZ());
-        var boxes = builder.build(Map.of(position, shulkerBox(facing)))
-                .blockAt(position)
-                .orElseThrow()
+        var boxes = builder.block(position, shulkerBox(facing), BedrockCollisionShapeQuery.NONE)
                 .collisionBoxes();
         assertEquals(1, boxes.size());
         var box = boxes.getFirst();

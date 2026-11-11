@@ -6,11 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.cultac.bedrock.prediction.api.BedrockCollisionShapeQuery;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionOverrideCatalog;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionWorldBuilder;
 import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
-import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
@@ -33,9 +33,7 @@ class BedrockMovingPistonShapeTest {
         assertTrue(entry.dynamicMovement());
         var position = new BlockPosition(0, 0, 0);
         var boxes = new BedrockCollisionWorldBuilder(catalog)
-                .build(Map.of(position, movingPiston))
-                .blockAt(position)
-                .orElseThrow()
+                .block(position, movingPiston, BedrockCollisionShapeQuery.NONE)
                 .collisionBoxes();
         // A moving block that carries nothing yet is a cube.
         assertEquals(1, boxes.size());

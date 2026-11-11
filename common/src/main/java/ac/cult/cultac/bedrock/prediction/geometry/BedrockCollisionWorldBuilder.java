@@ -39,35 +39,34 @@ public final class BedrockCollisionWorldBuilder {
         this.context = Objects.requireNonNull(context, "context");
     }
 
-    public BlockCollisionWorld build(Map<BlockPosition, Integer> blockStates) {
-        return build(blockStates, BedrockCollisionShapeQuery.NONE);
-    }
-
     public BlockCollisionWorld build(Map<BlockPosition, Integer> blockStates, BedrockCollisionShapeQuery query) {
-        query = query == null ? BedrockCollisionShapeQuery.NONE : query;
         List<PlacedBlockCollision> blocks = new ArrayList<>();
         for (Map.Entry<BlockPosition, Integer> entry : blockStates.entrySet()) {
             Integer state = entry.getValue();
-            if (state == null || isAir(state)) {
-                continue;
+            if (state != null && !isAir(state)) {
+                blocks.add(block(entry.getKey(), state, query));
             }
-            List<WorldCollisionBox> boxes = collisionBoxes(entry.getKey(), state, query);
-            List<WorldCollisionBox> contactBoxes =
-                    movementResolvedContactUsesCollisionBoxes(state) ? boxes : List.of(fullBlockBox(entry.getKey()));
-            String javaIdentifier = javaIdentifier(state);
-            Map<String, Object> bedrockState = bedrockState(state);
-            blocks.add(PlacedBlockCollision.sampled(
-                    entry.getKey(),
-                    javaIdentifier,
-                    state,
-                    javaIdentifier,
-                    bedrockState,
-                    boxes,
-                    contactBoxes,
-                    insideBlockContactBoxes(entry.getKey(), boxes),
-                    contactBehaviors(state)));
         }
         return new BlockCollisionWorld(blocks);
+    }
+
+    /** The collision of the non-air {@code state} at {@code position}, its shape resolved for {@code query}. */
+    public PlacedBlockCollision block(BlockPosition position, int state, BedrockCollisionShapeQuery query) {
+        query = query == null ? BedrockCollisionShapeQuery.NONE : query;
+        List<WorldCollisionBox> boxes = collisionBoxes(position, state, query);
+        List<WorldCollisionBox> contactBoxes =
+                movementResolvedContactUsesCollisionBoxes(state) ? boxes : List.of(fullBlockBox(position));
+        String javaIdentifier = javaIdentifier(state);
+        return PlacedBlockCollision.sampled(
+                position,
+                javaIdentifier,
+                state,
+                javaIdentifier,
+                bedrockState(state),
+                boxes,
+                contactBoxes,
+                insideBlockContactBoxes(position, boxes),
+                contactBehaviors(state));
     }
 
     public Map<String, Object> bedrockState(int state) {

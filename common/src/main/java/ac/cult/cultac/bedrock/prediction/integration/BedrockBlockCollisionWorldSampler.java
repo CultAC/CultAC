@@ -2,21 +2,16 @@ package ac.cult.cultac.bedrock.prediction.integration;
 
 import ac.cult.cultac.bedrock.prediction.api.BedrockCollisionShapeQuery;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionOverrideCatalog;
-import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionWorldBuilder;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
-import ac.cult.cultac.bedrock.prediction.integration.BedrockSolidBlockSampler.BedrockSolidBlockSample;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
 import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
-import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
-import java.util.ArrayList;
-import java.util.List;
 
 final class BedrockBlockCollisionWorldSampler {
     private final BedrockFluidBlockSampler fluidBlocks = new BedrockFluidBlockSampler();
@@ -84,34 +79,9 @@ final class BedrockBlockCollisionWorldSampler {
             SimpleCollisionBox query,
             boolean wearingLeatherBoots,
             float fallDistance) {
-        BedrockSolidBlockSample solidBlockSample = solidBlocks.sample(player, query, geometry);
-        WorldCollisionBox worldActorBox = toWorldCollisionBox(actorBox);
-        BedrockCollisionShapeQuery shapeQuery =
-                BedrockCollisionShapeQuery.actor(worldActorBox, false, wearingLeatherBoots, fallDistance);
-        BlockCollisionWorld dynamicGeneratedWorld =
-                solidBlockSample.dynamicGeneratedBlockStates().isEmpty()
-                        ? BlockCollisionWorld.EMPTY
-                        : new BedrockCollisionWorldBuilder(geometry)
-                                .build(solidBlockSample.dynamicGeneratedBlockStates(), shapeQuery);
-        BlockCollisionWorld staticGeneratedWorld = solidBlockSample.staticGeneratedWorld();
-        if (dynamicGeneratedWorld.isEmpty()) {
-            return new BedrockSampledBlockWorld(solidBlockSample.actorIndependentWorld());
-        }
-        if (solidBlockSample.javaCollisionBlocks().isEmpty()
-                && solidBlockSample.fluidCollisionBlocks().isEmpty()
-                && staticGeneratedWorld.isEmpty()) {
-            return new BedrockSampledBlockWorld(dynamicGeneratedWorld);
-        }
-        List<PlacedBlockCollision> blocks =
-                new ArrayList<>(staticGeneratedWorld.blocks().size()
-                        + dynamicGeneratedWorld.blocks().size()
-                        + solidBlockSample.javaCollisionBlocks().size()
-                        + solidBlockSample.fluidCollisionBlocks().size());
-        blocks.addAll(staticGeneratedWorld.blocks());
-        blocks.addAll(dynamicGeneratedWorld.blocks());
-        blocks.addAll(solidBlockSample.javaCollisionBlocks());
-        blocks.addAll(solidBlockSample.fluidCollisionBlocks());
-        return new BedrockSampledBlockWorld(new BlockCollisionWorld(blocks));
+        BedrockCollisionShapeQuery shapeQuery = BedrockCollisionShapeQuery.actor(
+                toWorldCollisionBox(actorBox), false, wearingLeatherBoots, fallDistance);
+        return new BedrockSampledBlockWorld(solidBlocks.sample(player, query, geometry, shapeQuery));
     }
 
     private SimpleCollisionBox trustedActorCollisionBox(SimulationContext context, BedrockPlayerContext playerContext) {

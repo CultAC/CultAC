@@ -63,7 +63,8 @@ public final class BedrockReplayCollisionShapesTest {
                 new BlockCollisionWorld(List.of(removed, stone(5, 0, 0))),
                 new BlockCollisionWorld(List.of(placedInside, placedOutside, straddling)),
                 fetched);
-        assertEquals(List.of(removed, placedOutside, straddling), world.blocks());
+        // In the order the client gathers cells: X, then Z, then Y.
+        assertEquals(List.of(removed, straddling, placedOutside), world.blocks());
     }
 
     private static BedrockProfileState.Entry replay(
