@@ -3,7 +3,6 @@ package ac.cult.cultac.checks.impl.breaking;
 import ac.cult.blocksim.data.Components;
 import ac.cult.blocksim.engine.BlockSimClientVersion;
 import ac.cult.blocksim.engine.SimItemStack;
-import ac.cult.blocksim.interaction.MiningSpeed;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.blockplace.ClientBlockActions;
@@ -17,6 +16,7 @@ import ac.cult.cultac.utils.nmsutil.ClientMiningState;
  * stack's immutable components, the mining state and the fatigue form, so equal inputs give the same value.
  */
 public final class BlockDamageMemo {
+    private final ClientMiningState.Inputs inputs = new ClientMiningState.Inputs();
     private ClientComponentRegistries.SimulationActions binding;
     private Components components;
     private BlockSimClientVersion fatigue;
@@ -38,7 +38,7 @@ public final class BlockDamageMemo {
         var binding = ClientBlockActions.binding(player);
         var mining = binding.simulator().miningSpeed();
         int modelState = binding.states().toModel(block);
-        MiningSpeed.State state = ClientMiningState.of(player);
+        ClientMiningState.Inputs state = inputs.read(player);
         BlockSimClientVersion fatigue = ClientMiningState.fatigueForm(player, binding);
         Components components = tool.components();
         if (binding == this.binding
@@ -48,31 +48,31 @@ public final class BlockDamageMemo {
                 && sameState(state)) {
             return damage;
         }
-        double result = mining.progress(tool, modelState, state, fatigue);
+        double result = mining.progress(tool, modelState, state.state(), fatigue);
         this.binding = binding;
         this.components = components;
         this.fatigue = fatigue;
         this.modelState = modelState;
-        onGround = state.onGround();
-        eyesInWater = state.eyesInWater();
-        efficiency = Double.doubleToRawLongBits(state.efficiency());
-        blockBreakSpeed = Double.doubleToRawLongBits(state.blockBreakSpeed());
-        submergedSpeed = Double.doubleToRawLongBits(state.submergedSpeed());
-        haste = state.haste();
-        conduitPower = state.conduitPower();
-        miningFatigue = state.fatigue();
+        onGround = state.onGround;
+        eyesInWater = state.eyesInWater;
+        efficiency = Double.doubleToRawLongBits(state.efficiency);
+        blockBreakSpeed = Double.doubleToRawLongBits(state.blockBreakSpeed);
+        submergedSpeed = Double.doubleToRawLongBits(state.submergedSpeed);
+        haste = state.haste;
+        conduitPower = state.conduitPower;
+        miningFatigue = state.fatigue;
         damage = result;
         return result;
     }
 
-    private boolean sameState(MiningSpeed.State state) {
-        return state.onGround() == onGround
-                && state.eyesInWater() == eyesInWater
-                && Double.doubleToRawLongBits(state.efficiency()) == efficiency
-                && Double.doubleToRawLongBits(state.blockBreakSpeed()) == blockBreakSpeed
-                && Double.doubleToRawLongBits(state.submergedSpeed()) == submergedSpeed
-                && state.haste() == haste
-                && state.conduitPower() == conduitPower
-                && state.fatigue() == miningFatigue;
+    private boolean sameState(ClientMiningState.Inputs state) {
+        return state.onGround == onGround
+                && state.eyesInWater == eyesInWater
+                && Double.doubleToRawLongBits(state.efficiency) == efficiency
+                && Double.doubleToRawLongBits(state.blockBreakSpeed) == blockBreakSpeed
+                && Double.doubleToRawLongBits(state.submergedSpeed) == submergedSpeed
+                && state.haste == haste
+                && state.conduitPower == conduitPower
+                && state.fatigue == miningFatigue;
     }
 }

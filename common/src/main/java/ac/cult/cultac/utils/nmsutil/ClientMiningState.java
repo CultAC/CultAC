@@ -4,9 +4,7 @@ import ac.cult.blocksim.engine.BlockSimClientVersion;
 import ac.cult.blocksim.interaction.MiningSpeed;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.MovementEffect;
-import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
-import ac.cult.cultac.utils.math.Vec3;
 
 /** Player#getDestroySpeed's player inputs as this client last received them. */
 public final class ClientMiningState {
@@ -29,6 +27,37 @@ public final class ClientMiningState {
                 amplifier(player, MovementEffect.MINING_FATIGUE));
     }
 
+    /** {@link #of(CultPlayer)}'s values held in reusable fields; {@link #state()} builds the record from them. */
+    public static final class Inputs {
+        public boolean onGround;
+        public boolean eyesInWater;
+        public double efficiency;
+        public double blockBreakSpeed;
+        public double submergedSpeed;
+        public int haste;
+        public int conduitPower;
+        public int fatigue;
+
+        /** Reads what {@link #of(CultPlayer)} reads, in the same order. */
+        public Inputs read(CultPlayer player) {
+            var self = player.compensatedEntities.getSelf();
+            onGround = player.packetStateData.packetPlayerOnGround;
+            eyesInWater = eyeInWater(player);
+            efficiency = self.miningEfficiency;
+            blockBreakSpeed = self.blockBreakSpeed;
+            submergedSpeed = self.submergedMiningSpeed;
+            haste = amplifier(player, MovementEffect.HASTE);
+            conduitPower = amplifier(player, MovementEffect.CONDUIT_POWER);
+            fatigue = amplifier(player, MovementEffect.MINING_FATIGUE);
+            return this;
+        }
+
+        public MiningSpeed.State state() {
+            return new MiningSpeed.State(
+                    onGround, eyesInWater, efficiency, blockBreakSpeed, submergedSpeed, haste, conduitPower, fatigue);
+        }
+    }
+
     /** Geyser's BlockUtils#getPlayerDestroySpeed keeps the Mining Fatigue table that 26.3 replaced. */
     public static BlockSimClientVersion fatigueForm(
             CultPlayer player, ClientComponentRegistries.SimulationActions binding) {
@@ -42,14 +71,22 @@ public final class ClientMiningState {
         return level == null ? -1 : level;
     }
 
+    // GetBoundingBox#getBoundingBoxFromPosAndSize's bounds, sorted as SimpleCollisionBox#sort orders them.
     private static boolean eyeInWater(CultPlayer player) {
-        SimpleCollisionBox body = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                player.x,
-                player.y,
-                player.z,
-                player.pose.width * player.dimensionScale,
-                player.pose.height * player.dimensionScale);
+        float halfWidth = player.pose.width * player.dimensionScale / 2.0F;
+        float height = player.pose.height * player.dimensionScale;
+        double x = player.x, y = player.y, z = player.z;
+        double lowX = x - halfWidth, lowZ = z - halfWidth, highX = x + halfWidth, highY = y + height, highZ = z + halfWidth;
         return ClientFluidQueries.eyesInWater(
-                player, body, new Vec3(player.x, player.y, player.z), player.y + player.getEyeHeight());
+                player,
+                Math.min(lowX, highX),
+                Math.min(y, highY),
+                Math.min(lowZ, highZ),
+                Math.max(lowX, highX),
+                Math.max(y, highY),
+                Math.max(lowZ, highZ),
+                x,
+                z,
+                y + player.getEyeHeight());
     }
 }
