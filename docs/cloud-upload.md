@@ -110,6 +110,7 @@ The `cloud:` block in `plugins/CultAC/config.yml` (`plugins/cultac/config.yml` o
 | `cloud.api-key` | `""` | The key your intake service issued. |
 | `cloud.server-id` | `""` | Each upload socket's server id. Empty picks the platform's default, below. |
 | `cloud.proxy-id` | `""` | On Velocity, this proxy's name. On Paper, this server's own name. |
+| `cloud.uncaptured-servers` | `[]` | Backends whose players are not captured while they are on them, below. |
 | `cloud.perf` | `false` | Lets the intake service ask for performance profiles, below. `CULTAC_CLOUD_PERF` (`true`/`1`/`yes`, `false`/`0`/`no`) overrides it when set. |
 | `cloud.team-sync` | `false` | Reports staff portal roles to the intake service, below. `CULTAC_CLOUD_TEAM_SYNC` (`true`/`1`/`yes`, `false`/`0`/`no`) overrides it when set. |
 
@@ -147,6 +148,33 @@ Every writer sharing one API key needs distinct ids:
   one; the older logs a warning and tries again a minute later, so a duplicate `proxy-id` shows as a slow flap.
 - Upload from the proxy or from its backends, not both. A backend that uploads on its own while its proxy also uploads
   sends every player twice.
+
+### Backends left uncaptured
+
+`cloud.uncaptured-servers` lists backends, such as lobbies, whose players CultAC does not capture while they are on
+them. Each entry is a backend name as `velocity.toml` gives it, matched whole and ignoring case; `*` stands for any
+run of characters, so `hub-*` matches `hub-1` and `HUB-EU`. The list is empty by default, which captures every
+backend.
+
+```yaml
+cloud:
+  uncaptured-servers:
+    - lobby
+    - hub-*
+```
+
+- It follows each player: a switch onto a listed backend ends the player's capture there, as a switch does today, and
+  a switch off it starts a new one at the next backend's login. Each player is decided on their own, by the backend
+  they are on.
+- While a player is on a listed backend nothing of their play is uploaded, so the intake service holds nothing of
+  that time.
+- CultAC's own checks, alerts, punishments and flag history run there as everywhere else, and cloud flags and staff
+  bans the service sends still reach the player.
+- Bedrock players are announced as before.
+- `/cult reload` applies a changed list to players already on a backend: a player on a backend just listed stops
+  being captured, and one on a backend just removed starts again, marked as resumed.
+- On Paper the server's own name is `proxy-id`, so the list either matches it and stops the capture on the whole
+  server, or does nothing.
 
 ### Team sync
 

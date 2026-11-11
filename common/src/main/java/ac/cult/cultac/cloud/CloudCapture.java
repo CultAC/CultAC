@@ -92,7 +92,8 @@ import org.jetbrains.annotations.Nullable;
  *
  * <p>A segment starts at each clientbound play {@code login} and ends at the next {@code start_configuration} or the
  * disconnect. The {@link SegmentBinder} names the backend a segment belongs to, and the segment uploads on that
- * backend's socket; frames wait until it is bound and the service has answered its JOIN. Java clients are streamed;
+ * backend's socket; frames wait until it is bound and the service has answered its JOIN. A segment of a backend in
+ * {@code cloud.uncaptured-servers} never joins: the taps pass its packets by unread. Java clients are streamed;
  * Bedrock players are only announced, with a JOIN saying why and a LEAVE.
  */
 public final class CloudCapture implements PlayerObserver {
@@ -132,6 +133,7 @@ public final class CloudCapture implements PlayerObserver {
 
     private static volatile SegmentBinder binder = SegmentBinder.NONE;
     private static volatile Uplinks uplinks = Uplinks.NONE;
+    private static volatile UncapturedServers uncaptured = UncapturedServers.NONE;
 
     private final CultPlayer player;
     private final TickFlags tickFlags = new TickFlags();
@@ -143,6 +145,8 @@ public final class CloudCapture implements PlayerObserver {
     private EngineVerdicts engine;
     /** Whether the stream holds or sends frames, as last seen on the event loop. */
     private volatile boolean capturing;
+    /** Whether the open segment's backend is one of {@code cloud.uncaptured-servers}; written on the event loop. */
+    private volatile boolean idle;
     /** Runs of this tick-end handler; behind the received count when a tick end's handlers were skipped. */
     private final AtomicLong handledTickEnds = new AtomicLong();
     /** Received minus handled tick ends when the segment started, so both count frames from the same start. */
@@ -257,6 +261,18 @@ public final class CloudCapture implements PlayerObserver {
         uplinks = Objects.requireNonNull(sockets);
     }
 
+    /**
+     * The backends whose segments capture nothing; a capture applies them to its open segment at its next
+     * reconfigure.
+     */
+    static void uncaptured(UncapturedServers servers) {
+        uncaptured = Objects.requireNonNull(servers);
+    }
+
+    static UncapturedServers uncaptured() {
+        return uncaptured;
+    }
+
     /** Loads every streamed protocol's packet ids and player text codecs ahead of the first capture. */
     static void warm() {
         for (int protocol = FIRST_PROTOCOL; protocol <= LAST_PROTOCOL; protocol++) {
@@ -297,7 +313,7 @@ public final class CloudCapture implements PlayerObserver {
     @Override
     public void flagged(Check check, double violations) {
         // Cloud checks' violations are not captured.
-        if (channel == null || check instanceof Cloud || check instanceof CloudFlagCheck) return;
+        if (channel == null || idle || check instanceof Cloud || check instanceof CloudFlagCheck) return;
         try {
             String name = check.getCheckName();
             if (name == null || name.isEmpty()) name = check.getClass().getSimpleName();
@@ -313,7 +329,7 @@ public final class CloudCapture implements PlayerObserver {
                 && action.action() == PlayerAction.SWAP_ITEM_WITH_OFFHAND;
         if (!swap && !(packet instanceof InventoryClick || packet instanceof ServerboundSetCarriedItem)) return;
         Channel tapped = channel;
-        if (tapped == null || !tapped.eventLoop().inEventLoop()) return;
+        if (tapped == null || !tapped.eventLoop().inEventLoop() || idle) return;
         try {
             if (!swap && !cancelled) actions.handsMoved();
             if (unstreamed || !swap && !binder.marks(player)) return;
@@ -335,7 +351,7 @@ public final class CloudCapture implements PlayerObserver {
     @Override
     public void sent(Object packet) {
         Channel tapped = channel;
-        if (tapped == null || !tapped.eventLoop().inEventLoop()) return;
+        if (tapped == null || !tapped.eventLoop().inEventLoop() || idle) return;
         try {
             actions.sent(packet, System.nanoTime());
         } catch (Throwable failure) {
@@ -346,7 +362,7 @@ public final class CloudCapture implements PlayerObserver {
     @Override
     public void totemPopped() {
         Channel tapped = channel;
-        if (tapped == null || unstreamed || !tapped.eventLoop().inEventLoop()) return;
+        if (tapped == null || unstreamed || !tapped.eventLoop().inEventLoop() || idle) return;
         try {
             actions.popped(player.getInventory().inventory.selected, System.nanoTime());
         } catch (Throwable failure) {
@@ -382,7 +398,7 @@ public final class CloudCapture implements PlayerObserver {
     public static void factsChanged(CultPlayer player) {
         CloudCapture capture = of(player);
         Channel tapped = capture == null ? null : capture.channel;
-        if (tapped == null || capture.unstreamed) return;
+        if (tapped == null || capture.unstreamed || capture.idle) return;
         try {
             Map<String, String> settings = capture.facts().settings();
             capture.onLoop(tapped, () -> {
@@ -494,6 +510,15 @@ public final class CloudCapture implements PlayerObserver {
         Segment current = segment;
         if (current == null) {
             resume(channel);
+            return;
+        }
+        if (!unstreamed && current.serverName != null && current.uncaptured != uncaptured.matches(current.serverName)) {
+            endSegment();
+            if (current.uncaptured) resume(channel);
+            else {
+                segment = uncapturedSegment(current.serverName, current.resumed);
+                idled();
+            }
             return;
         }
         if (current.uplink == null) return;
@@ -652,6 +677,16 @@ public final class CloudCapture implements PlayerObserver {
         if (tapped == null) return;
         if (segment != null) endSegment();
         actions.forget();
+        UncapturedServers servers = uncaptured;
+        if (!unstreamed && !servers.isEmpty()) {
+            String upcoming = binder.upcoming(player, playing);
+            if (servers.matches(upcoming)) {
+                segment = uncapturedSegment(upcoming, playing);
+                idled();
+                mirror();
+                return;
+            }
+        }
         Segment started = new Segment();
         segment = started;
         started.resumed = playing;
@@ -688,8 +723,26 @@ public final class CloudCapture implements PlayerObserver {
         started.bounded = true;
     }
 
+    /**
+     * A segment of backend {@code server}, one of {@code cloud.uncaptured-servers}: it holds and sends nothing, and the
+     * taps pass every packet by until the next segment starts.
+     */
+    private static Segment uncapturedSegment(String server, boolean resumed) {
+        Segment uncaptured = new Segment();
+        uncaptured.serverName = server;
+        uncaptured.resumed = resumed;
+        uncaptured.uncaptured = true;
+        return uncaptured;
+    }
+
+    /** The open segment captures nothing from here; flags raised for a verdict not yet cut go with it. */
+    private void idled() {
+        idle = true;
+        tickFlags.drain();
+    }
+
     private void unbound(Segment started) {
-        if (segment != started || started.uplink != null) return;
+        if (segment != started || started.uplink != null || started.uncaptured) return;
         unbound.incrementAndGet();
         segment = null;
         stream.reset();
@@ -700,6 +753,15 @@ public final class CloudCapture implements PlayerObserver {
     private void bind(Segment started, String serverName) {
         if (segment != started || started.uplink != null || started.serverName != null) return;
         started.serverName = serverName;
+        if (!unstreamed && uncaptured.matches(serverName)) {
+            started.uncaptured = true;
+            idled();
+            if (started.timeout != null) started.timeout.cancel(false);
+            actions.forget();
+            stream.reset();
+            mirror();
+            return;
+        }
         Uplink uplink = serverName == null || serverName.isBlank() ? null : uplinks.open(serverName);
         if (uplink == null) {
             unbound(started);
@@ -716,8 +778,10 @@ public final class CloudCapture implements PlayerObserver {
         Segment ended = segment;
         if (ended == null) return;
         segment = null;
+        if (ended.uncaptured) idle = false;
         actions.forget();
         if (ended.timeout != null) ended.timeout.cancel(false);
+        if (ended.uncaptured) return;
         if (ended.uplink == null) {
             stream.reset();
             mirror();
@@ -1095,6 +1159,10 @@ public final class CloudCapture implements PlayerObserver {
 
     @Override
     public void tickEnded() {
+        if (idle) {
+            if (sightOrigin != null) sightOrigin = null;
+            return;
+        }
         long index = player.clientTickEnds.get();
         long handled = handledTickEnds.incrementAndGet() + handledOffset;
         List<IntakeWire.Flag> flags = tickFlags.drain();
@@ -1267,7 +1335,7 @@ public final class CloudCapture implements PlayerObserver {
     private final class InboundTap extends ChannelInboundHandlerAdapter {
         @Override
         public void channelRead(ChannelHandlerContext ctx, Object message) throws Exception {
-            if (stream != null && message instanceof ByteBuf buf && buf.isReadable()) {
+            if (stream != null && !idle && message instanceof ByteBuf buf && buf.isReadable()) {
                 int id = packetId(buf);
                 try {
                     if (stream.capturing()
@@ -1309,7 +1377,8 @@ public final class CloudCapture implements PlayerObserver {
     private final class OutboundTap extends ChannelOutboundHandlerAdapter {
         @Override
         public void write(ChannelHandlerContext ctx, Object message, ChannelPromise promise) throws Exception {
-            if (message instanceof ByteBuf buf
+            if (!idle
+                    && message instanceof ByteBuf buf
                     && buf.isReadable()
                     && player.user.getEncoderState() == ConnectionPhase.PLAY) {
                 try {
@@ -1355,7 +1424,7 @@ public final class CloudCapture implements PlayerObserver {
     @Override
     public void serverTickEnded(int serverTick) {
         Channel tapped = channel;
-        if (tapped == null) return;
+        if (tapped == null || idle) return;
         onLoop(tapped, () -> {
             CaptureStream current = stream;
             if (segment == null || current == null || !current.capturing()) return;
@@ -1493,6 +1562,9 @@ public final class CloudCapture implements PlayerObserver {
     private static final class Segment {
         @Nullable
         String serverName;
+
+        /** Its backend is one of {@code cloud.uncaptured-servers}: it never joins and holds nothing. */
+        boolean uncaptured;
 
         @Nullable
         Uplink uplink;
