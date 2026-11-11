@@ -1,6 +1,7 @@
 package ac.cult.cultac.bedrock.prediction.simulation.postmove;
 
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
+import ac.cult.cultac.bedrock.prediction.model.BlockMovementSlowdownState;
 import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockCollisionOutput;
 import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockEntityMove;
 import ac.cult.cultac.bedrock.prediction.simulation.travel.BedrockMoveRequest;
@@ -68,8 +69,14 @@ public final class BedrockPostMoveSystems {
                 ? context.applyLiquidClimbOut(frame, blockMove.position())
                 : BedrockPostMoveResult.afterLiquidClimbOut(frame, frame.velocity(), frame.flags(), 1.0D);
         result = BedrockEntityInsideMovement.apply(context, result, blockMove.position());
+        // The blocks around the actor only add a slowdown; only a move consumes it. A tick that runs no move adds
+        // the blocks at its position to the slowdown pending from before it, and the next move takes both.
+        BlockMovementSlowdownState slowdown = context.resolvePendingBlockMovementSlowdown(blockMove.position());
         result = result.withPendingBlockMovementSlowdownState(
-                context.resolvePendingBlockMovementSlowdown(blockMove.position()));
+                travel
+                        ? slowdown
+                        : BlockMovementSlowdownState.combine(
+                                plan.frame().input().previousState().pendingBlockMovementSlowdownState(), slowdown));
         result = context.withPostMoveStateModes(result, blockMove.position());
         return result;
     }

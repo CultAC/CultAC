@@ -76,6 +76,37 @@ public final class BedrockBlockSlowdownTimingTest {
     }
 
     @Test
+    public void teleportOutOfACobwebKeepsItsSlowdownForTheNextMove() {
+        // A player inside a cobweb is teleported out of it at rest. The tick that takes the teleport runs no
+        // move, and the client's first move after it was still slowed by the web, 0.0196 to 0.0049 forward.
+        BedrockWorldSnapshot webbed = world("minecraft:stone", "minecraft:web", BlockContactBehavior.COBWEB);
+        BedrockMovementResult inside = tick(airborne(new Vec3d(0.5D, 1.25D, 0.5D), Vec3d.ZERO), webbed);
+        assertEquals(BlockMovementSlowdownState.COBWEB, inside.predictedState().pendingBlockMovementSlowdownState());
+
+        assertFirstMoveAfterTeleportSlowed(inside, new Vec3d(0.5D, 1.25D, -0.5D), webbed);
+    }
+
+    @Test
+    public void teleportIntoACobwebSlowsTheNextMove() {
+        // A walking player is teleported into a cobweb at rest; the client's first move after it was slowed.
+        BedrockWorldSnapshot webbed = world("minecraft:stone", "minecraft:web", BlockContactBehavior.COBWEB);
+        BedrockMovementResult outside = tick(airborne(new Vec3d(0.5D, 1.25D, -0.5D), Vec3d.ZERO), webbed);
+        assertEquals(BlockMovementSlowdownState.NONE, outside.predictedState().pendingBlockMovementSlowdownState());
+
+        assertFirstMoveAfterTeleportSlowed(outside, new Vec3d(0.5D, 1.25D, 0.5D), webbed);
+    }
+
+    private static void assertFirstMoveAfterTeleportSlowed(
+            BedrockMovementResult before, Vec3d destination, BedrockWorldSnapshot world) {
+        BedrockMovementResult teleport = tick(next(before).afterServerTeleport(destination, Vec3d.ZERO), world);
+        assertMove(0.0D, 0.0D, teleport, 0.0D);
+        assertEquals(BlockMovementSlowdownState.COBWEB, teleport.predictedState().pendingBlockMovementSlowdownState());
+
+        BedrockMovementResult slowed = tick(next(teleport), world);
+        assertMove(0.0D, 0.0049D, slowed, 1.0E-6D);
+    }
+
+    @Test
     public void powderSnowLeavesTheFloorUnderTheFeetInControl() {
         // Powder snow placed on a player walking on slime: the client's moves were 0.03681 and 0.03668 a
         // tick, the slime floor's control times the snow's 0.9, while its speed dropped with the frost.
