@@ -85,6 +85,8 @@ public final class BedrockFrameProcessor {
             return null;
         }
         localBlockActions.accept(frame);
+        var startState = BedrockProfileState.previousState(processor.getCurrentPredictionCarry());
+        boolean startedOnGround = startState != null && startState.collisionFlags().onGround();
         var result = processor.processBedrockAuthInputFrame(frame, trigger, teleport.getTeleportData());
         if (player.packetStateData.bedrockTranslatedMovement.isRejected()) return null;
         if (result != null) player.checkManager.doChecksWithKnownLook();
@@ -102,13 +104,13 @@ public final class BedrockFrameProcessor {
         if (!state.isVehicle()) {
             player.isGliding = state.gliding();
             player.isSprinting = state.sprinting();
-            // A flying tick that ends on the ground ends the flight of a player that cannot
-            // build instantly: it asks to stop flying before its next tick.
+            // A flying tick that starts on the ground ends the flight of a player that cannot
+            // build instantly, wherever its move ends: it asks to stop flying before its next tick.
             if (player.isFlying
                     && !player.canInstabuild
                     && player.gamemode != ac.cult.cultac.protocol.value.GameMode.SPECTATOR
                     && result != null
-                    && state.collisionFlags().onGround()) player.isFlying = false;
+                    && startedOnGround) player.isFlying = false;
         }
         return state;
     }
