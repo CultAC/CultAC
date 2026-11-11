@@ -5,6 +5,7 @@ import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockProfileState.Entry;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
+import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockFluidStateResolver;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
 import java.util.ArrayList;
@@ -84,6 +85,12 @@ final class BedrockReplayTick {
                                             world.apply(state, request.snapshot())
                                                     .blockCollisionWorld(),
                                             frame.collisionFetchBox()));
+            // The recorded tick sensed liquid at its own start; a tick replayed from elsewhere senses it there.
+            if (dx != 0.0F || dy != 0.0F || dz != 0.0F) {
+                snapshot = snapshot.withMovementContext(
+                        BedrockFluidStateResolver.withCurrentTickFluidStateFromBlockWorld(
+                                snapshot.movementContext(), state.physicalFeetPosition(), state.playerDimensions()));
+            }
             snapshot = BedrockReplayCollisionWorld.withReplayedActors(snapshot);
             if (snapshot != request.snapshot()) {
                 request = new BedrockSimulation.Input(
