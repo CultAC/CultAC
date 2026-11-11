@@ -2,6 +2,8 @@ package ac.cult.cultac.network;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -9,6 +11,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.manager.config.BaseConfigManager;
 import ac.cult.cultac.manager.init.start.PacketManager;
 import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
@@ -26,9 +29,11 @@ import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.function.IntSupplier;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -138,7 +143,7 @@ class PongForwardingTest {
     }
 
     @Test
-    void pongsPastTheTimeoutInObserveOnlyStayWithCultAC() throws Exception {
+    void pongsAfterInspectionEndsStayWithCultAC() throws Exception {
         try (var c = new Client(true)) {
             var player = c.f.player;
             List<Integer> own = new ArrayList<>(List.of(c.ownPing(), c.ownPing()));
@@ -184,6 +189,84 @@ class PongForwardingTest {
             assertTrue(c.answer(own.getFirst()), "a second pong for one id is the backend's");
             assertTrue(c.answer(BACKEND_PONG), "a backend pong is forwarded");
         }
+    }
+
+    @Test
+    void disabledPongCancellingForwardsOwnAndRetiredPongs() throws Exception {
+        try (var c = new Client(false);
+                var disabled = disablePongCancelling()) {
+            int answered = c.ownPing();
+            int retired = c.ownPing();
+            assertTrue(c.answer(answered), "an own pong is forwarded");
+            assertEquals(1, c.f.player.lastTransactionReceived.get());
+
+            assertTrue(CultAPI.INSTANCE.getPlayerDataManager().remove(c.f.user));
+            assertTrue(c.f.connection.holdsRetiredPing(retired));
+            assertTrue(c.answer(retired), "a retired pong is forwarded");
+            assertFalse(c.f.connection.holdsRetiredPing(retired), "the retired id is taken");
+            assertTrue(c.answer(BACKEND_PONG), "a backend pong is forwarded");
+        }
+    }
+
+    @Test
+    void aPlayerAttachedAfterARemovalTakesNoRetiredId() throws Exception {
+        try (var c = new Client(false)) {
+            int first = c.ownPing();
+            int second = c.ownPing();
+            assertTrue(CultAPI.INSTANCE.getPlayerDataManager().remove(c.f.user));
+            CultAPI.INSTANCE.getPlayerDataManager().addUser(c.f.user);
+            CultPlayer next = c.f.user.getCultPlayer();
+            assertNotNull(next);
+            assertNotSame(c.f.player, next);
+
+            int fresh = Short.MIN_VALUE - 1;
+            assertFalse(fresh == first || fresh == second);
+            assertEquals(fresh, nextTransactionId(next, first, second, fresh), "a retired id is never handed out");
+            assertFalse(c.answer(first), "a retired pong reached the backend");
+            assertEquals(first, nextTransactionId(next, first), "a taken id is free again");
+            assertEquals(fresh, nextTransactionId(next, second, fresh));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void aRetiredPongIsNeitherForwardedNorABackendPongWhileAnotherPlayerIsAttached(boolean observeOnly)
+            throws Exception {
+        try (var c = new Client(observeOnly)) {
+            int retired = c.ownPing();
+            assertTrue(CultAPI.INSTANCE.getPlayerDataManager().remove(c.f.user));
+            CultAPI.INSTANCE.getPlayerDataManager().addUser(c.f.user);
+            CultPlayer next = c.f.user.getCultPlayer();
+            assertNotNull(next);
+            assertNotSame(c.f.player, next);
+            // A backend pong for this id would clear this record and free the id.
+            next.foreignPingSent(retired);
+
+            assertFalse(c.answer(retired), "a retired pong reached the backend");
+            assertFalse(c.f.connection.holdsRetiredPing(retired), "the retired id is taken");
+            int fresh = Short.MIN_VALUE - 1;
+            assertFalse(fresh == retired);
+            assertEquals(fresh, nextTransactionId(next, retired, fresh), "the pong was taken as a backend pong");
+            assertTrue(c.answer(BACKEND_PONG), "a backend pong is forwarded");
+        }
+    }
+
+    /** {@code player}'s next ping id when its id source yields {@code words} in order. */
+    private static int nextTransactionId(CultPlayer player, int... words) throws ReflectiveOperationException {
+        Method method = CultPlayer.class.getDeclaredMethod("nextTransactionId", IntSupplier.class);
+        method.setAccessible(true);
+        var source = IntStream.of(words).iterator();
+        return (int) method.invoke(player, (IntSupplier) source::nextInt);
+    }
+
+    /** Sets disable-pong-cancelling on the shared test config until closed. */
+    private static AutoCloseable disablePongCancelling() throws ReflectiveOperationException {
+        Field field = BaseConfigManager.class.getDeclaredField("disablePongCancelling");
+        field.setAccessible(true);
+        Object config = CultAPI.INSTANCE.getConfigManager();
+        boolean original = field.getBoolean(config);
+        field.setBoolean(config, true);
+        return () -> field.setBoolean(config, original);
     }
 
     /** The event loop runs pollData's deferred ping inline; on a server it runs after the removal and writes none. */
