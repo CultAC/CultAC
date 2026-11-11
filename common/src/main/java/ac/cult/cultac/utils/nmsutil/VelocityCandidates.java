@@ -96,6 +96,14 @@ public final class VelocityCandidates {
                     diff.z);
             if (withoutCurrent != null) withoutCurrent = new Vec3(withoutCurrent.x, diff.y, withoutCurrent.z);
             isY = false;
+        } else if (requiredPostCollisionY.isEmpty()
+                && player != null
+                && landedOnFloor(result, diff, collisionMovementY)) {
+            // Entity#move runs Block#updateEntityMovementAfterFallOn on every vertical clip, so the clipped move's y
+            // never survives into deltaMovement.
+            diff = new Vec3(diff.x, afterVerticalCollision(result, collisionMovementY), diff.z);
+            if (withoutCurrent != null) withoutCurrent = new Vec3(withoutCurrent.x, diff.y, withoutCurrent.z);
+            isY = false;
         }
 
         addVelocityCandidates(validPlayerStartingVels, diff, isX, isY, isZ);
@@ -319,6 +327,25 @@ public final class VelocityCandidates {
         if (!tracesVerticalClip(result, trace)) return DesyncStatus.UNKNOWN;
         double delta = trace.preCollisionMovement().y;
         return DesyncStatus.fromBoolean(delta < 0.0D && trace.position().y != delta);
+    }
+
+    /**
+     * Whether Entity#collide clipped the fall onto a collider's top where the client's move ended and that landing
+     * changes the carry {@code diff} offers. A +0.0 move whose collision leaves +0.0 already yields that carry alone.
+     */
+    private static boolean landedOnFloor(PredictionResult result, Vec3 diff, double collisionMovementY) {
+        MovementTrace trace = result.getValidMovements().getClosestTrace();
+        if (!clippedVertically(result)
+                || trace.preCollisionMovement().y >= 0.0D
+                || trace.position().y != result.getTarget().y) {
+            return false;
+        }
+        if (Double.compare(diff.y, 0.0D) == 0
+                && collidedVertically(result)
+                && Double.compare(afterVerticalCollision(result, collisionMovementY), 0.0D) == 0) {
+            return false;
+        }
+        return restsOnCollider(result, trace);
     }
 
     /** Whether {@code trace} holds Entity#collide's vertical movement: an unshifted move at full vertical speed. */
