@@ -81,6 +81,40 @@ public final class BedrockSolidActorContactTest {
         assertTrue(moved.zCollision());
     }
 
+    /**
+     * The client's replay of a corrected tick: a capture shows the player held at the corrected position among the
+     * same four boats, which a live tick leaves through their faces.
+     */
+    @Test
+    public void aReplayedTickIsNotMovedOutOfTheBoatsThatOverlapIt() {
+        var moved = move(
+                new Vec3d(41.49616, 120.0, 25.468344),
+                GRAVITY,
+                BedrockDepenetrationLimit.replayed(boat(42.402203, 26.511587)),
+                BedrockDepenetrationLimit.replayed(boat(40.458900, 26.379202)),
+                BedrockDepenetrationLimit.replayed(boat(40.612503, 24.436729)),
+                BedrockDepenetrationLimit.replayed(boat(42.527992, 24.540745)));
+
+        assertEquals(0.0F, (float) moved.appliedDelta().x(), 0);
+        assertEquals(0.0F, (float) moved.appliedDelta().z(), 0);
+    }
+
+    /**
+     * A replayed tick still stops at a solid actor it does not overlap: a capture shows the player corrected against
+     * the translator's world border with 0.117859 a tick towards it, and the replay ends at its face.
+     */
+    @Test
+    public void aReplayedTickStopsAtTheFaceOfASolidActor() {
+        var border = actor(BedrockDepenetrationLimit.SOLID_ACTOR, -34.5F, 110.0F, -12.0F, -24.5F, 135.0F, -2.0F);
+        var moved = move(
+                new Vec3d(-29.506498F, 120.0, -1.6999993F),
+                new Vec3d(0.0, -0.0784, -0.117859F),
+                BedrockDepenetrationLimit.replayed(border));
+
+        assertEquals(0.0F, (float) moved.appliedDelta().z(), 1.0E-6F);
+        assertTrue(moved.zCollision());
+    }
+
     @Test
     public void anOverlapDeeperThanTheLimitOnItsSmallestAxisLeavesThePlayerInPlace() {
         // The boat's face is 0.193624 inside the player's box along x, further on the other axes.

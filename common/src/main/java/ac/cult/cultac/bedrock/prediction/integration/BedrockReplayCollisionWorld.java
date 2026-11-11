@@ -1,6 +1,8 @@
 package ac.cult.cultac.bedrock.prediction.integration;
 
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
+import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockDepenetrationLimit;
+import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
 import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import java.util.ArrayList;
@@ -35,6 +37,19 @@ final class BedrockReplayCollisionWorld {
         blocks.sort(Comparator.comparing(PlacedBlockCollision::position, BedrockSolidBlockSampler.GATHER_ORDER));
         blocks.addAll(solidActors);
         return new BlockCollisionWorld(blocks, recorded.coordinateFrame());
+    }
+
+    /**
+     * The client's replay of a corrected tick still collides with the solid actors the tick met, but none of them
+     * raises the move's depenetration limit, so it is not pushed out of one it overlaps.
+     */
+    static BedrockWorldSnapshot withReplayedActors(BedrockWorldSnapshot snapshot) {
+        var recorded = snapshot.blockCollisionWorld();
+        if (recorded.blocks().stream().noneMatch(BedrockDepenetrationLimit::raisesLimit)) return snapshot;
+        var blocks = recorded.blocks().stream()
+                .map(BedrockDepenetrationLimit::replayed)
+                .toList();
+        return snapshot.withBlockCollisionWorld(new BlockCollisionWorld(blocks, recorded.coordinateFrame()));
     }
 
     private static boolean contains(WorldCollisionBox outer, WorldCollisionBox inner) {

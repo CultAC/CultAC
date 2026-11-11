@@ -84,6 +84,7 @@ final class BedrockReplayTick {
                                             world.apply(state, request.snapshot())
                                                     .blockCollisionWorld(),
                                             frame.collisionFetchBox()));
+            snapshot = BedrockReplayCollisionWorld.withReplayedActors(snapshot);
             if (snapshot != request.snapshot()) {
                 request = new BedrockSimulation.Input(
                         state,
