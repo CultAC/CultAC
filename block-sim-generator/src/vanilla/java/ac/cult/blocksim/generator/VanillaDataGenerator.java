@@ -287,7 +287,7 @@ public final class VanillaDataGenerator {
                 "AGE_25", "AGE_4", "BELL_ATTACHMENT", "BOTTOM", "CANDLES", "CHEST_TYPE", "DOWN",
                 "DOUBLE_BLOCK_HALF", "DRAG", "EAST", "EGGS", "EXTENDED", "FACING", "FALLING",
                 "HALF", "HORIZONTAL_FACING", "LAYERS", "NORTH", "OPEN", "PICKLES", "PISTON_TYPE",
-                "POTENT_SULFUR_STATE", "ROTATION_16", "SHORT", "SLAB_TYPE", "SOUTH", "STABILITY_DISTANCE", "TILT", "UP",
+                "POTENT_SULFUR_STATE", "ROTATION_16", "SHORT", "SLAB_TYPE", "SOUTH", "STABILITY_DISTANCE", "STAIRS_SHAPE", "TILT", "UP",
                 "WATERLOGGED", "WEST")) {
             var property = (net.minecraft.world.level.block.state.properties.Property<?>)
                 net.minecraft.world.level.block.state.properties.BlockStateProperties.class.getField(name).get(null);

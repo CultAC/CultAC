@@ -25,6 +25,11 @@ import java.util.Set;
 
 public final class BedrockCollisionWorldBuilder {
     private static final double POWDER_SNOW_ABOVE_EPSILON = 1.1920929E-7D;
+    private static final int STAIR_STRAIGHT = 0;
+    private static final int STAIR_INNER_LEFT = 1;
+    private static final int STAIR_INNER_RIGHT = 2;
+    private static final int STAIR_OUTER_LEFT = 3;
+    private static final int STAIR_OUTER_RIGHT = 4;
 
     private static final BlockRegistry REGISTRY = DataTables.defaults().registry();
     private static final BlockDefinition COMPOSTER = REGISTRY.block("minecraft:composter");
@@ -38,6 +43,7 @@ public final class BedrockCollisionWorldBuilder {
             new BlockAabb(0.125D, 0.6875D, 0.0D, 0.875D, 1.0D, 0.125D),
             new BlockAabb(0.125D, 0.6875D, 0.875D, 0.875D, 1.0D, 1.0D),
             new BlockAabb(0.25D, 0.25D, 0.25D, 0.75D, 0.625D, 0.75D));
+
     private static final List<BlockDefinition> CAULDRONS = List.of(
             BlockIds.CAULDRON,
             REGISTRY.block("minecraft:water_cauldron"),
@@ -379,38 +385,53 @@ public final class BedrockCollisionWorldBuilder {
 
     private static List<WorldCollisionBox> stairCollisionBoxes(BlockPosition position, int state) {
         boolean upsideDown = BlockProps.HALF.value(state) == 0;
-        int weirdoDirection =
-                stairWeirdoDirection(Direction.from3DDataValue(BlockProps.HORIZONTAL_FACING.value(state)));
+        Direction facing = Direction.from3DDataValue(BlockProps.HORIZONTAL_FACING.value(state));
+        int shape = BlockProps.STAIRS_SHAPE.value(state);
 
-        List<BlockAabb> localBoxes = new ArrayList<>(2);
-        if (upsideDown) {
-            localBoxes.add(new BlockAabb(0.0D, 0.5D, 0.0D, 1.0D, 1.0D, 1.0D));
-            addStairStepBox(localBoxes, weirdoDirection, 0.0D, 0.5D);
-        } else {
-            localBoxes.add(new BlockAabb(0.0D, 0.0D, 0.0D, 1.0D, 0.5D, 1.0D));
-            addStairStepBox(localBoxes, weirdoDirection, 0.5D, 1.0D);
-        }
+        List<BlockAabb> localBoxes = new ArrayList<>(3);
+        double stepMinY = upsideDown ? 0.0D : 0.5D;
+        localBoxes.add(
+                upsideDown
+                        ? new BlockAabb(0.0D, 0.5D, 0.0D, 1.0D, 1.0D, 1.0D)
+                        : new BlockAabb(0.0D, 0.0D, 0.0D, 1.0D, 0.5D, 1.0D));
+        addStairStepBoxes(localBoxes, facing.getStepX(), facing.getStepZ(), shape, stepMinY, stepMinY + 0.5D);
         return toWorldBoxes(position, localBoxes);
     }
 
-    private static int stairWeirdoDirection(Direction direction) {
-        return switch (direction) {
-            case NORTH -> 3;
-            case SOUTH -> 2;
-            case WEST -> 1;
-            case EAST -> 0;
-            default -> throw new IllegalArgumentException("stair facing must be horizontal: " + direction);
-        };
+    /**
+     * The raised half of a stair. Its corner state carries the shape: straight raises the facing half, an outer corner
+     * only the facing half's quarter on its left or right, an inner corner the facing half and the left or right half.
+     */
+    private static void addStairStepBoxes(
+            List<BlockAabb> boxes, int facingX, int facingZ, int shape, double minY, double maxY) {
+        // The left of a facing turns it counter-clockwise seen from above.
+        int leftX = facingZ;
+        int leftZ = -facingX;
+        switch (shape) {
+            case STAIR_STRAIGHT -> addStairPiece(boxes, facingX, facingZ, minY, maxY);
+            case STAIR_INNER_LEFT -> {
+                addStairPiece(boxes, facingX, facingZ, minY, maxY);
+                addStairPiece(boxes, leftX, leftZ, minY, maxY);
+            }
+            case STAIR_INNER_RIGHT -> {
+                addStairPiece(boxes, facingX, facingZ, minY, maxY);
+                addStairPiece(boxes, -leftX, -leftZ, minY, maxY);
+            }
+            case STAIR_OUTER_LEFT -> addStairPiece(boxes, facingX + leftX, facingZ + leftZ, minY, maxY);
+            case STAIR_OUTER_RIGHT -> addStairPiece(boxes, facingX - leftX, facingZ - leftZ, minY, maxY);
+            default -> throw new IllegalArgumentException("unknown stair shape " + shape);
+        }
     }
 
-    private static void addStairStepBox(List<BlockAabb> boxes, int weirdoDirection, double minY, double maxY) {
-        switch (weirdoDirection) {
-            case 0 -> boxes.add(new BlockAabb(0.5D, minY, 0.0D, 1.0D, maxY, 1.0D));
-            case 1 -> boxes.add(new BlockAabb(0.0D, minY, 0.0D, 0.5D, maxY, 1.0D));
-            case 2 -> boxes.add(new BlockAabb(0.0D, minY, 0.5D, 1.0D, maxY, 1.0D));
-            case 3 -> boxes.add(new BlockAabb(0.0D, minY, 0.0D, 1.0D, maxY, 0.5D));
-            default -> throw new IllegalArgumentException("unknown Bedrock stair weirdo_direction " + weirdoDirection);
-        }
+    /** The half (one axis) or quarter (both axes) of a cell on the side of each non-zero sign. */
+    private static void addStairPiece(List<BlockAabb> boxes, int signX, int signZ, double minY, double maxY) {
+        boxes.add(new BlockAabb(
+                signX > 0 ? 0.5D : 0.0D,
+                minY,
+                signZ > 0 ? 0.5D : 0.0D,
+                signX < 0 ? 0.5D : 1.0D,
+                maxY,
+                signZ < 0 ? 0.5D : 1.0D));
     }
 
     private static List<WorldCollisionBox> fenceCollisionBoxes(BlockPosition position, int state) {
