@@ -1,5 +1,6 @@
 package ac.cult.cultac.manager.player;
 
+import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
@@ -16,6 +17,7 @@ import ac.cult.cultac.manager.player.setback.SafePositionTracker;
 import ac.cult.cultac.manager.player.setback.SafeProof;
 import ac.cult.cultac.manager.player.setback.SetbackEntity;
 import ac.cult.cultac.manager.player.setback.SetbackPolicy;
+import ac.cult.cultac.manager.player.setback.SetbackReason;
 import ac.cult.cultac.manager.player.setback.TeleportAnswers;
 import ac.cult.cultac.manager.player.setback.VehicleTeleportTracker;
 import ac.cult.cultac.player.CultPlayer;
@@ -170,9 +172,19 @@ public class SetbackTeleportUtil extends CultProcessor
         return policy.executeViolationSetback();
     }
 
+    /** A setback for a violation of {@code check}, null when no check of the caller raised it. */
+    public boolean executeViolationSetback(Check check) {
+        return policy.executeViolationSetback(check);
+    }
+
     /** A setback for the rejected {@code flagged} movement; a ridden vehicle takes the tick simulated for it. */
     public boolean executeViolationSetback(PredictionResult flagged) {
         return policy.executeViolationSetback(flagged);
+    }
+
+    /** As {@link #executeViolationSetback(PredictionResult)}, for a violation of {@code check}, or null. */
+    public boolean executeViolationSetback(PredictionResult flagged, Check check) {
+        return policy.executeViolationSetback(flagged, check);
     }
 
     public boolean executeTooHighLatencySetback(String cause) {
@@ -228,7 +240,7 @@ public class SetbackTeleportUtil extends CultProcessor
 
     @Override
     public void sendDismounted(SetBackData data) {
-        sender.sendSetback(data, false, true);
+        sender.sendSetback(data, false, true, SetbackReason.RESEND, "dismounted", null);
     }
 
     /**

@@ -73,7 +73,7 @@ public class OffsetHandler extends Check implements PostPredictionListener {
                     || predictionResult.hasFlag(OmniSprint.class);
 
             if (isSetback) {
-                player.getSetbackTeleportUtil().executeViolationSetback(predictionResult);
+                player.getSetbackTeleportUtil().executeViolationSetback(predictionResult, this);
             }
 
             advantageGained = Math.min(advantageGained, maxCeiling);

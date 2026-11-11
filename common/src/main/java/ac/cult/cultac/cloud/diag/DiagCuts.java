@@ -33,7 +33,10 @@ final class DiagCuts {
         }
     }
 
-    /** What the cut covers of the ring, and why not all of it. */
+    /**
+     * What the cut covers of the ring, and why not all of it. Ticks before the watch's first prediction hold traces
+     * only, so a cut reaching back to them is {@code late-start}.
+     */
     static Coverage coverage(Cut cut, DiagWatch watch, List<DiagRing.Tick> range) {
         DiagRing ring = watch.ring;
         if (range.isEmpty()) {
@@ -43,7 +46,7 @@ final class DiagCuts {
             return Coverage.none("dropped");
         }
         String reason = null;
-        if (watch.firstSeq > cut.fromSeq()) reason = "late-start";
+        if (watch.firstSeq == Long.MIN_VALUE || watch.firstSeq > cut.fromSeq()) reason = "late-start";
         else if (ring.evictedThrough() >= cut.fromSeq()) reason = "evicted";
         else if (ring.newest() < cut.toSeq())
             reason = watch.ended && watch.endReason != null ? watch.endReason : "dropped";

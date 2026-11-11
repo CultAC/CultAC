@@ -58,7 +58,13 @@ public final class PredictionDiagnostics {
             return;
         }
         DiagWatch watch = diagnostics.watch(
-                player.getUniqueId(), generation, leaseSeconds, frameSeq, debug::history, debug::unwatch);
+                player.getUniqueId(),
+                generation,
+                leaseSeconds,
+                frameSeq,
+                debug::history,
+                () -> debug.historyTicks(frameSeq.getAsLong()),
+                debug::unwatch);
         if (watch == null || watch == debug.watch()) return;
         debug.watch(watch);
         if (watch.ended()) debug.unwatch(watch);

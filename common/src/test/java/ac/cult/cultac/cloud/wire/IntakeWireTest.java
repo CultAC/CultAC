@@ -11,6 +11,7 @@ import ac.cult.cultac.cloud.intake.v3.Condition;
 import ac.cult.cultac.cloud.intake.v3.DiagPart;
 import ac.cult.cultac.cloud.intake.v3.Edition;
 import ac.cult.cultac.cloud.intake.v3.Event;
+import ac.cult.cultac.cloud.intake.v3.Flag;
 import ac.cult.cultac.cloud.intake.v3.Frame;
 import ac.cult.cultac.cloud.intake.v3.GameMode;
 import ac.cult.cultac.cloud.intake.v3.Gap;
@@ -27,6 +28,8 @@ import ac.cult.cultac.cloud.intake.v3.Record;
 import ac.cult.cultac.cloud.intake.v3.Refused;
 import ac.cult.cultac.cloud.intake.v3.Replies;
 import ac.cult.cultac.cloud.intake.v3.Reply;
+import ac.cult.cultac.cloud.intake.v3.Setback;
+import ac.cult.cultac.cloud.intake.v3.SetbackKind;
 import ac.cult.cultac.cloud.intake.v3.TeamRole;
 import ac.cult.cultac.cloud.intake.v3.TeamState;
 import ac.cult.cultac.cloud.intake.v3.TeamSweep;
@@ -312,6 +315,102 @@ class IntakeWireTest {
         }
 
         assertEquals(0, verdict(0, 1, true, many).getFlagsCount());
+    }
+
+    @Test
+    void aFlagCarriesItsVerboseCutToItsCap() throws InvalidProtocolBufferException {
+        Verdict verdict = verdict(
+                0,
+                3,
+                false,
+                List.of(
+                        IntakeWire.Flag.of("BadPacketsH", 1, "expected=4, id=9"),
+                        IntakeWire.Flag.of("Timer", 2, "x".repeat(IntakeWire.MAX_VERBOSE_BYTES + 10)),
+                        IntakeWire.Flag.of("Reach", 3, ""),
+                        IntakeWire.Flag.of("Speed", 4)));
+        assertEquals("expected=4, id=9", verdict.getFlags(0).getVerbose());
+        assertEquals(
+                "x".repeat(IntakeWire.MAX_VERBOSE_BYTES), verdict.getFlags(1).getVerbose());
+        assertEquals("", verdict.getFlags(2).getVerbose());
+        assertEquals("", verdict.getFlags(3).getVerbose());
+    }
+
+    @Test
+    void aFlagWithoutAVerboseIsWrittenAsBefore() {
+        IntakeWire.VerdictWriter writer = new IntakeWire.VerdictWriter();
+        List<IntakeWire.Flag> flags = List.of(IntakeWire.Flag.of("Reach", 2.5));
+        int size = writer.write(0, 3, false, flags, null, List.of(), null, null, -1, 0, List.of());
+        byte[] plain = Arrays.copyOf(writer.bytes(), size);
+        size = writer.write(0, 3, false, flags, null, List.of(), null, null, -1, 0, List.of(), List.of());
+        assertArrayEquals(plain, Arrays.copyOf(writer.bytes(), size));
+        byte[] expected = Verdict.newBuilder()
+                .setTickEndSeq(3)
+                .addFlags(Flag.newBuilder().setCheck("Reach").setViolationsHundredths(250))
+                .build()
+                .toByteArray();
+        assertArrayEquals(expected, plain);
+    }
+
+    @Test
+    void verdictCarriesTheTicksSetbacksUpToTheirCap() throws InvalidProtocolBufferException {
+        List<IntakeWire.Setback> setbacks = new ArrayList<>();
+        setbacks.add(new IntakeWire.Setback(IntakeWire.SETBACK_VIOLATION, null, "Simulation"));
+        setbacks.add(new IntakeWire.Setback(IntakeWire.SETBACK_RESYNC, "places", null));
+        for (int i = 0; i < IntakeWire.MAX_SETBACKS; i++) {
+            setbacks.add(new IntakeWire.Setback(IntakeWire.SETBACK_RESEND, "r" + i, null));
+        }
+        IntakeWire.VerdictWriter writer = new IntakeWire.VerdictWriter();
+        int size = writer.write(0, 5, false, List.of(), null, List.of(), null, null, -1, 0, List.of(), setbacks);
+        Verdict verdict = Verdict.parseFrom(Arrays.copyOf(writer.bytes(), size));
+        assertEquals(IntakeWire.MAX_SETBACKS, verdict.getSetbacksCount());
+        assertEquals(SetbackKind.SETBACK_KIND_VIOLATION, verdict.getSetbacks(0).getKind());
+        assertEquals("Simulation", verdict.getSetbacks(0).getCheck());
+        assertEquals("", verdict.getSetbacks(0).getCause());
+        assertEquals(SetbackKind.SETBACK_KIND_RESYNC, verdict.getSetbacks(1).getKind());
+        assertEquals("places", verdict.getSetbacks(1).getCause());
+        assertEquals(SetbackKind.SETBACK_KIND_RESEND, verdict.getSetbacks(2).getKind());
+        assertEquals(5, verdict.getTickEndSeq());
+
+        size = writer.write(0, 5, true, List.of(), null, List.of(), null, null, -1, 0, List.of(), setbacks);
+        assertEquals(0, Verdict.parseFrom(Arrays.copyOf(writer.bytes(), size)).getSetbacksCount());
+    }
+
+    /**
+     * A VERDICT with every new field at its cap is the schema's own encoding of it, the bytes the intake service's
+     * readers of either schema get (its VerdictsV3Test reads them on the schema without the new fields).
+     */
+    @Test
+    void aVerdictWithEveryNewFieldAtItsCapIsTheSchemasEncoding() {
+        List<IntakeWire.Flag> flags = new ArrayList<>();
+        Verdict.Builder expected = Verdict.newBuilder().setTickEndSeq(9);
+        for (int i = 0; i < IntakeWire.MAX_FLAGS; i++) {
+            String verbose = i < IntakeWire.MAX_VERBOSE_FLAGS ? "v".repeat(IntakeWire.MAX_VERBOSE_BYTES) : null;
+            flags.add(IntakeWire.Flag.of("Check" + i, i + 1, verbose));
+            Flag.Builder flag = Flag.newBuilder().setCheck("Check" + i).setViolationsHundredths((i + 1) * 100);
+            if (verbose != null) flag.setVerbose(verbose);
+            expected.addFlags(flag);
+        }
+        List<IntakeWire.Setback> setbacks = new ArrayList<>();
+        for (int i = 0; i < IntakeWire.MAX_SETBACKS; i++) {
+            setbacks.add(new IntakeWire.Setback(IntakeWire.SETBACK_VIOLATION + i, "c".repeat(64), "k".repeat(64)));
+            expected.addSetbacks(Setback.newBuilder()
+                    .setKindValue(IntakeWire.SETBACK_VIOLATION + i)
+                    .setCause("c".repeat(64))
+                    .setCheck("k".repeat(64)));
+        }
+        IntakeWire.VerdictWriter writer = new IntakeWire.VerdictWriter();
+        int size = writer.write(0, 9, false, flags, null, List.of(), null, null, -1, 0, List.of(), setbacks);
+        assertArrayEquals(expected.build().toByteArray(), Arrays.copyOf(writer.bytes(), size));
+    }
+
+    @Test
+    void setbackKindsFollowTheSchema() {
+        assertEquals(SetbackKind.SETBACK_KIND_VIOLATION_VALUE, IntakeWire.SETBACK_VIOLATION);
+        assertEquals(SetbackKind.SETBACK_KIND_NON_SIMULATING_VALUE, IntakeWire.SETBACK_NON_SIMULATING);
+        assertEquals(SetbackKind.SETBACK_KIND_RESYNC_VALUE, IntakeWire.SETBACK_RESYNC);
+        assertEquals(SetbackKind.SETBACK_KIND_LATENCY_VALUE, IntakeWire.SETBACK_LATENCY);
+        assertEquals(SetbackKind.SETBACK_KIND_RESEND_VALUE, IntakeWire.SETBACK_RESEND);
+        assertEquals(Verdict.SETBACKS_FIELD_NUMBER, IntakeWire.SETBACKS);
     }
 
     @Test

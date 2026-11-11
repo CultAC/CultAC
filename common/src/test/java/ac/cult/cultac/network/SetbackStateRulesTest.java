@@ -11,13 +11,17 @@ import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.badpackets.BadPacketsN;
+import ac.cult.cultac.checks.impl.prediction.OffsetHandler;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
+import ac.cult.cultac.manager.player.setback.SetbackReason;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.platform.api.world.PlatformWorld;
+import ac.cult.cultac.player.PlayerObserver;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
@@ -243,6 +247,69 @@ class SetbackStateRulesTest {
             teleports.executeNonSimulatingSetback();
             assertSame(first, teleports.getRequiredSetBack());
             assertEquals(sent, f.player.lastTransactionSent.get(), "a second setback was sent");
+        }
+    }
+
+    /** Each setback path tells the player's observer once, with its reason, cause and the check its caller named. */
+    @Test
+    void everySetbackPathReportsItsTeleportOnce() throws Exception {
+        try (var f = standing()) {
+            SetbackTeleportUtil teleports = f.player.getSetbackTeleportUtil();
+            Setbacks reports = new Setbacks();
+            f.player.observer = reports;
+            OffsetHandler simulation = f.player.checkManager.getCheck(OffsetHandler.class);
+
+            assertTrue(simulation.executeViolationSetback());
+            reported(f, reports, "VIOLATION null Simulation");
+            assertTrue(teleports.executeViolationSetback());
+            reported(f, reports, "VIOLATION null null");
+            teleports.executeNonSimulatingSetback();
+            reported(f, reports, "NON_SIMULATING null null");
+            teleports.executeForceResync("test");
+            reported(f, reports, "RESYNC test null");
+
+            assertTrue(teleports.executeViolationSetback());
+            SetBackData pending = teleports.getRequiredSetBack();
+            reports.sent.clear();
+            teleports.resendIgnored("ignored");
+            assertEquals(List.of("RESEND ignored null"), reports.sent);
+            reports.sent.clear();
+            teleports.sendDismounted(pending);
+            reported(f, reports, "RESEND dismounted null");
+        }
+    }
+
+    /** A movement Simulation rejects is set back in Simulation's name. */
+    @Test
+    void aSetbackOfARejectedMovementNamesSimulation() throws Exception {
+        try (var f = standing()) {
+            Setbacks reports = new Setbacks();
+            f.player.observer = reports;
+            OffsetHandler simulation = f.player.checkManager.getCheck(OffsetHandler.class);
+
+            // A block in one tick from standing, past the immediate-setback threshold.
+            f.tick(STANDING.add(1, 0, 0), true);
+
+            assertTrue(simulation.violations > 0);
+            assertTrue(f.player.getSetbackTeleportUtil().isPendingSetback(), "the movement was not set back");
+            assertEquals(List.of("VIOLATION null Simulation"), reports.sent);
+        }
+    }
+
+    /** The report of the one setback sent since the last, which the client then accepts. */
+    private static void reported(JavaTickFixture f, Setbacks reports, String expected) {
+        assertEquals(List.of(expected), reports.sent);
+        reports.sent.clear();
+        acceptCorrection(f, f.player.getSetbackTeleportUtil().getRequiredSetBack());
+        assertFalse(f.player.getSetbackTeleportUtil().isPendingSetback());
+    }
+
+    private static final class Setbacks implements PlayerObserver {
+        final List<String> sent = new ArrayList<>();
+
+        @Override
+        public void setbackSent(SetbackReason reason, String cause, Check check) {
+            sent.add(reason + " " + cause + " " + (check == null ? null : check.getCheckName()));
         }
     }
 

@@ -93,7 +93,9 @@ public abstract class AbstractTimerCheck extends Check implements CheckListener 
         // back at once: prediction never ran it, so the client would otherwise
         // stand a tick ahead of the simulation.
         boolean firstMovement = ++movePacketsSinceLastClientTickEnd == 1;
-        boolean rejected = firstMovement ? prepareTimerEvent(false, true) && doCheckForPacketDecision(null) : flag();
+        boolean rejected = firstMovement
+                ? prepareTimerEvent(false, true) && doCheckForPacketDecision(null)
+                : flagMoves(movePacketsSinceLastClientTickEnd);
         if (rejected) {
             player.getSetbackTeleportUtil().executeNonSimulatingSetback();
             if (player.shouldEnforceMovementSetbacks()
@@ -155,8 +157,9 @@ public abstract class AbstractTimerCheck extends Check implements CheckListener 
 
     private boolean doCheckForPacketDecision(final PacketReceiveEvent event) {
         boolean rejected = false;
-        if (timerBalanceRealTime > System.nanoTime()) {
-            if (flag()) {
+        long now = System.nanoTime();
+        if (timerBalanceRealTime > now) {
+            if (flagBalance(timerBalanceRealTime - now, now - knownPlayerClockTime)) {
                 // Cancel the packet
                 if (shouldModifyPackets()) {
                     if (event != null) {
@@ -174,6 +177,23 @@ public abstract class AbstractTimerCheck extends Check implements CheckListener 
 
         this.timerBalanceRealTime = Math.max(this.timerBalanceRealTime, this.knownPlayerClockTime - this.clockDrift);
         return rejected;
+    }
+
+    /**
+     * Flags as {@link #flag()} does; an observer that records Timer's verbose gets the balance's lead over real time
+     * and the age of the last proven player clock, in microseconds.
+     */
+    private boolean flagBalance(long aheadNanos, long clockAgeNanos) {
+        if (!observerRecordsVerbose()) return flag();
+        long ahead = aheadNanos / 1000;
+        long clockAge = clockAgeNanos / 1000;
+        return flagRecorded(() -> "ahead=" + ahead + "us, clock=" + clockAge + "us");
+    }
+
+    /** Flags as {@link #flag()} does; an observer that records Timer's verbose gets the tick's movement count. */
+    private boolean flagMoves(int moves) {
+        if (!observerRecordsVerbose()) return flag();
+        return flagRecorded(() -> "moves=" + moves);
     }
 
     protected boolean shouldCountMovePlayerForTimer(boolean teleport) {

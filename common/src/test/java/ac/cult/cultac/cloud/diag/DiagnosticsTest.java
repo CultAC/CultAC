@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ac.cult.cultac.checks.impl.prediction.SuperDebug;
 import ac.cult.cultac.cloud.intake.v3.DiagCoverage;
 import ac.cult.cultac.cloud.intake.v3.DiagPart;
 import ac.cult.cultac.cloud.intake.v3.DiagTick;
@@ -244,6 +245,47 @@ class DiagnosticsTest {
         assertEquals(DiagCoverage.DIAG_COVERAGE_PARTIAL, last.getCoverage());
         assertEquals("late-start", last.getReason());
         assertEquals("history", parts.get(0).getHistory());
+    }
+
+    @Test
+    void aWatchStartsWithTheTracesOfTheTicksBeforeIt() {
+        AtomicInteger detached = new AtomicInteger();
+        Diagnostics diagnostics = diagnostics(ON);
+        List<SuperDebug.HistoryTick> before = new ArrayList<>();
+        for (int seq = 80; seq < 100; seq++) before.add(new SuperDebug.HistoryTick(seq, "h" + seq));
+        DiagWatch watch = diagnostics.watch(
+                PLAYER, 1, 60, () -> 0, () -> "history", () -> before, ended -> detached.incrementAndGet());
+        for (int seq = 100; seq <= 110; seq++) watch.capture(seq, 0, "t" + seq, "s", null, System.nanoTime());
+        diagnostics.cut(PLAYER, cut(90, 105, 95, 100), "header");
+        List<DiagPart> parts = awaitParts();
+        DiagPart last = parts.get(parts.size() - 1);
+        assertEquals(DiagCoverage.DIAG_COVERAGE_PARTIAL, last.getCoverage());
+        assertEquals("late-start", last.getReason());
+        assertEquals("history", parts.get(0).getHistory());
+        List<DiagTick> ticks = new ArrayList<>();
+        for (DiagPart part : parts) ticks.addAll(part.getTicksList());
+        assertEquals(16, ticks.size());
+        for (DiagTick tick : ticks) {
+            long seq = tick.getSeq();
+            assertEquals(seq < 100 ? "h" + seq : "t" + seq, tick.getTrace());
+            assertEquals(seq >= 100, tick.hasOffset(), "offset at " + seq);
+            assertEquals(seq == 100, !tick.getFull().isEmpty(), "full at " + seq);
+        }
+    }
+
+    @Test
+    void aCutBeforeTheFirstPredictionOfAWatchIsLateStartWithItsHistoryTraces() {
+        AtomicInteger detached = new AtomicInteger();
+        Diagnostics diagnostics = diagnostics(ON);
+        List<SuperDebug.HistoryTick> before = List.of(new SuperDebug.HistoryTick(7, "h7"));
+        DiagWatch watch = diagnostics.watch(
+                PLAYER, 1, 60, () -> 0, () -> "history", () -> before, ended -> detached.incrementAndGet());
+        await(() -> watch.ring != null && watch.ring.size() == 1);
+        diagnostics.cut(PLAYER, cut(0, 7, 0, 7), "header");
+        List<DiagPart> parts = awaitParts();
+        DiagPart last = parts.get(parts.size() - 1);
+        assertEquals("late-start", last.getReason());
+        assertEquals("h7", parts.get(0).getTicks(0).getTrace());
     }
 
     @Test

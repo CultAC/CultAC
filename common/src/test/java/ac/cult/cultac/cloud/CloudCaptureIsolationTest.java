@@ -6,6 +6,10 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.combat.PlayerReach;
+import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
+import ac.cult.cultac.checks.impl.prediction.OffsetHandler;
+import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.SuperDebug;
 import ac.cult.cultac.cloud.CaptureFixture.FakeUplink;
 import ac.cult.cultac.cloud.CaptureFixture.Host;
 import ac.cult.cultac.cloud.diag.Cut;
@@ -16,9 +20,12 @@ import ac.cult.cultac.cloud.intake.v3.Flag;
 import ac.cult.cultac.cloud.intake.v3.Intake;
 import ac.cult.cultac.cloud.intake.v3.IntakeMessage;
 import ac.cult.cultac.cloud.intake.v3.Record;
+import ac.cult.cultac.cloud.intake.v3.Setback;
+import ac.cult.cultac.cloud.intake.v3.SetbackKind;
 import ac.cult.cultac.cloud.intake.v3.Verdict;
 import ac.cult.cultac.cloud.wire.IntakeWire;
 import ac.cult.cultac.manager.player.SetbackFixtures;
+import ac.cult.cultac.manager.player.setback.SetbackReason;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.platform.api.world.PlatformWorld;
 import ac.cult.cultac.player.CultPlayer;
@@ -28,6 +35,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.InteractAction;
+import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.latency.ClientComponentRegistries;
 import ac.cult.cultac.utils.math.Vec3;
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -42,6 +50,8 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -146,6 +156,127 @@ class CloudCaptureIsolationTest {
             List<Verdict> verdicts = verdicts(fixture.uplinks.socket("a"));
             assertEquals(
                     "Nameless", verdicts.get(verdicts.size() - 1).getFlags(0).getCheck());
+        }
+    }
+
+    @Test
+    void onlyAnAllowlistedCheckOfAStreamedPlayerHasItsVerboseRead() throws Exception {
+        try (CaptureFixture fixture = joined(Host.SERVER)) {
+            assertTrue(fixture.capture.streaming());
+            TimerCheck timer = fixture.player.checkManager.getCheck(TimerCheck.class);
+            Nameless other = new Nameless(fixture.player);
+            assertTrue(fixture.capture.recordsVerbose(timer));
+            assertFalse(fixture.capture.recordsVerbose(other));
+
+            AtomicInteger reads = new AtomicInteger();
+            Supplier<String> verbose = () -> "v" + reads.incrementAndGet();
+            fixture.capture.flagged(other, 1, verbose);
+            assertEquals(0, reads.get(), "a check off the allowlist had its verbose read");
+            for (int i = 0; i < IntakeWire.MAX_VERBOSE_FLAGS + 2; i++) fixture.capture.flagged(timer, i, verbose);
+            assertEquals(IntakeWire.MAX_VERBOSE_FLAGS, reads.get(), "a verbose was read past the tick's room");
+            fixture.tickEnd();
+            List<Verdict> verdicts = verdicts(fixture.uplinks.socket("a"));
+            List<Flag> flags = verdicts.get(verdicts.size() - 1).getFlagsList();
+            assertEquals(IntakeWire.MAX_VERBOSE_FLAGS + 3, flags.size());
+            assertEquals("", flags.get(0).getVerbose());
+            assertEquals("v1", flags.get(1).getVerbose());
+            assertEquals("", flags.get(flags.size() - 1).getVerbose());
+        }
+    }
+
+    @Test
+    void anUnstreamedPlayersVerboseIsNeverRead() {
+        try (CaptureFixture fixture = new CaptureFixture(Host.SERVER, false)) {
+            fixture.player.movementPlatform = MovementPlatform.BEDROCK;
+            CloudCapture.segmentBinder((player, bind, playing) -> bind.accept("a"));
+            fixture.install();
+            assertFalse(fixture.capture.streaming());
+            TimerCheck timer = fixture.player.checkManager.getCheck(TimerCheck.class);
+            assertFalse(fixture.capture.recordsVerbose(timer));
+            AtomicInteger reads = new AtomicInteger();
+            fixture.capture.flagged(timer, 1, () -> "v" + reads.incrementAndGet());
+            fixture.capture.setbackSent(SetbackReason.RESYNC, "places", null);
+            assertEquals(0, reads.get());
+        }
+    }
+
+    @Test
+    void aVerboseThatThrowsLeavesItsFlagWithoutOne() {
+        try (CaptureFixture fixture = joined(Host.SERVER)) {
+            TimerCheck timer = fixture.player.checkManager.getCheck(TimerCheck.class);
+            fixture.capture.flagged(timer, 1, () -> {
+                throw new IllegalStateException("render");
+            });
+            fixture.tickEnd();
+            List<Verdict> verdicts = verdicts(fixture.uplinks.socket("a"));
+            List<Flag> flags = verdicts.get(verdicts.size() - 1).getFlagsList();
+            assertEquals(1, flags.size());
+            assertEquals("Timer", flags.get(0).getCheck());
+            assertEquals("", flags.get(0).getVerbose());
+        }
+    }
+
+    @Test
+    void aTicksSetbacksGoOutInItsVerdictAndAFailingReportStaysInside() {
+        try (CaptureFixture fixture = joined(Host.SERVER)) {
+            OffsetHandler simulation = fixture.player.checkManager.getCheck(OffsetHandler.class);
+            fixture.capture.setbackSent(SetbackReason.VIOLATION, null, simulation);
+            fixture.capture.setbackSent(SetbackReason.RESYNC, "places", null);
+            assertDoesNotThrow(() -> fixture.capture.setbackSent(null, "broken", null));
+            fixture.tickEnd();
+            List<Verdict> verdicts = verdicts(fixture.uplinks.socket("a"));
+            assertEquals(
+                    List.of(
+                            Setback.newBuilder()
+                                    .setKind(SetbackKind.SETBACK_KIND_VIOLATION)
+                                    .setCheck("Simulation")
+                                    .build(),
+                            Setback.newBuilder()
+                                    .setKind(SetbackKind.SETBACK_KIND_RESYNC)
+                                    .setCause("places")
+                                    .build()),
+                    verdicts.get(verdicts.size() - 1).getSetbacksList());
+        }
+    }
+
+    @Test
+    void everySetbackReasonHasTheWireKindOfItsName() {
+        for (SetbackReason reason : SetbackReason.values()) {
+            assertEquals(
+                    SetbackKind.valueOf("SETBACK_KIND_" + reason.name()).getNumber(),
+                    CloudCapture.setbackKind(reason),
+                    reason.name());
+        }
+    }
+
+    @Test
+    void aPredictionDuringTickEndIsSeededAtTheCutFramesSeq() throws Exception {
+        try (CaptureFixture fixture = joined(Host.SERVER)) {
+            SuperDebug debug = fixture.player.checkManager.getListener(SuperDebug.class);
+            Mockito.when(fixture.player.platformPlayer.getWorld()).thenReturn(Mockito.mock(PlatformWorld.class));
+            fixture.tickEnd();
+            fixture.tickEnd();
+            Method frameSeq = CloudCapture.class.getDeclaredMethod("frameSeq");
+            frameSeq.setAccessible(true);
+            long open = (long) frameSeq.invoke(fixture.capture);
+            fixture.player.x = 1;
+            debug.onPredictionComplete(new PredictionComplete((PredictionResult) null));
+            fixture.player.clientTickEnds.incrementAndGet();
+            set(fixture.player.checkManager, "dispatchingTickEnd", true);
+            try {
+                fixture.player.x = 2;
+                debug.onPredictionComplete(new PredictionComplete((PredictionResult) null));
+                assertEquals(open, (long) frameSeq.invoke(fixture.capture));
+            } finally {
+                set(fixture.player.checkManager, "dispatchingTickEnd", false);
+            }
+            List<SuperDebug.HistoryTick> ticks = debug.historyTicks((long) frameSeq.invoke(fixture.capture));
+            assertEquals(2, ticks.size());
+            assertEquals(open, ticks.get(0).seq());
+            assertTrue(ticks.get(0).trace().startsWith("pos 1.0 "), ticks.get(0).trace());
+            assertEquals(open, ticks.get(1).seq(), "a prediction during a tick end is the cut frame's");
+            assertTrue(ticks.get(1).trace().startsWith("pos 2.0 "), ticks.get(1).trace());
+            assertTrue(debug.historyTicks(-1).isEmpty());
         }
     }
 

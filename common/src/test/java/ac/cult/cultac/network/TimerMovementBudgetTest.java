@@ -5,11 +5,14 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.movement.timer.AbstractTimerCheck;
 import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
 import ac.cult.cultac.checks.impl.movement.timer.TimerCheck;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
+import ac.cult.cultac.checks.verdict.FlagOutcome;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
+import ac.cult.cultac.player.PlayerObserver;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
@@ -18,7 +21,11 @@ import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.math.Vec3;
 import java.lang.reflect.Field;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
 class TimerMovementBudgetTest {
@@ -91,6 +98,81 @@ class TimerMovementBudgetTest {
             Field moves = AbstractTimerCheck.class.getDeclaredField("movePacketsSinceLastClientTickEnd");
             moves.setAccessible(true);
             assertEquals(0, moves.getInt(timer));
+        }
+    }
+
+    /**
+     * Every flag consumer sees Timer's flags with no verbose. Only an observer that records Timer's verbose gets the
+     * balance's lead and the age of the last proven clock, or the tick's movement count, and it gets them through a
+     * deferred flag's commit too.
+     */
+    @Test
+    void timerGivesItsNumbersOnlyToAnObserverThatRecordsThem() throws Exception {
+        for (boolean recording : new boolean[] {false, true}) {
+            try (var f = new JavaTickFixture()) {
+                f.place(GROUND, new Vec3(0, FIRST_FALL, 0));
+                f.pongThrough(f.player.sendTrailingTransaction());
+                f.tick(GROUND, true);
+                TimerCheck timer = f.player.checkManager.getCheck(TimerCheck.class);
+                timer.setEnabled(true);
+                Recorder observer = new Recorder(timer, recording);
+                f.player.observer = observer;
+                List<String> consumers = new ArrayList<>();
+                List<FlagOutcome> deferred = new ArrayList<>();
+                f.player.setFlagArbiter((check, verbose, prospective, outcome) -> {
+                    if (check != timer) return false;
+                    consumers.add(verbose.get());
+                    deferred.add(outcome);
+                    return true;
+                });
+
+                JavaTickFixture.setField(
+                        AbstractTimerCheck.class, timer, "timerBalanceRealTime", System.nanoTime() + 1_000_000_000L);
+                assertTrue(f.move(GROUND.add(.1, 0, 0), true).isCancelled());
+                tickEnd(f);
+                f.player.getSetbackTeleportUtil().release(GROUND);
+                JavaTickFixture.setField(
+                        AbstractTimerCheck.class, timer, "timerBalanceRealTime", System.nanoTime() - 100_000_000L);
+                f.move(GROUND, true);
+                f.move(GROUND, true);
+                assertEquals(List.of("", ""), consumers, "a flag consumer saw a Timer verbose");
+                assertTrue(observer.verbose.isEmpty(), "a deferred flag reached the observer before its commit");
+                for (FlagOutcome outcome : deferred) outcome.commit();
+
+                assertEquals(2, observer.verbose.size());
+                if (!recording) {
+                    assertEquals(List.of("", ""), observer.verbose);
+                    continue;
+                }
+                Matcher balance =
+                        Pattern.compile("ahead=(\\d+)us, clock=(-?\\d+)us").matcher(observer.verbose.get(0));
+                assertTrue(balance.matches(), observer.verbose.get(0));
+                long ahead = Long.parseLong(balance.group(1));
+                assertTrue(ahead > 900_000 && ahead <= 1_050_000, observer.verbose.get(0));
+                assertEquals("moves=2", observer.verbose.get(1));
+            }
+        }
+    }
+
+    /** Records the verbose each flag of {@code recorded} gives it, rendering it as a flag consumer would. */
+    private static final class Recorder implements PlayerObserver {
+        final List<String> verbose = new ArrayList<>();
+        private final Check recorded;
+        private final boolean recording;
+
+        Recorder(Check recorded, boolean recording) {
+            this.recorded = recorded;
+            this.recording = recording;
+        }
+
+        @Override
+        public boolean recordsVerbose(Check check) {
+            return recording && check == recorded;
+        }
+
+        @Override
+        public void flagged(Check check, double violations, Supplier<String> text) {
+            if (check == recorded) verbose.add(text.get());
         }
     }
 

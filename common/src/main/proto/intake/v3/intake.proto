@@ -351,6 +351,8 @@ message Verdict {
   optional bool using_item = 15;
   // The movement input prediction's accepted move needs.
   Input input = 16;
+  // The setbacks sent to the client during the tick, at most 4.
+  repeated Setback setbacks = 17;
 }
 
 // Verdict.conditions' bits.
@@ -412,6 +414,30 @@ message Flag {
   string check = 1;
   // The violation level after the flag, times 100.
   uint32 violations_hundredths = 2;
+  // The check's verbose, for the checks that send one; at most 64 bytes, and at most 4 flags of a verdict carry one.
+  string verbose = 3;
+}
+
+// A setback: why it was sent and, for a violation, the check its sender named.
+message Setback {
+  SetbackKind kind = 1;
+  // The resync, latency or resend reason; at most 64 bytes.
+  string cause = 2;
+  string check = 3;
+}
+
+enum SetbackKind {
+  SETBACK_KIND_UNSPECIFIED = 0;
+  // A check's violation.
+  SETBACK_KIND_VIOLATION = 1;
+  // A setback that does not simulate the next tick: a timer or other packet-rate rejection.
+  SETBACK_KIND_NON_SIMULATING = 2;
+  // A forced resync of the client's position.
+  SETBACK_KIND_RESYNC = 3;
+  // The client's latency.
+  SETBACK_KIND_LATENCY = 4;
+  // A setback already sent goes again: the client ignored it in flight, or it goes again dismounted.
+  SETBACK_KIND_RESEND = 5;
 }
 
 message Outcomes {
