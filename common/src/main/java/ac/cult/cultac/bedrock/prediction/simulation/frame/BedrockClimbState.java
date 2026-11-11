@@ -13,6 +13,11 @@ public record BedrockClimbState(
         return surface.climbing();
     }
 
+    /** A descent inside scaffolding drags its descend velocity and takes no gravity; one into powder snow does not. */
+    public boolean descendingInsideScaffolding() {
+        return scaffolding.descendingThroughBlock() && inScaffolding();
+    }
+
     public boolean fallClampApplies(Vec3d baseVelocity) {
         return climbing()
                 && !inScaffolding()

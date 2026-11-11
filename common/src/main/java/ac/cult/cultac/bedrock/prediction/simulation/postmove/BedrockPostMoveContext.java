@@ -206,7 +206,7 @@ record BedrockPostMoveContext(BedrockTravelPlan plan, BedrockMoveRequest moveReq
 
     BedrockPostMoveFrame applyLevitation(BedrockPostMoveFrame frame) {
         // A glide move or a climb skips gravity and drag, but the client still levitates its result.
-        if (frame.standingBounceBounced() || climb().scaffolding().descendingThroughBlock()) {
+        if (frame.standingBounceBounced() || climb().descendingInsideScaffolding()) {
             return frame;
         }
         return frame.withVelocity(
@@ -286,10 +286,10 @@ record BedrockPostMoveContext(BedrockTravelPlan plan, BedrockMoveRequest moveReq
     }
 
     private boolean gravityAndVerticalDragApplies(BedrockPostMoveFrame frame) {
-        // A descent through scaffolding already carries its dragged descend velocity, with no gravity after it.
+        // A descent inside scaffolding already carries its dragged descend velocity, with no gravity after it.
         return !frame.standingBounceBounced()
                 && !frame.climbVelocityApplied()
-                && !climb().scaffolding().descendingThroughBlock();
+                && !climb().descendingInsideScaffolding();
     }
 
     private boolean postMoveVelocityEffectsSuppressed() {

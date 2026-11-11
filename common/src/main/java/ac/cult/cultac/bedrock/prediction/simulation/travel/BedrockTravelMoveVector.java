@@ -10,7 +10,7 @@ final class BedrockTravelMoveVector {
     static Step resolve(Vec3d baseVelocity, BedrockClimbState climb) {
         double moveX = baseVelocity.x();
         double moveZ = baseVelocity.z();
-        boolean descendingThroughBlock = climb.scaffolding().descendingThroughBlock();
+        boolean descendingThroughBlock = climb.descendingInsideScaffolding();
 
         double moveY = baseVelocity.y();
         double collisionInputY =
