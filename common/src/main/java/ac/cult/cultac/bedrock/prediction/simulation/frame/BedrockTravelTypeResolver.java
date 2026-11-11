@@ -11,6 +11,7 @@ public final class BedrockTravelTypeResolver {
 
     public static BedrockTravelSelection resolve(
             BedrockMovementContext context,
+            boolean flightStarts,
             boolean inWaterFlag,
             boolean lavaTravelFlag,
             boolean onGround,
@@ -18,7 +19,8 @@ public final class BedrockTravelTypeResolver {
             boolean onClimbable) {
         BedrockTravelType type;
         Medium movementBranch;
-        if (context.movementAbilityFlying()) {
+        // The tick a flight starts still travels as it did before; only flight's vertical input applies to it.
+        if (context.movementAbilityFlying() && !flightStarts) {
             type = BedrockTravelType.PLAYER_FLYING;
             movementBranch = movementBranch(type);
         } else if (inWaterFlag) {

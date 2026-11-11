@@ -50,7 +50,8 @@ public final class BedrockVelocitySystems {
             velocity = BedrockDefaultMoveClimbVertical.apply(
                     velocity, facts.climb(), facts.rawPowderSnowAtFeetAscendable());
         }
-        if (branch.playerFlyingTravel()) {
+        boolean flightStarts = frame.inputIntent().fly().start() && facts.context().movementAbilityFlying();
+        if (branch.playerFlyingTravel() || flightStarts) {
             velocity = BedrockFlyingTravelMovement.applyVerticalInput(
                     velocity,
                     frame.input().inputFrame(),

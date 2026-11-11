@@ -108,6 +108,22 @@ public final class BedrockPlayerFlyingTravelTest {
         }
     }
 
+    // Starting to fly with jump held while falling back from a jump (0.083078 carried), the client rises
+    // 0.233076 and reports 0.150014 = (0.233076 - 0.08) * 0.98: the ascent of flight, the gravity and drag of air.
+    // Holding forward with 0.137277 carried it steps 0.156876: the 0.0196 of air, not the 0.049 of flight.
+    @Test
+    public void theTickFlightStartsTravelsAsAirWithTheAscentOfFlight() {
+        BedrockInputFrame start = new BedrockInputFrame(
+                1L, 0.0F, 0.0F, true, false, false, Set.of("UP", "JUMPING", "WANT_UP", "START_FLYING"));
+
+        var result = tick(
+                aloft(new Vec3d(0.0D, 0.083078D, 0.137277D)), start, new Vec3d(0.0D, 0.0D, 1.0D), flying(0.05D));
+
+        assertEquals(0.233078D, moved(result).y(), 2.0E-5D);
+        assertEquals(0.150016D, result.predictedVelocity().y(), 1.0E-5D);
+        assertEquals(0.156876D, Math.abs(moved(result).z()), 1.0E-5D);
+    }
+
     @Test
     public void releasedVerticalInputLeavesTheVelocityToTheDrag() {
         var result = tick(aloft(new Vec3d(0.0D, 0.225D, 0.0D)), BedrockInputFrame.idle(1L), Vec3d.ZERO, flying(0.05D));

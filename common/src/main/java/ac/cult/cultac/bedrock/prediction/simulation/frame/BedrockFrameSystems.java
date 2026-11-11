@@ -160,6 +160,7 @@ public final class BedrockFrameSystems {
                         BedrockTravelType.NONE, input.previousState().movementBranch())
                 : BedrockTravelTypeResolver.resolve(
                         facts.context(),
+                        intent.fly().start(),
                         facts.inWater(),
                         facts.lavaTravelFlag(),
                         travelSensingOnGround(input, facts),
