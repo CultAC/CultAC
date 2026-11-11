@@ -110,7 +110,9 @@ public final class SmoketestControlBridge {
                 + " storeCandidates=" + SectionStore.candidateCounter.sum()
                 + " storeHits=" + SectionStore.hitCounter.sum()
                 + " storeOffers=" + SectionStore.offerCounter.sum()
-                + " storeClones=" + SectionStore.cloneCounter.sum());
+                + " storeClones=" + SectionStore.cloneCounter.sum()
+                + " storeValueLookups=" + SectionStore.valueLookupCounter.sum()
+                + " storeValueHits=" + SectionStore.valueHitCounter.sum());
         for (SectionPool.DimensionStats stats : SectionPool.dimensionStats()) {
             LogUtil.info("SectionPool dimension stats: "
                     + "label=" + safeLabel(label)
