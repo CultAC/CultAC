@@ -105,7 +105,6 @@ public final class CheckPermissions {
             "invalidbreak",
             "invalidplacea",
             "invalidplaceb",
-            "invalidstep",
             "itemuseburst",
             "keepsprint",
             "knockback",

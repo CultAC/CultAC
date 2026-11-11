@@ -541,7 +541,6 @@ public class CheckManager {
 
     private static ClassToInstanceMap<PostPredictionListener> buildPseudoChecks(CultPlayer player) {
         return listenerMap(List.<PostPredictionListener>of(
-                new InvalidStep(player),
                 new NoSneakSlow(player),
                 new InputKeys(player),
                 new OmniSprint(player),
