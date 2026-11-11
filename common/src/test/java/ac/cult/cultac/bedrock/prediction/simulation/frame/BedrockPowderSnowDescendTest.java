@@ -22,7 +22,7 @@ public final class BedrockPowderSnowDescendTest {
                 frame,
                 frame.intent(),
                 BedrockClimbMovement.resolveSurface(
-                        new BedrockClimbableContact(false, false, true, false), false, false),
+                        new BedrockClimbableContact(false, false, false, true, false), false, false),
                 BedrockTravelInput.ScaffoldingVerticalBranch.DESCEND);
 
         BedrockScaffoldingAction action = BedrockScaffoldingAction.resolve(climb);
@@ -39,7 +39,7 @@ public final class BedrockPowderSnowDescendTest {
                 frame,
                 frame.intent(),
                 BedrockClimbMovement.resolveSurface(
-                        new BedrockClimbableContact(false, false, false, true), false, false),
+                        new BedrockClimbableContact(false, false, false, false, true), false, false),
                 BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE);
 
         assertFalse(climb.scaffolding().descendingThroughBlock());

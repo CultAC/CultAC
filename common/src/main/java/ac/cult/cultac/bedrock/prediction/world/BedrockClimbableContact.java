@@ -8,12 +8,13 @@ import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision.BlockContactBehavior;
 
 /**
- * The climb contact a tick starts from. The client keeps the scaffolding, descendable and ascendable contacts as actor
- * flags, which it recomputes after each move and which a flags update for the player overwrites until then.
+ * The climb contact a tick starts from. The client keeps the in and over scaffolding, descendable and ascendable
+ * contacts as actor flags, which it recomputes after each move and which a flags update for the player overwrites until
+ * then.
  */
 public record BedrockClimbableContact(
-        boolean ladder, boolean scaffolding, boolean descendAllowed, boolean ascendableBlock) {
-    public static final BedrockClimbableContact NONE = new BedrockClimbableContact(false, false, false, false);
+        boolean ladder, boolean scaffolding, boolean overScaffolding, boolean descendAllowed, boolean ascendableBlock) {
+    public static final BedrockClimbableContact NONE = new BedrockClimbableContact(false, false, false, false, false);
 
     public static BedrockClimbableContact fromBlockWorld(
             BlockCollisionWorld blockCollisionWorld,
@@ -33,6 +34,7 @@ public record BedrockClimbableContact(
             return NONE;
         }
         boolean scaffoldingContact = false;
+        boolean overScaffolding = false;
         boolean descendAllowed = false;
         boolean climbableContact = false;
         boolean ascendableBlock = false;
@@ -54,7 +56,10 @@ public record BedrockClimbableContact(
                     scaffoldingContact |= scaffolding;
                     ascendableBlock |= !scaffolding;
                 }
-                descendAllowed |= block.position().y() == rowBelow;
+                if (block.position().y() == rowBelow) {
+                    overScaffolding |= scaffolding;
+                    descendAllowed = true;
+                }
                 continue;
             }
             if (isClimbableBlock(block)) {
@@ -65,7 +70,8 @@ public record BedrockClimbableContact(
             }
         }
         if (scaffoldingContact || descendAllowed || climbableContact || ascendableBlock) {
-            return new BedrockClimbableContact(climbableContact, scaffoldingContact, descendAllowed, ascendableBlock);
+            return new BedrockClimbableContact(
+                    climbableContact, scaffoldingContact, overScaffolding, descendAllowed, ascendableBlock);
         }
         return NONE;
     }
@@ -76,7 +82,11 @@ public record BedrockClimbableContact(
 
     public BedrockClimbableContact withActorFlags(BedrockClimberFlags flags) {
         return new BedrockClimbableContact(
-                ladder, flags.inScaffolding(), flags.overDescendableBlock(), flags.inAscendableBlock());
+                ladder,
+                flags.inScaffolding(),
+                flags.overScaffolding(),
+                flags.overDescendableBlock(),
+                flags.inAscendableBlock());
     }
 
     public boolean scaffoldingDescendAllowed() {

@@ -56,9 +56,13 @@ public final class BedrockScaffoldingTickTest {
         assertEquals(0.0D, moved(standing).y(), 0.0D);
         assertEquals(-0.0784D, standing.predictedVelocity().y(), 1.0E-6D);
         assertTrue(standing.predictedState().climbableContact().descendAllowed());
+        assertTrue(standing.predictedState().climbableContact().overScaffolding());
+        assertFalse(standing.predictedState().climbableContact().scaffolding());
 
         var descending = tick(standing.predictedState(), sneak(3L, false), world, false);
         assertEquals(-STEP, moved(descending).y(), 2.0E-6D);
+        // Over the column, not yet in it, the descent still ends with its drag alone, -0.147: no gravity follows it.
+        assertEquals(-0.147D, descending.predictedVelocity().y(), 1.0E-6D);
     }
 
     // Inside the bottom block of a column with jump and sneak both held, the client rises

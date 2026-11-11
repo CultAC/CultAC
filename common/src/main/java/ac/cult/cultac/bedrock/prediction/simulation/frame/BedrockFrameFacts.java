@@ -132,7 +132,7 @@ public record BedrockFrameFacts(
     /**
      * The last move left the contact a tick starts from. A tick that handles a teleport stands
      * where no move has run: held jump climbs by the block at the teleported feet, while the
-     * scaffolding contact stays the last move's.
+     * scaffolding contacts stay the last move's.
      */
     private static BedrockClimbableContact climbableContact(BedrockTravelInput input) {
         BedrockClimbableContact carried = input.previousState().climbableContact();
@@ -142,6 +142,7 @@ public record BedrockFrameFacts(
         return new BedrockClimbableContact(
                 input.worldSnapshot().initialClimbableContact().climbing(),
                 carried.scaffolding(),
+                carried.overScaffolding(),
                 carried.descendAllowed(),
                 carried.ascendableBlock());
     }

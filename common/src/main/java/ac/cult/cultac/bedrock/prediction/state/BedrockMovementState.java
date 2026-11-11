@@ -1042,6 +1042,7 @@ public record BedrockMovementState(
             return withClimbableContact(new BedrockClimbableContact(
                     climbableContact.ladder(),
                     climbableContact.scaffolding(),
+                    climbableContact.overScaffolding(),
                     value,
                     climbableContact.ascendableBlock()));
         }

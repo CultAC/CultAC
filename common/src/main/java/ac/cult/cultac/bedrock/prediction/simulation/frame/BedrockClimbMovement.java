@@ -20,6 +20,7 @@ public final class BedrockClimbMovement {
         return new BedrockClimbState(
                 new BedrockClimbSurface(
                         contact.scaffolding() ? Type.SCAFFOLDING : (contact.climbing() ? Type.CLIMBABLE : Type.NONE),
+                        contact.overScaffolding(),
                         contact.descendAllowed(),
                         inWater || inLava),
                 BedrockScaffoldingState.NONE,

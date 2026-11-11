@@ -343,7 +343,7 @@ public final class BedrockSimulationStructureTest {
                         new Vec3d(0.18D, -0.0784D, -0.18D),
                         frame,
                         BedrockCollisionFlags.ON_GROUND)
-                .withClimbableContact(new BedrockClimbableContact(false, false, true, false));
+                .withClimbableContact(new BedrockClimbableContact(false, false, false, true, false));
         BlockPosition position = new BlockPosition(0, 0, 0);
         WorldCollisionBox fullBlock = new WorldCollisionBox(0.0D, 0.0D, 0.0D, 1.0D, 1.0D, 1.0D);
         BlockCollisionWorld world = new BlockCollisionWorld(List.of(PlacedBlockCollision.manual(

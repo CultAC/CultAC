@@ -2239,6 +2239,7 @@ public final class GeyserBedrockBridgeRuntime {
             BedrockClimberFlags climberFlags = metadata.getMetadata().containsKey(EntityDataTypes.FLAGS_2)
                     ? new BedrockClimberFlags(
                             metadata.getMetadata().getFlag(EntityFlag.IN_SCAFFOLDING),
+                            metadata.getMetadata().getFlag(EntityFlag.OVER_SCAFFOLDING),
                             metadata.getMetadata().getFlag(EntityFlag.OVER_DESCENDABLE_BLOCK),
                             metadata.getMetadata().getFlag(EntityFlag.IN_ASCENDABLE_BLOCK))
                     : null;

@@ -35,7 +35,7 @@ import java.util.Set;
 import org.junit.Test;
 
 public final class BedrockPowderSnowDescentTest {
-    private static final BedrockClimberFlags CLEARED_FLAGS = new BedrockClimberFlags(false, false, false);
+    private static final BedrockClimberFlags CLEARED_FLAGS = new BedrockClimberFlags(false, false, false, false);
     private static final BedrockInputFrame SNEAK = new BedrockInputFrame(
             2L, 0.0F, 0.0F, false, true, false, Set.of("SNEAKING", "START_SNEAKING", "SNEAK_DOWN", "WANT_DOWN"));
     private static final BedrockInputFrame HELD_SNEAK =
