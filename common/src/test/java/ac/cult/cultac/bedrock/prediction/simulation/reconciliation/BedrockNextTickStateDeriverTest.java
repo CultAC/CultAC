@@ -1,6 +1,7 @@
 package ac.cult.cultac.bedrock.prediction.simulation.reconciliation;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
@@ -46,17 +47,24 @@ public final class BedrockNextTickStateDeriverTest {
     }
 
     @Test
-    public void forwardCarryPreservesTheExistingClimbableContactBoundary() {
+    public void forwardCarryClimbsByTheContactWhereTheMoveEnds() {
         var world = new BlockCollisionWorld(List.of(PlacedBlockCollision.manual(
                 new BlockPosition(1, 64, 0), "minecraft:ladder", "minecraft:ladder", List.of())));
         var previous = state(POSITION, ZERO, BedrockCollisionFlags.AIR, Medium.AIR);
         var next = state(new Vec3d(1.5, 64, 0.5), new Vec3d(0.08, -0.0784, 0), BedrockCollisionFlags.AIR, Medium.AIR);
         var states = BedrockNextTickStateDeriver.fromSimulated(
                 movementResult(previous, next, context(Medium.AIR, world)), next);
-        assertEquals(2, states.size());
-        assertTrue(states.stream().anyMatch(value -> value.climbableContact().climbing()));
-        assertTrue(states.stream().anyMatch(value -> !value.climbableContact().climbing()));
-        assertTrue(states.stream().allMatch(value -> value.velocity().equals(next.velocity())));
+        assertEquals(1, states.size());
+        assertTrue(states.getFirst().climbableContact().climbing());
+        assertEquals(next.velocity(), states.getFirst().velocity());
+
+        var away = state(new Vec3d(3.5, 64, 0.5), new Vec3d(0.08, -0.0784, 0), BedrockCollisionFlags.AIR, Medium.AIR);
+        states = BedrockNextTickStateDeriver.fromSimulated(
+                movementResult(next.withClimbableContact(states.getFirst().climbableContact()), away, context(
+                        Medium.AIR, world)),
+                away);
+        assertEquals(1, states.size());
+        assertFalse(states.getFirst().climbableContact().climbing());
     }
 
     private static BedrockMovementState state(
