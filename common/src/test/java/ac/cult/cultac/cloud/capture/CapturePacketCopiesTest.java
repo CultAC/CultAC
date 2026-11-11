@@ -74,6 +74,91 @@ class CapturePacketCopiesTest {
     }
 
     @Test
+    void terrainRecordsFillChunksOfTheirOwnInOrderAndLeavePacketsTheirRoom() {
+        CapturePacketCopies.Budget budget = new CapturePacketCopies.Budget();
+        CapturePacketCopies copies = CapturePacketCopies.of(budget, 0);
+        ByteBuf source = Unpooled.buffer(100).writeZero(100);
+        try {
+            Copy packet = copy(copies, source, 0);
+            int length = 3000;
+            int perChunk = CapturePacketCopies.TERRAIN_CHUNK_BYTES / length;
+            List<byte[]> chunks = new ArrayList<>();
+            List<int[]> ranges = new ArrayList<>();
+            List<byte[]> arrays = new ArrayList<>();
+            for (int i = 0; i < CapturePacketCopies.MAX_TERRAIN_CHUNKS * perChunk + 3; i++) {
+                byte[] array = copies.reserve(length, 0);
+                int offset = copies.offset();
+                assertTrue(offset + length <= array.length);
+                Arrays.fill(array, offset, offset + length, (byte) i);
+                arrays.add(array);
+                ranges.add(new int[] {offset, i});
+                if (!chunks.contains(array) && array.length == CapturePacketCopies.TERRAIN_CHUNK_BYTES) chunks.add(array);
+            }
+            for (int i = 0; i < arrays.size(); i++) {
+                byte[] array = arrays.get(i);
+                int offset = ranges.get(i)[0];
+                for (int at = offset; at < offset + length; at++) assertEquals((byte) i, array[at]);
+                assertNotSame(packet.array(), array);
+            }
+            // Chunks stop where the player's budget would leave packets less than their room.
+            assertTrue(chunks.size() <= CapturePacketCopies.MAX_TERRAIN_CHUNKS);
+            assertTrue(CapturePacketCopies.PLAYER_BYTES - budget.bytes() >= CapturePacketCopies.PACKET_RESERVE_BYTES);
+            assertEquals(CapturePacketCopies.POOL_BYTES + copies.retainedBytes(), budget.bytes());
+            byte[] large = copies.reserve(CapturePacketCopies.TERRAIN_CHUNK_BYTES + 1, 0);
+            assertEquals(0, copies.offset());
+            assertEquals(CapturePacketCopies.TERRAIN_CHUNK_BYTES + 1, large.length);
+
+            copies.clear(0);
+            byte[] first = copies.reserve(length, 0);
+            assertSame(chunks.get(0), first);
+            assertEquals(0, copies.offset());
+            copies.abandon(first, 0, length);
+            assertSame(first, copies.reserve(length, 0));
+            assertEquals(0, copies.offset());
+            // Only the last room is given back, and none once the pool was cleared.
+            copies.reserve(length, 0);
+            copies.abandon(first, 0, length);
+            assertSame(first, copies.reserve(10, 0));
+            assertEquals(2 * length, copies.offset());
+            copies.clear(0);
+            copies.reserve(100, 0);
+            copies.abandon(first, 0, length);
+            assertSame(first, copies.reserve(10, 0));
+            assertEquals(100, copies.offset());
+
+            copies.clear(CapturePacketCopies.IDLE_NANOS + SECOND);
+            assertEquals(CapturePacketCopies.POOL_BYTES + copies.retainedBytes(), budget.bytes());
+            assertEquals(CapturePacketCopies.TERRAIN_BOOK_BYTES, copies.retainedBytes());
+        } finally {
+            source.release();
+            copies.release();
+        }
+        assertEquals(0, budget.bytes());
+    }
+
+    @Test
+    void terrainChunksTakeOnlyWhatTheBudgetHasBeyondThePacketsRoom() {
+        CapturePacketCopies.Budget budget = new CapturePacketCopies.Budget();
+        List<CapturePacketCopies> pools = new ArrayList<>();
+        int pooled = 0;
+        for (int p = 0; p < 6; p++) {
+            CapturePacketCopies pool = CapturePacketCopies.of(budget, 0);
+            if (pool == null) break;
+            pools.add(pool);
+            for (int i = 0; i < 40; i++) {
+                byte[] array = pool.reserve(4000, 0);
+                if (array.length == CapturePacketCopies.TERRAIN_CHUNK_BYTES) pooled++;
+                assertTrue(CapturePacketCopies.PLAYER_BYTES - budget.bytes() >= CapturePacketCopies.PACKET_RESERVE_BYTES
+                        || array.length == 4000);
+            }
+        }
+        assertTrue(pooled > 0);
+        assertTrue(budget.bytes() <= CapturePacketCopies.PLAYER_BYTES);
+        for (CapturePacketCopies pool : pools) pool.release();
+        assertEquals(0, budget.bytes());
+    }
+
+    @Test
     void largeAndSaturatedFramesRemainCompleteWithoutUnboundedRetention() {
         CapturePacketCopies.Budget budget = new CapturePacketCopies.Budget();
         CapturePacketCopies copies = CapturePacketCopies.of(budget, 0);

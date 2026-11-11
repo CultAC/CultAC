@@ -479,6 +479,16 @@ public class CompensatedWorld {
             states.write(output);
         }
 
+        /** The bytes {@link #writeStates(ByteBuf)} writes. */
+        public int statesBytes() {
+            return states.writtenBytes();
+        }
+
+        /** As {@link #writeStates(ByteBuf)}, into {@code into} from {@code offset}; returns the index past the last byte. */
+        public int writeStates(byte[] into, int offset) {
+            return states.write(into, offset);
+        }
+
         boolean hasCachedContentHash() {
             return cachedContentHashValid;
         }

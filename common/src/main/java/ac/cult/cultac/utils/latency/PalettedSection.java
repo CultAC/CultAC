@@ -398,6 +398,51 @@ public final class PalettedSection {
         for (long word : words) output.writeLong(word);
     }
 
+    /** The bytes {@link #write(ByteBuf)} writes. */
+    public int writtenBytes() {
+        int bytes = 1 + words.length * Long.BYTES;
+        if (isGlobal()) return bytes;
+        if (bits == 0) return bytes + varIntBytes(palette[0]);
+        bytes += varIntBytes(paletteSize);
+        for (int i = 0; i < paletteSize; i++) bytes += varIntBytes(palette[i]);
+        return bytes;
+    }
+
+    /**
+     * As {@link #write(ByteBuf)}, the {@link #writtenBytes} bytes into {@code into} from {@code offset}; returns the
+     * index past the last one.
+     */
+    public int write(byte[] into, int offset) {
+        int at = offset;
+        into[at++] = (byte) bits;
+        if (!isGlobal()) {
+            if (bits == 0) at = putVarInt(into, at, palette[0]);
+            else {
+                at = putVarInt(into, at, paletteSize);
+                for (int i = 0; i < paletteSize; i++) at = putVarInt(into, at, palette[i]);
+            }
+        }
+        for (long word : words) {
+            BIG_ENDIAN_LONGS.set(into, at, word);
+            at += Long.BYTES;
+        }
+        return at;
+    }
+
+    /** The bytes {@link Wire#writeVarInt} writes for {@code value}. */
+    private static int varIntBytes(int value) {
+        return value == 0 ? 1 : (31 - Integer.numberOfLeadingZeros(value)) / 7 + 1;
+    }
+
+    private static int putVarInt(byte[] into, int at, int value) {
+        while ((value & ~0x7f) != 0) {
+            into[at++] = (byte) ((value & 0x7f) | 0x80);
+            value >>>= 7;
+        }
+        into[at++] = (byte) value;
+        return at;
+    }
+
     /**
      * The same entries under another registry's IDs. Local palettes keep their layout; a global
      * container is repacked at the target registry's width.

@@ -1473,6 +1473,8 @@ public final class CloudCapture implements PlayerObserver {
 
     /** The simulation world, read on the event loop, which owns it: protocol 5's terrain. */
     private final class SimulationTerrain implements Sections.Terrain {
+        private final SectionRecord record = new SectionRecord();
+
         @Override
         public long position() {
             return Sections.pack(
@@ -1492,15 +1494,59 @@ public final class CloudCapture implements PlayerObserver {
         /** Only loaded columns of the dimension the client was last sent; none while its dimension type is unknown. */
         @Override
         public byte[] section(int x, int y, int z) {
+            CompensatedWorld.CachedChunk column = column(x, y, z);
+            if (column == null) return null;
+            return SectionBytes.record(x, y, z, column.getSection(index(y)));
+        }
+
+        @Override
+        public Sections.Body record(int x, int y, int z) {
+            CompensatedWorld.CachedChunk column = column(x, y, z);
+            if (column == null) return null;
+            return record.of(x, y, z, column.getSection(index(y)));
+        }
+
+        /** The loaded column holding section {@code y} at {@code x}, {@code z}; null when there is none. */
+        private CompensatedWorld.CachedChunk column(int x, int y, int z) {
             CompensatedWorld world = player.compensatedWorld;
             if (world.isClientboundUnresolved() || world.isLevelUnresolved()) return null;
             CompensatedWorld.CachedChunk column = world.getChunk(x, z);
             if (column == null) return null;
             CompensatedWorld.ClientboundDimensionData dimension = world.getLastClientboundDimension();
             if (!dimension.dimension().equals(world.dimensionForChunk(x, z))) return null;
-            int index = y - (dimension.minHeight() >> 4);
+            int index = index(y);
             if (index < 0 || index >= column.sectionCount()) return null;
-            return SectionBytes.record(x, y, z, column.getSection(index));
+            return column;
+        }
+
+        private int index(int y) {
+            return y - (player.compensatedWorld.getLastClientboundDimension().minHeight() >> 4);
+        }
+    }
+
+    /** A simulation section's {@code SECTION} record, rewritten for each one the terrain hands out. */
+    private static final class SectionRecord implements Sections.Body {
+        private int x;
+        private int y;
+        private int z;
+        private CompensatedWorld.CachedSection section;
+
+        SectionRecord of(int x, int y, int z, CompensatedWorld.CachedSection section) {
+            this.x = x;
+            this.y = y;
+            this.z = z;
+            this.section = section;
+            return this;
+        }
+
+        @Override
+        public int length() {
+            return SectionBytes.recordLength(x, y, z, section);
+        }
+
+        @Override
+        public void write(byte[] into, int offset) {
+            SectionBytes.record(x, y, z, section, into, offset);
         }
     }
 

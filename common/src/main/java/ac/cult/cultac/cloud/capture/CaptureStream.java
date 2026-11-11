@@ -347,6 +347,11 @@ public final class CaptureStream {
         }
 
         @Override
+        public boolean put(int kind, Sections.Body body, long section, long nanos) {
+            return putTerrain(kind, body, section, nanos);
+        }
+
+        @Override
         public long room() {
             long room = CaptureStream.this.room();
             return framedTerrainBytes == 0
@@ -687,6 +692,37 @@ public final class CaptureStream {
         framedTerrain.add(new TerrainRecord(kind, section));
         if (kind == IntakeWire.SECTION) framedTerrainBytes += body.length;
         return true;
+    }
+
+    /** As {@link #putTerrain(int, byte[], long, long)}, the body written into the open frame's copies. */
+    private boolean putTerrain(int kind, Sections.Body body, long section, long nanos) {
+        if (overflow) return false;
+        int length = body.length();
+        byte[] bytes = terrainCopy(length, nanos);
+        int offset = copiedAt;
+        body.write(bytes, offset);
+        if (!put(kind, framedTerrain.size(), bytes, offset, length, nanos, 0, 0, tapped, 0, false)) {
+            if (copies != null) copies.abandon(bytes, offset, length);
+            return false;
+        }
+        if (framedTerrain == NO_TERRAIN) framedTerrain = new ArrayList<>();
+        framedTerrain.add(new TerrainRecord(kind, section));
+        if (kind == IntakeWire.SECTION) framedTerrainBytes += length;
+        return true;
+    }
+
+    /** Room for a terrain record of {@code length} bytes, from {@link #copiedAt} in the array returned. */
+    private byte[] terrainCopy(int length, long nanos) {
+        copyClock = Math.max(copyClock, nanos);
+        copiedAt = 0;
+        if (copies == null) {
+            copies = spareCopies != null ? spareCopies : CapturePacketCopies.of(copyBudget, nanos);
+            spareCopies = null;
+            if (copies == null) return new byte[length];
+        }
+        byte[] bytes = copies.reserve(length, nanos);
+        copiedAt = copies.offset();
+        return bytes;
     }
 
     /** Terrain records that never reached the service are owed again. */

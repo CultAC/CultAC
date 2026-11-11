@@ -53,6 +53,24 @@ public final class SectionBytes {
         }
     }
 
+    /** The length of {@link #record(int, int, int, CachedSection)}'s body. */
+    public static int recordLength(int x, int y, int z, CachedSection section) {
+        return IntakeWire.sectionLength(x, y, z, section == null ? air().length : section.statesBytes());
+    }
+
+    /** Writes {@link #record(int, int, int, CachedSection)}'s body into {@code into} from {@code offset}. */
+    public static void record(int x, int y, int z, CachedSection section, byte[] into, int offset) {
+        if (section == null) {
+            byte[] air = air();
+            int at = IntakeWire.sectionHead(x, y, z, air.length, into, offset);
+            System.arraycopy(air, 0, into, at, air.length);
+            return;
+        }
+        int blocks = section.statesBytes();
+        int at = IntakeWire.sectionHead(x, y, z, blocks, into, offset);
+        if (section.writeStates(into, at) != at + blocks) throw new IllegalStateException("Section states changed size");
+    }
+
     private static byte[] air() {
         byte[] bytes = air;
         if (bytes == null) {
