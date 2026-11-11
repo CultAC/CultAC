@@ -2,6 +2,7 @@ package ac.cult.cultac.bedrock.prediction.integration;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import ac.cult.blocksim.data.BlockRegistry;
 import ac.cult.blocksim.data.DataTables;
@@ -89,6 +90,23 @@ public final class BedrockHorsePistonCollisionTest {
             assertEquals(121.30175F, (float) result.position().x(), 0.0F);
             assertEquals(25.30175F, (float) result.position().z(), 0.0F);
             assertFalse(result.steppedUp());
+        });
+    }
+
+    /**
+     * Pushed out of the arms, the horse steps up onto them on the next tick: the step gains only the 0.0000206 X the
+     * horse is asked to move, which its move without the step loses to an arm box, and the client keeps it.
+     */
+    @Test
+    public void aStepThatGainsTheSmallestHorizontalMoveIsKept() {
+        run(player -> {
+            pistons(player);
+            var result = move(player, new Vec3d(121.30175F, 120.0F, 25.30175F), 2.0585800E-5F);
+
+            assertTrue(result.steppedUp());
+            assertEquals(121.30177F, (float) result.position().x(), 0.0F);
+            assertEquals(121.0F, (float) result.position().y(), 0.0F);
+            assertEquals(25.30175F, (float) result.position().z(), 0.0F);
         });
     }
 

@@ -12,8 +12,6 @@ import java.util.List;
 import java.util.Optional;
 
 final class BedrockAutoStepResolver {
-    private static final double EPSILON = BedrockCollisionSweep.EPSILON;
-
     private BedrockAutoStepResolver() {}
 
     static Optional<BedrockCollisionSweep.MoveResult> resolve(
@@ -53,9 +51,9 @@ final class BedrockAutoStepResolver {
                 downClip.move().y(),
                 downClip.move().z(),
                 current.coordinateFrame());
+        // The step is kept only when it moves strictly farther horizontally than the move without it.
         if (collides(finalBox, obstacles)
-                || horizontalDistanceSquared(finalDelta)
-                        <= horizontalDistanceSquared(baseMove.appliedDelta()) + EPSILON) {
+                || horizontalDistanceSquared(finalDelta) <= horizontalDistanceSquared(baseMove.appliedDelta())) {
             return Optional.empty();
         }
 
@@ -105,7 +103,9 @@ final class BedrockAutoStepResolver {
         return false;
     }
 
-    private static double horizontalDistanceSquared(Vec3d move) {
-        return move.x() * move.x() + move.z() * move.z();
+    private static float horizontalDistanceSquared(Vec3d move) {
+        float x = (float) move.x();
+        float z = (float) move.z();
+        return x * x + z * z;
     }
 }
