@@ -75,8 +75,11 @@ public final class BedrockMoveSystems {
         if (!slowdown.active()) {
             return request;
         }
+        // The slowdown scales the move and clears the velocity the actor carries into it.
         Vec3d slowedMove = slowdown.applyToMoveRequest(request.move());
-        BedrockResolvedMove resolvedMove = new BedrockResolvedMove(request.lavaSwimUpApplied(), slowedMove, slowedMove);
+        Vec3d carriedVelocity = slowdown.clearVelocityAfterMove() ? Vec3d.ZERO : slowedMove;
+        BedrockResolvedMove resolvedMove =
+                new BedrockResolvedMove(request.lavaSwimUpApplied(), slowedMove, carriedVelocity);
         return new BedrockMoveRequest(
                 resolvedMove,
                 BedrockTravelMoveRequest.requestedPosition(plan.frame().input().previousState(), slowedMove));

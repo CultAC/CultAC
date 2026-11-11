@@ -15,7 +15,6 @@ public final class BedrockPostMoveSystems {
 
         BedrockPostMoveFrame frame = context.startEffectFrame(blockMove.velocity(), blockMove.collisionFlags(), false);
         if (plan.frame().boat() != null) {
-            frame = context.applyBlockMovementSlowdownClear(frame);
             frame = context.resolvePostMoveFluidContext(frame, blockMove.position());
             // Lily pads slow the boat before its gravity and buoyancy.
             var velocity = BedrockBoatLilyPads.slow(
@@ -52,7 +51,6 @@ public final class BedrockPostMoveSystems {
             frame = context.applyFlyingGroundContact(frame);
             frame = context.applyWaterJumpGroundReset(frame);
             frame = context.applyStandingBounce(frame, blockMove.position(), collision.collisionFetchBox());
-            frame = context.applyBlockMovementSlowdownClear(frame);
         }
         frame = context.resolvePostMoveFluidContext(frame, blockMove.position());
         if (travel) {

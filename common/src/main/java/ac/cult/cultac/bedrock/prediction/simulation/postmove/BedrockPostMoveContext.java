@@ -141,10 +141,12 @@ record BedrockPostMoveContext(BedrockTravelPlan plan, BedrockMoveRequest moveReq
 
     BedrockPostMoveFrame applyStandingBounce(
             BedrockPostMoveFrame frame, Vec3d nextPosition, WorldCollisionBox fetchBox) {
+        // The rebound reads the fall the actor carried into the move, which a block slowdown already cleared.
+        double fallingVelocityY = moveRequest.collisionInputVelocity().y();
         if (fetchBox == null
                 || !frame.flags().verticalCollision()
                 || !frame.flags().onGround()
-                || moveRequest.move().y() >= 0.0D) {
+                || fallingVelocityY >= 0.0D) {
             return frame;
         }
         var block = BedrockStandingBlockResolver.resolveFetched(
@@ -155,7 +157,7 @@ record BedrockPostMoveContext(BedrockTravelPlan plan, BedrockMoveRequest moveReq
                 current().physicalFeetPosition(),
                 nextPosition,
                 frame.velocity(),
-                moveRequest.move().y(),
+                fallingVelocityY,
                 frame(),
                 block.get(),
                 !gliding().activeAtTravelSensing());
@@ -176,13 +178,6 @@ record BedrockPostMoveContext(BedrockTravelPlan plan, BedrockMoveRequest moveReq
                 movementDimensions());
         return frame.withVelocityAndStandingSurfaceSlowdown(
                 velocity, horizontalVelocityChanged(frame.velocity(), velocity));
-    }
-
-    BedrockPostMoveFrame applyBlockMovementSlowdownClear(BedrockPostMoveFrame frame) {
-        if (clearVelocityAfterSlowdownMove()) {
-            return frame.withVelocity(Vec3d.ZERO);
-        }
-        return frame;
     }
 
     BedrockPostMoveFrame resolvePostMoveFluidContext(BedrockPostMoveFrame frame, Vec3d nextPosition) {
