@@ -67,7 +67,9 @@ does the following:
 * while staff `/cult spectate`, their spectator game mode is hidden from the tab list, and staff
   `/cult spectate` and `/cult debug` actions run;
 * clicks on CultAC's own menus, such as `/cult label`, are kept from the server;
-* on Velocity, client plugin messages on `cultac:bridge` are dropped.
+* on Velocity, client plugin messages on `cultac:bridge` are dropped, and while a bridge secret resolves each
+  player's backend connection is greeted on that channel once it reaches play; `bridge.enabled: false` sends
+  nothing on it.
 
 ## Updating without a restart
 
