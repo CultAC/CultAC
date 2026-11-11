@@ -42,6 +42,12 @@ public class PacketOrderO extends Check implements CheckListener {
             return;
         }
 
+        // Minecraft#tick saves options after the entity tick (Tutorial#tick, the first-server save); a save sends the
+        // client's settings.
+        if (event.getPacketType() == ServerboundPackets.CLIENT_INFORMATION) {
+            return;
+        }
+
         if (player.inVehicle() && packet instanceof ServerboundPlayerCommand command) {
             PlayerCommandAction action = command.action();
             if (action == PlayerCommandAction.START_SPRINTING || action == PlayerCommandAction.STOP_SPRINTING) {
