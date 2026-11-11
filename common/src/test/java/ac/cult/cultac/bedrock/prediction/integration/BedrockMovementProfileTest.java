@@ -1,7 +1,6 @@
 package ac.cult.cultac.bedrock.prediction.integration;
 
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
 
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.GameMode;
@@ -17,15 +16,12 @@ public final class BedrockMovementProfileTest {
     }
 
     @Test
-    public void flightExemptionRequiresTheCompensatedMayFlyAbility() {
+    public void flightIsCheckedEvenWithTheMayFlyAbility() {
         BedrockMovementProfile profile = new BedrockMovementProfile();
         CultPlayer player = Mockito.mock(CultPlayer.class);
         player.gamemode = GameMode.CREATIVE;
-        player.canFly = false;
+        player.canFly = true;
 
         assertFalse(profile.usesFlyingExemption(player));
-
-        player.canFly = true;
-        assertTrue(profile.usesFlyingExemption(player));
     }
 }

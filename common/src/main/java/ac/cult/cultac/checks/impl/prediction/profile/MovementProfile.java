@@ -29,10 +29,6 @@ public interface MovementProfile {
         return true;
     }
 
-    default boolean startsFlyingExemptionThisFrame(CultPlayer player, SimulationContext context) {
-        return false;
-    }
-
     default boolean usesSharedOffsetSetbacks(CultPlayer player) {
         return true;
     }

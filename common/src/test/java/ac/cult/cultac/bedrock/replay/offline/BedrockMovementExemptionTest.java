@@ -7,17 +7,17 @@ import ac.cult.cultac.bedrock.prediction.integration.BedrockProfileState;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.manager.player.SetbackFixtures;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.math.Vec3;
 import org.junit.Test;
 
 public class BedrockMovementExemptionTest {
     @Test
-    public void flyingExemptionFollowsObservationAndNormalChecksResume() throws Exception {
+    public void spectatorExemptionFollowsObservationAndNormalChecksResume() throws Exception {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
-            player.canFly = true;
-            player.isFlying = true;
+            player.gamemode = GameMode.SPECTATOR;
             SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
             var processor = player.checkManager.getSimulationProcessor();
             var observed = new Vec3(2, 65, 3);
@@ -46,8 +46,7 @@ public class BedrockMovementExemptionTest {
             var history = (ac.cult.cultac.bedrock.prediction.integration.BedrockActorHistory) historyField.get(rewind);
             assertTrue(history.frames().isEmpty());
 
-            player.canFly = false;
-            player.isFlying = false;
+            player.gamemode = GameMode.SURVIVAL;
             var next = frame(player, 2, observed.add(5, 0, 0), Vec3.ZERO);
             player.bedrockState.offerAuthInputFrame(next);
             var checked = processor.processBedrockAuthInputFrame(next, BedrockPredictionTrigger.OFFLINE_REPLAY);

@@ -1331,7 +1331,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 pitch,
                 frame,
                 profile);
-        if (!pendingTeleport && this.isMovementModeExempt(profile, result.getSimulationContext())) {
+        if (!pendingTeleport && this.isMovementModeExempt(profile)) {
             result.exempt();
         }
         PredictionCommit commit = this.prepareBedrockCommit(result, observed.subtract(start), profile);
@@ -2372,7 +2372,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 yRot,
                 authoredMovementFrame,
                 movementProfile);
-        if (this.isExempt(movementProfile, result.getSimulationContext())) {
+        if (this.isExempt(movementProfile)) {
             result.exempt();
         }
 
@@ -2441,19 +2441,17 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
     public boolean isExempt() {
         MovementProfile movementProfile = MovementProfiles.forPlayer(this.player);
-        return this.isExempt(movementProfile, null);
+        return this.isExempt(movementProfile);
     }
 
-    private boolean isExempt(MovementProfile movementProfile, SimulationContext context) {
-        return this.isMovementModeExempt(movementProfile, context)
+    private boolean isExempt(MovementProfile movementProfile) {
+        return this.isMovementModeExempt(movementProfile)
                 || this.player.getSetbackTeleportUtil().shouldBlockMovement();
     }
 
-    private boolean isMovementModeExempt(MovementProfile movementProfile, SimulationContext context) {
+    private boolean isMovementModeExempt(MovementProfile movementProfile) {
         boolean flyingExempt = movementProfile.usesFlyingExemption(this.player)
-                && (this.player.isFlying
-                        || this.lastFlying.hasOccurredSince(2)
-                        || movementProfile.startsFlyingExemptionThisFrame(this.player, context));
+                && (this.player.isFlying || this.lastFlying.hasOccurredSince(2));
         return flyingExempt || this.player.gamemode == GameMode.SPECTATOR;
     }
 
