@@ -161,6 +161,14 @@ public final class JavaMathRouter {
         return Math.sqrt(x * x + y * y + z * z);
     }
 
+    /** The floating-point rounding of {@code delta}, a report taken as {@code end} minus {@code start}. */
+    public static double positionRounding(Vec3 start, Vec3 end, Vec3 delta) {
+        double x = rounding(start.x, end.x, delta.x);
+        double y = rounding(start.y, end.y, delta.y);
+        double z = rounding(start.z, end.z, delta.z);
+        return Math.sqrt(x * x + y * y + z * z);
+    }
+
     // The report subtracts two absolute positions. This is their floating-point rounding, not a movement allowance.
     private static double rounding(double start, double end, double delta) {
         return 2.0D * (Math.ulp(start) + Math.ulp(end) + Math.ulp(delta));

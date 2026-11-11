@@ -1449,15 +1449,32 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         // A root still interpolating reports its target, up to ClientPacketListener's 64-block interpolation limit
         // from where it physically is: its own travel is the report's distance from that target.
         PacketEntity reporting = this.currentPredictionVehicle();
-        double length = JavaVehicleReport.followsTarget(this.player, reporting)
-                ? to.subtract(reporting.newPacketLocation.targetPosition()).lengthSqr()
-                : diff.lengthSqr();
+        Vec3 travelOrigin = JavaVehicleReport.followsTarget(this.player, reporting)
+                ? reporting.newPacketLocation.targetPosition()
+                : from;
+        Vec3 reportedTravel = to.subtract(travelOrigin);
+        double length = reportedTravel.lengthSqr();
         if (length > 1.0) {
             Check crashCheck = (Check) this.player.checkManager.getListener(CrashF.class);
             crashCheck.debug(() -> "length=" + length);
         }
 
-        if (length > 400.0) {
+        boolean groundBefore = this.player.onGround;
+        boolean flyingBefore = this.player.isFlying;
+        boolean flyingStopBefore = this.player.packetStateData.flyingStopAfterTravel;
+        boolean flyingThroughTravel = this.keepsFlyingThroughTravel(onGround);
+        boolean predictionOnGround = this.movementStartOnGround(onGround);
+        this.player.onGround = predictionOnGround;
+        MovementProfile movementProfile = MovementProfiles.forPlayer(this.player);
+        PredictionResult result =
+                this.callPrediction(diff, from, to, false, xRot, yRot, authoredMovementFrame, movementProfile);
+        // A move over 20 blocks is legitimate only up to the longest travel the engine produced this tick (a
+        // large jump boost or jump strength, a velocity, a riptide); anything longer than that and the report's own
+        // rounding is rejected before any state is committed.
+        if (length > 400.0 && Math.sqrt(length) > longestTravel(result, travelOrigin, to, reportedTravel)) {
+            this.player.onGround = groundBefore;
+            this.player.isFlying = flyingBefore;
+            this.player.packetStateData.flyingStopAfterTravel = flyingStopBefore;
             if (this.player.getSetbackTeleportUtil().hasFullyLoaded()) {
                 Check crashCheck = (Check) this.player.checkManager.getListener(CrashF.class);
                 crashCheck.flag("len " + Math.sqrt(length));
@@ -1465,76 +1482,69 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
             this.player.getSetbackTeleportUtil().executeViolationSetback();
             return null;
-        } else {
-            boolean flyingThroughTravel = this.keepsFlyingThroughTravel(onGround);
-            boolean predictionOnGround = this.movementStartOnGround(onGround);
-            this.player.onGround = predictionOnGround;
-            MovementProfile movementProfile = MovementProfiles.forPlayer(this.player);
-            PredictionResult result =
-                    this.callPrediction(diff, from, to, false, xRot, yRot, authoredMovementFrame, movementProfile);
-            if (result.getSimulationContext() != null
-                    && result.getSimulationContext().getVehicle() != null) {
-                this.player.onGround = onGround;
-            }
-
-            this.handlePossibleRealities(result);
-            if (this.player.isBedrockMovement()) {
-                this.activeBedrockSetbackState =
-                        MovementEngines.requireForProfile(movementProfile).prepareSetbackState(this.player, result);
-            }
-
-            boolean desync = !result.isExempt() && this.isDesync(result);
-            if (desync) {
-                SetbackTeleportUtil setbackUtil = this.player.getSetbackTeleportUtil();
-                if (setbackUtil.isPendingSetback()) {
-                    setbackUtil.blockOffsetsUntilSetbackAccepted();
-                }
-
-                setbackUtil.executeForceResync("sim desync");
-                result.exempt();
-                this.lastOnGround = DesyncStatus.fromBoolean(onGround);
-            }
-
-            boolean createProfileVerboseLog = movementProfile.shouldCreateVerboseLog(this.player, result);
-            boolean recordProfileDebug = BedrockPredictionDebug.shouldRecordMovementDebug(this.player, result);
-            this.player.compensatedEntities.vehicles.consumeVehicleSwitchPredictionOffset(result);
-            this.prepareFlaggedPrediction(result, createProfileVerboseLog);
-
-            if (result.getIdentifier() == 0 && (createProfileVerboseLog || recordProfileDebug)) {
-                result.setIdentifier(nextDebugIdentifier());
-                result.setProfileVerboseLog(createProfileVerboseLog);
-            }
-
-            PredictionCommit preparedCommit = this.prepareBedrockCommit(result, diff, movementProfile);
-            this.callPredictionEndListeners(result, preparedCommit);
-            if (!this.player.isBedrockMovement()
-                    && this.player.platformPlayer != null
-                    && this.player.isGliding
-                    && result.getInitialStartingVel().hasReason(VelocityTransformer.SPRINT_JUMP_REASON)
-                    && !CultAPI.INSTANCE
-                            .getConfigManager()
-                            .getConfig()
-                            .getBooleanElse("exploit.allow-sprint-jumping-when-using-elytra", true)) {
-                this.player.getSetbackTeleportUtil().scaleSafeVelocity(new Vec3(0.546, 1.0, 0.546));
-                this.player.getSetbackTeleportUtil().executeNonSimulatingSetback();
-            }
-
-            this.commitPredictionState(
-                    result,
-                    to,
-                    this.player.compensatedEntities.vehicles.committedVehicleMovement(result, diff),
-                    xRot,
-                    yRot,
-                    movementProfile,
-                    preparedCommit);
-            if (flyingThroughTravel) {
-                this.stopFlyingAfterTravel();
-            }
-            this.activeBedrockSetbackState = null;
-            long took = System.nanoTime() - start;
-            computeTimeNS = (long) (computeTimeNS * 499L / 500.0 + took / 500.0);
-            return result;
         }
+        if (result.getSimulationContext() != null
+                && result.getSimulationContext().getVehicle() != null) {
+            this.player.onGround = onGround;
+        }
+
+        this.handlePossibleRealities(result);
+        if (this.player.isBedrockMovement()) {
+            this.activeBedrockSetbackState =
+                    MovementEngines.requireForProfile(movementProfile).prepareSetbackState(this.player, result);
+        }
+
+        boolean desync = !result.isExempt() && this.isDesync(result);
+        if (desync) {
+            SetbackTeleportUtil setbackUtil = this.player.getSetbackTeleportUtil();
+            if (setbackUtil.isPendingSetback()) {
+                setbackUtil.blockOffsetsUntilSetbackAccepted();
+            }
+
+            setbackUtil.executeForceResync("sim desync");
+            result.exempt();
+            this.lastOnGround = DesyncStatus.fromBoolean(onGround);
+        }
+
+        boolean createProfileVerboseLog = movementProfile.shouldCreateVerboseLog(this.player, result);
+        boolean recordProfileDebug = BedrockPredictionDebug.shouldRecordMovementDebug(this.player, result);
+        this.player.compensatedEntities.vehicles.consumeVehicleSwitchPredictionOffset(result);
+        this.prepareFlaggedPrediction(result, createProfileVerboseLog);
+
+        if (result.getIdentifier() == 0 && (createProfileVerboseLog || recordProfileDebug)) {
+            result.setIdentifier(nextDebugIdentifier());
+            result.setProfileVerboseLog(createProfileVerboseLog);
+        }
+
+        PredictionCommit preparedCommit = this.prepareBedrockCommit(result, diff, movementProfile);
+        this.callPredictionEndListeners(result, preparedCommit);
+        if (!this.player.isBedrockMovement()
+                && this.player.platformPlayer != null
+                && this.player.isGliding
+                && result.getInitialStartingVel().hasReason(VelocityTransformer.SPRINT_JUMP_REASON)
+                && !CultAPI.INSTANCE
+                        .getConfigManager()
+                        .getConfig()
+                        .getBooleanElse("exploit.allow-sprint-jumping-when-using-elytra", true)) {
+            this.player.getSetbackTeleportUtil().scaleSafeVelocity(new Vec3(0.546, 1.0, 0.546));
+            this.player.getSetbackTeleportUtil().executeNonSimulatingSetback();
+        }
+
+        this.commitPredictionState(
+                result,
+                to,
+                this.player.compensatedEntities.vehicles.committedVehicleMovement(result, diff),
+                xRot,
+                yRot,
+                movementProfile,
+                preparedCommit);
+        if (flyingThroughTravel) {
+            this.stopFlyingAfterTravel();
+        }
+        this.activeBedrockSetbackState = null;
+        long took = System.nanoTime() - start;
+        computeTimeNS = (long) (computeTimeNS * 499L / 500.0 + took / 500.0);
+        return result;
     }
 
     private void prepareFlaggedPrediction(PredictionResult result, boolean createProfileVerboseLog) {
@@ -2336,6 +2346,23 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     }
 
     // LocalPlayer#aiStep stops flight after a grounded travel; any other stop is the double-jump toggle before it.
+    /**
+     * The length of the longest travel among every candidate the engine simulated for this tick, widened only by the
+     * floating-point rounding of the report {@code to} minus {@code origin}.
+     */
+    private static double longestTravel(PredictionResult result, Vec3 origin, Vec3 to, Vec3 reported) {
+        double longest = travel(result).lengthSqr();
+        for (PredictionResult candidate : result.getAnyReality()) {
+            longest = Math.max(longest, travel(candidate).lengthSqr());
+        }
+        return Math.sqrt(longest) + JavaMathRouter.positionRounding(origin, to, reported);
+    }
+
+    private static Vec3 travel(PredictionResult candidate) {
+        return candidate.getAcceptedClosestToTarget()
+                .multiply(candidate.getSimulationContext().getLastStuckSpeed());
+    }
+
     private boolean keepsFlyingThroughTravel(boolean onGround) {
         if (!this.player.packetStateData.flyingStopAfterTravel) return false;
         if (onGround && !FlightToggle.stopsBeforeTravel(this.player)) return true;
