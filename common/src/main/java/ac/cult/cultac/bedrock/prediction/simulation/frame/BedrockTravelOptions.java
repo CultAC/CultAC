@@ -8,7 +8,17 @@ public record BedrockTravelOptions(
         double maxUpStep,
         SprintTravelSpeedMode sprintTravelSpeedMode,
         SprintJumpImpulseMode sprintJumpImpulseMode,
-        TickStart tickStart) {
+        TickStart tickStart,
+        int solidActorOrder) {
+    public BedrockTravelOptions(
+            StepMode stepMode,
+            double maxUpStep,
+            SprintTravelSpeedMode sprintTravelSpeedMode,
+            SprintJumpImpulseMode sprintJumpImpulseMode,
+            TickStart tickStart) {
+        this(stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, tickStart, 0);
+    }
+
     public BedrockTravelOptions(
             StepMode stepMode,
             double maxUpStep,
@@ -18,7 +28,14 @@ public record BedrockTravelOptions(
     }
 
     public BedrockTravelOptions withTickStart(TickStart start) {
-        return new BedrockTravelOptions(stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, start);
+        return new BedrockTravelOptions(
+                stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, start, solidActorOrder);
+    }
+
+    /** The order the move meets its solid actors in (see {@code BedrockSolidActorOrders}); 0 is the collected order. */
+    public BedrockTravelOptions withSolidActorOrder(int order) {
+        return new BedrockTravelOptions(
+                stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, tickStart, order);
     }
 
     /** A teleported actor's tick runs no travel. */
@@ -39,6 +56,7 @@ public record BedrockTravelOptions(
         if (!Double.isFinite(maxUpStep) || maxUpStep < 0.0D) {
             maxUpStep = 0.0D;
         }
+        if (solidActorOrder < 0) throw new IllegalArgumentException("solidActorOrder");
     }
 
     public static BedrockTravelOptions vanilla(boolean canStep, double maxUpStep) {
@@ -55,12 +73,12 @@ public record BedrockTravelOptions(
 
     public BedrockTravelOptions withSprintTravelSpeedMode(SprintTravelSpeedMode sprintTravelSpeedMode) {
         return new BedrockTravelOptions(
-                stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, tickStart);
+                stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, tickStart, solidActorOrder);
     }
 
     public BedrockTravelOptions withSprintJumpImpulseMode(SprintJumpImpulseMode sprintJumpImpulseMode) {
         return new BedrockTravelOptions(
-                stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, tickStart);
+                stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, tickStart, solidActorOrder);
     }
 
     public boolean canStep() {

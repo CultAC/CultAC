@@ -1,5 +1,6 @@
 package ac.cult.cultac.bedrock.prediction.simulation.collision;
 
+import ac.cult.cultac.bedrock.prediction.api.BedrockActorOrderRange;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockActorBox;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
@@ -93,6 +94,38 @@ public final class BedrockEntityMove {
             double maxUpStep,
             boolean flying,
             WorldCollisionBox fetchBox) {
+        return move(
+                current,
+                frame,
+                blockCollisionWorld,
+                dimensions,
+                requestedPosition,
+                velocity,
+                moveY,
+                canStep,
+                maxUpStep,
+                flying,
+                fetchBox,
+                0);
+    }
+
+    /**
+     * Moves meeting the solid actors in {@code solidActorOrder} (see {@link BedrockSolidActorOrders}), 0 being the
+     * collected order. Its result names the order and the range the actors' order gives its end.
+     */
+    public static Result move(
+            BedrockMovementState current,
+            BedrockInputFrame frame,
+            BlockCollisionWorld blockCollisionWorld,
+            PlayerDimensionsState dimensions,
+            Vec3d requestedPosition,
+            Vec3d velocity,
+            double moveY,
+            boolean canStep,
+            double maxUpStep,
+            boolean flying,
+            WorldCollisionBox fetchBox,
+            int solidActorOrder) {
         if (blockCollisionWorld.isEmpty()) {
             WorldCollisionBox box = BedrockActorBox.move(
                     current.collisionBox(dimensions),
@@ -104,10 +137,31 @@ public final class BedrockEntityMove {
 
         Vec3d requestedDelta = requestedPosition.subtract(current.physicalFeetPosition());
         List<BlockCollision> shapes = BedrockCollisionSweep.collisionObstacles(blockCollisionWorld);
-        ActorMove actorMove =
-                actorMove(current, requestedDelta, BedrockCollisionFetchBox.fetched(shapes, fetchBox), dimensions);
+        List<BlockCollision> obstacles = BedrockCollisionFetchBox.fetched(shapes, fetchBox);
+        if (solidActorOrder != 0) {
+            obstacles = BedrockSolidActorOrders.arrange(
+                    obstacles,
+                    solidActorOrder,
+                    current.collisionBox(dimensions),
+                    current.coordinateFrame(),
+                    BedrockCollisionClipper.maximumDepenetration(current, obstacles));
+        }
+        ActorMove actorMove = actorMove(current, requestedDelta, obstacles, dimensions);
         CollisionMove collisionMove = autoStep(current, actorMove, dimensions, canStep, maxUpStep, flying);
-        return finalizeMove(current, frame, dimensions, velocity, actorMove.requestedDelta(), collisionMove, shapes);
+        Result result =
+                finalizeMove(current, frame, dimensions, velocity, actorMove.requestedDelta(), collisionMove, shapes);
+        BedrockActorOrderCrossing crossing = BedrockActorOrderCrossing.then(
+                collisionMove.baseMove().actorOrder(),
+                collisionMove.steppedUp() ? collisionMove.selectedMove().actorOrder() : null);
+        if (solidActorOrder == 0) {
+            if (crossing == null) return result;
+            int axes = BedrockSolidActorOrders.decidedAxes(crossing.exactAxes());
+            int order = axes == 0 ? 0 : BedrockSolidActorOrders.collected(axes, crossing.belowWon());
+            return result.withSolidActorOrder(order, crossing.range(axes));
+        }
+        return result.withSolidActorOrder(
+                solidActorOrder,
+                crossing == null ? null : crossing.range(BedrockSolidActorOrders.axes(solidActorOrder)));
     }
 
     public static Result noCollisionResult(Vec3d requestedPosition, Vec3d velocity) {
@@ -360,7 +414,43 @@ public final class BedrockEntityMove {
             boolean verticalCollision,
             boolean standingBounceBounced,
             WorldCollisionBox collisionBox,
-            boolean penetrating) {
+            boolean penetrating,
+            int solidActorOrder,
+            BedrockActorOrderRange solidActorOrderRange) {
+        public Result(
+                Vec3d position,
+                Vec3d velocity,
+                boolean xCollision,
+                boolean zCollision,
+                boolean horizontalCollisionFlag,
+                boolean horizontalBlockContact,
+                BedrockCollisionFlags collisionFlags,
+                boolean onGround,
+                boolean steppedUp,
+                boolean stepRetryAllowed,
+                boolean verticalCollision,
+                boolean standingBounceBounced,
+                WorldCollisionBox collisionBox,
+                boolean penetrating) {
+            this(
+                    position,
+                    velocity,
+                    xCollision,
+                    zCollision,
+                    horizontalCollisionFlag,
+                    horizontalBlockContact,
+                    collisionFlags,
+                    onGround,
+                    steppedUp,
+                    stepRetryAllowed,
+                    verticalCollision,
+                    standingBounceBounced,
+                    collisionBox,
+                    penetrating,
+                    0,
+                    null);
+        }
+
         public Result(
                 Vec3d position,
                 Vec3d velocity,
@@ -436,7 +526,9 @@ public final class BedrockEntityMove {
                     verticalCollision,
                     standingBounceBounced,
                     box,
-                    penetrating);
+                    penetrating,
+                    solidActorOrder,
+                    solidActorOrderRange);
         }
 
         /** Whether the move's own swept move overlapped any shape it met, which the next move's limit depends on. */
@@ -455,7 +547,30 @@ public final class BedrockEntityMove {
                     verticalCollision,
                     standingBounceBounced,
                     collisionBox,
-                    value);
+                    value,
+                    solidActorOrder,
+                    solidActorOrderRange);
+        }
+
+        /** The order the move met its solid actors in and the range that order gives its end. */
+        public Result withSolidActorOrder(int order, BedrockActorOrderRange range) {
+            return new Result(
+                    position,
+                    velocity,
+                    xCollision,
+                    zCollision,
+                    horizontalCollisionFlag,
+                    horizontalBlockContact,
+                    collisionFlags,
+                    onGround,
+                    steppedUp,
+                    stepRetryAllowed,
+                    verticalCollision,
+                    standingBounceBounced,
+                    collisionBox,
+                    penetrating,
+                    order,
+                    range);
         }
     }
 }

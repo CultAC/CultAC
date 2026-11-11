@@ -31,7 +31,61 @@ public record BedrockMovementResult(
         double maxUpStep,
         boolean travelActive,
         boolean groundJumpApplied,
-        WorldCollisionBox collisionFetchBox) {
+        WorldCollisionBox collisionFetchBox,
+        int solidActorOrder,
+        BedrockActorOrderRange solidActorOrderRange) {
+    public BedrockMovementResult(
+            BedrockMovementState previousState,
+            BedrockMovementContext movementContext,
+            BedrockMovementContext postMoveContext,
+            BedrockMovementState predictedState,
+            Vec3d rawPredictedPhysicalFeetPosition,
+            Vec3d collisionInputVelocity,
+            boolean orderedPostMoveOwnsHorizontalVelocity,
+            boolean orderedPostMoveOwnsVerticalVelocity,
+            boolean standingBounceBounced,
+            boolean standingSurfaceHorizontalSlowdownApplied,
+            BlockMovementSlowdownState currentBlockMovementSlowdownState,
+            HoneySlideState honeySlideState,
+            boolean selectedGlidingTravel,
+            boolean selectedWaterTravel,
+            double horizontalInputLimit,
+            double horizontalFriction,
+            boolean steppedUp,
+            boolean stepRetryAllowed,
+            boolean canStep,
+            double maxUpStep,
+            boolean travelActive,
+            boolean groundJumpApplied,
+            WorldCollisionBox collisionFetchBox) {
+        this(
+                previousState,
+                movementContext,
+                postMoveContext,
+                predictedState,
+                rawPredictedPhysicalFeetPosition,
+                collisionInputVelocity,
+                orderedPostMoveOwnsHorizontalVelocity,
+                orderedPostMoveOwnsVerticalVelocity,
+                standingBounceBounced,
+                standingSurfaceHorizontalSlowdownApplied,
+                currentBlockMovementSlowdownState,
+                honeySlideState,
+                selectedGlidingTravel,
+                selectedWaterTravel,
+                horizontalInputLimit,
+                horizontalFriction,
+                steppedUp,
+                stepRetryAllowed,
+                canStep,
+                maxUpStep,
+                travelActive,
+                groundJumpApplied,
+                collisionFetchBox,
+                0,
+                null);
+    }
+
     public BedrockMovementResult(
             BedrockMovementState previousState,
             BedrockMovementContext movementContext,
@@ -99,6 +153,11 @@ public record BedrockMovementResult(
         if (!Double.isFinite(maxUpStep) || maxUpStep < 0.0D) {
             maxUpStep = 0.0D;
         }
+    }
+
+    /** How many moves the tick takes over the orders of its solid actors: one per way each decided axis ends. */
+    public int solidActorOrders() {
+        return 1 << Integer.bitCount(solidActorOrder & 7);
     }
 
     public Vec3d predictedPosition() {

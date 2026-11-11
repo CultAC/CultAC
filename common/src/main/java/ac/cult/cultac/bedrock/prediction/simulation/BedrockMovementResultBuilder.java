@@ -127,7 +127,9 @@ final class BedrockMovementResultBuilder {
                 state.input().options().maxUpStep(),
                 state.input().options().travelActive(),
                 state.groundJumpApplied(),
-                collision.collisionFetchBox());
+                collision.collisionFetchBox(),
+                blockMove.solidActorOrder(),
+                blockMove.solidActorOrderRange());
     }
 
     private static double horizontalInputLimit(BedrockTravelPlan plan) {

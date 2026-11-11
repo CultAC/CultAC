@@ -92,6 +92,7 @@ public final class BedrockCollisionSweep {
         Optional<PlacedBlockCollision> yCollisionBlock = Optional.empty();
         WorldCollisionBox verticalPhaseBox = box;
         float penetration = 0.0F;
+        BedrockActorOrderCrossing actorOrder = null;
 
         // The sweep includes every axis, including zero-length moves.
         Vec3d[] segments = {
@@ -104,6 +105,11 @@ public final class BedrockCollisionSweep {
                     BedrockCollisionClipper.clip(box, segments[phase], obstacles, frame, maximumDepenetration);
             Vec3d move = clipped.move();
             penetration += clipped.penetration();
+            if (clipped.actorOrder() != null) {
+                actorOrder = phase == 0
+                        ? clipped.actorOrder()
+                        : BedrockActorOrderCrossing.then(actorOrder, clipped.actorOrder());
+            }
             movedX += (float) move.x();
             movedY += (float) move.y();
             movedZ += (float) move.z();
@@ -129,7 +135,8 @@ public final class BedrockCollisionSweep {
                 appliedDelta.z() != requested.z(),
                 yCollisionBlock,
                 frame,
-                penetration >= PENETRATING_DEPTH);
+                penetration >= PENETRATING_DEPTH,
+                actorOrder);
     }
 
     static WorldCollisionBox moveBedrock(
@@ -137,6 +144,10 @@ public final class BedrockCollisionSweep {
         return BedrockActorBox.move(box, new Vec3d(dx, dy, dz), frame);
     }
 
+    /**
+     * {@code actorOrder}: how the order the client meets the move's solid actors in decides it, or null when it
+     * cannot.
+     */
     public record MoveResult(
             Vec3d position,
             Vec3d appliedDelta,
@@ -147,7 +158,33 @@ public final class BedrockCollisionSweep {
             boolean zCollision,
             Optional<PlacedBlockCollision> yCollisionBlock,
             BedrockCoordinateFrame coordinateFrame,
-            boolean penetrating) {
+            boolean penetrating,
+            BedrockActorOrderCrossing actorOrder) {
+        public MoveResult(
+                Vec3d position,
+                Vec3d appliedDelta,
+                WorldCollisionBox finalBox,
+                WorldCollisionBox verticalPhaseBox,
+                boolean xCollision,
+                boolean yCollision,
+                boolean zCollision,
+                Optional<PlacedBlockCollision> yCollisionBlock,
+                BedrockCoordinateFrame coordinateFrame,
+                boolean penetrating) {
+            this(
+                    position,
+                    appliedDelta,
+                    finalBox,
+                    verticalPhaseBox,
+                    xCollision,
+                    yCollision,
+                    zCollision,
+                    yCollisionBlock,
+                    coordinateFrame,
+                    penetrating,
+                    null);
+        }
+
         public MoveResult(
                 Vec3d position,
                 Vec3d appliedDelta,

@@ -4,6 +4,7 @@ import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputIntent;
+import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockSolidActorOrders;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockSnapshotResolver;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockTravelInput;
@@ -24,6 +25,10 @@ public final class BedrockSimulation {
 
     /** Runs one movement tick with bounded controls. */
     public static Candidate movementTick(Input input, Vec3d control) {
+        return movementTick(input, control, 0);
+    }
+
+    private static Candidate movementTick(Input input, Vec3d control, int solidActorOrder) {
         if (control.y() != 0.0D
                 || !Double.isFinite(control.x())
                 || !Double.isFinite(control.z())
@@ -34,8 +39,9 @@ public final class BedrockSimulation {
         if (!input.actorMovementTick()) return candidates(input).getFirst();
         var state = input.previousState();
         if (state.isHorse()) state = state.withHorse(state.horse().withForwardJump(control.z() > 0.0D));
-        var options = BedrockTravelOptions.vanilla(input.canStep(), input.maxUpStep())
-                .withTickStart(state.tickStart());
+        var options =
+                BedrockTravelOptions.vanilla(input.canStep(), input.maxUpStep()).withTickStart(state.tickStart());
+        if (solidActorOrder != 0) options = options.withSolidActorOrder(solidActorOrder);
         var scaffolding = !state.isVehicle() && descendRequested(state, input)
                 ? BedrockTravelInput.ScaffoldingVerticalBranch.DESCEND
                 : BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE;
@@ -63,7 +69,16 @@ public final class BedrockSimulation {
                     input.mobJumpComponent()));
         }
         if (input.control() != null || input.previousState().isBoat()) {
-            return List.of(movementTick(input, input.control() == null ? Vec3d.ZERO : input.control()));
+            Vec3d control = input.control() == null ? Vec3d.ZERO : input.control();
+            Candidate first = movementTick(input, control, 0);
+            int collected = first.movementResult().solidActorOrder();
+            if (collected == 0) return List.of(first);
+            ArrayList<Candidate> orders = new ArrayList<>(BedrockSolidActorOrders.MAX_ORDERS);
+            orders.add(first);
+            for (int index = 1; index < first.movementResult().solidActorOrders(); index++) {
+                orders.add(movementTick(input, control, BedrockSolidActorOrders.order(collected, index)));
+            }
+            return List.copyOf(orders);
         }
         ArrayList<Candidate> candidates = new ArrayList<>();
         if (input.previousState().isHorse()) {
@@ -84,7 +99,8 @@ public final class BedrockSimulation {
      * whatever else is held. Nothing else decides the branch, so there is one candidate.
      */
     private static boolean descendRequested(BedrockMovementState state, Input input) {
-        return input.intent().vertical().descendInput() && state.climbableContact().descendAllowed();
+        return input.intent().vertical().descendInput()
+                && state.climbableContact().descendAllowed();
     }
 
     private static void addHorseCandidates(List<Candidate> candidates, Input input) {
@@ -92,16 +108,25 @@ public final class BedrockSimulation {
         int branches = horse.canLaunch(input.previousState().collisionFlags().onGround()) ? 2 : 1;
         for (int branch = 0; branch < branches; branch++) {
             var state = input.previousState().withHorse(horse.withForwardJump(branch == 1));
-            var result = travel(
-                    state,
-                    input.frame(),
-                    input.intent(),
-                    input.snapshot(),
-                    BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE,
-                    BedrockTravelOptions.vanilla(input.canStep(), input.maxUpStep())
-                            .withTickStart(state.tickStart()),
-                    input.mobJumpComponent());
-            candidates.add(new Candidate(result.movementResult(), result.mobJumpComponent()));
+            var options = BedrockTravelOptions.vanilla(input.canStep(), input.maxUpStep())
+                    .withTickStart(state.tickStart());
+            int collected = 0;
+            for (int index = 0;
+                    index < BedrockSolidActorOrders.count(BedrockSolidActorOrders.axes(collected));
+                    index++) {
+                var result = travel(
+                        state,
+                        input.frame(),
+                        input.intent(),
+                        input.snapshot(),
+                        BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE,
+                        index == 0
+                                ? options
+                                : options.withSolidActorOrder(BedrockSolidActorOrders.order(collected, index)),
+                        input.mobJumpComponent());
+                if (index == 0) collected = result.movementResult().solidActorOrder();
+                candidates.add(new Candidate(result.movementResult(), result.mobJumpComponent()));
+            }
         }
     }
 
@@ -132,17 +157,27 @@ public final class BedrockSimulation {
                 .withTickStart(input.previousState().tickStart());
         for (BedrockTravelOptions.SprintTravelSpeedMode speed : sprintSpeedModes()) {
             for (BedrockTravelOptions.SprintJumpImpulseMode jump : sprintJumpModes(input)) {
-                BedrockTravelResult result = travel(
-                        input.previousState(),
-                        input.frame(),
-                        input.intent(),
-                        snapshotForBranch(input.snapshot(), scaffolding),
-                        scaffolding,
-                        options.withSprintTravelSpeedMode(speed).withSprintJumpImpulseMode(jump),
-                        input.mobJumpComponent());
-                Candidate candidate = new Candidate(result.movementResult(), result.mobJumpComponent());
-                if (!branch.contains(candidate)) {
-                    branch.add(candidate);
+                BedrockTravelOptions mode =
+                        options.withSprintTravelSpeedMode(speed).withSprintJumpImpulseMode(jump);
+                int collected = 0;
+                for (int index = 0;
+                        index < BedrockSolidActorOrders.count(BedrockSolidActorOrders.axes(collected));
+                        index++) {
+                    BedrockTravelResult result = travel(
+                            input.previousState(),
+                            input.frame(),
+                            input.intent(),
+                            snapshotForBranch(input.snapshot(), scaffolding),
+                            scaffolding,
+                            index == 0
+                                    ? mode
+                                    : mode.withSolidActorOrder(BedrockSolidActorOrders.order(collected, index)),
+                            input.mobJumpComponent());
+                    if (index == 0) collected = result.movementResult().solidActorOrder();
+                    Candidate candidate = new Candidate(result.movementResult(), result.mobJumpComponent());
+                    if (!branch.contains(candidate)) {
+                        branch.add(candidate);
+                    }
                 }
             }
         }

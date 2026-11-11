@@ -62,7 +62,8 @@ public final class BedrockMoveSystems {
                 frame.input().options().canStep(),
                 frame.input().options().maxUpStep(),
                 facts.context().movementAbilityFlying(),
-                fetchBox);
+                fetchBox,
+                frame.input().options().solidActorOrder());
         BedrockClimbableContact nextClimbableContact = frame.boat() != null
                 ? BedrockClimbableContact.NONE
                 : frame.input().worldSnapshot().climbableContactAt(blockMove.position(), facts.movementDimensions());

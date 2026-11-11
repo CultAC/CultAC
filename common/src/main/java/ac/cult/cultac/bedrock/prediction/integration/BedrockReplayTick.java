@@ -108,13 +108,14 @@ final class BedrockReplayTick {
             }
             for (var candidate : BedrockForwardTick.simulate(request)) {
                 var movement = candidate.movementResult();
-                var end = movement.predictedState();
-                end = end.withExternalDisplacement(frame.externalDisplacement());
+                var end = BedrockActorOrderRangeHandler.replayedEnd(
+                        movement, frame.externalDisplacement(), frame.observedPosition());
                 var next = BedrockForwardTick.finish(movement, end);
                 outcomes.add(List.of(new Entry(next, candidate.mobJumpComponent())));
             }
         }
-        // Observations rank legal candidates only. They never become state or widen its bounds.
+        // Observations rank legal candidates only. They become state only inside the range the order of a move's
+        // solid actors gives its end, as on a live tick.
         return outcomes.stream()
                 .min(Comparator.comparingDouble(entries -> entries.stream()
                         .mapToDouble(entry -> score(frame, entry.state()))

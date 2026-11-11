@@ -2,8 +2,10 @@ package ac.cult.cultac.bedrock.prediction;
 
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
+import ac.cult.cultac.bedrock.prediction.api.BedrockActorOrderRange;
 import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
+import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockSolidActorOrders;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMoveFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMoveVector;
@@ -86,6 +88,30 @@ public final class BedrockPredictionDebug {
         return new MovementDebugView(missingObservation, offset, predictedWithInputs, target);
     }
 
+    /**
+     * The order of the move's solid actors, only when it changed the selection: a move other than the collected
+     * order's was selected, or the claimed end was accepted inside the range the order gives, off the move's own end.
+     */
+    private static String actorOrderDebug(
+            PredictionResult result, BedrockMovementResult movement, String label, String value) {
+        int order = movement.solidActorOrder();
+        if (order == 0 && movement.solidActorOrderRange() == null) return "";
+        StringBuilder text = new StringBuilder();
+        if (order != 0 && !BedrockSolidActorOrders.isCollected(order)) {
+            text.append(label).append("actorOrders=").append(value).append(movement.solidActorOrders());
+        }
+        BedrockActorOrderRange range = movement.solidActorOrderRange();
+        Vec3 accepted = result.getAcceptedClosestToTarget();
+        if (range != null && accepted != null) {
+            Vec3d own = movement.predictedPosition()
+                    .subtract(movement.previousState().physicalFeetPosition());
+            if (accepted.x != own.x() || accepted.y != own.y() || accepted.z != own.z()) {
+                text.append(label).append("actorOrderRange=").append(value).append(range.describe());
+            }
+        }
+        return text.toString();
+    }
+
     public static String formatConsoleDebug(
             CultPlayer player, PredictionComplete predictionComplete, String labelColor, String color) {
         if (!player.isBedrockMovement()
@@ -120,6 +146,7 @@ public final class BedrockPredictionDebug {
             builder.append(" predictedVel=").append(formatOffsetDebug(observation.velocityOffset()));
             builder.append(" predictedTick=")
                     .append(movementResult.predictedState().clientTick());
+            builder.append(actorOrderDebug(result, movementResult, " ", ""));
             builder.append(" cause=ENGINE_PHYSICS");
             builder.append(" correction=SET_POSITION");
         }
@@ -167,6 +194,7 @@ public final class BedrockPredictionDebug {
             message.append(" &8predictedVel=&f").append(formatOffsetDebug(observation.velocityOffset()));
             message.append(" &8predictedTick=&f")
                     .append(movementResult.predictedState().clientTick());
+            message.append(actorOrderDebug(result, movementResult, " &8", "&f"));
             message.append(" &8cause=&f").append("ENGINE_PHYSICS");
             message.append(" &8correction=&f").append("SET_POSITION");
         }

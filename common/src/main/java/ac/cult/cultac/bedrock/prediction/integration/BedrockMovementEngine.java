@@ -2,6 +2,7 @@ package ac.cult.cultac.bedrock.prediction.integration;
 
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
 import ac.cult.cultac.bedrock.prediction.BedrockVerticalCollisionVerdict;
+import ac.cult.cultac.bedrock.prediction.api.BedrockActorOrderRange;
 import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
@@ -141,7 +142,8 @@ public final class BedrockMovementEngine implements MovementEngine {
         if (context.isBedrockLerpStep()) boundingBoxState = boundingBoxState.withLerpStep();
         // A tick the chunk view holds takes a teleport without moving and leaves the actor off the ground, so the
         // next tick moves normally from the air.
-        if (bedrockInput.heldByChunkView()) boundingBoxState = boundingBoxState.withTeleportTaken().offGround();
+        if (bedrockInput.heldByChunkView())
+            boundingBoxState = boundingBoxState.withTeleportTaken().offGround();
         Input selectedInput = bedrockInput.withPreviousState(boundingBoxState, previousEntry.mobJumpComponent());
         BedrockSimulation.Input simulationInput = new BedrockSimulation.Input(
                 selectedInput.previousState(),
@@ -188,7 +190,8 @@ public final class BedrockMovementEngine implements MovementEngine {
             PredVector source) {
         BedrockMovementResult movementResult = movementCandidate.movementResult();
         Vec3d previous = movementResult.previousState().physicalFeetPosition();
-        Vec3 delta = BedrockVectorAdapter.toJava(movementResult.predictedPosition().subtract(previous));
+        Vec3 delta =
+                BedrockVectorAdapter.toJava(movementResult.predictedPosition().subtract(previous));
         BedrockPredVector candidate = new BedrockPredVector(
                 selectedInput, simulationInput, movementResult, movementCandidate.mobJumpComponent(), source, delta);
         CandidateKey key = new CandidateKey(
@@ -198,7 +201,8 @@ public final class BedrockMovementEngine implements MovementEngine {
                 movementResult.horizontalInputLimit(),
                 movementResult.predictedState(),
                 movementCandidate.mobJumpComponent(),
-                movementResult.groundJumpApplied());
+                movementResult.groundJumpApplied(),
+                movementResult.solidActorOrderRange());
         PredVector retained = output.putIfAbsent(key, candidate);
         if (retained != null) {
             retained.mergePacketModifierProvenance(candidate);
@@ -207,8 +211,15 @@ public final class BedrockMovementEngine implements MovementEngine {
 
     public ValidMovements createValidMovements(
             PredVector initialStartingVelocity, CultPlayer player, PredictionResult result) {
-        // The travel already collided and stepped: its move is the client's, with nothing left to widen.
-        return new ValidMovements(initialStartingVelocity, player, result, List.of());
+        // The travel already collided and stepped: its move is the client's. Only the range the order of its solid
+        // actors gives its end widens it.
+        return new ValidMovements(
+                initialStartingVelocity,
+                player,
+                result,
+                BedrockActorOrderRangeHandler.range(initialStartingVelocity) == null
+                        ? List.of()
+                        : List.of(BedrockActorOrderRangeHandler.INSTANCE));
     }
 
     /** The candidate travel's own collision: the engine's collided move and its collision flags. */
@@ -265,7 +276,8 @@ public final class BedrockMovementEngine implements MovementEngine {
                 var velocity = BedrockVectorAdapter.toBedrock(frame.getReportedEndOfTickVelocity());
                 entry = entry.withState(entry.state()
                         .withPhysicalFeetPosition(
-                                position, position.subtract(movement.previousState().physicalFeetPosition()))
+                                position,
+                                position.subtract(movement.previousState().physicalFeetPosition()))
                         .withVelocityAndCollisionFlags(velocity, entry.state().collisionFlags()));
             }
             result.setProfileResult(bedrockResult.withNextTickBaseState(entry.state()));
@@ -533,8 +545,7 @@ public final class BedrockMovementEngine implements MovementEngine {
         return result.getAcceptedClosestToTarget() instanceof PredVector vector ? vector : null;
     }
 
-    private record SimulatedEntry(
-            Input input, BedrockSimulation.Input simulationInput, List<Candidate> candidates) {}
+    private record SimulatedEntry(Input input, BedrockSimulation.Input simulationInput, List<Candidate> candidates) {}
 
     private record CandidateKey(
             double x,
@@ -543,5 +554,6 @@ public final class BedrockMovementEngine implements MovementEngine {
             double horizontalInputLimit,
             BedrockMovementState predictedState,
             BedrockMobJumpComponentState mobJumpComponent,
-            boolean groundJumpApplied) {}
+            boolean groundJumpApplied,
+            BedrockActorOrderRange solidActorOrderRange) {}
 }

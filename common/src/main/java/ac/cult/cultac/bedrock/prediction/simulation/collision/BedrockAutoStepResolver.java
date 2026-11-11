@@ -73,7 +73,10 @@ final class BedrockAutoStepResolver {
                 finalDelta.y() != requested.y(),
                 finalDelta.z() != requested.z(),
                 yCollisionBlock,
-                current.coordinateFrame()));
+                current.coordinateFrame(),
+                false,
+                BedrockActorOrderCrossing.then(
+                        upMove.actorOrder() == null ? null : upMove.actorOrder().later(), downClip.actorOrder())));
     }
 
     private static List<BlockCollision> shapesIgnoringCeiling(
