@@ -23,6 +23,6 @@ dependencies {
     api(project(":reload-api"))
     testImplementation(libs.cult.internal.shims)
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.11.4")
 }
 tasks.test { useJUnitPlatform() }
