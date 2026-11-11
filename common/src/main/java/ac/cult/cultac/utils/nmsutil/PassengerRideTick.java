@@ -105,6 +105,13 @@ public final class PassengerRideTick {
         int tick = player.packetStateData.acceptedClientTick;
         if (recordedTick == tick) return;
         recordedTick = tick;
+        // LocalPlayer#tick, with its applyInput and LivingEntity#aiStep's jump delay, waits for
+        // ClientPacketListener#hasClientLoaded and stops once tickDeath removes the player, so xxa/zza and jumping
+        // stay as they are: nothing for a respawned LocalPlayer, whatever keys the client already holds.
+        if (!player.localPlayerTicks()) {
+            observedPrediction = result;
+            return;
+        }
         if (result != observedPrediction && result != null && result.getSimulationContext() != null)
             updateInput(player, result.getSimulationContext(), false);
         else if (!player.cameraEntity.isSelf()) decayInput();
@@ -125,7 +132,11 @@ public final class PassengerRideTick {
         player.compensatedEntities.setPassTickedThroughOrder(
                 player.compensatedEntities.clientTickOrder(player.compensatedEntities.getSelf()));
         try {
-            updateInput(player, context(player, states.getFirst().move().position(), states.getFirst()), true);
+            // Entity#rideTick zeroes the rider and positionRider seats it either way, but LocalPlayer#tick, with its
+            // applyInput, travel and pose, waits for ClientPacketListener#hasClientLoaded.
+            boolean playerTicks = player.localPlayerTicks();
+            if (playerTicks)
+                updateInput(player, context(player, states.getFirst().move().position(), states.getFirst()), true);
             var boxes = player.compensatedEntities.ridingPositionCandidates(riding);
             var next = new ArrayList<State>();
             JavaPassState frost = null;
@@ -149,15 +160,18 @@ public final class PassengerRideTick {
                             context.setMovesBeforeTravel(before.recorded());
                             for (var box : boxes) {
                                 context.setRideTickVehicleBox(box);
-                                var replay = JavaPassengerTravel.tick(player, context, before.state(),
-                                        prior.jumpDelay(), box, movementInput, jumping);
+                                var replay = playerTicks
+                                        ? JavaPassengerTravel.tick(player, context, before.state(),
+                                                prior.jumpDelay(), box, movementInput, jumping)
+                                        : new JavaPassengerTravel.Result(
+                                                before.state().withVelocity(Vec3.ZERO), prior.jumpDelay());
                                 Vec3 end = replay.state().position();
-                                var pose = player.canPlayerFitWithinBlocksAndEntitiesWhen(
+                                var pose = playerTicks && player.canPlayerFitWithinBlocksAndEntitiesWhen(
                                                 ac.cult.cultac.utils.enums.Pose.SWIMMING, end.x, end.y, end.z)
                                         ? player.updatedPose(false, false, end.x, end.y, end.z) : prior.pose();
                                 Vec3 seat = BoundingBoxSize.getRidingOffsetFromVehicle(riding,
                                         player.compensatedEntities.getSelf(), player, box);
-                                if (frost == null) frost = replay.state();
+                                if (frost == null && playerTicks) frost = replay.state();
                                 for (var moved : JavaPassengerTravel.afterTick(
                                         player, context, replay.state(), seat, pose, before.state().position())) {
                                     var state = new State(

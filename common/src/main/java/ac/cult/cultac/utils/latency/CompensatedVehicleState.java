@@ -107,16 +107,6 @@ public final class CompensatedVehicleState implements Debuggable {
         PacketEntity root = getVelocityMovementVehicle();
         boolean loadingLevel = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_4)
                 && !player.packetStateData.playerLoadedIntoLevel;
-        if (!player.isBedrockMovement()
-                && loadingLevel
-                && root != null
-                && root.getRiding() == null
-                && canClientAuthoritativelyMoveVisibleRoot(root)) {
-            // Minecraft#tick still ticks the root while LocalPlayer#sendChanges waits for hasClientLoaded.
-            // Keep those unreported ticks in the existing switch window; its unchanged budget forces a resync
-            // when the first resumed report includes more travel than the buffer can cover.
-            markVehicleSwitchBufferWindow(root);
-        }
         // ClientLevel#tickEntities skips a root outside tickingEntities (its chunk is not loaded on the client), and
         // with it every passenger: neither LivingEntity#aiStep nor LocalPlayer#sendChanges ran, so the tick neither
         // decays the root's delta movement nor proves who controls it.

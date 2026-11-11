@@ -918,13 +918,13 @@ public class CheckManagerListener implements OpaqueReceiveListener {
                 packet.position(), packet.yaw(), packet.pitch(), onGround, packet.hasOnGround()));
     }
 
-    private static boolean setbackBlocksVehicleMovement(CultPlayer player) {
+    static boolean setbackBlocksVehicleMovement(CultPlayer player) {
         SetbackTeleportUtil setbacks = player.getSetbackTeleportUtil();
         return setbacks.vehicleTeleports().hasUnacknowledgedSetbackVehicleTeleport()
                 || setbacks.shouldBlockVehicleMovement();
     }
 
-    private static Vec3 currentVehiclePhysicalPosition(PacketEntity root, Vec3 fallback) {
+    static Vec3 currentVehiclePhysicalPosition(PacketEntity root, Vec3 fallback) {
         Vec3 physical = root.clientPhysicalPosition == null ? root.desyncClientPos : root.clientPhysicalPosition;
         return physical == null ? fallback : physical;
     }
@@ -1129,6 +1129,8 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         // The timer must judge the boundary before it advances idle physics, attack cooldown, or the tick index.
         player.checkManager.dispatchPrePredictionReceive(event);
         if (event.isCancelled() && !event.isSynthetic()) return false;
+        // Where a loaded client's LocalPlayer#sendChanges would have sent this tick's MoveVehicle.
+        if (!event.isSynthetic()) JavaLoadingRootTick.travel(player);
         // LivingEntity#baseTick runs LocalPlayer#tickDeath first. Its removal skips this tick's aiStep, while the
         // rest of Player#tick, attack ticker included, still runs. A synthetic tick end is a timeout, not a client
         // tick.

@@ -36,7 +36,6 @@ import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngine;
 import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngines;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAiStepSprint;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaBlockEntityPass;
-import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaCameraTravel;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaInsideBlockEffects;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMathRouter;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision;
@@ -49,6 +48,7 @@ import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRemoteBlockEntityPass;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRiptideRelease;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaSpinAttack;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaUnreportedTravel;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaVehicleReport;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaWithheldTravel;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfile;
@@ -2289,7 +2289,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         PredictionResult probe =
                 this.callPrediction(Vec3.ZERO, position, position, true, xRot, yRot, null, movementProfile);
         this.player.compensatedEntities.vehicles.consumeVehicleSwitchPredictionOffset(probe);
-        JavaCameraTravel.End end = probe.isExempt() ? null : JavaCameraTravel.unique(this.player, probe);
+        JavaUnreportedTravel.End end = probe.isExempt() ? null : JavaUnreportedTravel.unique(this.player, probe, null);
         if (end == null) {
             this.cameraTravelUnknown = true;
             return;
@@ -2308,6 +2308,32 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         this.callPredictionEndListeners(travelled, null);
         this.commitPredictionState(travelled, end.position(), movement, xRot, yRot, movementProfile);
         this.lastOnGround = DesyncStatus.fromBoolean(end.onGround());
+    }
+
+    /**
+     * Where {@code root}, the root the local player controls, ends a client tick that sends no MoveVehicle, staged as
+     * one: its travel from {@code from} with the rider holding neither xxa/zza nor jumping, where the engine's
+     * candidates agree on it and it moves as the engine's own; otherwise null. The staged report claims the end's
+     * Entity#onGround; nothing is committed.
+     */
+    public JavaUnreportedTravel.End unreportedVehicleTravel(PacketEntity root, Vec3 from, float yaw, float pitch) {
+        if (!this.passengerRideTick.movementInput().equals(Vec3.ZERO) || this.passengerRideTick.jumping()) return null;
+        MovementProfile movementProfile = MovementProfiles.forPlayer(this.player);
+        boolean onGround = this.player.onGround;
+        this.player.onGround = this.movementStartOnGround(onGround);
+        try {
+            PredictionResult probe =
+                    this.callPrediction(Vec3.ZERO, from, from, true, yaw, pitch, null, movementProfile);
+            JavaUnreportedTravel.End end =
+                    probe.isExempt() ? null : JavaUnreportedTravel.unique(this.player, probe, root);
+            if (end == null) return null;
+            this.player.packetStateData.vehicleMovementReportedOnGround = end.onGround();
+            PredictionResult travelled = this.callPrediction(
+                    end.position().subtract(from), from, end.position(), true, yaw, pitch, null, movementProfile);
+            return travelled.isExempt() || !travelled.getFlags().isEmpty() ? null : end;
+        } finally {
+            this.player.onGround = onGround;
+        }
     }
 
     /**

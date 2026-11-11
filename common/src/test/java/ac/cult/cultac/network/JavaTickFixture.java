@@ -106,6 +106,13 @@ final class JavaTickFixture implements AutoCloseable {
         fixture.user.bind(Mockito.mock(PlatformPlayer.class));
         setField(CultPlayer.class, player, "resolvedClientVersion", client);
         player.gamemode = GameMode.SURVIVAL;
+        floor(player);
+        SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
+        resetTimerBalances();
+    }
+
+    /** The loaded chunks around the origin and their stone floor, as in a new ClientLevel. */
+    static void floor(CultPlayer player) {
         for (int x = -1; x <= 1; x++) {
             for (int z = -1; z <= 1; z++) player.compensatedWorld.ensureValidationChunkLoaded(x, z);
         }
@@ -116,8 +123,6 @@ final class JavaTickFixture implements AutoCloseable {
         }
         // Let the block-change timing uncertainty expire at client tick boundaries.
         for (int tick = 0; tick < 3; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff();
-        SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
-        resetTimerBalances();
     }
 
     /** Gives the timer checks ten seconds of client ticks ahead of the wall clock. */
