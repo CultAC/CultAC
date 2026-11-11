@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.prediction.ClientHorizontalCollision;
 import ac.cult.cultac.checks.impl.prediction.ClientHorizontalCollisionTest;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
@@ -46,7 +47,7 @@ class SprintETest {
             rig.complete(rig.move(85, slide, new Vec3(attempted.x, 0, 0)));
             rig.complete(rig.move(85, Vec3.ZERO, new Vec3(0, 0, 0.1)));
             assertEquals(0, rig.sprintE.violations);
-            verify(rig.setbacks, never()).executeViolationSetback();
+            verify(rig.setbacks, never()).executeViolationSetback(any(Check.class));
         });
     }
 
@@ -98,7 +99,7 @@ class SprintETest {
             rig.complete(rig.climb(-2452.5981F, jump, target, 0.08568146244738273));
             rig.complete(rig.move(-2457.7805F, Vec3.ZERO, new Vec3(0, 0, -0.1)));
             assertEquals(0, rig.sprintE.violations);
-            verify(rig.setbacks, never()).executeViolationSetback();
+            verify(rig.setbacks, never()).executeViolationSetback(any(Check.class));
         });
     }
 

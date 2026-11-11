@@ -4,6 +4,7 @@ import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.bridge.GeyserBedrockBridgeRuntime;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState;
+import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionSetbackState;
 import ac.cult.cultac.checks.impl.prediction.runner.KnockbackHandler;
@@ -11,6 +12,7 @@ import ac.cult.cultac.events.packets.patch.ResyncWorldUtil;
 import ac.cult.cultac.network.CultWrite;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.player.PlayerObserver;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityMotion;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveVehicle;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerPosition;
@@ -124,6 +126,20 @@ public class CorrectionSender {
     }
 
     public void sendSetback(SetBackData data, boolean simulateVehicle, boolean dismounted) {
+        sendSetback(data, simulateVehicle, dismounted, null, null, null);
+    }
+
+    /**
+     * As the other {@code sendSetback}; once the teleport is written, the player's observer learns its {@code reason}
+     * (null tells it nothing), the {@code cause} that reason gave and the {@code check} a violation names, either null.
+     */
+    public void sendSetback(
+            SetBackData data,
+            boolean simulateVehicle,
+            boolean dismounted,
+            SetbackReason reason,
+            String cause,
+            Check check) {
         // Nothing is tracked for a correction that cannot reach the client; login sends a new position.
         if (!player.canSendPlayPackets()) return;
         if (!player.user.getCultConnection().clientHasLevel()) {
@@ -137,7 +153,7 @@ public class CorrectionSender {
             // while isSendingSetback/isSetbackVal still describe those packets.
             data.setPlugin(false);
             corrections.require(data);
-            player.user.executeAfterWrites(() -> sendSetback(data, simulateVehicle, dismounted));
+            player.user.executeAfterWrites(() -> sendSetback(data, simulateVehicle, dismounted, reason, cause, check));
             return;
         }
         corrections.setSending(true);
@@ -250,6 +266,8 @@ public class CorrectionSender {
 
             // required setback applies for both our own vehicle teleports and regular teleports
             corrections.require(data);
+            PlayerObserver observer = player.observer;
+            if (observer != null && reason != null) observer.setbackSent(reason, cause, check);
 
             // Preserve the public packet-level and semantic setback signals from
             // the PacketEvents path after the teleport is tracked and emitted.

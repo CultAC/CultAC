@@ -2,6 +2,7 @@ package ac.cult.cultac.cloud.diag;
 
 import ac.cult.cultac.checks.impl.prediction.BlockGrid;
 import ac.cult.cultac.checks.impl.prediction.PredictionObserver;
+import ac.cult.cultac.checks.impl.prediction.SuperDebug;
 import ac.cult.cultac.utils.debug.DebugText;
 import java.util.List;
 import java.util.UUID;
@@ -51,6 +52,12 @@ public final class DiagWatch implements PredictionObserver {
 
     private final AtomicInteger dropCount = new AtomicInteger();
     static final int DROPS = 32;
+
+    /**
+     * The traces of the ticks before the watch, which its ring starts with; set before the watch is published, then read
+     * and cleared on the diagnostics thread.
+     */
+    List<SuperDebug.HistoryTick> before = List.of();
 
     // Diagnostics thread only.
     DiagRing ring;

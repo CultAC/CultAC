@@ -114,7 +114,7 @@ class ObserveOnlyCallSiteTest {
     private static final String ALLOWED = """
             [isExempt()] SetbackPolicy.isExempt() is true in observe-only
             manager/player/setback/SetbackPolicy.java#executeTooHighLatencySetback(String) blockMovementsUntilResync
-            manager/player/setback/SetbackPolicy.java#executeViolationSetback(PredictionResult) blockMovementsUntilResync
+            manager/player/setback/SetbackPolicy.java#executeViolationSetback(PredictionResult,Check) blockMovementsUntilResync
             [shouldBlockMovement()] true in observe-only only before the world loads; the codec forwards the client's packet
             checks/impl/combat/ReachCheck.java#handleInteract(PacketReceiveEvent,ServerboundInteract) setCancelled
             checks/impl/movement/timer/AbstractTimerCheck.java#recordModernMovePlayerPacket(PacketReceiveEvent,boolean) setCancelled
@@ -135,7 +135,8 @@ class ObserveOnlyCallSiteTest {
             manager/player/setback/CorrectionSender.java#sendSetback(SetBackData) sendSetback
             manager/player/setback/CorrectionSender.java#sendSetback(SetBackData,boolean) sendSetback
             manager/player/setback/CorrectionSender.java#sendSetback(SetBackData,boolean,boolean) sendSetback
-            manager/player/setback/SetbackPolicy.java#blockMovementsUntilResync(boolean,boolean,boolean,PredictionResult) sendSetback
+            manager/player/setback/CorrectionSender.java#sendSetback(SetBackData,boolean,boolean,SetbackReason,String,Check) sendSetback
+            manager/player/setback/SetbackPolicy.java#blockMovementsUntilResync(boolean,boolean,boolean,PredictionResult,SetbackReason,String,Check) sendSetback
             [] needs a Bedrock vehicle setback in flight; observe-only sends none and drops it when it starts
             manager/player/setback/VehicleTeleportTracker.java#transferBedrockVehicleSetback(int) sendDismounted
             [reachesServer(] CheckManagerListener.reachesServer(PacketReceiveEvent) is true in observe-only

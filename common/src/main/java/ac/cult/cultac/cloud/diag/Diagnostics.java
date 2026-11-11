@@ -1,5 +1,6 @@
 package ac.cult.cultac.cloud.diag;
 
+import ac.cult.cultac.checks.impl.prediction.SuperDebug;
 import ac.cult.cultac.utils.anticheat.LogThrottle;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -214,12 +215,27 @@ public final class Diagnostics {
      * Starts or renews a watch on the player's packet thread. {@code history} is read only when a watch starts.
      * Returns the running watch, or null when none runs: a lease of 0, diagnostics off, or no room ({@code busy}).
      */
+    public DiagWatch watch(
+            UUID player,
+            long generation,
+            int leaseSeconds,
+            LongSupplier pendingSeq,
+            Supplier<String> history,
+            Consumer<DiagWatch> detach) {
+        return watch(player, generation, leaseSeconds, pendingSeq, history, List::of, detach);
+    }
+
+    /**
+     * As the other {@code watch}; {@code historyTicks}, read only when a watch starts, are the traces of the ticks before
+     * it, which its ring starts with.
+     */
     public synchronized DiagWatch watch(
             UUID player,
             long generation,
             int leaseSeconds,
             LongSupplier pendingSeq,
             Supplier<String> history,
+            Supplier<List<SuperDebug.HistoryTick>> historyTicks,
             Consumer<DiagWatch> detach) {
         DiagWatch current = watches.get(player);
         if (leaseSeconds <= 0) {
@@ -241,11 +257,12 @@ public final class Diagnostics {
             return null;
         }
         DiagWatch watch = new DiagWatch(this, player, generation, leaseEnd, pendingSeq, history.get(), limits, detach);
+        watch.before = historyTicks.get();
         watches.put(player, watch);
         reserved += watch.ringBytes;
         refusals.remove(player);
         ensureThread();
-        if (!command(() -> known.add(watch))) {
+        if (!command(() -> started(watch))) {
             watches.remove(player, watch);
             reserved -= watch.ringBytes;
             refusals.put(player, "busy");
@@ -424,10 +441,26 @@ public final class Diagnostics {
         }
     }
 
+    /** A watch began: its ring, when it has ticks from before the watch, starts with their traces. */
+    private void started(DiagWatch watch) {
+        known.add(watch);
+        if (!watch.before.isEmpty() && !watch.ended) ring(watch);
+    }
+
+    /** The watch's ring, made on first use with the traces of the ticks before the watch. */
+    private static DiagRing ring(DiagWatch watch) {
+        if (watch.ring != null) return watch.ring;
+        DiagRing ring = new DiagRing(watch.ringTicks, watch.ringBytes);
+        for (SuperDebug.HistoryTick tick : watch.before) ring.add(tick.seq(), Double.NaN, tick.trace(), null);
+        watch.before = List.of();
+        watch.ring = ring;
+        return ring;
+    }
+
     private void captured(DiagWatch.Raw raw, DiagText text) {
         DiagWatch watch = raw.watch();
         if (watch.ended) return;
-        if (watch.ring == null) watch.ring = new DiagRing(watch.ringTicks, watch.ringBytes);
+        ring(watch);
         if (watch.firstSeq == Long.MIN_VALUE) watch.firstSeq = raw.seq();
         costs.capture(raw.nanos());
         if (raw.state() == null) {

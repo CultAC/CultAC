@@ -1,6 +1,7 @@
 package ac.cult.cultac.manager.player.setback;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.runner.KnockbackHandler;
 import ac.cult.cultac.player.CultPlayer;
@@ -74,6 +75,9 @@ public final class SetbackPolicy {
                 true, // simulate next tick
                 true, // full resync
                 false, // ignore if no forced change
+                null,
+                SetbackReason.RESYNC,
+                cause,
                 null);
     }
 
@@ -91,15 +95,28 @@ public final class SetbackPolicy {
                 false, // timer and other non-simulating setbacks must not advance a tick
                 false, // full resync
                 false, // ignore if no forced change
+                null,
+                SetbackReason.NON_SIMULATING,
+                null,
                 null);
     }
 
     public boolean executeViolationSetback() {
-        return executeViolationSetback(null);
+        return executeViolationSetback(null, null);
+    }
+
+    /** A setback for a violation of {@code check}, null when no check of the caller raised it. */
+    public boolean executeViolationSetback(Check check) {
+        return executeViolationSetback(null, check);
     }
 
     /** A setback for the rejected {@code flagged} movement; a ridden vehicle takes the tick simulated for it. */
     public boolean executeViolationSetback(PredictionResult flagged) {
+        return executeViolationSetback(flagged, null);
+    }
+
+    /** As {@link #executeViolationSetback(PredictionResult)}, for a violation of {@code check}, or null. */
+    public boolean executeViolationSetback(PredictionResult flagged, Check check) {
         if (isExempt()) return false;
         if (corrections.isPending()) { // Don't spam setbacks // TODO: Remove plugin teleport status
             return false;
@@ -111,7 +128,10 @@ public final class SetbackPolicy {
                 true, // simulate next tick
                 false, // full resync
                 false, // ignore if no forced change
-                flagged);
+                flagged,
+                SetbackReason.VIOLATION,
+                null,
+                check);
         return true;
     }
 
@@ -127,6 +147,9 @@ public final class SetbackPolicy {
                 true, // simulate next tick
                 false, // full resync
                 true, // ignore if no forced change
+                null,
+                SetbackReason.LATENCY,
+                cause,
                 null);
         return true;
     }
@@ -156,7 +179,13 @@ public final class SetbackPolicy {
     }
 
     private void blockMovementsUntilResync(
-            boolean simulateNext, boolean fullResync, boolean ignoreUnchanged, PredictionResult flagged) {
+            boolean simulateNext,
+            boolean fullResync,
+            boolean ignoreUnchanged,
+            PredictionResult flagged,
+            SetbackReason reason,
+            String cause,
+            Check check) {
         if (safePositions.current() == null) return; // Hasn't spawned
         // A teleport changes neither attributes nor the sprint flag; the rejected moves' modifier evidence is dropped.
         if (!player.isBedrockMovement())
@@ -196,7 +225,7 @@ public final class SetbackPolicy {
                     + " with vel " + data.getVelocity() + " using " + simulateNext + " " + fullResync + " "
                     + ignoreUnchanged);
         }
-        sender.sendSetback(data, simulateNext);
+        sender.sendSetback(data, simulateNext, false, reason, cause, check);
         // Something weird has occurred in the player's movement, block offsets until the client accepts this
         // setback. Only its acceptance clears the block, so a setback that was never tracked must not raise it.
         if (fullResync && corrections.required() == data) {
@@ -222,7 +251,7 @@ public final class SetbackPolicy {
         if (debug.getAsBoolean()) {
             LogUtil.info("Reissuing ignored Cult setback for " + player.getName() + ": " + reason);
         }
-        sender.sendSetback(required);
+        sender.sendSetback(required, false, false, SetbackReason.RESEND, reason, null);
     }
 
     /** Lets go of a setback and held move that observe-only would otherwise keep waiting on. */

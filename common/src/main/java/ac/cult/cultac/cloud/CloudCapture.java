@@ -9,6 +9,7 @@ import ac.cult.cultac.checks.impl.combat.BedrockPlayerReach;
 import ac.cult.cultac.checks.impl.combat.EntityReach;
 import ac.cult.cultac.checks.impl.combat.PlayerReach;
 import ac.cult.cultac.checks.impl.combat.ReachCheck;
+import ac.cult.cultac.checks.impl.prediction.SuperDebug;
 import ac.cult.cultac.cloud.capture.ActionRef;
 import ac.cult.cultac.cloud.capture.CaptureStream;
 import ac.cult.cultac.cloud.capture.ChunkIds;
@@ -22,6 +23,7 @@ import ac.cult.cultac.cloud.diag.PredictionDiagnostics;
 import ac.cult.cultac.cloud.intake.v3.Outcome;
 import ac.cult.cultac.cloud.transport.CloudConnection;
 import ac.cult.cultac.cloud.wire.IntakeWire;
+import ac.cult.cultac.manager.player.setback.SetbackReason;
 import ac.cult.cultac.network.codec.ClientPacketCodecs;
 import ac.cult.cultac.platform.api.ServerFacts;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
@@ -76,6 +78,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -130,6 +133,8 @@ public final class CloudCapture implements PlayerObserver {
     private static final LogThrottle THROTTLE = new LogThrottle();
     private static final List<Class<? extends ReachCheck>> REACH_CHECKS =
             List.of(PlayerReach.class, EntityReach.class, BedrockPlayerReach.class, BedrockEntityReach.class);
+    /** The checks whose flags carry their verbose; none of their verbose holds text a player wrote. */
+    static final Set<String> VERBOSE_CHECKS = Set.of("BadPacketsH", "PacketOrderO", "Timer");
 
     private static volatile SegmentBinder binder = SegmentBinder.NONE;
     private static volatile Uplinks uplinks = Uplinks.NONE;
@@ -317,15 +322,69 @@ public final class CloudCapture implements PlayerObserver {
 
     @Override
     public void flagged(Check check, double violations) {
+        flagged(check, violations, null);
+    }
+
+    @Override
+    public void flagged(Check check, double violations, Supplier<String> verbose) {
         // Cloud checks' violations are not captured.
         if (channel == null || idle || check instanceof Cloud || check instanceof CloudFlagCheck) return;
         try {
-            String name = check.getCheckName();
-            if (name == null || name.isEmpty()) name = check.getClass().getSimpleName();
-            tickFlags.add(name, violations);
+            String name = checkName(check);
+            String text = verbose != null && VERBOSE_CHECKS.contains(name) && streaming() && tickFlags.verboseRoom()
+                    ? render(verbose)
+                    : null;
+            tickFlags.add(name, violations, text);
         } catch (Throwable failure) {
             failed("flag", failure);
         }
+    }
+
+    /** {@code verbose} rendered; null when rendering it fails, which leaves the flag without one. */
+    private String render(Supplier<String> verbose) {
+        try {
+            return verbose.get();
+        } catch (Throwable failure) {
+            failed("verbose", failure);
+            return null;
+        }
+    }
+
+    @Override
+    public boolean recordsVerbose(Check check) {
+        if (!streaming() || check instanceof Cloud || check instanceof CloudFlagCheck) return false;
+        try {
+            return VERBOSE_CHECKS.contains(checkName(check));
+        } catch (Throwable failure) {
+            failed("verbose", failure);
+            return false;
+        }
+    }
+
+    @Override
+    public void setbackSent(SetbackReason reason, String cause, Check check) {
+        if (!streaming()) return;
+        try {
+            tickFlags.setback(setbackKind(reason), cause, check == null ? null : checkName(check));
+        } catch (Throwable failure) {
+            failed("setback", failure);
+        }
+    }
+
+    /** The wire's SetbackKind of {@code reason}. */
+    static int setbackKind(SetbackReason reason) {
+        return switch (reason) {
+            case VIOLATION -> IntakeWire.SETBACK_VIOLATION;
+            case NON_SIMULATING -> IntakeWire.SETBACK_NON_SIMULATING;
+            case RESYNC -> IntakeWire.SETBACK_RESYNC;
+            case LATENCY -> IntakeWire.SETBACK_LATENCY;
+            case RESEND -> IntakeWire.SETBACK_RESEND;
+        };
+    }
+
+    private static String checkName(Check check) {
+        String name = check.getCheckName();
+        return name == null || name.isEmpty() ? check.getClass().getSimpleName() : name;
     }
 
     @Override
@@ -699,6 +758,8 @@ public final class CloudCapture implements PlayerObserver {
         handledOffset = received - handledTickEnds.get();
         if (!unstreamed) {
             stream.start(received);
+            SuperDebug debug = player.checkManager.getListener(SuperDebug.class);
+            if (debug != null) debug.framesStart();
             started.initialSession = session();
             started.initiallyLoggedIn = loggedIn;
             if (playing) bounds(started);
@@ -1171,6 +1232,7 @@ public final class CloudCapture implements PlayerObserver {
         long index = player.clientTickEnds.get();
         long handled = handledTickEnds.incrementAndGet() + handledOffset;
         List<IntakeWire.Flag> flags = tickFlags.drain();
+        List<IntakeWire.Setback> setbacks = tickFlags.drainSetbacks();
         boolean streaming = streaming();
         List<IntakeWire.Geometry> measured = List.of();
         IntakeWire.Target seen = null;
@@ -1192,9 +1254,9 @@ public final class CloudCapture implements PlayerObserver {
             long bits = conditions() | engine.conditions();
             EventLoop loop = tapped.eventLoop();
             if (loop.inEventLoop()) {
-                verdict(index, handled, bits, flags, sight, attacks, state);
+                verdict(index, handled, bits, flags, setbacks, sight, attacks, state);
             } else {
-                loop.execute(() -> verdict(index, handled, bits, flags, sight, attacks, state));
+                loop.execute(() -> verdict(index, handled, bits, flags, setbacks, sight, attacks, state));
             }
         } catch (Throwable failure) {
             failed("tick end", failure);
@@ -1290,12 +1352,13 @@ public final class CloudCapture implements PlayerObserver {
             long handled,
             long bits,
             List<IntakeWire.Flag> flags,
+            List<IntakeWire.Setback> setbacks,
             IntakeWire.Target sight,
             List<IntakeWire.Geometry> attacks,
             IntakeWire.Engine state) {
         try {
             if (segment == null) return;
-            stream.verdict(index, handled, bits, flags, sight, attacks, state);
+            stream.verdict(index, handled, bits, flags, setbacks, sight, attacks, state);
             if (flags.isEmpty()) return;
             List<String> checks = new ArrayList<>(flags.size());
             for (IntakeWire.Flag flag : flags) checks.add(flag.check());

@@ -48,6 +48,9 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
 
     private final MovementHistory movementHistory = new MovementHistory();
 
+    /** The history's count of ticks added when a capture's frame count started; those ticks are in none of its frames. */
+    private long beforeFrames;
+
     /** Set while something watches this player's predictions: each one also goes to it. */
     private volatile PredictionObserver diag;
 
@@ -108,6 +111,8 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
             return;
         }
 
+        boolean teleport = predictionComplete.isTeleport();
+        int state = MovementFrame.state(tickIndex(), player.onGround, predictionComplete.isExempt(), teleport);
         double x = player.x;
         double y = player.y;
         double z = player.z;
@@ -117,11 +122,11 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         String marks = "";
         if (player.platformPlayer != null) {
             world = player.platformPlayer.getWorld().getName();
-            marks = Location.marks(predictionComplete.isExempt(), predictionComplete.isTeleport());
+            marks = Location.marks(predictionComplete.isExempt(), teleport);
         }
 
-        if (predictionComplete.isTeleport()) {
-            movementHistory.add(TELEPORT_MARKER, TELEPORT_MARKER, x, y, z, xRot, yRot, world, marks);
+        if (teleport) {
+            movementHistory.add(TELEPORT_MARKER, TELEPORT_MARKER, x, y, z, xRot, yRot, world, marks, state);
             PredictionObserver watch = diag;
             if (watch != null) captureTeleport(watch);
             return;
@@ -132,7 +137,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         Vec3 target = result.getTarget();
         Vec3 closest = MovementProfiles.forPlayer(player).debugPredictionVector(result);
 
-        movementHistory.add(closest, target, x, y, z, xRot, yRot, world, marks);
+        movementHistory.add(closest, target, x, y, z, xRot, yRot, world, marks, state);
 
         PredictionObserver watch = diag;
         if (watch != null) {
@@ -245,6 +250,46 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         return sb.toString();
     }
 
+    /**
+     * One tick of the movement history as a diagnostics trace, at the seq of the frame it went out in. It carries no
+     * prediction offset.
+     */
+    public record HistoryTick(long seq, String trace) {}
+
+    /** A capture counts its frames from here: the history so far belongs to none of them. On the packet thread. */
+    public void framesStart() {
+        beforeFrames = movementHistory.added();
+    }
+
+    /**
+     * The movement history as a watch starts, as traces, oldest first: {@code frameSeq} is the seq of the frame now
+     * open, and ticks before the capture's first frame are left out. On the packet thread.
+     */
+    public List<HistoryTick> historyTicks(long frameSeq) {
+        if (frameSeq < 0 || movementHistory.size() == 0) return List.of();
+        long now = tickIndex();
+        List<HistoryTick> ticks = new ArrayList<>(movementHistory.size());
+        long last = -1;
+        int size = movementHistory.size();
+        int from = (int) Math.max(0, beforeFrames - (movementHistory.added() - size));
+        for (int i = from; i < size; i++) {
+            MovementFrame frame = movementHistory.frame(i);
+            int age = frame.age(now);
+            if (age < 0) continue;
+            long seq = frameSeq - age;
+            if (seq < 0 || seq < last) continue;
+            ticks.add(new HistoryTick(seq, frame.trace()));
+            last = seq;
+        }
+        return ticks;
+    }
+
+    /** The count a frame's seq is taken from: the client's tick ends, less the one whose handlers run now. */
+    private long tickIndex() {
+        long ends = player.clientTickEnds.get();
+        return player.checkManager.isDispatchingTickEnd() ? ends - 1 : ends;
+    }
+
     /** The observer of this player's predictions; null when none. */
     public PredictionObserver watch() {
         return diag;
@@ -262,6 +307,30 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
 
     /** One line: predicted and actual movement, position, rotation, ground, exempt or teleport. */
     private String trace(Vec3 predicted, Vec3 actual, boolean exempt, boolean teleport) {
+        return trace(
+                predicted,
+                actual,
+                player.x,
+                player.y,
+                player.z,
+                player.xRot,
+                player.yRot,
+                player.onGround,
+                exempt,
+                teleport);
+    }
+
+    private static String trace(
+            Vec3 predicted,
+            Vec3 actual,
+            double x,
+            double y,
+            double z,
+            float xRot,
+            float yRot,
+            boolean ground,
+            boolean exempt,
+            boolean teleport) {
         StringBuilder sb = new StringBuilder(192);
         if (predicted != null) {
             sb.append("pred ")
@@ -278,14 +347,9 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
                     .append(actual.z)
                     .append(' ');
         }
-        sb.append("pos ")
-                .append(player.x)
-                .append(' ')
-                .append(player.y)
-                .append(' ')
-                .append(player.z);
-        sb.append(" rot ").append(player.xRot).append(' ').append(player.yRot);
-        sb.append(" ground ").append(player.onGround);
+        sb.append("pos ").append(x).append(' ').append(y).append(' ').append(z);
+        sb.append(" rot ").append(xRot).append(' ').append(yRot);
+        sb.append(" ground ").append(ground);
         if (exempt) sb.append(" exempt");
         if (teleport) sb.append(" teleport");
         return sb.toString();
@@ -442,8 +506,61 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         appendNearbyEntityBoxes(sb, result);
     }
 
-    /** One tick of the movement history. Its vectors and location are immutable, so a log keeps the frame itself. */
-    private record MovementFrame(Vec3 predicted, Vec3 actual, Location location) implements DebugText.Part {
+    /**
+     * One tick of the movement history: the predicted and actual movement, where the player was, and {@code state},
+     * which packs the tick's exempt, teleport and ground bits with the low {@link #TICK_BITS} bits of its
+     * {@link SuperDebug#tickIndex}. Its vectors and location are immutable, so a log keeps the frame itself.
+     */
+    private record MovementFrame(Vec3 predicted, Vec3 actual, Location location, int state) implements DebugText.Part {
+        private static final int EXEMPT = 1;
+        private static final int TELEPORT = 1 << 1;
+        private static final int GROUND = 1 << 2;
+        private static final int TICK_SHIFT = 3;
+        static final int TICK_BITS = Integer.SIZE - TICK_SHIFT;
+        private static final int TICK_MASK = (1 << TICK_BITS) - 1;
+
+        static int state(long tick, boolean ground, boolean exempt, boolean teleport) {
+            int state = (int) (tick & TICK_MASK) << TICK_SHIFT;
+            if (exempt) state |= EXEMPT;
+            if (teleport) state |= TELEPORT;
+            if (ground) state |= GROUND;
+            return state;
+        }
+
+        boolean exempt() {
+            return (state & EXEMPT) != 0;
+        }
+
+        boolean teleport() {
+            return (state & TELEPORT) != 0;
+        }
+
+        boolean ground() {
+            return (state & GROUND) != 0;
+        }
+
+        /** Ticks from this frame's tick to {@code now}, a {@link SuperDebug#tickIndex} count; -1 for a later tick. */
+        int age(long now) {
+            int age = ((int) (now & TICK_MASK) - (state >>> TICK_SHIFT)) & TICK_MASK;
+            return age > TICK_MASK >>> 1 ? -1 : age;
+        }
+
+        /** The frame as the trace a watch records for its tick. */
+        String trace() {
+            boolean teleport = teleport();
+            return SuperDebug.trace(
+                    teleport ? null : predicted,
+                    teleport ? null : actual,
+                    location.x(),
+                    location.y(),
+                    location.z(),
+                    location.xRot(),
+                    location.yRot(),
+                    ground(),
+                    !teleport && exempt(),
+                    teleport);
+        }
+
         @Override
         public void appendTo(StringBuilder sb) {
             sb.append("Predicted: ");
@@ -735,8 +852,13 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
 
         private String[] worlds;
         private String[] marks;
+        /** Per slot: the tick's {@link MovementFrame#state}. */
+        private int[] states;
+
         private int head;
         private int size;
+        /** Ticks added since the history began; the newest tick is the {@code added}th. */
+        private long added;
 
         void add(
                 Vec3 predicted,
@@ -747,13 +869,15 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
                 float xRot,
                 float yRot,
                 String world,
-                String marks) {
+                String marks,
+                int state) {
             if (coordinates == null) {
                 coordinates = new double[CAPACITY * 9];
                 rotations = new float[CAPACITY * 2];
                 vectors = new Vec3[CAPACITY * 2];
                 worlds = new String[CAPACITY];
                 this.marks = new String[CAPACITY];
+                states = new int[CAPACITY];
             }
             int slot;
             if (size < CAPACITY) {
@@ -771,6 +895,8 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
             rotations[slot * 2 + 1] = yRot;
             if (worlds[slot] != world) worlds[slot] = world;
             if (this.marks[slot] != marks) this.marks[slot] = marks;
+            states[slot] = state;
+            added++;
         }
 
         private void hold(int vector, int at, Vec3 value) {
@@ -784,6 +910,10 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
 
         int size() {
             return size;
+        }
+
+        long added() {
+            return added;
         }
 
         /** The {@code index}th tick, oldest first. */
@@ -801,7 +931,8 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
                             rotations[slot * 2],
                             rotations[slot * 2 + 1],
                             worlds[slot],
-                            marks[slot]));
+                            marks[slot]),
+                    states[slot]);
         }
 
         private Vec3 vector(int vector, int at) {

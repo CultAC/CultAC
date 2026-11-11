@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.*;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
@@ -35,7 +36,7 @@ class SprintDTest {
             rig.sprintD.violations = ABOVE_SETBACK;
             rig.complete(false, false);
             assertEquals(ABOVE_SETBACK + 1, rig.sprintD.violations);
-            verify(rig.setbacks).executeViolationSetback();
+            verify(rig.setbacks).executeViolationSetback(any(Check.class));
         });
     }
 
@@ -45,7 +46,7 @@ class SprintDTest {
             rig.sprintD.violations = ABOVE_SETBACK;
             rig.complete(true, false);
             assertEquals(ABOVE_SETBACK, rig.sprintD.violations);
-            verify(rig.setbacks, never()).executeViolationSetback();
+            verify(rig.setbacks, never()).executeViolationSetback(any(Check.class));
         });
     }
 
@@ -55,7 +56,7 @@ class SprintDTest {
             rig.sprintD.violations = ABOVE_SETBACK;
             for (int i = 0; i < 20; i++) rig.complete(false, true);
             assertEquals(ABOVE_SETBACK, rig.sprintD.violations);
-            verify(rig.setbacks, never()).executeViolationSetback();
+            verify(rig.setbacks, never()).executeViolationSetback(any(Check.class));
         });
     }
 
@@ -83,7 +84,7 @@ class SprintDTest {
             player.noSetbackPermission = false;
             player.setExperimentalChecks(true);
             doReturn(setbacks).when(player).getSetbackTeleportUtil();
-            doReturn(true).when(setbacks).executeViolationSetback();
+            doReturn(true).when(setbacks).executeViolationSetback(any(Check.class));
             // Sprinting began after the blindness, so SprintD applies.
             player.compensatedEntities.getSelf().addPotionEffect(MovementEffect.BLINDNESS, 0);
             player.isSprinting = true;
