@@ -14,6 +14,7 @@ import ac.cult.cultac.checks.impl.packetorder.PacketOrderProcessor;
 import ac.cult.cultac.manager.init.start.PacketManager;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
+import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
@@ -27,7 +28,7 @@ import org.junit.jupiter.api.Test;
 
 /** A pong that answers no ping CultAC wrote reaches no check; the pong answering CultAC's ping still does. */
 class BackendPongCheckStateTest {
-    private static final int BACKEND_PONG = 42;
+    private static final int BACKEND_PING = 42;
     private static final int CAMERA_ENTITY = 70;
     private static final List<String> TIMER_FIELDS = List.of(
             "timerBalanceRealTime",
@@ -82,7 +83,7 @@ class BackendPongCheckStateTest {
             PacketOrderProcessor order = f.player.checkManager.getCheck(PacketOrderProcessor.class);
             int own = ownPing(f);
             JavaTickFixture.setField(PacketOrderProcessor.class, order, "attacking", true);
-            assertTrue(answer(f, BACKEND_PONG), "a backend pong is forwarded");
+            assertTrue(answerBackendPing(f), "a backend pong is forwarded");
             assertTrue(order.isAttacking(), "the backend pong reset the packet order");
             assertFalse(answer(f, own), "a CultAC pong reached the backend");
             assertFalse(order.isAttacking(), "the CultAC pong left the packet order");
@@ -97,7 +98,7 @@ class BackendPongCheckStateTest {
         JavaTickFixture.setField(AbstractTimerCheck.class, timer, "hasGottenMovementAfterTransaction", true);
         List<Object> before = timerState(timer);
 
-        assertTrue(answer(f, BACKEND_PONG), "a backend pong is forwarded");
+        assertTrue(answerBackendPing(f), "a backend pong is forwarded");
         assertEquals(before, timerState(timer), "the backend pong changed " + timer.getClass().getSimpleName());
 
         assertFalse(answer(f, own), "a CultAC pong reached the backend");
@@ -113,7 +114,7 @@ class BackendPongCheckStateTest {
         elytraB.onPlayerCommand(f.event(ServerboundPackets.PLAYER_COMMAND, packet), f.player, packet);
         List<Object> started = elytraState(elytraB);
         if (backendPong) {
-            assertTrue(answer(f, BACKEND_PONG), "a backend pong is forwarded");
+            assertTrue(answerBackendPing(f), "a backend pong is forwarded");
             assertEquals(started, elytraState(elytraB), "the backend pong ended the glide start");
         }
         assertFalse(answer(f, own), "a CultAC pong reached the backend");
@@ -170,6 +171,13 @@ class BackendPongCheckStateTest {
         if (forwarded == null) return false;
         forwarded.release();
         return true;
+    }
+
+    /** A backend ping to the client, then the client's pong for it; true when the pong reached the backend. */
+    private static boolean answerBackendPing(JavaTickFixture f) {
+        f.fixture.channel.write(f.fixture.id(ClientboundPackets.PING, "ping").writeInt(BACKEND_PING));
+        assertEquals(List.of(), ownPingsToClient(f), "a backend ping is not followed by a CultAC ping");
+        return answer(f, BACKEND_PING);
     }
 
     private static Object get(Class<?> owner, Object value, String name) throws Exception {
