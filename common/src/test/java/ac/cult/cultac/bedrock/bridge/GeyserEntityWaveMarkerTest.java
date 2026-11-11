@@ -37,7 +37,7 @@ import org.mockito.Mockito;
 /**
  * The latency marker that ends a batch of moves of other actors proves them, and the client takes each move whole when
  * it answers it. Before data that can use up the client's packet budget a marker proves the moves written so far; such
- * markers take at most two a client tick.
+ * markers take at most two a client tick. A chunk column new to the client's chunk view is followed by its own marker.
  */
 public final class GeyserEntityWaveMarkerTest {
     private static final long PLAYER = 123L;
@@ -61,7 +61,7 @@ public final class GeyserEntityWaveMarkerTest {
             transport.write(move(456L));
             transport.write(chunk());
             transport.write(move(457L));
-            assertEquals(List.of("move 456", "marker", "chunk", "move 457", "marker"), transport.flush());
+            assertEquals(List.of("move 456", "marker", "chunk", "marker", "move 457", "marker"), transport.flush());
         }
     }
 
@@ -81,6 +81,7 @@ public final class GeyserEntityWaveMarkerTest {
                             "move 456",
                             "marker",
                             "chunk",
+                            "marker",
                             "move 457",
                             "marker",
                             "chunk",
@@ -130,13 +131,13 @@ public final class GeyserEntityWaveMarkerTest {
             transport.write(move(456L, 3));
             transport.write(chunk());
             transport.write(move(456L, -3));
-            assertEquals(List.of("move 456", "marker", "chunk", "move 456", "marker"), transport.flush());
+            assertEquals(List.of("move 456", "marker", "chunk", "marker", "move 456", "marker"), transport.flush());
 
             CultPlayer player = transport.player;
             assertTrue(player.addTransactionResponse(transport.markers.get(0)));
             zombie.onMovement(player, true);
             assertSpans(player, zombie, 1.0D, 1.0D);
-            assertTrue(player.addTransactionResponse(transport.markers.get(1)));
+            assertTrue(player.addTransactionResponse(transport.markers.get(2)));
             zombie.onMovement(player, true);
             // A third of the way from 1 to -3.
             assertSpans(player, zombie, -1.0D / 3.0D, -1.0D / 3.0D);

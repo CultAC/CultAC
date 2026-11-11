@@ -23,6 +23,7 @@ public final class BedrockPlayerState {
     public final BedrockBlockBreakActions blockBreakActions = new BedrockBlockBreakActions();
     public final BedrockMovementEffects movementEffects = new BedrockMovementEffects();
     public final BedrockClientActors clientActors = new BedrockClientActors();
+    public final BedrockClientChunks clientChunks = new BedrockClientChunks();
     public final BedrockShulkerBoxLids shulkerBoxLids = new BedrockShulkerBoxLids();
     public final BedrockPistonBlocks pistonBlocks = new BedrockPistonBlocks();
     public final ac.cult.cultac.bedrock.prediction.integration.BedrockMovementCorrections movementCorrections =

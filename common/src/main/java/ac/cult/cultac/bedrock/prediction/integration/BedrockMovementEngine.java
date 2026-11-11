@@ -139,6 +139,9 @@ public final class BedrockMovementEngine implements MovementEngine {
                         : player.bedrockState.applyConfirmedBoundingBoxSize(
                                 previousEntry.state(), bedrockInput.inputFrame(), context.getScale());
         if (context.isBedrockLerpStep()) boundingBoxState = boundingBoxState.withLerpStep();
+        // A tick the chunk view holds takes a teleport without moving and leaves the actor off the ground, so the
+        // next tick moves normally from the air.
+        if (bedrockInput.heldByChunkView()) boundingBoxState = boundingBoxState.withTeleportTaken().offGround();
         Input selectedInput = bedrockInput.withPreviousState(boundingBoxState, previousEntry.mobJumpComponent());
         BedrockSimulation.Input simulationInput = new BedrockSimulation.Input(
                 selectedInput.previousState(),
@@ -149,7 +152,7 @@ public final class BedrockMovementEngine implements MovementEngine {
                 selectedInput.maxUpStep(),
                 selectedInput.mobJumpComponent(),
                 selectedInput.actorMovementTick(),
-                context.isBedrockTeleportTick(),
+                context.isBedrockTeleportTick() && !selectedInput.heldByChunkView(),
                 BedrockControlInput.control(selectedInput.authFrame(), selectedInput.previousState()),
                 !selectedInput.previousState().isVehicle()
                         && player.bedrockState.movementEffects.glideBoost(

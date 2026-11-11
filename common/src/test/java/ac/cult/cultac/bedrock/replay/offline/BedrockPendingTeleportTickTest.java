@@ -111,11 +111,11 @@ public class BedrockPendingTeleportTickTest {
         }
     }
 
-    // A capture of a respawn into a column the client has not received: the tick after the
-    // teleport reports no step and delta y -0.0784, the next steps -0.0784 with -0.155232,
-    // the next -0.155232 with -0.230527. Nothing holds the actor and nothing stops it.
+    // A capture of a respawn into a column the server had forgotten, which the client holds empty:
+    // the tick after the teleport reports no step and delta y -0.0784, the next steps -0.0784 with
+    // -0.155232, the next -0.155232 with -0.230527. Nothing holds the actor and nothing stops it.
     @Test
-    public void actorFallsThroughAColumnTheClientHasNotApplied() {
+    public void actorFallsThroughAnEmptyColumnItsChunkViewHolds() {
         OfflineCultTestBootstrap.installConfig();
         var player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
@@ -127,6 +127,8 @@ public class BedrockPendingTeleportTickTest {
             player.onGround = player.lastOnGround = false;
             player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, spawn.x, spawn.y, spawn.z);
             assertNull(player.compensatedWorld.getChunk(0, 0));
+            player.bedrockState.clientChunks.publish(3, -2, 256);
+            assertTrue(player.bedrockState.clientChunks.receive(0, 0, 600));
 
             double[] steps = {0, -0.0784, -0.155232};
             double[] velocities = {-0.0784, -0.155232, -0.230527};
@@ -288,6 +290,183 @@ public class BedrockPendingTeleportTickTest {
 
     private static Vec3 feet(float eyeY) {
         return new Vec3(0, eyeY - BedrockPositionTranslator.PLAYER_PACKET_Y_OFFSET, 0);
+    }
+
+    // Captures of teleports into columns the client's chunk view lacked: the client takes the teleport, then reports
+    // every tick no step and its velocity unchanged until the tick after the one that processed the column, which
+    // falls from rest (no step, delta y -0.0784) as a normal tick does.
+    @Test
+    public void actorHoldsInAColumnItsChunkViewHasNotReceived() {
+        OfflineCultTestBootstrap.installConfig();
+        var player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            player.gamemode = GameMode.SURVIVAL;
+            Vec3 start = new Vec3(1.5, 80, 1.5);
+            player.x = player.lastX = start.x;
+            player.y = player.lastY = start.y;
+            player.z = player.lastZ = start.z;
+            player.onGround = player.lastOnGround = false;
+            player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, start.x, start.y, start.z);
+            var chunks = player.bedrockState.clientChunks;
+            chunks.receive(0, 0, 600);
+            // A publisher update far away drops the column; one around it again does not bring it back.
+            chunks.publish(1000, 1000, 256);
+            chunks.publish(0, 0, 80);
+            Vec3 spawn = new Vec3(1.5, 64, 1.5);
+            var teleports = player.getSetbackTeleportUtil();
+            teleports
+                    .bedrockTeleports()
+                    .addImmediateBedrockTransportTeleport(
+                            spawn,
+                            true,
+                            BedrockCoordinateFrame.IDENTITY,
+                            null,
+                            new BedrockTeleportOperation(12, BedrockTeleportProvenance.GEYSER, 12),
+                            12);
+            player.lastTransactionReceived.set(100);
+
+            for (long tick = 700; tick <= 702; tick++) {
+                if (tick == 701) assertTrue(chunks.receive(0, 0, 701));
+                assertNotNull(process(player, frame(player, tick, spawn, 0, false, tick == 700)));
+                assertEquals(spawn.y, entry(player).state().physicalFeetPosition().y(), 0);
+                assertEquals(0, entry(player).state().velocity().y(), 0);
+            }
+            double[] steps = {0, -0.0784};
+            double[] velocities = {-0.0784, -0.155232};
+            Vec3 position = spawn;
+            for (int i = 0; i < steps.length; i++) {
+                position = position.add(0, steps[i], 0);
+                assertNotNull(process(player, frame(player, 703 + i, position, velocities[i], false, false)));
+                assertEquals(position.y, entry(player).state().physicalFeetPosition().y(), 1.0E-5);
+                assertEquals(velocities[i], entry(player).state().velocity().y(), 1.0E-5);
+            }
+            assertFalse(teleports.bedrockTeleports().mustAcknowledgeBedrockTransportTeleport());
+            assertEquals(0, player.checkManager.getListener(BedrockMovement.class).violations, 0);
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    @Test
+    public void walkingActorHeldInAColumnLeavesTheHoldAirborne() {
+        OfflineCultTestBootstrap.installConfig();
+        var player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            player.gamemode = GameMode.SURVIVAL;
+            player.compensatedWorld.ensureValidationChunkLoaded(0, 0);
+            for (int x = 0; x < 8; x++)
+                for (int z = 0; z < 8; z++)
+                    player.compensatedWorld.updateBlock(
+                            x, 63, z, DataTables.defaults().registry().block("minecraft:stone").defaultState());
+            Vec3 start = new Vec3(1.5, 64, 1.5);
+            player.x = player.lastX = start.x;
+            player.y = player.lastY = start.y;
+            player.z = player.lastZ = start.z;
+            player.onGround = player.lastOnGround = true;
+            player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, start.x, start.y, start.z);
+            var chunks = player.bedrockState.clientChunks;
+            chunks.receive(0, 0, 600);
+            assertNotNull(process(player, walk(player, 690, start, new Vec3(0, -0.0784, 0), true, false, false)));
+            chunks.publish(1000, 1000, 256);
+            chunks.publish(0, 0, 80);
+            Vec3 spawn = new Vec3(2.5, 64, 2.5);
+            var teleports = player.getSetbackTeleportUtil();
+            teleports.bedrockTeleports().addImmediateBedrockTransportTeleport(
+                    spawn, true, BedrockCoordinateFrame.IDENTITY, null,
+                    new BedrockTeleportOperation(12, BedrockTeleportProvenance.GEYSER, 12), 12);
+            player.lastTransactionReceived.set(100);
+            for (long tick = 700; tick <= 702; tick++) {
+                if (tick == 701) assertTrue(chunks.receive(0, 0, 701));
+                assertNotNull(process(player, walk(player, tick, spawn, Vec3.ZERO, true, true, tick == 700)));
+            }
+            Vec3 p1 = spawn.add(0, 0, 0.0196);
+            assertNotNull(process(player, walk(player, 703, p1, new Vec3(0, -0.0784, 0.017836), false, true, false)));
+            assertFalse(entry(player).state().collisionFlags().onGround());
+            Vec3 p2 = p1.add(0, 0, 0.037436);
+            assertNotNull(process(player, walk(player, 704, p2, new Vec3(0, -0.0784, 0.034067), true, true, false)));
+            assertEquals(0, player.checkManager.getListener(BedrockMovement.class).violations, 0);
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    private static BedrockAuthInputFrame walk(
+            CultPlayer player, long tick, Vec3 position, Vec3 velocity, boolean collided, boolean forward,
+            boolean teleport) {
+        long flags = teleport ? 1L << PlayerAuthInputData.HANDLE_TELEPORT.ordinal() : 0;
+        if (collided) flags |= 1L << PlayerAuthInputData.VERTICAL_COLLISION.ordinal();
+        if (forward) flags |= 1L << PlayerAuthInputData.UP.ordinal();
+        return BedrockAuthInputFrame.builder(player.playerUUID)
+                .protocolVersion(2193)
+                .clientTick(tick)
+                .position(position)
+                .rotation(0, 0, 0)
+                .moveVector(0, forward ? 1 : 0)
+                .reportedEndOfTickVelocity(velocity)
+                .rawInputFlags(flags)
+                .build();
+    }
+
+    @Test
+    public void jumpCooldownSkipsTheTicksTheChunkViewHolds() {
+        OfflineCultTestBootstrap.installConfig();
+        var player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            player.gamemode = GameMode.SURVIVAL;
+            player.compensatedWorld.ensureValidationChunkLoaded(0, 0);
+            for (int x = 0; x < 4; x++)
+                for (int z = 0; z < 4; z++)
+                    player.compensatedWorld.updateBlock(
+                            x, 105, z, DataTables.defaults().registry().block("minecraft:stone").defaultState());
+            Vec3 ground = new Vec3(1.5, 106, 1.5);
+            player.x = player.lastX = ground.x;
+            player.y = player.lastY = ground.y;
+            player.z = player.lastZ = ground.z;
+            player.onGround = player.lastOnGround = true;
+            player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, ground.x, ground.y, ground.z);
+            var chunks = player.bedrockState.clientChunks;
+            chunks.receive(0, 0, 600);
+            assertNotNull(process(player, walk(player, 634, ground, new Vec3(0, -0.0784, 0), true, false, false)));
+            assertNotNull(process(player, jump(player, 635, ground.add(0, 0.4199981689453125, 0), 0.33319998, false, false)));
+            assertEquals(10, entry(player).mobJumpComponent().jumpCooldownTicks());
+            chunks.publish(1000, 1000, 256);
+            chunks.publish(0, 0, 80);
+            var teleports = player.getSetbackTeleportUtil();
+            teleports.bedrockTeleports().addImmediateBedrockTransportTeleport(
+                    ground, true, BedrockCoordinateFrame.IDENTITY, null,
+                    new BedrockTeleportOperation(12, BedrockTeleportProvenance.GEYSER, 12), 12);
+            player.lastTransactionReceived.set(100);
+            assertNotNull(process(player, jump(player, 636, ground, 0, true, true)));
+            for (long tick = 637; tick <= 639; tick++) {
+                if (tick == 638) assertTrue(chunks.receive(0, 0, 638));
+                assertNotNull(process(player, jump(player, tick, ground, 0, true, false)));
+            }
+            for (long tick = 640; tick <= 647; tick++) {
+                assertNotNull(process(player, jump(player, tick, ground, -0.0784, tick > 640, false)));
+            }
+            assertNotNull(process(player, jump(player, 648, ground.add(0, 0.4199981689453125, 0), 0.33319998, false, false)));
+            assertEquals(10, entry(player).mobJumpComponent().jumpCooldownTicks());
+            assertEquals(0, player.checkManager.getListener(BedrockMovement.class).violations, 0);
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    private static BedrockAuthInputFrame jump(
+            CultPlayer player, long tick, Vec3 position, double velocity, boolean collided, boolean teleport) {
+        long flags = teleport ? 1L << PlayerAuthInputData.HANDLE_TELEPORT.ordinal() : 0;
+        if (collided) flags |= 1L << PlayerAuthInputData.VERTICAL_COLLISION.ordinal();
+        return BedrockAuthInputFrame.builder(player.playerUUID)
+                .protocolVersion(2193)
+                .clientTick(tick)
+                .position(position)
+                .rotation(0, 0, 0)
+                .moveVector(0, 0)
+                .jumping(true)
+                .jumpCurrentRaw(true)
+                .reportedEndOfTickVelocity(new Vec3(0, velocity, 0))
+                .rawInputFlags(flags)
+                .build();
     }
 
     private static BedrockAuthInputFrame startupFrame(

@@ -493,6 +493,15 @@ public record BedrockMovementState(
         return hasTeleported() ? this : new BedrockMovementState(motion, actor, memory, TickStart.TELEPORT, attributes);
     }
 
+    /** No ground contact and the air branch; velocity and position unchanged. */
+    public BedrockMovementState offGround() {
+        return withVelocityAndCollisionFlags(velocity(), BedrockCollisionFlags.AIR).withMovementBranch(Medium.AIR);
+    }
+
+    public BedrockMovementState withTeleportTaken() {
+        return hasTeleported() ? new BedrockMovementState(motion, actor, memory, TickStart.MOVE, attributes) : this;
+    }
+
     /** The tick takes the actor's remaining lerp step before its move; a pending teleport still places it. */
     public BedrockMovementState withLerpStep() {
         return tickStart != TickStart.MOVE

@@ -84,9 +84,14 @@ final class BedrockMovementInputFactory {
                     previousState, tickInput.inputFrame(), context.getScale());
         }
         worldSnapshot = BedrockSnapshotResolver.forState(worldSnapshot, previousState, tickInput.inputFrame());
-        // Only the loading screen holds the actor. A column the client has not applied holds no
-        // blocks in the compensated world, so the actor falls through it as it does on the client.
-        boolean actorMovementTick = !player.bedrockState.loadingScreen.active();
+        // The loading screen holds the actor, as does a column under its box that the client's chunk view holds
+        // nothing in, except on the tick that handles a teleport. A tick the chunk view holds still takes a pending
+        // teleport: the next tick moves normally.
+        boolean loading = player.bedrockState.loadingScreen.active();
+        boolean heldByChunkView = !loading
+                && !context.isBedrockTeleportTick()
+                && !player.bedrockState.clientChunks.holds(previousState.collisionBox(), frame.getClientTick());
+        boolean actorMovementTick = !loading && !heldByChunkView;
         player.bedrockState.movementEffects.glideBoost(frame, actorMovementTick);
         return new Input(
                 frame,
@@ -99,6 +104,7 @@ final class BedrockMovementInputFactory {
                         : previousState.isBoat() ? boatStep(previousState) : BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
                 mobJumpComponent,
                 actorMovementTick,
+                heldByChunkView,
                 sampledRegion);
     }
 
@@ -140,6 +146,8 @@ final class BedrockMovementInputFactory {
             double maxUpStep,
             BedrockMobJumpComponentState mobJumpComponent,
             boolean actorMovementTick,
+            // The chunk view holds the actor: the tick still takes a pending teleport.
+            boolean heldByChunkView,
             // Null when the world snapshot was not sampled from a region of the player's world.
             BedrockCollisionSampleRegion sampledRegion) {
         public Input(
@@ -159,6 +167,7 @@ final class BedrockMovementInputFactory {
                     maxUpStep,
                     mobJumpComponent,
                     true,
+                    false,
                     null);
         }
 
@@ -176,6 +185,7 @@ final class BedrockMovementInputFactory {
                     BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
                     BedrockMobJumpComponentState.DEFAULT,
                     true,
+                    false,
                     null);
         }
 
@@ -239,6 +249,7 @@ final class BedrockMovementInputFactory {
                             : maxUpStep,
                     mobJumpComponent,
                     actorMovementTick,
+                    heldByChunkView,
                     sampledRegion);
         }
     }

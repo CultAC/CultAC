@@ -60,6 +60,7 @@ import org.cloudburstmc.protocol.bedrock.packet.InventoryTransactionPacket;
 import org.cloudburstmc.protocol.bedrock.packet.MoveEntityAbsolutePacket;
 import org.cloudburstmc.protocol.bedrock.packet.MovePlayerPacket;
 import org.cloudburstmc.protocol.bedrock.packet.MovementPredictionSyncPacket;
+import org.cloudburstmc.protocol.bedrock.packet.NetworkChunkPublisherUpdatePacket;
 import org.cloudburstmc.protocol.bedrock.packet.NetworkStackLatencyPacket;
 import org.cloudburstmc.protocol.bedrock.packet.PlayerActionPacket;
 import org.cloudburstmc.protocol.bedrock.packet.PlayerAuthInputPacket;
@@ -618,6 +619,13 @@ public final class GeyserBedrockBridgeRuntime {
         private final GeyserVehicleAttributes vehicleAttributes = new GeyserVehicleAttributes();
         private final GeyserEntityPositions entityPositions = new GeyserEntityPositions();
         private final GeyserClientActors clientActors = new GeyserClientActors();
+        // The chunk columns written to the client; a column new to its view is followed by its own marker.
+        private final ac.cult.cultac.bedrock.player.BedrockClientChunks writtenChunks =
+                new ac.cult.cultac.bedrock.player.BedrockClientChunks();
+        // A new level was written; the next chunk marker empties the client's columns first.
+        private boolean chunkLevelReset;
+        // Chunk columns were written while Cult had no player for the session.
+        private boolean chunksWithoutPlayer;
         // Markers written per client tick only to narrow when entity updates are handled; the markers that prove
         // updates are not counted.
         private static final int MARKERS_PER_TICK = 2;
@@ -1832,6 +1840,7 @@ public final class GeyserBedrockBridgeRuntime {
                 owner.connection.disconnect("CultAC: entity update bypassed the coordinate hook. Please reconnect.");
                 return;
             }
+            if (writeClientChunks(context, message, promise, wrapper, packet, emission)) return;
             boolean seatsRider = packet instanceof org.cloudburstmc.protocol.bedrock.packet.SetEntityLinkPacket link
                     && link.getEntityLink().getTo()
                             == owner.connection.getPlayerEntity().geyserId()
@@ -1865,6 +1874,8 @@ public final class GeyserBedrockBridgeRuntime {
                     || packet instanceof org.cloudburstmc.protocol.bedrock.packet.ChangeDimensionPacket) {
                 owner.teleportRecovery.clear();
                 owner.clientRiding.clear();
+                owner.writtenChunks.clear();
+                owner.chunkLevelReset = true;
             }
             if (observedPlayer != null) {
                 BedrockCoordinateFrame frame = emission == null ? BedrockCoordinateFrame.IDENTITY : emission.frame();
@@ -2309,6 +2320,52 @@ public final class GeyserBedrockBridgeRuntime {
             long generation = player.bedrockState.movementCorrections.generation();
             return acknowledged -> acknowledged.bedrockState.movementCorrections.queueUpdate(
                     generation, vehicleId, actorId, tick, historical, event);
+        }
+
+        /**
+         * A publisher update moves the client's chunk view and a column new to that view is held from the tick after
+         * the one that processed it: each is followed by its own marker. Returns whether the packet was written.
+         */
+        private boolean writeClientChunks(
+                ChannelHandlerContext context,
+                Object message,
+                ChannelPromise promise,
+                BedrockPacketWrapper wrapper,
+                BedrockPacket packet,
+                BedrockOriginDispatch.Emission emission) {
+            BedrockCoordinateFrame frame = emission == null ? BedrockCoordinateFrame.IDENTITY : emission.frame();
+            var written = owner.writtenChunks;
+            // Columns written before Cult had the player are held when its first chunk marker returns.
+            var earlier = owner.chunksWithoutPlayer ? written.copy() : null;
+            BiConsumer<ac.cult.cultac.bedrock.player.BedrockClientChunks, Long> change;
+            if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.LevelChunkPacket chunk) {
+                int x = chunk.getChunkX() + (frame.originX() >> 4), z = chunk.getChunkZ() + (frame.originZ() >> 4);
+                if (!written.written(x, z)) return false;
+                change = (chunks, acknowledgedAfterTick) -> chunks.receive(x, z, acknowledgedAfterTick);
+            } else if (packet instanceof NetworkChunkPublisherUpdatePacket update) {
+                int x = update.getPosition().getX() + frame.originX();
+                int z = update.getPosition().getZ() + frame.originZ();
+                int radius = update.getRadius();
+                written.publish(x, z, radius);
+                change = (chunks, acknowledgedAfterTick) -> chunks.publish(x, z, radius);
+            } else {
+                return false;
+            }
+            context.write(message, promise);
+            if (owner.currentPlayer() == null) {
+                owner.chunksWithoutPlayer = true;
+                return true;
+            }
+            owner.chunksWithoutPlayer = false;
+            boolean reset = owner.chunkLevelReset;
+            owner.chunkLevelReset = false;
+            owner.writeLatencyBoundary(context, wrapper, (player, acknowledgedAfterTick) -> {
+                var chunks = player.bedrockState.clientChunks;
+                if (earlier != null) chunks.replace(earlier);
+                else if (reset) chunks.clear();
+                change.accept(chunks, acknowledgedAfterTick);
+            });
+            return true;
         }
 
         private void writeSelfMotion(
