@@ -105,6 +105,7 @@ import org.jetbrains.annotations.Nullable;
 public class SimulationProcessor extends CultProcessor implements PositionListener, ClientTickEndListener {
     static long computeTimeNS = 300000L;
     private static final AtomicInteger flags = new AtomicInteger(0);
+    private static final MovementModifiers MOVEMENT_MODIFIERS = new MovementModifiers();
     private static final double TELEPORT_GROUND_UNCERTAIN_DISTANCE_SQ = 4.0E-8;
     private static final double TRAVEL_DEBUG_DISTANCE_SQR = 1.0;
     private static final double TRAVEL_FLAG_DISTANCE_SQR = 400.0;
@@ -162,6 +163,9 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     private final SimpleCollisionBox changedBlockScratch = new SimpleCollisionBox();
     private final SimpleCollisionBox changedBlockReachScratch = new SimpleCollisionBox();
     private final PredictionScratch scratch = new PredictionScratch();
+    // Filled and emptied within the outermost predict call.
+    private final List<ValidMovements> candidateMovements = new ArrayList<>();
+    private boolean predicting;
 
     public SimulationProcessor(CultPlayer playerData) {
         super(playerData);
@@ -1755,7 +1759,66 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             MovementProfile movementProfile) {
         List<PredictionResult> alternativeRealities = new ArrayList<>();
         List<PredictionResult> invalidOrValidRealities = new ArrayList<>();
-        List<ValidMovements> valid = new ArrayList<>();
+        if (this.predicting) {
+            return this.predict(
+                    player,
+                    startingVel,
+                    lastPrediction,
+                    target,
+                    start,
+                    end,
+                    lastTickSkip,
+                    testing,
+                    xRot,
+                    yRot,
+                    authoredMovementFrame,
+                    movementProfile,
+                    alternativeRealities,
+                    invalidOrValidRealities,
+                    new ArrayList<>());
+        }
+        List<ValidMovements> valid = this.candidateMovements;
+        valid.clear();
+        this.predicting = true;
+        try {
+            return this.predict(
+                    player,
+                    startingVel,
+                    lastPrediction,
+                    target,
+                    start,
+                    end,
+                    lastTickSkip,
+                    testing,
+                    xRot,
+                    yRot,
+                    authoredMovementFrame,
+                    movementProfile,
+                    alternativeRealities,
+                    invalidOrValidRealities,
+                    valid);
+        } finally {
+            this.predicting = false;
+            valid.clear();
+        }
+    }
+
+    private PredictionResult predict(
+            CultPlayer player,
+            Set<Vec3> startingVel,
+            PredictionResult lastPrediction,
+            Vec3 target,
+            Vec3 start,
+            Vec3 end,
+            LastInstance lastTickSkip,
+            boolean testing,
+            float xRot,
+            float yRot,
+            AuthoredMovementFrame authoredMovementFrame,
+            MovementProfile movementProfile,
+            List<PredictionResult> alternativeRealities,
+            List<PredictionResult> invalidOrValidRealities,
+            List<ValidMovements> valid) {
         MovementEngine engine = MovementEngines.requireForProfile(movementProfile);
 
         List<SimulationContext> contexts = this.createReleaseSimulationContexts(
@@ -1773,7 +1836,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         for (int contextIndex = 0, contextCount = contexts.size(); contextIndex < contextCount; contextIndex++) {
             SimulationContext curSimulationContext = contexts.get(contextIndex);
             List<PredVector> contextPacketStart = engine.applyModifiers(
-                    new MovementModifiers(),
+                    MOVEMENT_MODIFIERS,
                     player,
                     startingVel,
                     curSimulationContext,
