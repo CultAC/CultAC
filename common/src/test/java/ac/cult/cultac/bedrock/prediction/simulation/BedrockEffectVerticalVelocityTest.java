@@ -122,6 +122,27 @@ public final class BedrockEffectVerticalVelocityTest {
         assertEquals(-0.149658D, moveY(move(gliding(settled), glideFrame(), BedrockEffectState.NONE, true)), 1.0E-5D);
     }
 
+    @Test
+    public void levitationAppliesToTheClimbVelocity() {
+        // Walking into a ladder with Levitation I the client climbs 0.17 per tick: the 0.2 climb velocity
+        // levitated as 0.2 + (0.05 - 0.2) * 0.2, with no gravity or drag after it.
+        PlacedBlockCollision ladder = PlacedBlockCollision.manual(
+                new BlockPosition(0, 1, 0),
+                "minecraft:ladder",
+                "minecraft:ladder[facing=north]",
+                List.of(new WorldCollisionBox(0.0D, 1.0D, 0.8125D, 1.0D, 2.0D, 1.0D)));
+        BedrockMovementState climbing = BedrockMovementState.fromPhysicalFeet(
+                new Vec3d(0.5D, 1.5D, 0.5124D),
+                new Vec3d(0.0D, 0.17D, 0.05D),
+                BedrockInputFrame.idle(1L),
+                BedrockCollisionFlags.AIR);
+
+        BedrockMovementResult result = move(climbing, BedrockInputFrame.idle(2L), LEVITATION_I, false, ladder);
+
+        assertEquals(1.67D, result.predictedPosition().y(), 1.0E-6D);
+        assertEquals(0.17D, result.predictedVelocity().y(), 1.0E-6D);
+    }
+
     private static double moveY(BedrockMovementResult result) {
         return result.predictedPosition().y()
                 - result.previousState().physicalFeetPosition().y();
@@ -143,7 +164,11 @@ public final class BedrockEffectVerticalVelocityTest {
     }
 
     private static BedrockMovementResult move(
-            BedrockMovementState state, BedrockInputFrame frame, BedrockEffectState effects, boolean elytra) {
+            BedrockMovementState state,
+            BedrockInputFrame frame,
+            BedrockEffectState effects,
+            boolean elytra,
+            PlacedBlockCollision... extra) {
         PlacedBlockCollision floor = PlacedBlockCollision.manual(
                 new BlockPosition(0, 0, 0),
                 "minecraft:stone",
@@ -152,7 +177,7 @@ public final class BedrockEffectVerticalVelocityTest {
         BedrockMovementContext context = new BedrockMovementContext(
                 effects,
                 AttributeState.DEFAULT,
-                new WorldContactState(Medium.AIR, FluidState.NONE, new BlockCollisionWorld(List.of(floor))),
+                new WorldContactState(Medium.AIR, FluidState.NONE, new BlockCollisionWorld(blocks(floor, extra))),
                 new EquipmentState(0, 0, 0, false, elytra),
                 EntityContactState.NONE,
                 new MovementModifierState(elytra, false, false, false, 0.05D, false, false, false, false, 0.35D, 0L),
@@ -164,5 +189,11 @@ public final class BedrockEffectVerticalVelocityTest {
                 BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE,
                 false,
                 BedrockSimulation.DEFAULT_MAX_AUTO_STEP);
+    }
+
+    private static List<PlacedBlockCollision> blocks(PlacedBlockCollision floor, PlacedBlockCollision... extra) {
+        List<PlacedBlockCollision> blocks = new java.util.ArrayList<>(List.of(extra));
+        blocks.add(floor);
+        return blocks;
     }
 }
