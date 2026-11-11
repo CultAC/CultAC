@@ -8,6 +8,7 @@ import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
 import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockCollisionFetchBox;
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import org.junit.Test;
 
@@ -53,6 +54,7 @@ public final class BedrockCollisionSampleRegionTest {
     }
 
     private static WorldCollisionBox fetch(Vec3d move) {
-        return BedrockCollisionFetchBox.of(ACTOR, move, BedrockSimulation.DEFAULT_MAX_AUTO_STEP);
+        return BedrockCollisionFetchBox.of(
+                ACTOR, move, BedrockSimulation.DEFAULT_MAX_AUTO_STEP, BedrockCoordinateFrame.IDENTITY);
     }
 }

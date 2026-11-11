@@ -41,7 +41,8 @@ public final class BedrockMoveSystems {
         var fetchBox = BedrockCollisionFetchBox.of(
                 previous.collisionBox(frame.frameFacts().movementDimensions()),
                 request.requestedPosition().subtract(previous.physicalFeetPosition()),
-                frame.input().options().maxUpStep());
+                frame.input().options().maxUpStep(),
+                previous.coordinateFrame());
         if (!frame.branch().glidingTravel()) {
             request = BedrockTravelMoveRequest.applySneakMovement(frame.input(), frame.frameFacts(), request);
         }
@@ -60,7 +61,8 @@ public final class BedrockMoveSystems {
                 request.move().y(),
                 frame.input().options().canStep(),
                 frame.input().options().maxUpStep(),
-                facts.context().movementAbilityFlying());
+                facts.context().movementAbilityFlying(),
+                fetchBox);
         BedrockClimbableContact nextClimbableContact = frame.boat() != null
                 ? BedrockClimbableContact.NONE
                 : frame.input().worldSnapshot().climbableContactAt(blockMove.position(), facts.movementDimensions());
