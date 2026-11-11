@@ -45,7 +45,7 @@ public class Phase extends Check implements PostPredictionListener {
     float travelScale = Float.NaN;
     // Read only within one checkMovement call; never stored.
     private final SimpleCollisionBox newBoxScratch = new SimpleCollisionBox();
-    // The ride-tick seat oldBox last started from or a teleport replaced; each seat is a fresh Vec3.
+    // The ride-tick seat oldBox last started from or an accepted teleport replaced; each seat is a fresh Vec3.
     private Vec3 seatTaken;
 
     private void handleMovePlayer(ServerboundMovePlayer packet, boolean teleport) {
@@ -70,6 +70,9 @@ public class Phase extends Check implements PostPredictionListener {
         var result = complete.getPredictionResult();
         if (result == null) return;
         if (result.isTeleport()) {
+            // ClientPacketListener#handleMovePlayer moves the client off the seat its last ride tick gave it. From
+            // 26.3 the answer is ServerboundAcceptTeleportationPacket, which reaches no move handler.
+            if (!player.isBedrockMovement()) seatTaken = player.compensatedEntities.lastRideTickSeat();
             if (result.getSetBackData() != null) {
                 oldBox = boxAt(result.getSetBackData().getLocation(), 1.8f, player.isBedrockMovement());
             }
