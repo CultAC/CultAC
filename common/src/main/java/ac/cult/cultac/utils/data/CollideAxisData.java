@@ -1,8 +1,6 @@
 package ac.cult.cultac.utils.data;
 
-import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.debug.DebugText;
-import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 
@@ -13,7 +11,6 @@ public class CollideAxisData implements DebugText.Recordable {
     CollideResult yPos;
     CollideResult yNeg;
     CollideResult z;
-    List<SimpleCollisionBox> unknown;
 
     @Override
     public void appendTo(DebugText.Builder sb) {
@@ -25,8 +22,6 @@ public class CollideAxisData implements DebugText.Recordable {
                 .append(yNeg)
                 .append(", z=")
                 .append(z)
-                .append(", unknown=")
-                .appendAll(unknown)
                 .append(')');
     }
 
@@ -76,10 +71,7 @@ public class CollideAxisData implements DebugText.Recordable {
         return x.isLikelyCollide() || z.isLikelyCollide();
     }
 
-    /**
-     * Collision data safe to share between players: every mutator of it and of its results throws, and its unknown
-     * list is empty and unmodifiable.
-     */
+    /** Collision data safe to share between players: every mutator of it and of its results throws. */
     public static CollideAxisData immutable(CollideResult x, CollideResult yPos, CollideResult yNeg, CollideResult z) {
         return new ImmutableCollideAxisData(
                 ImmutableCollideResult.of(x),
@@ -90,7 +82,7 @@ public class CollideAxisData implements DebugText.Recordable {
 
     private static final class ImmutableCollideAxisData extends CollideAxisData {
         ImmutableCollideAxisData(CollideResult x, CollideResult yPos, CollideResult yNeg, CollideResult z) {
-            super(x, yPos, yNeg, z, List.of());
+            super(x, yPos, yNeg, z);
         }
 
         @Override
@@ -110,11 +102,6 @@ public class CollideAxisData implements DebugText.Recordable {
 
         @Override
         public void setZ(CollideResult newZ) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void setUnknown(List<SimpleCollisionBox> unknown) {
             throw new UnsupportedOperationException();
         }
 

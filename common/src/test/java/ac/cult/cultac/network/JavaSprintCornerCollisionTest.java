@@ -402,7 +402,7 @@ class JavaSprintCornerCollisionTest {
                 new PredictionResult(f.player, new PredVector(closest), context, target, null, realities, realities);
         result.setValidMovements(valid);
         result.setCollideAxisData(new CollideAxisData(
-                x, new CollideResult(false, 0.0), new CollideResult(true, 0.0), z, List.of()));
+                x, new CollideResult(false, 0.0), new CollideResult(true, 0.0), z));
         return result;
     }
 

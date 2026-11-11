@@ -8,13 +8,11 @@ import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassAfterTravel;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRootGround;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.EntityWorldCollisions;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
-import java.util.List;
 
 public class NoFall implements EngineCheck {
     @Override
@@ -144,28 +142,9 @@ public class NoFall implements EngineCheck {
     /** A block, or an entity at any position the client may hold it, directly under the destination box. */
     private static boolean canStandAtDestination(CultPlayer player, PredictionResult result) {
         SimpleCollisionBox destination = result.getSimulationContext().getToCubeCollision();
-        return standsOnUnknownCollision(result, destination)
-                || player.checkManager
-                        .getSimulationProcessor()
-                        .getStepCollisionMemo()
-                        .collidesDirectlyBelow(player, destination);
-    }
-
-    private static boolean standsOnUnknownCollision(PredictionResult result, SimpleCollisionBox destination) {
-        if (!(result.getCollideAxisData() instanceof EntityWorldCollisions worlds)) {
-            for (SimpleCollisionBox box : result.getCollideAxisData().getUnknown()) {
-                if (box.isIntersected(result.getSimulationContext().getToMaximumExtent())) return true;
-            }
-            return false;
-        }
-        double probe = -SimpleCollisionBox.COLLISION_EPSILON;
-        for (List<SimpleCollisionBox> colliders : worlds.colliders()) {
-            for (int i = 0; i < colliders.size(); i++) {
-                if (colliders.get(i).collideY(destination, probe, SimpleCollisionBox.AxisEpsilon.JAVA) != probe) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        return player.checkManager
+                .getSimulationProcessor()
+                .getStepCollisionMemo()
+                .collidesDirectlyBelow(player, destination);
     }
 }

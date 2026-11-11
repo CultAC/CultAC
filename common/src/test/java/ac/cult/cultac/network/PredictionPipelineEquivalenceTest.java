@@ -10,7 +10,6 @@ import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext.HardCollidingEntityCollision;
 import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CheckingCollisionProbe;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHandler;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
@@ -30,26 +29,6 @@ import org.objenesis.ObjenesisStd;
 /** The prediction pipeline's shortcuts against what they replace, over the seeded {@link PredictionScenarios}. */
 class PredictionPipelineEquivalenceTest {
     private static final int SCENARIOS = 66;
-
-    /** A probe reusing resolved axis steps returns, bit for bit, what the probe as of 515d08404 returned. */
-    @Test
-    void probesMatchTheProbeWithoutStepReuse() throws Exception {
-        int probes = 0;
-        int grounded = 0;
-        List<String> mismatches = new ArrayList<>();
-        for (long seed = 0; seed < SCENARIOS; seed++) {
-            try (var f = new JavaTickFixture()) {
-                CheckingCollisionProbe probe = new CheckingCollisionProbe(PredictionDigestTest::axes);
-                swap(f, "collisionProbe", probe);
-                PredictionScenarios.run(f, seed, result -> {});
-                probes += probe.probes;
-                grounded += probe.groundedProbes;
-                for (String mismatch : probe.mismatches) mismatches.add(seed + ": " + mismatch);
-            }
-        }
-        assertEquals(List.of(), mismatches);
-        assertTrue(grounded > 100 && probes > grounded, probes + " probes, " + grounded + " grounded");
-    }
 
     /** Carry states share one world build, so a second build for the same context must give the same world. */
     @Test

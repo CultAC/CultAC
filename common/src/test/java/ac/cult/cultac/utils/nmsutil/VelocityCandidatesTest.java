@@ -16,7 +16,6 @@ import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
-import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.HashSet;
@@ -85,27 +84,6 @@ class VelocityCandidatesTest {
         when(result.getCollideAxisData().getX().isLikelyCollide()).thenReturn(true);
         when(result.getCollideAxisData().getX().getResult()).thenReturn(0.3);
         assertEquals(Set.of(velocity, new Vec3(0, -0.078, 0.2)), derive(result));
-    }
-
-    @Test
-    void anUnknownColliderLeavesBothClipOutcomes() {
-        PredVector velocity = new PredVector(new Vec3(0.3, -0.078, 0.2));
-        Vec3 moved = new Vec3(0.1, -0.078, 0.2);
-        PredictionResult result = result(velocity, moved, Vec3.ZERO);
-        when(result.getCollideAxisData().getX().isLikelyCollide()).thenReturn(true);
-        when(result.getCollideAxisData().getUnknown()).thenReturn(List.of(new SimpleCollisionBox(1, 64, 0, 2, 65, 1)));
-        assertEquals(Set.of(new Vec3(0, -0.078, 0.2), moved), derive(result));
-    }
-
-    @Test
-    void anUnknownColliderLeavesBothVerticalOutcomes() {
-        // The flag-5 tick: a carried fall the unknown piston boxes clamp to the move, or a free one.
-        PredVector velocity = new PredVector(new Vec3(0.1, -0.155232, 0.2));
-        Vec3 moved = new Vec3(0.1, -0.0784, 0.2);
-        PredictionResult result = result(velocity, moved, Vec3.ZERO);
-        when(result.getCollideAxisData().getYNeg().isLikelyCollide()).thenReturn(true);
-        when(result.getCollideAxisData().getUnknown()).thenReturn(List.of(new SimpleCollisionBox(1, 63, 0, 2, 64, 1)));
-        assertEquals(Set.of(new Vec3(0.1, 0, 0.2), moved), derive(result));
     }
 
     @Test
@@ -316,7 +294,6 @@ class VelocityCandidatesTest {
         when(result.getSimulationContext().getLastStuckSpeed()).thenReturn(null);
         when(result.getSimulationContext().getVehicle()).thenReturn(null);
         when(result.getSimulationContext().getWorldData().getOnBlock()).thenReturn(BlockIds.STONE.defaultState());
-        when(result.getCollideAxisData().getUnknown()).thenReturn(List.of());
         return result;
     }
 }

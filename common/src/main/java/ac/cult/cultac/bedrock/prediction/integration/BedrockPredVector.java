@@ -84,16 +84,6 @@ final class BedrockPredVector extends PredVector {
     }
 
     @Override
-    public PredVector steppedMove() {
-        if (!movementResult.steppedUp()) {
-            return null;
-        }
-        Vec3d previous = movementResult.previousState().physicalFeetPosition();
-        Vec3 stepDelta = BedrockVectorAdapter.toJava(movementResult.predictedPosition().subtract(previous));
-        return new PredVector(stepDelta, this, "bedrock step");
-    }
-
-    @Override
     public Vec3 collisionStuckSpeedMultiplier(SimulationContext context) {
         return new Vec3(1.0D, 1.0D, 1.0D);
     }

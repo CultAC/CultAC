@@ -46,10 +46,6 @@ final class BedrockVerticalCollisionClassifier {
             return BedrockVerticalCollisionVerdict.LEGAL;
         }
 
-        if (collision.getUnknown() != null && !collision.getUnknown().isEmpty()) {
-            return BedrockVerticalCollisionVerdict.LEGAL;
-        }
-
         CollideAxisData.CollideResult up = collision.getYPos();
         CollideAxisData.CollideResult down = collision.getYNeg();
         boolean canCollideUp = likely(up);

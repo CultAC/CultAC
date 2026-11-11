@@ -67,7 +67,6 @@ class JavaForwardMoveTest {
             f.place(START, new Vec3(0, FALL, 0));
             var result = f.tick(START, true);
             assertInstanceOf(JavaMoveCollision.class, result.getCollideAxisData());
-            assertTrue(result.getCollideAxisData().getUnknown().isEmpty());
             assertTrue(JavaTickFixture.exact(result), JavaTickFixture.describe(result));
         }
     }

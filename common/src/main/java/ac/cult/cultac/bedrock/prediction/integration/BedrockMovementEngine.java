@@ -8,13 +8,11 @@ import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockMovementInputFactory.Input;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockProfileState.Entry;
-import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockImmobileTick;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockImmobileTick.Result;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation.Candidate;
-import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockActorDimensions;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
 import ac.cult.cultac.bedrock.prediction.simulation.postmove.BedrockBoatLilyPads;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
@@ -30,20 +28,13 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngine;
 import ac.cult.cultac.checks.impl.prediction.stage.MovementModifiers;
 import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CollisionModifier;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CollisionModifier.ProbeDimensions;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.StepTransform;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHandler;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldStageBuilder;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
-import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox.AxisEpsilon;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.math.Vec3;
-import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -53,8 +44,6 @@ import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 
 public final class BedrockMovementEngine implements MovementEngine {
     public static final BedrockMovementEngine INSTANCE = new BedrockMovementEngine();
-    public static final List<UncertaintyHandler> UNCERTAINTY_HANDLERS =
-            List.of(new CollisionModifier(false), new StepTransform());
     private final BedrockMovementInputFactory inputFactory = new BedrockMovementInputFactory();
 
     private BedrockMovementEngine() {}
@@ -213,42 +202,16 @@ public final class BedrockMovementEngine implements MovementEngine {
 
     public ValidMovements createValidMovements(
             PredVector initialStartingVelocity, CultPlayer player, PredictionResult result) {
-        return new ValidMovements(initialStartingVelocity, player, result, UNCERTAINTY_HANDLERS);
+        // The travel already collided and stepped: its move is the client's, with nothing left to widen.
+        return new ValidMovements(initialStartingVelocity, player, result, List.of());
     }
 
-    public CollideAxisData probeCollisions(
-            CollisionModifier modifier,
-            CultPlayer player,
-            SimulationContext context,
-            double minY,
-            Vec3 target,
-            Vec3 playerPos,
-            PredVector initialStartingVelocity,
-            SimpleCollisionBox attemptedMovementExtents) {
-        if (context.isBedrockTeleportTick()) {
-            return BedrockCollisionAxisData.neutral();
-        }
-        Input input = initialStartingVelocity instanceof BedrockPredVector candidate
-                ? candidate.input()
-                : inputFactory.create(player, context);
-        if (input == null) {
-            return BedrockCollisionAxisData.neutral();
-        }
-        PlayerDimensionsState dimensions = BedrockActorDimensions.committedMovementDimensions(
-                input.previousState(), input.movementContext(), input.inputFrame());
-        SimpleCollisionBox playerBox = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                playerPos.x, playerPos.y, playerPos.z, (float) dimensions.width(), (float) dimensions.height());
-        AxisEpsilon epsilon =
-                bedrockCollisionEpsilon(playerBox, input.previousState().coordinateFrame());
-        return modifier.probeCollisions(
-                player,
-                context,
-                minY,
-                target,
-                playerPos,
-                attemptedMovementExtents,
-                new ProbeDimensions(
-                        (float) dimensions.width(), (float) dimensions.height(), (float) dimensions.height(), epsilon));
+    /** The candidate travel's own collision: the engine's collided move and its collision flags. */
+    public CollideAxisData travelCollisions(PredictionResult result) {
+        return result.getSimulationContext().isBedrockTeleportTick()
+                        || !(result.getInitialStartingVel() instanceof BedrockPredVector candidate)
+                ? BedrockCollisionAxisData.neutral()
+                : BedrockCollisionAxisData.of(candidate.movementResult());
     }
 
     public void evaluateCandidate(CultPlayer player, PredictionResult result) {
@@ -526,8 +489,11 @@ public final class BedrockMovementEngine implements MovementEngine {
             return false;
         }
         BedrockMovementResult movementResult = candidate.movementResult();
-        BedrockMovementState nextTickBaseState = BedrockValidationSelectedState.candidateBase(
-                movementResult, BedrockValidationSelection.from(result, movementResult));
+        // The runner keeps the travel's own move; only the debug allowance moves the selection off it.
+        BedrockMovementState nextTickBaseState = selected == candidate
+                ? movementResult.predictedState()
+                : BedrockValidationSelectedState.candidateBase(
+                        movementResult, BedrockValidationSelection.from(result, movementResult));
         boolean claimedVerticalCollision =
                 result.getSimulationContext().getBedrockInput().hasRawInputFlag(PlayerAuthInputData.VERTICAL_COLLISION);
         // Auth collision bits belong to the rider. Vehicle contact is produced by its collision result.
@@ -550,20 +516,6 @@ public final class BedrockMovementEngine implements MovementEngine {
 
     private static PredVector selectedPredictionVector(PredictionResult result) {
         return result.getAcceptedClosestToTarget() instanceof PredVector vector ? vector : null;
-    }
-
-    private static AxisEpsilon bedrockCollisionEpsilon(
-            SimpleCollisionBox box, ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame frame) {
-        return new AxisEpsilon(
-                bedrockAxisEpsilon(box.minX - frame.originX(), box.maxX - frame.originX()),
-                bedrockAxisEpsilon(box.minY, box.maxY),
-                bedrockAxisEpsilon(box.minZ - frame.originZ(), box.maxZ - frame.originZ()));
-    }
-
-    private static double bedrockAxisEpsilon(double min, double max) {
-
-        double ulp = Math.max(Math.ulp((float) min), Math.ulp((float) max));
-        return Math.max(1.0E-6, Math.min(0.001, 4.0 * ulp));
     }
 
     private record SimulatedEntry(

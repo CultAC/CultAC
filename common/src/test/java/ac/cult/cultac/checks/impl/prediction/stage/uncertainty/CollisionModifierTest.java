@@ -14,7 +14,6 @@ import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
-import java.util.ArrayList;
 import org.junit.Test;
 
 public class CollisionModifierTest {
@@ -36,8 +35,7 @@ public class CollisionModifierTest {
                 new CollideAxisData.CollideResult(true, -0.2167751367791848D),
                 new CollideAxisData.CollideResult(true, probeClip),
                 null,
-                new CollideAxisData.CollideResult(false, -0.3556917605745653D),
-                new ArrayList<>());
+                new CollideAxisData.CollideResult(false, -0.3556917605745653D));
 
         PredVector clipped = CollisionModifier.transformWithCollisions(
                 context(), collide, start, new Vec3(-0.2167751367791848D, trueClip, -0.3556917605745653D), null);
@@ -54,8 +52,7 @@ public class CollisionModifierTest {
                 new CollideAxisData.CollideResult(false, 0.0D),
                 new CollideAxisData.CollideResult(true, 0.200000147683717D),
                 null,
-                new CollideAxisData.CollideResult(false, 0.0D),
-                new ArrayList<>());
+                new CollideAxisData.CollideResult(false, 0.0D));
 
         PredVector result = CollisionModifier.transformWithCollisions(
                 context(), collide, start, new Vec3(0.0D, -0.0784000015258789D, 0.0D), null);
@@ -72,8 +69,7 @@ public class CollisionModifierTest {
                 new CollideAxisData.CollideResult(false, 0.0D),
                 null,
                 new CollideAxisData.CollideResult(true, clip),
-                new CollideAxisData.CollideResult(false, 0.0D),
-                new ArrayList<>());
+                new CollideAxisData.CollideResult(false, 0.0D));
 
         PredVector result =
                 CollisionModifier.transformWithCollisions(context(), collide, start, new Vec3(0.0D, clip, 0.0D), null);
@@ -92,8 +88,7 @@ public class CollisionModifierTest {
                 new CollideAxisData.CollideResult(false, 0.0D),
                 null,
                 new CollideAxisData.CollideResult(true, clip),
-                new CollideAxisData.CollideResult(false, 0.0D),
-                new ArrayList<>());
+                new CollideAxisData.CollideResult(false, 0.0D));
 
         PredVector result =
                 CollisionModifier.transformWithCollisions(context(), collide, start, new Vec3(0.0D, clip, 0.0D), null);
@@ -112,8 +107,7 @@ public class CollisionModifierTest {
                 new CollideAxisData.CollideResult(false, 0.0D),
                 new CollideAxisData.CollideResult(true, clip),
                 null,
-                new CollideAxisData.CollideResult(false, 0.0D),
-                new ArrayList<>());
+                new CollideAxisData.CollideResult(false, 0.0D));
 
         PredVector result =
                 CollisionModifier.transformWithCollisions(context(), collide, start, new Vec3(0.0D, clip, 0.0D), null);
@@ -129,8 +123,7 @@ public class CollisionModifierTest {
                 new CollideAxisData.CollideResult(false, 0.0D),
                 null,
                 new CollideAxisData.CollideResult(true, 5.0E-8D),
-                new CollideAxisData.CollideResult(false, 0.0D),
-                new ArrayList<>());
+                new CollideAxisData.CollideResult(false, 0.0D));
 
         PredVector result = CollisionModifier.transformWithCollisions(
                 context(new PacketEntity(EntityTypeIds.HORSE, 1)), collide, start, new Vec3(0.2D, 0.0D, 0.0D), null);

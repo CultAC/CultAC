@@ -17,7 +17,7 @@ import ac.cult.cultac.checks.impl.combat.EntityReach;
 import ac.cult.cultac.checks.impl.combat.PlayerHitboxes;
 import ac.cult.cultac.checks.impl.combat.PlayerReach;
 import ac.cult.cultac.checks.impl.combat.ReachCheck;
-import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.EntityPositionWorlds;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UnknownCollisionProvider;
 import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -688,19 +688,10 @@ class UntrackedRiderTest {
             player.checkManager.getCheck(check).onPlayerTickEnd(null);
     }
 
-    // The entity part of the unknown collisions around at, outside any vehicle.
+    // The entity colliders around at, outside any vehicle.
     private static List<SimpleCollisionBox> unknownCollisions(CultPlayer player, Vec3 at) {
-        List<SimpleCollisionBox> boxes = new ArrayList<>();
         SimpleCollisionBox query = new SimpleCollisionBox(at.x - 4, at.y - 4, at.z - 4, at.x + 4, at.y + 4, at.z + 4);
-        UnknownCollisionProvider.addMovementUnknownCollisions(
-                player,
-                Mockito.mock(SimulationContext.class),
-                at,
-                query,
-                boxes,
-                new SimpleCollisionBox(),
-                new SimpleCollisionBox());
-        return boxes;
+        return EntityPositionWorlds.colliders(player, player.compensatedEntities.getSelf(), at, query);
     }
 
     private static void step(CultPlayer player, int tick, int mover) {

@@ -35,8 +35,7 @@ public final class JavaMoveCollision extends CollideAxisData {
                 new CollideResult(collidedX, unscaled.x, side(attempted.x)),
                 new CollideResult(verticalCollision && !verticalCollisionBelow, unscaled.y),
                 new CollideResult(verticalCollisionBelow, unscaled.y),
-                new CollideResult(collidedZ, unscaled.z, side(attempted.z)),
-                List.of());
+                new CollideResult(collidedZ, unscaled.z, side(attempted.z)));
         this.attempted = attempted;
         this.collided = collided;
         this.collidedX = collidedX;

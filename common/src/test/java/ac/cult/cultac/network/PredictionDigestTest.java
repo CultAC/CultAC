@@ -6,24 +6,19 @@ import ac.cult.cultac.checks.impl.prediction.BlockGrid;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionObserver;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.SuperDebug;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CollisionModifier;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
-import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.math.Vec3;
-import ac.cult.cultac.utils.nmsutil.JavaCollisionState;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.HexFormat;
-import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -33,7 +28,7 @@ import sun.misc.Unsafe;
 
 /**
  * Seeded prediction scenarios dumped tick by tick: offsets and vectors by raw bits, lineage, flags, alternatives,
- * collision probes, every probed context's world and the SuperDebug state. With {@code CULTAC_PREDICT_DIGEST} set to a
+ * collisions and the SuperDebug state. With {@code CULTAC_PREDICT_DIGEST} set to a
  * directory, each scenario's dump and a digest summary land there, to compare two source trees.
  */
 class PredictionDigestTest {
@@ -99,16 +94,11 @@ class PredictionDigestTest {
         try (var f = new JavaTickFixture()) {
             prepare.accept(f);
             SimulationProcessor processor = f.player.checkManager.getSimulationProcessor();
-            RecordingProbe probe = new RecordingProbe(sb);
-            Field field = SimulationProcessor.class.getDeclaredField("collisionProbe");
-            field.setAccessible(true);
-            field.set(processor, probe);
             Field carry = SimulationProcessor.class.getDeclaredField("profileCarry");
             carry.setAccessible(true);
             f.player.checkManager.getListener(SuperDebug.class).watch(new DumpObserver(sb));
             int[] tick = {0};
             PredictionScenarios.run(f, seed, result -> {
-                stats.merge("contexts " + probe.contexts.size(), 1, Integer::sum);
                 stats.merge(
                         result == null ? "none" : JavaTickFixture.exact(result) ? "exact" : "inexact", 1, Integer::sum);
                 try {
@@ -118,7 +108,6 @@ class PredictionDigestTest {
                 } catch (IllegalAccessException e) {
                     throw new IllegalStateException(e);
                 }
-                probe.contexts.clear();
                 sb.append("tick ").append(tick[0]++).append(' ');
                 appendResult(sb, result);
             });
@@ -197,9 +186,7 @@ class PredictionDigestTest {
                 + ' '
                 + axis(data.getYNeg())
                 + ' '
-                + axis(data.getZ())
-                + ' '
-                + data.getUnknown();
+                + axis(data.getZ());
     }
 
     private static String axis(CollideAxisData.CollideResult result) {
@@ -234,69 +221,6 @@ class PredictionDigestTest {
     /** Identity hashes and hidden-class addresses differ between JVMs; everything else is compared. */
     private static String sanitize(String dump) {
         return dump.replaceAll("@[0-9a-f]{4,}", "@").replaceAll("0x[0-9a-f]+", "0x");
-    }
-
-    /** Dumps each probe it runs with the probed context's world; counts the contexts probed in a tick. */
-    static final class RecordingProbe extends CollisionModifier {
-        private final StringBuilder sb;
-        final Map<SimulationContext, Integer> contexts = new IdentityHashMap<>();
-
-        RecordingProbe(StringBuilder sb) {
-            this.sb = sb;
-        }
-
-        @Override
-        public CollideAxisData probeCollisions(
-                CultPlayer player,
-                SimulationContext context,
-                double minY,
-                Vec3 target,
-                Vec3 playerPos,
-                SimpleCollisionBox attemptedMovementExtents,
-                ProbeDimensions dimensions,
-                JavaCollisionState actor,
-                boolean followCandidateVerticalMovement,
-                double horizontalInputReach) {
-            CollideAxisData result = super.probeCollisions(
-                    player,
-                    context,
-                    minY,
-                    target,
-                    playerPos,
-                    attemptedMovementExtents,
-                    dimensions,
-                    actor,
-                    followCandidateVerticalMovement,
-                    horizontalInputReach);
-            Integer index = contexts.get(context);
-            if (index == null) {
-                index = contexts.size();
-                contexts.put(context, index);
-                sb.append(" world ")
-                        .append(index)
-                        .append(' ')
-                        .append(context.getWorldData())
-                        .append(" boxes ")
-                        .append(context.getEntityCollisionBoxesForMovementTick())
-                        .append(" hard ")
-                        .append(context.getHardCollidingEntityCollisionsForMovementTick())
-                        .append('\n');
-            }
-            sb.append(" probe ")
-                    .append(index)
-                    .append(' ')
-                    .append(bits(minY))
-                    .append(' ')
-                    .append(vec(target))
-                    .append(' ')
-                    .append(vec(playerPos))
-                    .append(' ')
-                    .append(followCandidateVerticalMovement)
-                    .append(" -> ")
-                    .append(axes(result))
-                    .append('\n');
-            return result;
-        }
     }
 
     private static final class DumpObserver implements PredictionObserver {

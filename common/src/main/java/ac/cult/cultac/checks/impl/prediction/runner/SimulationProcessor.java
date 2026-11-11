@@ -56,7 +56,6 @@ import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
 import ac.cult.cultac.checks.impl.prediction.stage.MovementModifiers;
 import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CarriedPush;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CollisionModifier;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldStageBuilder;
@@ -183,7 +182,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     private boolean bedrockLerpStep;
     private PredictionSetbackState activeBedrockSetbackState;
     private final WorldStageBuilder worldStageBuilder = new WorldStageBuilder();
-    private final CollisionModifier collisionProbe = new CollisionModifier();
     private final NextTickVelocityDeriver.Scratch velocityScratch = new NextTickVelocityDeriver.Scratch();
     private final StepCollisionMemo stepCollisionMemo = new StepCollisionMemo();
 
@@ -2831,18 +2829,12 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             boolean previousMath = JavaMovementMath.select(player, thisResult.getInitialStartingVel());
             try {
                 player.clientFluidTagOrder = thisResult.getSimulationContext().getFluidTagOrder();
-                SimpleCollisionBox attemptedExtents = validMovements.getCollisionIgnoredMaxStartingVelExtents();
                 boolean forward = engine == JavaMovementEngine.INSTANCE;
                 if (forward) {
                     validMovements.computeCollisionIgnoredMovement(lastPrediction);
                     validMovements.applyForwardMove(lastPrediction);
                 } else {
-                    thisResult.setCollideAxisData(probeCollisions(
-                            player,
-                            engine,
-                            thisResult,
-                            attemptedExtents,
-                            thisResult.getSimulationContext().getTarget()));
+                    thisResult.setCollideAxisData(engine.travelCollisions(thisResult));
                     validMovements.computeClosest(lastPrediction);
                 }
                 if (!player.isBedrockMovement() && !JavaSpinAttack.validSprintContext(player, thisResult)) continue;
@@ -2896,25 +2888,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     private static int missing(PredVector vector, TransactionVel velocity, TransactionVel explosion) {
         return (velocity != null && !vector.hasPacketModifier(velocity) ? 1 : 0)
                 + (explosion != null && !vector.hasPacketModifier(explosion) ? 1 : 0);
-    }
-
-    /** Bedrock alone uses the shared runner collision probe. */
-    private CollideAxisData probeCollisions(
-            CultPlayer player,
-            MovementEngine engine,
-            PredictionResult result,
-            SimpleCollisionBox attemptedExtents,
-            Vec3 collisionTarget) {
-        SimulationContext context = result.getSimulationContext();
-        return engine.probeCollisions(
-                collisionProbe,
-                player,
-                context,
-                attemptedExtents.minY,
-                collisionTarget,
-                context.getStart(),
-                result.getInitialStartingVel(),
-                attemptedExtents);
     }
 
     /**

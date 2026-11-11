@@ -26,11 +26,8 @@ import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CollisionModifier;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.InsideBlock;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.StepTransform;
-import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHandler;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.player.CultPlayer;
@@ -47,17 +44,6 @@ import org.mockito.Mockito;
 
 public final class BedrockUncertaintyPipelineTest {
     private static final Vec3 UNIT_SCALE = new Vec3(1.0, 1.0, 1.0);
-
-    @Test
-    public void handlerOrderUsesOnlySharedJavaHandlers() {
-        List<Class<? extends UncertaintyHandler>> classes = BedrockMovementEngine.UNCERTAINTY_HANDLERS.stream()
-                .<Class<? extends UncertaintyHandler>>map(UncertaintyHandler::getClass)
-                .toList();
-        Assert.assertEquals(List.of(CollisionModifier.class, StepTransform.class), classes);
-        Assert.assertThrows(
-                UnsupportedOperationException.class,
-                () -> BedrockMovementEngine.UNCERTAINTY_HANDLERS.add(new InsideBlock()));
-    }
 
     @Test
     public void bedrockEngineUsesStandardRunnerAndPreservesNoOpTrace() {
@@ -127,34 +113,73 @@ public final class BedrockUncertaintyPipelineTest {
     }
 
     @Test
-    public void collisionClipsOrdinaryVerticalMovementWithoutBedrockVerticalProjection() {
-        PredVector start = new PredVector(new Vec3(0.0, -0.2, 0.0));
-        CollideAxisData collision = neutralCollisions();
-        collision.setYNeg(new CollideResult(true, -0.1));
-        BedrockUncertaintyPipelineTest.TestContext test =
-                context(new Vec3(0.0, -0.1, 0.0), false, UNIT_SCALE);
-        PredictionResult result = result(start, test.context(), test.target(), collision);
-        ValidMovements valid = new ValidMovements(start, null, result, List.of(new CollisionModifier()));
-        PredVector transformed =
-                valid.transformTraceTowards(test.target(), null).position();
-        Assert.assertEquals(-0.1, transformed.y, 0.0);
-        Assert.assertTrue(transformed.hasReason("collide -y"));
-    }
+    public void runnerTakesTheTravelsOwnCollidedMoveAndItsCollision() {
+        BedrockMovementState previous = BedrockMovementState.fromPhysicalFeet(
+                new Vec3d(0.5, 64.0, 0.5), Vec3d.ZERO, BedrockInputFrame.idle(0L), BedrockCollisionFlags.ON_GROUND);
+        // A wall stops X at 0.25 of an attempted 0.375; the floor stops the fall; Z moves freely.
+        BedrockMovementState predicted = BedrockMovementState.fromPhysicalFeet(
+                new Vec3d(0.75, 64.0, 0.375),
+                Vec3d.ZERO,
+                BedrockInputFrame.idle(1L),
+                new BedrockCollisionFlags(true, true, true, true, false, true, true, false));
+        BedrockMovementContext movementContext = airContext();
+        BedrockMovementResult movementResult = new BedrockMovementResult(
+                previous,
+                movementContext,
+                movementContext,
+                predicted,
+                new Vec3d(0.875, 63.9375, 0.375),
+                Vec3d.ZERO,
+                false,
+                false,
+                false,
+                false,
+                BlockMovementSlowdownState.NONE,
+                HoneySlideState.NONE,
+                false,
+                false,
+                0.0,
+                1.0,
+                false,
+                false,
+                false,
+                0.0,
+                true,
+                false);
+        BedrockInputFrame inputFrame = BedrockInputFrame.idle(0L);
+        Input input = new Input(
+                BedrockAuthInputFrame.builder(UUID.randomUUID()).build(),
+                previous,
+                new BedrockTickInput(inputFrame, Vec3d.ZERO, 0L),
+                inputFrame.intent(),
+                BedrockWorldSnapshot.fromContext(movementContext),
+                0.0,
+                BedrockMobJumpComponentState.DEFAULT);
+        BedrockPredVector start = new BedrockPredVector(
+                input,
+                movementResult,
+                BedrockMobJumpComponentState.DEFAULT,
+                new PredVector(Vec3.ZERO),
+                new Vec3(0.25, 0.0, -0.125));
+        // The report lies past the wall: the runner still keeps the travel's move.
+        Vec3 target = new Vec3(0.375, 0.0, -0.125);
+        PredictionResult result = result(start, context(target, false, UNIT_SCALE).context(), target, null);
 
-    @Test
-    public void stepTransformTakesTheEngineStepWhereverThePacketIs() {
-        PredVector step = new PredVector(new Vec3(0.02, 0.5, 0.01));
-        PredVector stepped = new BedrockUncertaintyPipelineTest.BedrockTestVector(Vec3.ZERO, step);
-        PredVector flat = new BedrockUncertaintyPipelineTest.BedrockTestVector(Vec3.ZERO, null);
-        for (Vec3 target : List.of(new Vec3(0.02, 0.5, 0.01), Vec3.ZERO, new Vec3(0.02, 0.4, 0.01))) {
-            BedrockUncertaintyPipelineTest.TestContext test = context(target, false, UNIT_SCALE);
-            PredictionResult result = result(stepped, test.context(), target, neutralCollisions());
-            ValidMovements valid = new ValidMovements(stepped, bedrockPlayer(), result, List.of(new StepTransform()));
-            Assert.assertSame(step, valid.transformTraceTowards(target, null).position());
-            result = result(flat, test.context(), target, neutralCollisions());
-            valid = new ValidMovements(flat, bedrockPlayer(), result, List.of(new StepTransform()));
-            Assert.assertSame(flat, valid.transformTraceTowards(target, null).position());
-        }
+        CollideAxisData collision = BedrockMovementEngine.INSTANCE.travelCollisions(result);
+        Assert.assertTrue(collision.getX().isLikelyCollide());
+        Assert.assertEquals(0.25, collision.getX().getResult(), 0.0);
+        Assert.assertEquals(1, collision.getX().getSide());
+        Assert.assertTrue(collision.getYNeg().isLikelyCollide());
+        Assert.assertFalse(collision.getYPos().isLikelyCollide());
+        Assert.assertEquals(0.0, collision.getYNeg().getResult(), 0.0);
+        Assert.assertFalse(collision.getZ().isLikelyCollide());
+        Assert.assertEquals(-0.125, collision.getZ().getResult(), 0.0);
+
+        result.setCollideAxisData(collision);
+        ValidMovements valid =
+                BedrockMovementEngine.INSTANCE.createValidMovements(start, playerWithFireworks(), result);
+        valid.computeClosest(null);
+        Assert.assertSame(start, valid.getClosestToTarget());
     }
 
     @Test
@@ -230,12 +255,6 @@ public final class BedrockUncertaintyPipelineTest {
         Assert.assertEquals(0.1, claimedOverlap.velocityOffset(), 1.0E-7);
     }
 
-    private static CultPlayer bedrockPlayer() {
-        CultPlayer player = Mockito.mock(CultPlayer.class);
-        Mockito.when(player.isBedrockMovement()).thenReturn(true);
-        return player;
-    }
-
     private static CultPlayer playerWithFireworks() {
         CultPlayer player = (CultPlayer) Mockito.mock(CultPlayer.class);
 
@@ -286,22 +305,7 @@ public final class BedrockUncertaintyPipelineTest {
                 new CollideResult(false, 0.0),
                 new CollideResult(false, 0.0),
                 new CollideResult(false, 0.0),
-                new CollideResult(false, 0.0),
-                List.of());
-    }
-
-    private static final class BedrockTestVector extends PredVector {
-        private final PredVector step;
-
-        private BedrockTestVector(Vec3 vector, PredVector step) {
-            super(vector);
-            this.step = step;
-        }
-
-        @Override
-        public PredVector steppedMove() {
-            return step;
-        }
+                new CollideResult(false, 0.0));
     }
 
     private record TestContext(SimulationContext context, Vec3 target) {}

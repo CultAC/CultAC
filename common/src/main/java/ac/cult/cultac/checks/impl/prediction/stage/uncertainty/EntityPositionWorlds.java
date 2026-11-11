@@ -1,6 +1,5 @@
 package ac.cult.cultac.checks.impl.prediction.stage.uncertainty;
 
-import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -89,22 +88,10 @@ public final class EntityPositionWorlds {
                 : null;
     }
 
-    /** Compatibility for readers of collision sets: there is exactly one compensated set. */
-    public static List<List<SimpleCollisionBox>> of(
-            CultPlayer player, SimulationContext context, Vec3 playerPos, SimpleCollisionBox region) {
-        if (player.isBedrockMovement()) return null;
-        PacketEntity actor = context.getVehicle() == null ? player.compensatedEntities.getSelf() : context.getVehicle();
-        return List.of(colliders(player, actor, playerPos, region));
-    }
-
     /** 26.3 Entity#collide gathers entities up to maxUpStep above the movement; earlier Java versions do not. */
     public static SimpleCollisionBox withStepEntities(CultPlayer player, SimpleCollisionBox region) {
-        if (player.isBedrockMovement() || player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3))
+        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3))
             region.maxY += Math.max(0.0D, player.getMaxUpStep());
         return region;
-    }
-
-    public static boolean noEntities(List<List<SimpleCollisionBox>> worlds) {
-        return worlds.size() == 1 && worlds.getFirst().isEmpty();
     }
 }

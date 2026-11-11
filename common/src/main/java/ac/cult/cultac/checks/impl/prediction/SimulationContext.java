@@ -201,7 +201,7 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
 
     /**
      * From 26.3, the Level#tickBlockEntities that runs between this travel and the report when its movers may reach
-     * the player, which CollisionModifier replays after each candidate travel; null otherwise.
+     * the player, which JavaForwardMove replays after each candidate travel; null otherwise.
      */
     @Setter
     ClientBlockEntityPass passAfterTravel;

@@ -6,9 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData.CollideResult;
-import java.util.ArrayList;
 import org.junit.jupiter.api.Test;
 
 class CollideAxisDataImmutableTest {
@@ -22,13 +20,10 @@ class CollideAxisDataImmutableTest {
         assertThrows(UnsupportedOperationException.class, () -> data.setYPos(new CollideResult(false, 1)));
         assertThrows(UnsupportedOperationException.class, () -> data.setYNeg(new CollideResult(false, 1)));
         assertThrows(UnsupportedOperationException.class, () -> data.setZ(new CollideResult(false, 1)));
-        assertThrows(UnsupportedOperationException.class, () -> data.setUnknown(new ArrayList<>()));
         assertThrows(UnsupportedOperationException.class, () -> data.combineX(true, 1, 1));
         assertThrows(UnsupportedOperationException.class, () -> data.combineYPos(true, 1));
         assertThrows(UnsupportedOperationException.class, () -> data.combineYNeg(true, 1));
         assertThrows(UnsupportedOperationException.class, () -> data.combineZ(true, 1, 1));
-        assertThrows(
-                UnsupportedOperationException.class, () -> data.getUnknown().add(new SimpleCollisionBox()));
         assertThrows(UnsupportedOperationException.class, () -> x.setResult(1));
         assertThrows(UnsupportedOperationException.class, () -> x.setLikelyCollide(false));
         assertThrows(UnsupportedOperationException.class, () -> x.setSide(1));
@@ -40,7 +35,6 @@ class CollideAxisDataImmutableTest {
         assertFalse(data.getZ().isLikelyCollide());
         assertNull(data.getYPos());
         assertNull(data.getYNeg());
-        assertTrue(data.getUnknown().isEmpty());
 
         source.setResult(5);
         assertEquals(

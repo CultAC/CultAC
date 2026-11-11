@@ -2,7 +2,6 @@ package ac.cult.cultac.checks.impl.prediction.stage.uncertainty;
 
 import static ac.cult.cultac.utils.math.VectorUtils.LARGE_MOVEMENT;
 
-import ac.cult.cultac.bedrock.prediction.integration.BedrockMovementEngine;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
@@ -147,13 +146,9 @@ public class ValidMovements {
         this.player = player;
         this.result = result;
         this.uncertaintyHandlers = uncertaintyHandlers;
-        if (uncertaintyHandlers == UncertaintyPipeline.MODIFIERS) {
-            this.handlers = MODIFIERS;
-        } else if (uncertaintyHandlers == BedrockMovementEngine.UNCERTAINTY_HANDLERS) {
-            this.handlers = BedrockHandlers.HANDLERS;
-        } else {
-            this.handlers = uncertaintyHandlers.toArray(new UncertaintyHandler[0]);
-        }
+        this.handlers = uncertaintyHandlers == UncertaintyPipeline.MODIFIERS
+                ? MODIFIERS
+                : uncertaintyHandlers.toArray(new UncertaintyHandler[0]);
         this.startTrace = MovementTrace.start(initialStartingVel);
 
         result.setValidMovements(this);
@@ -656,10 +651,4 @@ public class ValidMovements {
     }
 
     public void addTransformers(UncertaintyPipeline uncertaintyPipeline) {}
-
-    /** Initialized on the first non-pipeline handler list, so Java-only use never initializes the Bedrock engine. */
-    private static final class BedrockHandlers {
-        private static final UncertaintyHandler[] HANDLERS =
-                BedrockMovementEngine.UNCERTAINTY_HANDLERS.toArray(new UncertaintyHandler[0]);
-    }
 }

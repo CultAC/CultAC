@@ -294,11 +294,6 @@ public class PredVector extends Vec3 implements DebugText.Recordable {
         return lastVector == null ? 0.0D : lastVector.horizontalInputRadius();
     }
 
-    /** The move the engine's own travel stepped up to, or null when its travel did not step. */
-    public PredVector steppedMove() {
-        return lastVector == null ? null : lastVector.steppedMove();
-    }
-
     public double maxUpStep(CultPlayer player) {
         return lastVector == null ? player.getMaxUpStep() : lastVector.maxUpStep(player);
     }
