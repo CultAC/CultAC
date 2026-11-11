@@ -41,7 +41,6 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox.AxisEpsilon;
 import ac.cult.cultac.utils.data.CollideAxisData;
-import ac.cult.cultac.utils.data.CollideAxisData.CollideResult;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
@@ -241,7 +240,7 @@ public final class BedrockMovementEngine implements MovementEngine {
                 playerPos.x, playerPos.y, playerPos.z, (float) dimensions.width(), (float) dimensions.height());
         AxisEpsilon epsilon =
                 bedrockCollisionEpsilon(playerBox, input.previousState().coordinateFrame());
-        CollideAxisData result = modifier.probeCollisions(
+        return modifier.probeCollisions(
                 player,
                 context,
                 minY,
@@ -250,8 +249,6 @@ public final class BedrockMovementEngine implements MovementEngine {
                 attemptedMovementExtents,
                 new ProbeDimensions(
                         (float) dimensions.width(), (float) dimensions.height(), (float) dimensions.height(), epsilon));
-        canonicalizePacketEquivalentCollisionEndpoints(result, target, epsilon);
-        return result;
     }
 
     public void evaluateCandidate(CultPlayer player, PredictionResult result) {
@@ -567,20 +564,6 @@ public final class BedrockMovementEngine implements MovementEngine {
 
         double ulp = Math.max(Math.ulp((float) min), Math.ulp((float) max));
         return Math.max(1.0E-6, Math.min(0.001, 4.0 * ulp));
-    }
-
-    private static void canonicalizePacketEquivalentCollisionEndpoints(
-            CollideAxisData collision, Vec3 target, AxisEpsilon epsilon) {
-        canonicalizeCollisionEndpoint(collision.getX(), target.x, epsilon.x());
-        canonicalizeCollisionEndpoint(collision.getYPos(), target.y, epsilon.y());
-        canonicalizeCollisionEndpoint(collision.getYNeg(), target.y, epsilon.y());
-        canonicalizeCollisionEndpoint(collision.getZ(), target.z, epsilon.z());
-    }
-
-    private static void canonicalizeCollisionEndpoint(CollideResult axis, double target, double epsilon) {
-        if (axis != null && axis.isLikelyCollide() && Math.abs(axis.getResult() - target) <= epsilon) {
-            axis.setResult(target);
-        }
     }
 
     private record SimulatedEntry(
