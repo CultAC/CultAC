@@ -519,6 +519,11 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 player.compensatedEntities.vehicles.clearServerVehicle();
             }
         }
+        // Geyser spawns no Bedrock entity for a type it does not define: the client never holds it, rides it or
+        // collides with it, so it never enters a Bedrock player's world.
+        if (player.isBedrockMovement()
+                && !ac.cult.cultac.bedrock.bridge.GeyserBedrockBridgeRuntime.translatesEntity(packet.entityType()))
+            return;
         if (removedPlayerVehicleId == packet.entityId()) {
             removedPlayerVehicleId = Integer.MIN_VALUE;
         }

@@ -1388,6 +1388,11 @@ public final class GeyserBedrockBridgeRuntime {
         return (float) BedrockPositionTranslator.PLAYER_PACKET_Y_OFFSET;
     }
 
+    /** Whether the Bedrock client gets an entity for this Java type: Geyser spawns only the types it defines. */
+    public static boolean translatesEntity(String javaEntityKey) {
+        return !started || GeyserEntityTypes.translates(javaEntityKey);
+    }
+
     public static boolean sendPlayerTeleport(
             User user, Vec3 position, float yaw, float pitch, boolean onGround, int setbackTransaction) {
         PacketTapHandler tap = packetTapForUser(user);
