@@ -19,6 +19,7 @@ import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
 import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportProvenance;
+import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
@@ -547,7 +548,33 @@ public final class GeyserBedrockBridgeRuntime {
         return tap == null ? null : tap.currentPlayer();
     }
 
+    /** The Java connection behind {@code session}, with or without an attached player. */
+    static CultConnection connectionForSession(GeyserSession session) {
+        var tap = PACKET_TAPS.get(session);
+        if (tap == null) return bridgedConnection(session);
+        CultPlayer player = tap.currentPlayer();
+        if (player != null) return tap.javaConnection = player.user.getCultConnection();
+        CultConnection known = tap.javaConnection;
+        if (known != null && known.bedrockBridge() == session && !known.disconnected()) return known;
+        known = bridgedConnection(session);
+        if (known != null) tap.javaConnection = known;
+        return known;
+    }
+
+    private static CultConnection bridgedConnection(GeyserSession session) {
+        for (CultConnection connection : CultAPI.INSTANCE.getNetworkManager().connections())
+            if (connection.bedrockBridge() == session) return connection;
+        return null;
+    }
+
+    /** Whether {@code id} answers a ping of the attached player or a retired ping of its connection. */
     static boolean acceptTransaction(GeyserSession session, int id) {
+        if (acceptPlayerTransaction(session, id)) return true;
+        CultConnection connection = connectionForSession(session);
+        return connection != null && connection.takeRetiredPing(id);
+    }
+
+    static boolean acceptPlayerTransaction(GeyserSession session, int id) {
         CultPlayer player = playerForSession(session);
         if (player == null) return false;
         boolean[] accepted = new boolean[1];
@@ -608,6 +635,8 @@ public final class GeyserBedrockBridgeRuntime {
         private final GeyserQueue.Scope latencyScope;
         private final AtomicBoolean detached = new AtomicBoolean();
         private volatile boolean handedOff;
+        // The Java connection last seen behind this session; it is used only while it still names this session.
+        private volatile CultConnection javaConnection;
         private final String outboundHandlerName;
         private final String packetLogHandlerName;
         private final Map<BedrockPacket, BedrockTeleportOperation> playerSetbackSources = new IdentityHashMap<>();

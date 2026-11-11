@@ -97,6 +97,7 @@ public final class CultConnection implements CodecState, FrameLease.Source {
         }
     }
 
+    /** Takes over the id of a CultAC ping its removed player writes after the removal. */
     public void retirePing(int id) {
         synchronized (retiredPings) {
             retiredPings.add(id);
@@ -110,6 +111,7 @@ public final class CultConnection implements CodecState, FrameLease.Source {
         }
     }
 
+    /** Whether {@code id} answers a retired CultAC ping not yet taken; it takes nothing. */
     public boolean holdsRetiredPing(int id) {
         synchronized (retiredPings) {
             return retiredPings.contains(id);
