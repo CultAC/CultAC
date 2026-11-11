@@ -2370,7 +2370,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             List<SimulationContext> contexts = new ArrayList<>();
             // Every state's context is built from the same inputs before the state is applied to it.
             CarryWorld world = null;
-            for (var state : carried.states()) {
+            List<JavaPredictionCarry.State> states = carried.states();
+            for (int stateIndex = 0, stateCount = states.size(); stateIndex < stateCount; stateIndex++) {
+                var state = states.get(stateIndex);
+                if (world != null && stateIndex == stateCount - 1) world.handOff = true;
                 SimulationContext context = this.createSimulationContext(
                         player,
                         lastPrediction,
@@ -2798,11 +2801,25 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         this.lastOnGround = lastOnGround;
     }
 
-    /** The world one carry state's context built, as it stood before that state was applied. */
-    private record CarryWorld(
-            WorldData world,
-            List<SimpleCollisionBox> entityCollisionBoxes,
-            List<HardCollidingEntityCollision> hardCollidingEntityCollisions) {
+    /**
+     * The world one carry state's context built, as it stood before that state was applied. Only this holds that
+     * world, so once {@link #handOff} is set the next context takes it in place of a copy and none follows.
+     */
+    private static final class CarryWorld {
+        private final WorldData world;
+        private final List<SimpleCollisionBox> entityCollisionBoxes;
+        private final List<HardCollidingEntityCollision> hardCollidingEntityCollisions;
+        private boolean handOff;
+
+        private CarryWorld(
+                WorldData world,
+                List<SimpleCollisionBox> entityCollisionBoxes,
+                List<HardCollidingEntityCollision> hardCollidingEntityCollisions) {
+            this.world = world;
+            this.entityCollisionBoxes = entityCollisionBoxes;
+            this.hardCollidingEntityCollisions = hardCollidingEntityCollisions;
+        }
+
         private static CarryWorld of(SimulationContext built) {
             return new CarryWorld(
                     built.getWorldData().copy(),
@@ -2811,7 +2828,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
 
         private void attachTo(SimulationContext context) {
-            context.setWorldData(world.copy());
+            context.setWorldData(handOff ? world : world.copy());
             context.cacheEntityCollisionBoxesForMovementTick(entityCollisionBoxes);
             context.cacheHardCollidingEntityCollisionsForMovementTick(hardCollidingEntityCollisions);
         }
