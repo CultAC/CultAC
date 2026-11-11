@@ -114,10 +114,20 @@ public final class BedrockBoatMovement {
                 float fraction = (float) origin.y() - (float) Math.floor((float) origin.y());
                 float depth =
                         submerged ? 1.0F : Math.clamp((properties.baseBuoyancy() - fraction) * 0.9F + 0.1F, 0.0F, 1.0F);
-                if (depth != 0) y = Math.min((depth - 0.1F) * 0.15F, y * 0.7F + 0.05F);
+                if (depth != 0) y = buoyancy(properties.leashed(), (depth - 0.1F) * 0.15F, y);
             }
         }
         return new Vec3d(velocity.x(), y, velocity.z());
+    }
+
+    /**
+     * The lift for the boat's depth, damped from its velocity after gravity. A leashed boat that gravity leaves rising
+     * takes the whole lift instead, unless a twentieth of its damped velocity is more.
+     */
+    private static float buoyancy(boolean leashed, float lift, float y) {
+        float damped = y * 0.7F;
+        if (leashed && damped > 0) return Math.max(lift, damped * 0.05F);
+        return Math.min(lift, damped + 0.05F);
     }
 
     private static boolean canFloat(BedrockMovementState state, BlockCollisionWorld world, Vec3d origin) {
