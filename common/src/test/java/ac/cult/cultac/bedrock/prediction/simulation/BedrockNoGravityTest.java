@@ -83,7 +83,7 @@ public final class BedrockNoGravityTest {
                 new EquipmentState(0, 0, 0, false, false),
                 EntityContactState.NONE,
                 new MovementModifierState(
-                        false, false, false, false, 0.05D, false, false, false, false, 0.35D, 0L, hasGravity),
+                        false, false, false, false, 0.05D, false, false, false, false, 0.35D, 0L, hasGravity, false),
                 PlayerDimensionsState.DEFAULT);
         return BedrockSimulation.move(
                 state,

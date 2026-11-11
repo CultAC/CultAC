@@ -23,7 +23,9 @@ final class BedrockMovementModifierFactory {
                 false,
                 0.35D,
                 0L,
-                hasGravity(player));
+                hasGravity(player),
+                // A spectator reaches the client without collision.
+                player != null && player.gamemode == GameMode.SPECTATOR);
     }
 
     // The player's no-gravity entity data reaches the client as its gravity actor flag.

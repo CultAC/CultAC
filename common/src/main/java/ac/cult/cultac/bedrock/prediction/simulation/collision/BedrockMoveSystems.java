@@ -9,6 +9,7 @@ import ac.cult.cultac.bedrock.prediction.simulation.travel.BedrockResolvedMove;
 import ac.cult.cultac.bedrock.prediction.simulation.travel.BedrockTravelMoveRequest;
 import ac.cult.cultac.bedrock.prediction.simulation.travel.BedrockTravelPlan;
 import ac.cult.cultac.bedrock.prediction.world.BedrockClimbableContact;
+import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
 
 public final class BedrockMoveSystems {
     private BedrockMoveSystems() {}
@@ -46,10 +47,13 @@ public final class BedrockMoveSystems {
         }
 
         BedrockFrameFacts facts = frame.frameFacts();
+        // A player without collision moves its box by the whole request: nothing stops it, steps it or grounds it.
+        BlockCollisionWorld collisionWorld =
+                facts.context().movementNoClip() ? BlockCollisionWorld.EMPTY : facts.blockCollisionWorld();
         BedrockEntityMove.Result blockMove = BedrockEntityMove.move(
                 frame.input().previousState(),
                 frame.input().inputFrame(),
-                facts.blockCollisionWorld(),
+                collisionWorld,
                 facts.movementDimensions(),
                 request.requestedPosition(),
                 request.collisionInputVelocity(),
