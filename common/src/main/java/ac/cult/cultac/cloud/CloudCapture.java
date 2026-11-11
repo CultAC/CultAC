@@ -273,6 +273,11 @@ public final class CloudCapture implements PlayerObserver {
         return uncaptured;
     }
 
+    /** Whether {@code cloud.uncaptured-servers} names any backend. Any thread. */
+    public static boolean uncapturesAny() {
+        return !uncaptured.isEmpty();
+    }
+
     /** Loads every streamed protocol's packet ids and player text codecs ahead of the first capture. */
     static void warm() {
         for (int protocol = FIRST_PROTOCOL; protocol <= LAST_PROTOCOL; protocol++) {
