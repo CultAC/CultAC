@@ -10,6 +10,7 @@ import ac.cult.cultac.bedrock.prediction.integration.BedrockSetbackJumpGuard;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVectorAdapter;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehiclePredictionState;
+import ac.cult.cultac.bedrock.prediction.world.BedrockClimberFlags;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.checks.Check;
@@ -704,6 +705,13 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         if (sleeping != null) {
             this.handleBedrockSleepingStateChange(sleeping);
         }
+    }
+
+    /** Apply on the player's packet thread at the acknowledged clientbound boundary. */
+    public void applyAcknowledgedBedrockClimberFlags(BedrockClimberFlags flags) {
+        if (!this.player.isBedrockMovement() || this.player.bedrockState == null) return;
+        this.profileCarry =
+                BedrockMovementEngine.INSTANCE.applyAcknowledgedClimberFlagsToCarry(this.profileCarry, flags);
     }
 
     public Set<Vec3> getLastStartingVelocitiesUsed() {

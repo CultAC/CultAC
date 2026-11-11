@@ -13,6 +13,7 @@ import ac.cult.cultac.bedrock.prediction.model.BlockMovementSlowdownState;
 import ac.cult.cultac.bedrock.prediction.model.Medium;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockClimbableContact;
+import ac.cult.cultac.bedrock.prediction.world.BedrockClimberFlags;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import java.util.Objects;
 
@@ -677,6 +678,10 @@ public record BedrockMovementState(
         return withActor(actor.withClimbableContact(contact));
     }
 
+    public BedrockMovementState withClimberFlags(BedrockClimberFlags flags) {
+        return withClimbableContact(climbableContact().withActorFlags(flags));
+    }
+
     public BedrockMovementState advance(BedrockMovementUpdate update) {
         Vec3d position = BedrockPositionTranslator.normalizePhysicalFeetPosition(
                 update.physicalFeetPosition(), coordinateFrame(), packetYOffset());
@@ -1026,7 +1031,7 @@ public record BedrockMovementState(
 
         ContactState withDescendAllowed(boolean value) {
             return withClimbableContact(new BedrockClimbableContact(
-                    climbableContact.climbing(),
+                    climbableContact.ladder(),
                     climbableContact.scaffolding(),
                     value,
                     climbableContact.ascendableBlock()));

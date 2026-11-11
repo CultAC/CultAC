@@ -5,6 +5,7 @@ import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockActorDimensions;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
+import ac.cult.cultac.bedrock.prediction.world.BedrockClimberFlags;
 import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
 
 /** Value-only, ordered changes to a historical movement frame. */
@@ -89,7 +90,9 @@ public sealed interface BedrockReplayEvent
             Boolean swimming,
             Boolean spinning,
             Boolean sprinting,
-            PlayerDimensionsState scaledDefinition)
+            PlayerDimensionsState scaledDefinition,
+            // The client recomputes these after its next move, so they are neither tracked nor replayed.
+            BedrockClimberFlags climberFlags)
             implements BedrockReplayEvent {
         public Metadata(
                 Float width,
@@ -100,6 +103,18 @@ public sealed interface BedrockReplayEvent
                 Boolean spinning,
                 Boolean sprinting) {
             this(width, height, gliding, crawling, swimming, spinning, sprinting, null);
+        }
+
+        public Metadata(
+                Float width,
+                Float height,
+                Boolean gliding,
+                Boolean crawling,
+                Boolean swimming,
+                Boolean spinning,
+                Boolean sprinting,
+                PlayerDimensionsState scaledDefinition) {
+            this(width, height, gliding, crawling, swimming, spinning, sprinting, scaledDefinition, null);
         }
 
         static Metadata trackedValuesOf(BedrockMovementState state) {
@@ -158,6 +173,7 @@ public sealed interface BedrockReplayEvent
         @Override
         public BedrockMovementState state(BedrockMovementState state) {
             state = replayState(state);
+            if (climberFlags != null && !state.isVehicle()) state = state.withClimberFlags(climberFlags);
             return width == null && height == null
                     ? state
                     : state.withPlayerDimensions(metadataDimensions(state), true);

@@ -7,8 +7,12 @@ import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision.BlockContactBehavior;
 
+/**
+ * The climb contact a tick starts from. The client keeps the scaffolding, descendable and ascendable contacts as actor
+ * flags, which it recomputes after each move and which a flags update for the player overwrites until then.
+ */
 public record BedrockClimbableContact(
-        boolean climbing, boolean scaffolding, boolean descendAllowed, boolean ascendableBlock) {
+        boolean ladder, boolean scaffolding, boolean descendAllowed, boolean ascendableBlock) {
     public static final BedrockClimbableContact NONE = new BedrockClimbableContact(false, false, false, false);
 
     public static BedrockClimbableContact fromBlockWorld(
@@ -61,10 +65,18 @@ public record BedrockClimbableContact(
             }
         }
         if (scaffoldingContact || descendAllowed || climbableContact || ascendableBlock) {
-            return new BedrockClimbableContact(
-                    scaffoldingContact || climbableContact, scaffoldingContact, descendAllowed, ascendableBlock);
+            return new BedrockClimbableContact(climbableContact, scaffoldingContact, descendAllowed, ascendableBlock);
         }
         return NONE;
+    }
+
+    public boolean climbing() {
+        return ladder || scaffolding;
+    }
+
+    public BedrockClimbableContact withActorFlags(BedrockClimberFlags flags) {
+        return new BedrockClimbableContact(
+                ladder, flags.inScaffolding(), flags.overDescendableBlock(), flags.inAscendableBlock());
     }
 
     public boolean scaffoldingDescendAllowed() {

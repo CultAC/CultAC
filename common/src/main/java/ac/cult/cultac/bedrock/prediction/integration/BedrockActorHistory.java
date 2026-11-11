@@ -84,7 +84,8 @@ public final class BedrockActorHistory {
                         changed(incoming.swimming(), historical, BedrockMovementState::swimming),
                         changed(incoming.spinning(), historical, BedrockMovementState::riptideSpinActive),
                         changed(incoming.sprinting(), historical, BedrockMovementState::sprinting),
-                        incoming.scaledDefinition());
+                        incoming.scaledDefinition(),
+                        incoming.climberFlags());
         if (!frames.isEmpty()) {
             // An untimed size takes effect at its receipt, which the next frame records.
             var retained = new BedrockReplayEvent.Metadata(

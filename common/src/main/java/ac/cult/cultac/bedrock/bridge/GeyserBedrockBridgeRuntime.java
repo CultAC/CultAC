@@ -10,6 +10,7 @@ import ac.cult.cultac.bedrock.prediction.integration.BedrockMovementCorrections;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockReplayContextEvent;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockReplayEvent;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
+import ac.cult.cultac.bedrock.prediction.world.BedrockClimberFlags;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockClientAction;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
@@ -915,6 +916,7 @@ public final class GeyserBedrockBridgeRuntime {
                 Boolean sleeping,
                 Boolean usingItem,
                 Boolean sprinting,
+                BedrockClimberFlags climberFlags,
                 long tick,
                 long generation,
                 int flagWords) {
@@ -931,7 +933,8 @@ public final class GeyserBedrockBridgeRuntime {
                             && spinning == null
                             && sleeping == null
                             && usingItem == null
-                            && sprinting == null)
+                            && sprinting == null
+                            && climberFlags == null)
                     || (width != null && (!Float.isFinite(width) || width <= 0.0F))
                     || (height != null && (!Float.isFinite(height) || height <= 0.0F))
                     || (scale != null && (!Float.isFinite(scale) || scale <= 0.0F))) {
@@ -955,7 +958,8 @@ public final class GeyserBedrockBridgeRuntime {
                                     swimming,
                                     spinning,
                                     sprinting,
-                                    scaledDefinition),
+                                    scaledDefinition,
+                                    climberFlags),
                             flagWords);
                     if (metadata == null) {
                         if (sleeping != null)
@@ -984,6 +988,10 @@ public final class GeyserBedrockBridgeRuntime {
                                     sleeping,
                                     usingItem,
                                     metadata.sprinting());
+                    if (metadata.climberFlags() != null)
+                        player.checkManager
+                                .getSimulationProcessor()
+                                .applyAcknowledgedBedrockClimberFlags(metadata.climberFlags());
                 }
             });
         }
@@ -2216,6 +2224,13 @@ public final class GeyserBedrockBridgeRuntime {
             Boolean usingItem = metadata.getMetadata().get(EntityDataTypes.FLAGS) == null
                     ? null
                     : metadata.getMetadata().getFlag(EntityFlag.USING_ITEM);
+            // The second flag word overwrites the climb contact flags the client computed after its last move.
+            BedrockClimberFlags climberFlags = metadata.getMetadata().containsKey(EntityDataTypes.FLAGS_2)
+                    ? new BedrockClimberFlags(
+                            metadata.getMetadata().getFlag(EntityFlag.IN_SCAFFOLDING),
+                            metadata.getMetadata().getFlag(EntityFlag.OVER_DESCENDABLE_BLOCK),
+                            metadata.getMetadata().getFlag(EntityFlag.IN_ASCENDABLE_BLOCK))
+                    : null;
 
             long metadataTick = metadata.getTick();
             int flagWords = (metadata.getMetadata().containsKey(EntityDataTypes.FLAGS) ? 1 : 0)
@@ -2260,7 +2275,8 @@ public final class GeyserBedrockBridgeRuntime {
                     || spinning != null
                     || sleeping != null
                     || usingItem != null
-                    || sprinting != null) {
+                    || sprinting != null
+                    || climberFlags != null) {
                 owner.recordOutboundMetadata(
                         context,
                         (BedrockPacketWrapper) message,
@@ -2275,6 +2291,7 @@ public final class GeyserBedrockBridgeRuntime {
                         sleeping,
                         usingItem,
                         sprinting,
+                        climberFlags,
                         metadataTick,
                         generation,
                         flagWords);

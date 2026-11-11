@@ -16,6 +16,7 @@ import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation.Candidate;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
 import ac.cult.cultac.bedrock.prediction.simulation.postmove.BedrockBoatLilyPads;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
+import ac.cult.cultac.bedrock.prediction.world.BedrockClimberFlags;
 import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
 import ac.cult.cultac.checks.impl.prediction.AuthoredMovementFrame;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
@@ -431,6 +432,16 @@ public final class BedrockMovementEngine implements MovementEngine {
                         .map(entry -> entry.state().isVehicle()
                                 ? entry
                                 : entry.withState(entry.state().withSprinting(sprinting)))
+                        .toList())
+                : carry;
+    }
+
+    public PredictionCarry applyAcknowledgedClimberFlagsToCarry(PredictionCarry carry, BedrockClimberFlags flags) {
+        return carry instanceof BedrockNextTickStates states
+                ? new BedrockNextTickStates(states.profileEntries().stream()
+                        .map(entry -> entry.state().isVehicle()
+                                ? entry
+                                : entry.withState(entry.state().withClimberFlags(flags)))
                         .toList())
                 : carry;
     }
