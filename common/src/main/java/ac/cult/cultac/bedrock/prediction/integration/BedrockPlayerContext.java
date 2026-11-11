@@ -56,7 +56,7 @@ record BedrockPlayerContext(
         BedrockClientPoseState pose = player.bedrockState == null
                 ? BedrockClientPoseState.STANDING
                 : player.bedrockState.getClientPoseState(frame);
-        EquipmentState equipment = equipment(player, context);
+        EquipmentState equipment = equipment(player);
         return new BedrockPlayerContext(
                 pose,
                 actorGliding,
@@ -129,11 +129,15 @@ record BedrockPlayerContext(
         return attributes.apply(AttributeState.DEFAULT);
     }
 
-    private static EquipmentState equipment(CultPlayer player, SimulationContext context) {
+    private static EquipmentState equipment(CultPlayer player) {
+        // The client reads these enchantment levels from the items it wears.
+        SimItemStack boots = player == null || player.getInventory() == null ? null : player.getInventory().getBoots();
+        SimItemStack leggings =
+                player == null || player.getInventory() == null ? null : player.getInventory().getLeggings();
         return new EquipmentState(
-                Math.max(0, Math.round(context.getDepthStriderLevel())),
+                ItemUtil.enchantmentLevel(boots, "minecraft:depth_strider"),
                 0,
-                Math.max(0, context.getSwiftSneakLevel()),
+                ItemUtil.enchantmentLevel(leggings, "minecraft:swift_sneak"),
                 riptideLevel(player),
                 wearingLeatherBoots(player),
                 wearingElytra(player));

@@ -654,8 +654,6 @@ class JavaTravelAttributeTest {
                 false,
                 false,
                 null,
-                0.0F,
-                0,
                 DesyncStatus.FALSE,
                 0,
                 0,

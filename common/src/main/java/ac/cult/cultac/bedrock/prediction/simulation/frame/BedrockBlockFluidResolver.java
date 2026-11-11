@@ -146,7 +146,6 @@ final class BedrockBlockFluidResolver {
                 downwardBubbleContact,
                 currentState,
                 bubbleLayers.isEmpty() ? BubbleColumnState.NONE : new BubbleColumnState(bubbleLayers),
-                false,
                 1.0D);
         return new BedrockFluidResolution(
                 waterContact ? Medium.WATER : Medium.LAVA, fluidState, waterContact, lavaContact, liquidMovementMedium);

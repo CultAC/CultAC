@@ -194,8 +194,6 @@ public final class JavaRiddenBoatTick {
                 false,
                 false,
                 null,
-                0,
-                0,
                 DesyncStatus.FALSE,
                 0,
                 0,

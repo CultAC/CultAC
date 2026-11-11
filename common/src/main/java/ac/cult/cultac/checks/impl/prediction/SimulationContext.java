@@ -89,8 +89,6 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
     boolean gliding;
     // Index at 0, null = none
     Integer jumpAmplifier;
-    float depthStriderLevel;
-    int swiftSneakLevel;
     // Camel#tickRidden stands the fully seated vehicle up inside LivingEntity#travelRidden: after Entity#baseTick and
     // getRiddenInput read it seated, and before travel moves its standing box.
     @Setter
@@ -243,8 +241,6 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
             boolean lastSneaking,
             boolean gliding,
             Integer jumpAmplifier,
-            float depthStriderLevel,
-            int swiftSneakLevel,
             DesyncStatus isSprinting,
             int minAttackSlow,
             int maxAttackSlow,
@@ -272,8 +268,6 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
         this.lastSneaking = lastSneaking;
         this.gliding = gliding;
         this.jumpAmplifier = jumpAmplifier;
-        this.depthStriderLevel = depthStriderLevel;
-        this.swiftSneakLevel = swiftSneakLevel;
         this.isSprinting = isSprinting;
         this.minAttackSlow = minAttackSlow;
         this.maxAttackSlow = maxAttackSlow;
@@ -964,8 +958,6 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
         sb.append(", lastSneaking=").append(lastSneaking);
         sb.append(", gliding=").append(gliding);
         sb.append(", jumpAmplifier=").append(jumpAmplifier);
-        sb.append(", depthStriderLevel=").append(depthStriderLevel);
-        sb.append(", swiftSneakLevel=").append(swiftSneakLevel);
         sb.append(", riddenStandUp=").append(riddenStandUp);
         sb.append(", isSprinting=").append(isSprinting);
         sb.append(", sprintModifier=").append(sprintModifier);

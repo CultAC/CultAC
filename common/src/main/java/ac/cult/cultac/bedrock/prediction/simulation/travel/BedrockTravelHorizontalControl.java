@@ -50,14 +50,14 @@ public final class BedrockTravelHorizontalControl {
                         preparedSpeed.speed(),
                         context.attributeState().underwaterMovementSpeed(),
                         context.equipmentState().depthStriderLevel(),
-                        context.worldState().fluidState().waterWalkOnGroundComponentPresent(),
+                        current.collisionFlags().onGround(),
                         swimSpeedMultiplier),
                 moveInputScale,
                 false);
         double horizontalFriction = BedrockWaterTravelMovement.horizontalDrag(
                 sprintSpeedInput,
                 context.equipmentState().depthStriderLevel(),
-                context.worldState().fluidState().waterWalkOnGroundComponentPresent(),
+                current.collisionFlags().onGround(),
                 swimSpeedMultiplier,
                 GROUND_FRICTION);
         return new Step(horizontalInputLimit, horizontalFriction);
@@ -138,11 +138,12 @@ public final class BedrockTravelHorizontalControl {
         return onGroundTravel ? standingSurfaceState.blockFriction() * AIR_FRICTION : AIR_FRICTION;
     }
 
-    public static double waterHorizontalDrag(BedrockMovementContext context, boolean sprintingWaterDrag) {
+    public static double waterHorizontalDrag(
+            BedrockMovementContext context, boolean sprintingWaterDrag, boolean onGround) {
         return BedrockWaterTravelMovement.horizontalDrag(
                 sprintingWaterDrag,
                 context.equipmentState().depthStriderLevel(),
-                context.worldState().fluidState().waterWalkOnGroundComponentPresent(),
+                onGround,
                 context.worldState().fluidState().swimSpeedMultiplier(),
                 GROUND_FRICTION);
     }

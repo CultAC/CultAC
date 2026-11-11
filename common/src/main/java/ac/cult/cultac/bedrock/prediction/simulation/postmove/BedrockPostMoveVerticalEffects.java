@@ -15,9 +15,10 @@ final class BedrockPostMoveVerticalEffects {
             BedrockPostMoveContext input,
             BedrockMovementContext effectContext,
             Vec3d velocity,
-            boolean includeVerticalDrag) {
+            boolean includeVerticalDrag,
+            boolean onGround) {
         return switch (medium(input)) {
-            case WATER -> waterDrag(input, effectContext, velocity, includeVerticalDrag);
+            case WATER -> waterDrag(input, effectContext, velocity, includeVerticalDrag, onGround);
             case LAVA -> lavaDrag(input, velocity, includeVerticalDrag);
             case AIR, NONE -> new DragResult(velocity, input.horizontalFriction());
         };
@@ -93,8 +94,10 @@ final class BedrockPostMoveVerticalEffects {
             BedrockPostMoveContext input,
             BedrockMovementContext effectContext,
             Vec3d velocity,
-            boolean includeVerticalDrag) {
-        double horizontalFriction = input.waterDragHorizontalFriction(effectContext);
+            boolean includeVerticalDrag,
+            boolean onGround) {
+        // The water drag reads the ground flag the move just left.
+        double horizontalFriction = input.waterDragHorizontalFriction(effectContext, onGround);
         return new DragResult(
                 new Vec3d(
                         BedrockMath.f(velocity.x() * horizontalFriction),

@@ -1,6 +1,5 @@
 package ac.cult.cultac.checks.impl.prediction.runner;
 
-import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionDebug;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
@@ -3397,8 +3396,6 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 this.lastSneaking,
                 riding == null && player.isGliding,
                 player.compensatedEntities.getPotionLevelForPlayer(MovementEffect.JUMP_BOOST),
-                this.getDepthStriderLevel(),
-                this.getSwiftSneakLevel(),
                 this.sprintingAtTravel(player, riding),
                 player.minPlayerAttackSlow,
                 player.maxPlayerAttackSlow,
@@ -3534,36 +3531,11 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
     }
 
-    private int getSwiftSneakLevel() {
-        SimItemStack leggings = this.player.getInventory().getLeggings();
-        return !leggings.isEmpty() && !leggings.getEnchantments().isEmpty()
-                ? ac.cult.cultac.utils.inventory.ItemUtil.enchantmentLevel(leggings, "minecraft:swift_sneak")
-                : 0;
-    }
-
     private static float getWaterMovementEfficiency(PacketEntity traveller, DesyncStatus onGround) {
         // The nautilus and happy ghast override travel and never reach LivingEntity#travelInWater
         if (traveller instanceof PacketEntityNautilus || traveller instanceof PacketEntityHappyGhast) return 0.0F;
         float efficiency = (float) traveller.waterMovementEfficiency;
         return onGround == DesyncStatus.FALSE ? efficiency * 0.5F : efficiency;
-    }
-
-    private float getDepthStriderLevel() {
-        SimItemStack boots = this.player.getInventory().getBoots();
-        if (!boots.isEmpty() && !boots.getEnchantments().isEmpty()) {
-            float level = ac.cult.cultac.utils.inventory.ItemUtil.enchantmentLevel(boots, "minecraft:depth_strider");
-            if (level > 3.0F) {
-                level = 3.0F;
-            }
-
-            if (this.lastOnGround == DesyncStatus.FALSE) {
-                level *= 0.5F;
-            }
-
-            return level;
-        } else {
-            return 0.0F;
-        }
     }
 
     @Generated

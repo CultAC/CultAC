@@ -196,7 +196,11 @@ record BedrockPostMoveContext(BedrockTravelPlan plan, BedrockMoveRequest moveReq
         }
         boolean gravityAndVerticalDragApplies = gravityAndVerticalDragApplies(frame);
         BedrockPostMoveVerticalEffects.DragResult drag = BedrockPostMoveVerticalEffects.applyLiquidDrag(
-                this, frame.postMoveContext(), frame.velocity(), gravityAndVerticalDragApplies);
+                this,
+                frame.postMoveContext(),
+                frame.velocity(),
+                gravityAndVerticalDragApplies,
+                frame.flags().onGround());
         return frame.withVelocityAndHorizontalFriction(drag.velocity(), drag.horizontalFriction());
     }
 
@@ -209,10 +213,10 @@ record BedrockPostMoveContext(BedrockTravelPlan plan, BedrockMoveRequest moveReq
                 BedrockPostMoveVerticalEffects.applyLevitation(this, frame.postMoveContext(), frame.velocity()));
     }
 
-    double waterDragHorizontalFriction(BedrockMovementContext effectContext) {
+    double waterDragHorizontalFriction(BedrockMovementContext effectContext, boolean onGround) {
         // The vanilla water-drag system reads the ordered sprinting actor
         // flag state.
-        return BedrockTravelHorizontalControl.waterHorizontalDrag(effectContext, actorSprinting());
+        return BedrockTravelHorizontalControl.waterHorizontalDrag(effectContext, actorSprinting(), onGround);
     }
 
     BedrockPostMoveFrame applyGravity(BedrockPostMoveFrame frame) {

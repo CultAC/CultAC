@@ -214,7 +214,7 @@ public final class PassengerRideTick {
             travelYaw -= player.boatData.deltaRotationOf(vehicle);
         var context = new SimulationContext(start, start, Vec3.ZERO, player.getClientVersion(), player.trigHandler,
                 player.compensatedEntities, null, travelYaw, travelYaw, player.yRot, player.yRot,
-                move.onGround(), false, false, false, null, 0, 0, DesyncStatus.fromBoolean(player.sprintState.flag()),
+                move.onGround(), false, false, false, null, DesyncStatus.fromBoolean(player.sprintState.flag()),
                 0, 0, 0, false, Vec3.ZERO, false, Vec3.ZERO, move.support(), state.pose(), player.dimensionScale);
         context.setMovementEfficiency((float) player.compensatedEntities.getSelf().movementEfficiency);
         context.setMovementPatch(state.patch());
