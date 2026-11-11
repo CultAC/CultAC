@@ -4,13 +4,8 @@ import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.model.AttributeState;
 import ac.cult.cultac.bedrock.prediction.model.EquipmentState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
-import ac.cult.cultac.bedrock.prediction.world.StandingSurfaceState;
-import ac.cult.cultac.bedrock.prediction.world.Surface;
 
 final class BedrockHorizontalSpeedControl {
-    private static final double SOUL_SPEED_BASE_BOOST = 0.03D;
-    private static final double SOUL_SPEED_BOOST_PER_LEVEL_SCALE = 0.35D;
-    private static final double SOUL_SPEED_MOVING_GATE_THRESHOLD = 0.001D;
     private static final float PLAYER_AIR_TRAVEL_SPEED = 0.02F;
     private static final float SOUL_SAND_NO_SOUL_SPEED_FRICTION_MULTIPLIER = 1.225F;
 
@@ -32,11 +27,9 @@ final class BedrockHorizontalSpeedControl {
             BedrockInputFrame frame,
             AttributeState attributeState,
             EquipmentState equipmentState,
-            StandingSurfaceState standingSurfaceState,
             boolean ordinaryAirborne,
             boolean inWater,
             boolean inLava) {
-        int soulSpeedLevel = equipmentState.soulSpeedLevel();
         boolean horizontalAttributeSpeed = !ordinaryAirborne && !inLava;
         boolean dryAirTravelSpeed = !horizontalAttributeSpeed && !inWater && !inLava;
         float airMovementSpeed =
@@ -48,48 +41,18 @@ final class BedrockHorizontalSpeedControl {
                 dryAirTravelSpeed,
                 attributeState.horizontalInputBaseMovementSpeed(),
                 airMovementSpeed);
-        movementSpeed = speedWithSoulSpeedBoost(
-                movementSpeed,
-                ordinaryAirborne,
-                inWater,
-                inLava,
-                soulSpeedLevel,
-                standingSurfaceState,
-                current.lastPhysicalDisplacementSquared());
-        inputRadiusMovementSpeed = speedWithSoulSpeedBoost(
-                inputRadiusMovementSpeed,
-                ordinaryAirborne,
-                inWater,
-                inLava,
-                soulSpeedLevel,
-                standingSurfaceState,
-                current.lastPhysicalDisplacementSquared());
-        // These are compensated attribute current values, including Speed/Slowness.
-        // Geyser LivingEntity#calculateAttribute applies the Java modifiers before
+        // These are compensated attribute current values, including Speed/Slowness and the soul
+        // speed boost. Geyser LivingEntity#calculateAttribute applies the Java modifiers before
         // sending minecraft:movement. Travel consumes that current value directly
-        // and must not multiply the effect levels a second time.
+        // and must not apply the effect levels or the enchantment a second time.
         float speed = (float) movementSpeed;
         float inputRadiusSpeed = (float) inputRadiusMovementSpeed;
         return new PreparedSpeed(
-                speed, inputRadiusSpeed, horizontalAttributeSpeed, dryAirTravelSpeed, soulSpeedLevel > 0);
-    }
-
-    static double speedWithSoulSpeedBoost(
-            double movementSpeed,
-            boolean ordinaryAirborne,
-            boolean inWater,
-            boolean inLava,
-            int soulSpeedLevel,
-            StandingSurfaceState standingSurfaceState,
-            double lastPhysicalDisplacementSquared) {
-        if (!ordinaryAirborne
-                && !inWater
-                && !inLava
-                && soulSpeedLevel > 0
-                && soulSpeedModifierActive(standingSurfaceState, lastPhysicalDisplacementSquared)) {
-            return movementSpeed + soulSpeedAttributeBoost(soulSpeedLevel);
-        }
-        return movementSpeed;
+                speed,
+                inputRadiusSpeed,
+                horizontalAttributeSpeed,
+                dryAirTravelSpeed,
+                equipmentState.soulSpeedLevel() > 0);
     }
 
     static float flyingSpeed(double movementAbilityFlySpeed, double horizontalFlySpeedScale) {
@@ -105,22 +68,6 @@ final class BedrockHorizontalSpeedControl {
         float soulSandGroundFriction = defaultGroundFriction * SOUL_SAND_NO_SOUL_SPEED_FRICTION_MULTIPLIER;
         float scale = defaultGroundFriction / soulSandGroundFriction;
         return (float) groundControl * scale * scale * scale;
-    }
-
-    private static double soulSpeedAttributeBoost(int level) {
-        return (level * SOUL_SPEED_BOOST_PER_LEVEL_SCALE + 1.0D) * SOUL_SPEED_BASE_BOOST;
-    }
-
-    private static boolean soulSpeedModifierActive(
-            StandingSurfaceState standingSurfaceState, double lastPhysicalDisplacementSquared) {
-        if (!standingSurfaceState.hasSurface(Surface.SOUL_SAND)
-                && !standingSurfaceState.hasSurface(Surface.SOUL_SOIL)) {
-            return false;
-        }
-        if (!standingSurfaceState.hasSurface(Surface.SOUL_SOIL)) {
-            return true;
-        }
-        return lastPhysicalDisplacementSquared > SOUL_SPEED_MOVING_GATE_THRESHOLD;
     }
 
     record PreparedSpeed(

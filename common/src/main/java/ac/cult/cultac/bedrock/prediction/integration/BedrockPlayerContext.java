@@ -136,7 +136,7 @@ record BedrockPlayerContext(
                 player == null || player.getInventory() == null ? null : player.getInventory().getLeggings();
         return new EquipmentState(
                 ItemUtil.enchantmentLevel(boots, "minecraft:depth_strider"),
-                0,
+                ItemUtil.enchantmentLevel(boots, "minecraft:soul_speed"),
                 ItemUtil.enchantmentLevel(leggings, "minecraft:swift_sneak"),
                 riptideLevel(player),
                 wearingLeatherBoots(player),
