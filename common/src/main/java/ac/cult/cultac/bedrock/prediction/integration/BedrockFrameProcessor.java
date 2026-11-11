@@ -70,9 +70,13 @@ public final class BedrockFrameProcessor {
                     .getListener(DumbTimer.class)
                     .onTeleportAccepted(
                             teleport.isInitialSpawnTeleport(),
-                            new Vec3(player.x, player.y, player.z).distanceTo(frame.getPosition()));
-            processor.applyAcceptedBedrockTeleport(teleport);
-            player.packetStateData.bedrockTranslatedMovement.markTeleportFrame();
+                            new Vec3(player.x, player.y, player.z)
+                                    .distanceTo(teleport.getTeleportData().getLocation()));
+            // A seated rider takes its seat, not the teleport, and its vehicle's tick travels on.
+            if (!teleport.getTeleportData().isBedrockSeated()) {
+                processor.applyAcceptedBedrockTeleport(teleport);
+                player.packetStateData.bedrockTranslatedMovement.markTeleportFrame();
+            }
         }
         player.bedrockState.offerAuthInputFrame(frame);
         if (frame.hasRawInputFlag(org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData.START_FLYING)

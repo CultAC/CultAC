@@ -933,7 +933,13 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
         return !warm;
     }
 
+    /** The simulated actor takes a teleport Cult sent; a seated rider's teleport leaves its vehicle travelling. */
     public boolean isBedrockTeleportTick() {
+        return bedrockTeleport != null && !bedrockTeleport.isBedrockSeated();
+    }
+
+    /** The tick handles a teleport Cult sent: the actor's own, or its seated rider's. */
+    public boolean handlesBedrockTeleport() {
         return bedrockTeleport != null;
     }
 

@@ -279,8 +279,12 @@ public final class BedrockTransportAuthorityTest {
         }
     }
 
+    /**
+     * A link seats the rider over the teleports written before it: the seat places the rider, and the first input
+     * from that vehicle answers them. A teleport written after the link is answered on its own.
+     */
     @Test
-    public void passengerReceiptSupersedesEarlierPlayerTeleports() throws ReflectiveOperationException {
+    public void passengerReceiptSeatsTheEarlierPlayerTeleports() throws ReflectiveOperationException {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
@@ -292,15 +296,42 @@ public final class BedrockTransportAuthorityTest {
             Vec3 later = earlier.add(5, 0, 0);
             teleports.bedrockTeleports().addImmediateBedrockTransportTeleport(later, false);
             mountReceipt.run();
-            assertTrue(teleports.bedrockTeleports().hasPendingBedrockTransportTeleport());
+            assertEquals(2, teleports.pendingTeleports.size());
+            assertEquals(71L, teleports.pendingTeleports.peekFirst().getBedrockSeatVehicle());
+            assertFalse(teleports.pendingTeleports.peekLast().isBedrockSeated());
+            assertTrue(teleports.bedrockTeleports().mustAcknowledgeBedrockTransportTeleport());
+            player.lastTransactionReceived.set(player.lastTransactionSent.get());
+
+            var tracker = teleports.bedrockTeleports();
+            assertFalse(tracker.acknowledgeBedrockTeleportFrame(handled(player, earlier, null)).isTeleport());
+            assertFalse(tracker.acknowledgeBedrockTeleportFrame(handled(player, earlier, 72L)).isTeleport());
+            var seated = tracker.acknowledgeBedrockTeleportFrame(handled(player, new Vec3(9, 70, 9), 71L));
+            assertTrue(seated.isTeleport());
+            assertTrue(seated.getTeleportData().isBedrockSeated());
+            assertEquals(earlier, seated.getTeleportData().getLocation());
             assertEquals(1, teleports.pendingTeleports.size());
             assertEquals(later, teleports.pendingTeleports.peek().getLocation());
-            teleports.bedrockTeleports().captureBedrockVehicleMount(71L).run();
-            assertFalse(teleports.bedrockTeleports().hasPendingBedrockTransportTeleport());
-
+            assertTrue(tracker.acknowledgeBedrockTeleportFrame(handled(player, later, null)).isTeleport());
+            assertFalse(tracker.hasPendingBedrockTransportTeleport());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
+    }
+
+    /** A HANDLE_TELEPORT input at {@code position}, from the vehicle {@code vehicle} when it is not null. */
+    private static BedrockAuthInputFrame handled(CultPlayer player, Vec3 position, Long vehicle) {
+        var builder = BedrockAuthInputFrame.builder(player.playerUUID)
+                .clientTick(876)
+                .position(position)
+                .rotation(0, 0, 0)
+                .moveVector(0, 0);
+        long flags = 1L << PlayerAuthInputData.HANDLE_TELEPORT.ordinal();
+        if (vehicle == null) return builder.rawInputFlags(flags).build();
+        return builder.predictedVehicleId(vehicle)
+                .predictedVehicleJavaId(vehicle.intValue())
+                .vehicleRotation(new BedrockAuthInputFrame.VehicleRotation(0, 0))
+                .rawInputFlags(flags | 1L << PlayerAuthInputData.IN_CLIENT_PREDICTED_IN_VEHICLE.ordinal())
+                .build();
     }
 
     @Test

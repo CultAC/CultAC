@@ -153,7 +153,8 @@ public final class BedrockMovementEngine implements MovementEngine {
                 selectedInput.mobJumpComponent(),
                 selectedInput.actorMovementTick(),
                 context.isBedrockTeleportTick() && !selectedInput.heldByChunkView(),
-                BedrockControlInput.control(selectedInput.authFrame(), selectedInput.previousState()),
+                BedrockControlInput.control(
+                        player.bedrockState.controlFrame(selectedInput.authFrame()), selectedInput.previousState()),
                 !selectedInput.previousState().isVehicle()
                         && player.bedrockState.movementEffects.glideBoost(
                                 selectedInput.authFrame(), selectedInput.actorMovementTick()));

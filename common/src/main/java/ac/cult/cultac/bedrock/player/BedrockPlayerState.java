@@ -2,6 +2,7 @@ package ac.cult.cultac.bedrock.player;
 
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockControlInput;
 import ac.cult.cultac.bedrock.prediction.model.BedrockBoundingBoxMode;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockActorDimensions;
@@ -44,6 +45,9 @@ public final class BedrockPlayerState {
     private BedrockProtocolVersion protocolVersion = BedrockProtocolVersion.UNKNOWN;
     private boolean setbacksEnabled = true;
     private BedrockAuthInputFrame lastOfferedFrame;
+    // The last frame of a tick that read the client's movement input. A tick that takes a teleport and the ticks of a
+    // loading screen do not read it: the actor keeps the input it held before them.
+    private BedrockAuthInputFrame controlFrame;
     private BedrockAuthInputFrame lastProcessedFrame;
     private long processedAuthInputSequence;
     private long lastMovementTick = -1;
@@ -108,6 +112,12 @@ public final class BedrockPlayerState {
         ridingJump = BedrockRidingJumpState.INITIAL;
         ridingJumpFrame = null;
         horseJumpRelease = -1;
+        controlFrame = null;
+    }
+
+    /** The frame whose movement input the actor travels with on the tick of {@code frame}, the latest offered. */
+    public BedrockAuthInputFrame controlFrame(BedrockAuthInputFrame frame) {
+        return frame == lastOfferedFrame && controlFrame != null ? controlFrame : frame;
     }
 
     public void tickRidingJump(BedrockAuthInputFrame frame, boolean canPowerJump) {
@@ -131,6 +141,9 @@ public final class BedrockPlayerState {
             protocolVersion = frame.getProtocolVersion();
         }
         lastOfferedFrame = frame;
+        if (!frame.hasRawInputFlag(PlayerAuthInputData.HANDLE_TELEPORT)
+                && !loadingScreen.active()
+                && BedrockControlInput.validControl(frame)) controlFrame = frame;
         lastAuthInputMatchStatus = "observed auth input tick=" + frame.getClientTick();
         actions.forFrame(frame);
         applyClientPoseFrame(frame);

@@ -92,6 +92,13 @@ public class TeleportData {
     boolean bedrockDimensionChange;
 
     /**
+     * The Bedrock vehicle a link seated the player on before the client handled this teleport, or -1. The seat places
+     * the rider, and the client handles the teleport on its first tick from that vehicle.
+     */
+    @Setter
+    long bedrockSeatVehicle = -1L;
+
+    /**
      * The onGround this teleport's client bundle leaves the player with, through ClientPacketListener#handleTeleportEntity
      * on the player itself; null when the bundle sets none.
      */
@@ -137,6 +144,10 @@ public class TeleportData {
         this(location, flags, Vec3.ZERO, transaction, teleportId);
     }
 
+    public boolean isBedrockSeated() {
+        return bedrockSeatVehicle >= 0L;
+    }
+
     public TeleportData copyWithLocation(Vec3 location) {
         TeleportData copy = new TeleportData(
                 location, flags, deltaMovement, transaction, teleportId, sourceYaw, sourcePitch, finalYaw, finalPitch);
@@ -155,6 +166,7 @@ public class TeleportData {
         copy.packetPitch = packetPitch;
         copy.bedrockOnGround = bedrockOnGround;
         copy.bedrockDimensionChange = bedrockDimensionChange;
+        copy.bedrockSeatVehicle = bedrockSeatVehicle;
         copy.sentOnGround = sentOnGround;
         copy.bedrockTransportRevision = bedrockTransportRevision;
         copy.bedrockOperation = bedrockOperation;
@@ -256,6 +268,8 @@ public class TeleportData {
         this.positionOnly = true;
         this.bedrockOnGround = onGround;
         this.bedrockTransportRevision = revision;
+        // A new emission follows any seating link; the client handles it on its own.
+        this.bedrockSeatVehicle = -1L;
     }
 
     public Vec3 applyToVelocity(Vec3 vector) {

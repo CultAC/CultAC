@@ -84,12 +84,13 @@ final class BedrockMovementInputFactory {
                     previousState, tickInput.inputFrame(), context.getScale());
         }
         worldSnapshot = BedrockSnapshotResolver.forState(worldSnapshot, previousState, tickInput.inputFrame());
-        // The loading screen holds the actor, as does a column under its box that the client's chunk view holds
-        // nothing in, except on the tick that handles a teleport. A tick the chunk view holds still takes a pending
-        // teleport: the next tick moves normally.
-        boolean loading = player.bedrockState.loadingScreen.active();
+        // The loading screen holds the player's own actor; a vehicle it controls travels on. A column under the box
+        // that the client's chunk view holds nothing in holds either, except on the tick that handles a teleport, the
+        // actor's own or its seated rider's. A tick the chunk view holds still takes a pending teleport: the next tick
+        // moves normally.
+        boolean loading = player.bedrockState.loadingScreen.active() && !previousState.isVehicle();
         boolean heldByChunkView = !loading
-                && !context.isBedrockTeleportTick()
+                && !context.handlesBedrockTeleport()
                 && !player.bedrockState.clientChunks.holds(previousState.collisionBox(), frame.getClientTick());
         boolean actorMovementTick = !loading && !heldByChunkView;
         player.bedrockState.movementEffects.glideBoost(frame, actorMovementTick);

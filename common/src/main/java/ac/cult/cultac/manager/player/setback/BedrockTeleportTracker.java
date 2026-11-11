@@ -23,6 +23,8 @@ import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
  * <ul>
  *   <li>A teleport completes only on the exact HANDLE_TELEPORT input after its receipt and its origin are proven, and
  *       that answer moves the active frame.
+ *   <li>A link that seats the player before the client handles a teleport puts the rider on its seat: the client
+ *       handles the teleport on its first tick from that vehicle, which travels on.
  *   <li>Input coordinates resolve from the active frame or a proven echo, never from the input's own claim.
  *   <li>Only a Cult-owned emission can complete a Cult correction.
  *   <li>Paper's last accepted position is kept for the corrections that must return there.
@@ -146,9 +148,7 @@ public final class BedrockTeleportTracker {
                     && (frame == null
                             ? pending.getBedrockCoordinateFrame().equals(BedrockCoordinateFrame.IDENTITY)
                             : pending.getBedrockCoordinateFrame().equals(frame.getCoordinateFrame()))
-                    && (pending.getBedrockLocalPacketTarget() == null || frame == null
-                            ? samePosition(VectorUtils.clampVector(pending.getLocation()), actual)
-                            : sameLocalPacket(pending.getBedrockLocalPacketTarget(), frame.getPacketPosition()))) {
+                    && answersTeleport(pending, actual, frame)) {
                 // One HANDLE_TELEPORT acknowledges the latest identical
                 // outbound teleport. Reliable packet order proves that every
                 // earlier identical boundary was processed first, so retaining
@@ -174,10 +174,30 @@ public final class BedrockTeleportTracker {
 
         // The Bedrock receipt and exact HANDLE_TELEPORT frame prove this boundary.
         activeBedrockCoordinateFrame = matching.getBedrockCoordinateFrame();
-        return answers.complete(matching, actual, true);
+        // A seated rider's frame reports its vehicle: the teleport's own position is where the server put the player.
+        return matching.isBedrockSeated()
+                ? answers.complete(matching, VectorUtils.clampVector(matching.getLocation()), false)
+                : answers.complete(matching, actual, true);
     }
 
-    /** The client handles a link that seats the player on the vehicle {@code vehicleRuntimeId}. */
+    /** Whether a HANDLE_TELEPORT input at {@code actual} answers {@code pending}. */
+    private static boolean answersTeleport(TeleportData pending, Vec3 actual, BedrockAuthInputFrame frame) {
+        // The rider's seat, not the teleport, places it: the first input from the seating vehicle answers.
+        if (pending.isBedrockSeated()) {
+            return frame != null
+                    && frame.hasRawInputFlag(PlayerAuthInputData.IN_CLIENT_PREDICTED_IN_VEHICLE)
+                    && frame.getPredictedVehicleId() != null
+                    && frame.getPredictedVehicleId() == pending.getBedrockSeatVehicle();
+        }
+        return pending.getBedrockLocalPacketTarget() == null || frame == null
+                ? samePosition(VectorUtils.clampVector(pending.getLocation()), actual)
+                : sameLocalPacket(pending.getBedrockLocalPacketTarget(), frame.getPacketPosition());
+    }
+
+    /**
+     * The client handles a link that seats the player on the vehicle {@code vehicleRuntimeId}. The teleports written
+     * before it that the client has not handled yet stay pending on that seat.
+     */
     public Runnable captureBedrockVehicleMount(long vehicleRuntimeId) {
         long revision = bedrockTeleportRevision.get();
         SetBackData setback = corrections.required();
@@ -195,7 +215,9 @@ public final class BedrockTeleportTracker {
                         && pending.getBedrockCoordinateFrame().revision() >= activeBedrockCoordinateFrame.revision()) {
                     activeBedrockCoordinateFrame = pending.getBedrockCoordinateFrame();
                 }
-                return true;
+                if (owned) return true;
+                pending.setBedrockSeatVehicle(vehicleRuntimeId);
+                return false;
             });
             forgetEarlierVehicles.run();
             if (setback != null
