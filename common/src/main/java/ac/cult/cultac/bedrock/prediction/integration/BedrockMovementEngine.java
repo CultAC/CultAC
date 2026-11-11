@@ -132,28 +132,8 @@ public final class BedrockMovementEngine implements MovementEngine {
                 Input selectedInput = simulated.input();
                 BedrockSimulation.Input simulationInput = simulated.simulationInput();
                 for (Candidate movementCandidate : simulated.candidates()) {
-                    BedrockMovementResult movementResult = movementCandidate.movementResult();
-                    addCandidate(
-                            output,
-                            selectedInput,
-                            simulationInput,
-                            movementCandidate,
-                            vector,
-                            movementResult,
-                            candidateDelta(movementResult));
-                    // A stepped travel enters once: StepTransform moves it to the travel's own step.
-                    if (!movementResult.steppedUp()) {
-                        Vec3d previous = movementResult.previousState().physicalFeetPosition();
-                        addCandidate(
-                                output,
-                                selectedInput,
-                                simulationInput,
-                                movementCandidate,
-                                vector,
-                                movementResult,
-                                BedrockVectorAdapter.toJava(
-                                        movementResult.predictedPosition().subtract(previous)));
-                    }
+                    // The travel's own collided move is the client's move: it enters the runner alone.
+                    addCandidate(output, selectedInput, simulationInput, movementCandidate, vector);
                 }
             }
         }
@@ -212,9 +192,10 @@ public final class BedrockMovementEngine implements MovementEngine {
             Input selectedInput,
             BedrockSimulation.Input simulationInput,
             Candidate movementCandidate,
-            PredVector source,
-            BedrockMovementResult movementResult,
-            Vec3 delta) {
+            PredVector source) {
+        BedrockMovementResult movementResult = movementCandidate.movementResult();
+        Vec3d previous = movementResult.previousState().physicalFeetPosition();
+        Vec3 delta = BedrockVectorAdapter.toJava(movementResult.predictedPosition().subtract(previous));
         BedrockPredVector candidate = new BedrockPredVector(
                 selectedInput, simulationInput, movementResult, movementCandidate.mobJumpComponent(), source, delta);
         CandidateKey key = new CandidateKey(
@@ -572,12 +553,6 @@ public final class BedrockMovementEngine implements MovementEngine {
 
     private static PredVector selectedPredictionVector(PredictionResult result) {
         return result.getAcceptedClosestToTarget() instanceof PredVector vector ? vector : null;
-    }
-
-    private static Vec3 candidateDelta(BedrockMovementResult movementResult) {
-        Vec3d previous = movementResult.previousState().physicalFeetPosition();
-        return BedrockVectorAdapter.toJava(
-                movementResult.rawPredictedPhysicalFeetPosition().subtract(previous));
     }
 
     private static AxisEpsilon bedrockCollisionEpsilon(
