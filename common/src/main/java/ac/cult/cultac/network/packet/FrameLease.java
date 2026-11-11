@@ -36,13 +36,18 @@ public final class FrameLease {
     /** Lends one connection's frames to codecs, one read at a time. Owner thread only. */
     public static final class Lender implements Source {
         private FrameLease current;
-        private FrameLease spare;
+        /** Ended leases no borrower took, for the next reads; a nested read takes the second. */
+        private FrameLease spare, nestedSpare;
 
         /** Lends {@code frame} to the reads before the matching {@link #close}; reads may nest. */
         public FrameLease open(ByteBuf frame) {
             FrameLease lease = spare;
-            if (lease == null) lease = new FrameLease();
-            else spare = null;
+            if (lease != null) spare = null;
+            else {
+                lease = nestedSpare;
+                if (lease == null) lease = new FrameLease();
+                else nestedSpare = null;
+            }
             lease.frame = frame;
             lease.taken = false;
             lease.live = true;
@@ -61,7 +66,9 @@ public final class FrameLease {
         public void end(FrameLease lease) {
             lease.live = false;
             lease.frame = null;
-            if (!lease.taken) spare = lease;
+            if (lease.taken) return;
+            if (spare == null) spare = lease;
+            else if (spare != lease && nestedSpare == null) nestedSpare = lease;
         }
 
         @Override
