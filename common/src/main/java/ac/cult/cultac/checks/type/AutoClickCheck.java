@@ -13,6 +13,7 @@ import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.anticheat.StringReturner;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.LastInstance;
+import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vector3dm;
 import ac.cult.cultac.utils.nmsutil.BlockBreakSpeed;
 import ac.cult.cultac.utils.nmsutil.Ray;
@@ -122,17 +123,19 @@ public abstract class AutoClickCheck extends Check implements CheckListener, Cli
     @Override
     public void onPlayerTickEnd(PacketReceiveEvent event) {
         if (diggingLocation == null) return;
-        Vector3dm playerPos = new Vector3dm(player.lastX, player.lastY, player.lastZ);
+        double x = player.lastX, y = player.lastY, z = player.lastZ;
 
         // If the player isn't within 10 blocks of the block they are digging, don't bother.
-        if (playerPos.distanceSquared(
-                        new Vector3dm(diggingLocation.getX(), diggingLocation.getY(), diggingLocation.getZ()))
+        if (CultMath.square(x - diggingLocation.getX())
+                        + CultMath.square(y - diggingLocation.getY())
+                        + CultMath.square(z - diggingLocation.getZ())
                 < 100) {
             if (lastDiggingAction
                     == PlayerAction.START_DESTROY_BLOCK) { // START_BREAK without FINISH_BREAK or CANCEL_BREAK
                 lastDigging.reset();
             } else if (lastDiggingAction == PlayerAction.ABORT_DESTROY_BLOCK) { // Buggy cancel digging
                 // Brute force eye height because desync
+                Vector3dm playerPos = new Vector3dm(x, y, z);
                 for (double eyeHeight : player.getPossibleEyeHeights()) {
                     Ray trace = new Ray(
                             player,
