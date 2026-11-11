@@ -12,6 +12,7 @@ import ac.cult.cultac.protocol.PacketBundlePolicy;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.UnsupportedOnVersionException;
+import ac.cult.cultac.protocol.codec.entity.MoveEntityCodec;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPacket;
 import ac.cult.cultac.protocol.wire.Wire;
@@ -483,17 +484,23 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         PacketType<?> forwardedType = null;
         var lender = connection.frameLender();
         FrameLease lease = null;
+        var sunkMove = connection.sunkMove();
+        boolean sunk = false;
         try {
             routeProbe.phase = phase;
             routeProbe.found = null;
             routeProbe.skipped = null;
             lease = lender.open(bytes);
-            Object value;
+            boolean heldBefore = sunkMove.held();
+            Object value = null;
             try {
                 value = connection.packets().readOne(phase, PacketDirection.CLIENTBOUND, bytes, connection, routeProbe);
             } finally {
+                connection.sinkMoves(false);
                 lender.close(lease);
+                if (!heldBefore && value != MoveEntityCodec.SUNK && sunkMove.held()) sunkMove.release();
             }
+            sunk = value == MoveEntityCodec.SUNK;
             var route = routeProbe.found;
             if (routeProbe.skipped != null) forwardedType = routeProbe.skipped.type();
             if (value != null) {
@@ -580,6 +587,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             }
             return requested;
         } finally {
+            if (sunk) sunkMove.release();
             if (lease != null) lender.end(lease);
             if (bytes != null) bytes.release();
         }
@@ -601,6 +609,11 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                     || route.send() != null && route.send().hasConnectionHandlers();
             found = route;
             skipped = consumed ? null : route;
+            connection.sinkMoves(consumed
+                    && type == ClientboundPackets.MOVE_ENTITY
+                    && route.own()
+                    && route.send() != null
+                    && !route.send().hasConnectionHandlers());
             return consumed;
         }
     }

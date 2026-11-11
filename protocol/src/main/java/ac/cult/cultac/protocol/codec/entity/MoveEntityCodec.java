@@ -38,6 +38,34 @@ public final class MoveEntityCodec implements VariantCodec<ClientboundMoveEntity
     private static final List<String> NAMES =
             Arrays.stream(VARIANTS).map(variant -> variant.wireName).toList();
 
+    /**
+     * Returned by {@link #read} in place of a move whose delta is linear when the context's state is a {@link Sink}
+     * that {@link Sink#sinksMove() takes moves}; the move's values went to {@link Sink#move} instead.
+     */
+    public static final ClientboundMoveEntity SUNK =
+            new ClientboundMoveEntity(0, EntityDelta.ZERO, 0, 0, false, false, false);
+
+    /** Codec state that takes a linear move's values in place of its packet, one move at a time. */
+    public interface Sink {
+        /** Whether the next linear move's values go to {@link #move}. */
+        boolean sinksMove();
+
+        /**
+         * The values of a move that {@link MoveEntityCodec#read} returned as {@link #SUNK}: those of the packet it would have
+         * returned, with {@code x}, {@code y} and {@code z} the components of its {@link EntityDelta.Linear} delta.
+         */
+        void move(
+                int entityId,
+                short x,
+                short y,
+                short z,
+                float yaw,
+                float pitch,
+                boolean onGround,
+                boolean hasPosition,
+                boolean hasRotation);
+    }
+
     @Override
     public List<String> variants() {
         return NAMES;
@@ -49,24 +77,41 @@ public final class MoveEntityCodec implements VariantCodec<ClientboundMoveEntity
         Variant variant = VARIANTS[context.variant()];
         boolean position = variant.position;
         boolean rotation = variant.rotation;
-        EntityDelta delta = EntityDelta.ZERO;
+        EntityDelta.Stepped stepped = null;
+        short x = 0, y = 0, z = 0;
         boolean ground = false;
         boolean modern = context.version().atLeast(ProtocolVersion.V26_3);
         if (modern) {
             if (position) {
                 int properties = Wire.readVarInt(input);
                 ground = (properties & 1) != 0;
-                delta = readDelta(input, properties >>> 1);
+                int steps = properties >>> 1;
+                if (steps != 0) stepped = readSteps(input, steps);
+                else {
+                    x = input.readShort();
+                    y = input.readShort();
+                    z = input.readShort();
+                }
             } else ground = input.readBoolean();
-        } else if (position) delta = readLinear(input);
+        } else if (position) {
+            x = input.readShort();
+            y = input.readShort();
+            z = input.readShort();
+        }
         float yaw = rotation ? Wire.readAngle(input) : 0;
         float pitch = rotation ? Wire.readAngle(input) : 0;
         if (!modern) ground = input.readBoolean();
+        if (stepped != null)
+            return new ClientboundMoveEntity(entityId, stepped, yaw, pitch, ground, position, rotation);
+        if (context.state() instanceof Sink sink && sink.sinksMove()) {
+            sink.move(entityId, x, y, z, yaw, pitch, ground, position, rotation);
+            return SUNK;
+        }
+        EntityDelta delta = position ? new EntityDelta.Linear(x, y, z) : EntityDelta.ZERO;
         return new ClientboundMoveEntity(entityId, delta, yaw, pitch, ground, position, rotation);
     }
 
-    private static EntityDelta readDelta(ByteBuf input, int steps) {
-        if (steps == 0) return readLinear(input);
+    private static EntityDelta.Stepped readSteps(ByteBuf input, int steps) {
         if (steps > input.readableBytes() / 7)
             throw new MalformedPacketException("Entity delta step count exceeds remaining bytes: " + steps);
         var result = new EntityDelta.Step[steps];
@@ -75,9 +120,5 @@ public final class MoveEntityCodec implements VariantCodec<ClientboundMoveEntity
             result[i] = new EntityDelta.Step(input.readShort(), input.readShort(), input.readShort(), ticks);
         }
         return new EntityDelta.Stepped(List.of(result));
-    }
-
-    private static EntityDelta.Linear readLinear(ByteBuf input) {
-        return new EntityDelta.Linear(input.readShort(), input.readShort(), input.readShort());
     }
 }

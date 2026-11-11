@@ -6,6 +6,7 @@ import ac.cult.cultac.network.packet.FrameLease;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.*;
+import ac.cult.cultac.protocol.codec.entity.MoveEntityCodec;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
@@ -25,9 +26,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import org.jetbrains.annotations.ApiStatus;
 
 /** Authoritative identity, player attachment and transport state for one channel. */
-public final class CultConnection implements CodecState, FrameLease.Source {
+public final class CultConnection implements CodecState, FrameLease.Source, MoveEntityCodec.Sink {
     private static final int CONTEXT_SLOTS = 256;
 
     private final Channel channel;
@@ -132,6 +134,9 @@ public final class CultConnection implements CodecState, FrameLease.Source {
     private final ProtocolContext[] contexts = new ProtocolContext[CONTEXT_SLOTS];
 
     private final FrameLease.Lender frameLender = new FrameLease.Lender();
+    private final SunkMove sunkMove = new SunkMove();
+    /** The encoder's current read may sink a linear move. Owner only. */
+    private boolean sinksMoves;
 
     public void packetObserver(PacketLogObserver observer) {
         packetObserver = Objects.requireNonNull(observer);
@@ -223,6 +228,41 @@ public final class CultConnection implements CodecState, FrameLease.Source {
     @Override
     public FrameLease lease(ByteBuf frame) {
         return frameLender.lease(frame);
+    }
+
+    /** Lets the read the encoder begins next sink a linear move, or stops it. Model context only. */
+    @ApiStatus.Internal
+    public void sinkMoves(boolean sink) {
+        sinksMoves = sink;
+    }
+
+    @Override
+    public boolean sinksMove() {
+        return sinksMoves && !sunkMove.held;
+    }
+
+    @Override
+    @ApiStatus.Internal
+    public void move(
+            int entityId,
+            short x,
+            short y,
+            short z,
+            float yaw,
+            float pitch,
+            boolean onGround,
+            boolean hasPosition,
+            boolean hasRotation) {
+        sunkMove.hold(entityId, x, y, z, yaw, pitch, onGround, hasPosition, hasRotation);
+    }
+
+    /**
+     * The values of the move the encoder's read returned as {@link MoveEntityCodec#SUNK}, until it
+     * {@link SunkMove#release releases} them once its dispatch returns. Model context only.
+     */
+    @ApiStatus.Internal
+    public SunkMove sunkMove() {
+        return sunkMove;
     }
 
     @Override
