@@ -34,6 +34,7 @@ import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.ProtocolRuntime;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.Opaque;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomPayload;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
@@ -269,14 +270,19 @@ public class CheckManagerListener implements OpaqueReceiveListener {
                         || isBufferedLocalAuthoritativeRoot(player, vehicles.serverVehicleEntity()));
         updatePassengerRotationPair(player, passengerRotation, teleport.isTeleport());
 
+        // LocalPlayer#sendPosition sends one movement per client tick, before Minecraft#tick ends it.
+        boolean laterMovementThisClientTick = false;
         // A teleport acknowledgement is not LocalPlayer#tick movement.
         if (!teleport.isTeleport()) {
+            laterMovementThisClientTick = state.receivedMovementThisClientTick
+                    && player.user.getCultConnection().runtime().supports(ServerboundPackets.CLIENT_TICK_END);
             // Before the pre-prediction checks: a setback they raise rejects this movement.
             setbacks.movementReceived();
             state.receivedMovementThisClientTick = true;
             // Only LocalPlayer#tick sends movement, and it requires ClientPacketListener#hasClientLoaded.
             state.playerLoadedIntoLevel = true;
             if (packet.hasPosition()) state.lastSentTickPosition = position;
+            if (!laterMovementThisClientTick) state.sentPositionCache.onTickMovement(packet.hasPosition(), position);
             if (packet.hasRotation()) {
                 state.lastSentTickYaw = packet.yaw();
                 state.lastSentTickPitch = packet.pitch();
@@ -295,6 +301,8 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         // The player flagged crasher or timer checks, therefore we must protect predictions against these attacks
         // and not a teleport (it's dangerous to prevent teleports from going through simulation processors)
         if (event.isCancelled() && !teleport.isTeleport()) return;
+        // A client tick's further movement advances no tick.
+        if (laterMovementThisClientTick && packet.hasPosition()) state.sentPositionCache.onPositionSent(position);
 
         // Receive handlers such as Phase check this movement after its prediction pass. Its safe position commits
         // once they have run, so a setback they raise rolls back past it.
@@ -977,6 +985,7 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         // FlightToggle reads this tick's ClientSprintState#flagBeforeAiStep, which onClientTickEnd releases.
         if (aiStep) FlightToggle.onClientTick(player);
         player.sprintState.onClientTickEnd();
+        if (!state.receivedMovementThisClientTick) state.sentPositionCache.onTickWithoutMovement();
 
         player.endCountedClientTick();
         if (ticked) state.localPlayerTickedSinceSpawn = true;
