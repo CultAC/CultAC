@@ -17,7 +17,6 @@ import ac.cult.cultac.bedrock.prediction.model.EquipmentState;
 import ac.cult.cultac.bedrock.prediction.model.Medium;
 import ac.cult.cultac.bedrock.prediction.model.MovementModifierState;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
-import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
 import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
@@ -128,65 +127,6 @@ public final class BedrockValidationSelectionTest {
     }
 
     @Test
-    public void commitVelocityUsesAcceptedFromToDeltaInsteadOfAuthDelta() {
-        Vec3d previousPosition = new Vec3d(1.0D, 2.0D, 3.0D);
-        Vec3d predictedPosition = new Vec3d(1.1D, 2.0D, 3.1D);
-        BedrockMovementState previous = BedrockMovementState.fromPhysicalFeet(
-                previousPosition, new Vec3d(0.0D, 0.0D, 0.0D), BedrockInputFrame.idle(0L), BedrockCollisionFlags.AIR);
-        BedrockMovementState predicted = BedrockMovementState.fromPhysicalFeet(
-                predictedPosition, new Vec3d(0.0D, 0.0D, 0.0D), BedrockInputFrame.idle(1L), BedrockCollisionFlags.AIR);
-        BedrockMovementContext context = airContext();
-        BedrockMovementResult movementResult = new BedrockMovementResult(
-                previous,
-                context,
-                context,
-                predicted,
-                predictedPosition,
-                new Vec3d(0.0D, 0.0D, 0.0D),
-                false,
-                false,
-                false,
-                false,
-                BlockMovementSlowdownState.NONE,
-                HoneySlideState.NONE,
-                false,
-                false,
-                0.0D,
-                1.0D,
-                false,
-                false,
-                false,
-                0.0D,
-                true,
-                false,
-                null);
-        BedrockAuthInputFrame authFrame = BedrockAuthInputFrame.builder(UUID.randomUUID())
-                .position(new Vec3(1.35D, 2.25D, 2.75D))
-                .delta(new Vec3(99.0D, 99.0D, 99.0D))
-                .build();
-        BedrockValidationSelection selection = new BedrockValidationSelection(
-                previousPosition, authFrame, new Vec3(0.1D, 0.0D, 0.1D), predictedPosition, authFrame.getPosition());
-
-        BedrockMovementState nextTickBase = BedrockValidationSelectedState.nextTickBase(movementResult, selection);
-        Vec3d acceptedDelta = new Vec3d(0.35D, 0.25D, -0.25D);
-        BedrockMovementState committed = BedrockSimulation.deriveNextStates(
-                        movementResult, List.of(nextTickBase), acceptedDelta)
-                .getFirst()
-                .state();
-
-        assertEquals(Vec3d.ZERO, nextTickBase.velocity());
-        assertEquals(1.35D, nextTickBase.physicalFeetPosition().x(), 1.0E-6D);
-        assertEquals(2.25D, nextTickBase.physicalFeetPosition().y(), 0.0D);
-        assertEquals(2.75D, nextTickBase.physicalFeetPosition().z(), 0.0D);
-        assertEquals(0.35D, committed.velocity().x(), 1.0E-12D);
-        assertEquals(
-                (float) (((float) 0.25D - (float) 0.08D) * (float) 0.98D),
-                committed.velocity().y(),
-                0.0D);
-        assertEquals(-0.25D, committed.velocity().z(), 0.0D);
-    }
-
-    @Test
     public void candidateBaseMovesTheCollisionBoxWithACollidedSelection() {
         // The engine's own sweep carried 0.0693 of Z input into a wall it had not sampled, while the selected
         // movement was stopped by that wall. The box the next sweep starts from must sit where the position does.
@@ -219,8 +159,7 @@ public final class BedrockValidationSelectionTest {
                 false,
                 0.0D,
                 true,
-                false,
-                null);
+                false);
         Vec3d selectedPosition = new Vec3d(25.5D, 120.5D, 0.75D);
         BedrockValidationSelection selection = new BedrockValidationSelection(
                 previousPosition, null, new Vec3(8.0D, 0.5D, 0.0D), selectedPosition, null);
@@ -269,8 +208,7 @@ public final class BedrockValidationSelectionTest {
                 false,
                 0.0D,
                 true,
-                false,
-                null);
+                false);
         BedrockValidationSelection selection = new BedrockValidationSelection(
                 previousPosition, null, new Vec3(0.125D, 0.0D, 0.0D), sweptPosition, null);
 

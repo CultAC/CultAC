@@ -18,7 +18,6 @@ import ac.cult.cultac.bedrock.prediction.model.MovementModifierState;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockBlockCollisionResolver;
 import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockCollisionProbe;
-import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockCollisionProjectionResolver;
 import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockCollisionSweep;
 import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockEntityMove;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockTravelInput;
@@ -600,21 +599,8 @@ public final class BedrockBlockCollisionResolverTest {
                 requestedMove,
                 requestedMove.y(),
                 true);
-        BedrockMovementResult movementResult = BedrockSimulation.move(
-                current,
-                BedrockInputFrame.idle(0L),
-                airContext(world),
-                BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE,
-                false,
-                BedrockSimulation.DEFAULT_MAX_AUTO_STEP);
 
         assertTrue(probe.yNegCollision());
-        assertEquals(
-                82.5625D,
-                BedrockCollisionProjectionResolver.resolvedPosition(movementResult, requestedMove)
-                        .orElseThrow()
-                        .y(),
-                1.0E-6D);
         assertEquals(82.5625D, result.position().y(), 1.0E-6D);
         assertTrue(result.verticalCollision());
         assertTrue(result.onGround());

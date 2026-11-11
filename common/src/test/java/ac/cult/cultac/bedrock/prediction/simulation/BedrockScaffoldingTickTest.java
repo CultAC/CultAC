@@ -97,10 +97,9 @@ public final class BedrockScaffoldingTickTest {
         var above = inside(world, 121.100474D, new Vec3d(0.0D, -0.147D, 0.0D), false);
         var last = tick(above, sneak(1L, false), world, false);
         assertEquals(-STEP, moved(last).y(), 2.0E-5D);
-        var carried = BedrockSimulation.deriveNextStates(last, List.of(last.predictedState()), moved(last));
+        var carried = BedrockForwardTick.finish(last, last.predictedState());
         // The carry that reports the drag of the forced step, -0.147, is the client's.
         var bottom = carried.stream()
-                .map(BedrockSimulation.NextState::state)
                 .filter(next -> Math.abs(next.velocity().y() + 0.147D) < 1.0E-6D)
                 .findFirst()
                 .orElseThrow();

@@ -45,8 +45,7 @@ public final class BedrockPostMoveSystems {
             return new BedrockPostMoveResult(
                     new BedrockPostMoveResult.VelocityEffects(velocity, velocity, velocity, false, true, true, 1.0D),
                     result.collisionEffects(),
-                    result.stateModes(),
-                    null);
+                    result.stateModes());
         }
         boolean travel = plan.frame().input().options().travelActive();
         if (travel) {

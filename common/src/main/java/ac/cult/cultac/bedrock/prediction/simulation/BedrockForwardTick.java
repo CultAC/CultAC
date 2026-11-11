@@ -16,7 +16,6 @@ public final class BedrockForwardTick {
 
     public static List<BedrockMovementState> finish(BedrockMovementResult result, BedrockMovementState selected) {
         return BedrockNextTickStateDeriver.fromSimulated(result, selected).stream()
-                .map(BedrockNextTickStateDeriver.DerivedState::state)
                 .map(state -> BedrockEndTickBlockPush.apply(result, state))
                 .distinct()
                 .toList();

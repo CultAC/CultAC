@@ -9,12 +9,8 @@ public final class BedrockEntityInsideMovement {
 
     public static BedrockPostMoveResult apply(
             BedrockPostMoveContext context, BedrockPostMoveResult effects, Vec3d nextPosition) {
-        InsideVelocity hop = applyVelocity(context, effects, nextPosition, effects.velocity());
-        Vec3d nonHop = effects.nonHopVelocity() == null
-                ? null
-                : applyVelocity(context, effects, nextPosition, effects.nonHopVelocity())
-                        .velocity();
-        return effects.withEntityInside(hop.velocity(), effects.velocity(), hop.preInsideBlockVelocity(), nonHop);
+        InsideVelocity inside = applyVelocity(context, effects, nextPosition, effects.velocity());
+        return effects.withEntityInside(inside.velocity(), effects.velocity(), inside.preInsideBlockVelocity());
     }
 
     private static InsideVelocity applyVelocity(

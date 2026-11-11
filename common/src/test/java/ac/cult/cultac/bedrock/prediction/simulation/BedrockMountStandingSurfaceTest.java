@@ -110,12 +110,10 @@ public final class BedrockMountStandingSurfaceTest {
         BedrockMovementState horse = horse(1.0D, new Vec3d(0.0D, RESTING_Y, 0.2D), true);
         BedrockMovementResult result =
                 tick(horse, floor("minecraft:honey_block", BlockContactBehavior.HONEY), Vec3d.ZERO);
-        Vec3d accepted = result.predictedPosition().subtract(horse.physicalFeetPosition());
-
-        var derived = BedrockSimulation.deriveNextStates(result, List.of(result.predictedState()), accepted);
+        var derived = BedrockForwardTick.finish(result, result.predictedState());
 
         assertEquals(1, derived.size());
-        assertEquals(0.2D * HONEY_FRICTION, derived.getFirst().state().velocity().z(), 1.0E-6D);
+        assertEquals(0.2D * HONEY_FRICTION, derived.getFirst().velocity().z(), 1.0E-6D);
     }
 
     private static double moveZ(BedrockMovementResult result) {

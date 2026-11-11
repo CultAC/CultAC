@@ -88,8 +88,7 @@ public final class BedrockUncertaintyPipelineTest {
                 false,
                 0.0,
                 true,
-                false,
-                null);
+                false);
         BedrockInputFrame inputFrame = BedrockInputFrame.idle(0L);
         Input input = new Input(
                 BedrockAuthInputFrame.builder(UUID.randomUUID()).build(),
@@ -210,8 +209,7 @@ public final class BedrockUncertaintyPipelineTest {
                 false,
                 0.0,
                 true,
-                false,
-                null);
+                false);
         var selected = previous.withPhysicalFeetPosition(new Vec3d(0.9, 0, 0.5), 0.16);
         // The box overlaps the block from its west side, so the push raises the resting x velocity to 0.1 westward.
         var pushed = ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick.finish(movement, selected);

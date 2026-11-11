@@ -8,7 +8,6 @@ import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponen
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockSnapshotResolver;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockTravelInput;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockTravelOptions;
-import ac.cult.cultac.bedrock.prediction.simulation.reconciliation.BedrockNextTickStateDeriver;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
 import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
@@ -104,34 +103,6 @@ public final class BedrockSimulation {
                     input.mobJumpComponent());
             candidates.add(new Candidate(result.movementResult(), result.mobJumpComponent()));
         }
-    }
-
-    public static List<NextState> deriveNextStates(
-            BedrockMovementResult result, List<BedrockMovementState> sourceStates, Vec3d acceptedDiff) {
-        return deriveNextStates(result, sourceStates, acceptedDiff, false, false);
-    }
-
-    public static List<NextState> deriveNextStates(
-            BedrockMovementResult result,
-            List<BedrockMovementState> sourceStates,
-            Vec3d acceptedDiff,
-            boolean selectedXCollision,
-            boolean selectedZCollision) {
-        return deriveNextStates(result, sourceStates, acceptedDiff, selectedXCollision, selectedZCollision, false);
-    }
-
-    public static List<NextState> deriveNextStates(
-            BedrockMovementResult result,
-            List<BedrockMovementState> sourceStates,
-            Vec3d acceptedDiff,
-            boolean selectedXCollision,
-            boolean selectedZCollision,
-            boolean canStep) {
-        return BedrockNextTickStateDeriver.withAcceptedDiff(
-                        result, sourceStates, acceptedDiff, selectedXCollision, selectedZCollision, canStep)
-                .stream()
-                .map(state -> new NextState(state.state(), state.lineageState()))
-                .toList();
     }
 
     static BedrockMovementResult move(
@@ -357,13 +328,6 @@ public final class BedrockSimulation {
         public Candidate {
             Objects.requireNonNull(movementResult, "movementResult");
             mobJumpComponent = mobJumpComponent == null ? BedrockMobJumpComponentState.DEFAULT : mobJumpComponent;
-        }
-    }
-
-    public record NextState(BedrockMovementState state, BedrockMovementState lineageState) {
-        public NextState {
-            Objects.requireNonNull(state, "state");
-            Objects.requireNonNull(lineageState, "lineageState");
         }
     }
 }

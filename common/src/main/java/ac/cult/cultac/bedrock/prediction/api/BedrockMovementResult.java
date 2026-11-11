@@ -31,7 +31,6 @@ public record BedrockMovementResult(
         double maxUpStep,
         boolean travelActive,
         boolean groundJumpApplied,
-        Vec3d nonHopVelocity,
         WorldCollisionBox collisionFetchBox) {
     public BedrockMovementResult(
             BedrockMovementState previousState,
@@ -55,8 +54,7 @@ public record BedrockMovementResult(
             boolean canStep,
             double maxUpStep,
             boolean travelActive,
-            boolean groundJumpApplied,
-            Vec3d nonHopVelocity) {
+            boolean groundJumpApplied) {
         this(
                 previousState,
                 movementContext,
@@ -80,7 +78,6 @@ public record BedrockMovementResult(
                 maxUpStep,
                 travelActive,
                 groundJumpApplied,
-                nonHopVelocity,
                 null);
     }
 

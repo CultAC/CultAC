@@ -125,7 +125,6 @@ final class BedrockMovementResultBuilder {
                 state.input().options().maxUpStep(),
                 state.input().options().travelActive(),
                 state.groundJumpApplied(),
-                postMoveEffects.nonHopVelocity(),
                 collision.collisionFetchBox());
     }
 
