@@ -9,10 +9,12 @@ import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.cult.cultac.utils.data.ClientItemUseState;
 import ac.cult.cultac.utils.data.ClientSprintState;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Entity#deltaMovement across a sneaking edge. Entity#move moves by the delta Player#maybeBackOffFromEdge shortens,
@@ -28,24 +30,28 @@ final class SneakEdgeBackoff {
     private SneakEdgeBackoff() {}
 
     /**
-     * The deltaMovement Entity#move leaves after an edge shortened the accepted move, or null when no zero-flag
-     * reality's starting velocity reproduces that move with the client's keys, or several reproduce it differently.
+     * Adds to {@code out} the deltaMovement Entity#move leaves after an edge shortened the accepted move, one per
+     * zero-flag reality whose starting velocity reproduces that move with the client's keys; the client's own is one
+     * of them. Returns whether any did.
      */
-    static Vec3 deltaMovement(PredictionResult result, Vec3 accepted) {
+    static boolean addDeltaMovements(PredictionResult result, Vec3 accepted, Set<Vec3> out) {
         // Every reality of a result belongs to the result's player.
         CultPlayer player = result.getPlayer();
-        if (player == null || !appliesTo(player)) return null;
-        Vec3 found = deltaMovementFrom(result, accepted);
+        if (player == null || !appliesTo(player)) return false;
+        boolean found = add(deltaMovementFrom(result, accepted), out);
         List<PredictionResult> realities = result.getRealities();
         for (int i = 0, size = realities == null ? 0 : realities.size(); i < size; i++) {
             PredictionResult reality = realities.get(i);
             if (reality == result || reality.getFlagSeverity() != 0.0) continue;
-            Vec3 other = deltaMovementFrom(reality, accepted);
-            if (other == null) continue;
-            if (found != null && !found.equals(other)) return null;
-            found = other;
+            found |= add(deltaMovementFrom(reality, accepted), out);
         }
         return found;
+    }
+
+    private static boolean add(Vec3 carry, Set<Vec3> out) {
+        if (carry == null) return false;
+        out.add(carry);
+        return true;
     }
 
     private static Vec3 deltaMovementFrom(PredictionResult result, Vec3 accepted) {
@@ -67,7 +73,8 @@ final class SneakEdgeBackoff {
 
     /**
      * The carry for {@code movingSlowlyFactor} at the speed LivingEntity#getFrictionInfluencedSpeed gives in water, on
-     * the ground or in the air, kept when one speed the client's sprint state allows alone reproduces the move.
+     * the ground or in the air, and at LocalPlayer#modifyInput's item-use multiplier, kept when one speed the client's
+     * sprint state allows and one multiplier its item use allows alone reproduce the move.
      */
     private static Vec3 deltaMovementFrom(
             CultPlayer player,
@@ -76,22 +83,40 @@ final class SneakEdgeBackoff {
             Vec3 accepted,
             float movingSlowlyFactor) {
         boolean water = context.getWorldData().getInWater() == DesyncStatus.TRUE;
-        if (water) {
-            float speed = context.getMoveRelativeSpeed(player, true, true, false);
-            return deltaMovementFrom(player, result, context, accepted, movingSlowlyFactor, speed);
+        float waterSpeed = water ? context.getMoveRelativeSpeed(player, true, true, false) : 0.0F;
+        float[] speeds = null;
+        if (!water) {
+            ClientSprintState.Outcome outcome = context.getSprintOutcome(player, result.getInitialStartingVel());
+            speeds = context.getWorldData().getLastOnGround() == DesyncStatus.TRUE
+                    ? context.getGroundMoveRelativeSpeeds(player, outcome)
+                    : flyingSpeeds(context);
         }
+        ClientItemUseState.Snapshot use = context.getItemUse();
         Vec3 found = null;
-        ClientSprintState.Outcome outcome = context.getSprintOutcome(player, result.getInitialStartingVel());
-        float[] speeds = context.getWorldData().getLastOnGround() == DesyncStatus.TRUE
-                ? context.getGroundMoveRelativeSpeeds(player, outcome)
-                : flyingSpeeds(context);
-        for (float speed : speeds) {
-            Vec3 carry = deltaMovementFrom(player, result, context, accepted, movingSlowlyFactor, speed);
-            if (carry == null) continue;
-            if (found != null && !found.equals(carry)) return null;
-            found = carry;
+        for (int u = 0; u < 3; u++) {
+            float itemUse = itemUseMultiplier(use, u);
+            if (u > 0 && itemUse == itemUseMultiplier(use, 0) || u > 1 && itemUse == itemUseMultiplier(use, 1)) {
+                continue;
+            }
+            for (int s = 0, count = water ? 1 : speeds.length; s < count; s++) {
+                float speed = water ? waterSpeed : speeds[s];
+                Vec3 carry = deltaMovementFrom(player, result, context, accepted, itemUse, movingSlowlyFactor, speed);
+                if (carry == null) continue;
+                if (found != null && !found.equals(carry)) return null;
+                found = carry;
+            }
         }
         return found;
+    }
+
+    /**
+     * LocalPlayer#modifyInput's item multiplier: the legal one, the required one of a use the client owes, or that of a
+     * use it may have started.
+     */
+    private static float itemUseMultiplier(ClientItemUseState.Snapshot use, int index) {
+        return index == 0
+                ? use.legalMultiplier()
+                : index == 1 ? use.requiredMultiplier() : use.slowestMultiplier();
     }
 
     /** Player#getFlyingSpeed off the ground for each sprint flag the client may have held during travel. */
@@ -107,12 +132,13 @@ final class SneakEdgeBackoff {
             PredictionResult result,
             SimulationContext context,
             Vec3 accepted,
+            float itemUseMultiplier,
             float movingSlowlyFactor,
             float speed) {
         boolean water = context.getWorldData().getInWater() == DesyncStatus.TRUE;
         PredVector start = result.getInitialStartingVel();
         Vec3 input = ClientKeyInput.travelInput(
-                player, context, player.packetStateData.knownInput, 1.0F, movingSlowlyFactor, speed);
+                player, context, player.packetStateData.knownInput, itemUseMultiplier, movingSlowlyFactor, speed);
         if (input == null) return null;
         // Entity#baseTick's updateInWaterStateAndDoFluidPushing adds the water current before LocalPlayer#aiStep.
         Vec3 current = water ? WaterCurrent.calculateWaterCurrent(player, context, context.getStart(), start) : null;
@@ -166,7 +192,6 @@ final class SneakEdgeBackoff {
                 // LivingEntity#travelInWater moves by moveRelative(0.02F) when no water_movement_efficiency raises it.
                 && (world.getInWater() == DesyncStatus.FALSE
                         || world.getInWater() == DesyncStatus.TRUE && context.getWaterMovementEfficiency() == 0.0F)
-                && !IsUsingItem.isUsingItem(player)
                 && result.getValidMovements() != null
                 && result.getValidMovements().getPositionOnlyDelta().lengthSqr() <= 1.0E-14;
     }

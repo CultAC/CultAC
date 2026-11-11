@@ -1,6 +1,7 @@
 package ac.cult.cultac.network;
 
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
+import static ac.cult.cultac.network.JavaTickFixture.assertRejected;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -207,6 +208,112 @@ class JavaSneakEdgeWaterTest {
             assertTrenchExact(
                     f, -88.44362F, 38.69919F, -43.958894967119925, 55.14895919635507, 483.07668293791687, false);
             assertTrenchExact(f, -88.44362F, 38.69919F, -43.779386778740395, 55.0, 483.08480148679087, true);
+        }
+    }
+
+    /**
+     * A walker sinking through a still pool presses shift a tick above the floor, next to its edge, and holds it on
+     * landing. Player#isAboveGround backs off the sinking move already, deltaMovement keeps the move toward the drop
+     * with the full input of the tick shift went down, and the crouched ticks on the floor build on it until releasing
+     * shift moves on all of it. The moves are a real client's, translated onto the fixture: its edge z = -37 becomes 1.
+     */
+    @Test
+    void theEdgeAShiftInTheWaterHoldsIsReleasedOnTheFloor() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            sinkTowardTheEdge(f, SINKING_OTHER_REALITY);
+            assertSinkingExact(f, 137.9309549836505, 102.0580211498264, -37.27220213402329, false);
+            assertSinkingExact(f, 138.00121691277974, 102.0, -37.27220213402329, true);
+            assertSinkingExact(f, 138.0622018330633, 102.0, -37.27220213402329, true);
+            assertSinkingExact(f, 138.11576514615976, 102.0, -37.27220213402329, true);
+            assertSinkingExact(f, 138.16339117341806, 102.0, -37.27220213402329, true);
+
+            f.input(WALK);
+            assertSinkingExact(f, 138.20626737193504, 102.0, -37.30234539580996, true);
+        }
+    }
+
+    /** The same release moving 0.03 further toward the drop than the deltaMovement both realities hide. */
+    @Test
+    void aReleaseBeyondTheVelocityTheRealitiesHideFlagsSpeed() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            sinkTowardTheEdge(f, SINKING_OTHER_REALITY);
+            holdSinkingEdge(f);
+            f.input(WALK);
+            assertSpeed(f.tick(sinkingRecorded(138.20626737193504, 102.0, -37.33234539580996), true));
+        }
+    }
+
+    /**
+     * The same release when the other reality starts 0.05 faster toward the drop: Player#maybeBackOffFromEdge steps
+     * both moves back to the same position, so each reality carries its own deltaMovement and the client's is one.
+     */
+    @Test
+    void aReleaseFromRealitiesHidingDifferentVelocityMovesOnTheClientsOwn() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            sinkTowardTheEdge(f, SINKING_START.add(0.0, 0.0, -0.05));
+            assertSinkingExact(f, 137.9309549836505, 102.0580211498264, -37.27220213402329, false);
+            assertEquals(
+                    2, f.player.checkManager.getSimulationProcessor().getValidPlayerStartingVels().size());
+            assertSinkingExact(f, 138.00121691277974, 102.0, -37.27220213402329, true);
+            assertSinkingExact(f, 138.0622018330633, 102.0, -37.27220213402329, true);
+            assertSinkingExact(f, 138.11576514615976, 102.0, -37.27220213402329, true);
+            assertSinkingExact(f, 138.16339117341806, 102.0, -37.27220213402329, true);
+
+            f.input(WALK);
+            assertSinkingExact(f, 138.20626737193504, 102.0, -37.30234539580996, true);
+        }
+    }
+
+    /** The same release moving 0.03 further toward the drop than the client's deltaMovement, beyond the faster one. */
+    @Test
+    void aReleaseBeyondTheFasterHiddenVelocityFlagsSpeed() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            sinkTowardTheEdge(f, SINKING_START.add(0.0, 0.0, -0.05));
+            holdSinkingEdge(f);
+            f.input(WALK);
+            assertSpeed(f.tick(sinkingRecorded(138.20626737193504, 102.0, -37.33234539580996), true));
+        }
+    }
+
+    /**
+     * A player standing over the trench with two starting velocities the engine cannot tell apart holds shift. The
+     * backoff hides both on X, so each carries its own deltaMovement with goDownInWater's -0.04F into the fall.
+     */
+    @Test
+    void eachStartingVelocityTheEdgeHidesCarriesTheSink() throws Exception {
+        PredictionResult result = sinkAfterHiddenStart(false);
+        assertTrue(exact(result), describe(result));
+    }
+
+    @Test
+    void holdingHeightAfterTheHiddenStartStillFlags() throws Exception {
+        assertRejected(sinkAfterHiddenStart(true), "VerticalOffset");
+    }
+
+    /**
+     * The shift tick over the trench, then the next tick on the second start's carry, or at the same height when
+     * {@code hover}.
+     */
+    private static PredictionResult sinkAfterHiddenStart(boolean hover) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            trench(f);
+            rotate(f, 0.0F, 20.0F);
+            Vec3 start = new Vec3(2.0, FLOOR_Y, 0.5);
+            f.place(start, Vec3.ZERO);
+            f.player.checkManager
+                    .getSimulationProcessor()
+                    .seedStartingVelocities(List.of(new Vec3(0.04, -0.005, 0.0), new Vec3(0.05, -0.005, 0.0)));
+            f.input(SHIFT);
+            // LocalPlayer#aiStep's goDownInWater: -0.005 - 0.04F.
+            double sink = -0.005D + (double) -0.04F;
+            PredictionResult hidden = f.tick(start.add(0.0, sink, 0.0), false);
+            assertTrue(exact(hidden), describe(hidden));
+            assertEquals(
+                    2, f.player.checkManager.getSimulationProcessor().getValidPlayerStartingVels().size());
+            // LivingEntity#travelInWater: deltaMovement * 0.8F, then getFluidFallingAdjustedMovement's -0.005.
+            double carriedX = 0.05 * 0.8F;
+            double nextY = hover ? 0.0D : sink * 0.8F - 0.005D + (double) -0.04F;
+            return f.tick(start.add(carriedX, sink + nextY, 0.0), false);
         }
     }
 
@@ -475,6 +582,60 @@ class JavaSneakEdgeWaterTest {
             f.player.compensatedWorld.updateBlock(new BlockPos(9, FLOOR_Y, z), flowing);
         }
         for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+    }
+
+    /**
+     * The recorded pool: two blocks of still water over a floor whose cell z = 0 holds water instead, a block above
+     * the ground below; the cell 6, 1 under the feet is a waterlogged sea pickle, which reaches no box at the floor.
+     */
+    private static void sinkingPool(JavaTickFixture f) {
+        for (int x = -8; x <= 8; x++) {
+            for (int z = -8; z <= 8; z++) {
+                water(f, x, FLOOR_Y, z);
+                water(f, x, FLOOR_Y + 1, z);
+                if (z <= 0) water(f, x, FLOOR_Y - 1, z);
+            }
+        }
+        water(f, 6, FLOOR_Y - 1, 1);
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+    }
+
+    private static final Vec3 SINKING_START =
+            new Vec3(0.06594026984644188, -0.030552631982986897, -0.04535847259165848);
+    private static final Vec3 SINKING_OTHER_REALITY =
+            new Vec3(0.06594026984644188, -0.030552631661834317, -0.04535847259165848);
+
+    /** A tick above the floor beside the pool's z = 1 edge, about to press shift with two realities to start from. */
+    private static void sinkTowardTheEdge(JavaTickFixture f, Vec3 otherReality) {
+        sinkingPool(f);
+        rotate(f, -485.6957702636719F, 43.04994201660156F);
+        f.place(sinkingRecorded(137.849096793637, 102.12857378129608, -37.265407758860825), SINKING_START);
+        f.player.checkManager.getSimulationProcessor().seedStartingVelocities(List.of(SINKING_START, otherReality));
+        f.input(SNEAK_FORWARD);
+    }
+
+    private static void holdSinkingEdge(JavaTickFixture f) {
+        f.tick(sinkingRecorded(137.9309549836505, 102.0580211498264, -37.27220213402329), false);
+        f.tick(sinkingRecorded(138.00121691277974, 102.0, -37.27220213402329), true);
+        f.tick(sinkingRecorded(138.0622018330633, 102.0, -37.27220213402329), true);
+        f.tick(sinkingRecorded(138.11576514615976, 102.0, -37.27220213402329), true);
+        f.tick(sinkingRecorded(138.16339117341806, 102.0, -37.27220213402329), true);
+    }
+
+    private static void assertSpeed(PredictionResult result) {
+        assertTrue(
+                result.getFlags().stream().anyMatch(flag -> flag.getCheck().getCheckName().equals("Speed")),
+                describe(result));
+    }
+
+    private static void assertSinkingExact(JavaTickFixture f, double x, double y, double z, boolean onGround) {
+        PredictionResult result = f.tick(sinkingRecorded(x, y, z), onGround);
+        assertTrue(exact(result), describe(result));
+    }
+
+    /** A recorded pool position moved onto the fixture: its floor top 102 becomes FLOOR_Y and its edge -37 becomes 1. */
+    private static Vec3 sinkingRecorded(double x, double y, double z) {
+        return new Vec3(x - 132.0, y - 102.0 + FLOOR_Y, z + 38.0);
     }
 
     private static void water(JavaTickFixture f, int x, int y, int z) {

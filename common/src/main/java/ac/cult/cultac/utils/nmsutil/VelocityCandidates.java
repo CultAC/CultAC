@@ -50,13 +50,10 @@ public final class VelocityCandidates {
         if (player != null) {
             Vec3 moved = diff;
             diff = applyPostMoveLivingFluidCurrent(player, result, diff);
-            Vec3 edge = moved.equals(diff)
-                            && !hasUnknownStuckSpeed(lastPrediction)
-                            && !consumedRequiredStuckSpeedThisMove(result)
-                    ? SneakEdgeBackoff.deltaMovement(result, diff)
-                    : null;
-            if (edge != null) {
-                validPlayerStartingVels.add(edge);
+            if (moved.equals(diff)
+                    && !hasUnknownStuckSpeed(lastPrediction)
+                    && !consumedRequiredStuckSpeedThisMove(result)
+                    && SneakEdgeBackoff.addDeltaMovements(result, diff, validPlayerStartingVels)) {
                 return validPlayerStartingVels;
             }
             // A pre-move water state the engine cannot resolve leaves both LivingEntity#checkFallDamage branches open.
