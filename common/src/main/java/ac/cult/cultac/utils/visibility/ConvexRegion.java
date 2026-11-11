@@ -45,6 +45,12 @@ final class ConvexRegion {
         }
     }
 
+    private static final List<HalfPlane> ORIGIN_PLANES = List.of(
+            new HalfPlane(ExactFraction.ONE, ExactFraction.ZERO, ExactFraction.ZERO, false),
+            new HalfPlane(ExactFraction.MINUS_ONE, ExactFraction.ZERO, ExactFraction.ZERO, false),
+            new HalfPlane(ExactFraction.ZERO, ExactFraction.ONE, ExactFraction.ZERO, false),
+            new HalfPlane(ExactFraction.ZERO, ExactFraction.MINUS_ONE, ExactFraction.ZERO, false));
+
     private final List<Point> vertices;
     private final List<HalfPlane> openBoundaries;
 
@@ -193,11 +199,7 @@ final class ConvexRegion {
         // All stored vertices are in convex boundary order. Handle the line/point
         // cases as well: clipping to both coordinates zero proves containment.
         ConvexRegion region = this;
-        for (HalfPlane plane : List.of(
-                new HalfPlane(ExactFraction.ONE, ExactFraction.ZERO, ExactFraction.ZERO, false),
-                new HalfPlane(ExactFraction.ONE.negate(), ExactFraction.ZERO, ExactFraction.ZERO, false),
-                new HalfPlane(ExactFraction.ZERO, ExactFraction.ONE, ExactFraction.ZERO, false),
-                new HalfPlane(ExactFraction.ZERO, ExactFraction.ONE.negate(), ExactFraction.ZERO, false))) {
+        for (HalfPlane plane : ORIGIN_PLANES) {
             region = region.clip(plane);
             if (region == null) return false;
         }
