@@ -65,7 +65,7 @@ public final class BedrockCollisionWorldBuilder {
                 bedrockState(state),
                 boxes,
                 contactBoxes,
-                insideBlockContactBoxes(position, boxes),
+                insideBlockContactBoxes(position, state, boxes),
                 contactBehaviors(state));
     }
 
@@ -205,8 +205,11 @@ public final class BedrockCollisionWorldBuilder {
     }
 
     private static List<WorldCollisionBox> insideBlockContactBoxes(
-            BlockPosition position, List<WorldCollisionBox> collisionBoxes) {
-        return collisionBoxes.isEmpty() ? List.of(fullBlockBox(position)) : List.copyOf(collisionBoxes);
+            BlockPosition position, int state, List<WorldCollisionBox> collisionBoxes) {
+        // Powder snow slows an actor anywhere in its cell, whatever shape it collides as for that actor.
+        return collisionBoxes.isEmpty() || powderSnowBlock(state)
+                ? List.of(fullBlockBox(position))
+                : List.copyOf(collisionBoxes);
     }
 
     private static boolean movementResolvedContactUsesCollisionBoxes(int state) {
