@@ -315,6 +315,14 @@ public record BedrockMovementState(
         return memory.cameraWater();
     }
 
+    public float sneakMoveScale() {
+        return memory.sneakMoveScale();
+    }
+
+    public BedrockMovementState withSneakMoveScale(float value) {
+        return new BedrockMovementState(motion, actor, memory.withSneakMoveScale(value), tickStart, attributes);
+    }
+
     public BedrockMovementState withAcknowledgedPose(Boolean crawling, Boolean swimming, Boolean spinning) {
         PoseState pose = actor.pose();
         ActorState nextActor = actor.copy(
@@ -719,6 +727,7 @@ public record BedrockMovementState(
                         update.itemUse().slowdownTicks(),
                         dolphinBoost(),
                         cameraWater(),
+                        sneakMoveScale(),
                         penetratingMoves()),
                 TickStart.MOVE,
                 attributes);
@@ -1070,7 +1079,11 @@ public record BedrockMovementState(
             long itemUseSlowdownTicks,
             BedrockDolphinBoost dolphinBoost,
             BedrockCameraWaterState cameraWater,
+            float sneakMoveScale,
             int penetratingMoves) {
+        /** The client starts with the plain sneaking move scale until its sneaking system first writes one. */
+        public static final float DEFAULT_SNEAK_MOVE_SCALE = 0.3F;
+
         public TickMemory(
                 long simulationTick,
                 long powderSnowTicks,
@@ -1096,6 +1109,7 @@ public record BedrockMovementState(
                     itemUseSlowdownTicks,
                     dolphinBoost,
                     BedrockCameraWaterState.INITIAL,
+                    DEFAULT_SNEAK_MOVE_SCALE,
                     0);
         }
 
@@ -1134,6 +1148,7 @@ public record BedrockMovementState(
                     itemUseSlowdownTicks,
                     dolphinBoost,
                     cameraWater,
+                    sneakMoveScale,
                     penetratingMoves);
         }
 
@@ -1151,6 +1166,7 @@ public record BedrockMovementState(
                     itemUseSlowdownTicks,
                     dolphinBoost,
                     cameraWater,
+                    sneakMoveScale,
                     penetratingMoves);
         }
 
@@ -1168,6 +1184,7 @@ public record BedrockMovementState(
                     value,
                     dolphinBoost,
                     cameraWater,
+                    sneakMoveScale,
                     penetratingMoves);
         }
 
@@ -1185,6 +1202,7 @@ public record BedrockMovementState(
                     itemUseSlowdownTicks,
                     value,
                     cameraWater,
+                    sneakMoveScale,
                     penetratingMoves);
         }
 
@@ -1202,6 +1220,7 @@ public record BedrockMovementState(
                     itemUseSlowdownTicks,
                     dolphinBoost,
                     value,
+                    sneakMoveScale,
                     penetratingMoves);
         }
 
@@ -1219,6 +1238,25 @@ public record BedrockMovementState(
                     itemUseSlowdownTicks,
                     dolphinBoost,
                     cameraWater,
+                    sneakMoveScale,
+                    penetratingMoves);
+        }
+
+        TickMemory withSneakMoveScale(float value) {
+            return new TickMemory(
+                    simulationTick,
+                    powderSnowTicks,
+                    fallFlyTicks,
+                    fallDistance,
+                    swimAmount,
+                    riptideChargeTicks,
+                    riptideSpinActive,
+                    riptideSpinTicks,
+                    sneakingTicks,
+                    itemUseSlowdownTicks,
+                    dolphinBoost,
+                    cameraWater,
+                    value,
                     penetratingMoves);
         }
 
@@ -1236,6 +1274,7 @@ public record BedrockMovementState(
                     itemUseSlowdownTicks,
                     dolphinBoost,
                     cameraWater,
+                    sneakMoveScale,
                     value);
         }
 

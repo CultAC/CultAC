@@ -8,7 +8,7 @@ import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
 
 public final class BedrockTravelInputControl {
-    private static final float DEFAULT_SNEAK_MOVE_SCALE = 0.3F;
+    private static final float SWIFT_SNEAK_MOVE_SCALE_PER_LEVEL = 0.15F;
 
     private BedrockTravelInputControl() {}
 
@@ -70,8 +70,22 @@ public final class BedrockTravelInputControl {
                         && !current.swimming()
                         && !context.actorSwimming()
                         && actualSneakingMovement(frame, current)
-                ? DEFAULT_SNEAK_MOVE_SCALE
+                ? current.sneakMoveScale()
                 : 1.0F;
+    }
+
+    /**
+     * The client scales its sneaking input by a stored value that its sneaking system rewrites, after the
+     * tick's input, on each tick the player already sneaks at: 0.3 plus 0.15 per swift sneak level.
+     */
+    public static float sneakMoveScaleAfterTick(BedrockMovementState current, int swiftSneakLevel) {
+        if (current.sneakingTicks() <= 0L) {
+            return current.sneakMoveScale();
+        }
+        return Math.min(
+                1.0F,
+                BedrockMovementState.TickMemory.DEFAULT_SNEAK_MOVE_SCALE
+                        + swiftSneakLevel * SWIFT_SNEAK_MOVE_SCALE_PER_LEVEL);
     }
 
     private static boolean actualSneakingMovement(BedrockInputFrame frame, BedrockMovementState current) {

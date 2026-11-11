@@ -90,7 +90,9 @@ final class BedrockMovementResultBuilder {
                 .withWaterTravelFlag(postMoveEffects.waterTravelActive())
                 .withMovementBranch(postMoveEffects.movementBranch())
                 .withCameraWater(BedrockFallDistance.cameraWaterAfterMove(plan, collision))
-                .withDolphinBoost(state.dolphinBoost().endTick());
+                .withDolphinBoost(state.dolphinBoost().endTick())
+                .withSneakMoveScale(BedrockTravelInputControl.sneakMoveScaleAfterTick(
+                        current, frameFacts.context().equipmentState().swiftSneakLevel()));
         if (blockMove.collisionBox() != null) next = next.withCollisionBox(blockMove.collisionBox());
         next = next.withPenetratingMove(blockMove.penetrating());
         if (state.boat() != null) {

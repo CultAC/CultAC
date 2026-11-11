@@ -10,6 +10,7 @@ import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockFrameSystems;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockSnapshotResolver;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockTravelInput;
+import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockTravelInputControl;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockTravelOptions;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
@@ -107,6 +108,8 @@ public final class BedrockImmobileTick {
                         prepared.control().itemUseSlowdownTicks(),
                         prepared.dolphinBoost().endTick(),
                         prepared.cameraWater(),
+                        BedrockTravelInputControl.sneakMoveScaleAfterTick(
+                                current, facts.context().equipmentState().swiftSneakLevel()),
                         current.penetratingMoves()),
                 BedrockMovementState.TickStart.MOVE,
                 prepared.input().previousState().attributes());
