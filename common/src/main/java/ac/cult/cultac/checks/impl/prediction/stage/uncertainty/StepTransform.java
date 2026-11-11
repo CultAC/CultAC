@@ -4,11 +4,10 @@ import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 
+/** The engine's own travel decides the step: a candidate whose travel stepped up moves to that step. */
 public class StepTransform implements UncertaintyHandler {
-    /** Entity#collide's step raises only the move: deltaMovement keeps its Y for the landing response after it. */
     @Override
     public MovementTrace handleMovementTrace(
             CultPlayer player,
@@ -30,31 +29,7 @@ public class StepTransform implements UncertaintyHandler {
             PredictionResult lastContext,
             PredVector start,
             Vec3 end) {
-        // The player isn't allowed to step here
-        if (!valid.isCanStep()) return start;
-
-        double maxUpStep = start.maxUpStep(player);
-        if (maxUpStep <= 0.0F) {
-            return start;
-        }
-
-        PredVector.StepCandidate step = start.stepCandidate(end, result.getCollideAxisData());
-        PredVector candidateStep = step.exact();
-        if (candidateStep != null) {
-            return candidateStep.distanceToSqr(end) < start.distanceToSqr(end) ? candidateStep : start;
-        }
-        if (!step.boundedFallback()) {
-            return start;
-        }
-
-        return boundedCandidate(
-                        start, end, maxUpStep, result.getSimulationContext().getTargetScalarVert(), "step")
-                .markBoundedStep();
-    }
-
-    public static PredVector boundedCandidate(
-            PredVector start, Vec3 end, double maxUpStep, double verticalScale, String reason) {
-        double clampedStep = CultMath.clamp(end.y, Math.min(0, start.y), maxUpStep * verticalScale);
-        return start.withY(clampedStep, reason);
+        PredVector step = start.steppedMove();
+        return step == null ? start : step;
     }
 }

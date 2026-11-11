@@ -1,7 +1,6 @@
 package ac.cult.cultac.checks.impl.prediction.checks;
 
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InvalidStep;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.VerticalOffset;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
@@ -9,8 +8,6 @@ import ac.cult.cultac.utils.math.Vec3;
 
 // Entity#collide uses collision-derived step heights, not a continuous range.
 public class VerticalAnalyzer implements EngineCheck {
-    private static final VanillaStepProof VANILLA_STEP_PROOF = new VanillaStepProof();
-
     public void handleResult(CultPlayer player, PredictionResult result, PredictionResult lastResult) {
         if (result.getSimulationContext().getVehicle() != null) {
             return;
@@ -18,11 +15,6 @@ public class VerticalAnalyzer implements EngineCheck {
 
         Vec3 target = result.getTarget();
         Vec3 closest = result.getAcceptedClosestToTarget();
-
-        if (VANILLA_STEP_PROOF.isInvalidStep(player, result)) {
-            final InvalidStep invalidStep = player.checkManager.getListener(InvalidStep.class);
-            result.addFlag(invalidStep, () -> "", 1);
-        }
 
         if (result.getSimulationContext().usesFallFlyingMovement()
                 && !result.getSimulationContext().getWorldData().isInLiquid()) {

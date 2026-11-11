@@ -247,11 +247,10 @@ public final class VelocityCandidates {
     }
 
     /**
-     * Whether Entity#collide certainly clipped the closest movement's Y: it stepped, or stopped at a known floor's or
-     * ceiling's limit. A nearby unknown collider can stop it anywhere.
+     * Whether Entity#collide certainly clipped the closest movement's Y: it stopped at a known floor's or ceiling's
+     * limit. A nearby unknown collider can stop it anywhere.
      */
     private static boolean certainlyClippedVertically(PredictionResult result) {
-        if (result.getValidMovements().getClosestTrace().position().hasReason("step")) return true;
         var collisions = result.getCollideAxisData();
         return collisions != null && !hasUnknown(collisions) && endsAtVerticalLimit(result, collisions);
     }
@@ -652,19 +651,11 @@ public final class VelocityCandidates {
         return end == null || Math.abs(requested - moved) > Math.ulp(end.y);
     }
 
-    /** Entity#move's attempted Y before collision, including a step's original downward travel. */
+    /** Entity#move's attempted Y before collision. */
     public static double requestedMovementY(PredictionResult result) {
         JavaMoveCollision forward = forwardMove(result);
         if (forward != null) return forward.attempted().y;
-        MovementTrace trace = result.getValidMovements().getClosestTrace();
-        Vec3 attempted = trace.preCollisionMovement();
-        // StepTransform changes only the move's Y, so the pre-step velocity supplies the attempted Y.
-        double requestedY = attempted.y;
-        if (trace.position().hasReason("step")) {
-            Vec3 stuck = trace.position().collisionStuckSpeedMultiplier(result.getSimulationContext());
-            requestedY = trace.preCollisionVelocity().y * (stuck == null ? 1.0D : stuck.y);
-        }
-        return requestedY;
+        return result.getValidMovements().getClosestTrace().preCollisionMovement().y;
     }
 
     private static boolean likelyVerticalCollision(PredictionResult result) {

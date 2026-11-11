@@ -60,10 +60,6 @@ public class PredictionResult {
     @ToString.Exclude
     private double selectionOffset = Double.NaN;
 
-    /** VanillaStepProof's source-proven step for this result; one handleResult pass reads it from two checks. */
-    @EqualsAndHashCode.Exclude
-    Boolean sourceProvenStep;
-
     @Getter
     @Setter
     boolean isExempt = false;

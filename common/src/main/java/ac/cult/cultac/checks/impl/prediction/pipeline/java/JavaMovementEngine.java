@@ -232,8 +232,8 @@ public final class JavaMovementEngine implements MovementEngine {
 
     @Override
     public ValidMovements createValidMovements(
-            PredVector initialStartingVelocity, CultPlayer player, PredictionResult result, boolean canStep) {
-        return new ValidMovements(initialStartingVelocity, player, result, canStep);
+            PredVector initialStartingVelocity, CultPlayer player, PredictionResult result) {
+        return new ValidMovements(initialStartingVelocity, player, result);
     }
 
     @Override

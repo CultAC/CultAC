@@ -4,7 +4,6 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ClientSprintState;
-import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.utils.debug.DebugText;
 import ac.cult.cultac.utils.math.Vec3;
@@ -29,9 +28,6 @@ public class PredVector extends Vec3 implements DebugText.Recordable {
     @Getter
     @Setter
     boolean isEntityMotion = false;
-
-    @Getter
-    boolean isBoundedStep = false;
 
     // Player#causeExtraKnockback 0.6 X/Z dampings applied to this starting velocity
     @Getter
@@ -75,7 +71,6 @@ public class PredVector extends Vec3 implements DebugText.Recordable {
         this.isJump = lastVector.isJump;
         this.isKnockback = lastVector.isKnockback;
         this.isEntityMotion = lastVector.isEntityMotion;
-        this.isBoundedStep = lastVector.isBoundedStep;
         this.attackSlows = lastVector.attackSlows;
         this.sprintOutcome = lastVector.sprintOutcome;
         this.travelInput = lastVector.travelInput;
@@ -299,18 +294,9 @@ public class PredVector extends Vec3 implements DebugText.Recordable {
         return lastVector == null ? 0.0D : lastVector.horizontalInputRadius();
     }
 
-    public PredVector stepCandidate() {
-        return lastVector == null ? null : lastVector.stepCandidate();
-    }
-
-    public PredVector stepCandidate(Vec3 end) {
-        return lastVector == null ? stepCandidate() : lastVector.stepCandidate(end);
-    }
-
-    public StepCandidate stepCandidate(Vec3 end, CollideAxisData collisionData) {
-        return lastVector == null
-                ? new StepCandidate(stepCandidate(end), true)
-                : lastVector.stepCandidate(end, collisionData);
+    /** The move the engine's own travel stepped up to, or null when its travel did not step. */
+    public PredVector steppedMove() {
+        return lastVector == null ? null : lastVector.steppedMove();
     }
 
     public double maxUpStep(CultPlayer player) {
@@ -341,13 +327,6 @@ public class PredVector extends Vec3 implements DebugText.Recordable {
     public void setJump() {
         this.isJump = true;
     }
-
-    public PredVector markBoundedStep() {
-        this.isBoundedStep = true;
-        return this;
-    }
-
-    public record StepCandidate(PredVector exact, boolean boundedFallback) {}
 
     public double getX() {
         return x;

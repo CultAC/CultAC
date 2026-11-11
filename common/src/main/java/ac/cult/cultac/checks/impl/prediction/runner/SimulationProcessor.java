@@ -2816,7 +2816,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                             alternativeRealities,
                             invalidOrValidRealities);
                     ValidMovements validMovement = engine.createValidMovements(
-                                    thisResult.getInitialStartingVel(), player, thisResult, false)
+                                    thisResult.getInitialStartingVel(), player, thisResult)
                             .computeExtents(lastPrediction);
                     valid.add(validMovement);
                 }
@@ -2827,85 +2827,44 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
         for (int i = 0, size = valid.size(); i < size; i++) {
             ValidMovements validMovements = valid.get(i);
-            boolean allowStep = false;
-
-            do {
-                PredictionResult thisResult = validMovements.getResult();
-                boolean previousMath = JavaMovementMath.select(player, thisResult.getInitialStartingVel());
-                try {
-                    player.clientFluidTagOrder =
-                            thisResult.getSimulationContext().getFluidTagOrder();
-                    SimpleCollisionBox attemptedExtents = validMovements.getCollisionIgnoredMaxStartingVelExtents();
-                    boolean forward = engine == JavaMovementEngine.INSTANCE;
-                    if (forward) {
-                        validMovements.computeCollisionIgnoredMovement(lastPrediction);
-                        validMovements.applyForwardMove(lastPrediction);
-                    } else {
-                        thisResult.setCollideAxisData(probeCollisions(
-                                player,
-                                engine,
-                                thisResult,
-                                attemptedExtents,
-                                thisResult.getSimulationContext().getTarget(),
-                                validMovements.isCanStep()));
-                        validMovements.computeClosest(lastPrediction);
-                    }
-                    if (!player.isBedrockMovement() && !JavaSpinAttack.validSprintContext(player, thisResult)) break;
-                    if (debugUncertainty) {
-                        if (forward) {
-                            // Rank by how far off the candidate was before the allowance, which can make many fit.
-                            engine.evaluateCandidate(player, thisResult);
-                            thisResult.selectionOffset();
-                        }
-                        validMovements.applyDebugUncertainty();
-                    }
-                    engine.evaluateCandidate(player, thisResult);
-                    this.flagger.handleResult(thisResult, lastPrediction);
-                    bestResult = engine.isBetterCandidate(thisResult, bestResult) ? thisResult : bestResult;
-                    if (thisResult.getFlagSeverity() == 0.0) {
-                        alternativeRealities.add(thisResult);
-                    }
-
-                    invalidOrValidRealities.add(thisResult);
-                    if (allowStep || forward) {
-                        break;
-                    }
-
-                    CollideAxisData probedCollisions = thisResult.getCollideAxisData();
-                    allowStep = thisResult.getInitialStartingVel().maxUpStep(player) > 0.0
-                            && (thisResult
-                                            .getSimulationContext()
-                                            .getLastOnGround()
-                                            .determineOptimistically()
-                                    || probedCollisions.getYNeg() != null
-                                            && probedCollisions.getYNeg().isLikelyCollide()
-                                            && probedCollisions.getYNeg().getResult() + 0.001
-                                                    > thisResult
-                                                            .getValidMovements()
-                                                            .getCollisionIgnoredMaxStartingVelExtents()
-                                                            .minY);
-                    if (allowStep) {
-                        CollideAxisData stepEligibility = probedCollisions;
-                        allowStep = stepEligibility.couldCollideHorizontally();
-                    }
-                    if (allowStep) {
-                        thisResult = new PredictionResult(
-                                player,
-                                thisResult.getInitialStartingVel(),
-                                thisResult.getSimulationContext(),
-                                thisResult.getSimulationContext().getTarget(),
-                                null,
-                                alternativeRealities,
-                                invalidOrValidRealities);
-                        validMovements = engine.createValidMovements(
-                                        thisResult.getInitialStartingVel(), player, thisResult, false)
-                                .computeExtents(lastPrediction);
-                        validMovements.setCanStep(true);
-                    }
-                } finally {
-                    JavaMovementMath.restore(player, previousMath);
+            PredictionResult thisResult = validMovements.getResult();
+            boolean previousMath = JavaMovementMath.select(player, thisResult.getInitialStartingVel());
+            try {
+                player.clientFluidTagOrder = thisResult.getSimulationContext().getFluidTagOrder();
+                SimpleCollisionBox attemptedExtents = validMovements.getCollisionIgnoredMaxStartingVelExtents();
+                boolean forward = engine == JavaMovementEngine.INSTANCE;
+                if (forward) {
+                    validMovements.computeCollisionIgnoredMovement(lastPrediction);
+                    validMovements.applyForwardMove(lastPrediction);
+                } else {
+                    thisResult.setCollideAxisData(probeCollisions(
+                            player,
+                            engine,
+                            thisResult,
+                            attemptedExtents,
+                            thisResult.getSimulationContext().getTarget()));
+                    validMovements.computeClosest(lastPrediction);
                 }
-            } while (allowStep);
+                if (!player.isBedrockMovement() && !JavaSpinAttack.validSprintContext(player, thisResult)) continue;
+                if (debugUncertainty) {
+                    if (forward) {
+                        // Rank by how far off the candidate was before the allowance, which can make many fit.
+                        engine.evaluateCandidate(player, thisResult);
+                        thisResult.selectionOffset();
+                    }
+                    validMovements.applyDebugUncertainty();
+                }
+                engine.evaluateCandidate(player, thisResult);
+                this.flagger.handleResult(thisResult, lastPrediction);
+                bestResult = engine.isBetterCandidate(thisResult, bestResult) ? thisResult : bestResult;
+                if (thisResult.getFlagSeverity() == 0.0) {
+                    alternativeRealities.add(thisResult);
+                }
+
+                invalidOrValidRealities.add(thisResult);
+            } finally {
+                JavaMovementMath.restore(player, previousMath);
+            }
         }
 
         if (debugUncertainty && engine == JavaMovementEngine.INSTANCE && bestResult != null)
@@ -2945,8 +2904,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             MovementEngine engine,
             PredictionResult result,
             SimpleCollisionBox attemptedExtents,
-            Vec3 collisionTarget,
-            boolean canStep) {
+            Vec3 collisionTarget) {
         SimulationContext context = result.getSimulationContext();
         return engine.probeCollisions(
                 collisionProbe,
@@ -2956,8 +2914,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 collisionTarget,
                 context.getStart(),
                 result.getInitialStartingVel(),
-                attemptedExtents,
-                canStep);
+                attemptedExtents);
     }
 
     /**

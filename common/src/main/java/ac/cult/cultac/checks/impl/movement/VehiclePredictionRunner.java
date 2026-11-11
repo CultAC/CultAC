@@ -146,7 +146,7 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
 
         for (PredictionResult reality : result.getRealities()) {
             SimpleCollisionBox valid = reality.getValidMovements().getCollisionIgnoredMaxStartingVelExtents();
-            if ((!canCollideDown && !reality.getValidMovements().isCanStep() && !isStriderInLava) || valid.minY >= 0) {
+            if ((!canCollideDown && !isStriderInLava) || valid.minY >= 0) {
                 // Entity#move can report ground only after a downward collision. A nonnegative
                 // maximum is insufficient: another valid pre-collision Y may still descend.
                 lastOnGround = lastOnGround == null ? DesyncStatus.FALSE : lastOnGround.addBoolean(false);

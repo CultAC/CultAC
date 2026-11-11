@@ -6,9 +6,7 @@ import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
-import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
-import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.Objects;
 
@@ -86,49 +84,17 @@ final class BedrockPredVector extends PredVector {
     }
 
     @Override
-    public PredVector stepCandidate() {
-        return BedrockSimulation.stepCandidate(movementResult)
-                .map(this::stepVector)
-                .orElse(null);
-    }
-
-    @Override
-    public PredVector stepCandidate(Vec3 end) {
-        Vec3d previous = movementResult.previousState().physicalFeetPosition();
-        Vec3d sourceMove = movementResult.rawPredictedPhysicalFeetPosition().subtract(previous);
-        // The step sweeps this candidate's own movement, the point of its input extents nearest the target,
-        // and its collided X/Z stand: StepTransform runs after CollisionModifier, so nothing clips them later.
-        double radius = horizontalInputRadius();
-        Vec3d requestedDelta = new Vec3d(
-                Math.clamp(end.x, sourceMove.x() - radius, sourceMove.x() + radius),
-                sourceMove.y(),
-                Math.clamp(end.z, sourceMove.z() - radius, sourceMove.z() + radius));
-        return BedrockSimulation.stepCandidate(movementResult, requestedDelta)
-                .map(this::stepVector)
-                .orElse(null);
-    }
-
-    @Override
-    public StepCandidate stepCandidate(Vec3 end, CollideAxisData collisionData) {
-        if (collisionData != null && !collisionData.getUnknown().isEmpty()) {
-            return new StepCandidate(null, true);
+    public PredVector steppedMove() {
+        if (!movementResult.steppedUp()) {
+            return null;
         }
-        return new StepCandidate(stepCandidate(end), false);
-    }
-
-    @Override
-    public double maxUpStep(CultPlayer player) {
-        return movementResult.maxUpStep();
+        Vec3d previous = movementResult.previousState().physicalFeetPosition();
+        Vec3 stepDelta = BedrockVectorAdapter.toJava(movementResult.predictedPosition().subtract(previous));
+        return new PredVector(stepDelta, this, "bedrock step");
     }
 
     @Override
     public Vec3 collisionStuckSpeedMultiplier(SimulationContext context) {
         return new Vec3(1.0D, 1.0D, 1.0D);
-    }
-
-    private PredVector stepVector(Vec3d position) {
-        Vec3d previous = movementResult.previousState().physicalFeetPosition();
-        Vec3 stepDelta = BedrockVectorAdapter.toJava(position.subtract(previous));
-        return new PredVector(stepDelta, this, "bedrock step candidate");
     }
 }

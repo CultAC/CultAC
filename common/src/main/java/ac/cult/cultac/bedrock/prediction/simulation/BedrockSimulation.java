@@ -4,7 +4,6 @@ import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputIntent;
-import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockStepProjectionResolver;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockSnapshotResolver;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockTravelInput;
@@ -18,7 +17,6 @@ import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
 public final class BedrockSimulation {
     public static final double DEFAULT_MAX_AUTO_STEP = 0.5625D;
@@ -134,14 +132,6 @@ public final class BedrockSimulation {
                 .stream()
                 .map(state -> new NextState(state.state(), state.lineageState()))
                 .toList();
-    }
-
-    public static Optional<Vec3d> stepCandidate(BedrockMovementResult result) {
-        return BedrockStepProjectionResolver.candidatePosition(result);
-    }
-
-    public static Optional<Vec3d> stepCandidate(BedrockMovementResult result, Vec3d requestedDelta) {
-        return BedrockStepProjectionResolver.candidatePosition(result, requestedDelta);
     }
 
     static BedrockMovementResult move(

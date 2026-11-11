@@ -11,22 +11,18 @@ import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.events.packets.PacketWorldBorder;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
-import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 
-/** Every memoised step-proof collision equals a fresh one computed later in the same prediction. */
+/** Every memoised collision below a destination equals a fresh one computed later in the same prediction. */
 class StepCollisionMemoEquivalenceTest {
     private static final int SCENARIOS = 66;
-    private static final long STEP = 1L;
-    private static final long Z_FIRST = 4L;
     private static final long ON_GROUND = 8L;
     private static final long FULL_BLOCK = 16L;
 
@@ -149,18 +145,6 @@ class StepCollisionMemoEquivalenceTest {
                 d(k[at + 6]),
                 (tag & FULL_BLOCK) != 0);
         boolean onGround = (tag & ON_GROUND) != 0;
-        if ((tag & STEP) != 0) {
-            List<Collisions.Axis> order = (tag & Z_FIRST) != 0
-                    ? List.of(Collisions.Axis.Y, Collisions.Axis.Z, Collisions.Axis.X)
-                    : List.of(Collisions.Axis.Y, Collisions.Axis.X, Collisions.Axis.Z);
-            Collisions.SteppedCollision fresh = Collisions.collideWithStepComparison(
-                    player, box, d(k[at + 7]), d(k[at + 8]), d(k[at + 9]), order, Collections.emptyList(), onGround);
-            Collisions.SteppedCollision cached = (Collisions.SteppedCollision) memoised;
-            if (same(fresh.movement(), cached.movement()) && same(fresh.withoutStep(), cached.withoutStep())) {
-                return null;
-            }
-            return "step " + box + " " + cached + " != " + fresh;
-        }
         boolean saved = player.lastOnGround;
         player.lastOnGround = onGround;
         try {
@@ -170,12 +154,6 @@ class StepCollisionMemoEquivalenceTest {
         } finally {
             player.lastOnGround = saved;
         }
-    }
-
-    private static boolean same(Vec3 a, Vec3 b) {
-        return Double.doubleToRawLongBits(a.x) == Double.doubleToRawLongBits(b.x)
-                && Double.doubleToRawLongBits(a.y) == Double.doubleToRawLongBits(b.y)
-                && Double.doubleToRawLongBits(a.z) == Double.doubleToRawLongBits(b.z);
     }
 
     private static double d(long bits) {

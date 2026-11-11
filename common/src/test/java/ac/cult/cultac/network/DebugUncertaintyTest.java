@@ -495,7 +495,7 @@ class DebugUncertaintyTest {
         when(context.getLastStuckSpeed()).thenReturn(stuck);
         PredVector start = new PredVector(Vec3.ZERO);
         PredictionResult result = new PredictionResult(player, start, context, target, null, List.of(), List.of());
-        return new ValidMovements(start, player, result, false, List.of()).computeClosest(null);
+        return new ValidMovements(start, player, result, List.of()).computeClosest(null);
     }
 
     private static IsolatedCommandManager manager() {

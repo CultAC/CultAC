@@ -8,15 +8,15 @@ import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMoveCollision;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPassAfterTravel;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaRootGround;
+import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.EntityWorldCollisions;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
+import java.util.List;
 
 public class NoFall implements EngineCheck {
-    private static final VanillaStepProof STEP_PROOF = new VanillaStepProof();
-
     @Override
     public void handleResult(CultPlayer player, PredictionResult result, PredictionResult lastResult) {
         BedrockPredictionResult bedrockResult = result.getProfileResult(BedrockPredictionResult.class);
@@ -68,7 +68,7 @@ public class NoFall implements EngineCheck {
             }
         } else if (result.getSimulationContext().isOnGround()
                 && !endsOnFloor(downCollide, travelY, stuckSpeedY)
-                && !STEP_PROOF.canStandAtDestination(player, result)) {
+                && !canStandAtDestination(player, result)) {
             result.addFlag(noFallPseudo, () -> "true", 0.1);
             flaggedNoFall = true;
             desiredOnGround = false;
@@ -80,8 +80,7 @@ public class NoFall implements EngineCheck {
                 && forward == null
                 && canCollideDown
                 && valid.maxY + 0.001 < travelY // And their valid Y is below their actual movement
-                && (downCollide.inMovementSpace(stuckSpeedY) + 0.001 >= travelY // And they recovered by colliding
-                        || stepsUpFromDownwardMove(result, valid))) {
+                && downCollide.inMovementSpace(stuckSpeedY) + 0.001 >= travelY) { // And they recovered by colliding
             result.addFlag(noFallPseudo, () -> "false", 0.1);
             flaggedNoFall = true;
         }
@@ -120,16 +119,6 @@ public class NoFall implements EngineCheck {
     }
 
     /**
-     * A travel above the floor it could land on, and above every Y the player requested, that only Entity#collide's
-     * step-up explains. Every requested Y is downward, so the step follows a collision that stopped the downward move:
-     * Entity#move sets verticalCollisionBelow, then onGround, and Entity#checkFallDamage lands the fall. A client that
-     * reports this move airborne skips that landing on the server, which then resets the fall for the upward move.
-     */
-    private static boolean stepsUpFromDownwardMove(PredictionResult result, SimpleCollisionBox valid) {
-        return result.getValidMovements().isCanStep() && valid.maxY < 0.0D;
-    }
-
-    /**
      * Entity#move sets onGround only when collision stops a downward move, which leaves the travel on the floor it hit.
      * A travel that ends above the nearest floor the move could reach hit none, however far the move could have gone.
      * The 0.001 is the recovered-fall check's: it holds Entity#move's setPos guard, which keeps the player where it was
@@ -150,5 +139,33 @@ public class NoFall implements EngineCheck {
             result.addFlag(
                     player.checkManager.getListener(NoFallPseudo.class), () -> "manufactured_non_collision", 0.1D);
         }
+    }
+
+    /** A block, or an entity at any position the client may hold it, directly under the destination box. */
+    private static boolean canStandAtDestination(CultPlayer player, PredictionResult result) {
+        SimpleCollisionBox destination = result.getSimulationContext().getToCubeCollision();
+        return standsOnUnknownCollision(result, destination)
+                || player.checkManager
+                        .getSimulationProcessor()
+                        .getStepCollisionMemo()
+                        .collidesDirectlyBelow(player, destination);
+    }
+
+    private static boolean standsOnUnknownCollision(PredictionResult result, SimpleCollisionBox destination) {
+        if (!(result.getCollideAxisData() instanceof EntityWorldCollisions worlds)) {
+            for (SimpleCollisionBox box : result.getCollideAxisData().getUnknown()) {
+                if (box.isIntersected(result.getSimulationContext().getToMaximumExtent())) return true;
+            }
+            return false;
+        }
+        double probe = -SimpleCollisionBox.COLLISION_EPSILON;
+        for (List<SimpleCollisionBox> colliders : worlds.colliders()) {
+            for (int i = 0; i < colliders.size(); i++) {
+                if (colliders.get(i).collideY(destination, probe, SimpleCollisionBox.AxisEpsilon.JAVA) != probe) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }

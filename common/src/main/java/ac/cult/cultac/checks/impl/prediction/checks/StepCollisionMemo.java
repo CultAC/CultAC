@@ -4,19 +4,15 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
 
 /**
- * VanillaStepProof's collisions within one Java prediction, keyed on the raw bits of every argument that varies inside
- * it. A hit is exact only while the unkeyed inputs (carry, step height, sneaking, border, world) stay fixed; the
- * prediction writes profileCarry before the memo's first entry and none of them after it.
+ * NoFall's collisions directly below a destination within one Java prediction, keyed on the raw bits of every argument
+ * that varies inside it. A hit is exact only while the unkeyed inputs (carry, step height, sneaking, border, world)
+ * stay fixed; the prediction writes profileCarry before the memo's first entry and none of them after it.
  */
 public final class StepCollisionMemo {
     private static final int KEY_LONGS = 10;
-    private static final long STEP = 1L;
     private static final long BELOW = 2L;
-    private static final long Z_FIRST = 4L;
     private static final long ON_GROUND = 8L;
     private static final long FULL_BLOCK = 16L;
 
@@ -35,27 +31,6 @@ public final class StepCollisionMemo {
     public void close() {
         clear();
         open = false;
-    }
-
-    Collisions.SteppedCollision steppedCollision(
-            CultPlayer player,
-            SimpleCollisionBox box,
-            double desiredX,
-            double desiredY,
-            double desiredZ,
-            List<Collisions.Axis> order,
-            boolean onGroundForStep) {
-        if (!open) {
-            return Collisions.collideWithStepComparison(
-                    player, box, desiredX, desiredY, desiredZ, order, Collections.emptyList(), onGroundForStep);
-        }
-        long tag = STEP | (order.get(1) == Collisions.Axis.Z ? Z_FIRST : 0L) | (onGroundForStep ? ON_GROUND : 0L);
-        int found = find(tag, box, desiredX, desiredY, desiredZ);
-        if (found >= 0) return (Collisions.SteppedCollision) values[found];
-        Collisions.SteppedCollision collision = Collisions.collideWithStepComparison(
-                player, box, desiredX, desiredY, desiredZ, order, Collections.emptyList(), onGroundForStep);
-        insert(-found - 1, collision);
-        return collision;
     }
 
     boolean collidesDirectlyBelow(CultPlayer player, SimpleCollisionBox box) {

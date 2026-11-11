@@ -171,8 +171,6 @@ class PredictionDigestTest {
                 .append(vec(valid.getClosestToTarget()))
                 .append(" extents ")
                 .append(box(valid.getCollisionIgnoredMaxStartingVelExtents()))
-                .append(" step ")
-                .append(valid.isCanStep())
                 .append("\n trace ")
                 .append(valid.getClosestTrace());
     }

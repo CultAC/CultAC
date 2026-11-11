@@ -12,7 +12,6 @@ class PredictionAllocationTest {
     void scalarConstructionRetainsLineageFlagsAndModifierCopyOnWrite() {
         var root = new PredVector(new Vec3(-0.0, .2, -.3));
         root.isJump = true;
-        root.isBoundedStep = true;
         root.setAttackSlows(2);
         var first = new TransactionVel(new Vec3(1, 2, 3), 1, true, false);
         root.addPacketModifier(first);
@@ -21,7 +20,6 @@ class PredictionAllocationTest {
         assertSame(root, child.lastVector);
         assertTrue(child.isJump());
         assertTrue(child.isKnockback());
-        assertTrue(child.isBoundedStep());
         assertEquals(2, child.getAttackSlows());
         assertTrue(child.hasReason("child"));
         assertSame(root.packetModifiers, child.packetModifiers);

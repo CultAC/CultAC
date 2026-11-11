@@ -100,7 +100,7 @@ class ValidMovementsTraceEquivalenceTest {
                 List.of(nudge, nudge, rebase, nudge, same),
                 List.of(same, rebase, same, rebase, nudge));
         for (List<UncertaintyHandler> handlers : lists) {
-            ValidMovements valid = new ValidMovements(start, null, result, false, handlers);
+            ValidMovements valid = new ValidMovements(start, null, result, handlers);
             MovementTrace want = chain(valid, handlers, new Vec3(0.5, 0.5, 0.5), null);
             MovementTrace got = valid.transformTraceTowards(new Vec3(0.5, 0.5, 0.5), null);
             assertEquals(describe(want), describe(got), handlers.toString());

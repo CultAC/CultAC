@@ -40,8 +40,7 @@ public interface MovementEngine {
     List<PredVector> startingVelocities(
             VelocityTransformer transformer, CultPlayer player, List<PredVector> input, SimulationContext context);
 
-    ValidMovements createValidMovements(
-            PredVector initialStartingVelocity, CultPlayer player, PredictionResult result, boolean canStep);
+    ValidMovements createValidMovements(PredVector initialStartingVelocity, CultPlayer player, PredictionResult result);
 
     default CollideAxisData probeCollisions(
             CollisionModifier modifier,
@@ -51,8 +50,7 @@ public interface MovementEngine {
             Vec3 target,
             Vec3 playerPos,
             PredVector initialStartingVelocity,
-            SimpleCollisionBox attemptedMovementExtents,
-            boolean canStep) {
+            SimpleCollisionBox attemptedMovementExtents) {
         throw new UnsupportedOperationException("This engine resolves collisions forward");
     }
 

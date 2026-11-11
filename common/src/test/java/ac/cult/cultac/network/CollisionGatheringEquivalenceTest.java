@@ -115,46 +115,6 @@ class CollisionGatheringEquivalenceTest {
     }
 
     @Test
-    void stepComparisonMatchesSeparateSteppingAndNonSteppingCalls() throws Exception {
-        try (var services = new RecordConsumerServices();
-                var fixture = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
-            CultPlayer player = fixture.player;
-            CollisionWorlds.populate(player, 0x5eedL);
-            Field version = player.getClass().getDeclaredField("resolvedClientVersion");
-            version.setAccessible(true);
-            player.movementPlatform = MovementPlatform.JAVA;
-            player.bedrockState = null;
-            var random = new SplittableRandom(0x57E9L);
-            int stepped = 0;
-            for (int iteration = 0; iteration < 6000; iteration++) {
-                version.set(player, VERSIONS.get(random.nextInt(VERSIONS.size())));
-                double x = random.nextInt(-30, 30) + random.nextDouble();
-                double z = random.nextInt(-30, 30) + random.nextDouble();
-                double y = random.nextBoolean() ? random.nextInt(44, 80) : random.nextInt(44, 80) + random.nextDouble();
-                var box = new SimpleCollisionBox(x - 0.3, y, z - 0.3, x + 0.3, y + 1.8, z + 0.3, false);
-                double dx = random.nextInt(4) == 0 ? 0.0 : random.nextDouble(-0.4, 0.4);
-                double dy = random.nextInt(4) == 0 ? 0.0 : random.nextDouble(-0.5, 0.45);
-                double dz = random.nextInt(4) == 0 ? 0.0 : random.nextDouble(-0.4, 0.4);
-                var order = ORDERS.get(random.nextInt(ORDERS.size()));
-                boolean onGround = random.nextBoolean();
-                String context = iteration + " " + box + " " + dx + " " + dy + " " + dz + " " + onGround;
-
-                var comparison = Collisions.collideWithStepComparison(
-                        player, box.copy(), dx, dy, dz, order, List.of(), onGround);
-                Vec3 expectedStepped = Collisions.collideWithAdditionalCollisionBoxes(
-                        player, box.copy(), dx, dy, dz, order, true, List.of(), onGround);
-                Vec3 expectedWithoutStep = Collisions.collideWithAdditionalCollisionBoxes(
-                        player, box.copy(), dx, dy, dz, order, false, List.of(), onGround);
-                assertEquals(bits(expectedStepped), bits(comparison.movement()), context);
-                assertEquals(bits(expectedWithoutStep), bits(comparison.withoutStep()), context);
-                assertEquals(0, CollisionBoxPool.current().mark(), context);
-                if (!bits(expectedStepped).equals(bits(expectedWithoutStep))) stepped++;
-            }
-            assertTrue(stepped > 100, "too few queries stepped: " + stepped);
-        }
-    }
-
-    @Test
     void intersectingNativeCollidersMatchTheirDownCastBoxes() throws Exception {
         try (var services = new RecordConsumerServices();
                 var fixture = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
@@ -193,10 +153,6 @@ class CollisionGatheringEquivalenceTest {
             }
             assertTrue(added > 3000 && rejected > 3000, "too few colliders: " + added + " " + rejected);
         }
-    }
-
-    private static String bits(Vec3 vector) {
-        return bits(vector.x) + bits(vector.y) + bits(vector.z);
     }
 
     private interface Gather {

@@ -141,6 +141,7 @@ public final class BedrockMovementEngine implements MovementEngine {
                             vector,
                             movementResult,
                             candidateDelta(movementResult));
+                    // A stepped travel enters once: StepTransform moves it to the travel's own step.
                     if (!movementResult.steppedUp()) {
                         Vec3d previous = movementResult.previousState().physicalFeetPosition();
                         addCandidate(
@@ -231,8 +232,8 @@ public final class BedrockMovementEngine implements MovementEngine {
     }
 
     public ValidMovements createValidMovements(
-            PredVector initialStartingVelocity, CultPlayer player, PredictionResult result, boolean canStep) {
-        return new ValidMovements(initialStartingVelocity, player, result, canStep, UNCERTAINTY_HANDLERS);
+            PredVector initialStartingVelocity, CultPlayer player, PredictionResult result) {
+        return new ValidMovements(initialStartingVelocity, player, result, UNCERTAINTY_HANDLERS);
     }
 
     public CollideAxisData probeCollisions(
@@ -243,8 +244,7 @@ public final class BedrockMovementEngine implements MovementEngine {
             Vec3 target,
             Vec3 playerPos,
             PredVector initialStartingVelocity,
-            SimpleCollisionBox attemptedMovementExtents,
-            boolean canStep) {
+            SimpleCollisionBox attemptedMovementExtents) {
         if (context.isBedrockTeleportTick()) {
             return BedrockCollisionAxisData.neutral();
         }

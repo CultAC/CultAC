@@ -184,7 +184,7 @@ class PredictionPipelineEquivalenceTest {
         }
         PredVector start = new PredVector(new Vec3(0.25, 0, 0));
         PredictionResult result = new PredictionResult(null, start, null, Vec3.ZERO, null, List.of(), List.of());
-        ValidMovements valid = new ValidMovements(start, null, result, false, List.copyOf(handlers));
+        ValidMovements valid = new ValidMovements(start, null, result, List.copyOf(handlers));
         handlers.clear();
 
         Vec3 moved = valid.transformTowards(Vec3.ZERO, null);

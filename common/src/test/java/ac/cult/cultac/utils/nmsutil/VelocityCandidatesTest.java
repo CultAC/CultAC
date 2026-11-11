@@ -203,16 +203,6 @@ class VelocityCandidatesTest {
     }
 
     @Test
-    void aStepDoesNotCarryItsHeightAsVelocity() {
-        PredVector velocity = new PredVector(new Vec3(0.1, -0.078, 0));
-        PredVector stepped = velocity.withY(0.5, "step");
-        PredictionResult result = result(velocity, stepped, Vec3.ZERO);
-        when(result.getValidMovements().getClosestTrace())
-                .thenReturn(MovementTrace.start(velocity).withPosition(stepped).withPreCollisionMovement(stepped));
-        assertEquals(Set.of(new Vec3(0.1, 0, 0)), derive(result));
-    }
-
-    @Test
     void consumedStuckSpeedClearsStoredVelocity() {
         PredVector velocity = new PredVector(new Vec3(0.1, -0.078, 0.2));
         PredictionResult result = result(velocity, velocity.multiply(0.25, 0.05, 0.25), Vec3.ZERO);

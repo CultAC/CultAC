@@ -15,7 +15,7 @@ public final class BedrockVerticalCollisionClassifierTest {
         assertEquals(
                 BedrockVerticalCollisionVerdict.MANUFACTURED_COLLISION,
                 BedrockVerticalCollisionClassifier.classify(
-                        true, collision(false, 0.0D, false, 0.0D, List.of()), movement(-0.08D, -0.08D), -0.08D, false));
+                        true, collision(false, 0.0D, false, 0.0D, List.of()), movement(-0.08D, -0.08D), -0.08D));
     }
 
     @Test
@@ -23,7 +23,7 @@ public final class BedrockVerticalCollisionClassifierTest {
         assertEquals(
                 BedrockVerticalCollisionVerdict.MANUFACTURED_NON_COLLISION,
                 BedrockVerticalCollisionClassifier.classify(
-                        false, collision(false, 0.0D, true, 0.0D, List.of()), movement(-0.08D, -0.08D), 0.0D, false));
+                        false, collision(false, 0.0D, true, 0.0D, List.of()), movement(-0.08D, -0.08D), 0.0D));
     }
 
     @Test
@@ -31,7 +31,7 @@ public final class BedrockVerticalCollisionClassifierTest {
         assertEquals(
                 BedrockVerticalCollisionVerdict.LEGAL,
                 BedrockVerticalCollisionClassifier.classify(
-                        true, collision(true, 0.0D, false, 0.0D, List.of()), movement(0.42D, 0.42D), 0.0D, false));
+                        true, collision(true, 0.0D, false, 0.0D, List.of()), movement(0.42D, 0.42D), 0.0D));
     }
 
     @Test
@@ -40,10 +40,10 @@ public final class BedrockVerticalCollisionClassifierTest {
         CollideAxisData collision = collision(true, 0.0D, true, 0.0D, new ArrayList<>(List.of(unknown)));
         assertEquals(
                 BedrockVerticalCollisionVerdict.LEGAL,
-                BedrockVerticalCollisionClassifier.classify(true, collision, movement(-0.08D, -0.08D), 0.0D, false));
+                BedrockVerticalCollisionClassifier.classify(true, collision, movement(-0.08D, -0.08D), 0.0D));
         assertEquals(
                 BedrockVerticalCollisionVerdict.LEGAL,
-                BedrockVerticalCollisionClassifier.classify(false, collision, movement(-0.08D, -0.08D), 0.0D, false));
+                BedrockVerticalCollisionClassifier.classify(false, collision, movement(-0.08D, -0.08D), 0.0D));
     }
 
     private static CollideAxisData collision(

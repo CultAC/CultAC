@@ -58,10 +58,6 @@ public class ValidMovements {
     @Getter
     MovementTrace closestTrace = null;
 
-    @Getter
-    @Setter
-    boolean canStep;
-
     private final List<UncertaintyHandler> uncertaintyHandlers;
 
     @ToString.Exclude
@@ -88,7 +84,7 @@ public class ValidMovements {
 
     public static void useTravelReplay(
             PredictionResult result, MovementTrace trace, Vec3 input, boolean climbing, Vec3 movement) {
-        var valid = new ValidMovements(result.getInitialStartingVel(), result.getPlayer(), result, false, List.of());
+        var valid = new ValidMovements(result.getInitialStartingVel(), result.getPlayer(), result, List.of());
         valid.replayedTravelInput = input;
         valid.replayedClimbing = climbing;
         valid.replayedTravelMovement = movement;
@@ -127,8 +123,8 @@ public class ValidMovements {
         reportRadius = Math.max(reportRadius, radius);
     }
 
-    public ValidMovements(PredVector initialStartingVel, CultPlayer player, PredictionResult result, boolean canStep) {
-        this(initialStartingVel, player, result, canStep, UncertaintyPipeline.MODIFIERS);
+    public ValidMovements(PredVector initialStartingVel, CultPlayer player, PredictionResult result) {
+        this(initialStartingVel, player, result, UncertaintyPipeline.MODIFIERS);
     }
 
     /**
@@ -139,19 +135,17 @@ public class ValidMovements {
         List<UncertaintyHandler> kept = uncertaintyHandlers.stream()
                 .filter(handler -> !(handler instanceof EntityPush))
                 .toList();
-        return new ValidMovements(initialStartingVel, player, prediction, canStep, kept);
+        return new ValidMovements(initialStartingVel, player, prediction, kept);
     }
 
     public ValidMovements(
             PredVector initialStartingVel,
             CultPlayer player,
             PredictionResult result,
-            boolean canStep,
             List<UncertaintyHandler> uncertaintyHandlers) {
         this.initialStartingVel = initialStartingVel;
         this.player = player;
         this.result = result;
-        this.canStep = canStep;
         this.uncertaintyHandlers = uncertaintyHandlers;
         if (uncertaintyHandlers == UncertaintyPipeline.MODIFIERS) {
             this.handlers = MODIFIERS;
@@ -398,7 +392,7 @@ public class ValidMovements {
                     result.getAnyReality());
             other.setCollideAxisData(moved.collision());
             other.setSneakingInputMultiplier(result.getSneakingInputMultiplier());
-            var valid = new ValidMovements(initialStartingVel, player, other, canStep, uncertaintyHandlers);
+            var valid = new ValidMovements(initialStartingVel, player, other, uncertaintyHandlers);
             valid.collisionIgnoredMaxStartingVelExtents = collisionIgnoredMaxStartingVelExtents;
             valid.reportRadius = reportRadius;
             valid.beforeForwardMove = beforeForwardMove.withPosition(end);
@@ -586,7 +580,7 @@ public class ValidMovements {
                 result.getAnyReality());
         other.setCollideAxisData(collisions);
         other.setSneakingInputMultiplier(result.getSneakingInputMultiplier());
-        var valid = new ValidMovements(initialStartingVel, player, other, canStep, uncertaintyHandlers);
+        var valid = new ValidMovements(initialStartingVel, player, other, uncertaintyHandlers);
         valid.collisionIgnoredMaxStartingVelExtents = collisionIgnoredMaxStartingVelExtents;
         valid.waterInputChoice = choice;
         valid.reportRadius = reportRadius;
