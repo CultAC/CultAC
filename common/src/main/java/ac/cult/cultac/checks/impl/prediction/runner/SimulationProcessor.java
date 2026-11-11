@@ -179,6 +179,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
     private boolean bedrockSleepingStateObserved;
     private TeleportData bedrockTeleport;
+    // Whether the vehicle frame being processed takes a lerp step that drops the motion it carries.
+    private boolean bedrockLerpStep;
     private PredictionSetbackState activeBedrockSetbackState;
     private final WorldStageBuilder worldStageBuilder = new WorldStageBuilder();
     private final CollisionModifier collisionProbe = new CollisionModifier();
@@ -1139,7 +1141,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         PredictionResult vehicleResult = null;
         if (this.player.bedrockState.predictedVehicle != vehicle) {
             this.player.bedrockState.predictedVehicle = vehicle;
-            BedrockVehiclePredictionState.beginClientPrediction(this.player, vehicle);
+            this.bedrockLerpStep = BedrockVehiclePredictionState.beginClientPrediction(this.player, vehicle);
         }
         try {
             var previous = vehicle.bedrockPrediction;
@@ -1158,6 +1160,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.lastPrediction = riderPrediction;
             this.lastOnGround = riderGround;
             this.player.onGround = riderOnGround;
+            this.bedrockLerpStep = false;
             if (vehicleResult != null) {
                 this.advanceBedrockPassenger(frame, vehicleResult);
             }
@@ -3555,6 +3558,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                                     this.getPistonDeltas(traveller))
                             : anchored);
         context.setBedrockTeleport(player.isBedrockMovement() ? this.bedrockTeleport : null);
+        context.setBedrockLerpStep(player.isBedrockMovement() && this.bedrockLerpStep);
         context = movementProfile.createContext(player, context, authoredMovementFrame);
         if (!player.isBedrockMovement()
                 && (riding == null || player.packetStateData.isVehicleMovementFromClientTick())

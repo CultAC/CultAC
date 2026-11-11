@@ -17,9 +17,20 @@ import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import java.util.Objects;
 
 public record BedrockMovementState(
-        Motion motion, ActorState actor, TickMemory memory, boolean hasTeleported, BedrockActorAttributes attributes) {
+        Motion motion, ActorState actor, TickMemory memory, TickStart tickStart, BedrockActorAttributes attributes) {
+    /**
+     * How the actor's next tick starts. A handled teleport places it, and the tick runs no travel. A vehicle the client
+     * starts predicting while it still lerps toward a move takes that lerp step first: it drops the motion the tick
+     * carries in, and the rest of the tick runs as usual.
+     */
+    public enum TickStart {
+        MOVE,
+        TELEPORT,
+        LERP_STEP
+    }
+
     public BedrockMovementState(Motion motion, ActorState actor, TickMemory memory, boolean hasTeleported) {
-        this(motion, actor, memory, hasTeleported, BedrockActorAttributes.EMPTY);
+        this(motion, actor, memory, hasTeleported ? TickStart.TELEPORT : TickStart.MOVE, BedrockActorAttributes.EMPTY);
     }
 
     public BedrockMovementState(Motion motion, ActorState actor, TickMemory memory) {
@@ -30,6 +41,7 @@ public record BedrockMovementState(
         Objects.requireNonNull(motion, "motion");
         Objects.requireNonNull(actor, "actor");
         Objects.requireNonNull(memory, "memory");
+        Objects.requireNonNull(tickStart, "tickStart");
         Objects.requireNonNull(attributes, "attributes");
         if (motion.collisionBox() == null) {
             motion = motion.withCollisionBox(BedrockActorBox.create(
@@ -161,7 +173,7 @@ public record BedrockMovementState(
                         collisionBox()),
                 actor,
                 memory,
-                hasTeleported,
+                tickStart,
                 attributes);
     }
 
@@ -314,7 +326,7 @@ public record BedrockMovementState(
                         pose.itemUseSlowdownActive()),
                 actor.travel());
         return new BedrockMovementState(
-                motion, nextActor, spinning == null ? memory : memory.withSpin(spinning), hasTeleported, attributes);
+                motion, nextActor, spinning == null ? memory : memory.withSpin(spinning), tickStart, attributes);
     }
 
     public long riptideChargeTicks() {
@@ -457,15 +469,26 @@ public record BedrockMovementState(
     }
 
     public BedrockMovementState withDolphinBoost(BedrockDolphinBoost value) {
-        return new BedrockMovementState(motion, actor, memory.withDolphinBoost(value), hasTeleported, attributes);
+        return new BedrockMovementState(motion, actor, memory.withDolphinBoost(value), tickStart, attributes);
     }
 
     public BedrockMovementState withCameraWater(BedrockCameraWaterState value) {
-        return new BedrockMovementState(motion, actor, memory.withCameraWater(value), hasTeleported, attributes);
+        return new BedrockMovementState(motion, actor, memory.withCameraWater(value), tickStart, attributes);
+    }
+
+    public boolean hasTeleported() {
+        return tickStart == TickStart.TELEPORT;
     }
 
     public BedrockMovementState withTeleportPending() {
-        return hasTeleported ? this : new BedrockMovementState(motion, actor, memory, true, attributes);
+        return hasTeleported() ? this : new BedrockMovementState(motion, actor, memory, TickStart.TELEPORT, attributes);
+    }
+
+    /** The tick takes the actor's remaining lerp step before its move; a pending teleport still places it. */
+    public BedrockMovementState withLerpStep() {
+        return tickStart != TickStart.MOVE
+                ? this
+                : new BedrockMovementState(motion, actor, memory, TickStart.LERP_STEP, attributes);
     }
 
     public BedrockMovementState withMovementBranch(Medium movementBranch) {
@@ -488,7 +511,12 @@ public record BedrockMovementState(
             TickMemory memory,
             boolean hasTeleported,
             BedrockMovementAttributeState movementAttribute) {
-        this(motion, actor, memory, hasTeleported, BedrockActorAttributes.EMPTY.withMovement(movementAttribute));
+        this(
+                motion,
+                actor,
+                memory,
+                hasTeleported ? TickStart.TELEPORT : TickStart.MOVE,
+                BedrockActorAttributes.EMPTY.withMovement(movementAttribute));
     }
 
     public BedrockMovementAttributeState movementAttribute() {
@@ -496,7 +524,7 @@ public record BedrockMovementState(
     }
 
     public BedrockMovementState withAttributes(BedrockActorAttributes value) {
-        return new BedrockMovementState(motion, actor, memory, hasTeleported, value);
+        return new BedrockMovementState(motion, actor, memory, tickStart, value);
     }
 
     public BedrockMovementState withMovementAttribute(BedrockMovementAttributeState attribute) {
@@ -585,14 +613,14 @@ public record BedrockMovementState(
                         coordinateFrame()),
                 actor,
                 memory.withFallDistance(0.0F),
-                true,
+                TickStart.TELEPORT,
                 attributes);
     }
 
     /** A dimension change puts the actor at its position at rest; unlike a teleport, its next actor tick travels. */
     public BedrockMovementState afterDimensionChange(Vec3d physicalFeetPosition) {
         BedrockMovementState placed = afterServerTeleport(physicalFeetPosition, Vec3d.ZERO);
-        return new BedrockMovementState(placed.motion, placed.actor, placed.memory, hasTeleported, placed.attributes);
+        return new BedrockMovementState(placed.motion, placed.actor, placed.memory, tickStart, placed.attributes);
     }
 
     public BedrockMovementState withPhysicalFeetPosition(Vec3d physicalFeetPosition, Vec3d lastPhysicalDisplacement) {
@@ -608,7 +636,7 @@ public record BedrockMovementState(
                 motion,
                 actor.withGliding(gliding, gliding),
                 memory.withFallFlyTicks(gliding ? fallFlyTicks() : 0L),
-                hasTeleported,
+                tickStart,
                 attributes);
     }
 
@@ -692,12 +720,12 @@ public record BedrockMovementState(
                         dolphinBoost(),
                         cameraWater(),
                         penetratingMoves()),
-                false,
+                TickStart.MOVE,
                 attributes);
     }
 
     private BedrockMovementState withMotion(Motion motion) {
-        return new BedrockMovementState(motion, actor, memory, hasTeleported, attributes);
+        return new BedrockMovementState(motion, actor, memory, tickStart, attributes);
     }
 
     private BedrockMovementState withActor(ActorState actor) {
@@ -705,7 +733,7 @@ public record BedrockMovementState(
                 ? motion
                 : motion.withCollisionBox(BedrockActorBox.resize(
                         collisionBox(), physicalFeetPosition(), actor.playerDimensions(), coordinateFrame()));
-        return new BedrockMovementState(next, actor, memory, hasTeleported, attributes);
+        return new BedrockMovementState(next, actor, memory, tickStart, attributes);
     }
 
     private static long initialSneakingTicks(BedrockInputFrame frame) {

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
@@ -51,7 +52,8 @@ class BedrockVehicleMountStartTest {
             move(player, boat, 2.3595016F);
 
             player.bedrockState.predictedVehicle = boat;
-            BedrockVehiclePredictionState.beginClientPrediction(player, boat);
+            // The lerp step takes the place of the tick's move.
+            assertTrue(BedrockVehiclePredictionState.beginClientPrediction(player, boat));
 
             BedrockMovementState state = BedrockProfileState.previousState(boat.bedrockPrediction.commit().carry());
             assertEquals(2.4221158F, (float) state.physicalFeetPosition().z(), 1.0E-6F);
@@ -73,7 +75,7 @@ class BedrockVehicleMountStartTest {
             assertFalse(player.bedrockState.movementCorrections.hasPendingCorrection());
 
             player.bedrockState.predictedVehicle = boat;
-            BedrockVehiclePredictionState.beginClientPrediction(player, boat);
+            assertFalse(BedrockVehiclePredictionState.beginClientPrediction(player, boat));
 
             BedrockMovementState state = BedrockProfileState.previousState(boat.bedrockPrediction.commit().carry());
             assertEquals(2.5D, state.physicalFeetPosition().z(), 1.0E-9D);

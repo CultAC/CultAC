@@ -1,5 +1,6 @@
 package ac.cult.cultac.bedrock.prediction.simulation.frame;
 
+import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState.TickStart;
 import java.util.Objects;
 
 public record BedrockTravelOptions(
@@ -7,21 +8,32 @@ public record BedrockTravelOptions(
         double maxUpStep,
         SprintTravelSpeedMode sprintTravelSpeedMode,
         SprintJumpImpulseMode sprintJumpImpulseMode,
-        boolean travelActive) {
+        TickStart tickStart) {
     public BedrockTravelOptions(
             StepMode stepMode,
             double maxUpStep,
             SprintTravelSpeedMode sprintTravelSpeedMode,
             SprintJumpImpulseMode sprintJumpImpulseMode) {
-        this(stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, true);
+        this(stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, TickStart.MOVE);
     }
 
-    public BedrockTravelOptions withTravelActive(boolean active) {
-        return new BedrockTravelOptions(stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, active);
+    public BedrockTravelOptions withTickStart(TickStart start) {
+        return new BedrockTravelOptions(stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, start);
+    }
+
+    /** A teleported actor's tick runs no travel. */
+    public boolean travelActive() {
+        return tickStart != TickStart.TELEPORT;
+    }
+
+    /** The actor's lerp step drops the motion the tick carries in. */
+    public boolean lerpStep() {
+        return tickStart == TickStart.LERP_STEP;
     }
 
     public BedrockTravelOptions {
         stepMode = Objects.requireNonNull(stepMode, "stepMode");
+        tickStart = Objects.requireNonNull(tickStart, "tickStart");
         sprintTravelSpeedMode = Objects.requireNonNull(sprintTravelSpeedMode, "sprintTravelSpeedMode");
         sprintJumpImpulseMode = Objects.requireNonNull(sprintJumpImpulseMode, "sprintJumpImpulseMode");
         if (!Double.isFinite(maxUpStep) || maxUpStep < 0.0D) {
@@ -43,16 +55,16 @@ public record BedrockTravelOptions(
 
     public BedrockTravelOptions withSprintTravelSpeedMode(SprintTravelSpeedMode sprintTravelSpeedMode) {
         return new BedrockTravelOptions(
-                stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, travelActive);
+                stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, tickStart);
     }
 
     public BedrockTravelOptions withSprintJumpImpulseMode(SprintJumpImpulseMode sprintJumpImpulseMode) {
         return new BedrockTravelOptions(
-                stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, travelActive);
+                stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, tickStart);
     }
 
     public boolean canStep() {
-        return travelActive && stepMode.canStep();
+        return travelActive() && stepMode.canStep();
     }
 
     public enum StepMode {

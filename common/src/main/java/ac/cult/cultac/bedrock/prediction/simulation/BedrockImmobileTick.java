@@ -108,7 +108,7 @@ public final class BedrockImmobileTick {
                         prepared.dolphinBoost().endTick(),
                         prepared.cameraWater(),
                         current.penetratingMoves()),
-                false,
+                BedrockMovementState.TickStart.MOVE,
                 prepared.input().previousState().attributes());
         return new Result(next, mobJumpComponent.afterHeldTick(frame.jumping()));
     }

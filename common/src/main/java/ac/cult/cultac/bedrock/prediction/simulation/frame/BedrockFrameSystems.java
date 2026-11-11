@@ -86,6 +86,8 @@ public final class BedrockFrameSystems {
         BedrockFluidMovementSource movementSource = BedrockFluidMovementSourceResolver.fromContext(
                 facts.context(), input.previousState().physicalFeetPosition().y());
         velocity = velocity.add(movementSource.appliedDelta());
+        // The lerp step drops the motion the tick carries in, the current's push with it; input still applies.
+        if (input.options().lerpStep()) velocity = Vec3d.ZERO;
         BedrockSwimmingMovement.SwimmingState swimming =
                 facts.swimming().afterActions(intent, facts.context().inWater());
         facts = facts.withSwimming(swimming);

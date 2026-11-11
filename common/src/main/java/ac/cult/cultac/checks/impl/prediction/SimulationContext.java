@@ -218,6 +218,10 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
     @Setter
     TeleportData bedrockTeleport;
 
+    // The tick a vehicle the client starts predicting takes its remaining lerp step, dropping the motion it carries.
+    @Setter
+    boolean bedrockLerpStep;
+
     List<SimpleCollisionBox> entityCollisionBoxesForMovementTick;
 
     List<HardCollidingEntityCollision> hardCollidingEntityCollisionsForMovementTick;
@@ -1008,6 +1012,7 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
         sb.append(", bedrockInputTick=").append(bedrockInputTick);
         sb.append(", hasTrustedAuthoredInput=").append(hasTrustedAuthoredInput);
         sb.append(", bedrockTeleport=").append(bedrockTeleport);
+        sb.append(", bedrockLerpStep=").append(bedrockLerpStep);
         sb.append(')');
     }
 

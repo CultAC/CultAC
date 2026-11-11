@@ -170,10 +170,13 @@ public final class BedrockBoatMovement {
     static BedrockFrameState prepare(BedrockTravelInput input, BedrockMobJumpComponentState mobJump) {
         var current = input.previousState();
         var world = input.worldSnapshot().blockCollisionWorld();
+        // The lerp step drops the motion the tick carries in, the current's push with it; the paddles still apply.
+        var carried = input.options().lerpStep()
+                ? Vec3d.ZERO
+                : liquidVelocity(current, input.startingVelocity(), input.worldSnapshot().movementContext());
         var step = control(
                 current,
-                liquidVelocity(
-                        current, input.startingVelocity(), input.worldSnapshot().movementContext()),
+                carried,
                 surface(current, world),
                 input.control() == null ? Vec3d.ZERO : input.control());
         var frame = current.withRotation(step.yaw(), input.inputFrame().pitch()).inputFrame();

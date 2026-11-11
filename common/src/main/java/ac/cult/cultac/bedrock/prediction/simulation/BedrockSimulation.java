@@ -38,7 +38,7 @@ public final class BedrockSimulation {
         var state = input.previousState();
         if (state.isHorse()) state = state.withHorse(state.horse().withForwardJump(control.z() > 0.0D));
         var options = BedrockTravelOptions.vanilla(input.canStep(), input.maxUpStep())
-                .withTravelActive(!state.hasTeleported());
+                .withTickStart(state.tickStart());
         var scaffolding = !state.isVehicle() && descendRequested(state, input)
                 ? BedrockTravelInput.ScaffoldingVerticalBranch.DESCEND
                 : BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE;
@@ -102,7 +102,7 @@ public final class BedrockSimulation {
                     input.snapshot(),
                     BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE,
                     BedrockTravelOptions.vanilla(input.canStep(), input.maxUpStep())
-                            .withTravelActive(!state.hasTeleported()),
+                            .withTickStart(state.tickStart()),
                     input.mobJumpComponent());
             candidates.add(new Candidate(result.movementResult(), result.mobJumpComponent()));
         }
@@ -168,7 +168,7 @@ public final class BedrockSimulation {
             List<Candidate> candidates, Input input, BedrockTravelInput.ScaffoldingVerticalBranch scaffolding) {
         ArrayList<Candidate> branch = new ArrayList<>();
         BedrockTravelOptions options = BedrockTravelOptions.vanilla(input.canStep(), input.maxUpStep())
-                .withTravelActive(!input.previousState().hasTeleported());
+                .withTickStart(input.previousState().tickStart());
         for (BedrockTravelOptions.SprintTravelSpeedMode speed : sprintSpeedModes()) {
             for (BedrockTravelOptions.SprintJumpImpulseMode jump : sprintJumpModes(input)) {
                 BedrockTravelResult result = travel(
