@@ -224,7 +224,8 @@ public final class ServerItemUseView {
     public void period(long period) {
         this.period = period;
         if (session != null) session.maxPeriod = Math.max(session.maxPeriod, period);
-        for (Candidate candidate : candidates) candidate.maxPeriod = Math.max(candidate.maxPeriod, period);
+        if (!candidates.isEmpty())
+            for (Candidate candidate : candidates) candidate.maxPeriod = Math.max(candidate.maxPeriod, period);
     }
 
     /** The server's selected hotbar slot, or {@code fallback} before the first observation. */
