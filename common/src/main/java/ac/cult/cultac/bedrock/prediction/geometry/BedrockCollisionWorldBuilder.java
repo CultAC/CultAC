@@ -29,6 +29,15 @@ public final class BedrockCollisionWorldBuilder {
     private static final BlockRegistry REGISTRY = DataTables.defaults().registry();
     private static final BlockDefinition COMPOSTER = REGISTRY.block("minecraft:composter");
     private static final BlockDefinition BREWING_STAND = REGISTRY.block("minecraft:brewing_stand");
+    private static final BlockDefinition HOPPER = REGISTRY.block("minecraft:hopper");
+    /** A hopper's bowl: its floor, four 2/16 walls above it and the funnel under it. */
+    private static final List<BlockAabb> HOPPER_BOWL = List.of(
+            new BlockAabb(0.0D, 0.625D, 0.0D, 1.0D, 0.6875D, 1.0D),
+            new BlockAabb(0.0D, 0.6875D, 0.0D, 0.125D, 1.0D, 1.0D),
+            new BlockAabb(0.875D, 0.6875D, 0.0D, 1.0D, 1.0D, 1.0D),
+            new BlockAabb(0.125D, 0.6875D, 0.0D, 0.875D, 1.0D, 0.125D),
+            new BlockAabb(0.125D, 0.6875D, 0.875D, 0.875D, 1.0D, 1.0D),
+            new BlockAabb(0.25D, 0.25D, 0.25D, 0.75D, 0.625D, 0.75D));
     private static final List<BlockDefinition> CAULDRONS = List.of(
             BlockIds.CAULDRON,
             REGISTRY.block("minecraft:water_cauldron"),
@@ -122,7 +131,8 @@ public final class BedrockCollisionWorldBuilder {
                 || thinFenceBlock(state)
                 || chorusPlantBlock(state)
                 || basinBlock(state)
-                || BlockIds.is(state, BREWING_STAND);
+                || BlockIds.is(state, BREWING_STAND)
+                || BlockIds.is(state, HOPPER);
     }
 
     public static Set<BlockContactBehavior> contactBehaviors(int state) {
@@ -202,6 +212,9 @@ public final class BedrockCollisionWorldBuilder {
             return List.of(
                     toWorldBox(position, new BlockAabb(0.4375D, 0.0D, 0.4375D, 0.5625D, 0.875D, 0.5625D)),
                     toWorldBox(position, new BlockAabb(0.0D, 0.0D, 0.0D, 1.0D, 0.125D, 1.0D)));
+        }
+        if (BlockIds.is(state, HOPPER)) {
+            return hopperCollisionBoxes(position, state);
         }
         if (scaffoldingBlock(state)) {
             return scaffoldingCollisionBoxes(position, query);
@@ -296,6 +309,23 @@ public final class BedrockCollisionWorldBuilder {
         for (BlockAabb wall : BASIN_WALLS) {
             boxes.add(toWorldBox(position, wall));
         }
+        return List.copyOf(boxes);
+    }
+
+    /** The bowl and the spout, which points the way the hopper faces. */
+    private static List<WorldCollisionBox> hopperCollisionBoxes(BlockPosition position, int state) {
+        BlockAabb spout = switch (REGISTRY.value(state, "facing")) {
+            case "north" -> new BlockAabb(0.375D, 0.25D, 0.0D, 0.625D, 0.5D, 0.25D);
+            case "south" -> new BlockAabb(0.375D, 0.25D, 0.75D, 0.625D, 0.5D, 1.0D);
+            case "west" -> new BlockAabb(0.0D, 0.25D, 0.375D, 0.25D, 0.5D, 0.625D);
+            case "east" -> new BlockAabb(0.75D, 0.25D, 0.375D, 1.0D, 0.5D, 0.625D);
+            default -> new BlockAabb(0.375D, 0.0D, 0.375D, 0.625D, 0.25D, 0.625D);
+        };
+        List<WorldCollisionBox> boxes = new ArrayList<>(HOPPER_BOWL.size() + 1);
+        for (BlockAabb box : HOPPER_BOWL) {
+            boxes.add(toWorldBox(position, box));
+        }
+        boxes.add(toWorldBox(position, spout));
         return List.copyOf(boxes);
     }
 

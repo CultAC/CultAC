@@ -94,4 +94,26 @@ public final class BedrockComposterLandingTest {
         assertEquals(0.125D, stand.get(1).maxY(), 0.0D);
         assertEquals(1.0D, stand.get(1).maxX(), 0.0D);
     }
+
+    @Test
+    public void hoppersCollideAsBowlFunnelAndTheSpoutTheyFace() {
+        var builder = new BedrockCollisionWorldBuilder(
+                BedrockClientBlockShapeMappings.catalog(), BedrockBlockShapeContext.NONE);
+        var registry = DataTables.defaults().registry();
+        int hopper = registry.block("minecraft:hopper").defaultState();
+        var down = builder.block(new BlockPosition(0, 0, 0), registry.with(hopper, "facing", "down"),
+                        BedrockCollisionShapeQuery.NONE)
+                .collisionBoxes();
+        var east = builder.block(new BlockPosition(0, 0, 0), registry.with(hopper, "facing", "east"),
+                        BedrockCollisionShapeQuery.NONE)
+                .collisionBoxes();
+
+        assertEquals(7, down.size());
+        assertEquals(0.6875D, down.getFirst().maxY(), 0.0D);
+        assertEquals(0.0D, down.getLast().minY(), 0.0D);
+        assertEquals(0.25D, down.getLast().maxY(), 0.0D);
+        assertEquals(0.75D, east.getLast().minX(), 0.0D);
+        assertEquals(1.0D, east.getLast().maxX(), 0.0D);
+        assertEquals(0.25D, east.getLast().minY(), 0.0D);
+    }
 }
