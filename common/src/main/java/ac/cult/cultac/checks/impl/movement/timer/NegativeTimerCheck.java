@@ -117,6 +117,7 @@ public class NegativeTimerCheck extends AbstractTimerCheck implements PostPredic
 
     @CultPacketHandler
     public void onPong(PacketReceiveEvent<ServerboundPong> event, CultPlayer player, ServerboundPong packet) {
+        if (!event.isAcceptedTransactionResponse()) return;
         recordNegativeTransactionResponse(event);
     }
 
