@@ -7,6 +7,7 @@ import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngine;
+import ac.cult.cultac.checks.impl.prediction.runner.PredictionScratch;
 import ac.cult.cultac.checks.impl.prediction.stage.MovementModifiers;
 import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CollisionModifier;
@@ -26,6 +27,7 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.GeyserVelocity;
 import ac.cult.cultac.utils.nmsutil.NextTickVelocityDeriver;
+import ac.cult.cultac.utils.nmsutil.ReusableVelocitySet;
 import ac.cult.cultac.utils.nmsutil.VelocityCandidates;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -65,12 +67,32 @@ public final class JavaMovementEngine implements MovementEngine {
                 && player.checkManager.getSimulationProcessor().getCurrentPredictionCarry()
                         instanceof JavaPredictionCarry committed
                 && hasMatchingVelocity(committed, startingVelocities)) {
-            var filtered = new java.util.HashSet<Vec3>();
-            for (var state : selected.states())
-                if (startingVelocities.contains(state.velocity())) filtered.add(state.velocity());
-            if (filtered.isEmpty()) return new ArrayList<>();
-            startingVelocities = filtered;
+            ReusableVelocitySet filtered = filteredVelocities(player);
+            try {
+                for (var state : selected.states())
+                    if (startingVelocities.contains(state.velocity())) filtered.add(state.velocity());
+                if (filtered.isEmpty()) return new ArrayList<>();
+                return modifiedStarts(modifiers, player, filtered, context, lastPrediction, canTickSkip);
+            } finally {
+                filtered.clear();
+            }
         }
+        return modifiedStarts(modifiers, player, startingVelocities, context, lastPrediction, canTickSkip);
+    }
+
+    /** An empty set that iterates as a fresh {@code HashSet} filled the same way: the player's scratch set, if any. */
+    private static ReusableVelocitySet filteredVelocities(CultPlayer player) {
+        PredictionScratch scratch = PredictionScratch.of(player);
+        return scratch == null ? new ReusableVelocitySet() : scratch.filteredVelocities();
+    }
+
+    private static List<PredVector> modifiedStarts(
+            MovementModifiers modifiers,
+            CultPlayer player,
+            Set<Vec3> startingVelocities,
+            SimulationContext context,
+            PredictionResult lastPrediction,
+            boolean canTickSkip) {
         // Before 26.3 the shulker box block shoves run between the last travel and this one.
         PistonPushes pushes =
                 context.getWorldData() == null ? null : context.getWorldData().getPistonPushes();

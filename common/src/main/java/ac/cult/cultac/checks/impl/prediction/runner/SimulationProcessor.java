@@ -161,6 +161,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     private final StepCollisionMemo stepCollisionMemo = new StepCollisionMemo();
     private final SimpleCollisionBox changedBlockScratch = new SimpleCollisionBox();
     private final SimpleCollisionBox changedBlockReachScratch = new SimpleCollisionBox();
+    private final PredictionScratch scratch = new PredictionScratch();
 
     public SimulationProcessor(CultPlayer playerData) {
         super(playerData);
@@ -168,6 +169,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
     public NextTickVelocityDeriver.Scratch velocityScratch() {
         return this.velocityScratch;
+    }
+
+    public PredictionScratch scratch() {
+        return this.scratch;
     }
 
     /** Entity#checkSupportingBlock after a move of {@code movement} that ended with the box {@code box}. */

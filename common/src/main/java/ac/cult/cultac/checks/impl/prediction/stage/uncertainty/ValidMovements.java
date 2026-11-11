@@ -6,6 +6,7 @@ import ac.cult.cultac.bedrock.prediction.integration.BedrockMovementEngine;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.runner.PredictionScratch;
 import ac.cult.cultac.checks.impl.prediction.stage.UncertaintyPipeline;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -366,7 +367,7 @@ public class ValidMovements {
             tail = count;
             while (tail > 0 && ((kept & (1L << (tail - 1))) == 0 || MODIFIER_POSITION_FORM[tail - 1])) tail--;
         }
-        double[] xyz = tail < count ? new double[3] : null;
+        double[] xyz = tail < count ? extentCoordinates() : null;
         if (handlers == MODIFIERS && headKeepsStart(kept, tail)) {
             PredVector start = startTrace.position();
             double x = initialStartingVel.x;
@@ -391,6 +392,12 @@ public class ValidMovements {
         runTrace = null;
 
         return new SimpleCollisionBox(negX, negY, negZ, posX, posY, posZ).sort();
+    }
+
+    /** Each tail run writes all three coordinates before a handler reads them. */
+    private double[] extentCoordinates() {
+        PredictionScratch scratch = PredictionScratch.of(player);
+        return scratch == null ? new double[3] : scratch.extentCoordinates;
     }
 
     /**
