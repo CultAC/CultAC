@@ -45,7 +45,7 @@ public final class BedrockBedBounceTest {
 
     @Test
     public void bedReboundScalesWithTheFallSpeed() {
-        BounceBlockState bed = new BounceBlockState(BounceBlockType.BED, BED_TOP);
+        BounceBlockState bed = new BounceBlockState(BounceBlockType.BED);
 
         assertEquals(0.75D, bed.reboundVelocityY(-1.0D), 1.0E-7D);
         assertEquals(0.75D * 1.7817025D, bed.reboundVelocityY(-1.7817025D), 1.0E-6D);

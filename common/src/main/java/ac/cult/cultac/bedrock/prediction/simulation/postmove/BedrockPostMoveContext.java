@@ -149,10 +149,11 @@ record BedrockPostMoveContext(BedrockTravelPlan plan, BedrockMoveRequest moveReq
         }
         var block = BedrockStandingBlockResolver.resolveFetched(
                         nextPosition, blockCollisionWorld(), movementDimensions(), fetchBox)
-                .flatMap(support -> BounceBlockState.fromCollisionBlock(support.block(), support.surfaceY()));
+                .flatMap(support -> BounceBlockState.fromCollisionBlock(support.block()));
         if (block.isEmpty()) return frame;
         var bounce = BedrockBounceBlockMovement.applyAfterVerticalReset(
                 current().physicalFeetPosition(),
+                nextPosition,
                 frame.velocity(),
                 moveRequest.move().y(),
                 frame(),

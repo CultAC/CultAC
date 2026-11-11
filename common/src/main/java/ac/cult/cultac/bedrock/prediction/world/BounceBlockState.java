@@ -3,7 +3,7 @@ package ac.cult.cultac.bedrock.prediction.world;
 import java.util.Objects;
 import java.util.Optional;
 
-public record BounceBlockState(BounceBlockType type, double surfaceY) {
+public record BounceBlockState(BounceBlockType type) {
     private static final String SLIME_BLOCK_IDENTIFIER = "minecraft:slime";
     private static final String JAVA_SLIME_BLOCK_IDENTIFIER = "minecraft:slime_block";
     private static final String BED_BLOCK_IDENTIFIER = "minecraft:bed";
@@ -11,15 +11,12 @@ public record BounceBlockState(BounceBlockType type, double surfaceY) {
 
     public BounceBlockState {
         type = Objects.requireNonNull(type, "type");
-        if (!Double.isFinite(surfaceY)) {
-            throw new IllegalArgumentException("bounce block surface Y must be finite");
-        }
     }
 
-    public static Optional<BounceBlockState> fromCollisionBlock(PlacedBlockCollision block, double surfaceY) {
+    public static Optional<BounceBlockState> fromCollisionBlock(PlacedBlockCollision block) {
         Objects.requireNonNull(block, "block");
         BounceBlockType type = collisionBlockType(block);
-        return type == BounceBlockType.NONE ? Optional.empty() : Optional.of(new BounceBlockState(type, surfaceY));
+        return type == BounceBlockType.NONE ? Optional.empty() : Optional.of(new BounceBlockState(type));
     }
 
     public double reboundVelocityY(double fallingVelocityY) {
