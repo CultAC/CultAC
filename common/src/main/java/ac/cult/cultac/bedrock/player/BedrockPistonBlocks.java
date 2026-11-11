@@ -2,6 +2,7 @@ package ac.cult.cultac.bedrock.player;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.BlockProps;
+import ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext.PistonProgress;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
@@ -96,6 +97,16 @@ public final class BedrockPistonBlocks {
                 moving.carriedState,
                 cell(position, direction, arm.lastProgress, moving.expanding),
                 cell(position, direction, arm.progress, moving.expanding));
+    }
+
+    /**
+     * How far out the piston at {@code piston} has pushed its arm, or {@link PistonProgress#NO_PISTON} where no
+     * piston is. A piston without data has its arm out.
+     */
+    public float progress(BlockPos piston, ToIntFunction<BlockPos> blockStateAt) {
+        if (armDirection(blockStateAt.applyAsInt(piston)) == null) return PistonProgress.NO_PISTON;
+        Arm arm = arms.get(piston.asLong());
+        return arm == null ? 1.0F : arm.progress;
     }
 
     /**

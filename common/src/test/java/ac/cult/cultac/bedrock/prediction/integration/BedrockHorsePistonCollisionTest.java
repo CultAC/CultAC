@@ -9,6 +9,7 @@ import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.bedrock.prediction.api.BedrockCollisionShapeQuery;
 import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
+import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
@@ -19,6 +20,7 @@ import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import ac.cult.cultac.bedrock.replay.offline.OfflinePlayers;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.collisions.BedrockClientBlockShapeMappings;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import java.util.List;
@@ -37,6 +39,8 @@ public final class BedrockHorsePistonCollisionTest {
     private static final int STONE = REGISTRY.block("minecraft:stone").defaultState();
     private static final PlayerDimensionsState HORSE = new PlayerDimensionsState(1.3965F, 1.6F);
     private static final float AHEAD = 0.2141F;
+    private static final int EXPANDING = 1;
+    private static final int RETRACTING = 3;
 
     @Test
     public void blocksAreGatheredWithXOutermostThenZThenY() {
@@ -108,6 +112,57 @@ public final class BedrockHorsePistonCollisionTest {
             assertEquals(121.0F, (float) result.position().y(), 0.0F);
             assertEquals(25.30175F, (float) result.position().z(), 0.0F);
         });
+    }
+
+    /**
+     * An arm's boxes are its piston's: they start a cell back, at the piston, and its progress pushes them out along
+     * its facing, half a block per client tick.
+     */
+    @Test
+    public void anArmMidStrokeCollidesWhereItsPistonsProgressHasPushedIt() {
+        run(player -> {
+            pistons(player);
+            var pistonBlocks = player.bedrockState.pistonBlocks;
+            pistonBlocks.pistonArm(new BlockPos(121, 119, 24), EXPANDING);
+            pistonBlocks.pistonArm(new BlockPos(120, 120, 26), RETRACTING);
+            pistonBlocks.tick(player.compensatedWorld::getBlockStateIdAt);
+            var world = sample(player, new SimpleCollisionBox(119.5, 119.5, 23.5, 122.5, 121.5, 27.5));
+
+            assertEquals(
+                    List.of(
+                            new WorldCollisionBox(121.3125, 119.25, 24.3125, 121.6875, 119.75, 24.6875),
+                            new WorldCollisionBox(121.375, 119.75, 24.375, 121.625, 120.25, 24.625),
+                            new WorldCollisionBox(121.0, 120.25, 24.0, 122.0, 120.5, 25.0)),
+                    boxesAt(world, 121, 120, 24));
+            assertEquals(
+                    List.of(
+                            new WorldCollisionBox(120.25, 120.3125, 26.3125, 120.75, 120.6875, 26.6875),
+                            new WorldCollisionBox(120.75, 120.375, 26.375, 121.25, 120.625, 26.625),
+                            new WorldCollisionBox(121.25, 120.0, 26.0, 121.5, 121.0, 27.0)),
+                    boxesAt(world, 121, 120, 26));
+            // The arm of the piston without data is out.
+            assertEquals(
+                    List.of(
+                            new WorldCollisionBox(122.3125, 119.75, 24.3125, 122.6875, 120.25, 24.6875),
+                            new WorldCollisionBox(122.375, 120.25, 24.375, 122.625, 120.75, 24.625),
+                            new WorldCollisionBox(122.0, 120.75, 24.0, 123.0, 121.0, 25.0)),
+                    boxesAt(world, 122, 120, 24));
+        });
+    }
+
+    @Test
+    public void anArmWithoutAPistonBehindItHasNoBoxes() {
+        run(player -> {
+            pistons(player);
+            place(player, 121, 119, 24, STONE);
+            var world = sample(player, new SimpleCollisionBox(120.5, 119.5, 23.5, 122.5, 121.5, 25.5));
+
+            assertEquals(List.of(), boxesAt(world, 121, 120, 24));
+        });
+    }
+
+    private static List<WorldCollisionBox> boxesAt(BlockCollisionWorld world, int x, int y, int z) {
+        return world.blockAt(new BlockPosition(x, y, z)).orElseThrow().collisionBoxes();
     }
 
     private static BedrockEntityMove.Result move(CultPlayer player, Vec3d feet, float moveX) {

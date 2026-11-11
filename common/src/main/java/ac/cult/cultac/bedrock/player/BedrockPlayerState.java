@@ -48,6 +48,9 @@ public final class BedrockPlayerState {
                 position -> shulkerBoxLids.lift(
                         ac.cult.cultac.protocol.value.BlockPos.asLong(position.x(), position.y(), position.z())),
                 position -> ac.cult.cultac.utils.collisions.BedrockMovingBlockShape.boxes(player, position),
+                position -> pistonBlocks.progress(
+                        new ac.cult.cultac.protocol.value.BlockPos(position.x(), position.y(), position.z()),
+                        player.compensatedWorld::getBlockStateIdAt),
                 lastOfferedFrame == null
                         ? ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame.IDENTITY
                         : lastOfferedFrame.getCoordinateFrame());

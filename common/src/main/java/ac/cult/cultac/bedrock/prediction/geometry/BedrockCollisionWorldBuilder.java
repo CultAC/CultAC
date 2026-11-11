@@ -87,7 +87,10 @@ public final class BedrockCollisionWorldBuilder {
 
     /** Whether the shape of {@code state} depends on client state kept for the position it is at. */
     public static boolean positionDependentMovement(int state) {
-        return shulkerBoxBlock(state) || movingPistonBlock(state) || maxPositionOffset(state) > 0.0F;
+        return shulkerBoxBlock(state)
+                || movingPistonBlock(state)
+                || pistonArmBlock(state)
+                || maxPositionOffset(state) > 0.0F;
     }
 
     /** How far a hash of its position shifts the shape of {@code state} on X and Z; 0 for a shape it does not. */
@@ -161,7 +164,7 @@ public final class BedrockCollisionWorldBuilder {
             return context.movingBlockBoxes().at(position);
         }
         if (pistonArmBlock(state)) {
-            return pistonArmCollisionBoxes(position, state, 0.0D);
+            return pistonArmCollisionBoxes(position, state);
         }
         if (stairBlock(state)) {
             return stairCollisionBoxes(position, state);
@@ -390,9 +393,20 @@ public final class BedrockCollisionWorldBuilder {
         return List.of(toWorldBox(position, localBox));
     }
 
-    private static List<WorldCollisionBox> pistonArmCollisionBoxes(BlockPosition position, int state, double progress) {
-        BedrockPistonArmCollisionShape.FacingDirection direction = pistonFacingDirection(state);
-        return toWorldBoxes(position, BedrockPistonArmCollisionShape.collisionAabbs(direction, progress));
+    /**
+     * A piston arm's boxes belong to its piston, a cell back along its facing: they sit where the piston's progress
+     * has pushed them out of it, and a piston arm without a piston behind it has none.
+     */
+    private List<WorldCollisionBox> pistonArmCollisionBoxes(BlockPosition position, int state) {
+        Direction facing = Direction.from3DDataValue(BlockProps.FACING.value(state));
+        BlockPosition piston = new BlockPosition(
+                position.x() - facing.getStepX(), position.y() - facing.getStepY(), position.z() - facing.getStepZ());
+        float progress = context.pistonProgress().at(piston);
+        if (progress < 0.0F) {
+            return List.of();
+        }
+        return toWorldBoxes(
+                piston, BedrockPistonArmCollisionShape.collisionAabbs(pistonFacingDirection(state), progress));
     }
 
     private static BedrockPistonArmCollisionShape.FacingDirection pistonFacingDirection(int state) {
