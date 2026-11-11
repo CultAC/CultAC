@@ -135,6 +135,12 @@ public final class SectionSnapshot {
         return biomes.singleValue();
     }
 
+    /** The biome of every cell in {@link PalettedSection#sharedValues}' array, which no caller may write. */
+    @ApiStatus.Internal
+    public int[] biomeValues() {
+        return biomes.sharedValues();
+    }
+
     public int[] copyBiomes() {
         int[] values = new int[64];
         for (int i = 0; i < values.length; i++) values[i] = biomes.get(i);

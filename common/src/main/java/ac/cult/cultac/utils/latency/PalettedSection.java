@@ -21,6 +21,7 @@ import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.IntPredicate;
 import java.util.function.IntUnaryOperator;
+import org.jetbrains.annotations.ApiStatus;
 
 /**
  * Model IDs whose storage a section pool or the {@link SectionStore} may share across connections; shared storage is
@@ -108,17 +109,10 @@ public final class PalettedSection {
         return result;
     }
 
-    /**
-     * {@link #readBiomes(ByteBuf, int)}'s values; a single-entry palette gives {@link CachedChunk#uniformBiomes}'s
-     * shared array, which no caller may write.
-     */
+    /** {@link #readBiomes(ByteBuf, int)}'s values in {@link #sharedValues}' array, which no caller may write. */
     public static int[] readBiomeValues(ByteBuf input, int registrySize) {
-        var section = readCanonical(input, 64, 1, 3, registrySize, false, false, null, registrySize);
-        int single = section.singleValue();
-        if (single >= 0) return CachedChunk.uniformBiomes(single);
-        int[] result = new int[64];
-        for (int i = 0; i < result.length; i++) result[i] = section.get(i);
-        return result;
+        return readCanonical(input, 64, 1, 3, registrySize, false, false, null, registrySize)
+                .sharedValues();
     }
 
     /** A block container in {@code version}'s framing; global entries use that version's registry size. */
@@ -710,6 +704,40 @@ public final class PalettedSection {
     /** The value at every index of a single-entry local palette; -1 for any other section. */
     public int singleValue() {
         return bits == 0 && !isGlobal() && paletteSize > 0 ? palette[0] : -1;
+    }
+
+    /**
+     * The value at every index of this 64-cell section in an array shared between threads, which no caller may write:
+     * {@link CachedChunk#uniformBiomes}'s for a single-entry palette, else the {@link SectionStore}'s array of exactly
+     * these values. Fails as reading every index in order fails.
+     */
+    @ApiStatus.Internal
+    public int[] sharedValues() {
+        if (size != 64) throw new IllegalStateException("Only a 64-cell section shares its values");
+        int single = singleValue();
+        if (single >= 0) return CachedChunk.uniformBiomes(single);
+        return SectionStore.values(this, valuesFingerprint());
+    }
+
+    /** A hash of the storage; sections holding the same values may still differ in it. */
+    long valuesFingerprint() {
+        long hash = SectionStore.mix(bits | (isGlobal() ? 1L << 8 : 0) | (long) paletteSize << 16);
+        if (!isGlobal()) for (int i = 0; i < paletteSize; i++) hash = SectionStore.mix(hash ^ palette[i]);
+        for (long word : words) hash = SectionStore.mix(hash ^ word);
+        return hash;
+    }
+
+    /** Whether the value at every index equals {@code values}', reading indices in order until one differs. */
+    boolean holdsValues(int[] values) {
+        for (int i = 0; i < size; i++) if (get(i) != values[i]) return false;
+        return true;
+    }
+
+    /** A new array of the value at every index, read in order. */
+    int[] values() {
+        int[] values = new int[size];
+        for (int i = 0; i < size; i++) values[i] = get(i);
+        return values;
     }
 
     /** False for a global palette, whose entries are only known after reading every index. */

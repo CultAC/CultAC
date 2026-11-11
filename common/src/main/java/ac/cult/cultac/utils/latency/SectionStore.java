@@ -10,13 +10,16 @@ import java.util.function.IntUnaryOperator;
  * Block storage of local multi-entry containers that full reads produced, shared by content with later reads of the
  * same container on any connection. An entry is immutable and holds only primitive arrays; a read shares its storage
  * only when {@link PalettedSection#skipIfEncodes} finds that the container, read and remapped as the read would, equals
- * the entry in every field. The fingerprint only picks the set to compare.
+ * the entry in every field. The fingerprint only picks the set to compare. It also holds the value arrays of
+ * multi-entry 64-cell sections, each shared only with a section whose every value equals it.
  */
 public final class SectionStore {
     static final int SETS = 4096, WAYS = 2;
     static final long NOT_STORED = 0;
     private static final int FINGERPRINT_WORDS = 8;
     private static final AtomicReferenceArray<Entry> ENTRIES = new AtomicReferenceArray<>(SETS * WAYS);
+    static final int VALUE_SETS = 2048;
+    private static final AtomicReferenceArray<Values> VALUES = new AtomicReferenceArray<>(VALUE_SETS * WAYS);
 
     /** Containers whose fingerprint was looked up. */
     public static final LongAdder lookupCounter = new LongAdder();
@@ -28,11 +31,18 @@ public final class SectionStore {
     public static final LongAdder offerCounter = new LongAdder();
     /** Storage clones on a write that an unshared read would have written in place. */
     public static final LongAdder cloneCounter = new LongAdder();
+    /** Multi-entry 64-cell sections whose values were looked up. */
+    public static final LongAdder valueLookupCounter = new LongAdder();
+    /** Looked-up sections given a stored array. */
+    public static final LongAdder valueHitCounter = new LongAdder();
 
     private SectionStore() {}
 
     /** One stored section and the fingerprint of the container it was read from. */
     record Entry(long fingerprint, PalettedSection section) {}
+
+    /** The values of a 64-cell section, never written, and the fingerprint of the storage they were read from. */
+    record Values(long fingerprint, int[] values) {}
 
     /**
      * A hash of the local multi-entry block container at the reader index, its word array length-prefixed when
@@ -68,7 +78,7 @@ public final class SectionStore {
         }
     }
 
-    private static long mix(long value) {
+    static long mix(long value) {
         long mixed = value * 0x9E3779B97F4A7C15L;
         return mixed ^ mixed >>> 29;
     }
@@ -127,9 +137,31 @@ public final class SectionStore {
         return (int) (fingerprint >>> 40 & SETS - 1) * WAYS;
     }
 
+    /**
+     * The stored array that holds exactly {@code section}'s values, compared index by index; otherwise a new array of
+     * them, which then becomes the newest entry of its set. {@code fingerprint} only picks the set and the candidates.
+     */
+    static int[] values(PalettedSection section, long fingerprint) {
+        valueLookupCounter.increment();
+        int set = (int) (fingerprint >>> 40 & VALUE_SETS - 1) * WAYS;
+        for (int way = 0; way < WAYS; way++) {
+            Values entry = VALUES.get(set + way);
+            if (entry != null && entry.fingerprint() == fingerprint && section.holdsValues(entry.values())) {
+                valueHitCounter.increment();
+                return entry.values();
+            }
+        }
+        int[] values = section.values();
+        Values newest = VALUES.get(set);
+        if (newest != null) VALUES.set(set + 1, newest);
+        VALUES.set(set, new Values(fingerprint, values));
+        return values;
+    }
+
     /** Drops every entry; reads after it share nothing until new full reads are stored. */
     public static void clear() {
         for (int i = 0; i < ENTRIES.length(); i++) ENTRIES.set(i, null);
+        for (int i = 0; i < VALUES.length(); i++) VALUES.set(i, null);
     }
 
     /** Entries held now. */
