@@ -366,9 +366,7 @@ public class PacketPlayerRespawn {
                 player.checkManager
                         .getListener(ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaAutoJump.class)
                         .reset();
-                player.checkManager
-                        .getCheck(ac.cult.cultac.checks.impl.badpackets.BadPacketsV.class)
-                        .onNewLocalPlayer();
+                player.packetStateData.sentPositionCache.onNewLocalPlayer();
             }
             if (worldChange || player.isBedrockMovement()) player.compensatedEntities.resetClientTickOrder();
             else player.compensatedEntities.appendSelfToClientTickOrder();

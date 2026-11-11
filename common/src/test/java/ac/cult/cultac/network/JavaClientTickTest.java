@@ -11,16 +11,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.cultac.checks.impl.badpackets.BadPacketsV;
 import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
 import ac.cult.cultac.checks.impl.prediction.OffsetHandler;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
+import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityEvent;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Relative;
@@ -32,6 +36,7 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class JavaClientTickTest {
     private static final ServerboundPlayerInput NONE =
@@ -110,6 +115,138 @@ class JavaClientTickTest {
             assertEquals(far.z, f.player.z, 1.0E-9);
             assertEquals(0, f.player.checkManager.getCheck(OffsetHandler.class).violations);
         }
+    }
+
+    @Test
+    void ticksTheTimerRejectsStillCountTowardThePositionReminder() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.player.setExperimentalChecks(true);
+            Vec3 standing = new Vec3(9020.141477520196, FLOOR_Y, 9954.096716503434);
+            floorUnder(f, standing);
+            f.place(standing, Vec3.ZERO);
+            f.player.xRot = -13.647054f;
+            f.player.yRot = 39.60002f;
+            f.input(NONE);
+            move(f, new ServerboundMovePlayer(standing.x, standing.y, standing.z, 0, 0, true, false, true, false));
+            f.tickEnd();
+            // The player's chunk is loaded once a ping after it is answered, so the setback blocks movement.
+            f.pongThrough(f.player.sendTrailingTransaction());
+            DumbTimer dumbTimer = f.player.checkManager.getListener(DumbTimer.class);
+
+            // LocalPlayer#sendPosition advances positionReminder on each of these 19 ticks: bare tick ends, Rot, and
+            // five Rot moves the timer rejects before prediction. The 20th tick sends the unchanged position.
+            float[][] rotations = {
+                null, null, null, null,
+                {-13.197054862976074f, 41.85002517700195f},
+                {-13.347054481506348f, 50.70003128051758f},
+                {-11.697054862976074f, 61.50002670288086f},
+                {-10.647056579589844f, 64.95002746582031f},
+                null,
+                {-10.647056579589844f, 66.00003051757812f},
+                {-10.797056198120117f, 68.25004577636719f},
+                {-10.94705581665039f, 69.60005950927734f},
+                {-11.847053527832031f, 71.55007934570312f},
+                {-12.147052764892578f, 72.15008544921875f},
+                {-12.297052383422852f, 72.30008697509766f},
+                {-12.597051620483398f, 73.05009460449219f},
+                {-12.747051239013672f, 73.35009765625f},
+                {-15.147051811218262f, 75.75011444091797f},
+                {-16.79705047607422f, 77.8501205444336f}
+            };
+            for (int tick = 0; tick < rotations.length; tick++) {
+                float[] rotation = rotations[tick];
+                if (rotation != null) {
+                    boolean rejected = tick >= 14;
+                    if (rejected) JavaTickFixture.setField(DumbTimer.class, dumbTimer, "balance", Double.MAX_VALUE);
+                    var event = move(
+                            f, new ServerboundMovePlayer(0, 0, 0, rotation[0], rotation[1], true, false, false, true));
+                    JavaTickFixture.setField(DumbTimer.class, dumbTimer, "balance", Double.NEGATIVE_INFINITY);
+                    assertEquals(rejected, event.isCancelled(), "tick " + tick);
+                }
+                f.tickEnd();
+            }
+            move(
+                    f,
+                    new ServerboundMovePlayer(
+                            standing.x,
+                            standing.y,
+                            standing.z,
+                            -16.79705047607422f,
+                            78.0001220703125f,
+                            true,
+                            false,
+                            true,
+                            true));
+
+            assertEquals(0, f.player.checkManager.getCheck(BadPacketsV.class).getViolations());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void furtherMovesInOneClientTickAdvanceNoPositionReminder(boolean observeOnly) throws Exception {
+        try (var f = new JavaTickFixture();
+                var mode = observeOnly ? JavaTickFixture.observeOnly() : (AutoCloseable) () -> {}) {
+            f.player.setExperimentalChecks(true);
+            f.place(STANDING, Vec3.ZERO);
+            f.input(NONE);
+            f.tick(STANDING, true);
+            f.pongThrough(f.player.sendTrailingTransaction());
+
+            assertFalse(move(f, new ServerboundMovePlayer(0, 0, 0, 1, 0, true, false, false, true)).isCancelled());
+            for (int extra = 0; extra < 18; extra++) {
+                var event = move(f, new ServerboundMovePlayer(0, 0, 0, 2 + extra, 0, true, false, false, true));
+                assertEquals(!observeOnly, event.isCancelled(), "extra move " + extra);
+            }
+            f.tickEnd();
+            move(f, new ServerboundMovePlayer(STANDING.x, STANDING.y, STANDING.z, 0, 0, true, false, true, false));
+
+            assertEquals(1, f.player.checkManager.getCheck(BadPacketsV.class).getViolations());
+        }
+    }
+
+    @Test
+    void ticksWithoutMovementCountTowardThePositionReminder() throws Exception {
+        try (var f = new JavaTickFixture()) {
+            f.player.setExperimentalChecks(true);
+            f.place(STANDING, Vec3.ZERO);
+            f.input(NONE);
+            f.tick(STANDING, true);
+            BadPacketsV check = f.player.checkManager.getCheck(BadPacketsV.class);
+            var reminder =
+                    new ServerboundMovePlayer(STANDING.x, STANDING.y, STANDING.z, 0, 0, true, false, true, false);
+
+            for (int tick = 0; tick < 19; tick++) f.tickEnd();
+            move(f, reminder);
+            f.tickEnd();
+            assertEquals(0, check.getViolations());
+
+            for (int tick = 0; tick < 18; tick++) f.tickEnd();
+            move(f, reminder);
+            assertEquals(1, check.getViolations());
+        }
+    }
+
+    private static PacketReceiveEvent<ServerboundMovePlayer> move(JavaTickFixture f, ServerboundMovePlayer packet) {
+        var event = f.event(ServerboundPackets.MOVE_PLAYER, packet);
+        f.listener.onMovePlayer(event, f.player, packet);
+        return event;
+    }
+
+    private static void floorUnder(JavaTickFixture f, Vec3 position) {
+        int blockX = (int) Math.floor(position.x);
+        int blockZ = (int) Math.floor(position.z);
+        for (int x = (blockX >> 4) - 1; x <= (blockX >> 4) + 1; x++) {
+            for (int z = (blockZ >> 4) - 1; z <= (blockZ >> 4) + 1; z++) {
+                f.player.compensatedWorld.ensureValidationChunkLoaded(x, z);
+            }
+        }
+        for (int x = blockX - 8; x <= blockX + 8; x++) {
+            for (int z = blockZ - 8; z <= blockZ + 8; z++) {
+                f.player.compensatedWorld.updateBlock(new BlockPos(x, FLOOR_Y - 1, z), BlockIds.STONE.defaultState());
+            }
+        }
+        for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
     }
 
     @Test
