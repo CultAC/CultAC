@@ -1,5 +1,6 @@
 package ac.cult.cultac.bedrock.prediction.geometry;
 
+import ac.cult.blocksim.data.BlockDefinition;
 import ac.cult.blocksim.data.BlockFamilies;
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.BlockProps;
@@ -26,6 +27,19 @@ public final class BedrockCollisionWorldBuilder {
     private static final double POWDER_SNOW_ABOVE_EPSILON = 1.1920929E-7D;
 
     private static final BlockRegistry REGISTRY = DataTables.defaults().registry();
+    private static final BlockDefinition COMPOSTER = REGISTRY.block("minecraft:composter");
+    private static final BlockDefinition BREWING_STAND = REGISTRY.block("minecraft:brewing_stand");
+    private static final List<BlockDefinition> CAULDRONS = List.of(
+            BlockIds.CAULDRON,
+            REGISTRY.block("minecraft:water_cauldron"),
+            REGISTRY.block("minecraft:lava_cauldron"),
+            REGISTRY.block("minecraft:powder_snow_cauldron"));
+    /** The four 2/16 thick walls of a composter or cauldron, each a full block high. */
+    private static final List<BlockAabb> BASIN_WALLS = List.of(
+            new BlockAabb(0.0D, 0.0D, 0.0D, 0.125D, 1.0D, 1.0D),
+            new BlockAabb(0.0D, 0.0D, 0.0D, 1.0D, 1.0D, 0.125D),
+            new BlockAabb(0.875D, 0.0D, 0.0D, 1.0D, 1.0D, 1.0D),
+            new BlockAabb(0.0D, 0.0D, 0.875D, 1.0D, 1.0D, 1.0D));
 
     private final BedrockCollisionOverrideCatalog catalog;
     private final BedrockBlockShapeContext context;
@@ -106,7 +120,9 @@ public final class BedrockCollisionWorldBuilder {
                 || stairBlock(state)
                 || fenceBlock(state)
                 || thinFenceBlock(state)
-                || chorusPlantBlock(state);
+                || chorusPlantBlock(state)
+                || basinBlock(state)
+                || BlockIds.is(state, BREWING_STAND);
     }
 
     public static Set<BlockContactBehavior> contactBehaviors(int state) {
@@ -177,6 +193,15 @@ public final class BedrockCollisionWorldBuilder {
         }
         if (chorusPlantBlock(state)) {
             return chorusPlantCollisionBoxes(position, state);
+        }
+        if (basinBlock(state)) {
+            return basinCollisionBoxes(position, state);
+        }
+        if (BlockIds.is(state, BREWING_STAND)) {
+            // A rod on a base plate that covers the whole block.
+            return List.of(
+                    toWorldBox(position, new BlockAabb(0.4375D, 0.0D, 0.4375D, 0.5625D, 0.875D, 0.5625D)),
+                    toWorldBox(position, new BlockAabb(0.0D, 0.0D, 0.0D, 1.0D, 0.125D, 1.0D)));
         }
         if (scaffoldingBlock(state)) {
             return scaffoldingCollisionBoxes(position, query);
@@ -250,6 +275,28 @@ public final class BedrockCollisionWorldBuilder {
 
     private static boolean powderSnowBlock(int state) {
         return BlockFamilies.POWDER_SNOW.test(state) || BlockIds.is(state, BlockIds.POWDER_SNOW);
+    }
+
+    private static boolean basinBlock(int state) {
+        return BlockIds.is(state, COMPOSTER) || CAULDRONS.stream().anyMatch(cauldron -> BlockIds.is(state, cauldron));
+    }
+
+    /**
+     * A composter or cauldron collides as four walls around a floor: 5/16 high in a cauldron, and in a composter
+     * 2/16 empty, (2 * level + 1)/16 filling, 15/16 full.
+     */
+    private static List<WorldCollisionBox> basinCollisionBoxes(BlockPosition position, int state) {
+        double floor = 0.3125D;
+        if (BlockIds.is(state, COMPOSTER)) {
+            int level = Integer.parseInt(REGISTRY.value(state, "level"));
+            floor = level == 0 ? 0.125D : level == 8 ? 0.9375D : (2 * level + 1) / 16.0D;
+        }
+        List<WorldCollisionBox> boxes = new ArrayList<>(5);
+        boxes.add(toWorldBox(position, new BlockAabb(0.0D, 0.0D, 0.0D, 1.0D, floor, 1.0D)));
+        for (BlockAabb wall : BASIN_WALLS) {
+            boxes.add(toWorldBox(position, wall));
+        }
+        return List.copyOf(boxes);
     }
 
     private static boolean shulkerBoxBlock(int state) {
