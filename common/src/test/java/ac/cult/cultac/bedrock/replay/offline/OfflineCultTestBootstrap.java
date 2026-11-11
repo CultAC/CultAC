@@ -25,6 +25,7 @@ public final class OfflineCultTestBootstrap {
     public static void installConfig() {
         if (installed) {
             initializeProtocolRuntime();
+            loadBedrockBlockShapes();
             return;
         }
         initializeProtocolRuntime();
@@ -52,6 +53,14 @@ public final class OfflineCultTestBootstrap {
             installed = true;
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException("failed to install offline Cult config", exception);
+        }
+        loadBedrockBlockShapes();
+    }
+
+    /** Bedrock players collide with the client's block shapes, loaded from the catalog the Geyser bridge loads. */
+    private static void loadBedrockBlockShapes() {
+        if (!ac.cult.cultac.utils.collisions.BedrockClientBlockShapeMappings.isInitialized()) {
+            ac.cult.cultac.utils.collisions.BedrockClientBlockShapeMappings.initialize();
         }
     }
 

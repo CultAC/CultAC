@@ -25,7 +25,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.ToIntFunction;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
-import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -54,12 +53,6 @@ public class BedrockMovingBlockTest {
     @Before
     public void loadShapes() {
         OfflineCultTestBootstrap.installConfig();
-        BedrockClientBlockShapeMappings.initialize();
-    }
-
-    @After
-    public void unloadShapes() {
-        BedrockClientBlockShapeMappings.clear();
     }
 
     @Test
