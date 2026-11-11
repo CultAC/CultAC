@@ -1315,17 +1315,14 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         boolean mountsLocalPlayer = packet.passengers().contains(player.entityID);
         int[] passengers =
                 packet.passengers().stream().mapToInt(Integer::intValue).toArray();
+        // Entity#ejectPassengers stops only the passengers the vehicle holds, so the packet removes the player only
+        // when it rides that vehicle once the client has handled every earlier packet, and has not left that seat on
+        // its own. A repeated dismount changes nothing for the client.
+        boolean removesLocalPlayer = !mountsLocalPlayer
+                && player.compensatedEntities.vehicles.ridesAsSent(packet.vehicleId())
+                && player.compensatedEntities.vehicles.isServerPlayerPassengerOf(packet.vehicleId());
         player.compensatedEntities.vehicles.onSentPassengers(packet.vehicleId(), passengers);
         PacketEntity vehicle = player.compensatedEntities.getEntity(packet.vehicleId());
-        Integer immediateVehicle = player.compensatedEntities.vehicles.serverPlayerVehicle;
-        boolean delayedVehicleCanStillBeCurrent = immediateVehicle == null
-                ? removedPlayerVehicleId != packet.vehicleId()
-                : immediateVehicle == packet.vehicleId();
-        boolean removesLocalPlayer = !mountsLocalPlayer
-                && (player.compensatedEntities.vehicles.isServerPlayerPassengerOf(packet.vehicleId())
-                        || delayedVehicleCanStillBeCurrent
-                                && vehicle != null
-                                && vehicle.passengers.contains(player.compensatedEntities.playerEntity));
         boolean setsSelfPassengers = packet.vehicleId() == player.entityID;
         boolean changesSelfPassengers =
                 setsSelfPassengers || player.compensatedEntities.mayChangeSelfPassengers(packet.passengers());

@@ -37,6 +37,11 @@ final class SentRidingGraph {
         passengersOf.clear();
     }
 
+    /** Whether {@code passenger} rides {@code vehicle} directly. */
+    boolean ridesDirectly(int passenger, int vehicle) {
+        return vehicleOf.containsKey(passenger) && vehicleOf.get(passenger) == vehicle;
+    }
+
     /** Whether {@code entity} rides another entity. */
     boolean rides(int entity) {
         return vehicleOf.containsKey(entity);

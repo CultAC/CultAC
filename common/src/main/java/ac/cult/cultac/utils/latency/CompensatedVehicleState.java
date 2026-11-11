@@ -854,6 +854,14 @@ public final class CompensatedVehicleState implements Debuggable {
     }
 
     /**
+     * Whether the local player is a passenger of {@code vehicleId} itself once the client has handled every packet
+     * sent so far, which is when it handles the next one.
+     */
+    public boolean ridesAsSent(int vehicleId) {
+        return sentRiding.ridesDirectly(player.entityID, vehicleId);
+    }
+
+    /**
      * The local player's Entity#getRootVehicle once the client has handled every packet sent so far, which is when it
      * handles the next one; null while it then rides nothing.
      */

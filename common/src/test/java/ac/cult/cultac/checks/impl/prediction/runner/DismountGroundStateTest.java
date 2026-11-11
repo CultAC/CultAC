@@ -37,6 +37,7 @@ class DismountGroundStateTest {
             var vehicles = player.compensatedEntities.vehicles;
             player.compensatedEntities.addEntity(VEHICLE, EntityTypeIds.PIG, Vec3.ZERO, 0.0F, 0.0F, 0);
             assertTrue(vehicles.applyVehiclePassengers(VEHICLE, new int[] {player.entityID}));
+            vehicles.onSentPassengers(VEHICLE, new int[] {player.entityID});
             vehicles.setServerVehicle(VEHICLE, new int[] {player.entityID}, player.lastTransactionSent.get());
             player.onGround = true;
             SimulationProcessor simulation = player.checkManager.getSimulationProcessor();
