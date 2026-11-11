@@ -33,14 +33,22 @@ public class PacketPingListener {
             event.setAcceptedTransactionResponse(true);
             boolean shouldCancel = !CultAPI.INSTANCE.getConfigManager().isDisablePongCancelling();
             // Not needed for vanilla as vanilla ignores this packet, needed for packet limiters
-            event.setCancelled(shouldCancel);
+            if (shouldCancel) event.cancelFinally();
+            else event.setCancelled(false);
             if (!Channels.RECEIVED.isEmpty()) {
                 Channels.RECEIVED.fire(
                         RuntimeEnvironment.outwardUser(player), packet.id(), shouldCancel, event.getTimestamp());
             }
-        } else {
+        } else if (!player.user.getCultConnection().holdsRetiredPing(packet.id())) {
             player.foreignPongReceived(packet.id());
         }
+    }
+
+    /** Connection scope: a pong answering a ping CultAC wrote for a player since removed from the connection. */
+    public void onRetiredPong(PacketReceiveEvent<ServerboundPong> event, ServerboundPong packet) {
+        if (!event.getUser().getCultConnection().takeRetiredPing(packet.id())) return;
+        event.setAcceptedTransactionResponse(true);
+        if (!CultAPI.INSTANCE.getConfigManager().isDisablePongCancelling()) event.cancelFinally();
     }
 
     @CultPacketHandler

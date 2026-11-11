@@ -13,6 +13,8 @@ import ac.cult.cultac.utils.anticheat.LogUtil;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
 import io.netty.util.concurrent.EventExecutor;
+import it.unimi.dsi.fastutil.ints.IntCollection;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.lang.reflect.Method;
 import java.nio.channels.ClosedChannelException;
 import java.util.ArrayList;
@@ -88,10 +90,38 @@ public final class CultConnection implements CodecState, FrameLease.Source {
         flushPingSource = source;
     }
 
+    /** Takes over the ids of CultAC pings written for a player removed from this connection. */
+    public void retirePings(IntCollection ids) {
+        synchronized (retiredPings) {
+            retiredPings.addAll(ids);
+        }
+    }
+
+    public void retirePing(int id) {
+        synchronized (retiredPings) {
+            retiredPings.add(id);
+        }
+    }
+
+    /** Whether {@code id} answers a retired CultAC ping; each id is taken once. */
+    public boolean takeRetiredPing(int id) {
+        synchronized (retiredPings) {
+            return retiredPings.remove(id);
+        }
+    }
+
+    public boolean holdsRetiredPing(int id) {
+        synchronized (retiredPings) {
+            return retiredPings.contains(id);
+        }
+    }
+
     private boolean ownerResolved, prepared;
     private Consumer<CultConnection> initializer = ignored -> {};
     private BiConsumer<Object, ChannelPromise> reentrantWriter;
     private java.util.function.IntSupplier flushPingSource;
+    /** Ids of CultAC pings whose player was removed while the connection stays open; guarded by itself. */
+    private final IntOpenHashSet retiredPings = new IntOpenHashSet(0);
     private volatile CompletableFuture<Void> removed;
     private volatile PacketLogObserver packetObserver = PacketLogObserver.NONE;
     private io.netty.util.concurrent.GenericFutureListener<io.netty.util.concurrent.Future<? super Void>> closeListener;

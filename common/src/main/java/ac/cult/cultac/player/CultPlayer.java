@@ -170,6 +170,8 @@ public class CultPlayer implements GrimUser {
     private final IntSupplier nextWireWord = () -> wireIdBlock.next(wireIds);
     /** Backend pings in flight, whose ids a CultAC ping must not take or the backend's pong is swallowed. */
     private final ForeignPings foreignPings = new ForeignPings();
+    /** Set once the connection has taken over this player's ping ids; it writes no ping after that. */
+    private volatile boolean pingsRetired;
 
     public final @NotNull AtomicInteger lastTransactionSent = new AtomicInteger(0);
     public final @NotNull AtomicInteger lastTransactionReceived = new AtomicInteger(0);
@@ -815,6 +817,7 @@ public class CultPlayer implements GrimUser {
     private boolean canSendTransactionNow() {
         var phase = user.getEncoderState();
         return user.getPlayer() != null
+                && !pingsRetired
                 && !protocolSwitchPending()
                 && (phase == ConnectionPhase.PLAY || phase == ConnectionPhase.CONFIGURATION);
     }
@@ -969,6 +972,7 @@ public class CultPlayer implements GrimUser {
         CultWrite packet = new CultWrite(new ClientboundPing(transactionID), false);
         TrackedTransaction transaction = new TrackedTransaction(lastTransactionSent.incrementAndGet(), packet);
         transactionsPendingSend.put(transactionID, transaction);
+        if (pingsRetired) user.getCultConnection().retirePing(transactionID);
         if (recordProvenance) {
             int slot = Math.floorMod(transaction.transaction(), RECENT_WIRE_IDS);
             recentTransactions[slot] = transaction.transaction();
@@ -1070,6 +1074,17 @@ public class CultPlayer implements GrimUser {
         foreignPings.remove(id);
     }
 
+    /**
+     * Hands the ids of every ping this player wrote or queued and has no pong for to its connection, before the
+     * player is detached from a connection that stays open; the player writes no ping afterwards.
+     */
+    public synchronized void retirePings() {
+        pingsRetired = true;
+        var connection = user.getCultConnection();
+        connection.retirePings(transactionsSentById.keySet());
+        connection.retirePings(transactionsPendingSend.keySet());
+    }
+
     /** Whether {@code id} is a ping CultAC created whose response has not arrived yet. */
     public synchronized boolean awaitsTransactionResponse(int id) {
         return transactionsPendingSend.containsKey(id) || transactionsSentById.containsKey(id);
@@ -1087,6 +1102,7 @@ public class CultPlayer implements GrimUser {
             used = transactionsSentById.containsKey(id);
             used |= transactionsPendingSend.containsKey(id);
             used |= foreignPings.contains(id);
+            used |= user.getCultConnection().holdsRetiredPing(id);
         } while (used);
         return id;
     }
