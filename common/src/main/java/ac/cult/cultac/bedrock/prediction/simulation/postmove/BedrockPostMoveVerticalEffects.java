@@ -41,7 +41,10 @@ final class BedrockPostMoveVerticalEffects {
         }
         return switch (medium(input)) {
             case LAVA -> lavaGravity(velocity);
-            case AIR -> input.effectState().levitationLevel() > 0 ? velocity : airGravity(input, velocity);
+            case AIR ->
+                input.effectState().levitationLevel() > 0 || !input.actorHasGravity()
+                        ? velocity
+                        : airGravity(input, velocity);
             case WATER ->
                 input.current().isHorse()
                         ? new Vec3d(
@@ -58,7 +61,8 @@ final class BedrockPostMoveVerticalEffects {
             return BedrockFlyingTravelMovement.applyVerticalDrag(velocity);
         }
         return switch (medium(input)) {
-            case AIR -> airVerticalDrag(velocity);
+            // Without the gravity flag the client skips the vertical drag on the ground and in the air.
+            case AIR -> input.actorHasGravity() ? airVerticalDrag(velocity) : velocity;
             case WATER, LAVA, NONE -> velocity;
         };
     }

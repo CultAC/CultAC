@@ -22,7 +22,15 @@ final class BedrockMovementModifierFactory {
                 player != null && player.compensatedWorld != null && player.compensatedWorld.isRaining,
                 false,
                 0.35D,
-                0L);
+                0L,
+                hasGravity(player));
+    }
+
+    // The player's no-gravity entity data reaches the client as its gravity actor flag.
+    private static boolean hasGravity(CultPlayer player) {
+        return player == null
+                || player.compensatedEntities == null
+                || player.compensatedEntities.getSelf().hasGravity;
     }
 
     private static boolean trustedMayFlyAbility(CultPlayer player) {

@@ -162,7 +162,8 @@ public record BedrockReplayContextEvent(
                     m.rainContact(),
                     usingItem == null ? m.itemUseSlowdownActive() : usingItem,
                     m.itemUseMovementModifier(),
-                    m.itemUseSlowdownDurationTicks());
+                    m.itemUseSlowdownDurationTicks(),
+                    m.hasGravity());
         }
         if (recorded != null && (gameType != null || usingItem != null)) {
             var original = recorded.modifierState();
@@ -177,7 +178,8 @@ public record BedrockReplayContextEvent(
                     m.rainContact(),
                     usingItem == null ? m.itemUseSlowdownActive() : original.itemUseSlowdownActive(),
                     m.itemUseMovementModifier(),
-                    m.itemUseSlowdownDurationTicks());
+                    m.itemUseSlowdownDurationTicks(),
+                    m.hasGravity());
         }
         var context = new BedrockMovementContext(
                 e, a, c.worldState(), c.equipmentState(), c.entityContactState(), m, c.playerDimensionsState());

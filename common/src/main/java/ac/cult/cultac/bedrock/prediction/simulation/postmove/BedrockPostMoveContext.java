@@ -84,6 +84,10 @@ record BedrockPostMoveContext(BedrockTravelPlan plan, BedrockMoveRequest moveReq
         return plan.frame().branch().playerFlyingTravel();
     }
 
+    boolean actorHasGravity() {
+        return context().modifierState().hasGravity();
+    }
+
     boolean navigationCanWalkInLava() {
         return plan.frame().frameFacts().navigationCanWalkInLava();
     }
