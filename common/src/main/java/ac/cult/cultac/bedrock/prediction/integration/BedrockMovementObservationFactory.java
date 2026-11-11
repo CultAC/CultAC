@@ -49,12 +49,10 @@ final class BedrockMovementObservationFactory {
         double horizontal = Math.hypot(error.x(), error.z());
         double velocity = reportedVelocity == null
                 ? 0
-                : ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick.finish(result, selected).stream()
-                        .mapToDouble(state -> state.velocity()
-                                .subtract(BedrockVectorAdapter.toBedrock(reportedVelocity))
-                                .length())
-                        .min()
-                        .orElseThrow();
+                : ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick.finish(result, selected)
+                        .velocity()
+                        .subtract(BedrockVectorAdapter.toBedrock(reportedVelocity))
+                        .length();
         return BedrockMovementObservation.create(
                 result,
                 actual,

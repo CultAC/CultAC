@@ -95,9 +95,8 @@ public final class BedrockReplayLiquidSensingTest {
                 Vec3d.ZERO);
         var movement = BedrockForwardTick.simulate(request).getFirst();
         var state = movement.movementResult().predictedState();
-        var entries = BedrockForwardTick.finish(movement.movementResult(), state).stream()
-                .map(next -> new Entry(next, movement.mobJumpComponent()))
-                .toList();
+        var entries = List.of(
+                new Entry(BedrockForwardTick.finish(movement.movementResult(), state), movement.mobJumpComponent()));
         return new BedrockActorHistory.Frame(
                 tick,
                 request,

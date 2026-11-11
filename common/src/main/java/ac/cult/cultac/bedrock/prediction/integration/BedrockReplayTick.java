@@ -110,9 +110,8 @@ final class BedrockReplayTick {
                 var movement = candidate.movementResult();
                 var end = movement.predictedState();
                 end = end.withExternalDisplacement(frame.externalDisplacement());
-                outcomes.add(BedrockForwardTick.finish(movement, end).stream()
-                        .map(next -> new Entry(next, candidate.mobJumpComponent()))
-                        .toList());
+                var next = BedrockForwardTick.finish(movement, end);
+                outcomes.add(List.of(new Entry(next, candidate.mobJumpComponent())));
             }
         }
         // Observations rank legal candidates only. They never become state or widen its bounds.

@@ -133,9 +133,8 @@ public class BedrockSprintRewindTest {
                 new Vec3d(0, 0, 1));
         var candidate = BedrockForwardTick.simulate(input).getFirst();
         var result = candidate.movementResult();
-        var entries = BedrockForwardTick.finish(result, result.predictedState()).stream()
-                .map(state -> new BedrockProfileState.Entry(state, candidate.mobJumpComponent()))
-                .toList();
+        var entries = List.of(new BedrockProfileState.Entry(
+                BedrockForwardTick.finish(result, result.predictedState()), candidate.mobJumpComponent()));
         return new BedrockActorHistory.Frame(
                 tick,
                 input,

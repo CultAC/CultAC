@@ -14,10 +14,8 @@ public final class BedrockForwardTick {
         return BedrockSimulation.candidates(input);
     }
 
-    public static List<BedrockMovementState> finish(BedrockMovementResult result, BedrockMovementState selected) {
-        return BedrockNextTickStateDeriver.fromSimulated(result, selected).stream()
-                .map(state -> BedrockEndTickBlockPush.apply(result, state))
-                .distinct()
-                .toList();
+    /** The one state the client ends the tick with, the next tick's start. */
+    public static BedrockMovementState finish(BedrockMovementResult result, BedrockMovementState selected) {
+        return BedrockEndTickBlockPush.apply(result, BedrockNextTickStateDeriver.fromSimulated(result, selected));
     }
 }

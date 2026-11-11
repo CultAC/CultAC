@@ -278,7 +278,10 @@ record BedrockPostMoveContext(BedrockTravelPlan plan, BedrockMoveRequest moveReq
     }
 
     private boolean gravityAndVerticalDragApplies(BedrockPostMoveFrame frame) {
-        return !frame.standingBounceBounced() && !frame.climbVelocityApplied();
+        // A descent through scaffolding already carries its dragged descend velocity, with no gravity after it.
+        return !frame.standingBounceBounced()
+                && !frame.climbVelocityApplied()
+                && !climb().scaffolding().descendingThroughBlock();
     }
 
     private boolean postMoveVelocityEffectsSuppressed() {

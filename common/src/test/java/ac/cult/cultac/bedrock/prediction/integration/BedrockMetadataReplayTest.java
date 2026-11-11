@@ -344,9 +344,8 @@ public final class BedrockMetadataReplayTest {
                 boost);
         var candidate = BedrockForwardTick.simulate(input).getFirst();
         var result = candidate.movementResult();
-        var entries = BedrockForwardTick.finish(result, result.predictedState()).stream()
-                .map(next -> new BedrockProfileState.Entry(next, candidate.mobJumpComponent()))
-                .toList();
+        var entries = List.of(new BedrockProfileState.Entry(
+                BedrockForwardTick.finish(result, result.predictedState()), candidate.mobJumpComponent()));
         return new BedrockActorHistory.Frame(
                 tick,
                 input,

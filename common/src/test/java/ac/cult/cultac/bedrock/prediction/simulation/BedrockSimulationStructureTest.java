@@ -116,9 +116,8 @@ public final class BedrockSimulationStructureTest {
         assertEquals(currentFrame, predicted.inputFrame());
         assertEquals(state.simulationTick(), predicted.simulationTick());
         var carry = BedrockForwardTick.finish(candidates.getFirst().movementResult(), predicted);
-        assertEquals(1, carry.size());
-        assertEquals(state.velocity(), carry.getFirst().velocity());
-        assertEquals(state.simulationTick(), carry.getFirst().simulationTick());
+        assertEquals(state.velocity(), carry.velocity());
+        assertEquals(state.simulationTick(), carry.simulationTick());
     }
 
     @Test
@@ -142,10 +141,9 @@ public final class BedrockSimulationStructureTest {
                 .getFirst()
                 .movementResult();
         var carry = BedrockForwardTick.finish(result, result.predictedState());
-        assertEquals(1, carry.size());
-        assertEquals(state.physicalFeetPosition(), carry.getFirst().physicalFeetPosition());
-        assertEquals(state.velocity(), carry.getFirst().velocity());
-        assertEquals(state.collisionFlags(), carry.getFirst().collisionFlags());
+        assertEquals(state.physicalFeetPosition(), carry.physicalFeetPosition());
+        assertEquals(state.velocity(), carry.velocity());
+        assertEquals(state.collisionFlags(), carry.collisionFlags());
     }
 
     @Test
@@ -169,8 +167,7 @@ public final class BedrockSimulationStructureTest {
                     .getFirst()
                     .movementResult();
             var carry = BedrockForwardTick.finish(result, result.predictedState());
-            assertEquals(1, carry.size());
-            state = carry.getFirst();
+            state = carry;
             assertEquals(tick < 4, state.hasTeleported());
             assertEquals(tick == 5, result.travelActive());
             assertEquals(tick < 4 ? 0 : tick - 3, state.simulationTick());
@@ -443,8 +440,7 @@ public final class BedrockSimulationStructureTest {
         assertFalse(result.selectedWaterTravel());
         assertFalse(result.travelActive());
         var carry = BedrockForwardTick.finish(result, result.predictedState());
-        assertEquals(1, carry.size());
-        assertEquals(result.predictedVelocity(), carry.getFirst().velocity());
+        assertEquals(result.predictedVelocity(), carry.velocity());
     }
 
     @Test
@@ -459,7 +455,7 @@ public final class BedrockSimulationStructureTest {
         assertEquals(-0.12, result.predictedVelocity().y(), 0.000001);
         assertEquals(0.04, result.predictedVelocity().z(), 0.000001);
         var carry = BedrockForwardTick.finish(result, result.predictedState());
-        assertEquals(result.predictedVelocity(), carry.getFirst().velocity());
+        assertEquals(result.predictedVelocity(), carry.velocity());
     }
 
     @Test

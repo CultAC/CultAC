@@ -139,7 +139,7 @@ public final class BedrockBlockSlowdownTimingTest {
     }
 
     private static BedrockMovementState next(BedrockMovementResult result) {
-        return BedrockForwardTick.finish(result, result.predictedState()).getFirst();
+        return BedrockForwardTick.finish(result, result.predictedState());
     }
 
     private static BedrockWorldSnapshot world(String floor, String body, BlockContactBehavior bodyBehavior) {

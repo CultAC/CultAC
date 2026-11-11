@@ -312,31 +312,18 @@ public final class BedrockMovementEngine implements MovementEngine {
             if (movement.previousState().isBoat() && player != null) breakLilyPads(player, movement);
             var state = bedrockResult.nextTickBaseState();
             var frame = result.getSimulationContext().getBedrockInput();
-            List<Entry> entries = BedrockForwardTick.finish(movement, state).stream()
-                    .map(next -> new Entry(next, bedrockResult.nextTickBaseMobJumpComponent()))
-                    .toList();
+            Entry entry =
+                    new Entry(BedrockForwardTick.finish(movement, state), bedrockResult.nextTickBaseMobJumpComponent());
             if (result.isExempt() && frame.getReportedEndOfTickVelocity() != null) {
                 var position = BedrockVectorAdapter.toBedrock(frame.getPosition());
                 var velocity = BedrockVectorAdapter.toBedrock(frame.getReportedEndOfTickVelocity());
-                entries = List.of(entries.getFirst()
-                        .withState(entries.getFirst()
-                                .state()
-                                .withPhysicalFeetPosition(
-                                        position,
-                                        position.subtract(
-                                                movement.previousState().physicalFeetPosition()))
-                                .withVelocityAndCollisionFlags(
-                                        velocity, entries.getFirst().state().collisionFlags())));
+                entry = entry.withState(entry.state()
+                        .withPhysicalFeetPosition(
+                                position, position.subtract(movement.previousState().physicalFeetPosition()))
+                        .withVelocityAndCollisionFlags(velocity, entry.state().collisionFlags()));
             }
-            if (entries.size() > 1 && frame.getReportedEndOfTickVelocity() != null) {
-                var reported = BedrockVectorAdapter.toBedrock(frame.getReportedEndOfTickVelocity());
-                entries = entries.stream()
-                        .sorted(java.util.Comparator.comparingDouble(entry ->
-                                entry.state().velocity().subtract(reported).length()))
-                        .toList();
-            }
-            result.setProfileResult(
-                    bedrockResult.withNextTickBaseState(entries.getFirst().state()));
+            result.setProfileResult(bedrockResult.withNextTickBaseState(entry.state()));
+            List<Entry> entries = List.of(entry);
             return new PredictionCommit(
                     new BedrockNextTickStates(entries),
                     BedrockNextTickVelocityDerivation.profileStateVelocities(entries));
@@ -400,9 +387,9 @@ public final class BedrockMovementEngine implements MovementEngine {
             return null;
         }
         BedrockMovementState continuation = bedrockResult.movementResult().predictedState();
-        List<Entry> entries = BedrockForwardTick.finish(bedrockResult.movementResult(), continuation).stream()
-                .map(state -> new Entry(state, bedrockResult.nextTickBaseMobJumpComponent()))
-                .toList();
+        List<Entry> entries = List.of(new Entry(
+                BedrockForwardTick.finish(bedrockResult.movementResult(), continuation),
+                bedrockResult.nextTickBaseMobJumpComponent()));
         PredictionCommit commit = new PredictionCommit(
                 new BedrockNextTickStates(entries), BedrockNextTickVelocityDerivation.profileStateVelocities(entries));
         BedrockMovementState canonical = entries.getFirst().state();

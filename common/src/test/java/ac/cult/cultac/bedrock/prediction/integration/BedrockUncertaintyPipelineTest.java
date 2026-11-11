@@ -213,16 +213,15 @@ public final class BedrockUncertaintyPipelineTest {
         var selected = previous.withPhysicalFeetPosition(new Vec3d(0.9, 0, 0.5), 0.16);
         // The box overlaps the block from its west side, so the push raises the resting x velocity to 0.1 westward.
         var pushed = ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick.finish(movement, selected);
-        Assert.assertEquals(1, pushed.size());
-        Assert.assertEquals(selected.physicalFeetPosition(), pushed.getFirst().physicalFeetPosition());
-        Assert.assertEquals(-0.1F, pushed.getFirst().velocity().x(), 0);
-        Assert.assertEquals(0, pushed.getFirst().velocity().z(), 0);
+        Assert.assertEquals(selected.physicalFeetPosition(), pushed.physicalFeetPosition());
+        Assert.assertEquals(-0.1F, pushed.velocity().x(), 0);
+        Assert.assertEquals(0, pushed.velocity().z(), 0);
         var outside = ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick.finish(movement, previous);
-        Assert.assertEquals(0, outside.getFirst().velocity().x(), 0);
-        Assert.assertEquals(0, outside.getFirst().velocity().z(), 0);
+        Assert.assertEquals(0, outside.velocity().x(), 0);
+        Assert.assertEquals(0, outside.velocity().z(), 0);
         Assert.assertEquals(
-                outside.getFirst().velocity().y(), pushed.getFirst().velocity().y(), 0);
-        Vec3 reported = new Vec3(-0.1F, pushed.getFirst().velocity().y(), 0);
+                outside.velocity().y(), pushed.velocity().y(), 0);
+        Vec3 reported = new Vec3(-0.1F, pushed.velocity().y(), 0);
         var observation = BedrockMovementObservationFactory.fromForwardSelection(
                 movement, new Vec3(0.9, 0, 0.5), selected, reported, null);
         Assert.assertEquals(0, observation.velocityOffset(), 1.0E-12);

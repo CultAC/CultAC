@@ -165,7 +165,7 @@ public final class BedrockPlayerScaleTest {
                 new Vec3d(-0.3, 0, 0),
                 false);
         var result = BedrockForwardTick.simulate(input).getFirst().movementResult();
-        var end = BedrockForwardTick.finish(result, result.predictedState()).getFirst();
+        var end = BedrockForwardTick.finish(result, result.predictedState());
 
         assertEquals(-0.00588, result.predictedPosition().x() - 27.2273F, 1.0E-6);
         assertEquals(0.0946492, end.velocity().x(), 1.0E-6);
@@ -299,9 +299,8 @@ public final class BedrockPlayerScaleTest {
                 false);
         var candidate = BedrockForwardTick.simulate(input).getFirst();
         var result = candidate.movementResult();
-        var entries = BedrockForwardTick.finish(result, result.predictedState()).stream()
-                .map(next -> new BedrockProfileState.Entry(next, candidate.mobJumpComponent()))
-                .toList();
+        var entries = List.of(new BedrockProfileState.Entry(
+                BedrockForwardTick.finish(result, result.predictedState()), candidate.mobJumpComponent()));
         return new BedrockActorHistory.Frame(
                 tick,
                 input,

@@ -111,9 +111,7 @@ public final class BedrockMountStandingSurfaceTest {
         BedrockMovementResult result =
                 tick(horse, floor("minecraft:honey_block", BlockContactBehavior.HONEY), Vec3d.ZERO);
         var derived = BedrockForwardTick.finish(result, result.predictedState());
-
-        assertEquals(1, derived.size());
-        assertEquals(0.2D * HONEY_FRICTION, derived.getFirst().velocity().z(), 1.0E-6D);
+        assertEquals(0.2D * HONEY_FRICTION, derived.velocity().z(), 1.0E-6D);
     }
 
     private static double moveZ(BedrockMovementResult result) {
@@ -148,7 +146,7 @@ public final class BedrockMountStandingSurfaceTest {
     }
 
     private static BedrockMovementState next(BedrockMovementResult result) {
-        return BedrockForwardTick.finish(result, result.predictedState()).getFirst();
+        return BedrockForwardTick.finish(result, result.predictedState());
     }
 
     private static BedrockWorldSnapshot floor(String identifier, BlockContactBehavior behavior) {

@@ -103,7 +103,7 @@ public final class BedrockLerpStepTickTest {
                 false,
                 controls);
         var movement = BedrockForwardTick.simulate(request).getFirst().movementResult();
-        return BedrockForwardTick.finish(movement, movement.predictedState()).getFirst();
+        return BedrockForwardTick.finish(movement, movement.predictedState());
     }
 
     private static PlacedBlockCollision stone(WorldCollisionBox box, int x, int y, int z) {

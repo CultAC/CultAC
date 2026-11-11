@@ -377,7 +377,7 @@ public final class BedrockBlockCollisionResolverTest {
         assertEquals(0.44934615199, result.predictedVelocity().y(), 1.0E-6);
         assertEquals(0.091, result.predictedVelocity().x(), 1.0E-6);
         assertTrue(result.standingBounceBounced());
-        var carried = BedrockForwardTick.finish(result, result.predictedState()).getFirst();
+        var carried = BedrockForwardTick.finish(result, result.predictedState());
         assertEquals(result.predictedVelocity(), carried.velocity());
         var nextFrame = BedrockInputFrame.idle(2);
         var next = BedrockForwardTick.simulate(new BedrockSimulation.Input(
@@ -459,9 +459,7 @@ public final class BedrockBlockCollisionResolverTest {
         assertTrue(result.standingBounceBounced());
         assertEquals(
                 result.predictedVelocity(),
-                BedrockForwardTick.finish(result, result.predictedState())
-                        .getFirst()
-                        .velocity());
+                BedrockForwardTick.finish(result, result.predictedState()).velocity());
     }
 
     @Test
@@ -488,9 +486,7 @@ public final class BedrockBlockCollisionResolverTest {
         assertTrue(result.standingBounceBounced());
         assertEquals(
                 result.predictedVelocity(),
-                BedrockForwardTick.finish(result, result.predictedState())
-                        .getFirst()
-                        .velocity());
+                BedrockForwardTick.finish(result, result.predictedState()).velocity());
     }
 
     @Test

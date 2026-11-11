@@ -61,7 +61,7 @@ public final class BedrockFluidHopCarryTest {
         assertTrue(result.selectedWaterTravel());
         // The lifted box still reaches the water cell the player swims in, so the client does not climb out.
         assertFalse(result.predictedState().collisionFlags().liquidClimbOut());
-        assertEquals(List.of(result.predictedState()), BedrockForwardTick.finish(result, result.predictedState()));
+        assertEquals(result.predictedState(), BedrockForwardTick.finish(result, result.predictedState()));
     }
 
     // A scale change grows the swimming box into the pool wall it was pressed against. The move then passes through

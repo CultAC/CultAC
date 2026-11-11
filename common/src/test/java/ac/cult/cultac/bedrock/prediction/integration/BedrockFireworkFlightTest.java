@@ -94,7 +94,7 @@ public final class BedrockFireworkFlightTest {
                     true);
             var candidate = BedrockForwardTick.simulate(input).getFirst();
             var result = candidate.movementResult();
-            state = BedrockForwardTick.finish(result, result.predictedState()).getFirst();
+            state = BedrockForwardTick.finish(result, result.predictedState());
             jump = candidate.mobJumpComponent();
             assertTrue(
                     "position tick " + frame.clientTick() + ": " + state.physicalFeetPosition(),
@@ -295,9 +295,8 @@ public final class BedrockFireworkFlightTest {
         var input = request(entry, tick, observed, boost);
         var candidate = BedrockForwardTick.simulate(input).getFirst();
         var result = candidate.movementResult();
-        var entries = BedrockForwardTick.finish(result, result.predictedState()).stream()
-                .map(state -> new BedrockProfileState.Entry(state, candidate.mobJumpComponent()))
-                .toList();
+        var entries = List.of(new BedrockProfileState.Entry(
+                BedrockForwardTick.finish(result, result.predictedState()), candidate.mobJumpComponent()));
         return new BedrockActorHistory.Frame(
                 tick,
                 input,

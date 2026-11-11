@@ -71,13 +71,13 @@ public final class BedrockSneakEdgeMovementTest {
                 "Replaying the same tick must be deterministic",
                 result,
                 simulate(previous, FRAME, world, new Vec3d(0, 0, -0.3F)));
-        for (BedrockMovementState next : BedrockForwardTick.finish(result, result.predictedState())) {
-            assertEquals(
-                    "End-of-tick carry must retain the zeroed axis",
-                    0.0D,
-                    next.velocity().x(),
-                    0.0D);
-        }
+        assertEquals(
+                "End-of-tick carry must retain the zeroed axis",
+                0.0D,
+                BedrockForwardTick.finish(result, result.predictedState())
+                        .velocity()
+                        .x(),
+                0.0D);
     }
 
     @Test

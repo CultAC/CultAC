@@ -49,7 +49,7 @@ public final class BedrockGroundJumpTickTest {
         assertEquals(new Vec3d(0.0D, JUMP, 0.0D), launched.predictedVelocity());
         assertEquals(10, teleport.mobJumpComponent().jumpCooldownTicks());
 
-        var carried = BedrockForwardTick.finish(launched, launched.predictedState()).getFirst();
+        var carried = BedrockForwardTick.finish(launched, launched.predictedState());
         var next = tick(carried, held(2L), teleport.mobJumpComponent(), false, walking());
         var moved = next.movementResult();
 

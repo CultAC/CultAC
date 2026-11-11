@@ -38,12 +38,12 @@ public final class BedrockNextTickStateDeriverTest {
         Vec3d hop = new Vec3d(0.08, BedrockLiquidClimbOutMovement.CLIMB_OUT_VELOCITY_Y, 0.02);
         var state = state(POSITION, hop, BedrockCollisionFlags.AIR.withLiquidClimbOut(true), Medium.WATER);
         var result = movementResult(state, state, context(Medium.WATER, BlockCollisionWorld.EMPTY));
-        assertEquals(List.of(state), BedrockNextTickStateDeriver.fromSimulated(result, state));
+        assertEquals(state, BedrockNextTickStateDeriver.fromSimulated(result, state));
 
         Vec3d swim = new Vec3d(0.08, -0.03, 0.02);
         var noHop = state(POSITION, swim, BedrockCollisionFlags.AIR.withHorizontalBlockContact(true), Medium.WATER);
         result = movementResult(noHop, noHop, context(Medium.WATER, BlockCollisionWorld.EMPTY));
-        assertEquals(List.of(noHop), BedrockNextTickStateDeriver.fromSimulated(result, noHop));
+        assertEquals(noHop, BedrockNextTickStateDeriver.fromSimulated(result, noHop));
     }
 
     @Test
@@ -52,19 +52,16 @@ public final class BedrockNextTickStateDeriverTest {
                 new BlockPosition(1, 64, 0), "minecraft:ladder", "minecraft:ladder", List.of())));
         var previous = state(POSITION, ZERO, BedrockCollisionFlags.AIR, Medium.AIR);
         var next = state(new Vec3d(1.5, 64, 0.5), new Vec3d(0.08, -0.0784, 0), BedrockCollisionFlags.AIR, Medium.AIR);
-        var states = BedrockNextTickStateDeriver.fromSimulated(
+        var carried = BedrockNextTickStateDeriver.fromSimulated(
                 movementResult(previous, next, context(Medium.AIR, world)), next);
-        assertEquals(1, states.size());
-        assertTrue(states.getFirst().climbableContact().climbing());
-        assertEquals(next.velocity(), states.getFirst().velocity());
+        assertTrue(carried.climbableContact().climbing());
+        assertEquals(next.velocity(), carried.velocity());
 
         var away = state(new Vec3d(3.5, 64, 0.5), new Vec3d(0.08, -0.0784, 0), BedrockCollisionFlags.AIR, Medium.AIR);
-        states = BedrockNextTickStateDeriver.fromSimulated(
-                movementResult(next.withClimbableContact(states.getFirst().climbableContact()), away, context(
-                        Medium.AIR, world)),
+        carried = BedrockNextTickStateDeriver.fromSimulated(
+                movementResult(next.withClimbableContact(carried.climbableContact()), away, context(Medium.AIR, world)),
                 away);
-        assertEquals(1, states.size());
-        assertFalse(states.getFirst().climbableContact().climbing());
+        assertFalse(carried.climbableContact().climbing());
     }
 
     // A capture of a ground jump started against a ladder wall: the client reports 0.3332 after the 0.42 launch,
@@ -77,11 +74,10 @@ public final class BedrockNextTickStateDeriverTest {
         var wall = new BedrockCollisionFlags(false, true, false, true, false, false, false, true);
         var launched = state(
                 new Vec3d(0.5, 64.42, 0.5), new Vec3d(0.0, (0.42 - 0.08) * 0.98, 0.0), wall, Medium.AIR);
-        var states = BedrockNextTickStateDeriver.fromSimulated(
+        var carried = BedrockNextTickStateDeriver.fromSimulated(
                 movementResult(previous, launched, context(Medium.AIR, world)), launched);
-        assertEquals(1, states.size());
-        assertTrue(states.getFirst().climbableContact().climbing());
-        assertEquals(launched.velocity(), states.getFirst().velocity());
+        assertTrue(carried.climbableContact().climbing());
+        assertEquals(launched.velocity(), carried.velocity());
     }
 
     private static BedrockMovementState state(
