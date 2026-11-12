@@ -336,7 +336,9 @@ public final class JavaMovementEngine implements MovementEngine {
     }
 
     private static boolean hasMatchingVelocity(JavaPredictionCarry carry, Set<Vec3> velocities) {
-        for (var state : carry.states()) if (velocities.contains(state.velocity())) return true;
+        List<JavaPredictionCarry.State> states = carry.states();
+        for (int i = 0; i < states.size(); i++)
+            if (velocities.contains(states.get(i).velocity())) return true;
         return false;
     }
 

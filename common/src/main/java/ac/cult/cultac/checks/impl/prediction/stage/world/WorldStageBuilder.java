@@ -601,7 +601,9 @@ public class WorldStageBuilder {
             PacketEntity serverVehicleRoot = entities.serverVehicleRoot();
             long playerTickOrder = entities.getSelf().getClientTickOrder();
 
-            for (PacketEntity entity : entities.pushOrCollideCandidates()) {
+            List<PacketEntity> candidates = entities.pushOrCollideCandidates();
+            for (int i = 0; i < candidates.size(); i++) {
+                PacketEntity entity = candidates.get(i);
                 SimpleCollisionBox entityBox = collidingPusherBox(
                         player,
                         entities,
