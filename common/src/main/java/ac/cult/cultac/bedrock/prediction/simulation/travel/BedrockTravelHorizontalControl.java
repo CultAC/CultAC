@@ -126,10 +126,11 @@ public final class BedrockTravelHorizontalControl {
                                         preparedSpeed.soulSpeedEnchantFlagPresent(),
                                         standingGroundControl,
                                         standingGroundFriction)
-                                // Powder snow around the actor leaves the block under its feet in control.
-                                : climb.climbable().horizontalControl()
-                                        ? GROUND_CONTROL
-                                        : onGroundTravel ? standingGroundControl : AIR_CONTROL);
+                                // Powder snow around the actor leaves the block under its feet in control,
+                                // and so does a climbable the actor presses into.
+                                : climb.climbable().horizontalControl() || onGroundTravel
+                                        ? standingGroundControl
+                                        : AIR_CONTROL);
     }
 
     static double groundOrAirFriction(StandingSurfaceState standingSurfaceState, boolean onGroundTravel) {
