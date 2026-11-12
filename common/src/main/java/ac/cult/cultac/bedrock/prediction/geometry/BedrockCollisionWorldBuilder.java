@@ -87,6 +87,7 @@ public final class BedrockCollisionWorldBuilder {
                 movementResolvedContactUsesCollisionBoxes(state) ? boxes : List.of(fullBlockBox(position));
         String javaIdentifier = javaIdentifier(state);
         Map<String, Object> metadata = bedrockState(state);
+        if (movingPistonBlock(state)) metadata = withCarriedBlock(position, metadata);
         if (query.actorCollisionQuery().isPresent() && (powderSnowBlock(state) || scaffoldingBlock(state))) {
             var independent = new java.util.HashMap<>(metadata);
             independent.put(
@@ -105,6 +106,18 @@ public final class BedrockCollisionWorldBuilder {
                 contactBoxes,
                 insideBlockContactBoxes(position, state, boxes),
                 contactBehaviors(state));
+    }
+
+    /**
+     * A landing on a moving block bounces off the block it carries. One without data, or carrying another moving
+     * block, names none.
+     */
+    private Map<String, Object> withCarriedBlock(BlockPosition position, Map<String, Object> metadata) {
+        int carried = context.movingBlockCarried().at(position);
+        if (carried < 0 || movingPistonBlock(carried)) return metadata;
+        var named = new java.util.HashMap<>(metadata);
+        named.put(BedrockBlockMetadata.MOVING_BLOCK_CARRIED, javaIdentifier(carried));
+        return named;
     }
 
     public Map<String, Object> bedrockState(int state) {

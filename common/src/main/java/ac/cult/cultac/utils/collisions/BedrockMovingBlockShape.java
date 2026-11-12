@@ -46,6 +46,13 @@ public final class BedrockMovingBlockShape {
         return List.of(new WorldCollisionBox(minX, minY, minZ, maxX, maxY, maxZ));
     }
 
+    /** The block state the moving block at {@code position} carries, or {@link BedrockPistonBlocks#NO_BLOCK}. */
+    public static int carried(CultPlayer player, BlockPosition position) {
+        BedrockPistonBlocks.Carried carried = player.bedrockState.pistonBlocks.carried(
+                new BlockPos(position.x(), position.y(), position.z()), player.compensatedWorld::getBlockStateIdAt);
+        return carried == null ? BedrockPistonBlocks.NO_BLOCK : carried.state();
+    }
+
     private static void addShape(CultPlayer player, int state, BlockPos cell, List<SimpleCollisionBox> parts) {
         ClientBlockShapes.movement(player, state, cell.getX(), cell.getY(), cell.getZ())
                 .downCast(parts);

@@ -64,7 +64,8 @@ public final class BedrockPlayerState {
                         player.compensatedWorld::getBlockStateIdAt),
                 lastOfferedFrame == null
                         ? ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame.IDENTITY
-                        : lastOfferedFrame.getCoordinateFrame());
+                        : lastOfferedFrame.getCoordinateFrame(),
+                position -> ac.cult.cultac.utils.collisions.BedrockMovingBlockShape.carried(player, position));
     }
 
     public long lastMovementTick() {

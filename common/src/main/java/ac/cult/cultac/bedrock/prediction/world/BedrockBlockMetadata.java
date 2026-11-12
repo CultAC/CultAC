@@ -8,6 +8,8 @@ public final class BedrockBlockMetadata {
     public static final String CONTACT_BEHAVIORS = "contactBehaviors";
     public static final String BLOCK_FRICTION = "blockFriction";
     public static final String GEYSER_PASSABLE = "geyserPassable";
+    /** The identifier of the block a moving block carries, which a landing on the moving block bounces off. */
+    public static final String MOVING_BLOCK_CARRIED = "movingBlockCarried";
 
     private BedrockBlockMetadata() {}
 

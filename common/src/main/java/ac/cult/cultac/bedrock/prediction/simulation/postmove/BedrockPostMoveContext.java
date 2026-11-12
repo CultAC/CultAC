@@ -165,9 +165,7 @@ record BedrockPostMoveContext(BedrockTravelPlan plan, BedrockMoveRequest moveReq
     }
 
     BedrockPostMoveFrame applyStandingSurface(BedrockPostMoveFrame frame, Vec3d nextPosition) {
-        if (postMoveVelocityEffectsSuppressed()) {
-            return frame;
-        }
+        // Slime and honey slow a glide that lands on them, though the landing skips friction and drag.
         Vec3d velocity = BedrockBlockSurfaceMovement.applyStandingAfterMove(
                 frame.velocity(),
                 nextPosition,

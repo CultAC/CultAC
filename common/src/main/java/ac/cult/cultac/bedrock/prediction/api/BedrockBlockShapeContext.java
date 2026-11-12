@@ -9,13 +9,15 @@ import java.util.Objects;
 /**
  * The client state, besides a block's state and the moving actor, that its collision shape at a position reads:
  * the lid of a shulker box there, the block a piston carries through a moving block there, the progress of the
- * piston a piston arm belongs to, and the coordinate frame that gives the block the position its offset hashes.
+ * piston a piston arm belongs to, the coordinate frame that gives the block the position its offset hashes, and the
+ * block a moving block carries, which a landing on it reads.
  */
 public record BedrockBlockShapeContext(
         ShulkerBoxLift shulkerBoxLift,
         MovingBlockBoxes movingBlockBoxes,
         PistonProgress pistonProgress,
-        BedrockCoordinateFrame frame) {
+        BedrockCoordinateFrame frame,
+        MovingBlockCarried movingBlockCarried) {
     /**
      * No client state: a closed lid, a moving block that carries nothing yet, which is a cube, and a piston that is
      * fully out.
@@ -33,6 +35,16 @@ public record BedrockBlockShapeContext(
         movingBlockBoxes = Objects.requireNonNull(movingBlockBoxes, "movingBlockBoxes");
         pistonProgress = Objects.requireNonNull(pistonProgress, "pistonProgress");
         frame = Objects.requireNonNull(frame, "frame");
+        movingBlockCarried = Objects.requireNonNull(movingBlockCarried, "movingBlockCarried");
+    }
+
+    /** A context whose moving blocks carry nothing a landing reads. */
+    public BedrockBlockShapeContext(
+            ShulkerBoxLift shulkerBoxLift,
+            MovingBlockBoxes movingBlockBoxes,
+            PistonProgress pistonProgress,
+            BedrockCoordinateFrame frame) {
+        this(shulkerBoxLift, movingBlockBoxes, pistonProgress, frame, position -> MovingBlockCarried.NONE);
     }
 
     /** How far the lid of the shulker box at a position extends its collision box. */
@@ -53,5 +65,13 @@ public record BedrockBlockShapeContext(
     @FunctionalInterface
     public interface MovingBlockBoxes {
         List<WorldCollisionBox> at(BlockPosition position);
+    }
+
+    /** The block state the moving block at a position carries, or {@link #NONE} where there is no data for it. */
+    @FunctionalInterface
+    public interface MovingBlockCarried {
+        int NONE = -1;
+
+        int at(BlockPosition position);
     }
 }

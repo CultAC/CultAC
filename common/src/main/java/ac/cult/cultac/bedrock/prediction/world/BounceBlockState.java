@@ -35,10 +35,19 @@ public record BounceBlockState(BounceBlockType type) {
     }
 
     private static BounceBlockType collisionBlockType(PlacedBlockCollision block) {
-        if (isSlimeBlockIdentifier(block.bedrockIdentifier()) || isSlimeBlockIdentifier(block.javaState())) {
+        // A moving block bounces a landing as the block its piston carries.
+        if (BedrockBlockMetadata.value(block.bedrockState(), BedrockBlockMetadata.MOVING_BLOCK_CARRIED)
+                instanceof String carried) {
+            return identifierType(carried, carried);
+        }
+        return identifierType(block.bedrockIdentifier(), block.javaState());
+    }
+
+    private static BounceBlockType identifierType(String bedrockIdentifier, String javaState) {
+        if (isSlimeBlockIdentifier(bedrockIdentifier) || isSlimeBlockIdentifier(javaState)) {
             return BounceBlockType.SLIME;
         }
-        if (isBedBlockIdentifier(block.bedrockIdentifier()) || isBedBlockIdentifier(block.javaState())) {
+        if (isBedBlockIdentifier(bedrockIdentifier) || isBedBlockIdentifier(javaState)) {
             return BounceBlockType.BED;
         }
         return BounceBlockType.NONE;
