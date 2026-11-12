@@ -17,6 +17,8 @@ public final class CollisionBoxPool {
 
     private VoxelShapeCollisionBox[] voxels = new VoxelShapeCollisionBox[16];
     private int used;
+    private SimpleCollisionBox[] boxes = new SimpleCollisionBox[4];
+    private int boxesUsed;
 
     private CollisionBoxPool() {}
 
@@ -54,5 +56,40 @@ public final class CollisionBoxPool {
         }
         used++;
         return box;
+    }
+
+    public int markBoxes() {
+        return boxesUsed;
+    }
+
+    public void releaseBoxes(int mark) {
+        boxesUsed = mark;
+    }
+
+    /** A box equal to {@code new SimpleCollisionBox()}, valid until the box mark is released. */
+    public SimpleCollisionBox box() {
+        int slot = takeBox();
+        if (slot < 0) return new SimpleCollisionBox();
+        SimpleCollisionBox box = boxes[slot];
+        if (box == null) return boxes[slot] = new SimpleCollisionBox();
+        return box.set(0, 0, 0, 0, 0, 0, false);
+    }
+
+    /** A box equal to {@code from.copy()}, valid until the box mark is released. */
+    public SimpleCollisionBox copyOf(SimpleCollisionBox from) {
+        if (from.getClass() != SimpleCollisionBox.class) return from.copy();
+        int slot = takeBox();
+        if (slot < 0) return from.copy();
+        SimpleCollisionBox box = boxes[slot];
+        if (box == null) return boxes[slot] = from.copy();
+        return box.set(from);
+    }
+
+    /** Takes the next box slot: its index, or -1 past what the pool retains. */
+    private int takeBox() {
+        if (boxesUsed == boxes.length && boxesUsed < RETAINED)
+            boxes = Arrays.copyOf(boxes, Math.min(RETAINED, boxesUsed * 2));
+        int slot = boxesUsed++;
+        return slot < boxes.length ? slot : -1;
     }
 }
