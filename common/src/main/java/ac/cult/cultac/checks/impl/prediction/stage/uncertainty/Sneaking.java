@@ -14,6 +14,7 @@ import ac.cult.cultac.utils.math.VectorUtils;
 import ac.cult.cultac.utils.nmsutil.BlockProperties;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
+import ac.cult.cultac.utils.nmsutil.SneakEdgeBackoff;
 
 public class Sneaking implements UncertaintyHandler {
     @Override
@@ -42,7 +43,18 @@ public class Sneaking implements UncertaintyHandler {
         if ((lastOnEdge != null && lastOnEdge.isOnEdge()) || thisEdge.isOnEdge()) {
             // A start carried from SneakEdgeBackoff is the client's deltaMovement; skipped ticks may have hidden more.
             boolean carried = lastResult != null && lastResult.isSneakEdgeCarried() && !start.isTickSkip();
-            if (!carried) start = withHiddenVelocity(player, result, context, lastResult, lastOnEdge, start, end);
+            if (carried) {
+                double[] shift = SneakEdgeBackoff.backOffShift(player, context, start);
+                if (shift != null) {
+                    return start.withXYZOrSelf(
+                            start.x + CultMath.clamp(end.x - start.x, shift[0], shift[1]),
+                            start.y,
+                            start.z + CultMath.clamp(end.z - start.z, shift[2], shift[3]),
+                            "Sneaking back-off");
+                }
+            } else {
+                start = withHiddenVelocity(player, result, context, lastResult, lastOnEdge, start, end);
+            }
 
             boolean isNorth = thisEdge.isNorth() || (lastOnEdge != null && lastOnEdge.isNorth());
             boolean isSouth = thisEdge.isSouth() || (lastOnEdge != null && lastOnEdge.isSouth());

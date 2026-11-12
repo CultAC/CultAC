@@ -23,7 +23,7 @@ import java.util.Set;
  * never showed. On a shortened axis that delta holds the water current Entity#baseTick added and the input of the keys
  * in the client's latest PLAYER_INPUT, which LocalPlayer#sendChanges sends before the tick's position.
  */
-final class SneakEdgeBackoff {
+public final class SneakEdgeBackoff {
     private static final double STEP = 0.05D;
     // Bounds the 0.05 probe loop; a larger shortened delta keeps the engine's candidates.
     private static final double MAX_PROBED_AXIS = 1.0D;
@@ -68,6 +68,51 @@ final class SneakEdgeBackoff {
     private static final int WHOLE = 2;
     private static final int NOT_REPRODUCED = 3;
     private static final int UNKNOWN = 4;
+    private static final Vec3 NO_STUCK_SPEED = new Vec3(1.0D, 1.0D, 1.0D);
+
+    /**
+     * What Player#maybeBackOffFromEdge takes off this tick's delta on x and z, {@code {minX, maxX, minZ, maxZ}} over the
+     * speeds the client's sprint state and the multipliers its item use allow, for a tick whose {@code start} is the
+     * client's deltaMovement: Entity#move moves {@code start} plus the input plus that shift. Null when the back-off is
+     * outside this model.
+     */
+    public static double[] backOffShift(CultPlayer player, SimulationContext context, PredVector start) {
+        if (!appliesTo(player)) {
+            boolean released = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_6)
+                    && !player.isBedrockMovement()
+                    && player.packetStateData.clientMovementInputKnown
+                    && !player.packetStateData.knownInput.shift();
+            // Player#isStayingOnGroundSurface is false without shift: the delta moves whole.
+            return released ? new double[4] : null;
+        }
+        if (!appliesTo(player, start, context)
+                || !NO_STUCK_SPEED.equals(context.getLastStuckSpeed())
+                || context.getWorldData().getStuckSpeed().getUnknownStuckSpeedMultiplier() != null) {
+            return null;
+        }
+        float[] speeds = speeds(player, start, context);
+        float movingSlowlyFactor = movingSlowlyFactor(player, context);
+        ClientItemUseState.Snapshot use = context.getItemUse();
+        SimpleCollisionBox box = context.getFromActualPose();
+        double[] shift = {
+            Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY
+        };
+        for (int u = 0; u < 3; u++) {
+            float itemUse = itemUseMultiplier(use, u);
+            for (float speed : speeds) {
+                Vec3 delta = delta(player, context, start, itemUse, movingSlowlyFactor, speed);
+                if (delta == null) return null;
+                Vec3 backedOff = backOff(player, box, delta, player.getMaxUpStep());
+                double x = backedOff.x - delta.x;
+                double z = backedOff.z - delta.z;
+                shift[0] = Math.min(shift[0], x);
+                shift[1] = Math.max(shift[1], x);
+                shift[2] = Math.min(shift[2], z);
+                shift[3] = Math.max(shift[3], z);
+            }
+        }
+        return shift;
+    }
 
     /**
      * Adds to {@code out} the deltaMovement Entity#move leaves after an edge shortened the accepted move, one per
@@ -147,7 +192,7 @@ final class SneakEdgeBackoff {
         double input = 0.0D;
         if (player.packetStateData.knownInput.strafeImpulse() != 0.0F
                 || player.packetStateData.knownInput.forwardImpulse() != 0.0F) {
-            float[] speeds = speeds(player, result, context);
+            float[] speeds = speeds(player, result.getInitialStartingVel(), context);
             float movingSlowlyFactor = movingSlowlyFactor(player, context);
             ClientItemUseState.Snapshot use = context.getItemUse();
             for (int u = 0; u < 3; u++) {
@@ -174,11 +219,11 @@ final class SneakEdgeBackoff {
     }
 
     /** LivingEntity#getFrictionInfluencedSpeed in water, else the speeds on the ground or in the air sprinting allows. */
-    private static float[] speeds(CultPlayer player, PredictionResult result, SimulationContext context) {
+    private static float[] speeds(CultPlayer player, PredVector start, SimulationContext context) {
         if (context.getWorldData().getInWater() == DesyncStatus.TRUE) {
             return new float[] {context.getMoveRelativeSpeed(player, true, true, false)};
         }
-        ClientSprintState.Outcome outcome = context.getSprintOutcome(player, result.getInitialStartingVel());
+        ClientSprintState.Outcome outcome = context.getSprintOutcome(player, start);
         return context.getWorldData().getLastOnGround() == DesyncStatus.TRUE
                 ? context.getGroundMoveRelativeSpeeds(player, outcome)
                 : flyingSpeeds(context);
@@ -197,7 +242,7 @@ final class SneakEdgeBackoff {
             Vec3 accepted,
             float movingSlowlyFactor,
             Set<Vec3> out) {
-        float[] speeds = speeds(player, result, context);
+        float[] speeds = speeds(player, result.getInitialStartingVel(), context);
         ClientItemUseState.Snapshot use = context.getItemUse();
         Vec3 found = null;
         boolean whole = false;
@@ -253,23 +298,9 @@ final class SneakEdgeBackoff {
             float itemUseMultiplier,
             float movingSlowlyFactor,
             float speed) {
-        boolean water = context.getWorldData().getInWater() == DesyncStatus.TRUE;
-        PredVector start = result.getInitialStartingVel();
-        KnownInput keys = player.packetStateData.knownInput;
-        Vec3 input = water && context.getWorldData().isSwimming()
-                ? ClientKeyInput.swimmingTravelInput(player, context, keys, itemUseMultiplier, speed)
-                : ClientKeyInput.travelInput(player, context, keys, itemUseMultiplier, movingSlowlyFactor, speed);
-        if (input == null) return null;
-        // Entity#baseTick's updateInWaterStateAndDoFluidPushing adds the water current before LocalPlayer#aiStep.
-        Vec3 current = water ? WaterCurrent.calculateWaterCurrent(player, context, context.getStart(), start) : null;
-        double startX = current == null ? start.x : start.x + current.x;
-        double startY = current == null ? start.y : start.y + current.y;
-        double startZ = current == null ? start.z : start.z + current.z;
-        // LocalPlayer#aiStep's goDownInWater adds -0.04F while shift is held in water, before travel.
-        double deltaY = water ? startY + (double) -0.04F : startY;
-        if (water && context.getWorldData().isSwimming()) deltaY = swimPull(player, context, deltaY);
-        Vec3 delta = new Vec3(startX + input.x, deltaY, startZ + input.z);
-        if (!(Math.abs(delta.x) <= MAX_PROBED_AXIS) || !(Math.abs(delta.z) <= MAX_PROBED_AXIS)) return null;
+        Vec3 delta =
+                delta(player, context, result.getInitialStartingVel(), itemUseMultiplier, movingSlowlyFactor, speed);
+        if (delta == null) return null;
 
         SimpleCollisionBox box = context.getFromActualPose();
         Vec3 backedOff = backOff(player, box, delta, player.getMaxUpStep());
@@ -289,8 +320,43 @@ final class SneakEdgeBackoff {
                 CultMath.equal(backedOff.z, movement.z) ? delta.z : 0.0D);
     }
 
+    /**
+     * The delta LivingEntity#travel passes to Entity#move from {@code start}, before Player#maybeBackOffFromEdge; null
+     * when the input is unknown or an axis is past the probed range.
+     */
+    private static Vec3 delta(
+            CultPlayer player,
+            SimulationContext context,
+            PredVector start,
+            float itemUseMultiplier,
+            float movingSlowlyFactor,
+            float speed) {
+        boolean water = context.getWorldData().getInWater() == DesyncStatus.TRUE;
+        KnownInput keys = player.packetStateData.knownInput;
+        Vec3 input = water && context.getWorldData().isSwimming()
+                ? ClientKeyInput.swimmingTravelInput(player, context, keys, itemUseMultiplier, speed)
+                : ClientKeyInput.travelInput(player, context, keys, itemUseMultiplier, movingSlowlyFactor, speed);
+        if (input == null) return null;
+        // Entity#baseTick's updateInWaterStateAndDoFluidPushing adds the water current before LocalPlayer#aiStep.
+        Vec3 current = water ? WaterCurrent.calculateWaterCurrent(player, context, context.getStart(), start) : null;
+        double startX = current == null ? start.x : start.x + current.x;
+        double startY = current == null ? start.y : start.y + current.y;
+        double startZ = current == null ? start.z : start.z + current.z;
+        // LocalPlayer#aiStep's goDownInWater adds -0.04F while shift is held in water, before travel.
+        double deltaY = water ? startY + (double) -0.04F : startY;
+        if (water && context.getWorldData().isSwimming()) deltaY = swimPull(player, context, deltaY);
+        Vec3 delta = new Vec3(startX + input.x, deltaY, startZ + input.z);
+        if (!(Math.abs(delta.x) <= MAX_PROBED_AXIS) || !(Math.abs(delta.z) <= MAX_PROBED_AXIS)) return null;
+        return delta;
+    }
+
     private static boolean appliesTo(CultPlayer player, PredictionResult result, SimulationContext context) {
-        PredVector start = result.getInitialStartingVel();
+        return appliesTo(player, result.getInitialStartingVel(), context)
+                && result.getValidMovements() != null
+                && result.getValidMovements().getPositionOnlyDelta().lengthSqr() <= 1.0E-14;
+    }
+
+    private static boolean appliesTo(CultPlayer player, PredVector start, SimulationContext context) {
         WorldData world = context.getWorldData();
         return appliesTo(player)
                 && context.isSneaking()
@@ -302,7 +368,7 @@ final class SneakEdgeBackoff {
                 && !start.isJump()
                 && !start.isKnockback()
                 && !(start.y > 0.0D)
-                && isAboveGround(player, result, context)
+                && isAboveGround(player, start, context)
                 && world.getInLava() == DesyncStatus.FALSE
                 && world.getClimbingAtStart() == DesyncStatus.FALSE
                 && !world.isMightBeInBlock()
@@ -311,9 +377,7 @@ final class SneakEdgeBackoff {
                 && !world.isSpinAttackPlayer()
                 // LivingEntity#travelInWater moves by moveRelative(0.02F) when no water_movement_efficiency raises it.
                 && (world.getInWater() == DesyncStatus.FALSE
-                        || world.getInWater() == DesyncStatus.TRUE && context.getWaterMovementEfficiency() == 0.0F)
-                && result.getValidMovements() != null
-                && result.getValidMovements().getPositionOnlyDelta().lengthSqr() <= 1.0E-14;
+                        || world.getInWater() == DesyncStatus.TRUE && context.getWaterMovementEfficiency() == 0.0F);
     }
 
     private static boolean appliesTo(CultPlayer player) {
@@ -348,12 +412,11 @@ final class SneakEdgeBackoff {
      * Player#isAboveGround at the tick's start box, with the fallDistance Entity#move reads before its checkFallDamage
      * adds this tick's fall.
      */
-    private static boolean isAboveGround(CultPlayer player, PredictionResult result, SimulationContext context) {
+    private static boolean isAboveGround(CultPlayer player, PredVector start, SimulationContext context) {
         DesyncStatus onGround = context.getWorldData().getLastOnGround();
         if (onGround != DesyncStatus.FALSE) return onGround == DesyncStatus.TRUE;
         float maxDownStep = player.getMaxUpStep();
-        double fallDistance = JavaFallDistance.beforeMove(player, context, result.getInitialStartingVel())
-                .fallDistance();
+        double fallDistance = JavaFallDistance.beforeMove(player, context, start).fallDistance();
         return fallDistance < maxDownStep
                 && !canFallAtLeast(
                         player,
