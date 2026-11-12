@@ -53,7 +53,7 @@ public final class BedrockDefaultMoveClimbVerticalTest {
     @Test
     public void descendActionKeepsRawMoveAndExposesAirDraggedCollisionVelocity() {
         BedrockTravelMoveVector.Step step = BedrockTravelMoveVector.resolve(
-                new Vec3d(0.0D, BedrockClimbMovement.SCAFFOLDING_DESCEND_VELOCITY, 0.0D), descendingThroughBlock());
+                new Vec3d(0.0D, BedrockClimbMovement.SCAFFOLDING_DESCEND_VELOCITY, 0.0D), descendingThroughBlock(), false);
 
         double expected = BedrockAerialMovement.airDraggedVelocityWithoutGravity(
                 BedrockClimbMovement.SCAFFOLDING_DESCEND_VELOCITY);

@@ -7,10 +7,11 @@ import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockClimbState;
 final class BedrockTravelMoveVector {
     private BedrockTravelMoveVector() {}
 
-    static Step resolve(Vec3d baseVelocity, BedrockClimbState climb) {
+    static Step resolve(Vec3d baseVelocity, BedrockClimbState climb, boolean glidingTravel) {
         double moveX = baseVelocity.x();
         double moveZ = baseVelocity.z();
-        boolean descendingThroughBlock = climb.descendingThroughScaffolding();
+        // A glide starts from the descend velocity but carries its own glide move on, undragged.
+        boolean descendingThroughBlock = !glidingTravel && climb.descendingThroughScaffolding();
 
         double moveY = baseVelocity.y();
         double collisionInputY =

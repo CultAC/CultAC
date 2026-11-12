@@ -75,8 +75,8 @@ public final class BedrockVelocitySystems {
             Vec3d velocity,
             BedrockTravelHorizontalControl.Step horizontal,
             boolean lavaSwimUpApplied) {
-        BedrockTravelMoveVector.Step move =
-                BedrockTravelMoveVector.resolve(velocity, frame.frameFacts().climb());
+        BedrockTravelMoveVector.Step move = BedrockTravelMoveVector.resolve(
+                velocity, frame.frameFacts().climb(), frame.branch().glidingTravel());
         BedrockResolvedMove resolvedMove = new BedrockResolvedMove(
                 lavaSwimUpApplied, BedrockTravelMoveRequest.clampedMove(move.move()), move.collisionInputVelocity());
         BedrockMoveRequest request = new BedrockMoveRequest(
