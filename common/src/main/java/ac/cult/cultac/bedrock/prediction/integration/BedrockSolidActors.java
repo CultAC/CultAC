@@ -41,7 +41,8 @@ public final class BedrockSolidActors {
                 : player.bedrockState.solidActorBuffer.available(
                         context.getBedrockInput().getClientTick());
         for (PacketEntity entity : entities.entityMap.values()) {
-            if (!entity.bedrockCollidable || entity.isDead) continue;
+            // A death event leaves Bedrock's solid box present until its flag clears or the actor is removed.
+            if (!entity.bedrockCollidable) continue;
             if (entities.sharesRootVehicleWithSelf(entity, rootOfSelf)) continue;
             if (!entity.bedrockShownBox(player, box).isIntersected(reach)) continue;
             var collision = new HardCollidingEntityCollision(
