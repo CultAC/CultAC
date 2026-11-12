@@ -259,8 +259,8 @@ final class BedrockCollisionClipper {
     }
 
     private static AxisOverlap axisOverlap(float obstacleMin, float obstacleMax, float movingMin, float movingMax) {
-        float positiveExit = clean(obstacleMax - movingMin);
-        float negativeExit = clean(movingMax - obstacleMin);
+        float positiveExit = clean(obstacleMax - movingMin, obstacleMax);
+        float negativeExit = clean(movingMax - obstacleMin, obstacleMin);
         if (negativeExit <= 0.0F) {
             return new AxisOverlap(negativeExit, -1.0F, false);
         }
@@ -280,9 +280,15 @@ final class BedrockCollisionClipper {
         };
     }
 
-    private static float clean(float value) {
-
-        return Math.abs(value) > (float) BedrockCollisionSweep.CONTACT_EPSILON ? value : 0.0F;
+    /**
+     * A box the client left flush with a face can come back from its float feet up to one float step past that face;
+     * an overlap that shallow is the contact it was, not one to leave.
+     */
+    private static float clean(float value, float face) {
+        if (Math.abs(value) <= (float) BedrockCollisionSweep.CONTACT_EPSILON) {
+            return 0.0F;
+        }
+        return value > 0.0F && value <= Math.ulp(face) ? 0.0F : value;
     }
 
     private static float f(double value) {
