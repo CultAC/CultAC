@@ -15,8 +15,7 @@ public final class BedrockEntityInsideMovement {
 
     private static InsideVelocity applyVelocity(
             BedrockPostMoveContext context, BedrockPostMoveResult effects, Vec3d nextPosition, Vec3d velocity) {
-        velocity = applyBubbleColumns(
-                effects.postMoveContext(), context.gliding().activeAtTravelSensing(), velocity);
+        velocity = applyBubbleColumns(effects.postMoveContext(), velocity);
         if (context.clearVelocityAfterSlowdownMove()) {
             velocity = new Vec3d(0.0D, velocity.y(), 0.0D);
         }
@@ -31,9 +30,9 @@ public final class BedrockEntityInsideMovement {
 
     private record InsideVelocity(Vec3d velocity, Vec3d preInsideBlockVelocity) {}
 
-    public static Vec3d applyBubbleColumns(
-            BedrockMovementContext postMoveContext, boolean glidingActive, Vec3d velocity) {
-        if (postMoveContext.movementAbilityFlying() || glidingActive) {
+    /** A gliding actor is pushed like any other; only flight ignores the column. */
+    public static Vec3d applyBubbleColumns(BedrockMovementContext postMoveContext, Vec3d velocity) {
+        if (postMoveContext.movementAbilityFlying()) {
             return velocity;
         }
         return new Vec3d(
