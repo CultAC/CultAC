@@ -1338,7 +1338,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 pitch,
                 frame,
                 profile);
-        if (!pendingTeleport && this.isMovementModeExempt(profile)) {
+        if (!pendingTeleport && this.isMovementModeExempt(profile, result.getSimulationContext())) {
             result.exempt();
         }
         PredictionCommit commit = this.prepareBedrockCommit(result, observed.subtract(start), profile);
@@ -2432,7 +2432,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 yRot,
                 authoredMovementFrame,
                 movementProfile);
-        if (this.isExempt(movementProfile)) {
+        if (this.isExempt(movementProfile, result.getSimulationContext())) {
             result.exempt();
         }
 
@@ -2501,17 +2501,19 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
     public boolean isExempt() {
         MovementProfile movementProfile = MovementProfiles.forPlayer(this.player);
-        return this.isExempt(movementProfile);
+        return this.isExempt(movementProfile, null);
     }
 
-    private boolean isExempt(MovementProfile movementProfile) {
-        return this.isMovementModeExempt(movementProfile)
+    private boolean isExempt(MovementProfile movementProfile, SimulationContext context) {
+        return this.isMovementModeExempt(movementProfile, context)
                 || this.player.getSetbackTeleportUtil().shouldBlockMovement();
     }
 
-    private boolean isMovementModeExempt(MovementProfile movementProfile) {
+    private boolean isMovementModeExempt(MovementProfile movementProfile, SimulationContext context) {
         boolean flyingExempt = movementProfile.usesFlyingExemption(this.player)
-                && (this.player.isFlying || this.lastFlying.hasOccurredSince(2));
+                && (this.player.isFlying
+                        || this.lastFlying.hasOccurredSince(2)
+                        || movementProfile.startsFlyingExemptionThisFrame(this.player, context));
         return flyingExempt || this.player.gamemode == GameMode.SPECTATOR;
     }
 

@@ -15,6 +15,7 @@ import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoFallPseudo;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfile;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.math.Vec3;
+import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 
 public final class BedrockMovementProfile implements MovementProfile {
     @Override
@@ -46,10 +47,35 @@ public final class BedrockMovementProfile implements MovementProfile {
         return checkClass == BedrockMovement.class || checkClass == NoFallPseudo.class;
     }
 
-    /** The engine simulates flight: a flying tick is checked like any other. */
     @Override
     public boolean usesFlyingExemption(CultPlayer player) {
-        return false;
+
+        return hasTrustedMayFlyAbility(player);
+    }
+
+    @Override
+    public boolean startsFlyingExemptionThisFrame(CultPlayer player, SimulationContext context) {
+        if (player == null || context == null || context.getBedrockInput() == null) {
+            return false;
+        }
+        boolean swimmingInWater = context.getBedrockInput().isSwimming()
+                && context.getWorldData() != null
+                && context.getWorldData().isInWater();
+        return startsFlyingExemptionThisFrame(
+                hasTrustedMayFlyAbility(player), swimmingInWater, context.getBedrockInput());
+    }
+
+    static boolean startsFlyingExemptionThisFrame(
+            boolean mayFly, boolean swimmingInWater, BedrockAuthInputFrame frame) {
+        return mayFly
+                && !swimmingInWater
+                && frame != null
+                && frame.hasRawInputFlag(PlayerAuthInputData.START_FLYING)
+                && !frame.hasRawInputFlag(PlayerAuthInputData.STOP_FLYING);
+    }
+
+    private static boolean hasTrustedMayFlyAbility(CultPlayer player) {
+        return player != null && player.canFly;
     }
 
     @Override
