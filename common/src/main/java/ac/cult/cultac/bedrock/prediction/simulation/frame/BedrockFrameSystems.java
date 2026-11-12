@@ -169,7 +169,7 @@ public final class BedrockFrameSystems {
                         facts.lavaTravelFlag(),
                         travelSensingOnGround(input, facts),
                         gliding.activeAtTravelSensing(),
-                        facts.climb().climbing());
+                        facts.climb().climbing() && !facts.climb().inScaffolding());
         return new BedrockFrameState(
                 input,
                 intent,
