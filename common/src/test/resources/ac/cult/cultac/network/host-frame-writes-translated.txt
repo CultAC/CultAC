@@ -1,0 +1,132 @@
+routed ping
+  send ping#0
+  logged CLIENTBOUND PLAY 3b ping#0
+  out same 3b ping#0
+  input refCnt 1, promise ok
+  open true
+routed ping, truncated
+  logged CLIENTBOUND PLAY 3b
+  out same 3b
+  input refCnt 1, promise ok
+  reported CultAC failure in outbound packet expansion; keeping the connection open: ac.cult.cultac.protocol.MalformedPacketException: Truncated clientbound.ping
+  open true
+unrouted set_time
+  logged CLIENTBOUND PLAY 6f0000000000000001000000000000000201
+  out same 6f0000000000000001000000000000000201
+  input refCnt 1, promise ok
+  open true
+standalone keep_alive
+  logged CLIENTBOUND PLAY 2b0000000000000009
+  out same 2b0000000000000009
+  input refCnt 1, promise ok
+  open true
+custom_payload
+  logged CLIENTBOUND PLAY 180f6d696e6563726166743a6272616e6403616263
+  out same 180f6d696e6563726166743a6272616e6403616263
+  input refCnt 1, promise ok
+  open true
+empty
+  logged CLIENTBOUND PLAY (empty)
+  out same (empty)
+  input refCnt 1, promise ok
+  reported CultAC failure in outbound packet expansion; keeping the connection open: ac.cult.cultac.protocol.MalformedPacketException: Expected 1 bytes, available 0
+  reported CultAC failure in outbound fallback identity; keeping the connection open: ac.cult.cultac.protocol.MalformedPacketException: Truncated VarInt
+  open true
+one continuation byte
+  logged CLIENTBOUND PLAY 80
+  out same 80
+  input refCnt 1, promise ok
+  reported CultAC failure in outbound packet expansion; keeping the connection open: ac.cult.cultac.protocol.MalformedPacketException: Expected 1 bytes, available 0
+  reported CultAC failure in outbound fallback identity; keeping the connection open: ac.cult.cultac.protocol.MalformedPacketException: Truncated VarInt
+  open true
+five continuation bytes
+  logged CLIENTBOUND PLAY 8080808080
+  out same 8080808080
+  input refCnt 1, promise ok
+  reported CultAC failure in outbound packet expansion; keeping the connection open: ac.cult.cultac.protocol.MalformedPacketException: VarInt exceeds five bytes
+  reported CultAC failure in outbound fallback identity; keeping the connection open: ac.cult.cultac.protocol.MalformedPacketException: VarInt exceeds five bytes
+  open true
+ID -1
+  logged CLIENTBOUND PLAY ffffffff0f01
+  out same ffffffff0f01
+  input refCnt 1, promise ok
+  reported CultAC failure in outbound packet expansion; keeping the connection open: ac.cult.cultac.protocol.MalformedPacketException: Unknown PLAY/CLIENTBOUND ID -1
+  reported CultAC failure in outbound fallback identity; keeping the connection open: ac.cult.cultac.protocol.MalformedPacketException: Unknown PLAY/CLIENTBOUND ID -1
+  open true
+ID 127
+  logged CLIENTBOUND PLAY 7f01
+  out same 7f01
+  input refCnt 1, promise ok
+  open true
+routed ping after
+  send ping#1
+  logged CLIENTBOUND PLAY 3b ping#1
+  out same 3b ping#1
+  input refCnt 1, promise ok
+  open true
+logging routed ping
+  send ping#0
+  logged CLIENTBOUND PLAY 3b ping#0
+  out same 3b ping#0
+  input refCnt 1, promise ok
+  open true
+logging routed ping, truncated
+  logged CLIENTBOUND PLAY 3b
+  out same 3b
+  input refCnt 1, promise ok
+  reported CultAC failure in outbound packet expansion; keeping the connection open: ac.cult.cultac.protocol.MalformedPacketException: Truncated clientbound.ping
+  open true
+logging unrouted set_time
+  logged CLIENTBOUND PLAY 6f0000000000000001000000000000000201
+  out same 6f0000000000000001000000000000000201
+  input refCnt 1, promise ok
+  open true
+logging standalone keep_alive
+  logged CLIENTBOUND PLAY 2b0000000000000009
+  out same 2b0000000000000009
+  input refCnt 1, promise ok
+  open true
+logging custom_payload
+  logged CLIENTBOUND PLAY 180f6d696e6563726166743a6272616e6403616263
+  out same 180f6d696e6563726166743a6272616e6403616263
+  input refCnt 1, promise ok
+  open true
+logging empty
+  logged CLIENTBOUND PLAY (empty)
+  out same (empty)
+  input refCnt 1, promise ok
+  reported CultAC failure in outbound packet expansion; keeping the connection open: ac.cult.cultac.protocol.MalformedPacketException: Expected 1 bytes, available 0
+  reported CultAC failure in outbound fallback identity; keeping the connection open: ac.cult.cultac.protocol.MalformedPacketException: Truncated VarInt
+  open true
+logging one continuation byte
+  logged CLIENTBOUND PLAY 80
+  out same 80
+  input refCnt 1, promise ok
+  reported CultAC failure in outbound packet expansion; keeping the connection open: ac.cult.cultac.protocol.MalformedPacketException: Expected 1 bytes, available 0
+  reported CultAC failure in outbound fallback identity; keeping the connection open: ac.cult.cultac.protocol.MalformedPacketException: Truncated VarInt
+  open true
+logging five continuation bytes
+  logged CLIENTBOUND PLAY 8080808080
+  out same 8080808080
+  input refCnt 1, promise ok
+  reported CultAC failure in outbound packet expansion; keeping the connection open: ac.cult.cultac.protocol.MalformedPacketException: VarInt exceeds five bytes
+  reported CultAC failure in outbound fallback identity; keeping the connection open: ac.cult.cultac.protocol.MalformedPacketException: VarInt exceeds five bytes
+  open true
+logging ID -1
+  logged CLIENTBOUND PLAY ffffffff0f01
+  out same ffffffff0f01
+  input refCnt 1, promise ok
+  reported CultAC failure in outbound packet expansion; keeping the connection open: ac.cult.cultac.protocol.MalformedPacketException: Unknown PLAY/CLIENTBOUND ID -1
+  reported CultAC failure in outbound fallback identity; keeping the connection open: ac.cult.cultac.protocol.MalformedPacketException: Unknown PLAY/CLIENTBOUND ID -1
+  open true
+logging ID 127
+  logged CLIENTBOUND PLAY 7f01
+  out same 7f01
+  input refCnt 1, promise ok
+  open true
+logging routed ping after
+  send ping#1
+  logged CLIENTBOUND PLAY 3b ping#1
+  out same 3b ping#1
+  input refCnt 1, promise ok
+  open true
