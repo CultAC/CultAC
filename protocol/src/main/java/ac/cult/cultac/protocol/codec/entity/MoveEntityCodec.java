@@ -40,7 +40,8 @@ public final class MoveEntityCodec implements VariantCodec<ClientboundMoveEntity
 
     /**
      * Returned by {@link #read} in place of a move whose delta is linear when the context's state is a {@link Sink}
-     * that {@link Sink#sinksMove() takes moves}; the move's values went to {@link Sink#move} instead.
+     * that {@link Sink#sinksMove() takes moves}, or stepped when it {@link Sink#sinksSteps takes its steps}; the
+     * move's values went to {@link Sink#move} or {@link Sink#steppedMove} instead.
      */
     public static final ClientboundMoveEntity SUNK =
             new ClientboundMoveEntity(0, EntityDelta.ZERO, 0, 0, false, false, false);
@@ -64,6 +65,25 @@ public final class MoveEntityCodec implements VariantCodec<ClientboundMoveEntity
                 boolean onGround,
                 boolean hasPosition,
                 boolean hasRotation);
+
+        /** Whether the next stepped move of {@code steps} steps goes to {@link #step} and {@link #steppedMove}. */
+        default boolean sinksSteps(int steps) {
+            return false;
+        }
+
+        /**
+         * Step {@code index} of the stepped move being read, in order; the values are only the move's once
+         * {@link #steppedMove} follows.
+         */
+        default void step(int index, short x, short y, short z, int ticks) {}
+
+        /**
+         * The values of a stepped move that {@link MoveEntityCodec#read} returned as {@link #SUNK}: those of the packet it
+         * would have returned, with its {@link EntityDelta.Stepped} delta as the {@code steps} values given to
+         * {@link #step}. The move has a position.
+         */
+        default void steppedMove(
+                int entityId, int steps, float yaw, float pitch, boolean onGround, boolean hasRotation) {}
     }
 
     @Override
@@ -78,6 +98,8 @@ public final class MoveEntityCodec implements VariantCodec<ClientboundMoveEntity
         boolean position = variant.position;
         boolean rotation = variant.rotation;
         EntityDelta.Stepped stepped = null;
+        Sink stepSink = null;
+        int steps = 0;
         short x = 0, y = 0, z = 0;
         boolean ground = false;
         boolean modern = context.version().atLeast(ProtocolVersion.V26_3);
@@ -85,9 +107,13 @@ public final class MoveEntityCodec implements VariantCodec<ClientboundMoveEntity
             if (position) {
                 int properties = Wire.readVarInt(input);
                 ground = (properties & 1) != 0;
-                int steps = properties >>> 1;
-                if (steps != 0) stepped = readSteps(input, steps);
-                else {
+                steps = properties >>> 1;
+                if (steps != 0) {
+                    if (context.state() instanceof Sink sink && sink.sinksSteps(steps)) {
+                        stepSink = sink;
+                        readSteps(input, steps, sink);
+                    } else stepped = readSteps(input, steps);
+                } else {
                     x = input.readShort();
                     y = input.readShort();
                     z = input.readShort();
@@ -101,6 +127,10 @@ public final class MoveEntityCodec implements VariantCodec<ClientboundMoveEntity
         float yaw = rotation ? Wire.readAngle(input) : 0;
         float pitch = rotation ? Wire.readAngle(input) : 0;
         if (!modern) ground = input.readBoolean();
+        if (stepSink != null) {
+            stepSink.steppedMove(entityId, steps, yaw, pitch, ground, rotation);
+            return SUNK;
+        }
         if (stepped != null)
             return new ClientboundMoveEntity(entityId, stepped, yaw, pitch, ground, position, rotation);
         if (context.state() instanceof Sink sink && sink.sinksMove()) {
@@ -111,9 +141,21 @@ public final class MoveEntityCodec implements VariantCodec<ClientboundMoveEntity
         return new ClientboundMoveEntity(entityId, delta, yaw, pitch, ground, position, rotation);
     }
 
-    private static EntityDelta.Stepped readSteps(ByteBuf input, int steps) {
+    private static void readSteps(ByteBuf input, int steps, Sink sink) {
+        requireSteps(input, steps);
+        for (int i = 0; i < steps; i++) {
+            int ticks = Wire.readVarInt(input);
+            sink.step(i, input.readShort(), input.readShort(), input.readShort(), ticks);
+        }
+    }
+
+    private static void requireSteps(ByteBuf input, int steps) {
         if (steps > input.readableBytes() / 7)
             throw new MalformedPacketException("Entity delta step count exceeds remaining bytes: " + steps);
+    }
+
+    private static EntityDelta.Stepped readSteps(ByteBuf input, int steps) {
+        requireSteps(input, steps);
         var result = new EntityDelta.Step[steps];
         for (int i = 0; i < steps; i++) {
             int ticks = Wire.readVarInt(input);

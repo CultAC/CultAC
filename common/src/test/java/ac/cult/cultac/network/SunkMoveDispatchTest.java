@@ -16,6 +16,7 @@ import ac.cult.cultac.protocol.codec.entity.MoveEntityCodec;
 import ac.cult.cultac.protocol.netty.CultDecoder;
 import ac.cult.cultac.protocol.netty.CultEncoder;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
+import ac.cult.cultac.protocol.value.EntityDelta;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
@@ -55,17 +56,26 @@ class SunkMoveDispatchTest {
         Run own = run(frames, true);
         Run foreign = run(frames, false);
         assertEquals(foreign.wire, own.wire);
-        assertEquals(frames.size(), own.seen.size());
+        assertEquals(frames.size() + own.nested, own.seen.size());
         assertEquals(foreign.seen, own.seen);
         assertTrue(own.sunk > 150, "sunk " + own.sunk);
         assertEquals(0, foreign.sunk);
-        assertEquals(frames.size() - own.sunk, own.records, "stepped moves stay records");
+        assertEquals(own.seen.size() - own.sunk, own.records);
+        assertEquals(
+                own.longRecords + own.nestedRecords,
+                own.records,
+                "only moves of more than the held steps, or written while one is held, stay records");
+        assertEquals(0, own.nestedChanged, "a nested write leaves the held move as it was");
+        if (version.atLeast(ProtocolVersion.V26_3)) {
+            assertTrue(own.longRecords > 0, "long records " + own.longRecords);
+            assertTrue(own.nestedInStepped > 3, "nested writes in stepped moves " + own.nestedInStepped);
+        }
     }
 
     private static final class Run {
         final List<String> seen = new ArrayList<>();
         final List<String> wire = new ArrayList<>();
-        int sunk, records;
+        int sunk, records, longRecords, nested, nestedRecords, nestedInStepped, nestedChanged;
     }
 
     private static Run run(List<byte[]> frames, boolean own) {
@@ -74,24 +84,45 @@ class SunkMoveDispatchTest {
         var dispatcher = new PacketDispatcher(runtime);
         var run = new Run();
         boolean[] fail = {false};
+        byte[][] nest = {null};
+        EmbeddedChannel[] nestChannel = {null};
+        boolean[] inside = {false};
         Consumer<PacketRouteBuilder> routes = builder ->
                 builder.send(ClientboundPackets.MOVE_ENTITY, PacketListenerPriority.NORMAL, (event, player, packet) -> {
+                    SunkMove held = event.getUser().getCultConnection().sunkMove();
+                    String seen;
                     if (packet == MoveEntityCodec.SUNK) {
                         run.sunk++;
-                        run.seen.add(event.getUser()
-                                .getCultConnection()
-                                .sunkMove()
-                                .packet()
-                                .toString());
+                        seen = held.packet().toString();
                     } else {
                         run.records++;
-                        run.seen.add(packet.toString());
+                        if (inside[0]) run.nestedRecords++;
+                        else if (packet.delta() instanceof EntityDelta.Stepped stepped
+                                && stepped.steps().size() > SunkMove.MAX_STEPS) run.longRecords++;
+                        seen = packet.toString();
+                    }
+                    run.seen.add(seen);
+                    byte[] nested = nest[0];
+                    if (nested != null) {
+                        nest[0] = null;
+                        run.nested++;
+                        if (packet == MoveEntityCodec.SUNK && held.steps() > 0) run.nestedInStepped++;
+                        inside[0] = true;
+                        try {
+                            nestChannel[0].writeAndFlush(Unpooled.wrappedBuffer(nested));
+                        } finally {
+                            inside[0] = false;
+                        }
+                        String again =
+                                packet == MoveEntityCodec.SUNK ? held.packet().toString() : packet.toString();
+                        if (!again.equals(seen)) run.nestedChanged++;
                     }
                     if (fail[0]) throw new IllegalStateException("handler failure");
                 });
         if (own) dispatcher.registerOwn(routes);
         else dispatcher.register(routes);
         var channel = new EmbeddedChannel();
+        nestChannel[0] = channel;
         var connection = new CultConnection(channel, dispatcher, ignored -> new PacketOwner(channel.eventLoop(), null));
         for (var direction : PacketDirection.values()) connection.phase(direction, ConnectionPhase.PLAY);
         var user = new User(new User.Profile(UUID.randomUUID(), ".Sunk_Move_Test"), connection);
@@ -106,6 +137,7 @@ class SunkMoveDispatchTest {
         try {
             for (int i = 0; i < frames.size(); i++) {
                 fail[0] = i % 7 == 3;
+                nest[0] = i % 5 == 1 ? frames.get((i * 7 + 3) % frames.size()) : null;
                 write(channel, run, Unpooled.wrappedBuffer(frames.get(i)));
                 assertFalse(connection.sunkMove().held(), "frame " + i);
                 if (i % 11 == 5) {
@@ -153,7 +185,9 @@ class SunkMoveDispatchTest {
         Wire.writeVarInt(bytes, random.nextInt(1 << 20));
         if (version.atLeast(ProtocolVersion.V26_3)) {
             if (position) {
-                int steps = random.nextInt(4) == 0 ? 1 + random.nextInt(3) : 0;
+                int steps = random.nextInt(4) != 0
+                        ? 0
+                        : random.nextInt(8) == 0 ? SunkMove.MAX_STEPS + random.nextInt(3) : 1 + random.nextInt(3);
                 Wire.writeVarInt(bytes, steps << 1 | random.nextInt(2));
                 for (int i = 0; i < steps; i++) {
                     Wire.writeVarInt(bytes, 1 + random.nextInt(3));

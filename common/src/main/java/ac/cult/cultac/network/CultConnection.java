@@ -139,7 +139,7 @@ public final class CultConnection
     private final FrameLease.Lender frameLender = new FrameLease.Lender();
     private final SunkMove sunkMove = new SunkMove();
     private final SunkPositionSync sunkPositionSync = new SunkPositionSync();
-    /** The encoder's current read may sink a linear move or position sync. Owner only. */
+    /** The encoder's current read may sink a move or a linear position sync. Owner only. */
     private boolean sinksMoves;
 
     private ClientPacketCodecs.MetadataReader metadataReader;
@@ -236,7 +236,7 @@ public final class CultConnection
         return frameLender.lease(frame);
     }
 
-    /** Lets the read the encoder begins next sink a linear move or position sync, or stops it. Model context only. */
+    /** Lets the read the encoder begins next sink a move or a linear position sync, or stops it. Model context only. */
     @ApiStatus.Internal
     public void sinkMoves(boolean sink) {
         sinksMoves = sink;
@@ -260,6 +260,23 @@ public final class CultConnection
             boolean hasPosition,
             boolean hasRotation) {
         sunkMove.hold(entityId, x, y, z, yaw, pitch, onGround, hasPosition, hasRotation);
+    }
+
+    @Override
+    public boolean sinksSteps(int steps) {
+        return sinksMove() && steps <= SunkMove.MAX_STEPS;
+    }
+
+    @Override
+    @ApiStatus.Internal
+    public void step(int index, short x, short y, short z, int ticks) {
+        sunkMove.step(index, x, y, z, ticks);
+    }
+
+    @Override
+    @ApiStatus.Internal
+    public void steppedMove(int entityId, int steps, float yaw, float pitch, boolean onGround, boolean hasRotation) {
+        sunkMove.holdStepped(entityId, steps, yaw, pitch, onGround, hasRotation);
     }
 
     /**

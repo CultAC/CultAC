@@ -14,14 +14,16 @@ import ac.cult.cultac.protocol.value.EntityDelta;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Random;
 import org.junit.jupiter.api.Test;
 
 /**
  * A move read into a sink against the record read before sinks existed, on generated packets and every truncation of
- * them: a linear move's sunk values are the record's components, a stepped move is the same record, and a malformed
- * move fails with the same exception at the same reader index without reaching the sink. A sink that declines, or a
- * state that is no sink, gets the same record.
+ * them: a sunk move's values, its steps in order included, are the record's components, and a malformed move fails
+ * with the same exception at the same reader index without completing a sunk move. A sink that declines the move or
+ * its step count, or a state that is no sink, gets the same record.
  */
 class MoveEntitySinkEquivalenceTest {
     private static final ProtocolVersion[] VERSIONS = {
@@ -31,8 +33,10 @@ class MoveEntitySinkEquivalenceTest {
     /** A test sink that keeps the last move it took as the record it stands for. */
     private static final class RecordingSink implements CodecState, MoveEntityCodec.Sink {
         boolean sinks = true;
+        int maxSteps;
         ClientboundMoveEntity sunk;
-        int moves;
+        int moves, steppedMoves, nextStep;
+        final EntityDelta.Step[] pending = new EntityDelta.Step[8];
 
         @Override
         public <T> T require(Class<T> type) {
@@ -59,12 +63,34 @@ class MoveEntitySinkEquivalenceTest {
             EntityDelta delta = hasPosition ? new EntityDelta.Linear(x, y, z) : EntityDelta.ZERO;
             sunk = new ClientboundMoveEntity(entityId, delta, yaw, pitch, onGround, hasPosition, hasRotation);
         }
+
+        @Override
+        public boolean sinksSteps(int steps) {
+            return sinks && steps <= maxSteps;
+        }
+
+        @Override
+        public void step(int index, short x, short y, short z, int ticks) {
+            assertEquals(nextStep, index);
+            nextStep++;
+            pending[index] = new EntityDelta.Step(x, y, z, ticks);
+        }
+
+        @Override
+        public void steppedMove(
+                int entityId, int steps, float yaw, float pitch, boolean onGround, boolean hasRotation) {
+            assertEquals(nextStep, steps);
+            moves++;
+            steppedMoves++;
+            var delta = new EntityDelta.Stepped(List.of(Arrays.copyOf(pending, steps)));
+            sunk = new ClientboundMoveEntity(entityId, delta, yaw, pitch, onGround, true, hasRotation);
+        }
     }
 
     @Test
     void sunkMovesCarryTheRecordsValuesAndFailuresMatch() {
         Random random = new Random(53);
-        int sunk = 0, stepped = 0, failed = 0;
+        int sunk = 0, sunkStepped = 0, stepped = 0, failed = 0;
         for (ProtocolVersion version : VERSIONS) {
             ProtocolData data = ProtocolData.load(version);
             for (int variant = 0; variant < 3; variant++) {
@@ -76,6 +102,7 @@ class MoveEntitySinkEquivalenceTest {
                         for (int length = bytes.writerIndex(); length >= 0; length--) {
                             String expected = outcome(bytes, length, plain, EntityListCodecEquivalenceTest::baseMove);
                             var sink = new RecordingSink();
+                            sink.maxSteps = length % 4;
                             var sinking = plain.withState(sink);
                             String actual = outcome(bytes, length, sinking, (input, context) -> {
                                 Object read = new MoveEntityCodec().read(input, context);
@@ -84,6 +111,7 @@ class MoveEntitySinkEquivalenceTest {
                                 return sink.sunk;
                             });
                             assertEquals(expected, actual, version + " variant " + variant + " length " + length);
+                            if (sink.steppedMoves > 0) sunkStepped++;
                             if (sink.moves > 0) sunk++;
                             else if (expected.startsWith("Stepped")) stepped++;
                             else if (!expected.startsWith("Linear")) failed++;
@@ -101,7 +129,9 @@ class MoveEntitySinkEquivalenceTest {
                 }
             }
         }
-        assertTrue(sunk > 1000 && stepped > 100 && failed > 1000, sunk + " sunk, " + stepped + " stepped, " + failed);
+        assertTrue(
+                sunk > 1000 && sunkStepped > 50 && stepped > 30 && failed > 1000,
+                sunk + " sunk, " + sunkStepped + " sunk stepped, " + stepped + " stepped, " + failed);
     }
 
     @Test

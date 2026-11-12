@@ -46,8 +46,9 @@ import org.mockito.Mockito;
 
 /**
  * One seeded entity packet script runs through a player handed every move as its record and one handed each linear
- * move as {@link MoveEntityCodec#SUNK} and each linear position sync as {@link EntityPositionSyncCodec#SUNK} with its
- * values held on the connection; the tracked entities and the
+ * move and each stepped move of at most {@link SunkMove#MAX_STEPS} steps as {@link MoveEntityCodec#SUNK} and each
+ * linear position sync as {@link EntityPositionSyncCodec#SUNK} with its values held on the connection; the tracked
+ * entities and the
  * transactions match after every step.
  */
 class SunkMoveReplicationEquivalenceTest {
@@ -89,7 +90,9 @@ class SunkMoveReplicationEquivalenceTest {
                 assertFalse(sunk.connection().sunkPositionSync().held());
             }
             assertTrue(moves > 500, "moves " + moves);
-            assertTrue(sunk.sunkMoves > 400, "sunk " + sunk.sunkMoves);
+            assertTrue(sunk.sunkMoves > 300, "sunk " + sunk.sunkMoves);
+            assertTrue(sunk.sunkSteppedMoves > 100, "sunk stepped " + sunk.sunkSteppedMoves);
+            assertTrue(sunk.steppedRecords > 5, "stepped records " + sunk.steppedRecords);
             assertTrue(sunk.sunkSyncs > 60, "sunk syncs " + sunk.sunkSyncs);
         } finally {
             records.close();
@@ -125,6 +128,33 @@ class SunkMoveReplicationEquivalenceTest {
             assertFalse(rig.connection().sinksMove());
             assertThrows(IllegalStateException.class, move::x);
             assertThrows(IllegalStateException.class, move::packet);
+
+            rig.connection().sinkMoves(true);
+            assertTrue(rig.connection().sinksSteps(SunkMove.MAX_STEPS));
+            assertFalse(rig.connection().sinksSteps(SunkMove.MAX_STEPS + 1));
+            rig.connection().step(0, (short) 1, (short) 2, (short) 3, 1);
+            rig.connection().step(1, (short) -4, (short) 5, (short) -6, 2);
+            rig.connection().steppedMove(ENTITIES[1], 2, 7, 8, false, false);
+            assertEquals(
+                    new ClientboundMoveEntity(
+                            ENTITIES[1],
+                            new EntityDelta.Stepped(List.of(
+                                    new EntityDelta.Step((short) 1, (short) 2, (short) 3, 1),
+                                    new EntityDelta.Step((short) -4, (short) 5, (short) -6, 2))),
+                            7,
+                            8,
+                            false,
+                            true,
+                            false),
+                    move.packet());
+            assertFalse(rig.connection().sinksSteps(1), "one move is held at a time");
+            assertThrows(IndexOutOfBoundsException.class, () -> move.stepX(2));
+            move.release();
+            rig.connection().move(ENTITIES[0], (short) 1, (short) 2, (short) 3, 4, 5, true, true, true);
+            assertEquals(0, move.steps(), "a linear hold after a stepped one has no steps");
+            move.release();
+            rig.connection().sinkMoves(false);
+            assertFalse(rig.connection().sinksSteps(1));
         } finally {
             rig.close();
         }
@@ -142,9 +172,10 @@ class SunkMoveReplicationEquivalenceTest {
             boolean onGround = random.nextBoolean();
             EntityDelta delta;
             if (!hasPosition) delta = EntityDelta.ZERO;
-            else if (random.nextInt(6) == 0) {
+            else if (random.nextInt(3) == 0) {
                 var steps = new ArrayList<EntityDelta.Step>();
-                for (int i = 0, n = 1 + random.nextInt(3); i < n; i++)
+                int n = random.nextInt(12) == 0 ? SunkMove.MAX_STEPS + random.nextInt(3) : 1 + random.nextInt(3);
+                for (int i = 0; i < n; i++)
                     steps.add(new EntityDelta.Step(delta(random), delta(random), delta(random), 1 + random.nextInt(3)));
                 delta = new EntityDelta.Stepped(steps);
             } else delta = new EntityDelta.Linear(delta(random), delta(random), delta(random));
@@ -195,7 +226,7 @@ class SunkMoveReplicationEquivalenceTest {
         final CultPlayer player;
         final EmbeddedChannel channel;
         final boolean sinks;
-        int sunkMoves, sunkSyncs;
+        int sunkMoves, sunkSteppedMoves, steppedRecords, sunkSyncs;
 
         Rig(Script script, boolean sinks) {
             this.sinks = sinks;
@@ -219,7 +250,28 @@ class SunkMoveReplicationEquivalenceTest {
         }
 
         void moveEntity(ClientboundMoveEntity packet) {
+            if (sinks
+                    && packet.delta() instanceof EntityDelta.Stepped stepped
+                    && stepped.steps().size() <= SunkMove.MAX_STEPS) {
+                var steps = stepped.steps();
+                for (int i = 0; i < steps.size(); i++) {
+                    var step = steps.get(i);
+                    connection().step(i, step.x(), step.y(), step.z(), step.ticks());
+                }
+                connection()
+                        .steppedMove(
+                                packet.entityId(),
+                                steps.size(),
+                                packet.yaw(),
+                                packet.pitch(),
+                                packet.onGround(),
+                                packet.hasRotation());
+                sunkSteppedMoves++;
+                dispatchSunk();
+                return;
+            }
             if (!sinks || !(packet.delta() instanceof EntityDelta.Linear linear)) {
+                if (sinks && packet.delta() instanceof EntityDelta.Stepped) steppedRecords++;
                 player.packetEntityReplication.onMoveEntity(event(packet), player, packet);
                 return;
             }
@@ -235,6 +287,10 @@ class SunkMoveReplicationEquivalenceTest {
                             packet.hasPosition(),
                             packet.hasRotation());
             sunkMoves++;
+            dispatchSunk();
+        }
+
+        void dispatchSunk() {
             try {
                 player.packetEntityReplication.onMoveEntity(event(MoveEntityCodec.SUNK), player, MoveEntityCodec.SUNK);
             } finally {

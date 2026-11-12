@@ -565,6 +565,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                     player,
                     move.entityId(),
                     null,
+                    move.steps() == 0 ? null : move,
                     move.x(),
                     move.y(),
                     move.z(),
@@ -582,6 +583,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 player,
                 packet.entityId(),
                 stepped,
+                null,
                 linear.x(),
                 linear.y(),
                 linear.z(),
@@ -592,12 +594,16 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 packet.hasRotation());
     }
 
-    /** A move whose delta is {@code stepped}, or the linear {@code dx}, {@code dy}, {@code dz} when that is null. */
+    /**
+     * A move whose delta is {@code stepped}, or the steps of {@code sunkSteps}, or the linear {@code dx}, {@code dy},
+     * {@code dz} when both are null.
+     */
     private void onMoveEntity(
             PacketSendEvent<?> event,
             CultPlayer player,
             int entityId,
             EntityDelta.Stepped stepped,
+            SunkMove sunkSteps,
             short dx,
             short dy,
             short dz,
@@ -609,7 +615,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         if (player.getClientVersion().isOlderThan(ClientVersion.V_26_3)) {
             // Pre-26.3 clients receive three shorts. ViaBackwards 26.3->26.2
             // (EntityPacketRewriter26_3#handleMovePos) sums a stepped delta into one.
-            var delta = stepped == null ? null : linearDelta(stepped);
+            var delta = stepped != null ? linearDelta(stepped) : sunkSteps != null ? linearDelta(sunkSteps) : null;
             handleMoveEntity(
                     event,
                     legacyRelativeEntityPacket(
@@ -632,7 +638,18 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         handleMoveEntity(
                 event,
                 decodedRelativeEntityPacket(
-                        entityId, stepped, dx, dy, dz, yaw, pitch, onGround, hasPosition, hasRotation, tracked),
+                        entityId,
+                        stepped,
+                        sunkSteps,
+                        dx,
+                        dy,
+                        dz,
+                        yaw,
+                        pitch,
+                        onGround,
+                        hasPosition,
+                        hasRotation,
+                        tracked),
                 tracked);
     }
 
@@ -640,6 +657,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     private EntityMovement decodedRelativeEntityPacket(
             int entityId,
             EntityDelta.Stepped stepped,
+            SunkMove sunkSteps,
             short dx,
             short dy,
             short dz,
@@ -654,7 +672,10 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         double z = tracked.getCodecBaseZ();
         if (hasPosition) {
             EntityPositionPath path;
-            if (stepped == null) {
+            if (sunkSteps != null) {
+                path = decodeRelative(sunkSteps, new Vec3(x, y, z));
+                if (receivesViaSteppedPaths()) path = viaSteppedPath(path.endPosition());
+            } else if (stepped == null) {
                 x = PacketCodecUtil.decodeRelativeEntityCoordinate(x, (long) dx);
                 y = PacketCodecUtil.decodeRelativeEntityCoordinate(y, (long) dy);
                 z = PacketCodecUtil.decodeRelativeEntityCoordinate(z, (long) dz);
@@ -856,6 +877,29 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             z += step.z();
         }
         return new EntityDelta.Linear((short) x, (short) y, (short) z);
+    }
+
+    private static EntityDelta.Linear linearDelta(SunkMove move) {
+        int x = 0, y = 0, z = 0;
+        for (int i = 0; i < move.steps(); i++) {
+            x += move.stepX(i);
+            y += move.stepY(i);
+            z += move.stepZ(i);
+        }
+        return new EntityDelta.Linear((short) x, (short) y, (short) z);
+    }
+
+    /** {@link EntityPositionPath#decodeRelative} of the held move's steps. */
+    private static EntityPositionPath decodeRelative(SunkMove move, Vec3 base) {
+        int count = move.steps();
+        List<EntityPositionPath.Step> steps = new ArrayList<>(count);
+        Vec3 position = base;
+        for (int i = 0; i < count; i++) {
+            position =
+                    PacketCodecUtil.decodeRelativeEntityPosition(position, move.stepX(i), move.stepY(i), move.stepZ(i));
+            steps.add(new EntityPositionPath.Step(position, move.stepTicks(i)));
+        }
+        return new EntityPositionPath(position, steps);
     }
 
     @CultPacketHandler
