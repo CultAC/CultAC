@@ -205,6 +205,54 @@ public final class BedrockFireworkFlightTest {
                 captured[3]);
     }
 
+    // A rocket's start and stop replayed together: the stop the client already took ends the boost.
+    @Test
+    public void aStopReplayedWithItsStartStillEndsTheBoost() {
+        float[][] captured = {
+            {6.3363037F, -20.35318F, 1953.7145F, 122.664246F, 19.238552F, 0.5888684F, -0.18111311F, 1.5667931F},
+            {6.0764465F, -19.703552F, 1954.2899F, 122.486984F, 20.8107F, 0.57539713F, -0.17726061F, 1.5721464F},
+        };
+        var seed = captured[0];
+        var state = BedrockMovementState.fromPhysicalFeet(
+                        position(seed), velocity(seed), BedrockInputFrame.idle(390), BedrockCollisionFlags.AIR)
+                .withGliding(true);
+        var entry = new BedrockProfileState.Entry(state, BedrockMobJumpComponentState.DEFAULT);
+        var history = new BedrockActorHistory();
+        history.record(new BedrockActorHistory.Frame(
+                390,
+                request(entry, 390, seed, true),
+                List.of(entry),
+                List.of(entry),
+                null,
+                Vec3d.ZERO,
+                Vec3d.ZERO,
+                position(seed),
+                velocity(seed),
+                List.of()));
+        history.record(forward(entry, 391, captured[1], true));
+
+        var player = org.mockito.Mockito.mock(ac.cult.cultac.player.CultPlayer.class);
+        player.bedrockState = new ac.cult.cultac.bedrock.player.BedrockPlayerState(new java.util.UUID(0, 1));
+        var rewind = new BedrockMovementRewind(history);
+        rewind.queue(390, true, new BedrockReplayEvent.Boost(1_000_000));
+        player.bedrockState.movementEffects.setGlideBoost(1_000_000, 390);
+        rewind.queue(390, true, new BedrockReplayEvent.Boost(0));
+        player.bedrockState.movementEffects.setGlideBoost(0, 391);
+        var current = new ac.cult.cultac.checks.impl.prediction.PredictionCommit(
+                new BedrockNextTickStates(history.current()),
+                BedrockNextTickVelocityDerivation.profileStateVelocities(history.current()));
+        rewind.apply(player, current, (previous, world) -> world);
+
+        var receipt = ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame.builder(new java.util.UUID(0, 1))
+                .clientTick(392)
+                .build();
+        assertTrue(player.bedrockState.movementEffects.glideBoost(receipt, true));
+        var following = ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame.builder(new java.util.UUID(0, 1))
+                .clientTick(393)
+                .build();
+        assertFalse(player.bedrockState.movementEffects.glideBoost(following, true));
+    }
+
     @Test
     public void capturedZeroTickBoostReplaysEarlierFlightInsteadOfOnlyBoostingReceipt() {
         float[][] captured = {

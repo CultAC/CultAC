@@ -82,6 +82,11 @@ final class BedrockMovementRewind {
                 .anyMatch(update -> update.event() instanceof BedrockReplayEvent.Transform transform
                         && transform.correction().vehicle()
                         && !deferred(update));
+        // A later boost update already took effect live when it was acknowledged, so an earlier one never re-arms.
+        Update latestBoost = null;
+        for (Update update : updates) {
+            if (update.event() instanceof BedrockReplayEvent.Boost) latestBoost = update;
+        }
         // Arrival order: an attribute update and a replay acknowledged together must both survive.
         for (Update update : updates) {
             boolean attributes = attributes(update);
@@ -121,7 +126,9 @@ final class BedrockMovementRewind {
             if (stale && event instanceof BedrockReplayEvent.Boost) tick = authoritative.oldestTick();
             // A matching confirmation must neither replay actions nor overwrite a later live replacement.
             if (authoritative.matches(tick, event)) continue;
-            if (update.event() instanceof BedrockReplayEvent.Boost boost && boost.duration() != 0) {
+            if (update == latestBoost
+                    && update.event() instanceof BedrockReplayEvent.Boost boost
+                    && boost.duration() != 0) {
                 int remaining = boost.duration() == -1
                         ? -1
                         : (int) Math.max(0, boost.duration() - Math.max(0, authoritative.newestTick() - update.tick()));
