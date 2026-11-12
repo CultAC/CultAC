@@ -31,6 +31,7 @@ import java.util.List;
  */
 public final class ReportedKeyInput {
     private static final Vec3 NO_STUCK_SPEED = new Vec3(1, 1, 1);
+    private static final int ENDED_USE = 3;
 
     private ReportedKeyInput() {}
 
@@ -38,8 +39,9 @@ public final class ReportedKeyInput {
     static final class Scratch {
         private float[] speeds = new float[4];
         private final float[] slows = new float[2];
-        private final float[] itemUses = new float[3];
+        private final float[] itemUses = new float[4];
         private double[] inputs = new double[24];
+        private boolean[] endedInputs = new boolean[12];
         private final SimpleCollisionBox standing = new SimpleCollisionBox();
         private final SimpleCollisionBox pose = new SimpleCollisionBox();
         private final SimpleCollisionBox firstRest = new SimpleCollisionBox();
@@ -61,12 +63,19 @@ public final class ReportedKeyInput {
         SimpleCollisionBox extents = result.getValidMovements().getCollisionIgnoredMaxStartingVelExtents();
         if (extents == null) return 0.0D;
         double best = Double.MAX_VALUE;
+        double ended = Double.MAX_VALUE;
         for (int i = 0; i < inputs; i++) {
-            best = Math.min(
-                    best, offset(player, result, extents, scratch.inputs[2 * i], scratch.inputs[2 * i + 1], scratch));
-            if (best == 0.0D) return 0.0D;
+            double offset =
+                    offset(player, result, extents, scratch.inputs[2 * i], scratch.inputs[2 * i + 1], scratch);
+            if (scratch.endedInputs[i]) {
+                ended = Math.min(ended, offset);
+            } else {
+                best = Math.min(best, offset);
+                if (best == 0.0D) return 0.0D;
+            }
         }
-        return best;
+        // An ended use's multiplier is not vanilla, so it may only explain a move, never rank one candidate over another.
+        return ended <= HorizontalAnalyzer.HORIZONTAL_INPUT_UNCERTAINTY ? Math.min(best, ended) : best;
     }
 
     /**
@@ -172,10 +181,13 @@ public final class ReportedKeyInput {
         itemUses[0] = use.legalMultiplier();
         itemUses[1] = use.requiredMultiplier();
         itemUses[2] = use.slowestMultiplier();
+        // The multiplier of a use that has ended moves the keys at the walking speed only.
+        itemUses[ENDED_USE] = use.endedMultiplier();
         // The loop below runs at least once, and ClientKeyInput's pose test is the same for every combination.
         if (!ClientKeyInput.decidesTravelInput(player, context, scratch.standing)) return -1;
         if (scratch.inputs.length < 2 * slowCount * speedCount * itemUses.length) {
             scratch.inputs = new double[2 * slowCount * speedCount * itemUses.length];
+            scratch.endedInputs = new boolean[slowCount * speedCount * itemUses.length];
         }
         int count = 0;
         for (int l = 0; l < slowCount; l++) {
@@ -185,8 +197,10 @@ public final class ReportedKeyInput {
                 if (repeats(speeds, s)) continue;
                 for (int u = 0; u < itemUses.length; u++) {
                     float itemUse = itemUses[u];
-                    if (repeats(itemUses, u)) continue;
+                    // An ended multiplier of 1 is no ended use, not an unslowed reality beside a held one.
+                    if (u == ENDED_USE && (s != 0 || itemUse >= 1) || repeats(itemUses, u)) continue;
                     ClientKeyInput.travelInput(scratch.inputs, 2 * count, player, context, keys, itemUse, slow, speed);
+                    scratch.endedInputs[count] = u == ENDED_USE;
                     count++;
                 }
             }

@@ -29,13 +29,41 @@ final class BaseClientItemUseState {
             float slowestMultiplier,
             boolean canSprint,
             boolean required,
-            boolean definitelyUsing) {
+            boolean definitelyUsing,
+            float endedMultiplier) {
         public static final Snapshot NONE = new Snapshot(0, -1, -1, 1, 1, 1, true, false, false);
+
+        /** A snapshot with no ended use. */
+        public Snapshot(
+                long session,
+                int tick,
+                int proof,
+                float legalMultiplier,
+                float requiredMultiplier,
+                float slowestMultiplier,
+                boolean canSprint,
+                boolean required,
+                boolean definitelyUsing) {
+            this(
+                    session,
+                    tick,
+                    proof,
+                    legalMultiplier,
+                    requiredMultiplier,
+                    slowestMultiplier,
+                    canSprint,
+                    required,
+                    definitelyUsing,
+                    1);
+        }
     }
 
     public record ActiveUse(Hand hand, String itemKey) {}
 
     private record Use(Hand hand, SimItemStack stack, int remaining, SimItemStack boundStack) {}
+
+    /** Client ticks, from the first one after the end, that an ended use's multiplier stays a reality. */
+    private static final int ENDED_USE_TICKS = 11;
 
     /** One LivingEntity.completeUsingItem outcome: the used hand and its native inventory slot. */
     public record Completion(Hand hand, int slot) {}
@@ -51,6 +79,9 @@ final class BaseClientItemUseState {
     private Snapshot prepared = Snapshot.NONE;
     private final Map<SimItemStack, Integer> possiblyChanged = new IdentityHashMap<>();
     private boolean possiblyFull;
+    private List<SimItemStack> ended = List.of();
+    private int endedFrom;
+    private boolean endedPending;
 
     /**
      * An uncertain start keeps the candidate while the client may equally not be using; the
@@ -95,6 +126,13 @@ final class BaseClientItemUseState {
     }
 
     public void release() {
+        if (holdsUse()) {
+            var held = new ArrayList<SimItemStack>(candidates.size() + 1);
+            if (!inactive) for (Use use : candidates) held.add(use.stack());
+            if (obligation != null) held.add(obligation.stack());
+            ended = List.copyOf(held);
+            endedPending = true;
+        }
         candidates = List.of();
         inactive = true;
         obligation = null;
@@ -152,6 +190,7 @@ final class BaseClientItemUseState {
         }
         float required =
                 obligation == null ? 1 : effects(obligation.stack(), version).speedMultiplier();
+        float endedMultiplier = endedMultiplier(tick, version);
         prepared = new Snapshot(
                 session,
                 tick,
@@ -161,8 +200,38 @@ final class BaseClientItemUseState {
                 Math.min(slowest, required),
                 canSprint,
                 obligation != null && required < 1,
-                !inactive && !candidates.isEmpty());
+                !inactive && !candidates.isEmpty(),
+                endedMultiplier);
         return prepared;
+    }
+
+    /**
+     * The slowest LocalPlayer#modifyInput multiplier of the use this state held before its last end, while the client
+     * ticks after that end still number fewer than {@link #ENDED_USE_TICKS}; 1 otherwise. Some 1.21.11 and later
+     * clients keep applying it after LocalPlayer#stopUsingItem. A use held again replaces it.
+     */
+    private float endedMultiplier(int tick, ClientVersion version) {
+        if (ended.isEmpty()) return 1;
+        if (holdsUse()) {
+            ended = List.of();
+            return 1;
+        }
+        if (endedPending) {
+            endedFrom = tick;
+            endedPending = false;
+        }
+        if (tick - endedFrom >= ENDED_USE_TICKS) {
+            ended = List.of();
+            return 1;
+        }
+        if (!version.isNewerThanOrEquals(ClientVersion.V_1_21_11)) return 1;
+        float slowest = 1;
+        for (SimItemStack stack : ended) slowest = Math.min(slowest, effects(stack, version).speedMultiplier());
+        return slowest;
+    }
+
+    private boolean holdsUse() {
+        return !inactive && !candidates.isEmpty() || obligation != null;
     }
 
     public boolean definitelyUsing() {
@@ -277,6 +346,8 @@ final class BaseClientItemUseState {
 
     public void reset() {
         release();
+        ended = List.of();
+        endedPending = false;
         lastPreparedTick = Integer.MIN_VALUE;
         prepared = Snapshot.NONE;
     }
