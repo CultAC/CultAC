@@ -1230,30 +1230,33 @@ public class WorldStageBuilder {
             return new MainSupportingBlockData(null, false);
         }
 
-        SimpleCollisionBox slightlyBelowPlayer = new SimpleCollisionBox(
-                maxPose.minX, maxPose.minY - 1.0E-6D, maxPose.minZ, maxPose.maxX, maxPose.minY, maxPose.maxZ);
+        double minX = maxPose.minX, minY = maxPose.minY - 1.0E-6D, minZ = maxPose.minZ;
+        double maxX = maxPose.maxX, maxY = maxPose.minY, maxZ = maxPose.maxZ;
 
-        BlockPos supportingBlock = findSupportingBlock(player, slightlyBelowPlayer);
+        BlockPos supportingBlock = findSupportingBlock(player, minX, minY, minZ, maxX, maxY, maxZ);
         if (supportingBlock == null && lastSupport != null && !lastSupport.lastOnGroundAndNoBlock()) {
-            SimpleCollisionBox aabb2 = slightlyBelowPlayer.offset(-lastMovementX, 0.0D, -lastMovementZ);
-            return new MainSupportingBlockData(findSupportingBlock(player, aabb2), true);
+            double offsetX = -lastMovementX, offsetZ = -lastMovementZ;
+            return new MainSupportingBlockData(
+                    findSupportingBlock(
+                            player,
+                            minX + offsetX,
+                            minY + 0.0D,
+                            minZ + offsetZ,
+                            maxX + offsetX,
+                            maxY + 0.0D,
+                            maxZ + offsetZ),
+                    true);
         }
         return new MainSupportingBlockData(supportingBlock, true);
     }
 
-    /** The supporting block Entity#checkSupportingBlock picks inside {@code searchBox}, or null. */
-    private BlockPos findSupportingBlock(CultPlayer player, SimpleCollisionBox searchBox) {
+    /** The supporting block Entity#checkSupportingBlock picks inside the search box with these bounds, or null. */
+    private BlockPos findSupportingBlock(
+            CultPlayer player, double minX, double minY, double minZ, double maxX, double maxY, double maxZ) {
         SupportScan scan = supportScan.inUse ? new SupportScan() : supportScan;
         try {
-            // The cells BlockCollisions visits: one layer past the search box on each axis.
-            SimpleCollisionBox cells = new SimpleCollisionBox(
-                    Math.floor(searchBox.minX - 1.0E-7) - 1,
-                    Math.floor(searchBox.minY - 1.0E-7) - 1,
-                    Math.floor(searchBox.minZ - 1.0E-7) - 1,
-                    Math.floor(searchBox.maxX + 1.0E-7) + 1,
-                    Math.floor(searchBox.maxY + 1.0E-7) + 1,
-                    Math.floor(searchBox.maxZ + 1.0E-7) + 1);
-            Collisions.hasState(player, cells, scan.start(player, searchBox, cells));
+            scan.start(player, minX, minY, minZ, maxX, maxY, maxZ);
+            Collisions.hasState(player, scan.cells, scan);
             return scan.best;
         } finally {
             scan.clear();
@@ -1262,19 +1265,28 @@ public class WorldStageBuilder {
 
     /** The per-block test of {@link #findSupportingBlock}: never matches, it keeps the closest supporting block. */
     private final class SupportScan implements Collisions.StateAtPredicate {
+        // Written by start for each search, which this scan runs one at a time.
+        private final SimpleCollisionBox searchBox = new SimpleCollisionBox();
+        private final SimpleCollisionBox cells = new SimpleCollisionBox();
         private boolean inUse;
         private CultPlayer player;
-        private SimpleCollisionBox searchBox;
-        private SimpleCollisionBox cells;
         private double playerX, playerY, playerZ;
         private BlockPos best;
         private double bestDistance;
 
-        private SupportScan start(CultPlayer player, SimpleCollisionBox searchBox, SimpleCollisionBox cells) {
+        private SupportScan start(
+                CultPlayer player, double minX, double minY, double minZ, double maxX, double maxY, double maxZ) {
             inUse = true;
             this.player = player;
-            this.searchBox = searchBox;
-            this.cells = cells;
+            searchBox.set(minX, minY, minZ, maxX, maxY, maxZ);
+            // The cells BlockCollisions visits: one layer past the search box on each axis.
+            cells.set(
+                    Math.floor(minX - 1.0E-7) - 1,
+                    Math.floor(minY - 1.0E-7) - 1,
+                    Math.floor(minZ - 1.0E-7) - 1,
+                    Math.floor(maxX + 1.0E-7) + 1,
+                    Math.floor(maxY + 1.0E-7) + 1,
+                    Math.floor(maxZ + 1.0E-7) + 1);
             playerX = player.x;
             playerY = player.y;
             playerZ = player.z;
@@ -1285,8 +1297,6 @@ public class WorldStageBuilder {
 
         private void clear() {
             player = null;
-            searchBox = null;
-            cells = null;
             best = null;
             inUse = false;
         }
