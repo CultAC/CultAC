@@ -60,6 +60,8 @@ public class PacketEntity {
             ac.cult.cultac.bedrock.prediction.state.BedrockActorAttributes.EMPTY;
     // How far above the feet the actor's Bedrock packet position is: the eye height for a player.
     public float bedrockPositionOffset;
+    // The acknowledged SEAT_OFFSET, in the vehicle's packet-position frame. Unsent data keeps the protocol's zero.
+    public Vec3 bedrockSeatOffset = Vec3.ZERO;
     // Whether the last move a Bedrock client handled for this actor set onGround.
     private boolean bedrockMoveOnGround;
     // Whether the Bedrock client has the RESTING flag for this actor.
@@ -362,9 +364,11 @@ public class PacketEntity {
 
     /**
      * The one box a Bedrock client holds for this actor until its next lerp step, written into {@code out}: at the
-     * position its last step, or the move that placed it, left it.
+     * position its last step, or the move that placed it, left it. A remote passenger takes its compensated seat.
      */
     public SimpleCollisionBox bedrockShownBox(CultPlayer player, SimpleCollisionBox out) {
+        if (player.compensatedEntities.isUntrackedRider(this))
+            return ac.cult.cultac.bedrock.prediction.integration.BedrockPassengerPosition.box(player, this, out);
         return GetBoundingBox.getPacketEntityBoundingBox(
                 out, player, clientPhysicalPosition.x, clientPhysicalPosition.y, clientPhysicalPosition.z, this);
     }

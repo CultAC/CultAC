@@ -69,6 +69,7 @@ final class GeyserEntityPositions {
                     && previous != null
                     && (writesCollidable(data.getRuntimeEntityId(), size)
                             || size.sized()
+                            || size.seat() != null
                             || isBat(player, previous.javaId()))) {
                 long id = data.getRuntimeEntityId();
                 pending.add(() -> player.latencyUtils.addRealTimeTask(previous.creationTransaction(), () -> {
@@ -263,8 +264,8 @@ final class GeyserEntityPositions {
     private static final float PLAYER_OFFSET = 1.62001F;
 
     // The actor data that shapes the box the client holds for the actor: its size, the RESTING flag a bat hangs by,
-    // and the COLLIDABLE flag that makes the box solid for other actors.
-    private record Size(Float width, Float height, Float scale, Boolean resting, Boolean collidable) {
+    // the COLLIDABLE flag that makes the box solid for other actors, and the offset that seats a passenger.
+    private record Size(Float width, Float height, Float scale, Boolean resting, Boolean collidable, Vec3 seat) {
         static Size read(EntityDataMap data) {
             if (data == null) return null;
             Float width = data.get(EntityDataTypes.WIDTH);
@@ -273,9 +274,16 @@ final class GeyserEntityPositions {
             boolean flags = data.get(EntityDataTypes.FLAGS) != null;
             Boolean resting = flags ? data.getFlag(EntityFlag.RESTING) : null;
             Boolean collidable = flags ? data.getFlag(EntityFlag.COLLIDABLE) : null;
-            return width == null && height == null && scale == null && !flags
+            Vector3f seat = data.get(EntityDataTypes.SEAT_OFFSET);
+            return width == null && height == null && scale == null && !flags && seat == null
                     ? null
-                    : new Size(width, height, scale, resting, collidable);
+                    : new Size(
+                            width,
+                            height,
+                            scale,
+                            resting,
+                            collidable,
+                            seat == null ? null : new Vec3(seat.getX(), seat.getY(), seat.getZ()));
         }
 
         boolean sized() {
@@ -286,6 +294,7 @@ final class GeyserEntityPositions {
             entity.setBedrockSize(width, height, scale);
             if (resting != null) entity.setBedrockResting(resting);
             if (collidable != null) entity.bedrockCollidable = collidable;
+            if (seat != null) entity.bedrockSeatOffset = seat;
         }
     }
 }

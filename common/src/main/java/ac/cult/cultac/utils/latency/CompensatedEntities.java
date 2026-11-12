@@ -420,7 +420,10 @@ public class CompensatedEntities {
     public void settleIfUntrackedRider(PacketEntity rider) {
         if (!isUntrackedRider(rider)) return;
         SimpleCollisionBox seat;
-        if (player.isBedrockMovement() || rider == playerEntity) seat = untrackedRiderSeat(rider, 0);
+        if (player.isBedrockMovement())
+            seat = ac.cult.cultac.bedrock.prediction.integration.BedrockPassengerPosition.box(
+                    player, rider, new SimpleCollisionBox());
+        else if (rider == playerEntity) seat = untrackedRiderSeat(rider, 0);
         else {
             seat = new SimpleCollisionBox();
             SimpleCollisionBox candidate = new SimpleCollisionBox(), point = new SimpleCollisionBox();
@@ -440,8 +443,7 @@ public class CompensatedEntities {
      */
     public SimpleCollisionBox currentMovementBox(PacketEntity entity) {
         if (player.isBedrockMovement() && isUntrackedRider(entity)) {
-            SimpleCollisionBox seat = untrackedRiderSeat(entity, 0);
-            if (seat != null) return seat;
+            return entity.bedrockShownBox(player, new SimpleCollisionBox());
         }
         return entity.getPossibleMovementCollisionBoxes();
     }
@@ -2001,7 +2003,11 @@ public class CompensatedEntities {
         PacketEntity selfRoot = selfRidingRoot();
         PacketEntity serverRoot = serverVehicleRoot();
         for (PacketEntity entity : entityMap.values()) {
-            if (player.isBedrockMovement() && isUntrackedRider(entity, selfRoot, serverRoot)) continue;
+            if (player.isBedrockMovement() && isUntrackedRider(entity, selfRoot, serverRoot)) {
+                // Remote passengers keep lazy seats, but their shell still advances each client tick.
+                if (entity instanceof PacketEntityShulker shulker) shulker.onMovement(player);
+                continue;
+            }
             if (!player.isBedrockMovement() && isUntrackedRider(entity, selfRoot, serverRoot)) tickLazyRider(entity, tick);
             else tick.accept(entity);
         }

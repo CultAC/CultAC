@@ -43,6 +43,38 @@ public final class GeyserEntityWaveMarkerTest {
     private static final long PLAYER = 123L;
 
     @Test
+    public void passengerSeatDataAppliesOnlyAtItsAcknowledgedBoundary() throws Exception {
+        try (Transport transport = new Transport()) {
+            PacketEntity passenger = transport.track(456L, 900);
+            transport.write(move(456L));
+            transport.flush();
+            assertTrue(transport.player.addTransactionResponse(transport.markers.getLast()));
+
+            var metadata = new org.cloudburstmc.protocol.bedrock.packet.SetEntityDataPacket();
+            metadata.setRuntimeEntityId(456L);
+            metadata.getMetadata()
+                    .put(
+                            org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes.SEAT_OFFSET,
+                            Vector3f.from(0.2F, 0.3875F, 0));
+            transport.write(metadata);
+            transport.flush();
+            assertEquals(2, transport.markers.size());
+            assertEquals(Vec3.ZERO, passenger.bedrockSeatOffset);
+            assertTrue(transport.player.addTransactionResponse(transport.markers.getLast()));
+            assertEquals(new Vec3(0.2F, 0.3875F, 0), passenger.bedrockSeatOffset);
+
+            // A partial size update keeps the independently written seat.
+            var size = new org.cloudburstmc.protocol.bedrock.packet.SetEntityDataPacket();
+            size.setRuntimeEntityId(456L);
+            size.getMetadata().put(org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes.WIDTH, 0.7F);
+            transport.write(size);
+            transport.flush();
+            assertTrue(transport.player.addTransactionResponse(transport.markers.getLast()));
+            assertEquals(new Vec3(0.2F, 0.3875F, 0), passenger.bedrockSeatOffset);
+        }
+    }
+
+    @Test
     public void aBatchOfMovesEndsWithTheMarkerThatProvesThem() throws Exception {
         try (Transport transport = new Transport()) {
             transport.track(456L, 900);

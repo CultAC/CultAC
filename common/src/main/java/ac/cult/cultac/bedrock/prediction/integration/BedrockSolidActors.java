@@ -30,13 +30,10 @@ public final class BedrockSolidActors {
         List<HardCollidingEntityCollision> solid = new ArrayList<>();
         CompensatedEntities entities = context.getEntities();
         PacketEntity rootOfSelf = entities.rootOfSelf();
-        PacketEntity selfRidingRoot = entities.selfRidingRoot();
-        PacketEntity serverVehicleRoot = entities.serverVehicleRoot();
         SimpleCollisionBox box = new SimpleCollisionBox();
         for (PacketEntity entity : entities.entityMap.values()) {
             if (!entity.bedrockCollidable || entity.isDead) continue;
-            if (entities.sharesRootVehicleWithSelf(entity, rootOfSelf)
-                    || entities.isUntrackedRider(entity, selfRidingRoot, serverVehicleRoot)) continue;
+            if (entities.sharesRootVehicleWithSelf(entity, rootOfSelf)) continue;
             if (!entity.bedrockShownBox(player, box).isIntersected(reach)) continue;
             solid.add(new HardCollidingEntityCollision(box.copy(), depenetrationLimit(entity)));
         }
