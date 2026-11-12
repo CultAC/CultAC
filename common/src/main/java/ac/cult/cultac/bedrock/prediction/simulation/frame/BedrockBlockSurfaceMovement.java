@@ -20,6 +20,8 @@ public final class BedrockBlockSurfaceMovement {
     private static final float STANDING_SLOWDOWN_VERTICAL_THRESHOLD = 0.1F;
     private static final float STANDING_SLOWDOWN_VERTICAL_SCALE = 0.2F;
     private static final float STANDING_SLOWDOWN_BASE_SCALE = 0.4F;
+    /** The scale of a horizontal velocity no standing slowdown takes. */
+    public static final float NO_STANDING_SLOWDOWN = 1.0F;
 
     private BedrockBlockSurfaceMovement() {}
 
@@ -191,24 +193,48 @@ public final class BedrockBlockSurfaceMovement {
 
     public static Vec3d standingSlowdownVelocity(
             Vec3d currentVelocity, boolean sneaking, boolean onGround, StandingSurfaceState standingSurfaceState) {
+        float scale = standingSlowdownScale(currentVelocity, sneaking, onGround, standingSurfaceState);
+        if (scale == NO_STANDING_SLOWDOWN) {
+            return currentVelocity;
+        }
+        return new Vec3d((float) currentVelocity.x() * scale, currentVelocity.y(), (float) currentVelocity.z() * scale);
+    }
+
+    /**
+     * The scale the honey and slime slowdown multiplies the horizontal velocity of an actor on foot by at the end of
+     * its tick, or {@link #NO_STANDING_SLOWDOWN} where it does not slow it.
+     */
+    public static float standingSlowdownScale(
+            Vec3d currentVelocity,
+            Vec3d physicalFeetPosition,
+            boolean riddenMount,
+            boolean sneaking,
+            boolean onGround,
+            BlockCollisionWorld blockCollisionWorld,
+            PlayerDimensionsState playerDimensions) {
+        if (riddenMount || !onGround) return NO_STANDING_SLOWDOWN;
+        return standingSlowdownScale(
+                currentVelocity,
+                sneaking,
+                true,
+                BedrockStandingSurfaceResolver.fromBlockWorld(
+                        physicalFeetPosition, blockCollisionWorld, playerDimensions));
+    }
+
+    private static float standingSlowdownScale(
+            Vec3d currentVelocity, boolean sneaking, boolean onGround, StandingSurfaceState standingSurfaceState) {
         if (!onGround
                 || sneaking
                 || standingSurfaceState == null
                 || (!standingSurfaceState.hasSurface(Surface.HONEY)
                         && !standingSurfaceState.hasSurface(Surface.SLIME))) {
-            return currentVelocity;
+            return NO_STANDING_SLOWDOWN;
         }
 
         float velocityY = (float) currentVelocity.y();
         if (Math.abs(velocityY) >= STANDING_SLOWDOWN_VERTICAL_THRESHOLD) {
-            return currentVelocity;
+            return NO_STANDING_SLOWDOWN;
         }
-        return standingSlowdownVelocity(currentVelocity);
-    }
-
-    private static Vec3d standingSlowdownVelocity(Vec3d currentVelocity) {
-        float velocityY = (float) currentVelocity.y();
-        float scale = Math.abs(velocityY) * STANDING_SLOWDOWN_VERTICAL_SCALE + STANDING_SLOWDOWN_BASE_SCALE;
-        return new Vec3d((float) currentVelocity.x() * scale, currentVelocity.y(), (float) currentVelocity.z() * scale);
+        return Math.abs(velocityY) * STANDING_SLOWDOWN_VERTICAL_SCALE + STANDING_SLOWDOWN_BASE_SCALE;
     }
 }

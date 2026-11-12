@@ -16,8 +16,9 @@ public final class BedrockForwardTick {
 
     /** The one state the client ends the tick with, the next tick's start. */
     public static BedrockMovementState finish(BedrockMovementResult result, BedrockMovementState selected) {
+        BedrockMovementState simulated = BedrockNextTickStateDeriver.fromSimulated(result, selected);
+        float standingSlowdown = BedrockEndTickBlockPush.standingSlowdown(result, simulated);
         return BedrockEndTickBlockPush.apply(
-                result,
-                BedrockGeyserMovement.apply(result, BedrockNextTickStateDeriver.fromSimulated(result, selected)));
+                result, BedrockGeyserMovement.apply(result, simulated), standingSlowdown);
     }
 }
