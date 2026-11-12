@@ -183,10 +183,13 @@ public class PacketSelfMetadataListener {
             if (handState != null && handState.value() instanceof Byte) {
                 Object handValue = handState.value();
                 boolean isRiptiding = (((byte) handValue) & 0x04) > 0;
+                // resyncItemUse repeats the server's byte: the client reacts to it, the server view does not change.
+                boolean resent = player.resendingSelfLivingFlags;
+                if (!resent) player.serverSentSelfLivingFlags = handState.detach();
 
                 if (player.usesModernJavaItemUse()) {
                     var proof = player.appendTrailingProofTransaction(event);
-                    player.itemUseBurst.serverFlags((byte) handValue, proof);
+                    if (!resent) player.itemUseBurst.serverFlags((byte) handValue, proof);
                     if (proof != null) {
                         if (!event.isInsideBundle()) event.bundle();
                         player.latencyUtils.addRealTimeTask(proof.transaction(), () -> {

@@ -105,6 +105,31 @@ class BorrowedMetadataPipelineTest {
         }
     }
 
+    @Test
+    void theServerSentSelfLivingFlagsAreResentAfterTheirFrameIsReleased() throws Exception {
+        try (var services = new RecordConsumerServices();
+                var fixture = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            fixture.user.bind(mock(PlatformPlayer.class));
+            fixture.registrar.register(routes ->
+                    routes.registerSendListener(PacketListenerPriority.HIGH, new PacketSelfMetadataListener()));
+            drain(fixture);
+            int self = fixture.player.entityID;
+            byte[] flags = {(byte) WatchableIndexUtil.LIVING_ENTITY_FLAGS, 0, 0x01};
+            ByteBuf sent = metadata(fixture, self, flags);
+            byte[] expected = ByteBufUtil.getBytes(sent);
+            assertTrue(fixture.channel.writeOutbound(sent));
+            assertTrue(drain(fixture).stream().anyMatch(written -> Arrays.equals(expected, written)));
+
+            var stored = fixture.player.serverSentSelfLivingFlags;
+            assertNotNull(stored);
+            assertArrayEquals(flags, bytes(stored));
+            fixture.player.resyncItemUse();
+            assertTrue(drain(fixture).stream().anyMatch(written -> Arrays.equals(expected, written)));
+            // The resend repeats the server's byte; it is not a new one.
+            assertArrayEquals(flags, bytes(fixture.player.serverSentSelfLivingFlags));
+        }
+    }
+
     private static void consume(RecordReceiveFixture fixture, PacketSendHandler<Object> handler) {
         fixture.registrar.register(routes -> routes.sendRoute(
                 fixture.registrar.runtime().typeForKey("clientbound.set_entity_data"),

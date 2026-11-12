@@ -1884,6 +1884,40 @@ public class CultPlayer implements GrimUser {
         });
     }
 
+    // The player's own DATA_LIVING_ENTITY_FLAGS entry as most recently sent by the server.
+    public volatile ac.cult.cultac.network.packet.EntityMetadata.Entry serverSentSelfLivingFlags;
+    // Whether the self living flags being written are resyncItemUse's resend rather than the server's.
+    public boolean resendingSelfLivingFlags;
+
+    /**
+     * Resends the server's living flags for this player. SynchedEntityData#assignValues calls
+     * LocalPlayer#onSyncedDataUpdated even for an unchanged byte, which starts or stops the client's use to match the
+     * server's, so an item use the client and Cult disagree on ends at this packet's proof.
+     */
+    public void resyncItemUse() {
+        runSafely(this::writeSelfLivingFlags);
+    }
+
+    /** Dispatches at the outbound position, where the send handlers run inside the write and see the flag. */
+    private void writeSelfLivingFlags() {
+        if (!canSendPlayPackets()) return;
+        if (!user.isPreparingWrites()) {
+            user.executeAfterWrites(this::writeSelfLivingFlags);
+            return;
+        }
+        var flags = serverSentSelfLivingFlags;
+        if (flags == null) {
+            flags = ac.cult.cultac.network.packet.EntityMetadata.Entry.byteValue(
+                    ac.cult.cultac.utils.nmsutil.WatchableIndexUtil.LIVING_ENTITY_FLAGS, (byte) 0);
+        }
+        resendingSelfLivingFlags = true;
+        try {
+            user.write(new ac.cult.cultac.network.packet.EntityMetadata(entityID, List.of(flags)));
+        } finally {
+            resendingSelfLivingFlags = false;
+        }
+    }
+
     @Nullable
     public ac.cult.cultac.manager.tick.BackendTickEstimator backendTicks() {
         return user.getCultConnection().platform().backendTicks();

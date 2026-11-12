@@ -924,11 +924,33 @@ public class CompensatedWorld {
     /** Level.precipitationAt (26.3), retaining only the inputs needed by trident use. */
     public boolean clientIsRainingAt(BlockPos pos) {
         if (!clientIsRaining() || clientMotionBlockingHeightAt(pos.getX(), pos.getZ()) > pos.getY()) return false;
+        // The Bedrock bridge keeps the heightmap test alone.
+        if (!player.isBedrockMovement() && !clientCanSeeSkyAboveMotionBlocking(pos)) return false;
         return player.getWorldRegistries()
                 .canRain(
                         clientBiomeKeyAt(pos),
                         new ac.cult.blocksim.engine.BlockPos(pos.getX(), pos.getY(), pos.getZ()),
                         clientSeaLevel);
+    }
+
+    /**
+     * BlockAndLightGetter#canSeeSky, sky light 15, at a position no lower than its column's MOTION_BLOCKING height.
+     * ChunkSkyLightSources gives full sky light to every position below no occluded edge. Above that height the only
+     * shape LightEngine#getOcclusionShape occludes with is a snow layer's, which leaves its own block full sky light
+     * and stands on a motion-blocking block. An edge there occludes exactly when its lower block dampens light
+     * (BlockBehaviour#getLightDampening): powder snow and cobwebs stop rain from reaching the blocks they fill.
+     */
+    private boolean clientCanSeeSkyAboveMotionBlocking(BlockPos pos) {
+        CachedChunk column = getChunk(pos.getX() >> 4, pos.getZ() >> 4);
+        if (column == null) return true;
+        var registry = ac.cult.blocksim.data.DataTables.defaults().registry();
+        int top = minHeight + column.heightmapScanHeight();
+        for (int y = Math.max(pos.getY(), minHeight); y < top; y++) {
+            var facts = registry.facts(getBlockStateIdAt(pos.getX(), y, pos.getZ()));
+            if (facts.has(ac.cult.blocksim.data.StateFacts.SOLID_RENDER)
+                    || !facts.has(ac.cult.blocksim.data.StateFacts.PROPAGATES_SKYLIGHT)) return false;
+        }
+        return true;
     }
 
     /** Level.getHeight(MOTION_BLOCKING): first available Y, including missing/out-of-world fallbacks. */

@@ -213,6 +213,7 @@ public class PacketPlayerRespawn {
             event.getTasksAfterSend().add(player::sendTransaction);
         }
         player.serverSentSelfSharedFlags = null;
+        player.serverSentSelfLivingFlags = null;
         player.compensatedWorld.onClientLogin();
         var dimensionType = dimensionType(player, spawnInfo.dimensionTypeId());
         if (dimensionType != null) {
@@ -269,8 +270,9 @@ public class PacketPlayerRespawn {
         if (dimensionType != null)
             player.compensatedWorld.setLastClientboundDimension(worldName, dimensionType.dimension());
         else player.compensatedWorld.setLastClientboundUnresolved(worldName);
-        // The server's new player entity starts from default shared flags.
+        // The server's new player entity starts from default shared and living flags.
         player.serverSentSelfSharedFlags = null;
+        player.serverSentSelfLivingFlags = null;
 
         // Force the player to accept a teleport before respawning
         // (We won't process movements until they accept a teleport, we won't let movements though either)
