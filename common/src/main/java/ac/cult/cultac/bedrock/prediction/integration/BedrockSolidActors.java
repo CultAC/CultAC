@@ -84,11 +84,21 @@ public final class BedrockSolidActors {
 
     record Nearby(PacketEntity entity, HardCollidingEntityCollision collision) {}
 
-    /** Whether the actor is a boat or happy ghast in the middle of a lerp, or one whose steps Cult does not know. */
+    /** Whether a boat's or happy ghast's position can still change through its interpolation. */
     private static boolean buffers(PacketEntity entity) {
         if (!entity.isBoat() && !entity.isHappyGhast()) return false;
         if (!entity.clientPhysicalPositionExact || entity.oldPacketLocation != null) return true;
-        return entity.newPacketLocation != null && entity.newPacketLocation.bedrockStepsLeft() != 0;
+        var interpolation = entity.newPacketLocation;
+        if (interpolation == null || interpolation.bedrockStepsLeft() == 0) return false;
+        if (interpolation.getExactInterpolationStep() < 0) return true;
+        // Rotation-only and identical updates also restart the steps, without moving the collision box.
+        // Use the tracked position: rebuilding a box centre can round away a small coordinate.
+        var position = entity.clientPhysicalPosition;
+        var storedFeet = interpolation.bedrockStoredFeet();
+        if (storedFeet != null && storedFeet.applyAsDouble(position.y) != position.y) return true;
+        return position.x != interpolation.targetCenterX()
+                || position.y != interpolation.targetMinY()
+                || position.z != interpolation.targetCenterZ();
     }
 
     /** How deep a move that collects {@code entity} may overlap a shape and still leave it. */
