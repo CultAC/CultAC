@@ -10,6 +10,7 @@ import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext.HardCollidingEntityCollision;
+import ac.cult.cultac.checks.impl.prediction.runner.PredictionScratch;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CarriedPush;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.EntityPush;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -720,12 +721,10 @@ public class WorldStageBuilder {
                 && remote.actionSpectator(entities.clientPlayerModes);
     }
 
-    /** The boxes the player's own box may hold through the context's movement. */
-    private static SimpleCollisionBox playerSweep(SimulationContext context) {
-        return playerSweep(context, new SimpleCollisionBox(), new SimpleCollisionBox());
-    }
-
-    /** {@link #playerSweep(SimulationContext)} written into {@code out}, with {@code scratch} distinct from it. */
+    /**
+     * The boxes the player's own box may hold through the context's movement, written into {@code out}, with
+     * {@code scratch} distinct from it.
+     */
     private static SimpleCollisionBox playerSweep(
             SimulationContext context, SimpleCollisionBox out, SimpleCollisionBox scratch) {
         Vec3 from = context.getStart();
@@ -735,12 +734,10 @@ public class WorldStageBuilder {
         return playerBox;
     }
 
-    /** The box an entity must touch to push or collide with the player through the movement {@code sweep} holds. */
-    private static SimpleCollisionBox pusherContactBox(SimpleCollisionBox sweep) {
-        return pusherContactBox(sweep, new SimpleCollisionBox());
-    }
-
-    /** {@link #pusherContactBox(SimpleCollisionBox)} written into {@code out}. */
+    /**
+     * The box an entity must touch to push or collide with the player through the movement {@code sweep} holds,
+     * written into {@code out}.
+     */
     private static SimpleCollisionBox pusherContactBox(SimpleCollisionBox sweep, SimpleCollisionBox out) {
         SimpleCollisionBox playerBox = out.set(sweep);
         playerBox.expand(0.2); // bit more because why not
@@ -779,17 +776,23 @@ public class WorldStageBuilder {
         if (context == null
                 || context.getVehicle() != null
                 || !context.getWorldData().isPushable()) return;
-        SimpleCollisionBox sweep = playerSweep(context);
-        SimpleCollisionBox playerBox = pusherContactBox(sweep);
-        SimpleCollisionBox entityBounds = new SimpleCollisionBox();
-        SimpleCollisionBox entityScratch = new SimpleCollisionBox();
+        PredictionScratch scratch = PredictionScratch.of(player);
+        SimpleCollisionBox sweep = scratch == null
+                ? playerSweep(context, new SimpleCollisionBox(), new SimpleCollisionBox())
+                : playerSweep(context, scratch.recountSweep, scratch.recountSweepScratch);
+        SimpleCollisionBox playerBox =
+                pusherContactBox(sweep, scratch == null ? new SimpleCollisionBox() : scratch.recountContact);
+        SimpleCollisionBox entityBounds = scratch == null ? new SimpleCollisionBox() : scratch.recountEntityBounds;
+        SimpleCollisionBox entityScratch = scratch == null ? new SimpleCollisionBox() : scratch.recountEntityScratch;
         CompensatedEntities entities = context.getEntities();
         PacketEntity rootOfSelf = entities.rootOfSelf();
         PacketEntity selfRidingRoot = entities.selfRidingRoot();
         PacketEntity serverVehicleRoot = entities.serverVehicleRoot();
         long playerTickOrder = entities.getSelf().getClientTickOrder();
         int tickingAfterPlayer = 0;
-        for (PacketEntity entity : entities.pushOrCollideCandidates()) {
+        List<PacketEntity> candidates = entities.pushOrCollideCandidates();
+        for (int i = 0; i < candidates.size(); i++) {
+            PacketEntity entity = candidates.get(i);
             if (!entity.mayPushOrCollide() || entities.clientTickOrder(entity) < playerTickOrder) continue;
             // A rider pushes from the seat its vehicle gave it before this tick: the movement's own count holds it.
             if (entities.isUntrackedRider(entity, selfRidingRoot, serverVehicleRoot)) continue;

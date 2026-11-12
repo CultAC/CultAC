@@ -28,6 +28,16 @@ public final class PredictionScratch {
     public final SimpleCollisionBox fallWaterBox = new SimpleCollisionBox();
     /** WaterCurrent's fluid interaction box; all six bounds and the full-block flag are written on entry. */
     public final SimpleCollisionBox fluidBox = new SimpleCollisionBox();
+    /**
+     * WorldStageBuilder#recountCollidingTickingAfterPlayer's sweep, its scratch, the contact box and the entity boxes,
+     * written as the builder's own boxes for the same call are.
+     */
+    public final SimpleCollisionBox recountSweep = new SimpleCollisionBox();
+
+    public final SimpleCollisionBox recountSweepScratch = new SimpleCollisionBox();
+    public final SimpleCollisionBox recountContact = new SimpleCollisionBox();
+    public final SimpleCollisionBox recountEntityBounds = new SimpleCollisionBox();
+    public final SimpleCollisionBox recountEntityScratch = new SimpleCollisionBox();
 
     private ReusableVelocitySet filteredVelocities = new ReusableVelocitySet();
 
