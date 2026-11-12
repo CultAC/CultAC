@@ -3,6 +3,7 @@ package ac.cult.cultac.utils.latency;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.DataTables;
@@ -113,9 +114,16 @@ class ModelChunkSectionsTest {
         var input = Unpooled.wrappedBuffer(packet(random, column, 3, true));
         var chunk = read(input, new ClientboundDimensionData("test:take", -64, 320));
         assertNotNull(chunk.decodedSections());
-        var mixed = chunk.decodedSections().get(1);
-        var taken = mixed.takeBlocks();
-        assertNotSame(taken, mixed.takeBlocks());
+        int mixed = 0;
+        for (var section : chunk.decodedSections()) {
+            var taken = section.takeBlocks();
+            if (taken.isCanonical()) assertSame(taken, section.takeBlocks());
+            else {
+                assertNotSame(taken, section.takeBlocks());
+                mixed++;
+            }
+        }
+        assertTrue(mixed > 0, "mixed " + mixed);
         var stone = chunk.decodedSections().get(0).takeBlocks();
         assertTrue(stone.isCanonical());
         assertNotSame(SectionPool.canonicalAir(), CachedSection.received(stone, 4096, 0));

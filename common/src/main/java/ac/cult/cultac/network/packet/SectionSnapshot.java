@@ -109,12 +109,12 @@ public final class SectionSnapshot {
     /**
      * For the world reader only; a listener that runs before it uses {@link #copyBlocks}. For a {@link #readModel}
      * section the first call adds its pool counts and gives its own storage, whose later writes this snapshot shows;
-     * otherwise, and on later calls, {@link #copyBlocks}.
+     * otherwise, and on later calls, a canonical section itself, which nothing writes, else {@link #copyBlocks}.
      */
     @ApiStatus.Internal
     public PalettedSection takeBlocks() {
         int counts = heldCounts;
-        if (counts == COPIES) return copyBlocks();
+        if (counts == COPIES) return blocks.isCanonical() ? blocks : copyBlocks();
         heldCounts = COPIES;
         SectionPool.ReadCounts.add(counts);
         return blocks;
