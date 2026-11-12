@@ -103,6 +103,14 @@ public final class ModelItemValues {
         return slot;
     }
 
+    /** Consumes a stack whose count is one zero byte, which every supported schema reads as empty and ends there. */
+    private static boolean empty(ByteBuf input) {
+        int index = input.readerIndex();
+        if (index == input.writerIndex() || input.getByte(index) != 0) return false;
+        input.readerIndex(index + 1);
+        return true;
+    }
+
     /** Where the key of a stack decoded from {@code start} begins: after its leading count. */
     private static int keyStart(ByteBuf input, int start) {
         int index = start;
@@ -118,6 +126,7 @@ public final class ModelItemValues {
     private final class CachedStacks implements WireValueDecoder.ItemReuse<NbtValue, SimItemStack> {
         @Override
         public SimItemStack reuse(ByteBuf input) {
+            if (empty(input)) return items.empty();
             int slot = held(input);
             return slot < 0 ? null : cache.stack(slot).copyWithCount(count);
         }
@@ -145,6 +154,7 @@ public final class ModelItemValues {
     private final class LaterStacks implements WireValueDecoder.ItemReuse<NbtValue, Supplier<SimItemStack>> {
         @Override
         public Supplier<SimItemStack> reuse(ByteBuf input) {
+            if (empty(input)) return new Pending(items.empty());
             int slot = held(input);
             if (slot < 0) return null;
             Object held = cache.held(slot);
