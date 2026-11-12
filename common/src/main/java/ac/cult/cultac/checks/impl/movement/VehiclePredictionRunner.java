@@ -141,6 +141,15 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
         DesyncStatus lastOnGround = null;
 
         for (PredictionResult reality : result.getRealities()) {
+            // From 26.3 Minecraft#tick runs block entities before LocalPlayer#sendChanges. Their Entity#move
+            // replaces travel's ground even for a horizontal piston shove, so judge the last move of this reality.
+            var pass = JavaMovementEngine.passAfterTravel(reality);
+            if (pass != null && pass.result().moved()) {
+                boolean ground = JavaRootGround.after(player, reality);
+                lastOnGround =
+                        lastOnGround == null ? DesyncStatus.fromBoolean(ground) : lastOnGround.addBoolean(ground);
+                continue;
+            }
             // Strider#floatStrider runs after the travel and sets the ground whether or not Entity#move landed.
             if (JavaRootGround.floatStriderGrounds(player, reality)) {
                 lastOnGround = lastOnGround == null ? DesyncStatus.TRUE : lastOnGround.addBoolean(true);
