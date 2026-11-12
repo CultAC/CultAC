@@ -12,22 +12,34 @@ import ac.cult.blocksim.data.ItemRegistry;
 import ac.cult.blocksim.data.nbt.NbtValue;
 import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.blocksim.entity.PaintingSize;
+import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.network.ImplicitThrows;
 import ac.cult.cultac.network.ImplicitThrows.Outcome;
+import ac.cult.cultac.network.PacketDispatcher;
+import ac.cult.cultac.network.PacketOwner;
+import ac.cult.cultac.network.TestProtocolRuntime;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.packet.FrameLease;
+import ac.cult.cultac.protocol.ConnectionPhase;
+import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.ProtocolCodecs;
+import ac.cult.cultac.protocol.ProtocolContext;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.WireValueDecoder;
+import ac.cult.cultac.protocol.data.ProtocolData;
+import ac.cult.cultac.protocol.data.RegistryNames;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.EntityPose;
 import ac.cult.cultac.protocol.wire.Wire;
+import ac.cult.cultac.utils.latency.ClientWorldRegistries;
 import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.nio.ByteBuffer;
@@ -35,7 +47,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -526,6 +540,130 @@ class CompactEntityMetadataTest {
 
     private static String describe(Object[] array) {
         return array.getClass().getName() + " " + Arrays.toString(array);
+    }
+
+    /**
+     * The set_entity_data codecs of two catalogs reading for one connection decode each packet as a reader built for
+     * that packet alone, while the codec and the connection's registry names change and its reads alternate between
+     * contexts with and without world registries.
+     */
+    @Test
+    void theConnectionsHeldReaderDecodesAsAReaderBuiltForEachPacket() {
+        OfflineCultTestBootstrap.installConfig();
+        var version = ClientPacketCodecs.MODEL_VERSION;
+        var serializers = Serializers.probe(version, registries(version));
+        var world = new ClientWorldRegistries(ClientWorldRegistries.modelDefaults());
+        RegistryNames[] snapshots = {snapshot(false), snapshot(true)};
+        RegistryNames[] current = {snapshots[0]};
+        List<Function<ProtocolContext, ClientWorldRegistries>> worlds = List.of(
+                context -> context.variant() == 1 ? world : null, context -> context.variant() == 0 ? world : null);
+        List<PacketType<?>> types = worlds.stream()
+                .<PacketType<?>>map(lookup -> ClientPacketCodecs.catalog(context -> current[0], lookup).stream()
+                        .filter(candidate -> candidate.wireNames().contains("minecraft:set_entity_data"))
+                        .findFirst()
+                        .orElseThrow())
+                .toList();
+        var data = ProtocolData.load(version);
+        var channel = new EmbeddedChannel();
+        var connection = new CultConnection(
+                channel,
+                new PacketDispatcher(TestProtocolRuntime.create(data)),
+                ignored -> new PacketOwner(channel.eventLoop(), null));
+        var contexts = new ProtocolContext[2];
+        for (int variant = 0; variant < 2; variant++)
+            contexts[variant] = new ProtocolContext(
+                    types.getFirst(), data, ConnectionPhase.PLAY, "minecraft:set_entity_data", 0, variant, connection);
+        var random = new Random(23);
+        int built = 0, resolved = 0, unresolved = 0, failed = 0;
+        ClientPacketCodecs.MetadataReader last = null;
+        try {
+            for (int packet = 0; packet < PACKETS; packet++) {
+                if (packet % 50 == 0) current[0] = snapshots[packet / 50 % 2];
+                var context = contexts[random.nextInt(2)];
+                var snapshot = current[0];
+                int codec = packet % 50 < 25 ? 0 : 1;
+                var lookup = worlds.get(codec);
+                byte[] wire = packet(random, serializers);
+                var expected = decode(
+                        wire,
+                        false,
+                        (input, lease) -> new ModelEntityMetadataValues(
+                                        ProtocolCodecs.decoder(), version, names(snapshot), name -> {
+                                            var registries = lookup.apply(context);
+                                            return registries == null ? null : registries.painting(name);
+                                        })
+                                .readOnce(input, lease));
+                var held = decode(wire, false, (input, lease) ->
+                        (EntityMetadata) types.get(codec).codec().read(input, context));
+                assertEquals(expected, held, "packet " + packet);
+                if (connection.metadataReader() != last) {
+                    built++;
+                    last = connection.metadataReader();
+                }
+                if (expected.startsWith("throws")) failed++;
+                else if (expected.startsWith("null")) unresolved++;
+                else if (expected.contains("PaintingSize")) resolved++;
+            }
+        } finally {
+            channel.finishAndReleaseAll();
+        }
+        assertEquals(PACKETS / 25, built, "one reader per change of codec or registry names");
+        assertTrue(
+                resolved > 50 && unresolved > 50 && failed > 100,
+                resolved + " resolved, " + unresolved + " unresolved, " + failed + " failed");
+    }
+
+    /** The model registry names, with a painting variant registry of vanilla and unknown names in either order. */
+    private static RegistryNames snapshot(boolean reversed) {
+        var names = new HashMap<String, List<String>>();
+        ModelRegistryNamesState.defaults()
+                .registries()
+                .forEach((registry, table) -> names.put(registry, table.names()));
+        var paintings = new ArrayList<>(List.of(
+                "minecraft:kebab",
+                "minecraft:aztec",
+                "minecraft:alban",
+                "minecraft:aztec2",
+                "minecraft:bomb",
+                "minecraft:plant",
+                "minecraft:wasteland",
+                "minecraft:pool",
+                "minecraft:courbet",
+                "minecraft:sea",
+                "minecraft:sunset",
+                "minecraft:creebet",
+                "minecraft:wanderer",
+                "minecraft:graham",
+                "minecraft:match",
+                "minecraft:bust",
+                "minecraft:stage",
+                "minecraft:void",
+                "minecraft:skull_and_roses",
+                "minecraft:wither",
+                "minecraft:fighters",
+                "minecraft:pointer",
+                "minecraft:pigscene",
+                "minecraft:burning_skull",
+                "minecraft:skeleton",
+                "minecraft:donkey_kong"));
+        for (int i = paintings.size(); i < 40; i++) paintings.add("minecraft:unknown_" + i);
+        if (reversed) Collections.reverse(paintings);
+        names.put("minecraft:painting_variant", paintings);
+        return new RegistryNames(names);
+    }
+
+    private static WireValueDecoder.Registries names(RegistryNames snapshot) {
+        return new WireValueDecoder.Registries() {
+            @Override
+            public String name(String registry, int id) {
+                return snapshot.name(registry, id);
+            }
+
+            @Override
+            public int id(String registry, String name) {
+                return snapshot.id(registry, name);
+            }
+        };
     }
 
     private interface Reader {

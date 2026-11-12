@@ -1,6 +1,7 @@
 package ac.cult.cultac.network;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.network.codec.ClientPacketCodecs;
 import ac.cult.cultac.network.logging.PacketLogObserver;
 import ac.cult.cultac.network.packet.FrameLease;
 import ac.cult.cultac.network.protocol.player.User;
@@ -140,6 +141,8 @@ public final class CultConnection
     private final SunkPositionSync sunkPositionSync = new SunkPositionSync();
     /** The encoder's current read may sink a linear move or position sync. Owner only. */
     private boolean sinksMoves;
+
+    private ClientPacketCodecs.MetadataReader metadataReader;
 
     public void packetObserver(PacketLogObserver observer) {
         packetObserver = Objects.requireNonNull(observer);
@@ -286,6 +289,17 @@ public final class CultConnection
     @ApiStatus.Internal
     public SunkPositionSync sunkPositionSync() {
         return sunkPositionSync;
+    }
+
+    /** The entity metadata reader last built for this connection's registry names, or null. */
+    @ApiStatus.Internal
+    public ClientPacketCodecs.MetadataReader metadataReader() {
+        return metadataReader;
+    }
+
+    @ApiStatus.Internal
+    public void metadataReader(ClientPacketCodecs.MetadataReader reader) {
+        metadataReader = reader;
     }
 
     @Override

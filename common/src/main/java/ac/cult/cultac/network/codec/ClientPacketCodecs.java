@@ -12,6 +12,7 @@
  */
 package ac.cult.cultac.network.codec;
 
+import ac.cult.blocksim.entity.PaintingSize;
 import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.packet.FrameLease;
@@ -297,6 +298,25 @@ public final class ClientPacketCodecs {
         };
     }
 
+    /**
+     * The set_entity_data reader one codec built for a connection's current registry names; it holds no per-read
+     * state.
+     */
+    public static final class MetadataReader {
+        private final Object codec;
+        private final RegistryNames snapshot;
+        private final WireValueDecoder decoder;
+        private final ModelEntityMetadataValues values;
+
+        private MetadataReader(
+                Object codec, RegistryNames snapshot, WireValueDecoder decoder, ModelEntityMetadataValues values) {
+            this.codec = codec;
+            this.snapshot = snapshot;
+            this.decoder = decoder;
+            this.values = values;
+        }
+    }
+
     private static WireValueDecoder.Registries registries(RegistryNames snapshot) {
         return new WireValueDecoder.Registries() {
             @Override
@@ -320,6 +340,10 @@ public final class ClientPacketCodecs {
     private static WritablePacketCodec<EntityMetadata> metadataCodec(
             Function<ProtocolContext, RegistryNames> snapshots,
             Function<ProtocolContext, ClientWorldRegistries> worldRegistries) {
+        BiFunction<ProtocolContext, String, PaintingSize> paintings = (context, name) -> {
+            var registries = worldRegistries.apply(context);
+            return registries == null ? null : registries.painting(name);
+        };
         return new WritablePacketCodec<>() {
             @Override
             public boolean requiresModelValues() {
@@ -329,13 +353,22 @@ public final class ClientPacketCodecs {
             @Override
             public EntityMetadata read(ByteBuf input, ProtocolContext context) {
                 requireModelWire(context);
-                var names = registries(snapshots.apply(context));
-                var values = new ModelEntityMetadataValues(ProtocolCodecs.decoder(), MODEL_VERSION, names, name -> {
-                    var registries = worldRegistries.apply(context);
-                    return registries == null ? null : registries.painting(name);
-                });
+                var snapshot = snapshots.apply(context);
+                var decoder = ProtocolCodecs.decoder();
+                ModelEntityMetadataValues values;
+                if (context.state() instanceof CultConnection connection) {
+                    var held = connection.metadataReader();
+                    if (held != null && held.codec == this && held.snapshot == snapshot && held.decoder == decoder)
+                        values = held.values;
+                    else {
+                        values = new ModelEntityMetadataValues(decoder, MODEL_VERSION, registries(snapshot), paintings);
+                        connection.metadataReader(new MetadataReader(this, snapshot, decoder, values));
+                    }
+                } else values = new ModelEntityMetadataValues(decoder, MODEL_VERSION, registries(snapshot), paintings);
                 return values.readOnce(
-                        input, context.state() instanceof FrameLease.Source lender ? lender.lease(input) : null);
+                        input,
+                        context.state() instanceof FrameLease.Source lender ? lender.lease(input) : null,
+                        context);
             }
 
             @Override
