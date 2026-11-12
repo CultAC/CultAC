@@ -15,7 +15,9 @@ record BedrockMobJumpInput(
             BedrockTravelInput input, BedrockFrameFacts frameFacts, BedrockLiquidJumpContact liquidJumpContact) {
         BedrockSwimmingMovement.SwimmingState swimming = frameFacts.swimming();
         BedrockClimbState climb = frameFacts.climb();
-        boolean jumping = input.inputFrame().jumping();
+        // Held jump feeds flight ascent while flying. The water-flight captures show
+        // no additional swim-up impulse, so ordinary mob-jump branches stay inactive.
+        boolean jumping = input.inputFrame().jumping() && !frameFacts.context().movementAbilityFlying();
         boolean inWater = frameFacts.inWater();
         boolean inLava = frameFacts.inLava();
         boolean swimmingAfterActions = swimming.actorStateAfterActions();
@@ -33,16 +35,13 @@ record BedrockMobJumpInput(
 
     private static boolean groundJumpRequest(
             BedrockTravelInput input, BedrockFrameFacts frameFacts, boolean inWater, boolean inLava) {
-        // Held jump raises a flying player. It neither launches from the ground
-        // nor starts the ground jump cooldown.
-        return !frameFacts.context().movementAbilityFlying()
-                && BedrockLocalPlayerJumpMovement.requestedLaunch(
-                        input.previousState(),
-                        input.inputFrame(),
-                        inWater,
-                        inLava,
-                        frameFacts.climb().inScaffolding(),
-                        frameFacts.swimming().swimAmount());
+        return BedrockLocalPlayerJumpMovement.requestedLaunch(
+                input.previousState(),
+                input.inputFrame(),
+                inWater,
+                inLava,
+                frameFacts.climb().inScaffolding(),
+                frameFacts.swimming().swimAmount());
     }
 
     // Held jump is withheld while the swimmer's head is out of water or the swim
