@@ -182,7 +182,7 @@ class LatencyTaskQueueCpuBenchTest {
                 LatencyTaskQueue.TaskNode released = null;
                 while (node != null) {
                     LatencyTaskQueue.TaskNode next = node.next();
-                    Runnable task = node.runnable();
+                    Runnable task = (Runnable) node.task();
                     released = node.clearAndLink(released);
                     task.run();
                     node = next;

@@ -974,8 +974,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 && packet.id() == player.entityID
                 && WatchableIndexUtil.has(metadata, WatchableIndexUtil.LIVING_HEALTH);
         int proven = proveHandled(event, selfHealth ? Proof.BEFORE_NEXT_TICK : entityProof());
-        player.latencyUtils.addRealTimeTask(
-                proven, () -> player.compensatedEntities.updateEntityMetadata(packet.id(), metadata, proven));
+        player.latencyUtils.addEntityDataTask(proven, packet);
         retirePoseAt(packet.id(), metadata, proven);
     }
 
