@@ -11,6 +11,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ClientItemUseState;
 import ac.cult.cultac.utils.data.ClientSprintState;
+import ac.cult.cultac.utils.data.KnownInput;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
@@ -254,8 +255,10 @@ final class SneakEdgeBackoff {
             float speed) {
         boolean water = context.getWorldData().getInWater() == DesyncStatus.TRUE;
         PredVector start = result.getInitialStartingVel();
-        Vec3 input = ClientKeyInput.travelInput(
-                player, context, player.packetStateData.knownInput, itemUseMultiplier, movingSlowlyFactor, speed);
+        KnownInput keys = player.packetStateData.knownInput;
+        Vec3 input = water && context.getWorldData().isSwimming()
+                ? ClientKeyInput.swimmingTravelInput(player, context, keys, itemUseMultiplier, speed)
+                : ClientKeyInput.travelInput(player, context, keys, itemUseMultiplier, movingSlowlyFactor, speed);
         if (input == null) return null;
         // Entity#baseTick's updateInWaterStateAndDoFluidPushing adds the water current before LocalPlayer#aiStep.
         Vec3 current = water ? WaterCurrent.calculateWaterCurrent(player, context, context.getStart(), start) : null;
