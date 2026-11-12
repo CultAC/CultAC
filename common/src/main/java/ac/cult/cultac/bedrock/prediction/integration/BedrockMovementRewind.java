@@ -13,6 +13,7 @@ import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiFunction;
+import java.util.function.UnaryOperator;
 
 /** Ordered client-visible updates publish a replayed continuation once its following frame exists. */
 final class BedrockMovementRewind {
@@ -53,13 +54,25 @@ final class BedrockMovementRewind {
     }
 
     PredictionCommit apply(CultPlayer player, PredictionCommit current) {
-        return apply(player, current, (state, world) -> worlds.replayWorld(player, state, world));
+        if (updates.isEmpty()) return current;
+        if (player == null) return apply(null, current, (state, world) -> world);
+        var actors = player.bedrockState.movementCorrections.replaySolidActors(player);
+        return apply(player, current, (state, world) -> worlds.replayWorld(player, state, world),
+                world -> BedrockReplayCollisionWorld.withNearbyActors(world, actors));
     }
 
     PredictionCommit apply(
             CultPlayer player,
             PredictionCommit current,
             BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> worldSampler) {
+        return apply(player, current, worldSampler, UnaryOperator.identity());
+    }
+
+    private PredictionCommit apply(
+            CultPlayer player,
+            PredictionCommit current,
+            BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> worldSampler,
+            UnaryOperator<BedrockWorldSnapshot> actorSampler) {
         if (updates.isEmpty()) return current;
         List<Entry> entries = BedrockProfileState.profileEntries(current.carry());
         if (entries.isEmpty()) {
@@ -134,7 +147,7 @@ final class BedrockMovementRewind {
                         : (int) Math.max(0, boost.duration() - Math.max(0, authoritative.newestTick() - update.tick()));
                 player.bedrockState.movementEffects.setGlideBoost(remaining);
             }
-            var replayed = authoritative.apply(tick, event, worldSampler);
+            var replayed = authoritative.apply(tick, event, worldSampler, actorSampler);
             entries = replayed.isEmpty()
                     ? entries.stream()
                             .map(entry -> entry.withState(event.state(entry.state())))

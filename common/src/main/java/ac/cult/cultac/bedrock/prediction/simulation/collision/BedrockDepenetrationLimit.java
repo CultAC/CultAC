@@ -56,27 +56,23 @@ public record BedrockDepenetrationLimit(float x, float y, float z) {
     }
 
     /**
-     * The same solid actor's shape as a replayed tick meets it: it still stops a move, and keeps its buffer, but gives
-     * the move no limit of its own, so a replayed move is not pushed out of an actor it overlaps.
+     * A replay keeps the actor's collision limit. Its old observed endpoint predates the replay, so it cannot select
+     * a corrected position through the live position buffer.
      */
     public static PlacedBlockCollision replayed(PlacedBlockCollision shape) {
-        if (ofSolidActor(shape) == null) return shape;
-        float buffer = buffer(shape);
+        if (!shape.isEntityCollision() || !shape.bedrockState().containsKey(SOLID_ACTOR_BUFFER)) return shape;
+        var state = new java.util.HashMap<>(shape.bedrockState());
+        state.remove(SOLID_ACTOR_BUFFER);
         return new PlacedBlockCollision(
                 shape.position(),
                 shape.javaState(),
                 shape.javaStateProperties(),
                 shape.bedrockIdentifier(),
-                buffer > 0.0F ? Map.of(SOLID_ACTOR_BUFFER, buffer) : Map.of(),
+                Map.copyOf(state),
                 shape.collisionBoxes(),
                 shape.contactBoxes(),
                 shape.insideBlockContactBoxes(),
                 shape.contactBehaviors());
-    }
-
-    /** Whether this shape is a solid actor that gives a move its own limit. */
-    public static boolean raisesLimit(PlacedBlockCollision shape) {
-        return ofSolidActor(shape) != null;
     }
 
     /** The limit a solid actor gives every move that collected it; null for a block. */

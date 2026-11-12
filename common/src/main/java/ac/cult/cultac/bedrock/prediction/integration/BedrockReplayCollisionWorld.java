@@ -8,6 +8,8 @@ import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.List;
+import ac.cult.cultac.checks.impl.prediction.SimulationContext.HardCollidingEntityCollision;
 
 /**
  * Client uses collision snapshots for replay logic, outside the snapshot reads live world
@@ -39,16 +41,25 @@ final class BedrockReplayCollisionWorld {
         return new BlockCollisionWorld(blocks, recorded.coordinateFrame());
     }
 
-    /**
-     * The client's replay of a corrected tick still collides with the solid actors the tick met, but none of them
-     * raises the move's depenetration limit, so it is not pushed out of one it overlaps.
-     */
-    static BedrockWorldSnapshot withReplayedActors(BedrockWorldSnapshot snapshot) {
+    static BedrockWorldSnapshot withNearbyActors(
+            BedrockWorldSnapshot snapshot, List<HardCollidingEntityCollision> nearby) {
         var recorded = snapshot.blockCollisionWorld();
-        if (recorded.blocks().stream().noneMatch(BedrockDepenetrationLimit::raisesLimit)) return snapshot;
-        var blocks = recorded.blocks().stream()
-                .map(BedrockDepenetrationLimit::replayed)
-                .toList();
+        var blocks = recorded.blocks().stream().filter(block -> !block.isEntityCollision()).toList();
+        return snapshot.withBlockCollisionWorld(BedrockWorldSnapshotBuilder.withHardCollidingEntities(
+                new BlockCollisionWorld(blocks, recorded.coordinateFrame()), nearby));
+    }
+
+    /**
+     * Replayed block shapes may come from history, but solid actors come from the nearby set at receipt, refreshed
+     * to active interpolation targets. They keep the depenetration limits they give an ordinary move.
+     */
+    static BedrockWorldSnapshot withReplayedActors(BedrockWorldSnapshot snapshot, BedrockWorldSnapshot live) {
+        var recorded = snapshot.blockCollisionWorld();
+        var blocks = new ArrayList<PlacedBlockCollision>();
+        for (var block : recorded.blocks()) if (!block.isEntityCollision()) blocks.add(block);
+        for (var block : live.blockCollisionWorld().blocks())
+            if (block.isEntityCollision()) blocks.add(BedrockDepenetrationLimit.replayed(block));
+        if (blocks.equals(recorded.blocks())) return snapshot;
         return snapshot.withBlockCollisionWorld(new BlockCollisionWorld(blocks, recorded.coordinateFrame()));
     }
 

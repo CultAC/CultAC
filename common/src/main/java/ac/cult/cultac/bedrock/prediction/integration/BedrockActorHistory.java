@@ -9,6 +9,7 @@ import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiFunction;
+import java.util.function.UnaryOperator;
 
 /** One actor generation's value-only history. All access belongs to its movement loop. */
 public final class BedrockActorHistory {
@@ -211,6 +212,14 @@ public final class BedrockActorHistory {
             long tick,
             BedrockReplayEvent event,
             BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> world) {
+        return apply(tick, event, world, UnaryOperator.identity());
+    }
+
+    List<Entry> apply(
+            long tick,
+            BedrockReplayEvent event,
+            BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> world,
+            UnaryOperator<BedrockWorldSnapshot> actors) {
         if (frames.isEmpty()) return List.of();
         int anchor = -1;
         for (int i = 0; i < frames.size(); i++)
@@ -245,7 +254,7 @@ public final class BedrockActorHistory {
         }
         for (int i = anchor + 1; i < frames.size(); i++) {
             Frame frame = frames.get(i);
-            List<Entry> before = BedrockReplayTick.advance(frame, states, active, world);
+            List<Entry> before = BedrockReplayTick.advance(frame, states, active, world, actors);
             states = applyEvents(before, frame.events());
             active.addAll(frame.events());
             frames.set(i, frame.withEnd(before, states, frame.events()));

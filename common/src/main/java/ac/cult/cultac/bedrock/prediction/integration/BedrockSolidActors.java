@@ -8,6 +8,7 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
+import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -25,6 +26,8 @@ public final class BedrockSolidActors {
     private BedrockSolidActors() {}
 
     public static List<HardCollidingEntityCollision> collect(CultPlayer player, SimulationContext context) {
+        List<Nearby> nearby = new ArrayList<>();
+        player.bedrockState.movementCorrections.solidActors(nearby);
         PacketEntity vehicle = context.getVehicle();
         // Only a mob collides with solid actors: the player on foot, or the mob it rides, but not a boat.
         if (vehicle != null && !vehicle.isLivingEntity()) return List.of();
@@ -41,15 +44,45 @@ public final class BedrockSolidActors {
             if (!entity.bedrockCollidable || entity.isDead) continue;
             if (entities.sharesRootVehicleWithSelf(entity, rootOfSelf)) continue;
             if (!entity.bedrockShownBox(player, box).isIntersected(reach)) continue;
-            solid.add(new HardCollidingEntityCollision(
-                    box.copy(), depenetrationLimit(entity), buffers(entity) ? buffer : 0.0F));
+            var collision = new HardCollidingEntityCollision(
+                    box.copy(), depenetrationLimit(entity), buffers(entity) ? buffer : 0.0F);
+            solid.add(collision);
+            nearby.add(new Nearby(entity, collision));
         }
-        player.bedrockState.clientActors.colliders(
-                reach,
-                actor -> solid.add(
-                        new HardCollidingEntityCollision(actor, BedrockDepenetrationLimit.SOLID_ACTOR, 0.0F)));
+        player.bedrockState.clientActors.colliders(reach, actor -> {
+            var collision = new HardCollidingEntityCollision(actor, BedrockDepenetrationLimit.SOLID_ACTOR, 0.0F);
+            solid.add(collision);
+            nearby.add(new Nearby(null, collision));
+        });
         return solid;
     }
+
+    /**
+     * A replay retains the last live tick's nearby actors. An actor still interpolating refreshes its saved box to
+     * the latest target; a finished interpolation or a removed actor leaves the saved box alone. This refresh does
+     * not advance the actor's ordinary interpolation or change the box the next live move meets.
+     */
+    static List<HardCollidingEntityCollision> replay(CultPlayer player, List<Nearby> nearby) {
+        List<HardCollidingEntityCollision> result = new ArrayList<>(nearby.size());
+        for (Nearby actor : nearby) {
+            PacketEntity entity = actor.entity();
+            var collision = actor.collision();
+            if (entity != null
+                    && player.compensatedEntities.getEntity(entity.getEntityId()) == entity
+                    && entity.newPacketLocation != null
+                    && entity.newPacketLocation.bedrockStepsLeft() != 0) {
+                var target = entity.desyncClientPos;
+                collision = new HardCollidingEntityCollision(
+                        GetBoundingBox.getPacketEntityBoundingBox(player, target.x, target.y, target.z, entity),
+                        collision.depenetrationLimit(),
+                        collision.buffer());
+            }
+            result.add(collision);
+        }
+        return result;
+    }
+
+    record Nearby(PacketEntity entity, HardCollidingEntityCollision collision) {}
 
     /** Whether the actor is a boat or happy ghast in the middle of a lerp, or one whose steps Cult does not know. */
     private static boolean buffers(PacketEntity entity) {

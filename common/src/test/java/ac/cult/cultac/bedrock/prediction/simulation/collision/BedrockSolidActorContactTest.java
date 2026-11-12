@@ -82,11 +82,11 @@ public final class BedrockSolidActorContactTest {
     }
 
     /**
-     * The client's replay of a corrected tick: a capture shows the player held at the corrected position among the
-     * same four boats, which a live tick leaves through their faces.
+     * Refreshing the nearby actors for replay preserves their depenetration limits; it does not turn their overlap
+     * into free movement through the shapes.
      */
     @Test
-    public void aReplayedTickIsNotMovedOutOfTheBoatsThatOverlapIt() {
+    public void aReplayedTickKeepsTheBoatsDepenetrationLimits() {
         var moved = move(
                 new Vec3d(41.49616, 120.0, 25.468344),
                 GRAVITY,
@@ -95,8 +95,8 @@ public final class BedrockSolidActorContactTest {
                 BedrockDepenetrationLimit.replayed(boat(40.612503, 24.436729)),
                 BedrockDepenetrationLimit.replayed(boat(42.527992, 24.540745)));
 
-        assertEquals(0.0F, (float) moved.appliedDelta().x(), 0);
-        assertEquals(0.0F, (float) moved.appliedDelta().z(), 0);
+        assertEquals(0.062740F, (float) moved.appliedDelta().x(), 2.0E-6F);
+        assertEquals(-0.056755F, (float) moved.appliedDelta().z(), 2.0E-6F);
     }
 
     /**
@@ -134,7 +134,8 @@ public final class BedrockSolidActorContactTest {
         var far = boat(44.0, 25.5);
 
         assertEquals(0.0F, (float) move(feet, GRAVITY, block).appliedDelta().x(), 0);
-        assertEquals(-0.05F, (float) move(feet, GRAVITY, block, far).appliedDelta().x(), 2.0E-6F);
+        assertEquals(
+                -0.05F, (float) move(feet, GRAVITY, block, far).appliedDelta().x(), 2.0E-6F);
     }
 
     /** Feet up to two blocks inside a happy ghast's top are lifted onto it in one tick. */
@@ -149,7 +150,12 @@ public final class BedrockSolidActorContactTest {
         // Any other solid actor that deep is no part of the move.
         var other = actor(
                 BedrockDepenetrationLimit.SOLID_ACTOR, 113.931F, 122.327795F, 48.0F, 117.935F, 126.331795F, 52.004F);
-        assertEquals(0.0F, (float) moveInAir(new Vec3d(115.9, 126.0811F, 50.0), Vec3d.ZERO, other).appliedDelta().y(), 0);
+        assertEquals(
+                0.0F,
+                (float) moveInAir(new Vec3d(115.9, 126.0811F, 50.0), Vec3d.ZERO, other)
+                        .appliedDelta()
+                        .y(),
+                0);
     }
 
     @Test

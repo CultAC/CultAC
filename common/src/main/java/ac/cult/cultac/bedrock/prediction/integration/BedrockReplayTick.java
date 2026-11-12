@@ -13,6 +13,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.function.BiFunction;
+import java.util.function.UnaryOperator;
 
 /** Replays only movement, with recorded external inputs and no packet/check side effects. */
 final class BedrockReplayTick {
@@ -23,6 +24,15 @@ final class BedrockReplayTick {
             List<Entry> previous,
             List<BedrockActorHistory.Event> active,
             BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> world) {
+        return advance(frame, previous, active, world, UnaryOperator.identity());
+    }
+
+    static List<Entry> advance(
+            BedrockActorHistory.Frame frame,
+            List<Entry> previous,
+            List<BedrockActorHistory.Event> active,
+            BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> world,
+            UnaryOperator<BedrockWorldSnapshot> actors) {
         var outcomes = new ArrayList<List<Entry>>();
         for (Entry entry : previous) {
             var recorded = frame.input();
@@ -82,16 +92,16 @@ final class BedrockReplayTick {
                             : request.snapshot()
                                     .withBlockCollisionWorld(BedrockReplayCollisionWorld.reuse(
                                             request.snapshot().blockCollisionWorld(),
-                                            world.apply(state, request.snapshot())
-                                                    .blockCollisionWorld(),
+                                            world.apply(state, request.snapshot()).blockCollisionWorld(),
                                             frame.collisionFetchBox()));
             // The recorded tick sensed liquid at its own start; a tick replayed from elsewhere senses it there.
             if (dx != 0.0F || dy != 0.0F || dz != 0.0F) {
-                snapshot = snapshot.withMovementContext(
-                        BedrockFluidStateResolver.withCurrentTickFluidStateFromBlockWorld(
+                snapshot =
+                        snapshot.withMovementContext(BedrockFluidStateResolver.withCurrentTickFluidStateFromBlockWorld(
                                 snapshot.movementContext(), state.physicalFeetPosition(), state.playerDimensions()));
             }
-            snapshot = BedrockReplayCollisionWorld.withReplayedActors(snapshot);
+            snapshot = actors.apply(snapshot);
+            snapshot = BedrockReplayCollisionWorld.withReplayedActors(snapshot, snapshot);
             if (snapshot != request.snapshot()) {
                 request = new BedrockSimulation.Input(
                         state,

@@ -8,14 +8,26 @@ import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
 import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.SimulationContext.HardCollidingEntityCollision;
 import ac.cult.cultac.checks.impl.prediction.SuperDebug;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.List;
 import java.util.function.Consumer;
 
 /** One outstanding correction on the owning movement loop. */
 public final class BedrockMovementCorrections {
+    private List<BedrockSolidActors.Nearby> solidActors = List.of();
+
+    void solidActors(List<BedrockSolidActors.Nearby> nearby) {
+        solidActors = nearby;
+    }
+
+    List<HardCollidingEntityCollision> replaySolidActors(CultPlayer player) {
+        return BedrockSolidActors.replay(player, solidActors);
+    }
+
     private static final int CORRECTION_INTERVAL_TICKS = 5;
     public static final int CLIENT_HISTORY_SIZE = BedrockActorHistory.CAPACITY;
     private final BedrockMovementRewind rewind = new BedrockMovementRewind();
@@ -293,7 +305,9 @@ public final class BedrockMovementCorrections {
                         ? BedrockVectorAdapter.toJava(state.velocity())
                         : placed.velocity(),
                 placed == null || Float.isNaN(placed.yaw()) ? state.inputFrame().yaw() : placed.yaw() + rotationOffset,
-                placed == null || Float.isNaN(placed.pitch()) ? state.inputFrame().pitch() : placed.pitch(),
+                placed == null || Float.isNaN(placed.pitch())
+                        ? state.inputFrame().pitch()
+                        : placed.pitch(),
                 placed == null || placed.onGround() == null
                         ? state.collisionFlags().onGround()
                         : placed.onGround(),
@@ -304,6 +318,7 @@ public final class BedrockMovementCorrections {
     }
 
     public void clear() {
+        solidActors = List.of();
         exemptMovement = false;
         generation++;
         // The client keeps an acknowledged attribute whatever resets this history; so must the actor's carry.
