@@ -14,7 +14,8 @@ public final class NextTickVelocityDeriver {
 
     /**
      * One player's reusable derivation sets. Velocities derived with a scratch are valid only until
-     * {@link #release()}; a nested take while it is taken gets a fresh one.
+     * {@link #release()}; a nested take while it is taken gets a fresh one. Only the engine's commit derives with a
+     * scratch.
      */
     public static final class Scratch {
         private ReusableVelocitySet candidates = new ReusableVelocitySet();
@@ -77,7 +78,7 @@ public final class NextTickVelocityDeriver {
             boolean geysers,
             Scratch scratch) {
         Set<Vec3> candidates = VelocityCandidates.derive(
-                result, lastPrediction, diff, scratch == null ? new HashSet<>() : scratch.candidates);
+                result, lastPrediction, diff, scratch == null ? new HashSet<>() : scratch.candidates, scratch != null);
         return transformCandidatesForNextTick(
                 player, result, candidates, scratch == null ? new HashSet<>() : scratch.transformed, geysers);
     }

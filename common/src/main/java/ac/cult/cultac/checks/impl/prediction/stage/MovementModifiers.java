@@ -81,6 +81,8 @@ public class MovementModifiers {
             FluidHopMode fluidHopMode,
             boolean includeSlimePistonLaunches) {
         List<PredVector> start = new ArrayList<>(initial.size() + 10);
+        // A sneaking edge's carried deltaMovement starts a client whose CLIENT_TICK_END proves no skipped tick.
+        if (lastResult != null && lastResult.isSneakEdgeCarried()) canTickSkip = false;
 
         // This happens on first join, good to keep in case other things do this too.
         if (initial.isEmpty()) {
