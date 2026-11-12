@@ -4,6 +4,7 @@ import ac.cult.cultac.bedrock.prediction.geometry.BedrockPositionTranslator;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockTeleportOperation;
 import java.util.function.Consumer;
+import java.util.function.LongPredicate;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
 import org.cloudburstmc.protocol.bedrock.packet.MoveEntityAbsolutePacket;
 import org.cloudburstmc.protocol.bedrock.packet.MovePlayerPacket;
@@ -19,6 +20,8 @@ final class GeyserTeleportRecovery {
     private Consumer<SetEntityMotionPacket> resend;
     private long lastInputTick;
     private int unconfirmedInputs;
+    private long transportRevision = -1L;
+    private int transportInputs;
 
     boolean active() {
         return operation != null;
@@ -63,6 +66,36 @@ final class GeyserTeleportRecovery {
         if (origin.equals(writtenOrigin) && ++unconfirmedInputs < RETRY_INPUTS) return;
         unconfirmedInputs = 0;
         resend.accept(motion == null ? null : motion.clone());
+    }
+
+    /**
+     * The client handled the Geyser or GFP teleport {@code revision}: the receipt written after it came back, so its
+     * answer is the next input. Counting starts here, independent of latency.
+     */
+    void transportReceipt(long revision) {
+        transportRevision = revision;
+        transportInputs = 0;
+    }
+
+    /**
+     * Counts one input after the receipt and returns the revision to emit again once {@link #RETRY_INPUTS} inputs passed
+     * while it stayed pending, or -1. The emission's own receipt restarts the count.
+     */
+    long transportInput(LongPredicate pending) {
+        if (transportRevision < 0L) return -1L;
+        if (!pending.test(transportRevision)) {
+            clearTransport();
+            return -1L;
+        }
+        if (++transportInputs < RETRY_INPUTS) return -1L;
+        long revision = transportRevision;
+        clearTransport();
+        return revision;
+    }
+
+    void clearTransport() {
+        transportRevision = -1L;
+        transportInputs = 0;
     }
 
     void clear() {

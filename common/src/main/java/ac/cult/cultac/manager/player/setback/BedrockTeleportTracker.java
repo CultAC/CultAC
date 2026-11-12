@@ -268,6 +268,22 @@ public final class BedrockTeleportTracker {
                 && pendingTeleports.stream().anyMatch(pending -> operation.equals(pending.getBedrockOperation()));
     }
 
+    /**
+     * The pending Geyser or GFP position teleport with transport revision {@code revision} that only a HANDLE_TELEPORT
+     * answers, or null. Cult setbacks, seats and dimension changes resolve elsewhere.
+     */
+    public TeleportData unansweredBedrockTransport(long revision) {
+        for (TeleportData pending : pendingTeleports) {
+            if (pending.getBedrockTransportRevision() == revision
+                    && revision >= 0L
+                    && !pending.isRotationOnly()
+                    && !pending.mayCompleteCultSetback()
+                    && !pending.isBedrockSeated()
+                    && !pending.isBedrockDimensionChange()) return pending;
+        }
+        return null;
+    }
+
     public boolean mustAcknowledgeBedrockTransportTeleport() {
         return pendingTeleports.stream()
                 .anyMatch(pending -> !pending.isRotationOnly()

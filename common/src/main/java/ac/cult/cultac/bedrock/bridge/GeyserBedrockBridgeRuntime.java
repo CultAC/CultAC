@@ -24,6 +24,7 @@ import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.collisions.BedrockClientBlockShapeMappings;
+import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.floodgate.GeyserUtil;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.reload.integrations.GeyserQueue;
@@ -1070,9 +1071,9 @@ public final class GeyserBedrockBridgeRuntime {
         private void confirmOrigin(
                 CultPlayer player, long revision, BedrockOriginDispatch.Emission emission, Vec3 localTarget) {
             if (emission == null) return;
-            player.getSetbackTeleportUtil()
-                    .bedrockTeleports()
-                    .confirmBedrockOrigin(revision, emission.operation(), emission.frame(), localTarget);
+            var teleports = player.getSetbackTeleportUtil().bedrockTeleports();
+            teleports.confirmBedrockOrigin(revision, emission.operation(), emission.frame(), localTarget);
+            if (teleports.unansweredBedrockTransport(revision) != null) teleportRecovery.transportReceipt(revision);
             BedrockPacketLogger logger = packetLogger;
             if (logger != null) logger.originReceipt(connection, revision);
         }
@@ -1253,6 +1254,9 @@ public final class GeyserBedrockBridgeRuntime {
                             .bedrockTeleports()
                             .isPendingBedrockSetback(teleportRecovery.operation()),
                     recoveryAdapter == null ? BedrockCoordinateFrame.IDENTITY : recoveryAdapter.coordinateFrame());
+            long unanswered = teleportRecovery.transportInput(revision ->
+                    player.getSetbackTeleportUtil().bedrockTeleports().unansweredBedrockTransport(revision) != null);
+            if (unanswered >= 0L) resendTransportTeleport(player, unanswered);
             if (state == null) {
                 var retryAdapter = GFP_ADAPTERS.get(connection);
                 if (retryAdapter == null) GeyserTeleportRecovery.confirmRejectedInput(connection, packet);
@@ -1293,6 +1297,30 @@ public final class GeyserBedrockBridgeRuntime {
                 player.packetStateData.bedrockTranslatedMovement.allowPlayer(state.movementGrounded());
             }
             return true;
+        }
+
+        /**
+         * Emits a handled Geyser or GFP teleport again while the client still owes its answer. Movement waits on that
+         * answer, and only Geyser's own cache would otherwise retry it.
+         */
+        private void resendTransportTeleport(CultPlayer player, long revision) {
+            TeleportData pending =
+                    player.getSetbackTeleportUtil().bedrockTeleports().unansweredBedrockTransport(revision);
+            // Geyser retries a teleport it still caches.
+            if (pending == null || connection.getUnconfirmedTeleport() != null) return;
+            var adapter = GFP_ADAPTERS.get(connection);
+            var coordinates = adapter == null ? BedrockCoordinateFrame.IDENTITY : adapter.coordinateFrame();
+            var entity = connection.getPlayerEntity();
+            MovePlayerPacket packet = new MovePlayerPacket();
+            packet.setRuntimeEntityId(entity.geyserId());
+            packet.setPosition(
+                    toVector3f(coordinates.toLocal(pending.getLocation())).up(ownerPlayerOffset()));
+            packet.setRotation(entity.bedrockRotation());
+            packet.setMode(MovePlayerPacket.Mode.TELEPORT);
+            packet.setTeleportationCause(MovePlayerPacket.TeleportationCause.UNKNOWN);
+            packet.setOnGround(Boolean.TRUE.equals(pending.getBedrockOnGround()));
+            // Registered as a new transport teleport; its answer supersedes this earlier revision.
+            connection.sendUpstreamPacket(packet);
         }
 
         private static void setInputFlag(PlayerAuthInputPacket packet, PlayerAuthInputData flag, boolean enabled) {
@@ -1873,6 +1901,7 @@ public final class GeyserBedrockBridgeRuntime {
             if (packet instanceof StartGamePacket
                     || packet instanceof org.cloudburstmc.protocol.bedrock.packet.ChangeDimensionPacket) {
                 owner.teleportRecovery.clear();
+                owner.teleportRecovery.clearTransport();
                 owner.clientRiding.clear();
                 owner.writtenChunks.clear();
                 owner.chunkLevelReset = true;
