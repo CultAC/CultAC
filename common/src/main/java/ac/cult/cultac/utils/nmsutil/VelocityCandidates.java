@@ -2,6 +2,7 @@ package ac.cult.cultac.utils.nmsutil;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
+import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.Ladder;
@@ -28,9 +29,55 @@ public final class VelocityCandidates {
         return List.of(result);
     }
 
-    /** Adds the candidates to the empty {@code validPlayerStartingVels} and returns it. */
+    /**
+     * Whether the tick started from the client's deltaMovement: no committed tick before it, one whose velocities hid
+     * nothing, or one that bounds the client's horizontal deltaMovement under LivingEntity#aiStep's 0.003 for a start
+     * the engine also has at zero; and no skipped ticks between.
+     */
+    private static boolean exactSneakEdgeStart(PredictionResult result, PredictionResult lastPrediction) {
+        PredVector start = result.getInitialStartingVel();
+        if (start == null || start.isTickSkip()) return false;
+        if (lastPrediction == null || lastPrediction.isSneakEdgeExact()) return true;
+        double bound = lastPrediction.getSneakEdgeSpeedBound();
+        // LivingEntity#aiStep zeroes a player's horizontal deltaMovement whose horizontalDistanceSqr is under 9.0E-6.
+        return bound * bound < 9.0E-6 && start.x == 0.0D && start.z == 0.0D;
+    }
+
+    /** A carry is the client's deltaMovement only when its tick started from deltaMovement. */
+    private static void recordSneakEdge(
+            PredictionResult result, PredictionResult lastPrediction, SneakEdgeBackoff.Carry edge, boolean exactStart) {
+        boolean onEdge = result.getSimulationContext().getWorldData().getSneak().isOnEdge();
+        boolean exact = edge.leavesExact(exactStart, onEdge);
+        result.setSneakEdgeCarried(edge.carriesExactly(exactStart));
+        result.setSneakEdgeExact(exact);
+        if (exact) return;
+        result.setSneakEdgeSpeedBound(SneakEdgeBackoff.nextSpeedBound(
+                result, exactStart ? startSpeed(result) : lastPrediction.getSneakEdgeSpeedBound()));
+    }
+
+    /** The longest horizontal start of the result and its zero-flag realities. */
+    private static double startSpeed(PredictionResult result) {
+        double speed = Math.sqrt(result.getInitialStartingVel().horizontalDistanceSqr());
+        List<PredictionResult> realities = result.getRealities();
+        for (int i = 0, size = realities == null ? 0 : realities.size(); i < size; i++) {
+            PredictionResult reality = realities.get(i);
+            if (reality.getFlagSeverity() != 0.0) continue;
+            speed = Math.max(speed, Math.sqrt(reality.getInitialStartingVel().horizontalDistanceSqr()));
+        }
+        return speed;
+    }
+
+    /**
+     * Adds the candidates to the empty {@code validPlayerStartingVels} and returns it. A {@code commit} derivation
+     * records on {@code result} whether they are a sneaking edge's carried deltaMovement and whether they hide nothing
+     * an edge's back-off kept.
+     */
     static Set<Vec3> derive(
-            PredictionResult result, PredictionResult lastPrediction, Vec3 diff, Set<Vec3> validPlayerStartingVels) {
+            PredictionResult result,
+            PredictionResult lastPrediction,
+            Vec3 diff,
+            Set<Vec3> validPlayerStartingVels,
+            boolean commit) {
         Vec3 positionOnlyDelta = result.getValidMovements().getPositionOnlyDelta();
         if (positionOnlyDelta.lengthSqr() > 1.0E-14) {
             // MCP-Reborn has a few packet-visible Entity#move paths that do not
@@ -50,12 +97,14 @@ public final class VelocityCandidates {
         if (player != null) {
             Vec3 moved = diff;
             diff = applyPostMoveLivingFluidCurrent(player, result, diff);
-            if (moved.equals(diff)
-                    && !hasUnknownStuckSpeed(lastPrediction)
-                    && !consumedRequiredStuckSpeedThisMove(result)
-                    && SneakEdgeBackoff.addDeltaMovements(result, diff, validPlayerStartingVels)) {
-                return validPlayerStartingVels;
-            }
+            boolean exactStart = exactSneakEdgeStart(result, lastPrediction);
+            SneakEdgeBackoff.Carry edge = moved.equals(diff)
+                            && !hasUnknownStuckSpeed(lastPrediction)
+                            && !consumedRequiredStuckSpeedThisMove(result)
+                    ? SneakEdgeBackoff.addDeltaMovements(result, diff, validPlayerStartingVels, exactStart)
+                    : SneakEdgeBackoff.Carry.UNKNOWN;
+            if (commit) recordSneakEdge(result, lastPrediction, edge, exactStart);
+            if (edge.found()) return validPlayerStartingVels;
             // A pre-move water state the engine cannot resolve leaves both LivingEntity#checkFallDamage branches open.
             if (!moved.equals(diff)
                     && result.getSimulationContext().getWorldData().getInWater() == DesyncStatus.UNKNOWN) {

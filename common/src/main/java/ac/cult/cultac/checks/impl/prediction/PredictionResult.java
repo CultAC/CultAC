@@ -40,6 +40,24 @@ public class PredictionResult {
     @ToString.Exclude
     JavaFallDistance.Moved javaCommittedMove;
 
+    /** Whether the committed next-tick velocities are the deltaMovement a sneaking edge's back-off left. */
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    boolean sneakEdgeCarried;
+
+    /** Whether the committed next-tick velocities hide nothing a sneaking edge's back-off kept in deltaMovement. */
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    boolean sneakEdgeExact;
+
+    /**
+     * When the committed next-tick velocities may hide a sneaking edge's back-off, a bound on the horizontal length of
+     * the client's deltaMovement at the next tick's start; infinite when unknown.
+     */
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    double sneakEdgeSpeedBound = Double.POSITIVE_INFINITY;
+
     List<Flag> flags = List.of();
     double flagSeverity = 0; // Cache for performance and to allow exempting
 

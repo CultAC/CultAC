@@ -28,7 +28,8 @@ class VelocityCandidatesTest {
         when(result.getValidMovements().getPositionOnlyDelta()).thenReturn(Vec3.ZERO);
         when(result.getSimulationContext().getLastStuckSpeed()).thenReturn(null);
 
-        Set<Vec3> candidates = VelocityCandidates.derive(result, null, new Vec3(0.1, -0.08, 0.2), new HashSet<>());
+        Set<Vec3> candidates =
+                VelocityCandidates.derive(result, null, new Vec3(0.1, -0.08, 0.2), new HashSet<>(), false);
 
         assertTrue(candidates.contains(new Vec3(0.1, -0.078, 0.2)));
         for (Vec3 candidate : candidates) {
