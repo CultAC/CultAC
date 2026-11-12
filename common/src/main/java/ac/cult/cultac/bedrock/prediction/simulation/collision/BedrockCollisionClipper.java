@@ -186,7 +186,13 @@ final class BedrockCollisionClipper {
                     move.toVec3d(),
                     yCollisionBlock,
                     penetration,
-                    BedrockActorOrderCrossing.buffered(null, bufferedAxes, bufferedX, bufferedY, bufferedZ));
+                    BedrockActorOrderCrossing.buffered(
+                            null,
+                            bufferedAxes,
+                            bufferedX,
+                            bufferedY,
+                            bufferedZ,
+                            Math.max(bufferX, Math.max(bufferY, bufferZ))));
         }
         // An axis with one actor reaching across from each side ends at one of its two ends whatever the order; a
         // second distinct bound inside the crossing gives orders that end between them.
@@ -210,7 +216,13 @@ final class BedrockCollisionClipper {
                 move.toVec3d(),
                 yCollisionBlock,
                 penetration,
-                BedrockActorOrderCrossing.buffered(crossing, bufferedAxes, bufferedX, bufferedY, bufferedZ));
+                BedrockActorOrderCrossing.buffered(
+                        crossing,
+                        bufferedAxes,
+                        bufferedX,
+                        bufferedY,
+                        bufferedZ,
+                        Math.max(bufferX, Math.max(bufferY, bufferZ))));
     }
 
     /** The buffer of a moving boat's or happy ghast's shape; 0 for a block or any other actor. */

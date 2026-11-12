@@ -22,7 +22,27 @@ public record BedrockActorOrderCrossing(
         float maxX,
         float maxY,
         float maxZ,
-        int bufferedAxes) {
+        int bufferedAxes,
+        float bufferDistance,
+        BedrockActorOrderCrossing unbuffered) {
+    public BedrockActorOrderCrossing(
+            int crossedAxes,
+            int exactAxes,
+            int belowWon,
+            float minX,
+            float minY,
+            float minZ,
+            float maxX,
+            float maxY,
+            float maxZ,
+            int bufferedAxes) {
+        this(crossedAxes, exactAxes, belowWon, minX, minY, minZ, maxX, maxY, maxZ, bufferedAxes, 0.0F, null);
+    }
+
+    private BedrockActorOrderCrossing withoutBuffer() {
+        return bufferedAxes == 0 ? this : unbuffered;
+    }
+
     /** {@code first} followed by {@code later}'s phases; only the move's first phase crosses an axis exactly. */
     static BedrockActorOrderCrossing then(BedrockActorOrderCrossing first, BedrockActorOrderCrossing later) {
         if (later == null) return first;
@@ -37,7 +57,11 @@ public record BedrockActorOrderCrossing(
                 first.maxX + later.maxX,
                 first.maxY + later.maxY,
                 first.maxZ + later.maxZ,
-                first.bufferedAxes | later.bufferedAxes);
+                first.bufferedAxes | later.bufferedAxes,
+                Math.max(first.bufferDistance, later.bufferDistance),
+                first.bufferedAxes == 0 && later.bufferedAxes == 0
+                        ? null
+                        : then(first.withoutBuffer(), later.withoutBuffer()));
     }
 
     /** This crossing as one of a later phase, which decides no axis exactly. */
@@ -45,7 +69,18 @@ public record BedrockActorOrderCrossing(
         return exactAxes == 0
                 ? this
                 : new BedrockActorOrderCrossing(
-                        crossedAxes, 0, 0, minX, minY, minZ, maxX, maxY, maxZ, bufferedAxes);
+                        crossedAxes,
+                        0,
+                        0,
+                        minX,
+                        minY,
+                        minZ,
+                        maxX,
+                        maxY,
+                        maxZ,
+                        bufferedAxes,
+                        bufferDistance,
+                        unbuffered == null ? null : unbuffered.later());
     }
 
     /**
@@ -57,11 +92,12 @@ public record BedrockActorOrderCrossing(
             int axes,
             BedrockCollisionClipper.BufferedEnds x,
             BedrockCollisionClipper.BufferedEnds y,
-            BedrockCollisionClipper.BufferedEnds z) {
+            BedrockCollisionClipper.BufferedEnds z,
+            float bufferDistance) {
         if (axes == 0) return crossing;
         if (crossing == null) {
             return new BedrockActorOrderCrossing(
-                    axes, 0, 0, x.min(), y.min(), z.min(), x.max(), y.max(), z.max(), axes);
+                    axes, 0, 0, x.min(), y.min(), z.min(), x.max(), y.max(), z.max(), axes, bufferDistance, null);
         }
         return new BedrockActorOrderCrossing(
                 crossing.crossedAxes | axes,
@@ -73,7 +109,9 @@ public record BedrockActorOrderCrossing(
                 Math.max(crossing.maxX, x.max()),
                 Math.max(crossing.maxY, y.max()),
                 Math.max(crossing.maxZ, z.max()),
-                crossing.bufferedAxes | axes);
+                crossing.bufferedAxes | axes,
+                Math.max(crossing.bufferDistance, bufferDistance),
+                crossing.withoutBuffer());
     }
 
     /** The range of the move's end along the crossed axes outside {@code ordered}, or null when there are none. */
@@ -87,6 +125,8 @@ public record BedrockActorOrderCrossing(
                 (axes & 1) == 0 ? 0.0D : maxX,
                 (axes & 2) == 0 ? 0.0D : maxY,
                 (axes & 4) == 0 ? 0.0D : maxZ,
-                bufferedAxes & axes);
+                bufferedAxes & axes,
+                bufferDistance,
+                unbuffered == null ? null : unbuffered.range(ordered));
     }
 }
