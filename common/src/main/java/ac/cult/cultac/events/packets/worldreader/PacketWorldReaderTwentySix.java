@@ -13,6 +13,7 @@ import ac.cult.cultac.utils.latency.PalettedSection;
 import ac.cult.cultac.utils.latency.SectionPool;
 import io.netty.buffer.Unpooled;
 import java.util.ArrayList;
+import java.util.List;
 
 /** Model sections decoded into owned palettes; packet and transaction order are unchanged. */
 public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
@@ -60,9 +61,12 @@ public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
                     .filter(entity ->
                             dimension.clientHoldsSection((entity.position().getY() - dimension.minHeight()) >> 4))
                     .toList();
-        var tickers = packet.tickerCandidates().stream()
-                .filter(position -> hasGeyserTicker(chunks, dimension.minHeight(), position))
-                .toList();
+        var candidates = packet.tickerCandidates();
+        List<BlockPos> tickers = candidates.isEmpty()
+                ? List.of()
+                : candidates.stream()
+                        .filter(position -> hasGeyserTicker(chunks, dimension.minHeight(), position))
+                        .toList();
         addChunkToCache(
                 event,
                 player,
