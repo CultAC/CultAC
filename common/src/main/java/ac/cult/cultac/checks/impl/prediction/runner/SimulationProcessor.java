@@ -111,6 +111,9 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     private static final double TRAVEL_FLAG_DISTANCE_SQR = 400.0;
     // LevelLoadTracker stops waiting after CLIENT_WAIT_TIMEOUT_MS (30 s) and LEVEL_LOAD_CLOSE_DELAY_MS (0.5 s).
     private static final int MAX_LOADING_LEVEL_TICKS = 610;
+    /** Vehicle inputs by {@link #unitIndex} of strafe times three plus that of forward. */
+    private static final Vec3[] UNIT_VEHICLE_INPUTS = unitVehicleInputs();
+
     LastInstance lastTickSkip = new LastInstance(this.player);
     LastInstance lastOnGroundSkip = new LastInstance(this.player);
     EvictingQueue<Long> lastMovementTime = new EvictingQueue(3);
@@ -2525,10 +2528,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             boolean applyLastRequiredStuckSpeed,
             @Nullable PacketEntity riding,
             @Nullable CarryWorld world) {
-        Vec3 vehicleInputs = Float.floatToRawIntBits(player.boatData.vehicleHoriz) == 0
-                        && Float.floatToRawIntBits(player.boatData.vehicleForward) == 0
-                ? Vec3.ZERO
-                : new Vec3(player.boatData.vehicleHoriz, 0.0, player.boatData.vehicleForward);
+        Vec3 vehicleInputs = vehicleInputs(player.boatData.vehicleHoriz, player.boatData.vehicleForward);
         MainSupportingBlockData lastTickSupport = this.lastTickSupport(lastPrediction);
         SimulationContext context = new SimulationContext(
                 start,
@@ -2799,6 +2799,31 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
     public void setLastOnGround(DesyncStatus lastOnGround) {
         this.lastOnGround = lastOnGround;
+    }
+
+    /** The vector {@code (horiz, 0.0, forward)}; a shared one when both are +0.0F, 1.0F or -1.0F. */
+    static Vec3 vehicleInputs(float horiz, float forward) {
+        int h = unitIndex(horiz);
+        int f = unitIndex(forward);
+        return h < 0 || f < 0 ? new Vec3(horiz, 0.0, forward) : UNIT_VEHICLE_INPUTS[h * 3 + f];
+    }
+
+    /** 0 for -1.0F, 1 for +0.0F, 2 for 1.0F, by raw bits; else -1. */
+    private static int unitIndex(float value) {
+        int bits = Float.floatToRawIntBits(value);
+        if (bits == 0) return 1;
+        if (bits == Float.floatToRawIntBits(1.0F)) return 2;
+        return bits == Float.floatToRawIntBits(-1.0F) ? 0 : -1;
+    }
+
+    private static Vec3[] unitVehicleInputs() {
+        Vec3[] inputs = new Vec3[9];
+        for (int h = 0; h < 3; h++) {
+            for (int f = 0; f < 3; f++) {
+                inputs[h * 3 + f] = h == 1 && f == 1 ? Vec3.ZERO : new Vec3(h - 1.0F, 0.0, f - 1.0F);
+            }
+        }
+        return inputs;
     }
 
     /**
