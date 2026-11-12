@@ -24,6 +24,9 @@ public final class BedrockGeyserMovement {
         int remaining = state.geyserBoostTicks();
         if (remaining == 0 && world.geyserBlocks().isEmpty()) return state;
         var box = state.collisionBox(context.playerDimensionsState());
+        // Taking a teleport refreshes block-trigger contacts before the velocity components run.
+        // An ordinary move refreshes them after those components, for the following tick.
+        if (actorTick && movement.previousState().hasTeleported()) remaining = contactTicks(world, box, remaining);
         if (actorTick && remaining != 0 && !context.movementAbilityFlying()) {
             var frame = world.coordinateFrame();
             int x = frame.originX() + floor(center(frame.localX(box.minX()), frame.localX(box.maxX())));
@@ -47,17 +50,20 @@ public final class BedrockGeyserMovement {
         }
         if (actorTick && remaining > 0) remaining--;
         // Column contact refreshes the effect even when flying or when the box center is outside the column.
+        return state.withGeyserBoostTicks(contactTicks(world, box, remaining));
+    }
+
+    private static int contactTicks(BlockCollisionWorld world, WorldCollisionBox box, int remaining) {
         for (var block : world.geyserBlocks()) {
             int depth = waterDepth(world, block);
             if (depth == 0) continue;
             var p = block.position();
             var column = new WorldCollisionBox(p.x(), p.y(), p.z(), p.x() + 1, p.y() + depth * 6, p.z() + 1);
             if (box.intersects(world.coordinateFrame().roundBox(column))) {
-                remaining = EFFECT_TICKS;
-                break;
+                return EFFECT_TICKS;
             }
         }
-        return state.withGeyserBoostTicks(remaining);
+        return remaining;
     }
 
     private static float center(double min, double max) {

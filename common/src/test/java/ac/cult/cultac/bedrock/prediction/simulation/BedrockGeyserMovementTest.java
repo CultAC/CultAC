@@ -17,6 +17,45 @@ import java.util.Map;
 import org.junit.Test;
 
 public final class BedrockGeyserMovementTest {
+    /** Protocol 2225: HANDLE_TELEPORT keeps the box still but already carries the plume's +0.2 Y. */
+    @Test
+    public void aTeleportIntoAColdPlumeArmsBeforeItsVelocityComponent() {
+        var position = new Vec3d(0.5, 5.5, 0.5);
+        var first = tick(column(1), position, 0, false, true);
+        assertFalse(first.travelActive());
+        var end = BedrockForwardTick.finish(first, first.predictedState());
+        assertEquals(position, end.physicalFeetPosition());
+        assertEquals(first.predictedState().collisionBox(), end.collisionBox());
+        assertEquals(0.2F, end.velocity().y(), 0);
+        assertEquals(100, end.geyserBoostTicks());
+
+        var frame = BedrockInputFrame.idle(2);
+        var next = BedrockForwardTick.simulate(new BedrockSimulation.Input(
+                        end,
+                        frame,
+                        frame.intent(),
+                        BedrockWorldSnapshot.fromContext(first.movementContext()),
+                        false,
+                        0,
+                        BedrockMobJumpComponentState.DEFAULT,
+                        true,
+                        false,
+                        Vec3d.ZERO))
+                .getFirst()
+                .movementResult();
+        var carried = BedrockForwardTick.finish(next, next.predictedState());
+        assertEquals((float) (5.5F + 0.2F), carried.physicalFeetPosition().y(), 0);
+        assertEquals((0.2F - 0.08F) * 0.98F + 0.2F, carried.velocity().y(), 0);
+    }
+
+    @Test
+    public void aTeleportBesideTheColumnArmsWithoutAddingVelocity() {
+        var first = tick(column(1), new Vec3d(1.1, 5.5, 0.5), 0, false, true);
+        var end = BedrockForwardTick.finish(first, first.predictedState());
+        assertEquals(100, end.geyserBoostTicks());
+        assertEquals(0, end.velocity().y(), 0);
+    }
+
     @Test
     public void launchChangesCarriedVelocityWithoutMovingTheBoxAgain() {
         var result = tick(column(1), new Vec3d(0.5, 4, 0.5), 100, false);
@@ -162,6 +201,11 @@ public final class BedrockGeyserMovementTest {
     }
 
     private static BedrockMovementResult tick(BlockCollisionWorld world, Vec3d feet, int remaining, boolean flying) {
+        return tick(world, feet, remaining, flying, false);
+    }
+
+    private static BedrockMovementResult tick(
+            BlockCollisionWorld world, Vec3d feet, int remaining, boolean flying, boolean teleport) {
         var modifier =
                 new MovementModifierState(false, flying, flying, false, 0.05, false, false, false, false, 0.35, 0);
         var context = new BedrockMovementContext(
@@ -180,6 +224,7 @@ public final class BedrockGeyserMovementTest {
                         Medium.AIR,
                         world.coordinateFrame())
                 .withGeyserBoostTicks(remaining);
+        if (teleport) state = state.withTeleportPending();
         var frame = BedrockInputFrame.idle(1);
         return BedrockForwardTick.simulate(new BedrockSimulation.Input(
                         state,
