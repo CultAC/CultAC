@@ -55,6 +55,8 @@ public class PacketEntityShulker extends PacketEntity {
     private boolean peekDataSinceBlock;
     private SimpleCollisionBox reachBounds;
     private SimpleCollisionBox reachPositions;
+    // Spawn starts with the ordinary actor dimensions. Only an unmounted normal tick computes shell bounds.
+    private boolean bedrockBoundsComputed;
     private BedrockRidingShape bedrockRidingShape;
 
     private record BedrockRidingShape(float width, float height, BedrockDepenetrationLimit limit) {}
@@ -102,7 +104,10 @@ public class PacketEntityShulker extends PacketEntity {
         if (player.isBedrockMovement()) {
             stepPeek();
             // A dismount changes no bounds until the first unmounted normal tick rebuilds them.
-            if (riding == null) bedrockRidingShape = null;
+            if (riding == null) {
+                bedrockBoundsComputed = true;
+                bedrockRidingShape = null;
+            }
         }
         if (untrackedRider()) {
             tickAsUntrackedRider();
@@ -430,6 +435,7 @@ public class PacketEntityShulker extends PacketEntity {
     @Override
     public SimpleCollisionBox bedrockShownBox(CultPlayer player, SimpleCollisionBox out) {
         super.bedrockShownBox(player, out);
+        if (!bedrockBoundsComputed && bedrockRidingShape == null) return out;
         double x = (out.minX + out.maxX) / 2;
         double y = out.minY;
         double z = (out.minZ + out.maxZ) / 2;
@@ -463,6 +469,7 @@ public class PacketEntityShulker extends PacketEntity {
      */
     public BedrockDepenetrationLimit bedrockDepenetrationLimit() {
         if (bedrockRidingShape != null) return bedrockRidingShape.limit();
+        if (!bedrockBoundsComputed) return BedrockDepenetrationLimit.SOLID_ACTOR;
         float depth = BEDROCK_DEPENETRATION_PER_PEEK * bedrockPhysicalPeek(peek);
         return new BedrockDepenetrationLimit(
                 Math.abs(facing.getStepX()) * depth,

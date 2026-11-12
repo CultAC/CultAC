@@ -187,7 +187,8 @@ public class BedrockShulkerLidTest {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
-            int stone = DataTables.defaults().registry().block("minecraft:stone").defaultState();
+            int stone =
+                    DataTables.defaults().registry().block("minecraft:stone").defaultState();
             for (int x = 59; x <= 63; x++)
                 for (int z = 19; z <= 23; z++) {
                     player.compensatedWorld.ensureValidationChunkLoaded(x >> 4, z >> 4);
@@ -195,6 +196,8 @@ public class BedrockShulkerLidTest {
                 }
             player.compensatedEntities.addEntity(SHULKER, EntityTypeIds.SHULKER, new Vec3(X, 120.0, Z), 0, 0, 0);
             shulker(player).bedrockCollidable = true;
+            // The first unmounted normal tick replaces the ordinary spawn box with the closed shell.
+            player.checkManager.endBedrockClientTick();
             test.accept(player);
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
@@ -256,8 +259,7 @@ public class BedrockShulkerLidTest {
         assertNotNull("tick " + tick, result);
         var state = result.getProfileResult(BedrockPredictionResult.class).nextTickBaseState();
         assertNotNull("tick " + tick, state);
-        assertEquals(
-                "tick " + tick, 0, player.checkManager.getListener(BedrockMovement.class).violations, 0);
+        assertEquals("tick " + tick, 0, player.checkManager.getListener(BedrockMovement.class).violations, 0);
         double offset = state.physicalFeetPosition()
                 .subtract(new Vec3d(feet.x, feet.y, feet.z))
                 .length();

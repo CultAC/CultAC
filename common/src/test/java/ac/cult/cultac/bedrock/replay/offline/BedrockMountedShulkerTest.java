@@ -205,6 +205,45 @@ public class BedrockMountedShulkerTest {
         });
     }
 
+    /** A shulker linked before its first normal tick retains the ordinary 1 x 1 spawn box. */
+    @Test
+    public void aMountBeforeTheFirstNormalTickRetainsTheSpawnBox() {
+        withBoat(false, player -> {
+            var shulker = shulker(player);
+            var box = shulker.bedrockShownBox(player, new SimpleCollisionBox());
+            assertEquals(1.0, box.maxY - box.minY, 1.0E-6);
+            assertEquals(1.0, box.maxX - box.minX, 1.0E-6);
+            assertEquals(0.1F, shulker.bedrockDepenetrationLimit().y(), 0);
+            for (int i = 0; i < 20; i++) player.checkManager.endBedrockClientTick();
+            assertEquals(box.maxY, shulker.bedrockShownBox(player, new SimpleCollisionBox()).maxY, 0);
+            player.compensatedEntities.settleIfUntrackedRider(shulker);
+            shulker.eject();
+            player.checkManager.endBedrockClientTick();
+            assertEquals(box.maxY - 0.02, shulker.bedrockShownBox(player, new SimpleCollisionBox()).maxY, 2.0E-6);
+        });
+    }
+
+    /** The single flag after a fresh join: the initial one-block collider raises the player by 0.0199966. */
+    @Test
+    public void theRecordedInitialMountLeavesThePlayerOnTheSpawnBox() {
+        withBoat(false, player -> {
+            capturedBoat(player);
+            for (int i = 0; i < 20; i++) player.checkManager.endBedrockClientTick();
+            seed(
+                    player,
+                    485,
+                    new Vec3(317.3885498046875, 83.74300384521484, -34.5401725769043),
+                    new Vec3(0, -0.0784F, 0),
+                    true);
+            capturedTick(
+                    player,
+                    486,
+                    new Vec3(317.3885498046875, 83.76249694824219, -34.5401725769043),
+                    new Vec3(0, -0.0784F, 0),
+                    true);
+        });
+    }
+
     private static void capturedBoat(CultPlayer player) {
         PacketEntity boat = boat(player);
         boat.setPositionRaw(
@@ -303,6 +342,10 @@ public class BedrockMountedShulkerTest {
     }
 
     private static void withBoat(Consumer<CultPlayer> test) {
+        withBoat(true, test);
+    }
+
+    private static void withBoat(boolean normalTickBeforeMount, Consumer<CultPlayer> test) {
         OfflineCultTestBootstrap.installConfig();
         CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
         try {
@@ -326,6 +369,8 @@ public class BedrockMountedShulkerTest {
             var rider = shulker(player);
             rider.bedrockCollidable = true;
             rider.bedrockSeatOffset = SEAT;
+            player.compensatedWorld.ensureValidationChunkLoaded(320 >> 4, ((int) Z) >> 4);
+            if (normalTickBeforeMount) player.checkManager.endBedrockClientTick();
             rider.mount(boat);
             test.accept(player);
         } finally {
