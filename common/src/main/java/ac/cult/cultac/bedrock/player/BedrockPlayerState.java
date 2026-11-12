@@ -29,6 +29,8 @@ public final class BedrockPlayerState {
     public final BedrockPistonBlocks pistonBlocks = new BedrockPistonBlocks();
     public final ac.cult.cultac.bedrock.prediction.integration.BedrockMovementCorrections movementCorrections =
             new ac.cult.cultac.bedrock.prediction.integration.BedrockMovementCorrections();
+    public final ac.cult.cultac.bedrock.prediction.integration.BedrockSolidActorBuffer solidActorBuffer =
+            new ac.cult.cultac.bedrock.prediction.integration.BedrockSolidActorBuffer();
     /** The session's view of its world registries through Geyser. */
     public final ac.cult.cultac.bedrock.bridge.GeyserWorldView worldView =
             new ac.cult.cultac.bedrock.bridge.GeyserWorldView();

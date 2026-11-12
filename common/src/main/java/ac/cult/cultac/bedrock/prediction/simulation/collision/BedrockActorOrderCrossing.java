@@ -9,7 +9,8 @@ import ac.cult.cultac.bedrock.prediction.api.BedrockActorOrderRange;
  * order then ends at one of its two ends, and the actors bounding it from below were met last in the collected order
  * when {@code belowWon} holds. Along every crossed axis the move may end anywhere between the ends of the two orders
  * that meet the actors bounding it from one side last: {@code min*} and {@code max*} are those ends less the move's
- * own, summed over the phases that cross the axis.
+ * own, summed over the phases that cross the axis. An axis in {@code bufferedAxes} is one a moving actor ended,
+ * whose range also holds the ends that actor's buffer allows.
  */
 public record BedrockActorOrderCrossing(
         int crossedAxes,
@@ -20,7 +21,8 @@ public record BedrockActorOrderCrossing(
         float minZ,
         float maxX,
         float maxY,
-        float maxZ) {
+        float maxZ,
+        int bufferedAxes) {
     /** {@code first} followed by {@code later}'s phases; only the move's first phase crosses an axis exactly. */
     static BedrockActorOrderCrossing then(BedrockActorOrderCrossing first, BedrockActorOrderCrossing later) {
         if (later == null) return first;
@@ -34,14 +36,44 @@ public record BedrockActorOrderCrossing(
                 first.minZ + later.minZ,
                 first.maxX + later.maxX,
                 first.maxY + later.maxY,
-                first.maxZ + later.maxZ);
+                first.maxZ + later.maxZ,
+                first.bufferedAxes | later.bufferedAxes);
     }
 
     /** This crossing as one of a later phase, which decides no axis exactly. */
     BedrockActorOrderCrossing later() {
         return exactAxes == 0
                 ? this
-                : new BedrockActorOrderCrossing(crossedAxes, 0, 0, minX, minY, minZ, maxX, maxY, maxZ);
+                : new BedrockActorOrderCrossing(
+                        crossedAxes, 0, 0, minX, minY, minZ, maxX, maxY, maxZ, bufferedAxes);
+    }
+
+    /**
+     * {@code crossing}, or no crossing, with the ends {@code x}, {@code y} and {@code z} give along {@code axes}
+     * added: the ends a moving actor's buffer allows along the axes it ended.
+     */
+    static BedrockActorOrderCrossing buffered(
+            BedrockActorOrderCrossing crossing,
+            int axes,
+            BedrockCollisionClipper.BufferedEnds x,
+            BedrockCollisionClipper.BufferedEnds y,
+            BedrockCollisionClipper.BufferedEnds z) {
+        if (axes == 0) return crossing;
+        if (crossing == null) {
+            return new BedrockActorOrderCrossing(
+                    axes, 0, 0, x.min(), y.min(), z.min(), x.max(), y.max(), z.max(), axes);
+        }
+        return new BedrockActorOrderCrossing(
+                crossing.crossedAxes | axes,
+                crossing.exactAxes,
+                crossing.belowWon,
+                Math.min(crossing.minX, x.min()),
+                Math.min(crossing.minY, y.min()),
+                Math.min(crossing.minZ, z.min()),
+                Math.max(crossing.maxX, x.max()),
+                Math.max(crossing.maxY, y.max()),
+                Math.max(crossing.maxZ, z.max()),
+                crossing.bufferedAxes | axes);
     }
 
     /** The range of the move's end along the crossed axes outside {@code ordered}, or null when there are none. */
@@ -54,6 +86,7 @@ public record BedrockActorOrderCrossing(
                 (axes & 4) == 0 ? 0.0D : minZ,
                 (axes & 1) == 0 ? 0.0D : maxX,
                 (axes & 2) == 0 ? 0.0D : maxY,
-                (axes & 4) == 0 ? 0.0D : maxZ);
+                (axes & 4) == 0 ? 0.0D : maxZ,
+                bufferedAxes & axes);
     }
 }

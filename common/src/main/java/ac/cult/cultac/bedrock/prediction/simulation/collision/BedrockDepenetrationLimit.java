@@ -18,6 +18,7 @@ public record BedrockDepenetrationLimit(float x, float y, float z) {
     public static final BedrockDepenetrationLimit HAPPY_GHAST = new BedrockDepenetrationLimit(0.1F, 2.0F, 0.1F);
 
     private static final String SOLID_ACTOR_LIMIT = "solidActorDepenetrationLimit";
+    private static final String SOLID_ACTOR_BUFFER = "solidActorBuffer";
 
     public static BedrockDepenetrationLimit uniform(float depth) {
         return new BedrockDepenetrationLimit(depth, depth, depth);
@@ -25,30 +26,48 @@ public record BedrockDepenetrationLimit(float x, float y, float z) {
 
     /** The shape of a solid actor's box, which gives every move that collects it this limit. */
     public PlacedBlockCollision solidActor(WorldCollisionBox box) {
+        return solidActor(box, 0.0F);
+    }
+
+    /**
+     * The shape of a solid actor's box, which gives every move that collects it this limit, and lets a move it ends
+     * along an axis end up to {@code buffer} from that end.
+     */
+    public PlacedBlockCollision solidActor(WorldCollisionBox box, float buffer) {
         List<WorldCollisionBox> boxes = List.of(box);
         return PlacedBlockCollision.manual(
                 new BlockPosition(
                         (int) Math.floor(box.minX()), (int) Math.floor(box.minY()), (int) Math.floor(box.minZ())),
                 PlacedBlockCollision.SOLID_ACTOR,
                 PlacedBlockCollision.SOLID_ACTOR,
-                Map.of(SOLID_ACTOR_LIMIT, List.of(x, y, z)),
+                buffer > 0.0F
+                        ? Map.of(SOLID_ACTOR_LIMIT, List.of(x, y, z), SOLID_ACTOR_BUFFER, buffer)
+                        : Map.of(SOLID_ACTOR_LIMIT, List.of(x, y, z)),
                 boxes,
                 boxes,
                 boxes);
     }
 
+    /** How far a move this solid actor ends along an axis may end from that end; 0 for any other shape. */
+    static float buffer(PlacedBlockCollision shape) {
+        return shape.isEntityCollision() && shape.bedrockState().get(SOLID_ACTOR_BUFFER) instanceof Number buffer
+                ? buffer.floatValue()
+                : 0.0F;
+    }
+
     /**
-     * The same solid actor's shape as a replayed tick meets it: it still stops a move, but gives the move no limit
-     * of its own, so a replayed move is not pushed out of an actor it overlaps.
+     * The same solid actor's shape as a replayed tick meets it: it still stops a move, and keeps its buffer, but gives
+     * the move no limit of its own, so a replayed move is not pushed out of an actor it overlaps.
      */
     public static PlacedBlockCollision replayed(PlacedBlockCollision shape) {
         if (ofSolidActor(shape) == null) return shape;
+        float buffer = buffer(shape);
         return new PlacedBlockCollision(
                 shape.position(),
                 shape.javaState(),
                 shape.javaStateProperties(),
                 shape.bedrockIdentifier(),
-                Map.of(),
+                buffer > 0.0F ? Map.of(SOLID_ACTOR_BUFFER, buffer) : Map.of(),
                 shape.collisionBoxes(),
                 shape.contactBoxes(),
                 shape.insideBlockContactBoxes(),

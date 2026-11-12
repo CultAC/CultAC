@@ -140,12 +140,14 @@ final class BedrockWorldSnapshotBuilder {
         }
         return collision
                 .depenetrationLimit()
-                .solidActor(new WorldCollisionBox(
-                        sourceBox.minX,
-                        sourceBox.minY,
-                        sourceBox.minZ,
-                        sourceBox.maxX,
-                        sourceBox.maxY,
-                        sourceBox.maxZ));
+                .solidActor(
+                        new WorldCollisionBox(
+                                sourceBox.minX,
+                                sourceBox.minY,
+                                sourceBox.minZ,
+                                sourceBox.maxX,
+                                sourceBox.maxY,
+                                sourceBox.maxZ),
+                        collision.buffer());
     }
 }

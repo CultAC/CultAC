@@ -1043,6 +1043,10 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
         return DebugText.print(this);
     }
 
-    /** The box of a solid actor a Bedrock move collides with, and the limit it gives every move that collects it. */
-    public record HardCollidingEntityCollision(SimpleCollisionBox box, BedrockDepenetrationLimit depenetrationLimit) {}
+    /**
+     * The box of a solid actor a Bedrock move collides with, the limit it gives every move that collects it, and how
+     * far a move it ends may end from Cult's end along that axis (0 unless a moving boat or happy ghast).
+     */
+    public record HardCollidingEntityCollision(
+            SimpleCollisionBox box, BedrockDepenetrationLimit depenetrationLimit, float buffer) {}
 }

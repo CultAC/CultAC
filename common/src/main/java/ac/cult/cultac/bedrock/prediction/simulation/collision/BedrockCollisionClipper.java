@@ -55,7 +55,10 @@ final class BedrockCollisionClipper {
             BedrockCoordinateFrame frame,
             BedrockDepenetrationLimit maximumDepenetration) {
         FloatMove move = FloatMove.from(requestedMove);
+        FloatMove requested = move;
         Optional<PlacedBlockCollision> yCollisionBlock = Optional.empty();
+        // The buffer of the actor that ended each axis, while no block ended it after.
+        float bufferX = 0.0F, bufferY = 0.0F, bufferZ = 0.0F;
         float penetration = 0.0F;
         // The two highest distinct lower bounds and two lowest distinct upper bounds solid actors put on each axis.
         float lx1 = NO_LOWER, lx2 = NO_LOWER, ly1 = NO_LOWER, ly2 = NO_LOWER, lz1 = NO_LOWER, lz2 = NO_LOWER;
@@ -147,6 +150,9 @@ final class BedrockCollisionClipper {
                 }
             }
             FloatMove clippedMove = clip.apply(move);
+            if (clippedMove.x() != move.x()) bufferX = actorsMet ? 0.0F : buffer(obstacle);
+            if (clippedMove.y() != move.y()) bufferY = actorsMet ? 0.0F : buffer(obstacle);
+            if (clippedMove.z() != move.z()) bufferZ = actorsMet ? 0.0F : buffer(obstacle);
             if (clippedMove.y() != move.y()) {
                 yCollisionBlock = obstacle.block();
             }
@@ -162,7 +168,26 @@ final class BedrockCollisionClipper {
             belowLastZ = lz1;
             aboveLastZ = uz1;
         }
-        if (crossed == 0) return new ClipResult(move.toVec3d(), yCollisionBlock, penetration, null);
+        BufferedEnds bufferedX = bufferX > 0.0F
+                ? bufferedEnds(
+                        SweepAxis.X, move.x(), requested.x(), bufferX, obstacles, moving, frame, maximumDepenetration)
+                : BufferedEnds.NONE;
+        BufferedEnds bufferedY = bufferY > 0.0F
+                ? bufferedEnds(
+                        SweepAxis.Y, move.y(), requested.y(), bufferY, obstacles, moving, frame, maximumDepenetration)
+                : BufferedEnds.NONE;
+        BufferedEnds bufferedZ = bufferZ > 0.0F
+                ? bufferedEnds(
+                        SweepAxis.Z, move.z(), requested.z(), bufferZ, obstacles, moving, frame, maximumDepenetration)
+                : BufferedEnds.NONE;
+        int bufferedAxes = (bufferedX.widens() ? 1 : 0) | (bufferedY.widens() ? 2 : 0) | (bufferedZ.widens() ? 4 : 0);
+        if (crossed == 0) {
+            return new ClipResult(
+                    move.toVec3d(),
+                    yCollisionBlock,
+                    penetration,
+                    BedrockActorOrderCrossing.buffered(null, bufferedAxes, bufferedX, bufferedY, bufferedZ));
+        }
         // An axis with one actor reaching across from each side ends at one of its two ends whatever the order; a
         // second distinct bound inside the crossing gives orders that end between them.
         int exact = (!(lx2 > ux1) && !(ux2 < lx1) ? 1 : 0)
@@ -179,8 +204,55 @@ final class BedrockCollisionClipper {
                 (crossed & 4) == 0 ? 0.0F : Math.min(belowLastZ, aboveLastZ) - move.z(),
                 (crossed & 1) == 0 ? 0.0F : Math.max(belowLastX, aboveLastX) - move.x(),
                 (crossed & 2) == 0 ? 0.0F : Math.max(belowLastY, aboveLastY) - move.y(),
-                (crossed & 4) == 0 ? 0.0F : Math.max(belowLastZ, aboveLastZ) - move.z());
-        return new ClipResult(move.toVec3d(), yCollisionBlock, penetration, crossing);
+                (crossed & 4) == 0 ? 0.0F : Math.max(belowLastZ, aboveLastZ) - move.z(),
+                0);
+        return new ClipResult(
+                move.toVec3d(),
+                yCollisionBlock,
+                penetration,
+                BedrockActorOrderCrossing.buffered(crossing, bufferedAxes, bufferedX, bufferedY, bufferedZ));
+    }
+
+    /** The buffer of a moving boat's or happy ghast's shape; 0 for a block or any other actor. */
+    private static float buffer(BlockCollision obstacle) {
+        return obstacle.block().map(BedrockDepenetrationLimit::buffer).orElse(0.0F);
+    }
+
+    /**
+     * Where a move an actor with {@code buffer} ended along {@code axis} at {@code end} may end instead, as offsets
+     * from that end: up to the buffer either way, neither back past the move's start nor past the requested move, and
+     * within the bounds the blocks put on the axis.
+     */
+    private static BufferedEnds bufferedEnds(
+            SweepAxis axis,
+            float end,
+            float requested,
+            float buffer,
+            List<BlockCollision> obstacles,
+            WorldCollisionBox moving,
+            BedrockCoordinateFrame frame,
+            BedrockDepenetrationLimit maximumDepenetration) {
+        float low = Math.max(end - buffer, Math.min(0.0F, requested));
+        float high = Math.min(end + buffer, Math.max(0.0F, requested));
+        for (BlockCollision obstacle : obstacles) {
+            if (isSolidActor(obstacle)) continue;
+            AabbClip clip = clipCollide(obstacle.box(), moving, frame);
+            if (clip.axis() != axis
+                    || clip.bound() == Bound.NONE
+                    || clip.penetration() > axis.component(maximumDepenetration)) continue;
+            low = clip.apply(low);
+            high = clip.apply(high);
+        }
+        return new BufferedEnds(Math.min(0.0F, low - end), Math.max(0.0F, high - end));
+    }
+
+    /** The offsets from a move's end along one axis that a moving actor's buffer allows. */
+    record BufferedEnds(float min, float max) {
+        static final BufferedEnds NONE = new BufferedEnds(0.0F, 0.0F);
+
+        boolean widens() {
+            return min < 0.0F || max > 0.0F;
+        }
     }
 
     /**

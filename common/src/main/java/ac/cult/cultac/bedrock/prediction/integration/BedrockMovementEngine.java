@@ -269,6 +269,9 @@ public final class BedrockMovementEngine implements MovementEngine {
             if (movement.previousState().isBoat() && player != null) breakLilyPads(player, movement);
             var state = bedrockResult.nextTickBaseState();
             var frame = result.getSimulationContext().getBedrockInput();
+            if (player != null && frame != null) {
+                chargeSolidActorBuffer(player, movement, frame.getClientTick(), acceptedDiff);
+            }
             Entry entry =
                     new Entry(BedrockForwardTick.finish(movement, state), bedrockResult.nextTickBaseMobJumpComponent());
             if (result.isExempt() && frame.getReportedEndOfTickVelocity() != null) {
@@ -288,6 +291,16 @@ public final class BedrockMovementEngine implements MovementEngine {
         }
 
         return new PredictionCommit(null, Set.of());
+    }
+
+    /** Charges the tick what its accepted move took of the buffer of the moving actors that ended its move. */
+    private static void chargeSolidActorBuffer(
+            CultPlayer player, BedrockMovementResult movement, long tick, Vec3 accepted) {
+        BedrockActorOrderRange range = movement.solidActorOrderRange();
+        if (player.bedrockState == null || accepted == null || range == null || range.bufferedAxes() == 0) return;
+        Vec3d own = movement.predictedPosition().subtract(movement.previousState().physicalFeetPosition());
+        player.bedrockState.solidActorBuffer.charge(
+                tick, range.buffered(own, BedrockVectorAdapter.toBedrock(accepted)));
     }
 
     /** The lily pads the committed boat move reached are gone from the client's world from its next tick. */
