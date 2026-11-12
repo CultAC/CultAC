@@ -49,6 +49,18 @@ public final class ClientKeyInput {
     }
 
     /**
+     * {@link #travelInput} for a player Entity#updateSwimming left swimming in water, where no pose slows the input:
+     * LocalPlayer#aiStep never crouches a swimming player, and Entity#isVisuallyCrawling is false in water.
+     */
+    public static Vec3 swimmingTravelInput(
+            CultPlayer player, SimulationContext context, KnownInput keys, float itemUseMultiplier, float speed) {
+        if (!player.compensatedEntities.getSelf().actionAlive) return Vec3.ZERO;
+        Vec3 modified = VelocityTransformer.getExactControllerModifiedInputStatic(
+                new Vec3(keys.strafeImpulse(), 0.0D, keys.forwardImpulse()), itemUseMultiplier, 1.0F);
+        return inputVector(context, modified, speed);
+    }
+
+    /**
      * Whether {@link #travelInput} gives an input rather than null in this context, whatever the keys, multipliers and
      * speed. {@code standing} is working space.
      */
