@@ -29,9 +29,13 @@ import ac.cult.cultac.utils.nmsutil.GeyserVelocity;
 import ac.cult.cultac.utils.nmsutil.NextTickVelocityDeriver;
 import ac.cult.cultac.utils.nmsutil.ReusableVelocitySet;
 import ac.cult.cultac.utils.nmsutil.VelocityCandidates;
+import java.util.AbstractSet;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.Set;
 
 public final class JavaMovementEngine implements MovementEngine {
@@ -226,7 +230,6 @@ public final class JavaMovementEngine implements MovementEngine {
             JavaInsideBlockEffects.Scan scan = JavaInsideBlockEffects.scan(player, result, moved.movement());
             Vec3 end = result.getSimulationContext().getStart().add(moved.movement());
             var states = new ArrayList<JavaPredictionCarry.State>(velocities.size());
-            var nextVelocities = new LinkedHashSet<Vec3>(velocities.size() * 2);
             for (Vec3 velocity : velocities) {
                 Vec3 stepped = JavaInsideBlockEffects.stepOn(player, result, moved, velocity);
                 var effects = JavaInsideBlockEffects.resolve(
@@ -239,10 +242,7 @@ public final class JavaMovementEngine implements MovementEngine {
                             effects.fallDistance(), shove.velocityAfter(effects.velocity()), effects.stuckSpeed());
                 var state =
                         new JavaPredictionCarry.State(effects.velocity(), effects.fallDistance(), effects.stuckSpeed());
-                if (!states.contains(state)) {
-                    states.add(state);
-                    nextVelocities.add(state.velocity());
-                }
+                if (!states.contains(state)) states.add(state);
             }
             var stateList = List.copyOf(states);
             Vec3 required = stateList.isEmpty() ? null : stateList.getFirst().stuckSpeed();
@@ -264,7 +264,7 @@ public final class JavaMovementEngine implements MovementEngine {
                             ? moved.fallDistance()
                             : stateList.getFirst().fallDistance(),
                     stateList);
-            return new PredictionCommit(carry, nextVelocities);
+            return new PredictionCommit(carry, new StateVelocities(stateList));
         }
         return new PredictionCommit(
                 JavaFallDistance.commit(player, result, acceptedDiff),
@@ -351,5 +351,64 @@ public final class JavaMovementEngine implements MovementEngine {
         // step-based callbacks after travel/landing as 26.1 and 26.2. In particular,
         // powder snow's inside shape must observe the fall distance at that step.
         return version.isNewerThanOrEquals(ClientVersion.V_1_21_11);
+    }
+
+    /**
+     * The distinct velocities of a list of states in first-seen order, as a {@link LinkedHashSet} adding each state's
+     * velocity in turn holds them. The states list must not change while the set is read.
+     */
+    static final class StateVelocities extends AbstractSet<Vec3> {
+        private final List<JavaPredictionCarry.State> states;
+        private final int size;
+
+        StateVelocities(List<JavaPredictionCarry.State> states) {
+            this.states = states;
+            int size = 0;
+            for (int i = 0; i < states.size(); i++) if (firstAt(i)) size++;
+            this.size = size;
+        }
+
+        /** Whether no state before {@code index} has the velocity of the state at {@code index}. */
+        private boolean firstAt(int index) {
+            Vec3 velocity = states.get(index).velocity();
+            for (int i = 0; i < index; i++)
+                if (Objects.equals(velocity, states.get(i).velocity())) return false;
+            return true;
+        }
+
+        @Override
+        public int size() {
+            return size;
+        }
+
+        @Override
+        public boolean isEmpty() {
+            return size == 0;
+        }
+
+        @Override
+        public Iterator<Vec3> iterator() {
+            return new Iterator<>() {
+                private int next = advance(0);
+
+                private int advance(int from) {
+                    while (from < states.size() && !firstAt(from)) from++;
+                    return from;
+                }
+
+                @Override
+                public boolean hasNext() {
+                    return next < states.size();
+                }
+
+                @Override
+                public Vec3 next() {
+                    if (next >= states.size()) throw new NoSuchElementException();
+                    Vec3 velocity = states.get(next).velocity();
+                    next = advance(next + 1);
+                    return velocity;
+                }
+            };
+        }
     }
 }
