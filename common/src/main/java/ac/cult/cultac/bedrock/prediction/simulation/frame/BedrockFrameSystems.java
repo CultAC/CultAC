@@ -83,8 +83,12 @@ public final class BedrockFrameSystems {
                 facts.context(),
                 facts.effectState());
 
-        BedrockFluidMovementSource movementSource = BedrockFluidMovementSourceResolver.fromContext(
-                facts.context(), input.previousState().physicalFeetPosition().y());
+        // A flying player is not pushed by the current.
+        BedrockFluidMovementSource movementSource =
+                !input.previousState().isVehicle() && facts.context().movementAbilityFlying()
+                        ? BedrockFluidMovementSource.NONE
+                        : BedrockFluidMovementSourceResolver.fromContext(
+                                facts.context(), input.previousState().physicalFeetPosition().y());
         velocity = velocity.add(movementSource.appliedDelta());
         // The lerp step drops the motion the tick carries in, the current's push with it; input still applies.
         if (input.options().lerpStep()) velocity = Vec3d.ZERO;

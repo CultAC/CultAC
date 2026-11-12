@@ -40,7 +40,8 @@ final class BedrockInitialStateFactory {
         BedrockMovementContext fluidContext =
                 BedrockFluidStateResolver.withFluidStateFromBlockWorld(movementContext, start);
         // A vehicle the client starts predicting starts at rest; the flow pushes it on that first tick.
-        Vec3d initialVelocity = context.getVehicle() != null
+        // A flying player is not pushed by the current.
+        Vec3d initialVelocity = context.getVehicle() != null || movementContext.movementAbilityFlying()
                 ? Vec3d.ZERO
                 : BedrockFluidMovementSourceResolver.fromContext(fluidContext, start.y())
                         .appliedDelta();
