@@ -29,6 +29,10 @@ public final class BedrockSimulation {
     }
 
     private static Candidate movementTick(Input input, Vec3d control, int solidActorOrder) {
+        return movementTick(input, control, solidActorOrder, null);
+    }
+
+    private static Candidate movementTick(Input input, Vec3d control, int solidActorOrder, Vec3d nominalEnd) {
         if (control.y() != 0.0D
                 || !Double.isFinite(control.x())
                 || !Double.isFinite(control.z())
@@ -41,7 +45,7 @@ public final class BedrockSimulation {
         if (state.isHorse()) state = state.withHorse(state.horse().withForwardJump(control.z() > 0.0D));
         var options =
                 BedrockTravelOptions.vanilla(input.canStep(), input.maxUpStep()).withTickStart(state.tickStart());
-        if (solidActorOrder != 0) options = options.withSolidActorOrder(solidActorOrder);
+        if (solidActorOrder != 0) options = options.withSolidActorOrder(solidActorOrder, nominalEnd);
         var scaffolding = !state.isVehicle() && descendRequested(state, input)
                 ? BedrockTravelInput.ScaffoldingVerticalBranch.DESCEND
                 : BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE;
@@ -73,10 +77,15 @@ public final class BedrockSimulation {
             Candidate first = movementTick(input, control, 0);
             int collected = first.movementResult().solidActorOrder();
             if (collected == 0) return List.of(first);
-            ArrayList<Candidate> orders = new ArrayList<>(BedrockSolidActorOrders.MAX_ORDERS);
+            ArrayList<Candidate> orders = new ArrayList<>(first.movementResult().solidActorOrders());
             orders.add(first);
+            Vec3d nominalEnd = first.movementResult()
+                    .predictedPosition()
+                    .subtract(input.previousState().physicalFeetPosition());
             for (int index = 1; index < first.movementResult().solidActorOrders(); index++) {
-                orders.add(movementTick(input, control, BedrockSolidActorOrders.order(collected, index)));
+                Candidate candidate =
+                        movementTick(input, control, BedrockSolidActorOrders.order(collected, index), nominalEnd);
+                if (realizesPositionState(candidate.movementResult())) orders.add(candidate);
             }
             return List.copyOf(orders);
         }
@@ -111,9 +120,8 @@ public final class BedrockSimulation {
             var options = BedrockTravelOptions.vanilla(input.canStep(), input.maxUpStep())
                     .withTickStart(state.tickStart());
             int collected = 0;
-            for (int index = 0;
-                    index < BedrockSolidActorOrders.count(BedrockSolidActorOrders.axes(collected));
-                    index++) {
+            Vec3d nominalEnd = null;
+            for (int index = 0; index < BedrockSolidActorOrders.variants(collected); index++) {
                 var result = travel(
                         state,
                         input.frame(),
@@ -122,10 +130,15 @@ public final class BedrockSimulation {
                         BedrockTravelInput.ScaffoldingVerticalBranch.SOURCE,
                         index == 0
                                 ? options
-                                : options.withSolidActorOrder(BedrockSolidActorOrders.order(collected, index)),
+                                : options.withSolidActorOrder(
+                                        BedrockSolidActorOrders.order(collected, index), nominalEnd),
                         input.mobJumpComponent());
-                if (index == 0) collected = result.movementResult().solidActorOrder();
-                candidates.add(new Candidate(result.movementResult(), result.mobJumpComponent()));
+                if (index == 0) {
+                    collected = result.movementResult().solidActorOrder();
+                    nominalEnd = result.movementResult().predictedPosition().subtract(state.physicalFeetPosition());
+                }
+                if (realizesPositionState(result.movementResult()))
+                    candidates.add(new Candidate(result.movementResult(), result.mobJumpComponent()));
             }
         }
     }
@@ -160,9 +173,8 @@ public final class BedrockSimulation {
                 BedrockTravelOptions mode =
                         options.withSprintTravelSpeedMode(speed).withSprintJumpImpulseMode(jump);
                 int collected = 0;
-                for (int index = 0;
-                        index < BedrockSolidActorOrders.count(BedrockSolidActorOrders.axes(collected));
-                        index++) {
+                Vec3d nominalEnd = null;
+                for (int index = 0; index < BedrockSolidActorOrders.variants(collected); index++) {
                     BedrockTravelResult result = travel(
                             input.previousState(),
                             input.frame(),
@@ -171,17 +183,30 @@ public final class BedrockSimulation {
                             scaffolding,
                             index == 0
                                     ? mode
-                                    : mode.withSolidActorOrder(BedrockSolidActorOrders.order(collected, index)),
+                                    : mode.withSolidActorOrder(
+                                            BedrockSolidActorOrders.order(collected, index), nominalEnd),
                             input.mobJumpComponent());
-                    if (index == 0) collected = result.movementResult().solidActorOrder();
+                    if (index == 0) {
+                        collected = result.movementResult().solidActorOrder();
+                        nominalEnd = result.movementResult()
+                                .predictedPosition()
+                                .subtract(input.previousState().physicalFeetPosition());
+                    }
                     Candidate candidate = new Candidate(result.movementResult(), result.mobJumpComponent());
-                    if (!branch.contains(candidate)) {
+                    if (realizesPositionState(result.movementResult()) && !branch.contains(candidate)) {
                         branch.add(candidate);
                     }
                 }
             }
         }
         candidates.addAll(branch);
+    }
+
+    private static boolean realizesPositionState(BedrockMovementResult result) {
+        var flags = result.predictedState().collisionFlags();
+        int contacts =
+                (flags.xCollision() ? 1 : 0) | (flags.verticalCollision() ? 2 : 0) | (flags.zCollision() ? 4 : 0);
+        return BedrockSolidActorOrders.realizesPositionState(result.solidActorOrder(), contacts);
     }
 
     private static BedrockWorldSnapshot snapshotForBranch(

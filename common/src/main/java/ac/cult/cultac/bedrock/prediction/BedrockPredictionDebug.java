@@ -108,6 +108,13 @@ public final class BedrockPredictionDebug {
             if (accepted.x != own.x() || accepted.y != own.y() || accepted.z != own.z()) {
                 text.append(label).append("actorOrderRange=").append(value).append(range.describe());
             }
+            if (range.bufferedAxes() != 0) {
+                text.append(label)
+                        .append("actorBufferSpend=")
+                        .append(value)
+                        .append(range.buffered(own, new Vec3d(accepted.x, accepted.y, accepted.z)));
+                text.append(label).append("actorBufferLimit=").append(value).append(range.bufferDistance());
+            }
         }
         return text.toString();
     }
@@ -141,6 +148,8 @@ public final class BedrockPredictionDebug {
         BedrockMovementResult movementResult = movementResult(bedrockResult);
         BedrockMovementObservation observation = currentObservation(player, predictionComplete.getPredictionResult());
         if (movementResult != null && observation != null) {
+            builder.append(" rawPositionOffset=").append(observation.rawPositionOffset());
+            builder.append(" positionOffset=").append(observation.positionOffset());
             builder.append(" predictedPos=").append(formatVectorDebug(observation.predictedPosition()));
             builder.append(" packetPos=").append(formatVectorDebug(observation.actualPosition()));
             builder.append(" predictedVel=").append(formatOffsetDebug(observation.velocityOffset()));

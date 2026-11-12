@@ -126,6 +126,36 @@ public final class BedrockEntityMove {
             boolean flying,
             WorldCollisionBox fetchBox,
             int solidActorOrder) {
+        return move(
+                current,
+                frame,
+                blockCollisionWorld,
+                dimensions,
+                requestedPosition,
+                velocity,
+                moveY,
+                canStep,
+                maxUpStep,
+                flying,
+                fetchBox,
+                solidActorOrder,
+                null);
+    }
+
+    public static Result move(
+            BedrockMovementState current,
+            BedrockInputFrame frame,
+            BlockCollisionWorld blockCollisionWorld,
+            PlayerDimensionsState dimensions,
+            Vec3d requestedPosition,
+            Vec3d velocity,
+            double moveY,
+            boolean canStep,
+            double maxUpStep,
+            boolean flying,
+            WorldCollisionBox fetchBox,
+            int solidActorOrder,
+            Vec3d nominalEnd) {
         if (blockCollisionWorld.isEmpty()) {
             WorldCollisionBox box = BedrockActorBox.move(
                     current.collisionBox(dimensions),
@@ -137,7 +167,17 @@ public final class BedrockEntityMove {
 
         Vec3d requestedDelta = requestedPosition.subtract(current.physicalFeetPosition());
         List<BlockCollision> shapes = BedrockCollisionSweep.collisionObstacles(blockCollisionWorld);
-        List<BlockCollision> obstacles = BedrockCollisionFetchBox.fetched(shapes, fetchBox);
+        WorldCollisionBox start = current.collisionBox(dimensions);
+        var placement = BedrockSolidActorPositions.place(
+                shapes,
+                start,
+                requestedDelta,
+                nominalEnd == null ? requestedDelta : nominalEnd,
+                current.coordinateFrame(),
+                BedrockSolidActorOrders.positionChanges(solidActorOrder),
+                BedrockSolidActorOrders.nominalContacts(solidActorOrder));
+        List<BlockCollision> collisionShapes = placement == null ? shapes : placement.shapes();
+        List<BlockCollision> obstacles = BedrockCollisionFetchBox.fetched(collisionShapes, fetchBox);
         if (solidActorOrder != 0) {
             obstacles = BedrockSolidActorOrders.arrange(
                     obstacles,
@@ -148,20 +188,40 @@ public final class BedrockEntityMove {
         }
         ActorMove actorMove = actorMove(current, requestedDelta, obstacles, dimensions);
         CollisionMove collisionMove = autoStep(current, actorMove, dimensions, canStep, maxUpStep, flying);
-        Result result =
-                finalizeMove(current, frame, dimensions, velocity, actorMove.requestedDelta(), collisionMove, shapes);
+        Result result = finalizeMove(
+                current, frame, dimensions, velocity, actorMove.requestedDelta(), collisionMove, collisionShapes);
         BedrockActorOrderCrossing crossing = BedrockActorOrderCrossing.then(
                 collisionMove.baseMove().actorOrder(),
                 collisionMove.steppedUp() ? collisionMove.selectedMove().actorOrder() : null);
         if (solidActorOrder == 0) {
-            if (crossing == null) return result;
-            int axes = BedrockSolidActorOrders.decidedAxes(crossing.exactAxes());
+            int axes = crossing == null ? 0 : BedrockSolidActorOrders.decidedAxes(crossing.exactAxes());
             int order = axes == 0 ? 0 : BedrockSolidActorOrders.collected(axes, crossing.belowWon());
-            return result.withSolidActorOrder(order, crossing.range(axes));
+            var range = crossing == null ? null : crossing.range(axes);
+            int contacts = range == null ? 0 : range.bufferedAxes();
+            int positionAxes = BedrockSolidActorPositions.axes(
+                    shapes,
+                    start,
+                    requestedDelta,
+                    result.position().subtract(current.physicalFeetPosition()),
+                    contacts,
+                    current.coordinateFrame());
+            order = BedrockSolidActorOrders.withPositionStates(order, positionAxes, contacts);
+            return result.withSolidActorOrder(order, range);
         }
-        return result.withSolidActorOrder(
-                solidActorOrder,
-                crossing == null ? null : crossing.range(BedrockSolidActorOrders.axes(solidActorOrder)));
+        var range = crossing == null ? null : crossing.range(BedrockSolidActorOrders.axes(solidActorOrder));
+        if (placement != null) {
+            int contacts = (result.xCollision() ? 1 : 0)
+                    | (result.verticalCollision() ? 2 : 0)
+                    | (result.zCollision() ? 4 : 0);
+            int actorContacts = range == null ? 0 : range.bufferedAxes();
+            int nominalContacts = BedrockSolidActorOrders.nominalContacts(solidActorOrder);
+            int realized = (~nominalContacts & actorContacts & contacts) | (nominalContacts & ~contacts);
+            solidActorOrder =
+                    BedrockSolidActorOrders.withRealizedPositions(solidActorOrder, realized & placement.changed());
+            if (BedrockSolidActorOrders.realizesPositionState(solidActorOrder, contacts))
+                range = placement.range(range, requestedDelta);
+        }
+        return result.withSolidActorOrder(solidActorOrder, range);
     }
 
     public static Result noCollisionResult(Vec3d requestedPosition, Vec3d velocity) {

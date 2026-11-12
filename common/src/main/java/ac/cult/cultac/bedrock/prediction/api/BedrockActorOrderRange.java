@@ -8,7 +8,8 @@ import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
  * across from one side, a third axis, or one a later phase crosses has a range from the order the client meets them
  * in; an axis a moving boat or happy ghast ended has one from that actor's buffer ({@code bufferedAxes}, bit per
  * axis: X 1, Y 2, Z 4). Those axes share {@code bufferDistance}; {@code unbuffered} retains the ends actor ordering
- * permits without borrowing. The move's velocity and collision are those of its own end, which every end shares along a collided axis.
+ * permits without borrowing. For a contact-position candidate it also records the untranslated actor's reference,
+ * which can lie outside the requested move; reaching the contact then has a minimum charge. The move's velocity and collision are those of its own end, which every end shares along a collided axis.
  */
 public record BedrockActorOrderRange(
         double minX,
@@ -32,31 +33,33 @@ public record BedrockActorOrderRange(
         Vec3d offset = bufferedOffset(clipped.subtract(base));
         if (offset.length() <= bufferDistance) return clipped;
 
-        // Project onto the distance budget and the box together. A block/request bound may stop one axis before
-        // the distance budget does; fix that axis at its bound, then share the remaining budget over the others.
+        // Project onto the box and the shared sphere together. Contact onset may require a minimum
+        // translation before an endpoint is reachable, so the reference can lie outside this box.
         Vec3d requested = bufferedOffset(claimed.subtract(base));
         double[] delta = {requested.x(), requested.y(), requested.z()};
-        double[] limit = {Math.abs(offset.x()), Math.abs(offset.y()), Math.abs(offset.z())};
-        double[] selected = new double[3];
-        boolean[] fixed = new boolean[3];
-        double remaining = bufferDistance * bufferDistance;
-        for (int pass = 0; pass < 3; pass++) {
-            double squared = 0.0D;
-            for (int axis = 0; axis < 3; axis++) if (!fixed[axis]) squared += delta[axis] * delta[axis];
-            if (squared == 0.0D) break;
-            double scale = Math.sqrt(Math.max(0.0D, remaining) / squared);
-            boolean bounded = false;
-            for (int axis = 0; axis < 3; axis++) {
-                if (fixed[axis] || Math.abs(delta[axis]) * scale <= limit[axis]) continue;
-                selected[axis] = Math.copySign(limit[axis], delta[axis]);
-                remaining -= limit[axis] * limit[axis];
-                fixed[axis] = true;
-                bounded = true;
-            }
-            if (bounded) continue;
-            for (int axis = 0; axis < 3; axis++) if (!fixed[axis]) selected[axis] = delta[axis] * scale;
-            break;
+        double[] low = {end.x() + minX - base.x(), end.y() + minY - base.y(), end.z() + minZ - base.z()};
+        double[] high = {end.x() + maxX - base.x(), end.y() + maxY - base.y(), end.z() + maxZ - base.z()};
+        double maximum = 0.0D;
+        for (int axis = 0; axis < 3; axis++) {
+            if ((bufferedAxes & 1 << axis) == 0) low[axis] = high[axis] = 0.0D;
+            maximum = Math.max(maximum, Math.abs(delta[axis]));
         }
+        if (maximum == 0.0D) throw new IllegalStateException("Actor contact has no feasible budget projection");
+        double[] direction = {delta[0] / maximum, delta[1] / maximum, delta[2] / maximum};
+        double squaredBudget = bufferDistance * bufferDistance;
+        if (squared(0.0D, direction, low, high) > squaredBudget)
+            throw new IllegalStateException("Actor contact needs more than its position budget");
+        double lower = 0.0D;
+        double upper = Math.min(maximum, Math.max(bufferDistance, Double.MIN_NORMAL));
+        while (upper < maximum && squared(upper, direction, low, high) < squaredBudget)
+            upper = Math.min(maximum, upper * 2.0D);
+        for (int pass = 0; pass < 64; pass++) {
+            double middle = lower + (upper - lower) * 0.5D;
+            if (squared(middle, direction, low, high) <= squaredBudget) lower = middle;
+            else upper = middle;
+        }
+        double[] selected = new double[3];
+        for (int axis = 0; axis < 3; axis++) selected[axis] = clamp(direction[axis] * lower, low[axis], high[axis]);
         return new Vec3d(
                 (bufferedAxes & 1) == 0 ? clipped.x() : base.x() + selected[0],
                 (bufferedAxes & 2) == 0 ? clipped.y() : base.y() + selected[1],
@@ -68,6 +71,15 @@ public record BedrockActorOrderRange(
         if (bufferedAxes == 0) return 0.0D;
         Vec3d selected = closest(end, claimed);
         return bufferedOffset(selected.subtract(baseClosest(end, selected))).length();
+    }
+
+    private static double squared(double scale, double[] direction, double[] low, double[] high) {
+        double squared = 0.0D;
+        for (int axis = 0; axis < 3; axis++) {
+            double value = clamp(direction[axis] * scale, low[axis], high[axis]);
+            squared += value * value;
+        }
+        return squared;
     }
 
     private Vec3d bufferedOffset(Vec3d offset) {

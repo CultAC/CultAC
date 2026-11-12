@@ -15,16 +15,22 @@ import java.util.List;
  * order: the tick takes the collected order's move and one more per such axis put the other way round, the actors
  * bounding it from the deciding side at the move's start met last, those bounding it from the other side first, and
  * every other shape in its place. At most two axes take part (X, then Z, then Y), so a tick has at most
- * {@link #MAX_ORDERS} moves. Every other crossed axis may end anywhere between its two ends, which the move carries as
+ * {@link #MAX_ORDERS} actor orders. Every other crossed axis may end anywhere between its two ends, which the move carries as
  * a range; any other tick has its one move in the collected order.
  *
  * <p>An order is an int: 0 when the actors' order decides no axis; otherwise {@code ARRANGED | axes | winners << 3},
  * with a bit per axis (X 1, Y 2, Z 4) and a winner bit set when the actors bounding the axis from below are met last,
  * and {@code COLLECTED} on the tick's first move, which keeps the order the actors were collected in. Any other axis
  * the actors' order decides is a range of the move's end (see {@link BedrockActorOrderCrossing}).
+ *
+ * <p>The existing moving-actor position budget may also change contact onset or release on each axis. Bits 8..10
+ * name those axes, 11..13 the selected changes, 14..16 the nominal buffered-actor contacts and 17..19 the changes
+ * realized by the normal collision pass. Their eight combinations multiply the actor orders, giving at most
+ * {@link #MAX_VARIANTS} current-tick moves. Only the selected movement state is retained for the following tick.
  */
 public final class BedrockSolidActorOrders {
     public static final int MAX_ORDERS = 4;
+    public static final int MAX_VARIANTS = MAX_ORDERS * 8;
     private static final int ARRANGED = 1 << 6;
     private static final int COLLECTED = 1 << 7;
     private static final int[] AXIS_PRIORITY = {0, 2, 1};
@@ -55,8 +61,8 @@ public final class BedrockSolidActorOrders {
     }
 
     /**
-     * The {@code index}th order, from 1 below {@link #count(int)}, of the tick whose collected order is {@code
-     * collected}: each set bit of the index puts one decided axis the other way round.
+     * The {@code index}th variant, from 1 below {@link #variants(int)}, of the tick whose collected order is {@code
+     * collected}: the first index bits flip decided actor orders, followed by contact-position states.
      */
     public static int order(int collected, int index) {
         int axes = axes(collected);
@@ -66,7 +72,50 @@ public final class BedrockSolidActorOrders {
             if ((axes & 1 << axis) == 0) continue;
             if ((index >> bit++ & 1) != 0) flipped |= 1 << axis;
         }
-        return ARRANGED | axes | ((collected >> 3 & 7) ^ flipped) << 3;
+        int positions = positionAxes(collected);
+        int positionChanges = 0;
+        for (int axis : AXIS_PRIORITY) {
+            if ((positions & 1 << axis) != 0 && (index >> bit++ & 1) != 0) positionChanges |= 1 << axis;
+        }
+        return ARRANGED
+                | axes
+                | ((collected >> 3 & 7) ^ flipped) << 3
+                | (positions << 8)
+                | (positionChanges << 11)
+                | (collected & (7 << 14));
+    }
+
+    /** The same actor-position budget can decide contact onset or release on each axis. */
+    static int withPositionStates(int order, int axes, int nominalContacts) {
+        if (axes == 0) return order;
+        return order | ARRANGED | COLLECTED | axes << 8 | nominalContacts << 14;
+    }
+
+    static int positionAxes(int order) {
+        return order >> 8 & 7;
+    }
+
+    static int positionChanges(int order) {
+        return order >> 11 & 7;
+    }
+
+    static int nominalContacts(int order) {
+        return order >> 14 & 7;
+    }
+
+    public static int variants(int order) {
+        return count(axes(order)) * count(positionAxes(order));
+    }
+
+    /** A requested contact-state change must survive the ordinary sweep, its blocks and any step. */
+    public static boolean realizesPositionState(int order, int contacts) {
+        int changed = positionChanges(order);
+        if ((order >> 17 & changed) != changed) return false;
+        return ((contacts ^ nominalContacts(order)) & changed) == changed;
+    }
+
+    static int withRealizedPositions(int order, int realized) {
+        return order | realized << 17;
     }
 
     /** Whether {@code order} is the collected order of a tick its actors' order decides. */

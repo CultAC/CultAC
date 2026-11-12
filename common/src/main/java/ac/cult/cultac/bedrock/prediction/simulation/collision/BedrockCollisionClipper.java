@@ -230,6 +230,28 @@ final class BedrockCollisionClipper {
         return obstacle.block().map(BedrockDepenetrationLimit::buffer).orElse(0.0F);
     }
 
+    /** A buffered actor's separated face on the requested axis; overlap resolution is unchanged. */
+    static BufferedFace bufferedFace(
+            BlockCollision obstacle, WorldCollisionBox moving, Vec3d requested, BedrockCoordinateFrame frame) {
+        float budget = buffer(obstacle);
+        if (budget <= 0.0F) return null;
+        AabbClip clip = clipCollide(obstacle.box(), moving, frame);
+        if (clip.bound() == Bound.NONE || clip.penetration() != 0.0F) return null;
+        float move = (float)
+                switch (clip.axis()) {
+                    case X -> requested.x();
+                    case Y -> requested.y();
+                    case Z -> requested.z();
+                };
+        if (move > 0.0F && clip.bound() == Bound.AT_MOST && clip.edge() >= 0.0F
+                || move < 0.0F && clip.bound() == Bound.AT_LEAST && clip.edge() <= 0.0F) {
+            return new BufferedFace(clip.axis().ordinal(), clip.edge(), budget);
+        }
+        return null;
+    }
+
+    record BufferedFace(int axis, float edge, float budget) {}
+
     /**
      * Where a move an actor with {@code buffer} ended along {@code axis} at {@code end} may end instead, as offsets
      * from that end: up to the buffer either way, neither back past the move's start nor past the requested move, and

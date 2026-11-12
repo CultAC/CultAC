@@ -155,9 +155,9 @@ public record BedrockMovementResult(
         }
     }
 
-    /** How many moves the tick takes over the orders of its solid actors: one per way each decided axis ends. */
+    /** How many current-tick moves its solid actors' orders and bounded contact-position states can produce. */
     public int solidActorOrders() {
-        return 1 << Integer.bitCount(solidActorOrder & 7);
+        return ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockSolidActorOrders.variants(solidActorOrder);
     }
 
     public Vec3d predictedPosition() {

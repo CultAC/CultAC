@@ -1,5 +1,6 @@
 package ac.cult.cultac.bedrock.prediction.simulation.frame;
 
+import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState.TickStart;
 import java.util.Objects;
 
@@ -9,7 +10,18 @@ public record BedrockTravelOptions(
         SprintTravelSpeedMode sprintTravelSpeedMode,
         SprintJumpImpulseMode sprintJumpImpulseMode,
         TickStart tickStart,
-        int solidActorOrder) {
+        int solidActorOrder,
+        Vec3d actorPositionEnd) {
+    public BedrockTravelOptions(
+            StepMode stepMode,
+            double maxUpStep,
+            SprintTravelSpeedMode sprintTravelSpeedMode,
+            SprintJumpImpulseMode sprintJumpImpulseMode,
+            TickStart tickStart,
+            int solidActorOrder) {
+        this(stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, tickStart, solidActorOrder, null);
+    }
+
     public BedrockTravelOptions(
             StepMode stepMode,
             double maxUpStep,
@@ -29,13 +41,24 @@ public record BedrockTravelOptions(
 
     public BedrockTravelOptions withTickStart(TickStart start) {
         return new BedrockTravelOptions(
-                stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, start, solidActorOrder);
+                stepMode,
+                maxUpStep,
+                sprintTravelSpeedMode,
+                sprintJumpImpulseMode,
+                start,
+                solidActorOrder,
+                actorPositionEnd);
     }
 
     /** The order the move meets its solid actors in (see {@code BedrockSolidActorOrders}); 0 is the collected order. */
     public BedrockTravelOptions withSolidActorOrder(int order) {
         return new BedrockTravelOptions(
-                stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, tickStart, order);
+                stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, tickStart, order, actorPositionEnd);
+    }
+
+    public BedrockTravelOptions withSolidActorOrder(int order, Vec3d nominalEnd) {
+        return new BedrockTravelOptions(
+                stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, tickStart, order, nominalEnd);
     }
 
     /** A teleported actor's tick runs no travel. */
@@ -73,12 +96,24 @@ public record BedrockTravelOptions(
 
     public BedrockTravelOptions withSprintTravelSpeedMode(SprintTravelSpeedMode sprintTravelSpeedMode) {
         return new BedrockTravelOptions(
-                stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, tickStart, solidActorOrder);
+                stepMode,
+                maxUpStep,
+                sprintTravelSpeedMode,
+                sprintJumpImpulseMode,
+                tickStart,
+                solidActorOrder,
+                actorPositionEnd);
     }
 
     public BedrockTravelOptions withSprintJumpImpulseMode(SprintJumpImpulseMode sprintJumpImpulseMode) {
         return new BedrockTravelOptions(
-                stepMode, maxUpStep, sprintTravelSpeedMode, sprintJumpImpulseMode, tickStart, solidActorOrder);
+                stepMode,
+                maxUpStep,
+                sprintTravelSpeedMode,
+                sprintJumpImpulseMode,
+                tickStart,
+                solidActorOrder,
+                actorPositionEnd);
     }
 
     public boolean canStep() {
