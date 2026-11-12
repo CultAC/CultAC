@@ -15,6 +15,7 @@ import ac.cult.cultac.events.packets.listeners.CheckManagerListener;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.CultWrite;
 import ac.cult.cultac.network.SunkMove;
+import ac.cult.cultac.network.SunkPositionSync;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
@@ -26,6 +27,7 @@ import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.player.PlayerObserver;
 import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.protocol.codec.entity.EntityPositionSyncCodec;
 import ac.cult.cultac.protocol.codec.entity.MoveEntityCodec;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundDamageEvent;
@@ -861,6 +863,19 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             PacketSendEvent<ClientboundEntityPositionSync> event,
             CultPlayer player,
             ClientboundEntityPositionSync packet) {
+        if (packet == EntityPositionSyncCodec.SUNK) {
+            SunkPositionSync sync = event.getUser().getCultConnection().sunkPositionSync();
+            EntityPositionPath path = EntityPositionPath.linear(new Vec3(sync.x(), sync.y(), sync.z()));
+            handleMoveEntity(
+                    event,
+                    positionSyncPacket(
+                            sync.entityId(),
+                            receivesViaSteppedPaths() ? viaSteppedPath(path.endPosition()) : path,
+                            sync.yaw(),
+                            sync.pitch(),
+                            sync.onGround()));
+            return;
+        }
         PositionPath position = packet.position();
         // ViaBackwards 26.3->26.2 keeps only a stepped path's final position.
         if (player.getClientVersion().isOlderThan(ClientVersion.V_26_3))

@@ -6,6 +6,7 @@ import ac.cult.cultac.network.packet.FrameLease;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.*;
+import ac.cult.cultac.protocol.codec.entity.EntityPositionSyncCodec;
 import ac.cult.cultac.protocol.codec.entity.MoveEntityCodec;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
@@ -29,7 +30,8 @@ import java.util.function.Function;
 import org.jetbrains.annotations.ApiStatus;
 
 /** Authoritative identity, player attachment and transport state for one channel. */
-public final class CultConnection implements CodecState, FrameLease.Source, MoveEntityCodec.Sink {
+public final class CultConnection
+        implements CodecState, FrameLease.Source, MoveEntityCodec.Sink, EntityPositionSyncCodec.Sink {
     private static final int CONTEXT_SLOTS = 256;
 
     private final Channel channel;
@@ -135,7 +137,8 @@ public final class CultConnection implements CodecState, FrameLease.Source, Move
 
     private final FrameLease.Lender frameLender = new FrameLease.Lender();
     private final SunkMove sunkMove = new SunkMove();
-    /** The encoder's current read may sink a linear move. Owner only. */
+    private final SunkPositionSync sunkPositionSync = new SunkPositionSync();
+    /** The encoder's current read may sink a linear move or position sync. Owner only. */
     private boolean sinksMoves;
 
     public void packetObserver(PacketLogObserver observer) {
@@ -230,7 +233,7 @@ public final class CultConnection implements CodecState, FrameLease.Source, Move
         return frameLender.lease(frame);
     }
 
-    /** Lets the read the encoder begins next sink a linear move, or stops it. Model context only. */
+    /** Lets the read the encoder begins next sink a linear move or position sync, or stops it. Model context only. */
     @ApiStatus.Internal
     public void sinkMoves(boolean sink) {
         sinksMoves = sink;
@@ -263,6 +266,26 @@ public final class CultConnection implements CodecState, FrameLease.Source, Move
     @ApiStatus.Internal
     public SunkMove sunkMove() {
         return sunkMove;
+    }
+
+    @Override
+    public boolean sinksPositionSync() {
+        return sinksMoves && !sunkPositionSync.held;
+    }
+
+    @Override
+    @ApiStatus.Internal
+    public void positionSync(int entityId, double x, double y, double z, float yaw, float pitch, boolean onGround) {
+        sunkPositionSync.hold(entityId, x, y, z, yaw, pitch, onGround);
+    }
+
+    /**
+     * The values of the position sync the encoder's read returned as {@link EntityPositionSyncCodec#SUNK}, until it
+     * {@link SunkPositionSync#release releases} them once its dispatch returns. Model context only.
+     */
+    @ApiStatus.Internal
+    public SunkPositionSync sunkPositionSync() {
+        return sunkPositionSync;
     }
 
     @Override

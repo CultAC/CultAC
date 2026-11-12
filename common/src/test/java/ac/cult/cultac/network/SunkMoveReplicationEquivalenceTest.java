@@ -13,6 +13,7 @@ import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.ProtocolVersion;
+import ac.cult.cultac.protocol.codec.entity.EntityPositionSyncCodec;
 import ac.cult.cultac.protocol.codec.entity.MoveEntityCodec;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityPositionSync;
@@ -45,7 +46,8 @@ import org.mockito.Mockito;
 
 /**
  * One seeded entity packet script runs through a player handed every move as its record and one handed each linear
- * move as {@link MoveEntityCodec#SUNK} with its values held on the connection; the tracked entities and the
+ * move as {@link MoveEntityCodec#SUNK} and each linear position sync as {@link EntityPositionSyncCodec#SUNK} with its
+ * values held on the connection; the tracked entities and the
  * transactions match after every step.
  */
 class SunkMoveReplicationEquivalenceTest {
@@ -84,9 +86,11 @@ class SunkMoveReplicationEquivalenceTest {
                 if (op.startsWith("move")) moves++;
                 assertEquals(records.snapshot(), sunk.snapshot(), "step " + step + " (" + op + ")");
                 assertFalse(sunk.connection().sunkMove().held());
+                assertFalse(sunk.connection().sunkPositionSync().held());
             }
             assertTrue(moves > 500, "moves " + moves);
             assertTrue(sunk.sunkMoves > 400, "sunk " + sunk.sunkMoves);
+            assertTrue(sunk.sunkSyncs > 60, "sunk syncs " + sunk.sunkSyncs);
         } finally {
             records.close();
             sunk.close();
@@ -150,11 +154,17 @@ class SunkMoveReplicationEquivalenceTest {
             return "move " + id + " " + delta.getClass().getSimpleName();
         }
         if (op < 52) {
-            int id = ENTITIES[random.nextInt(ENTITIES.length)];
+            int id = random.nextInt(10) == 0 ? UNKNOWN : ENTITIES[random.nextInt(ENTITIES.length)];
             var position =
                     new Vec3d(random.nextDouble() * 40 - 20, 60 + random.nextInt(8), random.nextDouble() * 40 - 20);
             float yaw = random.nextInt(360) - 180;
-            var packet = new ClientboundEntityPositionSync(id, new PositionPath.Linear(position), yaw, 0, true);
+            float pitch = random.nextInt(4) == 0 ? random.nextInt(180) - 90 : 0;
+            PositionPath path = random.nextInt(6) == 0
+                    ? new PositionPath.Stepped(List.of(
+                            new PositionPath.Step(new Vec3d(position.x() + 0.5, position.y(), position.z() + 0.5), 1),
+                            new PositionPath.Step(position, 2)))
+                    : new PositionPath.Linear(position);
+            var packet = new ClientboundEntityPositionSync(id, path, yaw, pitch, random.nextBoolean());
             a.positionSync(packet);
             b.positionSync(packet);
             return "position sync " + id;
@@ -185,7 +195,7 @@ class SunkMoveReplicationEquivalenceTest {
         final CultPlayer player;
         final EmbeddedChannel channel;
         final boolean sinks;
-        int sunkMoves;
+        int sunkMoves, sunkSyncs;
 
         Rig(Script script, boolean sinks) {
             this.sinks = sinks;
@@ -238,11 +248,32 @@ class SunkMoveReplicationEquivalenceTest {
         }
 
         void positionSync(ClientboundEntityPositionSync packet) {
-            player.packetEntityReplication.onEntityPositionSync(
-                    new PacketSendEvent<>(
-                            player.user, ConnectionPhase.PLAY, ClientboundPackets.ENTITY_POSITION_SYNC, packet, false),
-                    player,
-                    packet);
+            if (!sinks || !(packet.position() instanceof PositionPath.Linear linear)) {
+                player.packetEntityReplication.onEntityPositionSync(syncEvent(packet), player, packet);
+                return;
+            }
+            Vec3d end = linear.endPosition();
+            connection()
+                    .positionSync(
+                            packet.entityId(),
+                            end.x(),
+                            end.y(),
+                            end.z(),
+                            packet.yaw(),
+                            packet.pitch(),
+                            packet.onGround());
+            sunkSyncs++;
+            try {
+                player.packetEntityReplication.onEntityPositionSync(
+                        syncEvent(EntityPositionSyncCodec.SUNK), player, EntityPositionSyncCodec.SUNK);
+            } finally {
+                connection().sunkPositionSync().release();
+            }
+        }
+
+        PacketSendEvent<ClientboundEntityPositionSync> syncEvent(ClientboundEntityPositionSync packet) {
+            return new PacketSendEvent<>(
+                    player.user, ConnectionPhase.PLAY, ClientboundPackets.ENTITY_POSITION_SYNC, packet, false);
         }
 
         void acknowledge(int transaction) {

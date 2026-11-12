@@ -12,6 +12,7 @@ import ac.cult.cultac.protocol.PacketBundlePolicy;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.UnsupportedOnVersionException;
+import ac.cult.cultac.protocol.codec.entity.EntityPositionSyncCodec;
 import ac.cult.cultac.protocol.codec.entity.MoveEntityCodec;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPacket;
@@ -489,13 +490,14 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         var lender = connection.frameLender();
         FrameLease lease = null;
         var sunkMove = connection.sunkMove();
-        boolean sunk = false;
+        var sunkSync = connection.sunkPositionSync();
+        boolean sunk = false, syncSunk = false;
         try {
             routeProbe.phase = phase;
             routeProbe.found = null;
             routeProbe.skipped = null;
             lease = lender.open(bytes);
-            boolean heldBefore = sunkMove.held();
+            boolean heldBefore = sunkMove.held(), syncHeldBefore = sunkSync.held();
             Object value = null;
             try {
                 value = connection.packets().readOne(phase, PacketDirection.CLIENTBOUND, bytes, connection, routeProbe);
@@ -503,8 +505,10 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                 connection.sinkMoves(false);
                 lender.close(lease);
                 if (!heldBefore && value != MoveEntityCodec.SUNK && sunkMove.held()) sunkMove.release();
+                if (!syncHeldBefore && value != EntityPositionSyncCodec.SUNK && sunkSync.held()) sunkSync.release();
             }
             sunk = value == MoveEntityCodec.SUNK;
+            syncSunk = value == EntityPositionSyncCodec.SUNK;
             var route = routeProbe.found;
             if (routeProbe.skipped != null) forwardedType = routeProbe.skipped.type();
             if (value != null) {
@@ -592,6 +596,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             return requested;
         } finally {
             if (sunk) sunkMove.release();
+            if (syncSunk) sunkSync.release();
             if (lease != null) lender.end(lease);
             if (bytes != null) bytes.release();
         }
@@ -614,7 +619,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             found = route;
             skipped = consumed ? null : route;
             connection.sinkMoves(consumed
-                    && type == ClientboundPackets.MOVE_ENTITY
+                    && (type == ClientboundPackets.MOVE_ENTITY || type == ClientboundPackets.ENTITY_POSITION_SYNC)
                     && route.own()
                     && route.send() != null
                     && !route.send().hasConnectionHandlers());

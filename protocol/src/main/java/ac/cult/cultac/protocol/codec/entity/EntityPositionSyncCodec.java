@@ -12,27 +12,64 @@ import ac.cult.cultac.protocol.ProtocolContext;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundEntityPositionSync;
 import ac.cult.cultac.protocol.value.PositionPath;
+import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.protocol.wire.Wire;
 import io.netty.buffer.ByteBuf;
 import java.util.List;
 
 public final class EntityPositionSyncCodec implements PacketCodec<ClientboundEntityPositionSync> {
+    /**
+     * Returned by {@link #read} in place of a sync whose path is linear when the context's state is a {@link Sink}
+     * that {@link Sink#sinksPositionSync() takes syncs}; the sync's values went to {@link Sink#positionSync} instead.
+     */
+    public static final ClientboundEntityPositionSync SUNK =
+            new ClientboundEntityPositionSync(0, new PositionPath.Linear(Vec3d.ZERO), 0, 0, false);
+
+    /** Codec state that takes a linear sync's values in place of its packet, one sync at a time. */
+    public interface Sink {
+        /** Whether the next linear sync's values go to {@link #positionSync}. */
+        boolean sinksPositionSync();
+
+        /**
+         * The values of a sync that {@link EntityPositionSyncCodec#read} returned as {@link #SUNK}: those of the packet
+         * it would have returned, with {@code x}, {@code y} and {@code z} the components of its
+         * {@link PositionPath.Linear} end position.
+         */
+        void positionSync(int entityId, double x, double y, double z, float yaw, float pitch, boolean onGround);
+    }
+
     @Override
     public ClientboundEntityPositionSync read(ByteBuf input, ProtocolContext context) {
         int id = Wire.readVarInt(input);
-        PositionPath position;
-        if (context.version().atLeast(ProtocolVersion.V26_3)) position = readPath(input);
-        else {
-            position = new PositionPath.Linear(Wire.readVec3(input));
-            input.skipBytes(24); // Legacy PositionMoveRotation delta: not consumed by this route.
+        PositionPath position = null;
+        double x, y, z;
+        if (context.version().atLeast(ProtocolVersion.V26_3)
+                // Native ByIdMap uses LINEAR for every unknown type ID.
+                && Wire.readVarInt(input) == 1) {
+            position = readSteps(input);
+            x = y = z = 0;
+        } else {
+            Wire.requireBytes(input, 24);
+            x = input.readDouble();
+            y = input.readDouble();
+            z = input.readDouble();
+            // Legacy PositionMoveRotation delta: not consumed by this route.
+            if (!context.version().atLeast(ProtocolVersion.V26_3)) input.skipBytes(24);
         }
-        return new ClientboundEntityPositionSync(
-                id, position, input.readFloat(), input.readFloat(), input.readBoolean());
+        float yaw = input.readFloat();
+        float pitch = input.readFloat();
+        boolean onGround = input.readBoolean();
+        if (position == null) {
+            if (context.state() instanceof Sink sink && sink.sinksPositionSync()) {
+                sink.positionSync(id, x, y, z, yaw, pitch, onGround);
+                return SUNK;
+            }
+            position = new PositionPath.Linear(new Vec3d(x, y, z));
+        }
+        return new ClientboundEntityPositionSync(id, position, yaw, pitch, onGround);
     }
 
-    private static PositionPath readPath(ByteBuf input) {
-        // Native ByIdMap uses LINEAR for every unknown type ID.
-        if (Wire.readVarInt(input) != 1) return new PositionPath.Linear(Wire.readVec3(input));
+    private static PositionPath readSteps(ByteBuf input) {
         int count = Wire.readVarInt(input);
         if (count <= 0 || count > input.readableBytes() / 25)
             throw new MalformedPacketException("Invalid position step count " + count);
