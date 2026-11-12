@@ -23,14 +23,19 @@ public class BedrockEntityLiquidFlowTest {
             assertSame(entity, world.collisions().getFirst().block().orElseThrow());
             assertEquals(
                     BedrockLiquidFlowVector.NONE,
-                    BedrockLiquidFlowResolver.flowVector(water, BedrockLiquidKind.WATER, world.blocksByPosition()));
+                    BedrockLiquidFlowResolver.flowVector(
+                            water, BedrockLiquidKind.WATER, world.blocksByPosition(), world.liquidBlocksByPosition()));
 
             var stone = PlacedBlockCollision.manual(entity.position(), "minecraft:stone", "minecraft:stone", List.of());
             var overlapping = new BlockCollisionWorld(List.of(water, entity, stone));
             assertSame(stone, overlapping.blockAt(stone.position()).orElseThrow());
             assertEquals(
                     -1.0D,
-                    BedrockLiquidFlowResolver.flowVector(water, BedrockLiquidKind.WATER, overlapping.blocksByPosition())
+                    BedrockLiquidFlowResolver.flowVector(
+                                    water,
+                                    BedrockLiquidKind.WATER,
+                                    overlapping.blocksByPosition(),
+                                    overlapping.liquidBlocksByPosition())
                             .y(),
                     0.0D);
         }

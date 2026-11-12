@@ -85,7 +85,7 @@ final class BedrockBlockFluidResolver {
                             waterContact = true;
                             fetchedWater.add(liquidBlock);
                             BedrockLiquidFlowVector flow = BedrockLiquidFlowResolver.flowVector(
-                                    liquidBlock, BedrockLiquidKind.WATER, byPosition);
+                                    liquidBlock, BedrockLiquidKind.WATER, byPosition, liquidByPosition);
                             waterFlowX += flow.x();
                             waterFlowY += flow.y();
                             waterFlowZ += flow.z();
@@ -94,7 +94,7 @@ final class BedrockBlockFluidResolver {
                             lavaContact = true;
                             fetchedLava.add(liquidBlock);
                             BedrockLiquidFlowVector flow = BedrockLiquidFlowResolver.flowVector(
-                                    liquidBlock, BedrockLiquidKind.LAVA, byPosition);
+                                    liquidBlock, BedrockLiquidKind.LAVA, byPosition, liquidByPosition);
                             lavaFlowX += flow.x();
                             lavaFlowY += flow.y();
                             lavaFlowZ += flow.z();

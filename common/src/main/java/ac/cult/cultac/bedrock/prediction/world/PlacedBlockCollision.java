@@ -1,7 +1,11 @@
 package ac.cult.cultac.bedrock.prediction.world;
 
+import ac.cult.blocksim.data.BlockDefinition;
+import ac.cult.blocksim.data.BlockFamilies;
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.BlockProps;
+import ac.cult.blocksim.data.BlockTags;
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.util.ImmutableJsonValue;
@@ -325,24 +329,73 @@ public record PlacedBlockCollision(
                 contactBehaviors);
     }
 
-    public record JavaStateProperties(boolean waterlogged, String level, boolean drag) {
+    /**
+     * @param stairFacing a stair's horizontal facing as a 3D data value (2 north, 3 south, 4 west, 5 east), or
+     *     {@link #NO_FACING}
+     * @param shelfFacing a shelf's horizontal facing as a 3D data value, or {@link #NO_FACING}
+     */
+    public record JavaStateProperties(
+            boolean waterlogged, String level, boolean drag, int stairFacing, int shelfFacing) {
+        public static final int NO_FACING = -1;
+        private static final boolean[] SHELVES = shelves();
         private static final JavaStateProperties EMPTY = new JavaStateProperties(false, null, false);
 
+        public JavaStateProperties(boolean waterlogged, String level, boolean drag) {
+            this(waterlogged, level, drag, NO_FACING, NO_FACING);
+        }
+
         private static JavaStateProperties from(String javaState) {
-            if (javaState.indexOf('[') < 0) {
+            int properties = javaState.indexOf('[');
+            if (properties < 0) {
                 return EMPTY;
             }
+            String identifier = javaState.substring(0, properties);
+            int facing = horizontalFacing(property(javaState, "facing"));
             return new JavaStateProperties(
                     Boolean.parseBoolean(property(javaState, "waterlogged")),
                     property(javaState, "level"),
-                    Boolean.parseBoolean(property(javaState, "drag")));
+                    Boolean.parseBoolean(property(javaState, "drag")),
+                    identifier.endsWith("_stairs") ? facing : NO_FACING,
+                    identifier.endsWith("_shelf") ? facing : NO_FACING);
         }
 
         private static JavaStateProperties from(int javaState) {
             boolean waterlogged =
                     BlockProps.WATERLOGGED.has(javaState) && BlockProps.WATERLOGGED.booleanValue(javaState);
             boolean drag = BlockIds.is(javaState, BlockIds.BUBBLE_COLUMN) && BlockProps.DRAG.booleanValue(javaState);
-            return waterlogged || drag ? new JavaStateProperties(waterlogged, null, drag) : EMPTY;
+            int facing = BlockProps.HORIZONTAL_FACING.has(javaState)
+                    ? BlockProps.HORIZONTAL_FACING.value(javaState)
+                    : NO_FACING;
+            int stairFacing =
+                    BlockFamilies.STAIR.test(javaState) || BlockTags.STAIRS.test(javaState) ? facing : NO_FACING;
+            int shelfFacing = facing != NO_FACING
+                            && SHELVES[DataTables.defaults().registry().blockIndex(javaState)]
+                    ? facing
+                    : NO_FACING;
+            return waterlogged || drag || stairFacing != NO_FACING || shelfFacing != NO_FACING
+                    ? new JavaStateProperties(waterlogged, null, drag, stairFacing, shelfFacing)
+                    : EMPTY;
+        }
+
+        private static boolean[] shelves() {
+            List<BlockDefinition> blocks = DataTables.defaults().registry().blocks();
+            boolean[] shelves = new boolean[blocks.size()];
+            for (int index = 0; index < shelves.length; index++) {
+                shelves[index] = blocks.get(index).key().endsWith("_shelf");
+            }
+            return shelves;
+        }
+
+        private static int horizontalFacing(String facing) {
+            return facing == null
+                    ? NO_FACING
+                    : switch (facing) {
+                        case "north" -> 2;
+                        case "south" -> 3;
+                        case "west" -> 4;
+                        case "east" -> 5;
+                        default -> NO_FACING;
+                    };
         }
 
         private static String property(String javaState, String name) {
