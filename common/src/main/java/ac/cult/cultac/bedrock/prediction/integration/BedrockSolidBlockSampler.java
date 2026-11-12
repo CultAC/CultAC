@@ -1,6 +1,7 @@
 package ac.cult.cultac.bedrock.prediction.integration;
 
 import ac.cult.blocksim.data.BlockIds;
+import ac.cult.blocksim.data.BlockProps;
 import ac.cult.blocksim.data.BlockRegistry;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.StateFacts;
@@ -10,6 +11,7 @@ import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionOverrideCatalo
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionWorldBuilder;
 import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
+import ac.cult.cultac.bedrock.prediction.simulation.BedrockGeyserMovement;
 import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import ac.cult.cultac.player.CultPlayer;
@@ -56,7 +58,42 @@ final class BedrockSolidBlockSampler {
                 }
             }
         }
+        int nearbyBlocks = sampled.blocks.size();
+        addGeyserColumns(player, bounds, movingBlocks, sampled);
+        if (sampled.blocks.size() != nearbyBlocks) {
+            sampled.blocks.sort(Comparator.comparing(PlacedBlockCollision::position, GATHER_ORDER));
+        }
         return sampled.blocks.isEmpty() ? BlockCollisionWorld.EMPTY : new BlockCollisionWorld(sampled.blocks);
+    }
+
+    /** A plume can reach well below the movement sample. Keep its source, water and intervening shapes. */
+    private static void addGeyserColumns(
+            CultPlayer player, SampleBounds bounds, Set<BlockPosition> movingBlocks, SampleAccumulator sampled) {
+        var sources = player.compensatedWorld
+                .getGeysers()
+                .getTickersInOrder(
+                        bounds.minX(),
+                        Math.max(
+                                player.compensatedWorld.getMinHeight(),
+                                bounds.minY() - BedrockGeyserMovement.MAX_COLUMN_HEIGHT),
+                        bounds.minZ(),
+                        bounds.maxX(),
+                        bounds.maxY(),
+                        bounds.maxZ());
+        if (sources.isEmpty()) return;
+        Set<BlockPosition> added = new HashSet<>();
+        for (var source : sources) {
+            int state = player.compensatedWorld.getBlockStateIdAt(source);
+            int phase = BlockProps.POTENT_SULFUR_STATE.value(state);
+            if (phase != 3 && phase != 4) continue;
+            int top = Math.min(player.compensatedWorld.getMaxHeight() - 1, Math.max(bounds.maxY(), source.getY() + 5));
+            for (int y = source.getY(); y <= top; y++) {
+                var cell = new BlockPosition(source.getX(), y, source.getZ());
+                if (!bounds.contains(cell.x(), y, cell.z()) && !movingBlocks.contains(cell) && added.add(cell)) {
+                    sampled.add(cell.x(), y, cell.z());
+                }
+            }
+        }
     }
 
     /** The moving blocks outside {@code bounds} and within a cell of them: one collides up to a cell from its own. */

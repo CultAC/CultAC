@@ -1913,6 +1913,20 @@ public final class GeyserBedrockBridgeRuntime {
                 });
                 return;
             }
+            if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.MovementEffectPacket effect
+                    && effect.getEffectType()
+                            == org.cloudburstmc.protocol.bedrock.data.MovementEffectType.GEYSER_BOOST) {
+                var replay = captureReplayUpdate(
+                        effect.getEntityRuntimeId(),
+                        effect.getTick(),
+                        effect.getTick() != 0,
+                        new BedrockReplayEvent.GeyserBoost(effect.getDuration()));
+                if (replay != null) {
+                    context.write(message, promise);
+                    owner.writeLatencyBoundary(context, wrapper, replay);
+                    return;
+                }
+            }
             if (packet instanceof NetworkStackLatencyPacket latencyPacket && latencyPacket.isFromServer()) {
                 CultPlayer player = owner.currentPlayer();
                 owner.latencyScope.writeWithReceipt(() -> {

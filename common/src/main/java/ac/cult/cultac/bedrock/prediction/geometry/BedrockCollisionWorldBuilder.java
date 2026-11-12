@@ -86,12 +86,21 @@ public final class BedrockCollisionWorldBuilder {
         List<WorldCollisionBox> contactBoxes =
                 movementResolvedContactUsesCollisionBoxes(state) ? boxes : List.of(fullBlockBox(position));
         String javaIdentifier = javaIdentifier(state);
+        Map<String, Object> metadata = bedrockState(state);
+        if (query.actorCollisionQuery().isPresent() && (powderSnowBlock(state) || scaffoldingBlock(state))) {
+            var independent = new java.util.HashMap<>(metadata);
+            independent.put(
+                    BedrockBlockMetadata.GEYSER_PASSABLE,
+                    collisionBoxes(position, state, BedrockCollisionShapeQuery.NONE)
+                            .isEmpty());
+            metadata = independent;
+        }
         return PlacedBlockCollision.sampled(
                 position,
                 javaIdentifier,
                 state,
                 javaIdentifier,
-                bedrockState(state),
+                metadata,
                 boxes,
                 contactBoxes,
                 insideBlockContactBoxes(position, state, boxes),
@@ -100,6 +109,12 @@ public final class BedrockCollisionWorldBuilder {
 
     public Map<String, Object> bedrockState(int state) {
         java.util.OptionalLong mask = catalog.blockPropertyMask(state);
+        if (BlockIds.is(state, BlockIds.POTENT_SULFUR)) {
+            String phase = REGISTRY.value(state, "potent_sulfur_state");
+            return mask.isPresent()
+                    ? Map.of(BedrockBlockMetadata.BLOCK_PROPERTY_MASK, mask.getAsLong(), "potent_sulfur_state", phase)
+                    : Map.of("potent_sulfur_state", phase);
+        }
         return mask.isPresent() ? Map.of(BedrockBlockMetadata.BLOCK_PROPERTY_MASK, mask.getAsLong()) : Map.of();
     }
 

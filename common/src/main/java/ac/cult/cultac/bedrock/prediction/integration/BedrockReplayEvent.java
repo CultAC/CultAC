@@ -16,6 +16,7 @@ public sealed interface BedrockReplayEvent
                 BedrockReplayEvent.Reposition,
                 BedrockReplayEvent.Metadata,
                 BedrockReplayEvent.Boost,
+                BedrockReplayEvent.GeyserBoost,
                 BedrockReplayEvent.HorseMetadata,
                 BedrockReplayBoatMetadata,
                 BedrockReplayContextEvent {
@@ -220,6 +221,13 @@ public sealed interface BedrockReplayEvent
                                 height == null ? state.playerDimensions().height() : height),
                         true);
             return state;
+        }
+    }
+
+    record GeyserBoost(int duration) implements BedrockReplayEvent {
+        @Override
+        public BedrockMovementState state(BedrockMovementState state) {
+            return state.withGeyserBoostTicks(duration == -1 ? -1 : Math.max(1, duration));
         }
     }
 

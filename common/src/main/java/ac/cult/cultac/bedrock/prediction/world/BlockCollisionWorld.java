@@ -20,6 +20,7 @@ public final class BlockCollisionWorld {
     private final Map<BlockPosition, PlacedBlockCollision> liquidBlocksByPosition;
     private final List<PlacedBlockCollision> waterBlocks;
     private final List<PlacedBlockCollision> lavaBlocks;
+    private final List<PlacedBlockCollision> geyserBlocks;
     private final List<WorldCollisionBox> collisionBoxes;
     private final List<BlockCollision> collisions;
 
@@ -35,6 +36,9 @@ public final class BlockCollisionWorld {
         this.liquidBlocksByPosition = index.liquidBlocksByPosition();
         this.waterBlocks = index.waterBlocks();
         this.lavaBlocks = index.lavaBlocks();
+        this.geyserBlocks = blocks.stream()
+                .filter(block -> "minecraft:potent_sulfur".equals(block.bedrockIdentifier()))
+                .toList();
         this.collisionBoxes = index.collisionBoxes();
         this.collisions = index.collisions();
     }
@@ -69,6 +73,10 @@ public final class BlockCollisionWorld {
 
     public List<PlacedBlockCollision> lavaBlocks() {
         return lavaBlocks;
+    }
+
+    public List<PlacedBlockCollision> geyserBlocks() {
+        return geyserBlocks;
     }
 
     public boolean isEmpty() {

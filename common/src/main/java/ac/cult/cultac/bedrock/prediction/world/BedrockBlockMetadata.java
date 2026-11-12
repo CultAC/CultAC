@@ -7,6 +7,7 @@ public final class BedrockBlockMetadata {
     public static final String BLOCK_PROPERTY_MASK = "blockPropertyMask";
     public static final String CONTACT_BEHAVIORS = "contactBehaviors";
     public static final String BLOCK_FRICTION = "blockFriction";
+    public static final String GEYSER_PASSABLE = "geyserPassable";
 
     private BedrockBlockMetadata() {}
 
