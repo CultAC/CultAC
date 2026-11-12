@@ -24,7 +24,8 @@ import org.jetbrains.annotations.Nullable;
  * its vehicle chain gives it, since nothing positions it.
  *
  * <p>For a Bedrock player the same peek steps at the end of each client tick and shoves nothing: the shulker is a
- * collider 0.98 tall that the physical peek opens away from its attach face ({@link #bedrockShownBox}).
+ * collider 0.98 tall that the physical peek opens away from its attach face ({@link #bedrockShownBox}). While riding,
+ * the peek still animates, but positioning retains the last collision dimensions and depenetration vector.
  */
 public class PacketEntityShulker extends PacketEntity {
     /** The half width of a Bedrock shulker's collider and its height while closed. */
@@ -54,6 +55,9 @@ public class PacketEntityShulker extends PacketEntity {
     private boolean peekDataSinceBlock;
     private SimpleCollisionBox reachBounds;
     private SimpleCollisionBox reachPositions;
+    private BedrockRidingShape bedrockRidingShape;
+
+    private record BedrockRidingShape(float width, float height, BedrockDepenetrationLimit limit) {}
 
     public PacketEntityShulker(CultPlayer player, int entityId, int type, double x, double y, double z) {
         super(player, entityId, type, x, y, z);
@@ -78,6 +82,15 @@ public class PacketEntityShulker extends PacketEntity {
 
     @Override
     public void mount(PacketEntity vehicle) {
+        if (player.isBedrockMovement() && riding == null) {
+            SimpleCollisionBox box = bedrockShownBox(player, new SimpleCollisionBox());
+            // Passenger positioning refreshes an ordinary AABB from the last shape's width and height. The mounted
+            // shulker's normal tick advances the peek alone; it does not recompute the shell or its solid-mob limit.
+            bedrockRidingShape = new BedrockRidingShape(
+                    (float) Math.max(box.maxX - box.minX, box.maxZ - box.minZ),
+                    (float) (box.maxY - box.minY),
+                    bedrockDepenetrationLimit());
+        }
         super.mount(vehicle);
         // Shulker#startRiding attaches to the floor on the client as well.
         facing = Direction.DOWN;
@@ -86,7 +99,11 @@ public class PacketEntityShulker extends PacketEntity {
     @Override
     public void onMovement(CultPlayer player) {
         // Bedrock entities step once a client tick's move is predicted: the next tick's move meets this step.
-        if (player.isBedrockMovement()) stepPeek();
+        if (player.isBedrockMovement()) {
+            stepPeek();
+            // A dismount changes no bounds until the first unmounted normal tick rebuilds them.
+            if (riding == null) bedrockRidingShape = null;
+        }
         if (untrackedRider()) {
             tickAsUntrackedRider();
             return;
@@ -407,7 +424,8 @@ public class PacketEntityShulker extends PacketEntity {
     /**
      * The collider a Bedrock client gives the shulker at its shown position: {@link #BEDROCK_HALF_WIDTH} each side of
      * the feet and {@link #BEDROCK_CLOSED_HEIGHT} tall, its face opposite the attach face moved out by the physical
-     * peek, then {@link #BEDROCK_SIDE_INSET} in from each X and Z face. Scale and riding leave it as it is.
+     * peek, then {@link #BEDROCK_SIDE_INSET} in from each X and Z face. A passenger keeps the dimensions of the last
+     * such box until its own bounds update resumes on dismount.
      */
     @Override
     public SimpleCollisionBox bedrockShownBox(CultPlayer player, SimpleCollisionBox out) {
@@ -415,6 +433,10 @@ public class PacketEntityShulker extends PacketEntity {
         double x = (out.minX + out.maxX) / 2;
         double y = out.minY;
         double z = (out.minZ + out.maxZ) / 2;
+        if (bedrockRidingShape != null) {
+            float half = bedrockRidingShape.width() * 0.5F;
+            return out.set(x - half, y, z - half, x + half, y + bedrockRidingShape.height(), z + half);
+        }
         double minX = x - BEDROCK_HALF_WIDTH, minY = y, minZ = z - BEDROCK_HALF_WIDTH;
         double maxX = x + BEDROCK_HALF_WIDTH, maxY = y + BEDROCK_CLOSED_HEIGHT, maxZ = z + BEDROCK_HALF_WIDTH;
         float open = bedrockPhysicalPeek(peek);
@@ -440,6 +462,7 @@ public class PacketEntityShulker extends PacketEntity {
      * lid opens on only, {@link #BEDROCK_DEPENETRATION_PER_PEEK} times the physical peek.
      */
     public BedrockDepenetrationLimit bedrockDepenetrationLimit() {
+        if (bedrockRidingShape != null) return bedrockRidingShape.limit();
         float depth = BEDROCK_DEPENETRATION_PER_PEEK * bedrockPhysicalPeek(peek);
         return new BedrockDepenetrationLimit(
                 Math.abs(facing.getStepX()) * depth,
