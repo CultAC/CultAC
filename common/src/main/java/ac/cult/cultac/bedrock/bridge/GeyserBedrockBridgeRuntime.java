@@ -625,6 +625,8 @@ public final class GeyserBedrockBridgeRuntime {
                 new ac.cult.cultac.bedrock.player.BedrockClientChunks();
         // A new level was written; the next chunk marker empties the client's columns first.
         private boolean chunkLevelReset;
+        // The level's default spawn in the client's frame, block x and z, which the client's spawn view is around.
+        private int[] chunkSpawn;
         // Chunk columns were written while Cult had no player for the session.
         private boolean chunksWithoutPlayer;
         // Markers written per client tick only to narrow when entity updates are handled; the markers that prove
@@ -1915,6 +1917,12 @@ public final class GeyserBedrockBridgeRuntime {
                 owner.clientRiding.clear();
                 owner.writtenChunks.clear();
                 owner.chunkLevelReset = true;
+                if (packet instanceof StartGamePacket startGame) {
+                    // The client's spawn view keeps the columns around the level's default spawn for the session.
+                    var spawn = startGame.getDefaultSpawn();
+                    owner.chunkSpawn = new int[] {spawn.getX(), spawn.getZ()};
+                    owner.writtenChunks.spawn(spawn.getX(), spawn.getZ());
+                }
             }
             if (observedPlayer != null) {
                 BedrockCoordinateFrame frame = emission == null ? BedrockCoordinateFrame.IDENTITY : emission.frame();
@@ -2394,14 +2402,14 @@ public final class GeyserBedrockBridgeRuntime {
             BiConsumer<ac.cult.cultac.bedrock.player.BedrockClientChunks, Long> change;
             if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.LevelChunkPacket chunk) {
                 int x = chunk.getChunkX() + (frame.originX() >> 4), z = chunk.getChunkZ() + (frame.originZ() >> 4);
-                if (!written.written(x, z)) return false;
-                change = (chunks, acknowledgedAfterTick) -> chunks.receive(x, z, acknowledgedAfterTick);
+                if (!written.written(frame, x, z)) return false;
+                change = (chunks, acknowledgedAfterTick) -> chunks.receive(frame, x, z, acknowledgedAfterTick);
             } else if (packet instanceof NetworkChunkPublisherUpdatePacket update) {
                 int x = update.getPosition().getX() + frame.originX();
                 int z = update.getPosition().getZ() + frame.originZ();
                 int radius = update.getRadius();
-                written.publish(x, z, radius);
-                change = (chunks, acknowledgedAfterTick) -> chunks.publish(x, z, radius);
+                written.publish(frame, x, z, radius);
+                change = (chunks, acknowledgedAfterTick) -> chunks.publish(frame, x, z, radius);
             } else {
                 return false;
             }
@@ -2413,10 +2421,12 @@ public final class GeyserBedrockBridgeRuntime {
             owner.chunksWithoutPlayer = false;
             boolean reset = owner.chunkLevelReset;
             owner.chunkLevelReset = false;
+            int[] spawn = owner.chunkSpawn;
             owner.writeLatencyBoundary(context, wrapper, (player, acknowledgedAfterTick) -> {
                 var chunks = player.bedrockState.clientChunks;
                 if (earlier != null) chunks.replace(earlier);
                 else if (reset) chunks.clear();
+                if (spawn != null) chunks.spawn(spawn[0], spawn[1]);
                 change.accept(chunks, acknowledgedAfterTick);
             });
             return true;

@@ -450,6 +450,54 @@ public class BedrockPendingTeleportTickTest {
         }
     }
 
+    // X51 far (far-v40-diag-1, 1.26.40.5): the station column, client chunk (1, 1) around the level's default spawn,
+    // stayed committed in the client's spawn view after the publisher view moved 1000 blocks away. Teleported back
+    // into it, the client was not held: it fell from rest through the empty column the server's unload had left.
+    @Test
+    public void aColumnTheSpawnViewKeepsDoesNotHoldTheActor() {
+        OfflineCultTestBootstrap.installConfig();
+        var player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            player.gamemode = GameMode.SURVIVAL;
+            Vec3 start = new Vec3(1000.5, 80, 1000.5);
+            player.x = player.lastX = start.x;
+            player.y = player.lastY = start.y;
+            player.z = player.lastZ = start.z;
+            player.onGround = player.lastOnGround = false;
+            player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, start.x, start.y, start.z);
+            var chunks = player.bedrockState.clientChunks;
+            chunks.spawn(0, 0);
+            chunks.publish(25, 17, 256);
+            assertTrue(chunks.receive(1, 1, 600));
+            chunks.publish(1000, 1000, 256);
+            Vec3 station = new Vec3(25.5, 64, 17.5);
+            var teleports = player.getSetbackTeleportUtil();
+            teleports
+                    .bedrockTeleports()
+                    .addImmediateBedrockTransportTeleport(
+                            station,
+                            true,
+                            BedrockCoordinateFrame.IDENTITY,
+                            null,
+                            new BedrockTeleportOperation(12, BedrockTeleportProvenance.GEYSER, 12),
+                            12);
+            player.lastTransactionReceived.set(100);
+            long tick = 1120;
+            assertNotNull(process(player, frame(player, tick++, station, 0, false, true)));
+            Vec3 position = station;
+            double[] steps = {0, -0.0784, -0.155232};
+            double[] velocities = {-0.0784, -0.155232, -0.23052736};
+            for (int i = 0; i < steps.length; i++) {
+                position = position.add(0, steps[i], 0);
+                assertNotNull(process(player, frame(player, tick++, position, velocities[i], false, false)));
+                assertEquals(position.y, entry(player).state().physicalFeetPosition().y(), 1.0E-5);
+            }
+            assertEquals(0, player.checkManager.getListener(BedrockMovement.class).violations, 0);
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
     @Test
     public void walkingActorHeldInAColumnLeavesTheHoldAirborne() {
         OfflineCultTestBootstrap.installConfig();

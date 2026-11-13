@@ -59,6 +59,43 @@ public class BedrockClientChunksTest {
         assertEquals(EITHER, hold(chunks, 40, 8, 102));
     }
 
+    // The client keeps the columns of the square a view spans that lie strictly within half its width plus 1.7320508
+    // chunks of its middle, measured in float.
+    @Test
+    public void aPublisherViewKeepsTheCircleOfItsSquare() {
+        var chunks = new BedrockClientChunks();
+        chunks.publish(0, 0, 256);
+        // Bounds -16..16: half the width 16.5 plus the margin is 18.232, squared 332.41.
+        assertTrue(chunks.receive(16, 8, 0));
+        assertFalse(chunks.receive(16, 9, 0));
+        assertFalse(chunks.receive(16, 16, 0));
+        assertTrue(chunks.receive(-16, 0, 0));
+        assertFalse(chunks.receive(17, 0, 0));
+    }
+
+    // X51 far (1.26.40.5 and 1.26.60.4): the level's default spawn is (0, 0, 0) in the client's frame, so its spawn
+    // view keeps the columns 7 chunks around it but its corners. A publisher update 1000 blocks away left the station
+    // column at client chunk (1, 1) to the spawn view, and the player teleported back into it was not held.
+    @Test
+    public void theSpawnViewKeepsItsColumnsThroughAFarPublisherUpdate() {
+        var frame = new BedrockCoordinateFrame(20064, 20256, 1);
+        var chunks = new BedrockClientChunks();
+        chunks.spawn(0, 0);
+        chunks.publish(frame, 20064 + 25, 20256 + 17, 256);
+        int originX = 20064 >> 4, originZ = 20256 >> 4;
+        assertTrue(chunks.receive(frame, originX + 1, originZ + 1, 100));
+        assertTrue(chunks.receive(frame, originX + 7, originZ + 6, 100));
+        assertTrue(chunks.receive(frame, originX + 7, originZ + 7, 100));
+        assertTrue(chunks.receive(frame, originX + 8, originZ, 100));
+        chunks.publish(frame, 21000, 21000, 256);
+        assertEquals(FREE, chunks.hold(frame, 20064 + 25.5, 20256 + 17.5, 200));
+        assertEquals(FREE, chunks.hold(frame, 20064 + 7 * 16 + 8, 20256 + 6 * 16 + 8, 200));
+        assertEquals(HELD, chunks.hold(frame, 20064 + 7 * 16 + 8, 20256 + 7 * 16 + 8, 200));
+        assertEquals(HELD, chunks.hold(frame, 20064 + 8 * 16 + 8, 20256 + 8, 200));
+        // A column received outside every view is dropped as it commits.
+        assertFalse(chunks.receive(frame, originX + 9, originZ, 300));
+    }
+
     @Test
     public void theViewIsTheSquareOfColumnsTheRadiusSpans() {
         var chunks = new BedrockClientChunks();

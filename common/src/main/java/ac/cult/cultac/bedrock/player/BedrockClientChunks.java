@@ -6,9 +6,11 @@ import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 /**
  * The chunk columns the Bedrock client holds, in world chunk coordinates.
  *
- * <p>A chunk publisher update moves the client's chunk view to the square of columns its radius spans around its
- * position; the client drops every column outside it, and a column it has not received inside it holds nothing.
- * Before the first publisher update the view has no edge and the client keeps every column it receives.
+ * <p>The client keeps a column only while one of its views covers it, and drops it the moment none does; a column
+ * it has not received inside them holds nothing. A chunk publisher update moves the publisher view to the circle of
+ * columns its radius spans around its position. The spawn view, the circle 112 blocks around the level's default
+ * spawn in the client's frame, stays where the level started. Before the first publisher update the views have no
+ * edge and the client keeps every column it receives.
  *
  * <p>The client does not move its actor in a tick when the one column under the floor of the actor's position holds
  * nothing. It commits a received column on a worker thread, in the order it received the columns, and tells the
@@ -28,6 +30,10 @@ public final class BedrockClientChunks {
 
     static final int LATEST_COMMIT = 3;
 
+    private static final int SPAWN_VIEW_RADIUS = 112;
+    // The margin the client's views add to half their width, in chunks.
+    private static final float VIEW_CIRCLE_MARGIN = 1.7320508F;
+
     /** What the client's chunk view does with its actor in a tick. */
     public enum Hold {
         /** The column under the actor holds nothing: the actor stays in place. */
@@ -45,10 +51,20 @@ public final class BedrockClientChunks {
     private long received;
     private boolean bounded;
     private int minX, minZ, maxX, maxZ;
+    private boolean spawnView;
+    private int spawnX, spawnZ;
 
     /** The client processed a column in the tick after {@code acknowledgedAfterTick}; returns whether it was new. */
     public boolean receive(int chunkX, int chunkZ, long acknowledgedAfterTick) {
-        if (bounded && (chunkX < minX || chunkX > maxX || chunkZ < minZ || chunkZ > maxZ)) return false;
+        return receive(BedrockCoordinateFrame.IDENTITY, chunkX, chunkZ, acknowledgedAfterTick);
+    }
+
+    /**
+     * The client processed a column, in world chunk coordinates, while its frame was {@code frame}, in the tick after
+     * {@code acknowledgedAfterTick}; returns whether it was new. A column no view covers is dropped as it commits.
+     */
+    public boolean receive(BedrockCoordinateFrame frame, int chunkX, int chunkZ, long acknowledgedAfterTick) {
+        if (bounded && !viewed(frame, chunkX, chunkZ)) return false;
         long key = key(chunkX, chunkZ);
         if (earliest.containsKey(key)) return false;
         boolean any = acknowledgedAfterTick == ANY_TICK;
@@ -58,8 +74,16 @@ public final class BedrockClientChunks {
         return true;
     }
 
-    /** The client moved its chunk view to a publisher update's position and radius, in world blocks. */
+    /** The client moved its publisher view to a publisher update's position and radius, in world blocks. */
     public void publish(int blockX, int blockZ, int radius) {
+        publish(BedrockCoordinateFrame.IDENTITY, blockX, blockZ, radius);
+    }
+
+    /**
+     * The client moved its publisher view to a publisher update's position and radius, in world blocks, while its
+     * frame was {@code frame}; it drops every column no view covers any more.
+     */
+    public void publish(BedrockCoordinateFrame frame, int blockX, int blockZ, int radius) {
         bounded = true;
         minX = (blockX - radius) >> 4;
         maxX = (blockX + radius) >> 4;
@@ -67,13 +91,45 @@ public final class BedrockClientChunks {
         maxZ = (blockZ + radius) >> 4;
         earliest.keySet().removeIf(key -> {
             int x = (int) (key >> 32), z = (int) key;
-            boolean outside = x < minX || x > maxX || z < minZ || z > maxZ;
+            boolean outside = !viewed(frame, x, z);
             if (outside) {
                 latest.remove(key);
                 order.remove(key);
             }
             return outside;
         });
+    }
+
+    /** The level started with its default spawn at the given block of the client's frame. */
+    public void spawn(int localBlockX, int localBlockZ) {
+        spawnView = true;
+        spawnX = localBlockX;
+        spawnZ = localBlockZ;
+    }
+
+    /** Whether a view of the client covers a column, in world chunk coordinates, while its frame is {@code frame}. */
+    private boolean viewed(BedrockCoordinateFrame frame, int chunkX, int chunkZ) {
+        if (circle(chunkX, chunkZ, minX, maxX, minZ, maxZ)) return true;
+        if (!spawnView) return false;
+        return circle(
+                chunkX - (frame.originX() >> 4),
+                chunkZ - (frame.originZ() >> 4),
+                (spawnX - SPAWN_VIEW_RADIUS) >> 4,
+                (spawnX + SPAWN_VIEW_RADIUS) >> 4,
+                (spawnZ - SPAWN_VIEW_RADIUS) >> 4,
+                (spawnZ + SPAWN_VIEW_RADIUS) >> 4);
+    }
+
+    /**
+     * Whether a column lies in the circle a view keeps of the square of columns it spans: the client measures from the
+     * square's middle in float and keeps what lies strictly within half its width and the margin.
+     */
+    private static boolean circle(int chunkX, int chunkZ, int minX, int maxX, int minZ, int maxZ) {
+        if (chunkX < minX || chunkX > maxX || chunkZ < minZ || chunkZ > maxZ) return false;
+        float dx = chunkX - (minX + maxX) * 0.5F;
+        float dz = chunkZ - (minZ + maxZ) * 0.5F;
+        float reach = (maxX - minX + 1) / 2.0F + VIEW_CIRCLE_MARGIN;
+        return dx * dx + dz * dz < reach * reach;
     }
 
     /** The client entered a new level, which holds none of the earlier columns. */
@@ -121,7 +177,12 @@ public final class BedrockClientChunks {
 
     /** Records a column written to the client, held from any tick; returns whether its view lacked it. */
     public boolean written(int chunkX, int chunkZ) {
-        return receive(chunkX, chunkZ, ANY_TICK);
+        return written(BedrockCoordinateFrame.IDENTITY, chunkX, chunkZ);
+    }
+
+    /** Records a column written to the client in {@code frame}, held from any tick; returns whether its view lacked it. */
+    public boolean written(BedrockCoordinateFrame frame, int chunkX, int chunkZ) {
+        return receive(frame, chunkX, chunkZ, ANY_TICK);
     }
 
     /** The same view, with every column held from any tick. */
@@ -141,6 +202,9 @@ public final class BedrockClientChunks {
         }
         received = other.received;
         bounded = other.bounded;
+        spawnView = other.spawnView;
+        spawnX = other.spawnX;
+        spawnZ = other.spawnZ;
         minX = other.minX;
         minZ = other.minZ;
         maxX = other.maxX;
