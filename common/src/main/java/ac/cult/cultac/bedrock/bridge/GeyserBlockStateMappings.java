@@ -115,7 +115,17 @@ final class GeyserBlockStateMappings {
             Integer resolved = sentDefinitions[state] < 0 ? null : states.get(sentDefinitions[state]);
             sentStates[state] = resolved == null ? -1 : resolved;
         }
-        return new Tables(Map.copyOf(states), sentStates);
+        return new Tables(Map.copyOf(states), sentStates, stairCornersSent(sentDefinitions));
+    }
+
+    /** Whether the session sends a stair's corner: two Java shapes of one stair become different Bedrock blocks. */
+    private static boolean stairCornersSent(int[] sentDefinitions) {
+        for (int state = 0; state < sentDefinitions.length; state++) {
+            if (sentDefinitions[state] < 0 || !BlockProps.STAIRS_SHAPE.has(state)) continue;
+            int straight = BlockProps.STAIRS_SHAPE.with(state, 0);
+            if (sentDefinitions[straight] >= 0 && sentDefinitions[straight] != sentDefinitions[state]) return true;
+        }
+        return false;
     }
 
     /**
@@ -123,7 +133,12 @@ final class GeyserBlockStateMappings {
      * @param sentStates for each server state, the state {@code palette} resolves the block Geyser sends for it to,
      *     or -1 where Geyser has no block for it; a sent block resolving to the same state is its translation
      */
-    record Tables(Map<Integer, Integer> palette, int[] sentStates) {}
+    /** The session palette inverted, the state the client holds for each sent state, and whether stairs carry corners. */
+    record Tables(Map<Integer, Integer> palette, int[] sentStates, boolean stairCorners) {
+        Tables(Map<Integer, Integer> palette, int[] sentStates) {
+            this(palette, sentStates, true);
+        }
+    }
 
     static int resolve(Map<Integer, Integer> palette, BlockDefinition definition) {
         Integer state = definition == null ? null : palette.get(definition.getRuntimeId());

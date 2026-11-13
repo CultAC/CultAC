@@ -10,14 +10,16 @@ import java.util.Objects;
  * The client state, besides a block's state and the moving actor, that its collision shape at a position reads:
  * the lid of a shulker box there, the block a piston carries through a moving block there, the progress of the
  * piston a piston arm belongs to, the coordinate frame that gives the block the position its offset hashes, and the
- * block a moving block carries, which a landing on it reads.
+ * block a moving block carries, which a landing on it reads, and the parts of a shape a client derives from the blocks
+ * around it where its block state carries none.
  */
 public record BedrockBlockShapeContext(
         ShulkerBoxLift shulkerBoxLift,
         MovingBlockBoxes movingBlockBoxes,
         PistonProgress pistonProgress,
         BedrockCoordinateFrame frame,
-        MovingBlockCarried movingBlockCarried) {
+        MovingBlockCarried movingBlockCarried,
+        DerivedShapes derivedShapes) {
     /**
      * No client state: a closed lid, a moving block that carries nothing yet, which is a cube, and a piston that is
      * fully out.
@@ -25,10 +27,24 @@ public record BedrockBlockShapeContext(
     public static final BedrockBlockShapeContext NONE = new BedrockBlockShapeContext(
             position -> 0.0F,
             position -> List.of(new WorldCollisionBox(
-                    position.x(), position.y(), position.z(), position.x() + 1.0D, position.y() + 1.0D,
+                    position.x(),
+                    position.y(),
+                    position.z(),
+                    position.x() + 1.0D,
+                    position.y() + 1.0D,
                     position.z() + 1.0D)),
             position -> 1.0F,
             BedrockCoordinateFrame.IDENTITY);
+
+    /** A context whose stairs carry their own corner. */
+    public BedrockBlockShapeContext(
+            ShulkerBoxLift shulkerBoxLift,
+            MovingBlockBoxes movingBlockBoxes,
+            PistonProgress pistonProgress,
+            BedrockCoordinateFrame frame,
+            MovingBlockCarried movingBlockCarried) {
+        this(shulkerBoxLift, movingBlockBoxes, pistonProgress, frame, movingBlockCarried, DerivedShapes.OWN_STATE);
+    }
 
     public BedrockBlockShapeContext {
         shulkerBoxLift = Objects.requireNonNull(shulkerBoxLift, "shulkerBoxLift");
@@ -36,6 +52,7 @@ public record BedrockBlockShapeContext(
         pistonProgress = Objects.requireNonNull(pistonProgress, "pistonProgress");
         frame = Objects.requireNonNull(frame, "frame");
         movingBlockCarried = Objects.requireNonNull(movingBlockCarried, "movingBlockCarried");
+        derivedShapes = Objects.requireNonNull(derivedShapes, "derivedShapes");
     }
 
     /** A context whose moving blocks carry nothing a landing reads. */
@@ -44,7 +61,13 @@ public record BedrockBlockShapeContext(
             MovingBlockBoxes movingBlockBoxes,
             PistonProgress pistonProgress,
             BedrockCoordinateFrame frame) {
-        this(shulkerBoxLift, movingBlockBoxes, pistonProgress, frame, position -> MovingBlockCarried.NONE);
+        this(
+                shulkerBoxLift,
+                movingBlockBoxes,
+                pistonProgress,
+                frame,
+                position -> MovingBlockCarried.NONE,
+                DerivedShapes.OWN_STATE);
     }
 
     /** How far the lid of the shulker box at a position extends its collision box. */
@@ -71,6 +94,27 @@ public record BedrockBlockShapeContext(
     @FunctionalInterface
     public interface MovingBlockCarried {
         int NONE = -1;
+
+        int at(BlockPosition position);
+    }
+
+    /**
+     * Which parts of its shapes a client derives from the blocks around them because its block states carry none, and
+     * those blocks. A stair's corner is one.
+     */
+    public record DerivedShapes(BlockStates blocks, boolean stairCorners) {
+        /** Every shape as its own block state gives it. */
+        public static final DerivedShapes OWN_STATE = new DerivedShapes(position -> BlockStates.NO_BLOCK, false);
+
+        public DerivedShapes {
+            blocks = Objects.requireNonNull(blocks, "blocks");
+        }
+    }
+
+    /** The block state at a position; {@link #NO_BLOCK} where none is known. */
+    @FunctionalInterface
+    public interface BlockStates {
+        int NO_BLOCK = -1;
 
         int at(BlockPosition position);
     }

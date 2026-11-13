@@ -53,6 +53,21 @@ public final class BedrockPlayerState {
     private BedrockAuthInputFrame lastProcessedFrame;
     private long processedAuthInputSequence;
     private long lastMovementTick = -1;
+    // Null until the session's palette is known; true when its stairs carry no corner and the client derives it.
+    private Boolean stairCornersFromNeighbours;
+
+    public boolean stairCornersKnown() {
+        return stairCornersFromNeighbours != null;
+    }
+
+    /** Whether this client's stairs carry no corner state and take their corner from the stairs around them. */
+    public boolean stairCornersFromNeighbours() {
+        return Boolean.TRUE.equals(stairCornersFromNeighbours);
+    }
+
+    public void stairCornersFromNeighbours(boolean value) {
+        stairCornersFromNeighbours = value;
+    }
 
     /** The client state this player's block collision shapes read, in the coordinate frame of its latest input. */
     public ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext blockShapeContext(
@@ -67,7 +82,13 @@ public final class BedrockPlayerState {
                 lastOfferedFrame == null
                         ? ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame.IDENTITY
                         : lastOfferedFrame.getCoordinateFrame(),
-                position -> ac.cult.cultac.utils.collisions.BedrockMovingBlockShape.carried(player, position));
+                position -> ac.cult.cultac.utils.collisions.BedrockMovingBlockShape.carried(player, position),
+                stairCornersFromNeighbours()
+                        ? new ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext.DerivedShapes(
+                                position -> player.compensatedWorld.getBlockStateIdAt(
+                                        position.x(), position.y(), position.z()),
+                                true)
+                        : ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext.DerivedShapes.OWN_STATE);
     }
 
     public long lastMovementTick() {
@@ -267,9 +288,7 @@ public final class BedrockPlayerState {
      * scale in its own entity data. Null until the definition is confirmed.
      */
     public PlayerDimensionsState scaledCollisionDefinition(float scale) {
-        return collisionDefinition == null
-                ? null
-                : BedrockActorDimensions.scaledDefinition(collisionDefinition, scale);
+        return collisionDefinition == null ? null : BedrockActorDimensions.scaledDefinition(collisionDefinition, scale);
     }
 
     /** {@code scale} is the player's scale, which for a Bedrock player is the one its client acknowledged. */

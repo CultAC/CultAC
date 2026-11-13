@@ -1335,6 +1335,11 @@ public final class GeyserBedrockBridgeRuntime {
         }
 
         private BedrockAuthInputFrame captureAuthInput(CultPlayer player, PlayerAuthInputPacket packet) {
+            // The session's palette decides once whether its stairs carry their own corner.
+            if (!player.bedrockState.stairCornersKnown())
+                player.bedrockState.stairCornersFromNeighbours(
+                        !GeyserBlockStateMappings.tables(connection.getBlockMappings())
+                                .stairCorners());
             long vehicleId = predictedVehicleId(packet);
             var vehicle = vehicleId == -1L ? null : connection.getEntityCache().getEntityByGeyserId(vehicleId);
             if (isPredictedHorse(vehicle) || vehicle instanceof BoatEntity) {
@@ -1886,7 +1891,8 @@ public final class GeyserBedrockBridgeRuntime {
                 context.write(message, promise);
                 owner.writeLatencyBoundary(context, wrapper, player -> {
                     received.run();
-                    if (seatsRider) player.bedrockState.seatRider(link.getEntityLink().getVehicleAngularVelocity());
+                    if (seatsRider)
+                        player.bedrockState.seatRider(link.getEntityLink().getVehicleAngularVelocity());
                 });
                 return;
             }

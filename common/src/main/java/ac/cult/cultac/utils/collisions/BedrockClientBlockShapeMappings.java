@@ -70,7 +70,10 @@ public final class BedrockClientBlockShapeMappings {
         if (entry == null) {
             return Optional.empty();
         }
-        if (entry.dynamicMovement()) {
+        // A stair whose client derives its corner from its neighbours is built where it stands.
+        if (entry.dynamicMovement()
+                || player.bedrockState.stairCornersFromNeighbours()
+                        && BedrockCollisionWorldBuilder.neighbourDependentMovement(state)) {
             return buildDynamicMovement(snapshot.catalog(), player, state, x, y, z);
         }
         return Optional.of(entry.movement().copy().offset(x, y, z));

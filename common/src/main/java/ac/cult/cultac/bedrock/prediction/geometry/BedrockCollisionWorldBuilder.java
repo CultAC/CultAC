@@ -148,12 +148,7 @@ public final class BedrockCollisionWorldBuilder {
         if (BlockIds.is(state, BlockIds.SHELF_MUSHROOM)) {
             WorldCollisionBox pieces = span(boxes, boxes.getFirst());
             return new WorldCollisionBox(
-                    pieces.minX(),
-                    position.y() + 0.25D,
-                    pieces.minZ(),
-                    pieces.maxX(),
-                    pieces.maxY(),
-                    pieces.maxZ());
+                    pieces.minX(), position.y() + 0.25D, pieces.minZ(), pieces.maxX(), pieces.maxY(), pieces.maxZ());
         }
         if (boxes.size() < 2) {
             return null;
@@ -210,6 +205,11 @@ public final class BedrockCollisionWorldBuilder {
 
     public static boolean dynamicMovement(int state) {
         return scaffoldingBlock(state) || powderSnowBlock(state);
+    }
+
+    /** Whether the shape of {@code state} can depend on the blocks around it: a stair's corner. */
+    public static boolean neighbourDependentMovement(int state) {
+        return stairBlock(state);
     }
 
     /** Whether the shape of {@code state} depends on client state kept for the position it is at. */
@@ -299,7 +299,7 @@ public final class BedrockCollisionWorldBuilder {
             return pistonArmCollisionBoxes(position, state);
         }
         if (stairBlock(state)) {
-            return stairCollisionBoxes(position, state);
+            return stairCollisionBoxes(position, state, stairShape(position, state));
         }
         if (fenceBlock(state)) {
             return fenceCollisionBoxes(position, state);
@@ -483,10 +483,71 @@ public final class BedrockCollisionWorldBuilder {
         return List.copyOf(boxes);
     }
 
-    private static List<WorldCollisionBox> stairCollisionBoxes(BlockPosition position, int state) {
+    /**
+     * The corner a stair's raised half takes. A stair whose client state carries a corner takes that one. Otherwise the
+     * client derives it from the stairs around it: an outer corner when the stair behind it is of the same half and
+     * faces across it, unless the block on the side it turns from is the same block in the same state; else an inner
+     * corner when the stair in front of it does so; else straight. Any stair counts as a neighbour.
+     */
+    private int stairShape(BlockPosition position, int state) {
+        var derived = context.derivedShapes();
+        if (!derived.stairCorners()) {
+            return BlockProps.STAIRS_SHAPE.value(state);
+        }
+        var neighbours = derived.blocks();
+        Direction facing = stairFacing(state);
+        int half = BlockProps.HALF.value(state);
+        int back = neighbours.at(offset(position, facing, 1));
+        Direction backFacing = turnedStair(back, half, facing);
+        if (backFacing != null && !sameStair(neighbours.at(offset(position, backFacing, -1)), state)) {
+            return leftOf(facing) == backFacing ? STAIR_OUTER_LEFT : STAIR_OUTER_RIGHT;
+        }
+        int front = neighbours.at(offset(position, facing, -1));
+        Direction frontFacing = turnedStair(front, half, facing);
+        if (frontFacing != null && !sameStair(neighbours.at(offset(position, frontFacing, 1)), state)) {
+            return leftOf(facing) == frontFacing ? STAIR_INNER_LEFT : STAIR_INNER_RIGHT;
+        }
+        return STAIR_STRAIGHT;
+    }
+
+    /** The facing of {@code neighbour} when it is a stair of {@code half} facing across {@code facing}, else null. */
+    private static Direction turnedStair(int neighbour, int half, Direction facing) {
+        if (neighbour < 0 || !stairBlock(neighbour) || BlockProps.HALF.value(neighbour) != half) return null;
+        Direction neighbourFacing = stairFacing(neighbour);
+        return neighbourFacing.getAxis() == facing.getAxis() ? null : neighbourFacing;
+    }
+
+    /** Whether {@code other} is the same block as the stair {@code state}, facing the same way at the same half. */
+    private static boolean sameStair(int other, int state) {
+        return other >= 0
+                && REGISTRY.block(other) == REGISTRY.block(state)
+                && BlockProps.HORIZONTAL_FACING.value(other) == BlockProps.HORIZONTAL_FACING.value(state)
+                && BlockProps.HALF.value(other) == BlockProps.HALF.value(state);
+    }
+
+    private static Direction stairFacing(int state) {
+        return Direction.from3DDataValue(BlockProps.HORIZONTAL_FACING.value(state));
+    }
+
+    /** The facing a quarter turn counter-clockwise from {@code facing}, seen from above. */
+    private static Direction leftOf(Direction facing) {
+        return switch (facing) {
+            case NORTH -> Direction.WEST;
+            case WEST -> Direction.SOUTH;
+            case SOUTH -> Direction.EAST;
+            case EAST -> Direction.NORTH;
+            default -> throw new IllegalArgumentException("Stair facing " + facing);
+        };
+    }
+
+    private static BlockPosition offset(BlockPosition position, Direction direction, int steps) {
+        return new BlockPosition(
+                position.x() + direction.getStepX() * steps, position.y(), position.z() + direction.getStepZ() * steps);
+    }
+
+    private static List<WorldCollisionBox> stairCollisionBoxes(BlockPosition position, int state, int shape) {
         boolean upsideDown = BlockProps.HALF.value(state) == 0;
         Direction facing = Direction.from3DDataValue(BlockProps.HORIZONTAL_FACING.value(state));
-        int shape = BlockProps.STAIRS_SHAPE.value(state);
 
         List<BlockAabb> localBoxes = new ArrayList<>(3);
         double stepMinY = upsideDown ? 0.0D : 0.5D;
