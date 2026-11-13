@@ -96,6 +96,20 @@ public final class BedrockCollisionWorldBuilder {
                             .isEmpty());
             metadata = independent;
         }
+        WorldCollisionBox standing = standingShape(position, state, boxes);
+        if (standing != null) {
+            var shaped = new java.util.HashMap<>(metadata);
+            shaped.put(
+                    BedrockBlockMetadata.STANDING_SHAPE,
+                    List.of(
+                            standing.minX(),
+                            standing.minY(),
+                            standing.minZ(),
+                            standing.maxX(),
+                            standing.maxY(),
+                            standing.maxZ()));
+            metadata = shaped;
+        }
         return PlacedBlockCollision.sampled(
                 position,
                 javaIdentifier,
@@ -106,6 +120,33 @@ public final class BedrockCollisionWorldBuilder {
                 contactBoxes,
                 insideBlockContactBoxes(position, state, boxes),
                 contactBehaviors(state));
+    }
+
+    /**
+     * The one box an actor stands on a block of several collision boxes by, or null where that is the block's cell:
+     * all that a fence, bars or a chorus plant spans, and a brewing stand's own box.
+     */
+    private static WorldCollisionBox standingShape(BlockPosition position, int state, List<WorldCollisionBox> boxes) {
+        if (boxes.size() < 2) {
+            return null;
+        }
+        if (BlockIds.is(state, BREWING_STAND)) {
+            return toWorldBox(position, new BlockAabb(0.125D, 0.0D, 0.125D, 0.875D, 0.875D, 0.875D));
+        }
+        if (!fenceBlock(state) && !thinFenceBlock(state) && !chorusPlantBlock(state)) {
+            return null;
+        }
+        WorldCollisionBox span = boxes.getFirst();
+        for (WorldCollisionBox box : boxes) {
+            span = new WorldCollisionBox(
+                    Math.min(span.minX(), box.minX()),
+                    Math.min(span.minY(), box.minY()),
+                    Math.min(span.minZ(), box.minZ()),
+                    Math.max(span.maxX(), box.maxX()),
+                    Math.max(span.maxY(), box.maxY()),
+                    Math.max(span.maxZ(), box.maxZ()));
+        }
+        return span;
     }
 
     /**

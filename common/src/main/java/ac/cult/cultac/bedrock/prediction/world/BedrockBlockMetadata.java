@@ -10,6 +10,11 @@ public final class BedrockBlockMetadata {
     public static final String GEYSER_PASSABLE = "geyserPassable";
     /** The identifier of the block a moving block carries, which a landing on the moving block bounces off. */
     public static final String MOVING_BLOCK_CARRIED = "movingBlockCarried";
+    /**
+     * The one box, as its six world bounds, an actor stands on a block of several collision boxes by, where that is
+     * not the block's cell.
+     */
+    public static final String STANDING_SHAPE = "standingShape";
 
     private BedrockBlockMetadata() {}
 
