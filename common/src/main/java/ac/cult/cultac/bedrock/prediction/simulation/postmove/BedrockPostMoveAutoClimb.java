@@ -23,11 +23,13 @@ final class BedrockPostMoveAutoClimb {
 
     private static boolean applies(
             BedrockPostMoveContext context, BedrockCollisionFlags flags, BedrockClimbableContact nextClimbableContact) {
+        // Only the climbable block the centre of the feet is in starts the climb. Scaffolding is
+        // not one: it is ascended by jumping, whichever columns the box reaches.
         return !context.climb().inScaffolding()
                 && !context.inWater()
                 && !context.inLava()
                 && !context.intent().jump().start()
-                && nextClimbableContact.climbing()
+                && nextClimbableContact.ladder()
                 && flags.horizontalCollision();
     }
 }
