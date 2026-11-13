@@ -9,7 +9,6 @@ import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
-import ac.cult.cultac.bedrock.prediction.integration.BedrockSolidActorBuffer;
 import ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
@@ -92,24 +91,6 @@ public final class BedrockSolidActorBufferTest {
 
         assertEquals(-0.3D, moved(end).z(), 1.0E-6D);
         assertNull(end.solidActorOrderRange());
-    }
-
-    @Test
-    public void thePoolRefillsATickAtATimeAndLendsAtMostItsPerTickCap() {
-        var buffer = new BedrockSolidActorBuffer();
-        assertEquals(0.05F, buffer.available(1), 0.0F);
-        for (long tick = 1; tick <= 4; tick++) buffer.charge(tick, 0.05D);
-        // 0.2 less four ticks of 0.05, with 0.01 back each later tick.
-        assertEquals(0.04F, buffer.available(5), 1.0E-6F);
-        // Charging a tick again replaces its charge.
-        buffer.charge(5, 0.04D);
-        buffer.charge(5, 0.01D);
-        assertEquals(0.04F, buffer.available(6), 1.0E-6F);
-        // It refills to its maximum and no further.
-        assertEquals(0.05F, buffer.available(1000), 0.0F);
-        buffer.charge(1000, 0.0D);
-        buffer.charge(1001, 0.5D);
-        assertEquals(0.05F, buffer.available(1002), 1.0E-6F);
     }
 
     private static Vec3d moved(BedrockEntityMove.Result end) {

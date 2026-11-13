@@ -23,9 +23,9 @@ public final class BedrockClientActors {
     /** The client spawned the actor at a position in the frame's local coordinates. */
     public void place(long runtimeId, float x, float y, float z, BedrockCoordinateFrame frame) {
         Actor actor = actors.computeIfAbsent(runtimeId, ignored -> new Actor());
-        actor.x = x;
-        actor.y = y;
-        actor.z = z;
+        actor.x = actor.targetX = actor.placedX = x;
+        actor.y = actor.targetY = actor.placedY = y;
+        actor.z = actor.targetZ = actor.placedZ = z;
         actor.frame = frame;
         actor.stepsLeft = 0;
     }
@@ -74,6 +74,37 @@ public final class BedrockClientActors {
         actors.clear();
     }
 
+    /** A collidable actor's id, box, and where it was spawned, last sent to and is shown, in world coordinates. */
+    public interface Collider {
+        void accept(
+                long runtimeId,
+                SimpleCollisionBox box,
+                ac.cult.cultac.utils.math.Vec3 placed,
+                ac.cult.cultac.utils.math.Vec3 sent,
+                ac.cult.cultac.utils.math.Vec3 shown,
+                int stepsLeft);
+    }
+
+    /** Passes every collidable actor that touches {@code reach}, with the position it was sent to and is shown at. */
+    public void colliders(SimpleCollisionBox reach, Collider out) {
+        if (actors.isEmpty()) return;
+        for (var entry : actors.long2ObjectEntrySet()) {
+            Actor actor = entry.getValue();
+            SimpleCollisionBox box = actor.box();
+            if (box == null || !box.isCollided(reach)) continue;
+            int ox = actor.frame.originX(), oz = actor.frame.originZ();
+            out.accept(
+                    entry.getLongKey(),
+                    box,
+                    new ac.cult.cultac.utils.math.Vec3(
+                            (double) actor.placedX + ox, actor.placedY, (double) actor.placedZ + oz),
+                    new ac.cult.cultac.utils.math.Vec3(
+                            (double) actor.targetX + ox, actor.targetY, (double) actor.targetZ + oz),
+                    new ac.cult.cultac.utils.math.Vec3((double) actor.x + ox, actor.y, (double) actor.z + oz),
+                    actor.stepsLeft);
+        }
+    }
+
     /** Passes the box of every collidable actor that touches {@code reach}, in world coordinates. */
     public void colliders(SimpleCollisionBox reach, Consumer<SimpleCollisionBox> out) {
         if (actors.isEmpty()) return;
@@ -90,6 +121,10 @@ public final class BedrockClientActors {
         private float targetX;
         private float targetY;
         private float targetZ;
+        // Where the client spawned it, the first position of its history.
+        private float placedX;
+        private float placedY;
+        private float placedZ;
         private int stepsLeft;
         private float width;
         private float height;

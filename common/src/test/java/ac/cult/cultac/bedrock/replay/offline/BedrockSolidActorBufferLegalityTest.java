@@ -52,13 +52,14 @@ public class BedrockSolidActorBufferLegalityTest {
         exercise(4);
     }
 
+    // A boat a lerp step off along Y can stand no farther off along X: the X overclaim is past anything it allows.
     @Test
-    public void verticalMovementKeepsTheAuthorizedBuffer() {
+    public void verticalMovementLendsNothingToAnotherAxis() {
         exercise(5);
     }
 
     @Test
-    public void sidewaysMovementKeepsTheAuthorizedBuffer() {
+    public void sidewaysMovementLendsNothingToAnotherAxis() {
         exercise(6);
     }
 
@@ -122,7 +123,7 @@ public class BedrockSolidActorBufferLegalityTest {
             var result = tick(player, attackTick, X + 0.07, z, true);
             var observation = result.observation();
             assertNotNull(observation);
-            if (mode == 3 || mode == 5 || mode == 6) {
+            if (mode == 3) {
                 assertTrue(observation.toString(), observation.validationOffset() <= 1.0E-4);
                 assertEquals(0, player.checkManager.getListener(BedrockMovement.class).violations, 0);
                 assertNotNull(result.movementResult().solidActorOrderRange());

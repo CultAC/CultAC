@@ -1,6 +1,7 @@
 package ac.cult.cultac.bedrock.prediction.integration;
 
 import ac.cult.cultac.bedrock.prediction.simulation.collision.BedrockDepenetrationLimit;
+import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext.HardCollidingEntityCollision;
 import ac.cult.cultac.player.CultPlayer;
@@ -16,9 +17,9 @@ import java.util.List;
  * The solid actors a Bedrock move collides with after the blocks: every actor with the collidable flag whose box
  * meets the mover's box grown by {@link #REACH}, at the box its last lerp step left it, with the depenetration limit
  * it gives the move. There is no push between actors. Tracked entities come first in tracker order, then the actors
- * only the client holds in spawn order; the move meets them in the reverse of that order. A boat or happy ghast in
- * the middle of its lerp lends a move it ends what the player's {@link BedrockSolidActorBuffer} has for the tick,
- * since Cult's box for it can stand a step off the client's.
+ * only the client holds in spawn order; the move meets them in the reverse of that order. Cult's box for a moving
+ * actor can stand off the client's: a lerp step for a 1.26.60 or later client, anywhere its history delay allows for an
+ * earlier one. Each actor carries how far that may be, and the offsets where the client may show it instead.
  */
 public final class BedrockSolidActors {
     private static final double REACH = 2.0D;
@@ -36,22 +37,67 @@ public final class BedrockSolidActors {
         CompensatedEntities entities = context.getEntities();
         PacketEntity rootOfSelf = entities.rootOfSelf();
         SimpleCollisionBox box = new SimpleCollisionBox();
-        float buffer = context.getBedrockInput() == null
-                ? 0.0F
-                : player.bedrockState.solidActorBuffer.available(
-                        context.getBedrockInput().getClientTick());
+        // A client before 1.26.60 shows each actor somewhere in the positions it was sent within its history delay.
+        boolean legacy = context.getBedrockInput() != null
+                && player.bedrockState.getProtocolVersion().isKnown()
+                && player.bedrockState.getProtocolVersion().compareTo(BedrockProtocolVersion.V1_26_60) < 0;
         for (PacketEntity entity : entities.entityMap.values()) {
             // A death event leaves Bedrock's solid box present until its flag clears or the actor is removed.
             if (!entity.bedrockCollidable) continue;
             if (entities.sharesRootVehicleWithSelf(entity, rootOfSelf)) continue;
             if (!entity.bedrockShownBox(player, box).isIntersected(reach)) continue;
-            var collision = new HardCollidingEntityCollision(
-                    box.copy(), depenetrationLimit(entity), buffers(entity) ? buffer : 0.0F);
+            float actorBuffer = 0.0F;
+            List<ac.cult.cultac.utils.math.Vec3> elsewhere = List.of();
+            if (!legacy && context.getBedrockInput() != null) {
+                var envelope = player.bedrockState.solidActorBuffer.steps;
+                actorBuffer = envelope.buffer(
+                        entity.getEntityId(),
+                        context.getBedrockInput().getClientTick(),
+                        entity.clientPhysicalPosition,
+                        entity.desyncClientPos,
+                        entity.newPacketLocation == null ? 0 : entity.newPacketLocation.bedrockStepsLeft());
+                if (actorBuffer > 0.0F) {
+                    elsewhere = envelope.alternatives(entity.getEntityId());
+                    touch(player, context, box, actorBuffer, depenetrationLimit(entity));
+                }
+            } else if (legacy) {
+                var envelope = player.bedrockState.solidActorBuffer.legacy;
+                long tick = context.getBedrockInput().getClientTick();
+                actorBuffer = envelope.buffer(
+                        entity.getEntityId(), tick, entity.desyncClientPos, entity.clientPhysicalPosition);
+                if (actorBuffer > 0.0F) elsewhere = envelope.alternatives(entity.getEntityId(), entity.clientPhysicalPosition);
+                // Such a client also pushes a player out of an actor it overlaps, however still the actor is.
+                touch(player, context, box, Math.max(actorBuffer, overlapPush(player, box, context)), depenetrationLimit(entity));
+            }
+            var collision = new HardCollidingEntityCollision(box.copy(), depenetrationLimit(entity), actorBuffer, elsewhere);
             solid.add(collision);
             nearby.add(new Nearby(entity, collision));
         }
-        player.bedrockState.clientActors.colliders(reach, actor -> {
-            var collision = new HardCollidingEntityCollision(actor, BedrockDepenetrationLimit.SOLID_ACTOR, 0.0F);
+        player.bedrockState.clientActors.colliders(reach, (runtimeId, actor, placed, sent, shown, stepsLeft) -> {
+            float actorBuffer = 0.0F;
+            List<ac.cult.cultac.utils.math.Vec3> elsewhere = List.of();
+            if (!legacy && context.getBedrockInput() != null) {
+                var envelope = player.bedrockState.solidActorBuffer.stepsClientOnly;
+                int key = (int) (runtimeId ^ (runtimeId >>> 32));
+                actorBuffer = envelope.buffer(key, context.getBedrockInput().getClientTick(), shown, sent, stepsLeft);
+                if (actorBuffer > 0.0F) {
+                    elsewhere = envelope.alternatives(key);
+                    touch(player, context, actor, actorBuffer, BedrockDepenetrationLimit.SOLID_ACTOR);
+                }
+            } else if (legacy) {
+                var envelope = player.bedrockState.solidActorBuffer.legacyClientOnly;
+                int key = (int) (runtimeId ^ (runtimeId >>> 32));
+                actorBuffer = envelope.buffer(key, context.getBedrockInput().getClientTick(), placed, sent, shown);
+                if (actorBuffer > 0.0F) elsewhere = envelope.alternatives(key, shown);
+                touch(
+                        player,
+                        context,
+                        actor,
+                        Math.max(actorBuffer, overlapPush(player, actor, context)),
+                        BedrockDepenetrationLimit.SOLID_ACTOR);
+            }
+            var collision = new HardCollidingEntityCollision(
+                    actor, BedrockDepenetrationLimit.SOLID_ACTOR, actorBuffer, elsewhere);
             solid.add(collision);
             nearby.add(new Nearby(null, collision));
         });
@@ -85,22 +131,37 @@ public final class BedrockSolidActors {
 
     record Nearby(PacketEntity entity, HardCollidingEntityCollision collision) {}
 
-    /** Whether a boat's or happy ghast's position can still change through its interpolation. */
-    private static boolean buffers(PacketEntity entity) {
-        if (!entity.isBoat() && !entity.isHappyGhast()) return false;
-        if (!entity.clientPhysicalPositionExact || entity.oldPacketLocation != null) return true;
-        var interpolation = entity.newPacketLocation;
-        if (interpolation == null || interpolation.bedrockStepsLeft() == 0) return false;
-        if (interpolation.getExactInterpolationStep() < 0) return true;
-        // Rotation-only and identical updates also restart the steps, without moving the collision box.
-        // Use the tracked position: rebuilding a box centre can round away a small coordinate.
-        var position = entity.clientPhysicalPosition;
-        var storedFeet = interpolation.bedrockStoredFeet();
-        if (storedFeet != null && storedFeet.applyAsDouble(position.y) != position.y) return true;
-        return position.x != interpolation.targetCenterX()
-                || position.y != interpolation.targetMinY()
-                || position.z != interpolation.targetCenterZ();
+    /**
+     * A solid actor's push for an older client: its whole depenetration limit when its box overlaps the player where the
+     * move starts.
+     */
+    private static float overlapPush(CultPlayer player, SimpleCollisionBox box, SimulationContext context) {
+        var start = context.getStart();
+        if (start == null) return 0.0F;
+        return box.isIntersected(GetBoundingBox.getPlayerBoundingBox(player, start.x, start.y, start.z))
+                ? BedrockDepenetrationLimit.SOLID_ACTOR.x()
+                : 0.0F;
     }
+
+    /** An actor that may stand {@code buffer} from {@code box} may meet the player's move. */
+    private static void touch(
+            CultPlayer player,
+            SimulationContext context,
+            SimpleCollisionBox box,
+            float buffer,
+            BedrockDepenetrationLimit limit) {
+        SimpleCollisionBox mover = context.getFromMaximumExtent();
+        if (buffer <= 0.0F || !box.copy().expand(buffer).isIntersected(mover)) return;
+        player.bedrockState.solidActorBuffer.touchedBy(
+                context.getBedrockInput().getClientTick(),
+                buffer,
+                limit,
+                (box.minX + box.maxX) / 2.0D,
+                (box.minZ + box.maxZ) / 2.0D,
+                (mover.minX + mover.maxX) / 2.0D,
+                (mover.minZ + mover.maxZ) / 2.0D);
+    }
+
 
     /** How deep a move that collects {@code entity} may overlap a shape and still leave it. */
     private static BedrockDepenetrationLimit depenetrationLimit(PacketEntity entity) {

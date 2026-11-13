@@ -1044,9 +1044,24 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
     }
 
     /**
-     * The box of a solid actor a Bedrock move collides with, the limit it gives every move that collects it, and how
-     * far a move it ends may end from Cult's end along that axis (0 unless a moving boat or happy ghast).
+     * The box of a solid actor a Bedrock move collides with, the limit it gives every move that collects it, how far a
+     * move it ends may end from Cult's end along that axis (0 unless a moving boat or happy ghast, or an actor a client
+     * before 1.26.60 may show elsewhere), and the other offsets from that box such a client may show it at.
      */
     public record HardCollidingEntityCollision(
-            SimpleCollisionBox box, BedrockDepenetrationLimit depenetrationLimit, float buffer) {}
+            SimpleCollisionBox box,
+            BedrockDepenetrationLimit depenetrationLimit,
+            float buffer,
+            java.util.List<ac.cult.cultac.utils.math.Vec3> alternatives) {
+        public HardCollidingEntityCollision(
+                SimpleCollisionBox box, BedrockDepenetrationLimit depenetrationLimit, float buffer) {
+            this(box, depenetrationLimit, buffer, java.util.List.of());
+        }
+
+        /** The same actor shown {@code offset} from this box, with no other offsets. */
+        public HardCollidingEntityCollision shifted(ac.cult.cultac.utils.math.Vec3 offset) {
+            return new HardCollidingEntityCollision(
+                    box.copy().offset(offset.x, offset.y, offset.z), depenetrationLimit, buffer);
+        }
+    }
 }

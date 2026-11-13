@@ -29,6 +29,7 @@ import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.PredictionSetbackState;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.SimulationContext.HardCollidingEntityCollision;
 import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngine;
 import ac.cult.cultac.checks.impl.prediction.stage.MovementModifiers;
 import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
@@ -135,6 +136,7 @@ public final class BedrockMovementEngine implements MovementEngine {
                         addCandidate(output, selectedInput, simulationInput, movementCandidate, vector);
                     }
                 }
+                addShownElsewhere(output, player, context, bedrockInput, previousEntry, vector);
             }
         }
         return output.isEmpty()
@@ -179,6 +181,58 @@ public final class BedrockMovementEngine implements MovementEngine {
         selectedInput =
                 selectedInput.withPreviousState(simulationInput.previousState(), simulationInput.mobJumpComponent());
         return new SimulatedEntry(selectedInput, simulationInput, BedrockForwardTick.simulate(simulationInput));
+    }
+
+    /**
+     * A client before 1.26.60 may show a solid actor at any position it was sent within its history delay: the tick is
+     * also each move with one such actor at one of those positions, so a move that meets it there carries the
+     * collision and velocity of that contact.
+     */
+    private void addShownElsewhere(
+            LinkedHashMap<CandidateKey, PredVector> output,
+            CultPlayer player,
+            SimulationContext context,
+            Input bedrockInput,
+            Entry previousEntry,
+            PredVector vector) {
+        List<HardCollidingEntityCollision> actors = context.getHardCollidingEntityCollisionsForMovementTick();
+        if (actors == null || actors.stream().allMatch(actor -> actor.alternatives().isEmpty())) return;
+        try {
+            // Every such actor somewhere it blocks nothing of this move: the candidate with them all gone.
+            List<HardCollidingEntityCollision> without =
+                    actors.stream().filter(actor -> actor.alternatives().isEmpty()).toList();
+            context.cacheHardCollidingEntityCollisionsForMovementTick(without);
+            Input clear = inputFactory.create(player, context, bedrockInput.sampledRegion());
+            if (clear != null) {
+                SimulatedEntry simulated = simulate(player, context, clear, previousEntry);
+                for (Candidate movementCandidate : simulated.candidates()) {
+                    addCandidate(output, simulated.input(), simulated.simulationInput(), movementCandidate, vector);
+                }
+            }
+            for (int i = 0; i < actors.size(); i++) {
+                for (Vec3 offset : actors.get(i).alternatives()) {
+                    List<HardCollidingEntityCollision> shifted = new ArrayList<>(actors);
+                    shifted.set(i, actors.get(i).shifted(offset));
+                    context.cacheHardCollidingEntityCollisionsForMovementTick(List.copyOf(shifted));
+                    Input moved = inputFactory.create(player, context, bedrockInput.sampledRegion());
+                    if (moved == null) continue;
+                    for (boolean held : moved.chunkHoldUnproven() ? HOLD_VARIANTS : MOVE_ONLY) {
+                        SimulatedEntry simulated =
+                                simulate(player, context, held ? moved.heldByUncommittedChunk() : moved, previousEntry);
+                        for (Candidate movementCandidate : simulated.candidates()) {
+                            addCandidate(
+                                    output,
+                                    simulated.input(),
+                                    simulated.simulationInput(),
+                                    movementCandidate,
+                                    vector);
+                        }
+                    }
+                }
+            }
+        } finally {
+            context.cacheHardCollidingEntityCollisionsForMovementTick(actors);
+        }
     }
 
     /** Returns the sampled region itself when it holds every shape the candidates' moves fetch. */
@@ -235,9 +289,16 @@ public final class BedrockMovementEngine implements MovementEngine {
                 initialStartingVelocity,
                 player,
                 result,
-                BedrockActorOrderRangeHandler.range(initialStartingVelocity) == null
-                        ? List.of()
-                        : List.of(BedrockActorOrderRangeHandler.INSTANCE));
+                handlers(player, result, initialStartingVelocity));
+    }
+
+    private static List<ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHandler> handlers(
+            CultPlayer player, PredictionResult result, PredVector initialStartingVelocity) {
+        boolean range = BedrockActorOrderRangeHandler.range(initialStartingVelocity) != null;
+        boolean slack = BedrockActorPushHandler.touched(player, result.getSimulationContext());
+        if (range && slack) return List.of(BedrockActorOrderRangeHandler.INSTANCE, BedrockActorPushHandler.INSTANCE);
+        if (range) return List.of(BedrockActorOrderRangeHandler.INSTANCE);
+        return slack ? List.of(BedrockActorPushHandler.INSTANCE) : List.of();
     }
 
     /** The candidate travel's own collision: the engine's collided move and its collision flags. */
@@ -288,7 +349,6 @@ public final class BedrockMovementEngine implements MovementEngine {
             var state = bedrockResult.nextTickBaseState();
             var frame = result.getSimulationContext().getBedrockInput();
             if (player != null && frame != null) {
-                chargeSolidActorBuffer(player, movement, frame.getClientTick(), acceptedDiff);
                 if (result.getInitialStartingVel() instanceof BedrockPredVector candidate)
                     takeChunkHold(player, candidate, frame);
             }
@@ -327,16 +387,6 @@ public final class BedrockMovementEngine implements MovementEngine {
         var position = state.physicalFeetPosition();
         if (input.heldByChunkView()) chunks.held(state.coordinateFrame(), position.x(), position.z(), frame.getClientTick());
         else chunks.moved(state.coordinateFrame(), position.x(), position.z(), frame.getClientTick());
-    }
-
-    /** Charges the tick what its accepted move took of the buffer of the moving actors that ended its move. */
-    private static void chargeSolidActorBuffer(
-            CultPlayer player, BedrockMovementResult movement, long tick, Vec3 accepted) {
-        BedrockActorOrderRange range = movement.solidActorOrderRange();
-        if (player.bedrockState == null || accepted == null || range == null || range.bufferedAxes() == 0) return;
-        Vec3d own = movement.predictedPosition().subtract(movement.previousState().physicalFeetPosition());
-        player.bedrockState.solidActorBuffer.charge(
-                tick, range.buffered(own, BedrockVectorAdapter.toBedrock(accepted)));
     }
 
     /** The lily pads the committed boat move reached are gone from the client's world from its next tick. */
