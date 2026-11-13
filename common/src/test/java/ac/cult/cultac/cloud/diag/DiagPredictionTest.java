@@ -50,20 +50,24 @@ import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.grim.grimac.api.config.ConfigManager;
 import com.github.luben.zstd.ZstdInputStream;
+import com.sun.management.HotSpotDiagnosticMXBean;
 import com.sun.management.ThreadMXBean;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.util.ReferenceCountUtil;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
+import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -71,6 +75,7 @@ import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.BooleanSupplier;
 import java.util.function.LongSupplier;
 import org.junit.jupiter.api.AfterAll;
@@ -218,17 +223,18 @@ class DiagPredictionTest {
     }
 
     /**
-     * Every bundle a watched player's recorded states upload is byte for byte the bundle of the same states printed as
-     * each prediction completed: cuts at the start, middle and end of a ring that has evicted ticks and texts, a cut
+     * Every bundle a watched player's recorded states upload is byte for byte the bundle of the same states printed and
+     * compressed as each prediction completed: cuts at the start, middle and end of a ring that has evicted ticks, a cut
      * still waiting when its watch stops, and cuts across a watch that starts again. The recorded states reach their
-     * diagnostics a few ticks late, after the player's state has moved on.
+     * diagnostics a few ticks late and are printed only when a flag or a cut asks for them, up to a hundred ticks
+     * after the player's state has moved on.
      */
     @Test
     void recordedStatesUploadAsTheTextPrintedAtCapture() throws Exception {
         Limits limits = Limits.of(
                 true,
                 120,
-                256 * 1024,
+                Limits.MAX_PLAYER_RING_BYTES,
                 Limits.MAX_SERVER_RING_BYTES,
                 Limits.MAX_PLAYERS,
                 0,
@@ -246,6 +252,14 @@ class DiagPredictionTest {
             for (int i = 0; i < 200; i++) tee.tick(bot, tick);
             long newest = tee.settle(bot);
             assertEquals(120, tee.recorded.ring.size(), "the ring evicted its oldest ticks");
+            int held = 0;
+            for (DiagRing.Tick kept : tee.recorded.ring.range(0, newest)) if (kept.state != null) held++;
+            assertTrue(held >= 100, "states held unprinted " + held);
+            assertEquals(
+                    0,
+                    tee.printed.ring.range(0, newest).stream()
+                            .filter(kept -> kept.state != null)
+                            .count());
             tee.cut(bundles, 1, newest - 119, newest - 100, newest - 119, newest - 110);
             tee.cut(bundles, 2, newest - 70, newest - 40, newest - 60, newest - 50);
             tee.cut(bundles, 3, newest - 19, newest, newest - 9, newest);
@@ -415,6 +429,114 @@ class DiagPredictionTest {
         textCost(report);
         for (boolean cuts : new boolean[] {false, true}) watchCost(report, cuts);
         Files.writeString(Path.of(out), report.toString(), StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+    }
+
+    /**
+     * The held states of a real walk, measured in turn as the ring measures them, together hold no more of the heap
+     * than their estimates add up to: counted with 16-byte headers, two bytes a char and the heap's reference width,
+     * less enums and the strings the text keeps shared.
+     */
+    @Test
+    void heldStatesHoldNoMoreOfTheHeapThanTheirEstimates() throws Exception {
+        AtomicLong tick = new AtomicLong();
+        Bot bot = new Bot(3).counting(tick::get);
+        List<DiagWatch.Raw> raws = new ArrayList<>();
+        bot.debug.watch(new PredictionObserver() {
+            @Override
+            public long pendingSeq() {
+                return tick.get();
+            }
+
+            @Override
+            public void capture(long seq, double offset, String trace, String state, BlockGrid grid, long start) {}
+
+            @Override
+            public void captureText(
+                    long seq, double offset, String trace, DebugText state, BlockGrid grid, long start) {
+                if (state != null) raws.add(new DiagWatch.Raw(null, seq, 0, "", state, grid, 0, true));
+            }
+
+            @Override
+            public void failed(RuntimeException failure) {
+                throw new AssertionError(failure);
+            }
+        });
+        try {
+            for (int i = 0; i < 400; i++) {
+                bot.tick();
+                tick.incrementAndGet();
+            }
+        } finally {
+            bot.close();
+        }
+        assertTrue(raws.size() >= 300, "states " + raws.size());
+        long estimated = 0;
+        for (DiagWatch.Raw raw : raws) estimated += Diagnostics.retained(raw);
+
+        Map<Object, Boolean> seen = new IdentityHashMap<>();
+        seen.put("", Boolean.TRUE);
+        for (Object shared : (Object[]) staticField("ASCII")) seen.put(shared, Boolean.TRUE);
+        AtomicReferenceArray<?> shared = (AtomicReferenceArray<?>) staticField("SHARED");
+        for (int i = 0; i < shared.length(); i++) if (shared.get(i) != null) seen.put(shared.get(i), Boolean.TRUE);
+        int reference = referenceBytes();
+        long heap = 0;
+        for (DiagWatch.Raw raw : raws) heap += heapBytes(raw, seen, reference);
+        assertTrue(estimated >= heap, "estimates " + estimated + " < heap " + heap);
+    }
+
+    private static Object staticField(String name) throws ReflectiveOperationException {
+        Field field = DebugText.class.getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(null);
+    }
+
+    private static int referenceBytes() {
+        HotSpotDiagnosticMXBean vm = ManagementFactory.getPlatformMXBean(HotSpotDiagnosticMXBean.class);
+        return Boolean.parseBoolean(vm.getVMOption("UseCompressedOops").getValue()) ? 4 : 8;
+    }
+
+    /** The heap {@code value} reaches that {@code seen} does not hold yet, in the layout the test above names. */
+    private static long heapBytes(Object value, Map<Object, Boolean> seen, int reference)
+            throws IllegalAccessException {
+        if (value == null || value instanceof Enum<?> || value instanceof Class<?>) return 0;
+        if (seen.put(value, Boolean.TRUE) != null) return 0;
+        if (value instanceof String text) return aligned(16 + reference + 6) + aligned(20 + 2L * text.length());
+        if (value instanceof Number || value instanceof Boolean || value instanceof Character) return 24;
+        Class<?> type = value.getClass();
+        if (type.isArray()) {
+            int length = Array.getLength(value);
+            if (!(value instanceof Object[] values)) {
+                return aligned(20 + (long) width(type.getComponentType(), reference) * length);
+            }
+            long bytes = aligned(20 + (long) reference * length);
+            for (Object element : values) bytes += heapBytes(element, seen, reference);
+            return bytes;
+        }
+        long own = 16;
+        List<Object> references = new ArrayList<>();
+        for (Class<?> c = type; c != null; c = c.getSuperclass()) {
+            for (Field field : c.getDeclaredFields()) {
+                if (Modifier.isStatic(field.getModifiers())) continue;
+                own += width(field.getType(), reference);
+                if (field.getType().isPrimitive()) continue;
+                field.setAccessible(true);
+                references.add(field.get(value));
+            }
+        }
+        long bytes = aligned(own);
+        for (Object field : references) bytes += heapBytes(field, seen, reference);
+        return bytes;
+    }
+
+    private static int width(Class<?> type, int reference) {
+        if (type == byte.class || type == boolean.class) return 1;
+        if (type == short.class || type == char.class) return 2;
+        if (type == int.class || type == float.class) return 4;
+        return type.isPrimitive() ? 8 : reference;
+    }
+
+    private static long aligned(long bytes) {
+        return (bytes + 7) & ~7L;
     }
 
     private static void textCost(StringBuilder report) throws ReflectiveOperationException {

@@ -12,6 +12,7 @@ import ac.cult.cultac.cloud.intake.v3.DiagCoverage;
 import ac.cult.cultac.cloud.intake.v3.DiagPart;
 import ac.cult.cultac.cloud.intake.v3.DiagTick;
 import ac.cult.cultac.cloud.intake.v3.Intake;
+import ac.cult.cultac.utils.debug.DebugText;
 import com.github.luben.zstd.ZstdInputStream;
 import com.google.protobuf.ByteString;
 import java.io.ByteArrayInputStream;
@@ -462,6 +463,181 @@ class DiagnosticsTest {
         assertEquals(9, ring.newest());
         ring.flags(5, List.of("Reach"));
         assertEquals(List.of("Reach"), ring.range(5, 5).get(0).flags);
+    }
+
+    @Test
+    void theRingDropsHeldStatesBeforeFullTextsAndKeepsItsByteBound() {
+        long bound = 6 * DiagRing.TICK_OVERHEAD + 2 * 1000 + 2 * 1500 + 700;
+        DiagRing ring = new DiagRing(100, bound);
+        ring.add(0, 0, "", new byte[1000]);
+        for (int seq = 1; seq <= 4; seq++) ring.add(seq, 0, "", null, held(seq), 1500);
+        ring.add(5, 0, "", new byte[1000]);
+        List<DiagRing.Tick> ticks = ring.range(0, 100);
+        assertEquals(6, ticks.size(), "no tick goes while a held state can");
+        assertNotNull(ticks.get(0).full, "a full text outlives the newer states of ended ticks");
+        assertNull(ticks.get(1).state);
+        assertNull(ticks.get(2).state);
+        assertNotNull(ticks.get(3).state);
+        assertNotNull(ticks.get(4).state);
+        assertNotNull(ticks.get(5).full);
+        assertTrue(ring.bytes() <= bound, ring.bytes() + " bytes");
+        assertEquals(6 * DiagRing.TICK_OVERHEAD + 2 * 1000 + 2 * 1500, ring.bytes());
+
+        ring.rendered(ticks.get(3), new byte[200]);
+        ring.rendered(ticks.get(4), null);
+        assertNull(ticks.get(3).state);
+        assertEquals(200, ticks.get(3).full.length);
+        assertNull(ticks.get(4).full);
+        assertEquals(6 * DiagRing.TICK_OVERHEAD + 2 * 1000 + 200, ring.bytes());
+
+        ring.add(6, 0, "", null, held(6), 1500);
+        ring.add(6, 0, "", new byte[300]);
+        DiagRing.Tick joined = ring.find(6);
+        assertNull(joined.state, "the newest prediction of a tick is the one kept");
+        assertEquals(300, joined.full.length);
+        assertEquals(7 * DiagRing.TICK_OVERHEAD + 2 * 1000 + 200 + 300, ring.bytes());
+    }
+
+    @Test
+    void aRecordedStateIsPrintedOnceAFlagOrACutAsksForItsTick() throws IOException {
+        AtomicInteger detached = new AtomicInteger();
+        Diagnostics diagnostics = diagnostics(ON);
+        DiagWatch watch = watch(diagnostics, PLAYER, 60, detached);
+        for (int seq = 10; seq <= 30; seq++) {
+            watch.captureText(seq, 0, "trace " + seq, text("state " + seq), null, System.nanoTime());
+            if (seq == 12) {
+                watch.tickEnd(seq, List.of("Simulation"));
+                watch.captureText(seq, 0, "again", text("state 12 again"), null, System.nanoTime());
+            }
+            if (seq == 15) watch.tickEnd(seq, List.of("Timer"));
+        }
+        watch.tickEnd(40, List.of("Timer"));
+        watch.captureText(40, 0, "trace 40", text("state 40"), null, System.nanoTime());
+        await(() -> watch.ring != null && watch.ring.newest() == 40);
+        awaitPasses();
+        for (DiagRing.Tick tick : watch.ring.range(10, 40)) {
+            boolean flagged = tick.seq == 12 || tick.seq == 15 || tick.seq == 40;
+            assertEquals(flagged, tick.full != null, "full at " + tick.seq);
+            assertEquals(!flagged, tick.state != null, "held at " + tick.seq);
+        }
+        assertEquals("state 12 again", unzstd(watch.ring.find(12).full));
+        assertEquals("state 40", unzstd(watch.ring.find(40).full));
+
+        diagnostics.cut(PLAYER, cut(11, 44, 20, 42), "header");
+        awaitPasses();
+        for (DiagRing.Tick tick : watch.ring.range(13, 30)) {
+            boolean asked = tick.seq >= 20 || tick.seq == 15;
+            assertEquals(asked, tick.full != null, "full at " + tick.seq);
+            assertEquals(!asked, tick.state != null, "held at " + tick.seq);
+        }
+        for (int seq = 41; seq <= 44; seq++) {
+            watch.captureText(seq, 0, "trace " + seq, text("state " + seq), null, System.nanoTime());
+        }
+        List<DiagPart> parts = awaitParts();
+        assertEquals(
+                DiagCoverage.DIAG_COVERAGE_FULL, parts.get(parts.size() - 1).getCoverage());
+        List<Long> fulls = new ArrayList<>();
+        for (DiagPart part : parts) {
+            for (DiagTick tick : part.getTicksList()) {
+                if (tick.getFull().isEmpty()) continue;
+                fulls.add(tick.getSeq());
+                String state = tick.getSeq() == 12 ? "state 12 again" : "state " + tick.getSeq();
+                assertEquals(state, unzstd(tick.getFull().toByteArray()));
+            }
+        }
+        List<Long> expected = new ArrayList<>(List.of(12L, 15L));
+        for (long seq = 20; seq <= 30; seq++) expected.add(seq);
+        expected.addAll(List.of(40L, 41L, 42L));
+        assertEquals(expected, fulls);
+        assertNotNull(watch.ring.find(43).state, "past the full range a state waits");
+    }
+
+    @Test
+    void theNewestTicksStateOutlivesOlderFullTextsAndTheByteBoundHolds() {
+        long bound = 4 * DiagRing.TICK_OVERHEAD + 2 * 1000 + 1500 + 500;
+        DiagRing ring = new DiagRing(100, bound);
+        for (int seq = 0; seq < 3; seq++) ring.add(seq, 0, "", new byte[1000]);
+        ring.add(3, 0, "", null, held(3), 1500);
+        assertNotNull(ring.find(3).state, "the newest tick's state waits for its tick end");
+        assertNull(ring.find(0).full);
+        assertNotNull(ring.find(1).full);
+        assertEquals(4, ring.size());
+        assertEquals(4 * DiagRing.TICK_OVERHEAD + 2 * 1000 + 1500, ring.bytes());
+
+        DiagRing small = new DiagRing(100, 2 * DiagRing.TICK_OVERHEAD + 1000 + 500);
+        small.add(0, 0, "", new byte[1000]);
+        small.add(1, 0, "", null, held(1), 2000);
+        assertEquals(2, small.size(), "no tick goes while a state or full text can");
+        assertNull(small.find(0).full);
+        assertNull(small.find(1).state);
+        assertEquals(2 * DiagRing.TICK_OVERHEAD, small.bytes());
+    }
+
+    @Test
+    void aTickThatFlagsInARingFullOfFullTextsKeepsItsFullText() throws IOException {
+        Diagnostics diagnostics =
+                diagnostics(Limits.of(true, 400, 64 * 1024, 0, 0, 0, Limits.MAX_UPLOAD_BYTES_PER_SECOND, 0, 0));
+        DiagWatch watch = watch(diagnostics, PLAYER, 60, new AtomicInteger());
+        Random random = new Random(11);
+        for (int seq = 0; seq < 60; seq++) {
+            watch.tickEnd(seq, List.of("Simulation"));
+            watch.captureText(seq, 0, "trace " + seq, text(noise(random, 4000)), null, System.nanoTime());
+        }
+        String flagged = noise(random, 4000);
+        watch.captureText(100, 0, "trace 100", text(flagged), null, System.nanoTime());
+        watch.tickEnd(100, List.of("Timer"));
+        await(() -> watch.ring != null && watch.ring.newest() == 100);
+        awaitPasses();
+        assertNull(watch.ring.find(0).full, "the ring is full of full texts");
+        assertNotNull(watch.ring.find(100).full, "full at 100");
+        assertEquals(text(flagged).toString(), unzstd(watch.ring.find(100).full));
+        assertTrue(watch.ring.bytes() <= 64 * 1024, watch.ring.bytes() + " bytes");
+    }
+
+    @Test
+    void aFlaggedTicksFullTextLivesAtLeastAsLongAsWhenEveryTickWasCompressed() {
+        long bound = 40_000;
+        DiagRing eager = new DiagRing(200, bound);
+        DiagRing lazy = new DiagRing(200, bound);
+        Random random = new Random(5);
+        List<String> flags = List.of("Simulation");
+        for (int seq = 0; seq < 6000; seq++) {
+            String trace = "t".repeat(50 + random.nextInt(250));
+            int full = 500 + random.nextInt(3500);
+            long state = 4L * full + random.nextInt(400);
+            double rate = new double[] {0.05, 0.5, 1}[seq / 500 % 3];
+            boolean flagged = random.nextDouble() < rate;
+            eager.add(seq, 0, trace, new byte[full]);
+            if (lazy.fits(trace, state)) lazy.add(seq, 0, trace, null, held(seq), state);
+            else lazy.add(seq, 0, trace, new byte[full]);
+            if (flagged) {
+                eager.flags(seq, flags);
+                DiagRing.Tick tick = lazy.find(seq);
+                if (tick.state != null) lazy.rendered(tick, new byte[full]);
+                lazy.flags(seq, flags);
+            }
+            assertTrue(lazy.bytes() <= bound, lazy.bytes() + " bytes at " + seq);
+            assertEquals(eager.evictedThrough(), lazy.evictedThrough(), "evicted at " + seq);
+            for (DiagRing.Tick kept : eager.range(0, seq)) {
+                if (kept.full != null && !kept.flags.isEmpty()) {
+                    assertNotNull(lazy.find(kept.seq).full, "flagged full at " + kept.seq + " by " + seq);
+                }
+            }
+        }
+    }
+
+    private static String noise(Random random, int length) {
+        char[] chars = new char[length];
+        for (int i = 0; i < length; i++) chars[i] = (char) ('0' + random.nextInt(64));
+        return new String(chars);
+    }
+
+    private static DebugText text(String state) {
+        return new DebugText.Builder().append(state).toText();
+    }
+
+    private static DiagWatch.Raw held(long seq) {
+        return new DiagWatch.Raw(null, seq, 0, "", text("state " + seq), null, 0, true);
     }
 
     @Test
