@@ -100,7 +100,8 @@ final class BedrockReplayTick {
                         snapshot.withMovementContext(BedrockFluidStateResolver.withCurrentTickFluidStateFromBlockWorld(
                                 snapshot.movementContext(), state.physicalFeetPosition(), state.playerDimensions()));
             }
-            snapshot = actors.apply(snapshot);
+            // As on a live tick, a ridden boat collides with no solid actor: only a mob does.
+            if (!state.isBoat()) snapshot = actors.apply(snapshot);
             snapshot = BedrockReplayCollisionWorld.withReplayedActors(snapshot, snapshot);
             if (snapshot != request.snapshot()) {
                 request = new BedrockSimulation.Input(
