@@ -405,6 +405,51 @@ public class BedrockPendingTeleportTickTest {
         }
     }
 
+    // ll40-hold1-1 (1.26.40.5): teleported onto the ground at 943 into a column it had not committed, the client held
+    // the actor at 944 and still reported the vertical collision of its last move; it fell from rest at 945. A hold
+    // that dropped that collision disagreed with the client's report and sent a correction.
+    @Test
+    public void aHeldTickKeepsTheCollisionOfTheLastMove() {
+        OfflineCultTestBootstrap.installConfig();
+        var player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            player.gamemode = GameMode.SURVIVAL;
+            player.compensatedWorld.ensureValidationChunkLoaded(0, 0);
+            for (int x = 0; x < 8; x++)
+                for (int z = 0; z < 8; z++)
+                    player.compensatedWorld.updateBlock(
+                            x, 63, z, DataTables.defaults().registry().block("minecraft:stone").defaultState());
+            Vec3 start = new Vec3(1.5, 80, 1.5);
+            player.x = player.lastX = start.x;
+            player.y = player.lastY = start.y;
+            player.z = player.lastZ = start.z;
+            player.onGround = player.lastOnGround = false;
+            player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, start.x, start.y, start.z);
+            var chunks = player.bedrockState.clientChunks;
+            chunks.receive(0, 0, 600);
+            chunks.publish(1000, 1000, 256);
+            chunks.publish(0, 0, 80);
+            Vec3 spawn = new Vec3(2.5, 64, 2.5);
+            var teleports = player.getSetbackTeleportUtil();
+            teleports.bedrockTeleports().addImmediateBedrockTransportTeleport(
+                    spawn, true, BedrockCoordinateFrame.IDENTITY, null,
+                    new BedrockTeleportOperation(12, BedrockTeleportProvenance.GEYSER, 12), 12);
+            player.lastTransactionReceived.set(100);
+            assertTrue(chunks.receive(0, 0, 942));
+            assertNotNull(process(player, walk(player, 943, spawn, Vec3.ZERO, true, false, true)));
+            assertNotNull(process(player, walk(player, 944, spawn, Vec3.ZERO, true, false, false)));
+            var held = entry(player).state();
+            assertEquals(spawn.y, held.physicalFeetPosition().y(), 0);
+            assertTrue(held.collisionFlags().verticalCollision());
+            assertFalse(held.collisionFlags().onGround());
+            assertNotNull(process(player, walk(player, 945, spawn, new Vec3(0, -0.0784, 0), false, false, false)));
+            assertNotNull(process(player, walk(player, 946, spawn, new Vec3(0, -0.0784, 0), true, false, false)));
+            assertEquals(0, player.checkManager.getListener(BedrockMovement.class).violations, 0);
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
     @Test
     public void walkingActorHeldInAColumnLeavesTheHoldAirborne() {
         OfflineCultTestBootstrap.installConfig();

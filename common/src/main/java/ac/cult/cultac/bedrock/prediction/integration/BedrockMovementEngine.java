@@ -7,6 +7,7 @@ import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
+import ac.cult.cultac.bedrock.prediction.model.Medium;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockMovementInputFactory.Input;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockProfileState.Entry;
 import ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick;
@@ -150,9 +151,14 @@ public final class BedrockMovementEngine implements MovementEngine {
                                 previousEntry.state(), bedrockInput.inputFrame(), context.getScale());
         if (context.isBedrockLerpStep()) boundingBoxState = boundingBoxState.withLerpStep();
         // A tick the chunk view holds takes a teleport without moving and leaves the actor off the ground, so the
-        // next tick moves normally from the air.
-        if (bedrockInput.heldByChunkView())
-            boundingBoxState = boundingBoxState.withTeleportTaken().offGround();
+        // next tick moves normally from the air. It does not move, so it keeps the collisions its last move reported.
+        if (bedrockInput.heldByChunkView()) {
+            boundingBoxState = boundingBoxState.withTeleportTaken();
+            boundingBoxState = boundingBoxState
+                    .withVelocityAndCollisionFlags(
+                            boundingBoxState.velocity(), boundingBoxState.collisionFlags().withOnGround(false))
+                    .withMovementBranch(Medium.AIR);
+        }
         Input selectedInput = bedrockInput.withPreviousState(boundingBoxState, previousEntry.mobJumpComponent());
         BedrockSimulation.Input simulationInput = new BedrockSimulation.Input(
                 selectedInput.previousState(),
