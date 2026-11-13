@@ -157,12 +157,12 @@ public final class BedrockEntityMove {
             int solidActorOrder,
             Vec3d nominalEnd) {
         if (blockCollisionWorld.isEmpty()) {
-            WorldCollisionBox box = BedrockActorBox.move(
-                    current.collisionBox(dimensions),
-                    requestedPosition.subtract(current.physicalFeetPosition()),
-                    current.coordinateFrame());
+            WorldCollisionBox startBox = current.collisionBox(dimensions);
+            Vec3d delta = requestedPosition.subtract(current.physicalFeetPosition());
+            WorldCollisionBox box = BedrockActorBox.move(startBox, delta, current.coordinateFrame());
             return noCollisionResult(BedrockActorBox.feet(box, current.coordinateFrame()), velocity)
-                    .withBox(box);
+                    .withBox(box)
+                    .withPreCastPosition(preCastPosition(startBox, floatMove(delta), current));
         }
 
         Vec3d requestedDelta = requestedPosition.subtract(current.physicalFeetPosition());
@@ -189,7 +189,15 @@ public final class BedrockEntityMove {
         ActorMove actorMove = actorMove(current, requestedDelta, obstacles, dimensions);
         CollisionMove collisionMove = autoStep(current, actorMove, dimensions, canStep, maxUpStep, flying);
         Result result = finalizeMove(
-                current, frame, dimensions, velocity, actorMove.requestedDelta(), collisionMove, collisionShapes);
+                        current,
+                        frame,
+                        dimensions,
+                        velocity,
+                        actorMove.requestedDelta(),
+                        collisionMove,
+                        collisionShapes)
+                .withPreCastPosition(
+                        preCastPosition(start, collisionMove.selectedMove().appliedDelta(), current));
         BedrockActorOrderCrossing crossing = BedrockActorOrderCrossing.then(
                 collisionMove.baseMove().actorOrder(),
                 collisionMove.steppedUp() ? collisionMove.selectedMove().actorOrder() : null);
@@ -222,6 +230,14 @@ public final class BedrockEntityMove {
                 range = placement.range(range, requestedDelta);
         }
         return result.withSolidActorOrder(solidActorOrder, range);
+    }
+
+    private static Vec3d preCastPosition(WorldCollisionBox start, Vec3d appliedMove, BedrockMovementState current) {
+        return BedrockActorBox.feet(start, current.coordinateFrame()).add(appliedMove);
+    }
+
+    private static Vec3d floatMove(Vec3d move) {
+        return new Vec3d((float) move.x(), (float) move.y(), (float) move.z());
     }
 
     public static Result noCollisionResult(Vec3d requestedPosition, Vec3d velocity) {
@@ -476,7 +492,45 @@ public final class BedrockEntityMove {
             WorldCollisionBox collisionBox,
             boolean penetrating,
             int solidActorOrder,
-            BedrockActorOrderRange solidActorOrderRange) {
+            BedrockActorOrderRange solidActorOrderRange,
+            Vec3d preCastPosition) {
+        public Result(
+                Vec3d position,
+                Vec3d velocity,
+                boolean xCollision,
+                boolean zCollision,
+                boolean horizontalCollisionFlag,
+                boolean horizontalBlockContact,
+                BedrockCollisionFlags collisionFlags,
+                boolean onGround,
+                boolean steppedUp,
+                boolean stepRetryAllowed,
+                boolean verticalCollision,
+                boolean standingBounceBounced,
+                WorldCollisionBox collisionBox,
+                boolean penetrating,
+                int solidActorOrder,
+                BedrockActorOrderRange solidActorOrderRange) {
+            this(
+                    position,
+                    velocity,
+                    xCollision,
+                    zCollision,
+                    horizontalCollisionFlag,
+                    horizontalBlockContact,
+                    collisionFlags,
+                    onGround,
+                    steppedUp,
+                    stepRetryAllowed,
+                    verticalCollision,
+                    standingBounceBounced,
+                    collisionBox,
+                    penetrating,
+                    solidActorOrder,
+                    solidActorOrderRange,
+                    null);
+        }
+
         public Result(
                 Vec3d position,
                 Vec3d velocity,
@@ -588,7 +642,8 @@ public final class BedrockEntityMove {
                     box,
                     penetrating,
                     solidActorOrder,
-                    solidActorOrderRange);
+                    solidActorOrderRange,
+                    preCastPosition);
         }
 
         /** Whether the move's own swept move overlapped any shape it met, which the next move's limit depends on. */
@@ -609,7 +664,8 @@ public final class BedrockEntityMove {
                     collisionBox,
                     value,
                     solidActorOrder,
-                    solidActorOrderRange);
+                    solidActorOrderRange,
+                    preCastPosition);
         }
 
         /** The order the move met its solid actors in and the range that order gives its end. */
@@ -630,7 +686,30 @@ public final class BedrockEntityMove {
                     collisionBox,
                     penetrating,
                     order,
-                    range);
+                    range,
+                    preCastPosition);
+        }
+
+        /** Where the start box's feet end after the final move, in double, before the box rounds them to float. */
+        public Result withPreCastPosition(Vec3d value) {
+            return new Result(
+                    position,
+                    velocity,
+                    xCollision,
+                    zCollision,
+                    horizontalCollisionFlag,
+                    horizontalBlockContact,
+                    collisionFlags,
+                    onGround,
+                    steppedUp,
+                    stepRetryAllowed,
+                    verticalCollision,
+                    standingBounceBounced,
+                    collisionBox,
+                    penetrating,
+                    solidActorOrder,
+                    solidActorOrderRange,
+                    value);
         }
     }
 }
