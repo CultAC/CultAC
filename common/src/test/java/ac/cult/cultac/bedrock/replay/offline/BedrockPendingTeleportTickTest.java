@@ -347,6 +347,64 @@ public class BedrockPendingTeleportTickTest {
         }
     }
 
+    // stuck-21 (1.26.40.5): a teleport at 1676 into a column whose marker the client answered after 1675. The
+    // client commits the column on a worker thread: it held the actor at 1677, two ticks after the answer, and let it
+    // fall from 1678. A column commits one to three ticks after that answer; until it moves, either may happen.
+    @Test
+    public void anActorHeldUntilTheThirdTickAfterItsColumnArrivedIsNotFlagged() {
+        assertEquals(0, heldThroughTheCommitWindow(1), 0);
+    }
+
+    // The client never kept a column uncommitted three ticks after answering its marker: a hold there flags.
+    @Test
+    public void anActorHeldPastTheCommitWindowIsFlagged() {
+        assertTrue(heldThroughTheCommitWindow(2) > 0);
+    }
+
+    private static double heldThroughTheCommitWindow(int heldTicks) {
+        OfflineCultTestBootstrap.installConfig();
+        var player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            player.gamemode = GameMode.SURVIVAL;
+            Vec3 start = new Vec3(1.5, 80, 1.5);
+            player.x = player.lastX = start.x;
+            player.y = player.lastY = start.y;
+            player.z = player.lastZ = start.z;
+            player.onGround = player.lastOnGround = false;
+            player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, start.x, start.y, start.z);
+            var chunks = player.bedrockState.clientChunks;
+            chunks.receive(0, 0, 600);
+            chunks.publish(1000, 1000, 256);
+            chunks.publish(0, 0, 80);
+            Vec3 spawn = new Vec3(1.5, 64, 1.5);
+            var teleports = player.getSetbackTeleportUtil();
+            teleports
+                    .bedrockTeleports()
+                    .addImmediateBedrockTransportTeleport(
+                            spawn,
+                            true,
+                            BedrockCoordinateFrame.IDENTITY,
+                            null,
+                            new BedrockTeleportOperation(12, BedrockTeleportProvenance.GEYSER, 12),
+                            12);
+            player.lastTransactionReceived.set(100);
+            assertTrue(chunks.receive(0, 0, 1675));
+            long tick = 1676;
+            assertNotNull(process(player, frame(player, tick++, spawn, 0, false, true)));
+            for (int i = 0; i < heldTicks; i++) assertNotNull(process(player, frame(player, tick++, spawn, 0, false, false)));
+            Vec3 position = spawn;
+            double[] steps = {0, -0.0784};
+            double[] velocities = {-0.0784, -0.155232};
+            for (int i = 0; i < steps.length; i++) {
+                position = position.add(0, steps[i], 0);
+                assertNotNull(process(player, frame(player, tick++, position, velocities[i], false, false)));
+            }
+            return player.checkManager.getListener(BedrockMovement.class).violations;
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
     @Test
     public void walkingActorHeldInAColumnLeavesTheHoldAirborne() {
         OfflineCultTestBootstrap.installConfig();

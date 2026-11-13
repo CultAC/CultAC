@@ -1,5 +1,7 @@
 package ac.cult.cultac.bedrock.prediction.integration;
 
+import ac.cult.cultac.bedrock.player.BedrockClientChunks;
+
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockCollisionOverrideCatalog;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputIntent;
@@ -84,16 +86,23 @@ final class BedrockMovementInputFactory {
                     previousState, tickInput.inputFrame(), context.getScale());
         }
         worldSnapshot = BedrockSnapshotResolver.forState(worldSnapshot, previousState, tickInput.inputFrame());
-        // The loading screen holds the player's own actor; a vehicle it controls travels on. A column under the box
-        // that the client's chunk view holds nothing in holds either, except on the tick that handles a teleport, the
-        // actor's own or its seated rider's. A tick the chunk view holds still takes a pending teleport: the next tick
-        // moves normally.
+        // The loading screen holds the player's own actor; a vehicle it controls travels on. The column under the
+        // actor's position, when the client's chunk view holds nothing in it, holds it either, except on the tick that
+        // handles a teleport, the actor's own or its seated rider's. A tick the chunk view holds still takes a pending
+        // teleport: the next tick moves normally. While the client may or may not have committed the column, the tick
+        // is the move here and the hold in its held variant.
         boolean loading = player.bedrockState.loadingScreen.active() && !previousState.isVehicle();
-        boolean heldByChunkView = !loading
-                && !context.handlesBedrockTeleport()
-                && !player.bedrockState.clientChunks.holds(previousState.collisionBox(), frame.getClientTick());
+        var position = previousState.physicalFeetPosition();
+        var chunkHold = loading || context.handlesBedrockTeleport()
+                ? BedrockClientChunks.Hold.FREE
+                : player.bedrockState.clientChunks.hold(
+                        previousState.coordinateFrame(), position.x(), position.z(), frame.getClientTick());
+        boolean heldByChunkView = chunkHold == BedrockClientChunks.Hold.HELD;
         boolean actorMovementTick = !loading && !heldByChunkView;
-        player.bedrockState.movementEffects.glideBoost(frame, actorMovementTick);
+        // The boost the tick samples does not depend on whether it moves; only a move spends a tick of it, which a
+        // tick the chunk view may hold spends when its move is the one taken.
+        player.bedrockState.movementEffects.glideBoost(
+                frame, actorMovementTick && chunkHold != BedrockClientChunks.Hold.EITHER);
         return new Input(
                 frame,
                 previousState,
@@ -106,6 +115,7 @@ final class BedrockMovementInputFactory {
                 mobJumpComponent,
                 actorMovementTick,
                 heldByChunkView,
+                chunkHold == BedrockClientChunks.Hold.EITHER,
                 sampledRegion);
     }
 
@@ -149,6 +159,8 @@ final class BedrockMovementInputFactory {
             boolean actorMovementTick,
             // The chunk view holds the actor: the tick still takes a pending teleport.
             boolean heldByChunkView,
+            // The client may or may not have committed the column under the actor: the tick is the move or the hold.
+            boolean chunkHoldUnproven,
             // Null when the world snapshot was not sampled from a region of the player's world.
             BedrockCollisionSampleRegion sampledRegion) {
         public Input(
@@ -169,6 +181,7 @@ final class BedrockMovementInputFactory {
                     mobJumpComponent,
                     true,
                     false,
+                    false,
                     null);
         }
 
@@ -186,6 +199,7 @@ final class BedrockMovementInputFactory {
                     BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
                     BedrockMobJumpComponentState.DEFAULT,
                     true,
+                    false,
                     false,
                     null);
         }
@@ -251,6 +265,23 @@ final class BedrockMovementInputFactory {
                     mobJumpComponent,
                     actorMovementTick,
                     heldByChunkView,
+                    chunkHoldUnproven,
+                    sampledRegion);
+        }
+
+        /** The tick as the hold of a chunk view that may not have committed the column under the actor yet. */
+        public Input heldByUncommittedChunk() {
+            return new Input(
+                    authFrame,
+                    previousState,
+                    tickInput,
+                    inputIntent,
+                    worldSnapshot,
+                    maxUpStep,
+                    mobJumpComponent,
+                    false,
+                    true,
+                    true,
                     sampledRegion);
         }
     }

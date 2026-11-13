@@ -19,6 +19,7 @@ import ac.cult.cultac.bedrock.prediction.simulation.postmove.BedrockBoatLilyPads
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockClimberFlags;
 import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
+import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.checks.impl.prediction.AuthoredMovementFrame;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
@@ -45,6 +46,9 @@ import java.util.Set;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 
 public final class BedrockMovementEngine implements MovementEngine {
+    private static final boolean[] MOVE_ONLY = {false};
+    private static final boolean[] HOLD_VARIANTS = {false, true};
+
     public static final BedrockMovementEngine INSTANCE = new BedrockMovementEngine();
     private final BedrockMovementInputFactory inputFactory = new BedrockMovementInputFactory();
 
@@ -110,20 +114,25 @@ public final class BedrockMovementEngine implements MovementEngine {
         for (PredVector vector : input) {
             for (Entry previousEntry : BedrockStartingVelocityProfiles.previousEntriesForJavaStartingVelocity(
                     context, bedrockInput, vector)) {
-                SimulatedEntry simulated = simulate(player, context, bedrockInput, previousEntry);
-                BedrockCollisionSampleRegion sampled = bedrockInput.sampledRegion();
-                BedrockCollisionSampleRegion fetched = fetchedRegion(sampled, simulated.candidates());
-                if (fetched != sampled) {
-                    // The sample was sized before this tick's impulses. A move they lengthen fetches shapes the
-                    // sample does not hold, so the tick is simulated again over the region it fetches.
-                    bedrockInput = inputFactory.create(player, context, fetched);
-                    simulated = simulate(player, context, bedrockInput, previousEntry);
-                }
-                Input selectedInput = simulated.input();
-                BedrockSimulation.Input simulationInput = simulated.simulationInput();
-                for (Candidate movementCandidate : simulated.candidates()) {
-                    // The travel's own collided move is the client's move: it enters the runner alone.
-                    addCandidate(output, selectedInput, simulationInput, movementCandidate, vector);
+                // A tick whose column the client may not have committed yet is its move or its hold.
+                for (boolean held : bedrockInput.chunkHoldUnproven() ? HOLD_VARIANTS : MOVE_ONLY) {
+                    Input variant = held ? bedrockInput.heldByUncommittedChunk() : bedrockInput;
+                    SimulatedEntry simulated = simulate(player, context, variant, previousEntry);
+                    BedrockCollisionSampleRegion sampled = variant.sampledRegion();
+                    BedrockCollisionSampleRegion fetched = fetchedRegion(sampled, simulated.candidates());
+                    if (fetched != sampled) {
+                        // The sample was sized before this tick's impulses. A move they lengthen fetches shapes the
+                        // sample does not hold, so the tick is simulated again over the region it fetches.
+                        bedrockInput = inputFactory.create(player, context, fetched);
+                        variant = held ? bedrockInput.heldByUncommittedChunk() : bedrockInput;
+                        simulated = simulate(player, context, variant, previousEntry);
+                    }
+                    Input selectedInput = simulated.input();
+                    BedrockSimulation.Input simulationInput = simulated.simulationInput();
+                    for (Candidate movementCandidate : simulated.candidates()) {
+                        // The travel's own collided move is the client's move: it enters the runner alone.
+                        addCandidate(output, selectedInput, simulationInput, movementCandidate, vector);
+                    }
                 }
             }
         }
@@ -206,6 +215,9 @@ public final class BedrockMovementEngine implements MovementEngine {
         PredVector retained = output.putIfAbsent(key, candidate);
         if (retained != null) {
             retained.mergePacketModifierProvenance(candidate);
+            // The move and the hold of an uncommitted column ending alike leave which one the client took unknown.
+            if (retained instanceof BedrockPredVector kept
+                    && kept.input().heldByChunkView() != selectedInput.heldByChunkView()) kept.chunkHoldAmbiguous();
         }
     }
 
@@ -271,6 +283,8 @@ public final class BedrockMovementEngine implements MovementEngine {
             var frame = result.getSimulationContext().getBedrockInput();
             if (player != null && frame != null) {
                 chargeSolidActorBuffer(player, movement, frame.getClientTick(), acceptedDiff);
+                if (result.getInitialStartingVel() instanceof BedrockPredVector candidate)
+                    takeChunkHold(player, candidate, frame);
             }
             Entry entry =
                     new Entry(BedrockForwardTick.finish(movement, state), bedrockResult.nextTickBaseMobJumpComponent());
@@ -291,6 +305,22 @@ public final class BedrockMovementEngine implements MovementEngine {
         }
 
         return new PredictionCommit(null, Set.of());
+    }
+
+    /**
+     * A tick whose column the client may not have committed yet tells which it did by the move or the hold it took:
+     * a move commits that column and every column received before it, a hold leaves it and every later one uncommitted.
+     */
+    private static void takeChunkHold(CultPlayer player, BedrockPredVector candidate, BedrockAuthInputFrame frame) {
+        Input input = candidate.input();
+        if (player.bedrockState == null || !input.chunkHoldUnproven()) return;
+        if (!input.heldByChunkView()) player.bedrockState.movementEffects.actorTickTaken(frame);
+        if (candidate.isChunkHoldAmbiguous()) return;
+        var chunks = player.bedrockState.clientChunks;
+        var state = input.previousState();
+        var position = state.physicalFeetPosition();
+        if (input.heldByChunkView()) chunks.held(state.coordinateFrame(), position.x(), position.z(), frame.getClientTick());
+        else chunks.moved(state.coordinateFrame(), position.x(), position.z(), frame.getClientTick());
     }
 
     /** Charges the tick what its accepted move took of the buffer of the moving actors that ended its move. */

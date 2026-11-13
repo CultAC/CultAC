@@ -30,16 +30,24 @@ public final class BedrockMovementEffects {
             sampledFrame = frame;
             sampledBoost =
                     glideBoostActive && (stopFinalTick == Long.MIN_VALUE || frame.getClientTick() <= stopFinalTick);
-            if (actorTick && glideBoostActive && glideBoostTicks != -1) {
-                if (stopFinalTick != Long.MIN_VALUE) {
-                    if (frame.getClientTick() >= stopFinalTick) glideBoostActive = false;
-                } else {
-                    if (glideBoostTicks > 0) glideBoostTicks--;
-                    if (glideBoostTicks == 0) glideBoostActive = false;
-                }
-            }
+            if (actorTick) spend(frame);
         }
         return sampledBoost;
+    }
+
+    /** The sampled tick of {@code frame} turned out to move its actor: it spends a tick of the boost. */
+    public void actorTickTaken(BedrockAuthInputFrame frame) {
+        if (sampledFrame == frame) spend(frame);
+    }
+
+    private void spend(BedrockAuthInputFrame frame) {
+        if (!glideBoostActive || glideBoostTicks == -1) return;
+        if (stopFinalTick != Long.MIN_VALUE) {
+            if (frame.getClientTick() >= stopFinalTick) glideBoostActive = false;
+        } else {
+            if (glideBoostTicks > 0) glideBoostTicks--;
+            if (glideBoostTicks == 0) glideBoostActive = false;
+        }
     }
 
     public void clear() {

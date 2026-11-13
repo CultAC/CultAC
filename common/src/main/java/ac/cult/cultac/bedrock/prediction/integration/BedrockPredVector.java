@@ -15,6 +15,7 @@ final class BedrockPredVector extends PredVector {
     private final BedrockMovementResult movementResult;
     private final BedrockSimulation.Input simulationInput;
     private final BedrockMobJumpComponentState mobJumpComponent;
+    private boolean chunkHoldAmbiguous;
 
     BedrockPredVector(
             BedrockMovementInputFactory.Input input,
@@ -47,6 +48,15 @@ final class BedrockPredVector extends PredVector {
 
     BedrockMovementInputFactory.Input input() {
         return input;
+    }
+
+    /** The move and the hold of a column the client may not have committed ended this candidate alike. */
+    void chunkHoldAmbiguous() {
+        chunkHoldAmbiguous = true;
+    }
+
+    boolean isChunkHoldAmbiguous() {
+        return chunkHoldAmbiguous;
     }
 
     BedrockSimulation.Input simulationInput() {
