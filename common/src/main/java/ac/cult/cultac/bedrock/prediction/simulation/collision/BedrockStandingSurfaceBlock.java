@@ -13,8 +13,8 @@ import java.util.Optional;
 
 /**
  * The block an actor on the ground stands on for its surface effects. Each block counts as one box: its cell where it
- * collides as several, unless it names another. Of the blocks the bottom of the actor's box, lowered by 0.2, cuts
- * through, it is the one that reaches highest, and of equals the one whose centre is nearest.
+ * collides as several, unless it names another or none. Of the blocks the bottom of the actor's box, lowered by 0.2,
+ * cuts through, it is the one that reaches highest, and of equals the one whose centre is nearest.
  */
 public final class BedrockStandingSurfaceBlock {
     private static final float QUERY_Y_OFFSET = 0.2F;
@@ -64,16 +64,19 @@ public final class BedrockStandingSurfaceBlock {
 
     private static WorldCollisionBox shape(PlacedBlockCollision block) {
         List<WorldCollisionBox> boxes = block.collisionBoxes();
-        if (boxes.size() < 2) return boxes.isEmpty() ? null : boxes.getFirst();
+        if (boxes.isEmpty()) return null;
         if (block.bedrockState().get(BedrockBlockMetadata.STANDING_SHAPE) instanceof List<?> bounds) {
-            return new WorldCollisionBox(
-                    bound(bounds, 0),
-                    bound(bounds, 1),
-                    bound(bounds, 2),
-                    bound(bounds, 3),
-                    bound(bounds, 4),
-                    bound(bounds, 5));
+            return bounds.isEmpty()
+                    ? null
+                    : new WorldCollisionBox(
+                            bound(bounds, 0),
+                            bound(bounds, 1),
+                            bound(bounds, 2),
+                            bound(bounds, 3),
+                            bound(bounds, 4),
+                            bound(bounds, 5));
         }
+        if (boxes.size() == 1) return boxes.getFirst();
         BlockPosition cell = block.position();
         return new WorldCollisionBox(cell.x(), cell.y(), cell.z(), cell.x() + 1.0D, cell.y() + 1.0D, cell.z() + 1.0D);
     }

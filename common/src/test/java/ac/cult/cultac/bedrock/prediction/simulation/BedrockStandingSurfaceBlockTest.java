@@ -54,19 +54,7 @@ public final class BedrockStandingSurfaceBlockTest {
                 BedrockCollisionFlags.ON_GROUND);
         BedrockInputFrame frame = new BedrockInputFrame(2977L, 41.5157F, 61.153183F, false, false, false, Set.of());
 
-        BedrockMovementResult result = BedrockForwardTick.simulate(new BedrockSimulation.Input(
-                        previous,
-                        frame,
-                        frame.intent(),
-                        BedrockWorldSnapshot.fromContext(context()),
-                        true,
-                        BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
-                        BedrockMobJumpComponentState.DEFAULT,
-                        true,
-                        false,
-                        new Vec3d(0.0D, 0.0D, -1.0D)))
-                .getFirst()
-                .movementResult();
+        BedrockMovementResult result = walk(previous, frame, context(world()), -1.0D);
         assertTrue(result.predictedState().collisionFlags().onGround());
         BedrockMovementState next = BedrockForwardTick.finish(result, result.predictedState());
 
@@ -88,6 +76,41 @@ public final class BedrockStandingSurfaceBlockTest {
         assertEquals(SLIME_SLOWDOWN, slowdown(world, -34.18D), 0.0F);
         // Over the head's cell.
         assertEquals(BedrockBlockSurfaceMovement.NO_STANDING_SLOWDOWN, slowdown(world, -33.95D), 0.0F);
+    }
+
+    @Test
+    public void slimeSlowsALandingOnScaffoldingThatTheBoxOverhangsItFrom() {
+        // Scaffolding holds only an actor above it and is no surface of its own: the slime the box overhangs is.
+        BedrockMovementState previous = BedrockMovementState.fromPhysicalFeet(
+                new Vec3d(282.2067565917969D, 83.03583526611328D, -36.81647491455078D),
+                new Vec3d(-0.001367117976769805D, -0.30431681871414185D, 0.07857419550418854D),
+                new BedrockInputFrame(6161L, 0.99990845F, 55.33049F, false, false, false, Set.of()),
+                BedrockCollisionFlags.AIR);
+        BedrockInputFrame frame = new BedrockInputFrame(6162L, 0.99990845F, 55.33049F, false, false, false, Set.of());
+
+        BedrockMovementResult result = walk(previous, frame, context(scaffoldingBesideSlime()), 1.0D);
+        assertTrue(result.predictedState().collisionFlags().onGround());
+        BedrockMovementState next = BedrockForwardTick.finish(result, result.predictedState());
+
+        assertEquals(282.2050476074219D, next.physicalFeetPosition().x(), 2.0E-6D);
+        assertEquals(83.0D, next.physicalFeetPosition().y(), 0.0D);
+        assertEquals(-36.71830368041992D, next.physicalFeetPosition().z(), 2.0E-6D);
+        // The air's friction left (-0.00155533, 0.089335807) of the landing; the slime's slowdown takes that.
+        assertEquals(-0.00064652D, next.velocity().x(), 1.0E-6D);
+        assertEquals(-0.0784D, next.velocity().y(), 1.0E-7D);
+        assertEquals(0.037135106D, next.velocity().z(), 1.0E-6D);
+    }
+
+    @Test
+    public void scaffoldingAloneIsStoodOnWithoutASurface() {
+        List<PlacedBlockCollision> blocks =
+                new ArrayList<>(scaffoldingBesideSlime().blocks());
+        blocks.removeIf(block -> block.position().x() == 281);
+
+        assertEquals(
+                BedrockBlockSurfaceMovement.NO_STANDING_SLOWDOWN,
+                slowdown(new BlockCollisionWorld(blocks), 282.2050476074219D, -36.71830368041992D),
+                0.0F);
     }
 
     @Test
@@ -142,11 +165,49 @@ public final class BedrockStandingSurfaceBlockTest {
                 RESTING, new Vec3d(x, 83.0D, z), false, false, true, world, PlayerDimensionsState.DEFAULT);
     }
 
-    private static BedrockMovementContext context() {
+    private static BedrockMovementResult walk(
+            BedrockMovementState previous, BedrockInputFrame frame, BedrockMovementContext context, double forward) {
+        return BedrockForwardTick.simulate(new BedrockSimulation.Input(
+                        previous,
+                        frame,
+                        frame.intent(),
+                        BedrockWorldSnapshot.fromContext(context),
+                        true,
+                        BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
+                        BedrockMobJumpComponentState.DEFAULT,
+                        true,
+                        false,
+                        new Vec3d(0.0D, 0.0D, forward)))
+                .getFirst()
+                .movementResult();
+    }
+
+    /** A column of slime along x 281 beside scaffolding at 282 82 -37, as it holds an actor above it. */
+    private static BlockCollisionWorld scaffoldingBesideSlime() {
+        List<PlacedBlockCollision> blocks = new ArrayList<>();
+        for (int z = -39; z <= -34; z++) {
+            BlockPosition slime = new BlockPosition(281, 82, z);
+            blocks.add(PlacedBlockCollision.manual(
+                    slime, "minecraft:slime_block", "minecraft:slime", List.of(cube(slime))));
+        }
+        BlockPosition scaffolding = new BlockPosition(282, 82, -37);
+        int state =
+                DataTables.defaults().registry().block("minecraft:scaffolding").defaultState();
+        blocks.add(builder()
+                .block(
+                        scaffolding,
+                        state,
+                        BedrockCollisionShapeQuery.actor(
+                                new WorldCollisionBox(281.9D, 83.0D, -37.1D, 282.5D, 84.8D, -36.4D), false, false)));
+        assertEquals(List.of(cube(scaffolding)), blocks.getLast().collisionBoxes());
+        return new BlockCollisionWorld(blocks);
+    }
+
+    private static BedrockMovementContext context(BlockCollisionWorld world) {
         return new BedrockMovementContext(
                 BedrockEffectState.NONE,
                 AttributeState.DEFAULT,
-                new WorldContactState(Medium.AIR, FluidState.NONE, world()),
+                new WorldContactState(Medium.AIR, FluidState.NONE, world),
                 EquipmentState.NONE,
                 EntityContactState.NONE,
                 new MovementModifierState(true, true, false, true, .05, false, false, false, false, .35, 0),

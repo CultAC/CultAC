@@ -97,17 +97,21 @@ public final class BedrockCollisionWorldBuilder {
             metadata = independent;
         }
         WorldCollisionBox standing = standingShape(position, state, boxes);
-        if (standing != null) {
+        // A shape that depends on the actor it holds is no surface to stand on.
+        boolean noStandingShape = dynamicMovement(state) && !boxes.isEmpty();
+        if (standing != null || noStandingShape) {
             var shaped = new java.util.HashMap<>(metadata);
             shaped.put(
                     BedrockBlockMetadata.STANDING_SHAPE,
-                    List.of(
-                            standing.minX(),
-                            standing.minY(),
-                            standing.minZ(),
-                            standing.maxX(),
-                            standing.maxY(),
-                            standing.maxZ()));
+                    noStandingShape
+                            ? List.of()
+                            : List.of(
+                                    standing.minX(),
+                                    standing.minY(),
+                                    standing.minZ(),
+                                    standing.maxX(),
+                                    standing.maxY(),
+                                    standing.maxZ()));
             metadata = shaped;
         }
         return PlacedBlockCollision.sampled(
