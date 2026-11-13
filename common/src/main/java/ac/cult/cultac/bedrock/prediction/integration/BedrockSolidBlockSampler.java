@@ -131,7 +131,8 @@ final class BedrockSolidBlockSampler {
                 javaState,
                 blockState,
                 javaState,
-                worldBuilder.bedrockState(blockState),
+                BedrockCollisionWorldBuilder.withStandingShape(
+                        position, blockState, boxes, worldBuilder.bedrockState(blockState)),
                 boxes,
                 BedrockCollisionWorldBuilder.contactBehaviors(blockState));
     }

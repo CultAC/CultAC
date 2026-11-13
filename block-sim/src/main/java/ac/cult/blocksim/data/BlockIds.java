@@ -60,6 +60,7 @@ public final class BlockIds {
     public static final BlockDefinition STICKY_PISTON = REGISTRY.block(2356);
     public static final BlockDefinition STONE = REGISTRY.block(1);
     public static final BlockDefinition STRAW_BED = REGISTRY.block(2289);
+    public static final BlockDefinition SULFUR_SPIKE = REGISTRY.block(33591);
     public static final BlockDefinition SWEET_BERRY_BUSH = REGISTRY.block(24298);
     public static final BlockDefinition TRAPPED_CHEST = REGISTRY.block(12975);
     public static final BlockDefinition TURTLE_EGG = REGISTRY.block(18447);

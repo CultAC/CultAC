@@ -96,51 +96,76 @@ public final class BedrockCollisionWorldBuilder {
                             .isEmpty());
             metadata = independent;
         }
-        WorldCollisionBox standing = standingShape(position, state, boxes);
-        // A shape that depends on the actor it holds is no surface to stand on.
-        boolean noStandingShape = dynamicMovement(state) && !boxes.isEmpty();
-        if (standing != null || noStandingShape) {
-            var shaped = new java.util.HashMap<>(metadata);
-            shaped.put(
-                    BedrockBlockMetadata.STANDING_SHAPE,
-                    noStandingShape
-                            ? List.of()
-                            : List.of(
-                                    standing.minX(),
-                                    standing.minY(),
-                                    standing.minZ(),
-                                    standing.maxX(),
-                                    standing.maxY(),
-                                    standing.maxZ()));
-            metadata = shaped;
-        }
         return PlacedBlockCollision.sampled(
                 position,
                 javaIdentifier,
                 state,
                 javaIdentifier,
-                metadata,
+                withStandingShape(position, state, boxes, metadata),
                 boxes,
                 contactBoxes,
                 insideBlockContactBoxes(position, state, boxes),
                 contactBehaviors(state));
     }
 
+    /** {@code metadata} naming the shape an actor stands on {@code state} by, where that is not its own. */
+    public static Map<String, Object> withStandingShape(
+            BlockPosition position, int state, List<WorldCollisionBox> boxes, Map<String, Object> metadata) {
+        WorldCollisionBox standing = standingShape(position, state, boxes);
+        // A shape that depends on the actor it holds is no surface to stand on.
+        boolean noStandingShape = dynamicMovement(state) && !boxes.isEmpty();
+        if (standing == null && !noStandingShape) return metadata;
+        var shaped = new java.util.HashMap<>(metadata);
+        shaped.put(
+                BedrockBlockMetadata.STANDING_SHAPE,
+                noStandingShape
+                        ? List.of()
+                        : List.of(
+                                standing.minX(),
+                                standing.minY(),
+                                standing.minZ(),
+                                standing.maxX(),
+                                standing.maxY(),
+                                standing.maxZ()));
+        return shaped;
+    }
+
     /**
-     * The one box an actor stands on a block of several collision boxes by, or null where that is the block's cell:
-     * all that a fence, bars or a chorus plant spans, and a brewing stand's own box.
+     * The one box an actor stands on a block by where that is not its collision box or, for several, its cell; null
+     * where it is. A fence or a chorus plant spans all its pieces, bars those and their post, a shelf mushroom its
+     * pieces down to a quarter of the block, a straw bed is a quarter of a block high, and a brewing stand has its own.
      */
     private static WorldCollisionBox standingShape(BlockPosition position, int state, List<WorldCollisionBox> boxes) {
+        if (boxes.isEmpty()) {
+            return null;
+        }
+        if (BlockIds.is(state, BlockIds.STRAW_BED)) {
+            return toWorldBox(position, new BlockAabb(0.0D, 0.0D, 0.0D, 1.0D, 0.25D, 1.0D));
+        }
+        if (thinFenceBlock(state)) {
+            return span(boxes, toWorldBox(position, new BlockAabb(0.4375D, 0.0D, 0.4375D, 0.5625D, 1.0D, 0.5625D)));
+        }
+        if (BlockIds.is(state, BlockIds.SHELF_MUSHROOM)) {
+            WorldCollisionBox pieces = span(boxes, boxes.getFirst());
+            return new WorldCollisionBox(
+                    pieces.minX(),
+                    position.y() + 0.25D,
+                    pieces.minZ(),
+                    pieces.maxX(),
+                    pieces.maxY(),
+                    pieces.maxZ());
+        }
         if (boxes.size() < 2) {
             return null;
         }
         if (BlockIds.is(state, BREWING_STAND)) {
             return toWorldBox(position, new BlockAabb(0.125D, 0.0D, 0.125D, 0.875D, 0.875D, 0.875D));
         }
-        if (!fenceBlock(state) && !thinFenceBlock(state) && !chorusPlantBlock(state)) {
-            return null;
-        }
-        WorldCollisionBox span = boxes.getFirst();
+        return fenceBlock(state) || chorusPlantBlock(state) ? span(boxes, boxes.getFirst()) : null;
+    }
+
+    private static WorldCollisionBox span(List<WorldCollisionBox> boxes, WorldCollisionBox start) {
+        WorldCollisionBox span = start;
         for (WorldCollisionBox box : boxes) {
             span = new WorldCollisionBox(
                     Math.min(span.minX(), box.minX()),
@@ -200,7 +225,9 @@ public final class BedrockCollisionWorldBuilder {
         if (BlockIds.is(state, BlockIds.BAMBOO)) {
             return 0.25F;
         }
-        return BlockIds.is(state, BlockIds.POINTED_DRIPSTONE) ? 0.125F : 0.0F;
+        return BlockIds.is(state, BlockIds.POINTED_DRIPSTONE) || BlockIds.is(state, BlockIds.SULFUR_SPIKE)
+                ? 0.125F
+                : 0.0F;
     }
 
     public static boolean clientComputedMovement(int state) {

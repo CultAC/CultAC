@@ -6,8 +6,8 @@ import java.util.List;
 
 /**
  * The shape of a block that a hash of its position shifts on X and Z, differently from Java edition: bamboo by up to
- * 0.25 and pointed dripstone by up to 0.125. The position hashed is the one the session's coordinate frame gives the
- * block, and the catalog holds each shape as shifted at position (0, 0).
+ * 0.25, and pointed dripstone and sulfur spikes by up to 0.125. The position hashed is the one the session's
+ * coordinate frame gives the block, and the catalog holds each shape as shifted at position (0, 0).
  */
 final class BedrockOffsetBlockShape {
     private static final long SEED_XOR = 0x6a09e667f3bcc909L;

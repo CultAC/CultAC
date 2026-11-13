@@ -320,8 +320,8 @@ public final class VanillaDataGenerator {
                 "NETHER_PORTAL", "OBSIDIAN", "PALE_MOSS_CARPET", "PISTON", "PISTON_HEAD", "PITCHER_CROP", "PLAYER_HEAD",
                 "PLAYER_WALL_HEAD", "POINTED_DRIPSTONE", "POTENT_SULFUR", "POWDER_SNOW", "REDSTONE_WIRE", "REINFORCED_DEEPSLATE", "RESPAWN_ANCHOR",
                 "SCAFFOLDING", "SEA_LANTERN", "SEA_PICKLE", "SHELF_MUSHROOM", "SLIME_BLOCK", "SNOW", "SOUL_SAND",
-                "SOUL_SOIL", "STICKY_PISTON", "STONE", "STRAW_BED", "SWEET_BERRY_BUSH", "TRAPPED_CHEST", "TURTLE_EGG",
-                "TWISTING_VINES", "TWISTING_VINES_PLANT", "VINE", "WATER", "WEEPING_VINES", "WEEPING_VINES_PLANT")) {
+                "SOUL_SOIL", "STICKY_PISTON", "STONE", "STRAW_BED", "SULFUR_SPIKE", "SWEET_BERRY_BUSH", "TRAPPED_CHEST",
+                "TURTLE_EGG", "TWISTING_VINES", "TWISTING_VINES_PLANT", "VINE", "WATER", "WEEPING_VINES", "WEEPING_VINES_PLANT")) {
             Block block = (Block) net.minecraft.world.level.block.Blocks.class.getField(name).get(null);
             source.append("    public static final BlockDefinition ").append(name).append(" = REGISTRY.block(")
                 .append(Block.getId(block.defaultBlockState())).append(");\n");

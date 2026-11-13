@@ -33,6 +33,7 @@ import ac.cult.cultac.bedrock.prediction.world.WorldContactState;
 import ac.cult.cultac.utils.collisions.BedrockClientBlockShapeMappings;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.Test;
 
@@ -149,6 +150,51 @@ public final class BedrockStandingSurfaceBlockTest {
         assertEquals(
                 List.of(3.125D, 64.0D, -6.875D, 3.875D, 64.875D, -6.125D),
                 placed.bedrockState().get(BedrockBlockMetadata.STANDING_SHAPE));
+    }
+
+    @Test
+    public void barsWithOneArmAreStoodOnByTheArmAndThePost() {
+        var registry = DataTables.defaults().registry();
+        int bars = registry.with(registry.block("minecraft:iron_bars").defaultState(), "east", "true");
+
+        PlacedBlockCollision placed =
+                builder().block(new BlockPosition(3, 64, -7), bars, BedrockCollisionShapeQuery.NONE);
+
+        // It collides as the arm alone.
+        assertEquals(
+                List.of(new WorldCollisionBox(3.5D, 64.0D, -6.5625D, 4.0D, 65.0D, -6.4375D)), placed.collisionBoxes());
+        assertEquals(
+                List.of(3.4375D, 64.0D, -6.5625D, 4.0D, 65.0D, -6.4375D),
+                placed.bedrockState().get(BedrockBlockMetadata.STANDING_SHAPE));
+    }
+
+    @Test
+    public void aStrawBedIsStoodOnAsAQuarterOfABlockHigh() {
+        int bed = DataTables.defaults().registry().block("minecraft:straw_bed").defaultState();
+        // The box it collides as.
+        List<WorldCollisionBox> boxes = List.of(new WorldCollisionBox(3.0D, 64.0D, -7.0D, 4.0D, 64.5625D, -6.0D));
+
+        assertEquals(
+                List.of(3.0D, 64.0D, -7.0D, 4.0D, 64.25D, -6.0D),
+                BedrockCollisionWorldBuilder.withStandingShape(new BlockPosition(3, 64, -7), bed, boxes, Map.of())
+                        .get(BedrockBlockMetadata.STANDING_SHAPE));
+    }
+
+    @Test
+    public void aShelfMushroomIsStoodOnByItsPiecesDownToAQuarterOfTheBlock() {
+        var registry = DataTables.defaults().registry();
+        int mushroom = registry.with(registry.block("minecraft:shelf_mushroom").defaultState(), "facing", "north");
+        // The pieces it collides as, facing north.
+        List<WorldCollisionBox> pieces = List.of(
+                new WorldCollisionBox(3.3125D, 64.5D, -6.25D, 3.6875D, 64.6875D, -6.0D),
+                new WorldCollisionBox(3.1875D, 64.5625D, -6.4375D, 3.3125D, 64.6875D, -6.0D),
+                new WorldCollisionBox(3.3125D, 64.5625D, -6.4375D, 3.8125D, 64.6875D, -6.25D),
+                new WorldCollisionBox(3.6875D, 64.5625D, -6.25D, 3.8125D, 64.6875D, -6.0D));
+
+        assertEquals(
+                List.of(3.1875D, 64.25D, -6.4375D, 3.8125D, 64.6875D, -6.0D),
+                BedrockCollisionWorldBuilder.withStandingShape(new BlockPosition(3, 64, -7), mushroom, pieces, Map.of())
+                        .get(BedrockBlockMetadata.STANDING_SHAPE));
     }
 
     private static BedrockCollisionWorldBuilder builder() {

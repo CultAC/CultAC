@@ -28,11 +28,11 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Bamboo and pointed dripstone are shifted on X and Z by a hash of the position the session's coordinate frame gives
- * them: one of sixteen steps across 0.25 either way for bamboo and 0.125 either way for pointed dripstone. A tip at
- * (20113, 120, 20030) so reaches x 20113.6458 in a session whose frame starts at (20080, 19984) and x 20113.6125 in
- * one that starts at (20032, 20000): a player whose box begins at x 20113.63895 stands on the first tip and falls
- * past the second.
+ * Bamboo, pointed dripstone and sulfur spikes are shifted on X and Z by a hash of the position the session's coordinate
+ * frame gives them: one of sixteen steps across 0.25 either way for bamboo and 0.125 either way for the spikes. A
+ * dripstone tip at (20113, 120, 20030) so reaches x 20113.6458 in a session whose frame starts at (20080, 19984) and
+ * x 20113.6125 in one that starts at (20032, 20000): a player whose box begins at x 20113.63895 stands on the first
+ * tip and falls past the second.
  */
 public class BedrockOffsetBlockShapeTest {
     private static final int TIP = DataTables.defaults()
@@ -78,6 +78,29 @@ public class BedrockOffsetBlockShapeTest {
                 assertEquals(state, 20030.5 + 0.125, (box.minZ() + box.maxZ()) / 2.0, 1.0E-5);
             }
         }
+    }
+
+    @Test
+    public void everySulfurSpikeStateTakesTheOffsetOfPointedDripstone() {
+        var position = new BlockPosition(20113, 120, 20030);
+        for (String direction : List.of("up", "down")) {
+            for (String thickness : List.of("tip_merge", "tip", "frustum", "middle", "base")) {
+                int spike = spike("minecraft:sulfur_spike", thickness, direction);
+                WorldCollisionBox box = box(spike, position, BedrockCoordinateFrame.IDENTITY);
+                String state = thickness + " " + direction;
+                assertEquals(state, 20113.5 + 0.025, (box.minX() + box.maxX()) / 2.0, 1.0E-5);
+                assertEquals(state, 20030.5 + 0.125, (box.minZ() + box.maxZ()) / 2.0, 1.0E-5);
+            }
+        }
+        // As BDS 26.50 gives the tip it maps to at (100, 100, 100).
+        WorldCollisionBox tip = box(
+                spike("minecraft:sulfur_spike", "tip_merge", "up"),
+                new BlockPosition(100, 100, 100),
+                BedrockCoordinateFrame.IDENTITY);
+        assertEquals(100.287498, tip.minX(), 1.0E-5);
+        assertEquals(100.304169, tip.minZ(), 1.0E-5);
+        assertEquals(100.662498, tip.maxX(), 1.0E-5);
+        assertEquals(100.679169, tip.maxZ(), 1.0E-5);
     }
 
     @Test
@@ -139,8 +162,12 @@ public class BedrockOffsetBlockShapeTest {
     }
 
     private static int dripstone(String thickness, String direction) {
+        return spike("minecraft:pointed_dripstone", thickness, direction);
+    }
+
+    private static int spike(String block, String thickness, String direction) {
         var registry = DataTables.defaults().registry();
-        int state = registry.block("minecraft:pointed_dripstone").defaultState();
+        int state = registry.block(block).defaultState();
         return registry.with(registry.with(state, "thickness", thickness), "vertical_direction", direction);
     }
 
