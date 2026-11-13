@@ -16,8 +16,19 @@ import java.util.function.LongSupplier;
  * connection or changes what the checks see.
  */
 public final class DiagWatch implements PredictionObserver {
-    /** One prediction as its packet thread copied it: the full text less the block grid, printed on the diag thread. */
-    record Raw(DiagWatch watch, long seq, double offset, String trace, DebugText state, BlockGrid grid, long nanos) {}
+    /**
+     * One prediction as its packet thread copied it: the full text less the block grid, printed on the diag thread.
+     * A {@code recorded} state is printed once a flag or a cut asks for its tick; a printed one is compressed at once.
+     */
+    record Raw(
+            DiagWatch watch,
+            long seq,
+            double offset,
+            String trace,
+            DebugText state,
+            BlockGrid grid,
+            long nanos,
+            boolean recorded) {}
 
     /** A tick ended: the checks that flagged during it. */
     record TickEnd(DiagWatch watch, long seq, List<String> flags) {}
@@ -92,14 +103,20 @@ public final class DiagWatch implements PredictionObserver {
     public void capture(long seq, double offset, String trace, String state, BlockGrid grid, long startNanos) {
         DebugText text =
                 state == null ? null : new DebugText.Builder().append(state).toText();
-        captureText(seq, offset, trace, text, grid, startNanos);
+        offer(seq, offset, trace, text, grid, startNanos, false);
     }
 
-    /** As {@link #capture}, the state printed on the diagnostics thread. */
+    /** As {@link #capture}, the state printed on the diagnostics thread once something asks for its tick. */
     @Override
     public void captureText(long seq, double offset, String trace, DebugText state, BlockGrid grid, long startNanos) {
+        offer(seq, offset, trace, state, grid, startNanos, true);
+    }
+
+    private void offer(
+            long seq, double offset, String trace, DebugText state, BlockGrid grid, long startNanos, boolean recorded) {
         if (ended) return;
-        if (!owner.offer(new Raw(this, seq, offset, trace, state, grid, System.nanoTime() - startNanos))) dropped(seq);
+        Raw raw = new Raw(this, seq, offset, trace, state, grid, System.nanoTime() - startNanos, recorded);
+        if (!owner.offer(raw)) dropped(seq);
     }
 
     /** Tick {@code seq} ended with these checks' flags; on the player's packet thread. */
