@@ -57,6 +57,9 @@ public final class BedrockPlayerState {
     private boolean derivedShapesKnown;
     private boolean stairCornersFromNeighbours;
     private boolean chorusConnectionsFromNeighbours;
+    private boolean fenceConnectionsFromNeighbours;
+    private ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext.Connections connections =
+            ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext.Connections.NONE;
 
     public boolean derivedShapesKnown() {
         return derivedShapesKnown;
@@ -73,13 +76,19 @@ public final class BedrockPlayerState {
     }
 
     public boolean derivesShapesFromNeighbours() {
-        return stairCornersFromNeighbours || chorusConnectionsFromNeighbours;
+        return stairCornersFromNeighbours || chorusConnectionsFromNeighbours || fenceConnectionsFromNeighbours;
     }
 
-    public void derivedShapes(boolean stairCorners, boolean chorusConnections) {
+    public void derivedShapes(
+            boolean stairCorners,
+            boolean chorusConnections,
+            boolean fenceConnections,
+            ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext.Connections connections) {
         derivedShapesKnown = true;
         stairCornersFromNeighbours = stairCorners;
         chorusConnectionsFromNeighbours = chorusConnections;
+        fenceConnectionsFromNeighbours = fenceConnections;
+        this.connections = connections;
     }
 
     /** The client state this player's block collision shapes read, in the coordinate frame of its latest input. */
@@ -101,7 +110,9 @@ public final class BedrockPlayerState {
                                 position -> player.compensatedWorld.getBlockStateIdAt(
                                         position.x(), position.y(), position.z()),
                                 stairCornersFromNeighbours,
-                                chorusConnectionsFromNeighbours)
+                                chorusConnectionsFromNeighbours,
+                                fenceConnectionsFromNeighbours,
+                                connections)
                         : ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext.DerivedShapes.OWN_STATE);
     }
 

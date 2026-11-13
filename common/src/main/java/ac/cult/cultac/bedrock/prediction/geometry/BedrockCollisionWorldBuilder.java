@@ -209,9 +209,9 @@ public final class BedrockCollisionWorldBuilder {
         return scaffoldingBlock(state) || powderSnowBlock(state);
     }
 
-    /** Whether the shape of {@code state} can depend on the blocks around it: a stair's corner, a chorus plant's sides. */
+    /** Whether the shape of {@code state} can depend on the blocks around it: a stair's corner, connected sides. */
     public static boolean neighbourDependentMovement(int state) {
-        return stairBlock(state) || chorusPlantBlock(state);
+        return stairBlock(state) || chorusPlantBlock(state) || fenceBlock(state) || thinFenceBlock(state);
     }
 
     /** Whether the shape of {@code state} depends on client state kept for the position it is at. */
@@ -304,10 +304,10 @@ public final class BedrockCollisionWorldBuilder {
             return stairCollisionBoxes(position, state, stairShape(position, state));
         }
         if (fenceBlock(state)) {
-            return fenceCollisionBoxes(position, state);
+            return fenceCollisionBoxes(position, fenceSides(position, state));
         }
         if (thinFenceBlock(state)) {
-            return thinFenceCollisionBoxes(position, state);
+            return thinFenceCollisionBoxes(position, fenceSides(position, state));
         }
         if (chorusPlantBlock(state)) {
             return chorusPlantCollisionBoxes(position, state, chorusConnections(position, state));
@@ -597,11 +597,42 @@ public final class BedrockCollisionWorldBuilder {
                 signZ < 0 ? 0.5D : 1.0D));
     }
 
-    private static List<WorldCollisionBox> fenceCollisionBoxes(BlockPosition position, int state) {
-        boolean negativeX = booleanProperty(state, BlockProps.WEST);
-        boolean positiveX = booleanProperty(state, BlockProps.EAST);
-        boolean negativeZ = booleanProperty(state, BlockProps.NORTH);
-        boolean positiveZ = booleanProperty(state, BlockProps.SOUTH);
+    /**
+     * The sides a fence, pane or bars connects on, as north, south, west, east: those its state names, or, for a client
+     * whose fences and panes carry none, each side where the block beside it has no connection rule, or a rule that
+     * accepts this block's connector type on the face that points back at it.
+     */
+    private boolean[] fenceSides(BlockPosition position, int state) {
+        var derived = context.derivedShapes();
+        if (!derived.fenceConnections()) {
+            return new boolean[] {
+                booleanProperty(state, BlockProps.NORTH),
+                booleanProperty(state, BlockProps.SOUTH),
+                booleanProperty(state, BlockProps.WEST),
+                booleanProperty(state, BlockProps.EAST)
+            };
+        }
+        var blocks = derived.blocks();
+        var connections = derived.connections();
+        int type = connections.connector(state);
+        int x = position.x(), y = position.y(), z = position.z();
+        return new boolean[] {
+            BedrockBlockConnections.connects(
+                    type, connections.rule(blocks.at(new BlockPosition(x, y, z - 1))), BedrockBlockConnections.SOUTH),
+            BedrockBlockConnections.connects(
+                    type, connections.rule(blocks.at(new BlockPosition(x, y, z + 1))), BedrockBlockConnections.NORTH),
+            BedrockBlockConnections.connects(
+                    type, connections.rule(blocks.at(new BlockPosition(x - 1, y, z))), BedrockBlockConnections.EAST),
+            BedrockBlockConnections.connects(
+                    type, connections.rule(blocks.at(new BlockPosition(x + 1, y, z))), BedrockBlockConnections.WEST)
+        };
+    }
+
+    private static List<WorldCollisionBox> fenceCollisionBoxes(BlockPosition position, boolean[] sides) {
+        boolean negativeZ = sides[0];
+        boolean positiveZ = sides[1];
+        boolean negativeX = sides[2];
+        boolean positiveX = sides[3];
 
         List<BlockAabb> localBoxes = new ArrayList<>(2);
         if (negativeZ || positiveZ) {
@@ -618,11 +649,11 @@ public final class BedrockCollisionWorldBuilder {
         return toWorldBoxes(position, localBoxes);
     }
 
-    private static List<WorldCollisionBox> thinFenceCollisionBoxes(BlockPosition position, int state) {
-        boolean negativeX = booleanProperty(state, BlockProps.WEST);
-        boolean positiveX = booleanProperty(state, BlockProps.EAST);
-        boolean negativeZ = booleanProperty(state, BlockProps.NORTH);
-        boolean positiveZ = booleanProperty(state, BlockProps.SOUTH);
+    private static List<WorldCollisionBox> thinFenceCollisionBoxes(BlockPosition position, boolean[] sides) {
+        boolean negativeZ = sides[0];
+        boolean positiveZ = sides[1];
+        boolean negativeX = sides[2];
+        boolean positiveX = sides[3];
 
         List<BlockAabb> localBoxes = new ArrayList<>(2);
         if (negativeX || positiveX) {

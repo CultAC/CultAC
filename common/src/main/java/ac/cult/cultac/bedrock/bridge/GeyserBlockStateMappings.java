@@ -4,6 +4,8 @@ import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.BlockProps;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.bedrock.player.BedrockBlockLayers;
+import ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext;
+import ac.cult.cultac.bedrock.prediction.geometry.BedrockBlockConnections;
 import ac.cult.cultac.bedrock.prediction.geometry.BedrockServerStateMappings;
 import ac.cult.cultac.network.protocol.util.viaversion.ViaVersionUtil;
 import ac.cult.cultac.protocol.ProtocolVersion;
@@ -64,6 +66,10 @@ final class GeyserBlockStateMappings {
         var states = new HashMap<Integer, Integer>();
         int[] sentDefinitions = new int[DataTables.defaults().registry().stateCount()];
         java.util.Arrays.fill(sentDefinitions, -1);
+        int[] connectionRules = new int[sentDefinitions.length];
+        byte[] connectors = new byte[sentDefinitions.length];
+        java.util.Arrays.fill(connectionRules, BedrockBlockConnections.NO_RULE);
+        java.util.Arrays.fill(connectors, (byte) BedrockBlockConnections.NO_CONNECTOR);
         for (int index = 0; index < count; index++) {
             int javaId = javaIdOf.applyAsInt(index);
             var definition = mappings.getBedrockBlock(javaId);
@@ -71,7 +77,16 @@ final class GeyserBlockStateMappings {
             // Preserve the original registry lookup fallback for IDs outside the model.
             if (stateId < 0 || stateId >= DataTables.defaults().registry().stateCount())
                 stateId = BlockIds.AIR.defaultState();
-            else if (sentDefinitions[stateId] < 0) sentDefinitions[stateId] = definition.getRuntimeId();
+            else if (sentDefinitions[stateId] < 0) {
+                sentDefinitions[stateId] = definition.getRuntimeId();
+                if (definition instanceof org.geysermc.geyser.registry.type.GeyserBedrockBlock bedrock
+                        && bedrock.getState() != null) {
+                    String name = bedrock.getState().getString("name");
+                    var blockStates = bedrock.getState().getCompound("states");
+                    connectionRules[stateId] = BedrockBlockConnections.rule(name, blockStates);
+                    connectors[stateId] = (byte) BedrockBlockConnections.connectorType(name);
+                }
+            }
             int state = BedrockBlockLayers.dry(stateId);
             states.putIfAbsent(definition.getRuntimeId(), state);
             // Inventory holders deliberately send vanilla definitions even with custom overrides.
@@ -119,7 +134,21 @@ final class GeyserBlockStateMappings {
                 Map.copyOf(states),
                 sentStates,
                 stairCornersSent(sentDefinitions),
-                chorusConnectionsSent(sentDefinitions));
+                chorusConnectionsSent(sentDefinitions),
+                fenceConnectionsSent(sentDefinitions),
+                new BedrockBlockShapeContext.Connections(connectionRules, connectors));
+    }
+
+    /** Whether the session sends a fence's connections: two of an oak fence's states become different Bedrock blocks. */
+    private static boolean fenceConnectionsSent(int[] sentDefinitions) {
+        var fence = DataTables.defaults().registry().block("minecraft:oak_fence");
+        int first = fence.firstState();
+        for (int state = first; state < first + fence.stateCount(); state++) {
+            if (sentDefinitions[first] >= 0
+                    && sentDefinitions[state] >= 0
+                    && sentDefinitions[first] != sentDefinitions[state]) return true;
+        }
+        return false;
     }
 
     /** Whether the session sends a chorus plant's connections: two of its states become different Bedrock blocks. */
@@ -148,9 +177,15 @@ final class GeyserBlockStateMappings {
      *     or -1 where Geyser has no block for it; a sent block resolving to the same state is its translation
      */
     /** The session palette inverted, the state the client holds for each sent state, and whether stairs carry corners. */
-    record Tables(Map<Integer, Integer> palette, int[] sentStates, boolean stairCorners, boolean chorusConnections) {
+    record Tables(
+            Map<Integer, Integer> palette,
+            int[] sentStates,
+            boolean stairCorners,
+            boolean chorusConnections,
+            boolean fenceConnections,
+            BedrockBlockShapeContext.Connections connections) {
         Tables(Map<Integer, Integer> palette, int[] sentStates) {
-            this(palette, sentStates, true, true);
+            this(palette, sentStates, true, true, true, BedrockBlockShapeContext.Connections.NONE);
         }
     }
 

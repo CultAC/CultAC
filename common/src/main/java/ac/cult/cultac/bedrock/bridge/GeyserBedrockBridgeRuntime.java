@@ -1338,7 +1338,11 @@ public final class GeyserBedrockBridgeRuntime {
             // The session's palette decides once which shapes its client derives from the blocks around them.
             if (!player.bedrockState.derivedShapesKnown()) {
                 var tables = GeyserBlockStateMappings.tables(connection.getBlockMappings());
-                player.bedrockState.derivedShapes(!tables.stairCorners(), !tables.chorusConnections());
+                player.bedrockState.derivedShapes(
+                        !tables.stairCorners(),
+                        !tables.chorusConnections(),
+                        !tables.fenceConnections(),
+                        tables.connections());
             }
             long vehicleId = predictedVehicleId(packet);
             var vehicle = vehicleId == -1L ? null : connection.getEntityCache().getEntityByGeyserId(vehicleId);

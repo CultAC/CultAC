@@ -100,18 +100,46 @@ public record BedrockBlockShapeContext(
 
     /**
      * Which parts of its shapes a client derives from the blocks around them because its block states carry none, and
-     * those blocks: a stair's corner, and the sides a chorus plant connects on.
+     * those blocks: a stair's corner, the sides a chorus plant connects on, and the sides fences, panes and bars
+     * connect on, which read the client's connection rule of each block beside them.
      */
-    public record DerivedShapes(BlockStates blocks, boolean stairCorners, boolean chorusConnections) {
+    public record DerivedShapes(
+            BlockStates blocks,
+            boolean stairCorners,
+            boolean chorusConnections,
+            boolean fenceConnections,
+            Connections connections) {
         /** Every shape as its own block state gives it. */
-        public static final DerivedShapes OWN_STATE = new DerivedShapes(position -> BlockStates.NO_BLOCK, false, false);
+        public static final DerivedShapes OWN_STATE =
+                new DerivedShapes(position -> BlockStates.NO_BLOCK, false, false, false, Connections.NONE);
 
         public DerivedShapes(BlockStates blocks, boolean stairCorners) {
             this(blocks, stairCorners, false);
         }
 
+        public DerivedShapes(BlockStates blocks, boolean stairCorners, boolean chorusConnections) {
+            this(blocks, stairCorners, chorusConnections, false, Connections.NONE);
+        }
+
         public DerivedShapes {
             blocks = Objects.requireNonNull(blocks, "blocks");
+            connections = Objects.requireNonNull(connections, "connections");
+        }
+    }
+
+    /**
+     * The client's connection rule and connector type of each block state, as {@code BedrockBlockConnections} encodes
+     * them; a state outside the tables has no rule and no connector.
+     */
+    public record Connections(int[] rules, byte[] connectors) {
+        public static final Connections NONE = new Connections(new int[0], new byte[0]);
+
+        public int rule(int state) {
+            return state >= 0 && state < rules.length ? rules[state] : -1;
+        }
+
+        public int connector(int state) {
+            return state >= 0 && state < connectors.length ? connectors[state] : -1;
         }
     }
 
