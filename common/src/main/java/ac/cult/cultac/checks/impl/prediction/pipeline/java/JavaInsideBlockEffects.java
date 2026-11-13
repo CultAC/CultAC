@@ -8,6 +8,7 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.runner.PredictionScratch;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
@@ -28,7 +29,12 @@ public final class JavaInsideBlockEffects {
 
     /** The velocity-independent bounds of one move's inside-block pass. */
     public record Scan(
-            PacketEntity actor, Vec3 end, SimpleCollisionBox from, SimpleCollisionBox to, Vec3 originalMovement) {}
+            PacketEntity actor,
+            Vec3 end,
+            SimpleCollisionBox from,
+            SimpleCollisionBox to,
+            Vec3 movement,
+            Vec3 originalMovement) {}
 
     /** Returns {@code null} when no block callback can change any velocity resolved for this move. */
     public static Scan scan(CultPlayer player, PredictionResult result, Vec3 movement) {
@@ -48,14 +54,16 @@ public final class JavaInsideBlockEffects {
                 .set(to)
                 .offset(movement.x * -1.0, movement.y * -1.0, movement.z * -1.0);
         if (!InsideBlockEffectScan.mayHaveEffects(player, from, to, false)) return null;
-        return new Scan(actor, new Vec3(endX, endY, endZ), from.copy(), to.copy(), attemptedMovement(result));
+        return new Scan(
+                actor, new Vec3(endX, endY, endZ), from.copy(), to.copy(), movement, attemptedMovement(result));
     }
 
     public static State resolve(
             CultPlayer player, PredictionResult result, Scan scan, double distance, Vec3 velocity, boolean landed) {
         if (scan == null) return new State(distance, velocity, null);
         var context = result.getSimulationContext();
-        Vec3 originalMovement = scan.originalMovement();
+        Vec3 originalMovement =
+                axisOrderMovement(context.getVersion(), scan.originalMovement(), scan.movement(), velocity);
         State[] current = {new State(distance, velocity, null)};
         PacketEntity actor = scan.actor();
         Vec3 end = scan.end();
@@ -163,6 +171,26 @@ public final class JavaInsideBlockEffects {
         Vec3 input = result.getLegacyLikePredictionVector().subtract(result.getAcceptedClosestToTarget());
         Vec3 stuck = trace.position().collisionStuckSpeedMultiplier(result.getSimulationContext());
         return trace.preCollisionMovement().add(input.multiply(stuck));
+    }
+
+    /**
+     * The movement whose {@code Direction#axisStepOrder} the 1.21.11 Entity#checkInsideBlocks replays for the move
+     * that leaves {@code carry}. Entity#move zeroes the deltaMovement of a collided horizontal axis, so a carry with
+     * both horizontal axes nonzero comes from a move that collided on neither and recorded the {@code moved} delta.
+     * A carry ordered unlike the moved delta did not come from that recorded move and keeps the attempted order.
+     */
+    static Vec3 axisOrderMovement(ClientVersion version, Vec3 attempted, Vec3 moved, Vec3 carry) {
+        if (attempted == null
+                || version != ClientVersion.V_1_21_11
+                || carry.x == 0.0
+                || carry.z == 0.0
+                || xStepsLast(carry) != xStepsLast(moved)) return attempted;
+        return new Vec3(moved.x, attempted.y, moved.z);
+    }
+
+    /** Direction#axisStepOrder: YZX when |x| < |z|, else YXZ. */
+    private static boolean xStepsLast(Vec3 movement) {
+        return Math.abs(movement.x) < Math.abs(movement.z);
     }
 
     static boolean intersects(SimpleCollisionBox from, SimpleCollisionBox to, VoxelShape shape, BlockPos pos) {
