@@ -434,6 +434,56 @@ public final class BedrockTransportAuthorityTest {
         }
     }
 
+    @Test
+    public void identicalTeleportWithItsReceiptOutstandingKeepsItsOwnAnswer() {
+        OfflineCultTestBootstrap.installConfig();
+        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            var teleports = player.getSetbackTeleportUtil().bedrockTeleports();
+            player.getSetbackTeleportUtil().pendingTeleports.clear();
+            var origin = BedrockCoordinateFrame.IDENTITY;
+            Vec3 target = new Vec3(327.29998779296875, 82.0, -33.318172454833984);
+            Vec3 packet = target.add(0, 1.6200103759765625, 0);
+            var input = teleportInput(player, target, packet).resolveCoordinates(origin);
+            long first = teleports.addImmediateBedrockTransportTeleport(target, false, origin, packet, null, 10);
+            long second = teleports.addImmediateBedrockTransportTeleport(target, false, origin, packet, null, 11);
+            // The first teleport's receipt is the transaction written before the second.
+            player.lastTransactionReceived.set(11);
+            teleports.confirmBedrockOrigin(first, null, origin, packet);
+            assertTrue(teleports.acknowledgeBedrockTeleportFrame(input).isTeleport());
+            assertTrue(teleports.hasPendingBedrockTransportTeleport());
+            teleports.confirmBedrockOrigin(second, null, origin, packet);
+            assertTrue(teleports.acknowledgeBedrockTeleportFrame(input).isTeleport());
+            assertFalse(teleports.hasPendingBedrockTransportTeleport());
+            assertFalse(teleports.acknowledgeBedrockTeleportFrame(input).isTeleport());
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
+    @Test
+    public void oneAnswerCoversIdenticalTeleportsWhoseReceiptsCameBack() {
+        OfflineCultTestBootstrap.installConfig();
+        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            var teleports = player.getSetbackTeleportUtil().bedrockTeleports();
+            player.getSetbackTeleportUtil().pendingTeleports.clear();
+            var origin = BedrockCoordinateFrame.IDENTITY;
+            Vec3 target = new Vec3(327.29998779296875, 82.0, -33.318172454833984);
+            Vec3 packet = target.add(0, 1.6200103759765625, 0);
+            var input = teleportInput(player, target, packet).resolveCoordinates(origin);
+            long first = teleports.addImmediateBedrockTransportTeleport(target, false, origin, packet, null, 10);
+            long second = teleports.addImmediateBedrockTransportTeleport(target, false, origin, packet, null, 11);
+            player.lastTransactionReceived.set(12);
+            teleports.confirmBedrockOrigin(first, null, origin, packet);
+            teleports.confirmBedrockOrigin(second, null, origin, packet);
+            assertTrue(teleports.acknowledgeBedrockTeleportFrame(input).isTeleport());
+            assertFalse(teleports.hasPendingBedrockTransportTeleport());
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
     private static BedrockAuthInputFrame teleportInput(CultPlayer player, Vec3 localFeet, Vec3 localPacket) {
         return BedrockAuthInputFrame.builder(player.playerUUID)
                 .clientTick(876)

@@ -144,18 +144,21 @@ public final class BedrockTeleportTracker {
         Vec3 actual = VectorUtils.clampVector(physicalFeetPosition);
         TeleportData matching = null;
         for (TeleportData pending : pendingTeleports) {
-            if (isConfirmedBedrockTeleport(pending)
-                    && (frame == null
+            if (!isConfirmedBedrockTeleport(pending)
+                    || !(frame == null
                             ? pending.getBedrockCoordinateFrame().equals(BedrockCoordinateFrame.IDENTITY)
                             : pending.getBedrockCoordinateFrame().equals(frame.getCoordinateFrame()))
-                    && answersTeleport(pending, actual, frame)) {
-                // One HANDLE_TELEPORT acknowledges the latest identical
-                // outbound teleport. Reliable packet order proves that every
-                // earlier identical boundary was processed first, so retaining
-                // those entries would wait for acknowledgements Geyser consumes
-                // and never projects to Java.
-                matching = pending;
-            }
+                    || !answersTeleport(pending, actual, frame)) continue;
+            // One HANDLE_TELEPORT acknowledges the first identical outbound
+            // teleport and every later one whose receipt came back before
+            // this input: the client took those before the tick. Reliable
+            // packet order proves that every earlier identical boundary was
+            // processed first, so retaining those entries would wait for
+            // acknowledgements Geyser consumes and never projects to Java.
+            // A later identical teleport whose receipt is still out is
+            // answered by an input of its own.
+            if (matching != null && !pending.isBedrockOriginConfirmed()) break;
+            matching = pending;
         }
         if (matching == null) {
             return accepted;
