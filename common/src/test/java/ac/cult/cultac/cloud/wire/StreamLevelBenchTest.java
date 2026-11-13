@@ -47,6 +47,7 @@ class StreamLevelBenchTest {
             stream = new ZstdCompressCtx()
                     .setLevel(level)
                     .setWindowLog(IntakeWire.StreamWriter.WINDOW_LOG)
+                    .setHashLog(IntakeWire.StreamWriter.HASH_LOG)
                     .setChecksum(false)
                     .setContentSize(false);
         }

@@ -3,6 +3,7 @@ package ac.cult.cultac.cloud.wire;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.github.luben.zstd.EndDirective;
 import com.github.luben.zstd.Zstd;
@@ -11,6 +12,7 @@ import com.github.luben.zstd.ZstdDecompressCtx;
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.SplittableRandom;
 import org.junit.jupiter.api.Test;
@@ -101,8 +103,48 @@ class IntakeStreamTest {
                 assertEquals(reference[5], written[6], "window descriptor at level " + level);
             }
             assertEquals(0x00, written[5], "no content size, single segment, checksum or dictionary");
-            assertEquals((byte) 0x58, written[6], "a 2 MiB window");
+            assertEquals((byte) 0x38, written[6], "a 128 KiB window");
         }
+    }
+
+    @Test
+    void eachMessageIsWhatAContextAtTheStreamsSettingsWrites() {
+        boolean hashLogShows = false;
+        try (IntakeWire.StreamWriter writer = new IntakeWire.StreamWriter();
+                ZstdCompressCtx reference = context(13);
+                ZstdCompressCtx widerHash = context(14)) {
+            for (List<byte[]> records : messages()) {
+                byte[] written = array(writer.write(records, bytes(records), true));
+                assertArrayEquals(flushed(reference, records), written);
+                hashLogShows |= !Arrays.equals(flushed(widerHash, records), written);
+            }
+        }
+        assertTrue(hashLogShows, "the messages tell hash log 13 from 14");
+    }
+
+    /** Level 1, a 128 KiB window and {@code hashLog}, with no checksum or content size. */
+    private static ZstdCompressCtx context(int hashLog) {
+        return new ZstdCompressCtx()
+                .setLevel(1)
+                .setWindowLog(17)
+                .setHashLog(hashLog)
+                .setChecksum(false)
+                .setContentSize(false);
+    }
+
+    /** {@code records} compressed by {@code context} to a flush, as a message: the compressed flag, then the bytes. */
+    private static byte[] flushed(ZstdCompressCtx context, List<byte[]> records) {
+        byte[] input = concat(records);
+        ByteBuffer in = ByteBuffer.allocateDirect(input.length).put(input).flip();
+        ByteBuffer out = ByteBuffer.allocateDirect((int) Zstd.compressBound(input.length) + 64);
+        while (!context.compressDirectByteBufferStream(out, in, EndDirective.FLUSH)) {
+            out = ByteBuffer.allocateDirect(out.capacity() * 2).put(out.flip());
+        }
+        out.flip();
+        byte[] message = new byte[1 + out.remaining()];
+        message[0] = IntakeWire.COMPRESSED;
+        out.get(message, 1, message.length - 1);
+        return message;
     }
 
     private static byte[] frameHeader(List<byte[]> first, int level) {
