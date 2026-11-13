@@ -59,6 +59,7 @@ final class BedrockCollisionClipper {
         Optional<PlacedBlockCollision> yCollisionBlock = Optional.empty();
         // The buffer of the actor that ended each axis, while no block ended it after.
         float bufferX = 0.0F, bufferY = 0.0F, bufferZ = 0.0F;
+        float pushX = 0.0F, pushY = 0.0F, pushZ = 0.0F;
         float penetration = 0.0F;
         // The two highest distinct lower bounds and two lowest distinct upper bounds solid actors put on each axis.
         float lx1 = NO_LOWER, lx2 = NO_LOWER, ly1 = NO_LOWER, ly2 = NO_LOWER, lz1 = NO_LOWER, lz2 = NO_LOWER;
@@ -150,9 +151,18 @@ final class BedrockCollisionClipper {
                 }
             }
             FloatMove clippedMove = clip.apply(move);
-            if (clippedMove.x() != move.x()) bufferX = actorsMet ? 0.0F : buffer(obstacle);
-            if (clippedMove.y() != move.y()) bufferY = actorsMet ? 0.0F : buffer(obstacle);
-            if (clippedMove.z() != move.z()) bufferZ = actorsMet ? 0.0F : buffer(obstacle);
+            if (clippedMove.x() != move.x()) {
+                bufferX = actorsMet ? 0.0F : buffer(obstacle);
+                pushX = bufferX > 0.0F ? Math.min(clip.stablePushDepth(), maximumDepenetration.x()) : 0.0F;
+            }
+            if (clippedMove.y() != move.y()) {
+                bufferY = actorsMet ? 0.0F : buffer(obstacle);
+                pushY = bufferY > 0.0F ? Math.min(clip.stablePushDepth(), maximumDepenetration.y()) : 0.0F;
+            }
+            if (clippedMove.z() != move.z()) {
+                bufferZ = actorsMet ? 0.0F : buffer(obstacle);
+                pushZ = bufferZ > 0.0F ? Math.min(clip.stablePushDepth(), maximumDepenetration.z()) : 0.0F;
+            }
             if (clippedMove.y() != move.y()) {
                 yCollisionBlock = obstacle.block();
             }
@@ -170,15 +180,39 @@ final class BedrockCollisionClipper {
         }
         BufferedEnds bufferedX = bufferX > 0.0F
                 ? bufferedEnds(
-                        SweepAxis.X, move.x(), requested.x(), bufferX, obstacles, moving, frame, maximumDepenetration)
+                        SweepAxis.X,
+                        move.x(),
+                        requested.x(),
+                        bufferX,
+                        pushX,
+                        obstacles,
+                        moving,
+                        frame,
+                        maximumDepenetration)
                 : BufferedEnds.NONE;
         BufferedEnds bufferedY = bufferY > 0.0F
                 ? bufferedEnds(
-                        SweepAxis.Y, move.y(), requested.y(), bufferY, obstacles, moving, frame, maximumDepenetration)
+                        SweepAxis.Y,
+                        move.y(),
+                        requested.y(),
+                        bufferY,
+                        pushY,
+                        obstacles,
+                        moving,
+                        frame,
+                        maximumDepenetration)
                 : BufferedEnds.NONE;
         BufferedEnds bufferedZ = bufferZ > 0.0F
                 ? bufferedEnds(
-                        SweepAxis.Z, move.z(), requested.z(), bufferZ, obstacles, moving, frame, maximumDepenetration)
+                        SweepAxis.Z,
+                        move.z(),
+                        requested.z(),
+                        bufferZ,
+                        pushZ,
+                        obstacles,
+                        moving,
+                        frame,
+                        maximumDepenetration)
                 : BufferedEnds.NONE;
         int bufferedAxes = (bufferedX.widens() ? 1 : 0) | (bufferedY.widens() ? 2 : 0) | (bufferedZ.widens() ? 4 : 0);
         if (crossed == 0) {
@@ -230,44 +264,44 @@ final class BedrockCollisionClipper {
         return obstacle.block().map(BedrockDepenetrationLimit::buffer).orElse(0.0F);
     }
 
-    /** A buffered actor's separated face on the requested axis; overlap resolution is unchanged. */
-    static BufferedFace bufferedFace(
-            BlockCollision obstacle, WorldCollisionBox moving, Vec3d requested, BedrockCoordinateFrame frame) {
+    /** A buffered actor's separated face that a bounded translation can bring into contact. */
+    static BufferedFace bufferedFace(BlockCollision obstacle, WorldCollisionBox moving, BedrockCoordinateFrame frame) {
         float budget = buffer(obstacle);
         if (budget <= 0.0F) return null;
         AabbClip clip = clipCollide(obstacle.box(), moving, frame);
         if (clip.bound() == Bound.NONE || clip.penetration() != 0.0F) return null;
-        float move = (float)
-                switch (clip.axis()) {
-                    case X -> requested.x();
-                    case Y -> requested.y();
-                    case Z -> requested.z();
-                };
-        if (move > 0.0F && clip.bound() == Bound.AT_MOST && clip.edge() >= 0.0F
-                || move < 0.0F && clip.bound() == Bound.AT_LEAST && clip.edge() <= 0.0F) {
-            return new BufferedFace(clip.axis().ordinal(), clip.edge(), budget);
+        if (clip.bound() == Bound.AT_MOST && clip.edge() >= 0.0F
+                || clip.bound() == Bound.AT_LEAST && clip.edge() <= 0.0F) {
+            return new BufferedFace(clip.axis().ordinal(), clip.edge(), budget, clip.bound() == Bound.AT_MOST ? 1 : -1);
         }
         return null;
     }
 
-    record BufferedFace(int axis, float edge, float budget) {}
+    record BufferedFace(int axis, float edge, float budget, int direction) {}
 
     /**
-     * Where a move an actor with {@code buffer} ended along {@code axis} at {@code end} may end instead, as offsets
-     * from that end: up to the buffer either way, neither back past the move's start nor past the requested move, and
-     * within the bounds the blocks put on the axis.
+     * Where an actor-ended axis may end within its position budget. Separated faces retain the requested move's
+     * bounds. A full-overlap exit may shove beyond those bounds while keeping its nearest exit and ordinary depth
+     * limit. Fetched blocks bound every endpoint.
      */
     private static BufferedEnds bufferedEnds(
             SweepAxis axis,
             float end,
             float requested,
             float buffer,
+            float pushDepth,
             List<BlockCollision> obstacles,
             WorldCollisionBox moving,
             BedrockCoordinateFrame frame,
             BedrockDepenetrationLimit maximumDepenetration) {
-        float low = Math.max(end - buffer, Math.min(0.0F, requested));
-        float high = Math.min(end + buffer, Math.max(0.0F, requested));
+        float lower = Math.min(0.0F, requested);
+        float upper = Math.max(0.0F, requested);
+        // A real full overlap can shove against the request. Its translated face must keep the same
+        // nearest exit and remain within the ordinary depenetration limit; blocks still clamp both ends.
+        if (pushDepth > 0.0F && end < 0.0F) lower = Math.min(lower, -pushDepth);
+        if (pushDepth > 0.0F && end > 0.0F) upper = Math.max(upper, pushDepth);
+        float low = Math.max(end - buffer, lower);
+        float high = Math.min(end + buffer, upper);
         for (BlockCollision obstacle : obstacles) {
             if (isSolidActor(obstacle)) continue;
             AabbClip clip = clipCollide(obstacle.box(), moving, frame);
@@ -345,7 +379,8 @@ final class BedrockCollisionClipper {
                     0.0F,
                     axis,
                     separation.sign() < 0.0F ? Bound.AT_MOST : Bound.AT_LEAST,
-                    separation.depth() * separation.sign());
+                    separation.depth() * separation.sign(),
+                    0.0F);
         }
 
         // Full overlaps resolve through the nearest face, with X/Y/Z tie priority.
@@ -361,7 +396,27 @@ final class BedrockCollisionClipper {
         }
 
         float signedExit = nearest.depth() * nearest.sign();
-        return new AabbClip(nearest.depth(), axis, signedExit > 0.0F ? Bound.AT_LEAST : Bound.AT_MOST, signedExit);
+        float otherDepth = switch (axis) {
+            case X -> Math.min(y.depth(), z.depth());
+            case Y -> Math.min(x.depth(), z.depth());
+            case Z -> Math.min(x.depth(), y.depth());
+        };
+        float combinedWidth = switch (axis) {
+            case X ->
+                frame.localX(obstacle.maxX())
+                        - frame.localX(obstacle.minX())
+                        + frame.localX(moving.maxX())
+                        - frame.localX(moving.minX());
+            case Y -> f(obstacle.maxY()) - f(obstacle.minY()) + f(moving.maxY()) - f(moving.minY());
+            case Z ->
+                frame.localZ(obstacle.maxZ())
+                        - frame.localZ(obstacle.minZ())
+                        + frame.localZ(moving.maxZ())
+                        - frame.localZ(moving.minZ());
+        };
+        float stablePushDepth = Math.max(0.0F, Math.nextDown(Math.min(otherDepth, combinedWidth * 0.5F)));
+        return new AabbClip(
+                nearest.depth(), axis, signedExit > 0.0F ? Bound.AT_LEAST : Bound.AT_MOST, signedExit, stablePushDepth);
     }
 
     private static AxisOverlap axisOverlap(float obstacleMin, float obstacleMax, float movingMin, float movingMax) {
@@ -420,8 +475,8 @@ final class BedrockCollisionClipper {
         AT_LEAST
     }
 
-    private record AabbClip(float penetration, SweepAxis axis, Bound bound, float edge) {
-        private static final AabbClip UNCHANGED = new AabbClip(0.0F, SweepAxis.X, Bound.NONE, 0.0F);
+    private record AabbClip(float penetration, SweepAxis axis, Bound bound, float edge, float stablePushDepth) {
+        private static final AabbClip UNCHANGED = new AabbClip(0.0F, SweepAxis.X, Bound.NONE, 0.0F, 0.0F);
 
         private AabbClip {
             axis = Objects.requireNonNull(axis, "axis");

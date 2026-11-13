@@ -26,11 +26,12 @@ final class BedrockSolidActorPositions {
         for (int index = shapes.size() - 1; index >= 0; index--) {
             BlockCollision shape = shapes.get(index);
             if (!BedrockCollisionClipper.isSolidActor(shape)) break;
-            var face = BedrockCollisionClipper.bufferedFace(shape, start, request, frame);
+            var face = BedrockCollisionClipper.bufferedFace(shape, start, frame);
             if (face == null) continue;
             float landmark = landmark((nominal & 1 << face.axis()) != 0 ? request : nominalEnd, request, face.axis());
-            if (towards(landmark, component(request, face.axis())) && Math.abs(face.edge() - landmark) <= face.budget())
-                axes |= 1 << face.axis();
+            boolean forced = (nominal & 1 << face.axis()) == 0 && forcesPush(face, component(request, face.axis()));
+            if ((forced || towards(landmark, component(request, face.axis())))
+                    && Math.abs(face.edge() - landmark) <= face.budget()) axes |= 1 << face.axis();
         }
         return axes;
     }
@@ -49,10 +50,11 @@ final class BedrockSolidActorPositions {
         int firstActor = shapes.size();
         while (firstActor > 0 && BedrockCollisionClipper.isSolidActor(shapes.get(firstActor - 1))) firstActor--;
         for (int index = firstActor; index < shapes.size(); index++) {
-            var face = BedrockCollisionClipper.bufferedFace(shapes.get(index), start, request, frame);
+            var face = BedrockCollisionClipper.bufferedFace(shapes.get(index), start, frame);
             if (face == null || (changed & 1 << face.axis()) == 0 || (nominal & 1 << face.axis()) != 0) continue;
             float landmark = landmark(nominalEnd, request, face.axis());
-            if (!towards(landmark, component(request, face.axis()))) continue;
+            if (!forcesPush(face, component(request, face.axis()))
+                    && !towards(landmark, component(request, face.axis()))) continue;
             float distance = Math.abs(face.edge() - landmark);
             if (distance < nearestDistance[face.axis()] && distance <= face.budget()) {
                 nearest[face.axis()] = index;
@@ -63,23 +65,31 @@ final class BedrockSolidActorPositions {
         double[] reference = new double[3];
         float budget = Float.POSITIVE_INFINITY;
         int applied = 0;
+        int positiveFaces = 0;
         for (int index = firstActor; index < shapes.size(); index++) {
             BlockCollision shape = shapes.get(index);
-            var face = BedrockCollisionClipper.bufferedFace(shape, start, request, frame);
+            var face = BedrockCollisionClipper.bufferedFace(shape, start, frame);
             if (face == null || (changed & 1 << face.axis()) == 0) continue;
             int axis = face.axis();
             float move = component(request, axis);
+            boolean positive = face.direction() > 0;
             boolean release = (nominal & 1 << axis) != 0;
-            boolean clips = move > 0.0F ? face.edge() < move : face.edge() > move;
+            boolean forced = !release && forcesPush(face, move);
+            boolean clips = positive ? face.edge() < move : face.edge() > move;
             if (release ? !clips : nearest[axis] != index) continue;
-            float leading = leading(start, axis, move > 0.0F, frame);
+            float leading = leading(start, axis, positive, frame);
             float landmark = release ? move : landmark(nominalEnd, request, axis);
-            if (!towards(landmark, move)) return null;
+            if (!forced && !towards(landmark, move)) return null;
             float endFace = leading + landmark;
             // The face's float ULP, rather than the much smaller delta ULP, decides the contact bit.
-            float wanted = release == (move > 0.0F) ? Math.nextUp(endFace) : Math.nextDown(endFace);
-            if (!release && !towards(wanted - leading, move)) return null;
-            float original = leading(shape.box(), axis, move < 0.0F, frame);
+            float wanted = release == positive ? Math.nextUp(endFace) : Math.nextDown(endFace);
+            if (forced) {
+                // A shove against a zero or away move must survive the existing float contact cleanup.
+                float inset = Math.max((float) BedrockCollisionSweep.CONTACT_EPSILON, Math.ulp(endFace));
+                wanted = positive ? Math.nextDown(endFace - inset) : Math.nextUp(endFace + inset);
+            }
+            if (!release && !forced && !towards(wanted - leading, move)) return null;
+            float original = leading(shape.box(), axis, !positive, frame);
             double shift = (double) wanted - original;
             if (Math.abs(shift) > face.budget()) return null;
             WorldCollisionBox box =
@@ -88,15 +98,17 @@ final class BedrockSolidActorPositions {
             if (Math.abs(shift) > Math.abs(reference[axis])) reference[axis] = -shift;
             budget = Math.min(budget, face.budget());
             applied |= 1 << axis;
+            if (positive) positiveFaces |= 1 << axis;
         }
         if (applied != changed) return null;
         Vec3d offset = new Vec3d(reference[0], reference[1], reference[2]);
         if (offset.length() > budget) return null;
-        return new Placement(placed, offset, budget, changed, nominal);
+        return new Placement(placed, offset, budget, changed, nominal, positiveFaces);
     }
 
-    record Placement(List<BlockCollision> shapes, Vec3d reference, float budget, int changed, int nominal) {
-        BedrockActorOrderRange range(BedrockActorOrderRange previous, Vec3d request) {
+    record Placement(
+            List<BlockCollision> shapes, Vec3d reference, float budget, int changed, int nominal, int positiveFaces) {
+        BedrockActorOrderRange range(BedrockActorOrderRange previous) {
             double[] low =
                     previous == null ? new double[3] : new double[] {previous.minX(), previous.minY(), previous.minZ()};
             double[] high =
@@ -107,7 +119,7 @@ final class BedrockSolidActorPositions {
             for (int axis = 0; axis < 3; axis++) {
                 if ((changed & 1 << axis) == 0) continue;
                 if ((nominal & 1 << axis) != 0) low[axis] = high[axis] = 0.0D;
-                else if (component(request, axis) > 0.0F) high[axis] = Math.min(high[axis], 0.0D);
+                else if ((positiveFaces & 1 << axis) != 0) high[axis] = Math.min(high[axis], 0.0D);
                 else low[axis] = Math.max(low[axis], 0.0D);
                 baseLow[axis] = baseHigh[axis] = axis == 0 ? reference.x() : axis == 1 ? reference.y() : reference.z();
             }
@@ -133,7 +145,12 @@ final class BedrockSolidActorPositions {
     }
 
     private static boolean towards(float end, float request) {
+        if (request == 0.0F) return end == 0.0F;
         return request > 0.0F ? end > 0.0F && end <= request : request < 0.0F && end < 0.0F && end >= request;
+    }
+
+    private static boolean forcesPush(BedrockCollisionClipper.BufferedFace face, float request) {
+        return request == 0.0F || (request > 0.0F) != (face.direction() > 0);
     }
 
     private static float landmark(Vec3d end, Vec3d request, int axis) {

@@ -227,7 +227,7 @@ public final class BedrockEntityMove {
             solidActorOrder =
                     BedrockSolidActorOrders.withRealizedPositions(solidActorOrder, realized & placement.changed());
             if (BedrockSolidActorOrders.realizesPositionState(solidActorOrder, contacts))
-                range = placement.range(range, requestedDelta);
+                range = placement.range(range);
         }
         return result.withSolidActorOrder(solidActorOrder, range);
     }
