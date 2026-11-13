@@ -1014,20 +1014,23 @@ public final class IntakeWire {
     }
 
     /**
-     * Writes protocol 5 messages as one socket's zstd frame: one compression context at {@link #LEVEL} and window log
-     * {@link #WINDOW_LOG} kept across messages, each message ending at a flush so it decompresses on arrival. The frame
-     * is never ended. The receiver decompresses the messages in the order written, so each must be sent, in that order,
-     * or the socket closed. One per socket, used by one thread at a time; a message stays valid until the next. Needs
-     * {@link #zstdUnavailable} to be null.
+     * Writes protocol 5 messages as one socket's zstd frame: one compression context at {@link #LEVEL}, window log
+     * {@link #WINDOW_LOG} and hash log {@link #HASH_LOG} kept across messages, each message ending at a flush so it
+     * decompresses on arrival. The frame is never ended. The receiver decompresses the messages in the order written, so
+     * each must be sent, in that order, or the socket closed. One per socket, used by one thread at a time; a message
+     * stays valid until the next. Needs {@link #zstdUnavailable} to be null.
      */
     public static final class StreamWriter implements AutoCloseable {
         public static final int LEVEL = 1;
-        /** The receiver's window limit (2 MiB); the frame header declares it. */
-        public static final int WINDOW_LOG = 21;
+        /** 128 KiB, within the receiver's window limit (2 MiB); the frame header declares it. */
+        public static final int WINDOW_LOG = 17;
+        /** The match finder's table, 8192 entries; decoders never see it. */
+        public static final int HASH_LOG = 13;
 
         private final ZstdCompressCtx stream = new ZstdCompressCtx()
                 .setLevel(LEVEL)
                 .setWindowLog(WINDOW_LOG)
+                .setHashLog(HASH_LOG)
                 .setChecksum(false)
                 .setContentSize(false);
         /**
