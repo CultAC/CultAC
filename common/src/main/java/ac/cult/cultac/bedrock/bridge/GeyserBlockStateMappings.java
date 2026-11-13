@@ -115,7 +115,21 @@ final class GeyserBlockStateMappings {
             Integer resolved = sentDefinitions[state] < 0 ? null : states.get(sentDefinitions[state]);
             sentStates[state] = resolved == null ? -1 : resolved;
         }
-        return new Tables(Map.copyOf(states), sentStates, stairCornersSent(sentDefinitions));
+        return new Tables(
+                Map.copyOf(states),
+                sentStates,
+                stairCornersSent(sentDefinitions),
+                chorusConnectionsSent(sentDefinitions));
+    }
+
+    /** Whether the session sends a chorus plant's connections: two of its states become different Bedrock blocks. */
+    private static boolean chorusConnectionsSent(int[] sentDefinitions) {
+        int first = BlockIds.CHORUS_PLANT.defaultState();
+        for (int state = 0; state < sentDefinitions.length; state++) {
+            if (sentDefinitions[state] < 0 || !BlockIds.is(state, BlockIds.CHORUS_PLANT)) continue;
+            if (sentDefinitions[first] >= 0 && sentDefinitions[first] != sentDefinitions[state]) return true;
+        }
+        return false;
     }
 
     /** Whether the session sends a stair's corner: two Java shapes of one stair become different Bedrock blocks. */
@@ -134,9 +148,9 @@ final class GeyserBlockStateMappings {
      *     or -1 where Geyser has no block for it; a sent block resolving to the same state is its translation
      */
     /** The session palette inverted, the state the client holds for each sent state, and whether stairs carry corners. */
-    record Tables(Map<Integer, Integer> palette, int[] sentStates, boolean stairCorners) {
+    record Tables(Map<Integer, Integer> palette, int[] sentStates, boolean stairCorners, boolean chorusConnections) {
         Tables(Map<Integer, Integer> palette, int[] sentStates) {
-            this(palette, sentStates, true);
+            this(palette, sentStates, true, true);
         }
     }
 

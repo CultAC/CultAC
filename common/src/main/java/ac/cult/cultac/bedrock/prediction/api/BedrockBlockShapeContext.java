@@ -100,11 +100,15 @@ public record BedrockBlockShapeContext(
 
     /**
      * Which parts of its shapes a client derives from the blocks around them because its block states carry none, and
-     * those blocks. A stair's corner is one.
+     * those blocks: a stair's corner, and the sides a chorus plant connects on.
      */
-    public record DerivedShapes(BlockStates blocks, boolean stairCorners) {
+    public record DerivedShapes(BlockStates blocks, boolean stairCorners, boolean chorusConnections) {
         /** Every shape as its own block state gives it. */
-        public static final DerivedShapes OWN_STATE = new DerivedShapes(position -> BlockStates.NO_BLOCK, false);
+        public static final DerivedShapes OWN_STATE = new DerivedShapes(position -> BlockStates.NO_BLOCK, false, false);
+
+        public DerivedShapes(BlockStates blocks, boolean stairCorners) {
+            this(blocks, stairCorners, false);
+        }
 
         public DerivedShapes {
             blocks = Objects.requireNonNull(blocks, "blocks");

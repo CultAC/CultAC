@@ -35,6 +35,8 @@ public final class BedrockCollisionWorldBuilder {
     private static final BlockDefinition COMPOSTER = REGISTRY.block("minecraft:composter");
     private static final BlockDefinition BREWING_STAND = REGISTRY.block("minecraft:brewing_stand");
     private static final BlockDefinition HOPPER = REGISTRY.block("minecraft:hopper");
+    private static final BlockDefinition END_STONE = REGISTRY.block("minecraft:end_stone");
+    private static final BlockDefinition CHORUS_FLOWER = REGISTRY.block("minecraft:chorus_flower");
     /** A hopper's bowl: its floor, four 2/16 walls above it and the funnel under it. */
     private static final List<BlockAabb> HOPPER_BOWL = List.of(
             new BlockAabb(0.0D, 0.625D, 0.0D, 1.0D, 0.6875D, 1.0D),
@@ -207,9 +209,9 @@ public final class BedrockCollisionWorldBuilder {
         return scaffoldingBlock(state) || powderSnowBlock(state);
     }
 
-    /** Whether the shape of {@code state} can depend on the blocks around it: a stair's corner. */
+    /** Whether the shape of {@code state} can depend on the blocks around it: a stair's corner, a chorus plant's sides. */
     public static boolean neighbourDependentMovement(int state) {
-        return stairBlock(state);
+        return stairBlock(state) || chorusPlantBlock(state);
     }
 
     /** Whether the shape of {@code state} depends on client state kept for the position it is at. */
@@ -308,7 +310,7 @@ public final class BedrockCollisionWorldBuilder {
             return thinFenceCollisionBoxes(position, state);
         }
         if (chorusPlantBlock(state)) {
-            return chorusPlantCollisionBoxes(position, state);
+            return chorusPlantCollisionBoxes(position, state, chorusConnections(position, state));
         }
         if (basinBlock(state)) {
             return basinCollisionBoxes(position, state);
@@ -637,13 +639,47 @@ public final class BedrockCollisionWorldBuilder {
         return toWorldBoxes(position, localBoxes);
     }
 
-    private static List<WorldCollisionBox> chorusPlantCollisionBoxes(BlockPosition position, int state) {
-        boolean down = booleanProperty(state, BlockProps.DOWN);
-        boolean east = booleanProperty(state, BlockProps.EAST);
-        boolean north = booleanProperty(state, BlockProps.NORTH);
-        boolean south = booleanProperty(state, BlockProps.SOUTH);
-        boolean up = booleanProperty(state, BlockProps.UP);
-        boolean west = booleanProperty(state, BlockProps.WEST);
+    /**
+     * The sides a chorus plant connects on: those its state names, or, for a client whose chorus plants carry none, each
+     * side with a chorus plant or flower beside it, and below also end stone. Order: down, up, north, south, west, east.
+     */
+    private boolean[] chorusConnections(BlockPosition position, int state) {
+        var derived = context.derivedShapes();
+        if (!derived.chorusConnections()) {
+            return new boolean[] {
+                booleanProperty(state, BlockProps.DOWN),
+                booleanProperty(state, BlockProps.UP),
+                booleanProperty(state, BlockProps.NORTH),
+                booleanProperty(state, BlockProps.SOUTH),
+                booleanProperty(state, BlockProps.WEST),
+                booleanProperty(state, BlockProps.EAST)
+            };
+        }
+        var blocks = derived.blocks();
+        int x = position.x(), y = position.y(), z = position.z();
+        int below = blocks.at(new BlockPosition(x, y - 1, z));
+        return new boolean[] {
+            chorusConnects(below) || below >= 0 && BlockIds.is(below, END_STONE),
+            chorusConnects(blocks.at(new BlockPosition(x, y + 1, z))),
+            chorusConnects(blocks.at(new BlockPosition(x, y, z - 1))),
+            chorusConnects(blocks.at(new BlockPosition(x, y, z + 1))),
+            chorusConnects(blocks.at(new BlockPosition(x - 1, y, z))),
+            chorusConnects(blocks.at(new BlockPosition(x + 1, y, z)))
+        };
+    }
+
+    private static boolean chorusConnects(int neighbour) {
+        return neighbour >= 0 && (chorusPlantBlock(neighbour) || BlockIds.is(neighbour, CHORUS_FLOWER));
+    }
+
+    private static List<WorldCollisionBox> chorusPlantCollisionBoxes(
+            BlockPosition position, int state, boolean[] connections) {
+        boolean down = connections[0];
+        boolean up = connections[1];
+        boolean north = connections[2];
+        boolean south = connections[3];
+        boolean west = connections[4];
+        boolean east = connections[5];
 
         BlockAabb localBox = new BlockAabb(
                 west ? 0.0D : 0.125D,

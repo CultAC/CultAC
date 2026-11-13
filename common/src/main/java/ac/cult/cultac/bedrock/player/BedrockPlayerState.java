@@ -53,20 +53,33 @@ public final class BedrockPlayerState {
     private BedrockAuthInputFrame lastProcessedFrame;
     private long processedAuthInputSequence;
     private long lastMovementTick = -1;
-    // Null until the session's palette is known; true when its stairs carry no corner and the client derives it.
-    private Boolean stairCornersFromNeighbours;
+    // Unknown until the session's palette is known: which parts of its shapes the client derives from neighbours.
+    private boolean derivedShapesKnown;
+    private boolean stairCornersFromNeighbours;
+    private boolean chorusConnectionsFromNeighbours;
 
-    public boolean stairCornersKnown() {
-        return stairCornersFromNeighbours != null;
+    public boolean derivedShapesKnown() {
+        return derivedShapesKnown;
     }
 
     /** Whether this client's stairs carry no corner state and take their corner from the stairs around them. */
     public boolean stairCornersFromNeighbours() {
-        return Boolean.TRUE.equals(stairCornersFromNeighbours);
+        return stairCornersFromNeighbours;
     }
 
-    public void stairCornersFromNeighbours(boolean value) {
-        stairCornersFromNeighbours = value;
+    /** Whether this client's chorus plants carry no connections and take them from the blocks around them. */
+    public boolean chorusConnectionsFromNeighbours() {
+        return chorusConnectionsFromNeighbours;
+    }
+
+    public boolean derivesShapesFromNeighbours() {
+        return stairCornersFromNeighbours || chorusConnectionsFromNeighbours;
+    }
+
+    public void derivedShapes(boolean stairCorners, boolean chorusConnections) {
+        derivedShapesKnown = true;
+        stairCornersFromNeighbours = stairCorners;
+        chorusConnectionsFromNeighbours = chorusConnections;
     }
 
     /** The client state this player's block collision shapes read, in the coordinate frame of its latest input. */
@@ -83,11 +96,12 @@ public final class BedrockPlayerState {
                         ? ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame.IDENTITY
                         : lastOfferedFrame.getCoordinateFrame(),
                 position -> ac.cult.cultac.utils.collisions.BedrockMovingBlockShape.carried(player, position),
-                stairCornersFromNeighbours()
+                derivesShapesFromNeighbours()
                         ? new ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext.DerivedShapes(
                                 position -> player.compensatedWorld.getBlockStateIdAt(
                                         position.x(), position.y(), position.z()),
-                                true)
+                                stairCornersFromNeighbours,
+                                chorusConnectionsFromNeighbours)
                         : ac.cult.cultac.bedrock.prediction.api.BedrockBlockShapeContext.DerivedShapes.OWN_STATE);
     }
 

@@ -1335,11 +1335,11 @@ public final class GeyserBedrockBridgeRuntime {
         }
 
         private BedrockAuthInputFrame captureAuthInput(CultPlayer player, PlayerAuthInputPacket packet) {
-            // The session's palette decides once whether its stairs carry their own corner.
-            if (!player.bedrockState.stairCornersKnown())
-                player.bedrockState.stairCornersFromNeighbours(
-                        !GeyserBlockStateMappings.tables(connection.getBlockMappings())
-                                .stairCorners());
+            // The session's palette decides once which shapes its client derives from the blocks around them.
+            if (!player.bedrockState.derivedShapesKnown()) {
+                var tables = GeyserBlockStateMappings.tables(connection.getBlockMappings());
+                player.bedrockState.derivedShapes(!tables.stairCorners(), !tables.chorusConnections());
+            }
             long vehicleId = predictedVehicleId(packet);
             var vehicle = vehicleId == -1L ? null : connection.getEntityCache().getEntityByGeyserId(vehicleId);
             if (isPredictedHorse(vehicle) || vehicle instanceof BoatEntity) {
