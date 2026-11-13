@@ -217,7 +217,8 @@ class ObserveOnlyCallSiteTest {
             bedrock/prediction/integration/BedrockReplayContextEvent.java#state(BedrockMovementState) replace
             bedrock/prediction/state/BedrockActorAttributes.java#replace(Map) replace
             checks/impl/prediction/runner/PacketModHandler.java#bundlePacketWithTrailingTransaction(PacketSendEvent,R) replace
-            events/packets/listeners/PacketPingListener.java#onPong(PacketReceiveEvent,CultPlayer,ServerboundPong) setCancelled
+            events/packets/listeners/PacketPingListener.java#onPong(PacketReceiveEvent,CultPlayer,ServerboundPong) cancelFinally
+            events/packets/listeners/PacketPingListener.java#onRetiredPong(PacketReceiveEvent,ServerboundPong) cancelFinally
             events/packets/worldreader/BasePacketWorldReader.java#handleBlockChange(CultPlayer,PacketSendEvent,BlockUpdate) replace
             events/packets/worldreader/BasePacketWorldReader.java#handleBlockEvent(CultPlayer,PacketSendEvent,ClientboundBlockEvent) replace
             network/PacketDispatcher.java#clear() replace

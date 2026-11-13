@@ -7,6 +7,7 @@ import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.runner.PredictionScratch;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
@@ -111,7 +112,9 @@ public final class JavaFallDistance {
 
     private static boolean touchesWater(CultPlayer player, SimulationContext context, Vec3 end) {
         Vec3 to = context.getEnd();
-        var box = context.getToActualPose().offset(end.x - to.x, end.y - to.y, end.z - to.z);
+        PredictionScratch scratch = PredictionScratch.of(player);
+        var box = context.getToActualPose(scratch == null ? new SimpleCollisionBox() : scratch.fallWaterBox)
+                .offset(end.x - to.x, end.y - to.y, end.z - to.z);
         return touchesWater(player, box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ);
     }
 

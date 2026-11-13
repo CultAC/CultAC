@@ -1,7 +1,6 @@
 package ac.cult.cultac.events.packets.worldreader;
 
 import ac.cult.cultac.network.event.PacketSendEvent;
-import ac.cult.cultac.network.packet.SectionSnapshot;
 import ac.cult.cultac.network.packet.WorldPackets.Chunk;
 import ac.cult.cultac.network.packet.WorldPackets.ChunkBiomes;
 import ac.cult.cultac.player.CultPlayer;
@@ -14,6 +13,7 @@ import ac.cult.cultac.utils.latency.PalettedSection;
 import ac.cult.cultac.utils.latency.SectionPool;
 import io.netty.buffer.Unpooled;
 import java.util.ArrayList;
+import java.util.List;
 
 /** Model sections decoded into owned palettes; packet and transaction order are unchanged. */
 public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
@@ -30,8 +30,8 @@ public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
             for (int i = 0; i < chunks.length; i++) {
                 var section = packet.decodedSections().get(i);
                 chunks[i] = CachedSection.received(
-                        section.copyBlocks(), section.nonEmptyBlockCount(), section.knownFluidCount());
-                biomes[i] = biomeValues(section);
+                        section.takeBlocks(), section.nonEmptyBlockCount(), section.knownFluidCount());
+                biomes[i] = section.biomeValues();
             }
         } else {
             var bytes = Unpooled.wrappedBuffer(packet.sections());
@@ -61,9 +61,12 @@ public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
                     .filter(entity ->
                             dimension.clientHoldsSection((entity.position().getY() - dimension.minHeight()) >> 4))
                     .toList();
-        var tickers = packet.tickerCandidates().stream()
-                .filter(position -> hasGeyserTicker(chunks, dimension.minHeight(), position))
-                .toList();
+        var candidates = packet.tickerCandidates();
+        List<BlockPos> tickers = candidates.isEmpty()
+                ? List.of()
+                : candidates.stream()
+                        .filter(position -> hasGeyserTicker(chunks, dimension.minHeight(), position))
+                        .toList();
         addChunkToCache(
                 event,
                 player,
@@ -75,11 +78,6 @@ public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
                 blockEntities,
                 biomes,
                 packet.motionBlocking());
-    }
-
-    private static int[] biomeValues(SectionSnapshot section) {
-        int biome = section.uniformBiome();
-        return biome < 0 ? section.copyBiomes() : CachedChunk.uniformBiomes(biome);
     }
 
     private static int biomeRegistrySize(CultPlayer player) {
@@ -97,7 +95,7 @@ public class PacketWorldReaderTwentySix extends BasePacketWorldReader {
                 if (chunk.decodedSections().size() != values.length)
                     throw new IllegalArgumentException("Biome section count differs from the received dimension");
                 for (int i = 0; i < values.length; i++)
-                    values[i] = biomeValues(chunk.decodedSections().get(i));
+                    values[i] = chunk.decodedSections().get(i).biomeValues();
             } else {
                 var bytes = Unpooled.wrappedBuffer(chunk.sections());
                 try {

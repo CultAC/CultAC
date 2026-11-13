@@ -6,6 +6,7 @@ import ac.cult.blocksim.data.nbt.NbtValue;
 import ac.cult.blocksim.entity.PaintingSize;
 import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.packet.FrameLease;
+import ac.cult.cultac.protocol.ProtocolContext;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.WireValueDecoder;
 import ac.cult.cultac.protocol.value.BlockPos;
@@ -19,6 +20,7 @@ import java.lang.ref.WeakReference;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 
 /**
@@ -37,7 +39,7 @@ final class ModelEntityMetadataValues {
     private final ProtocolVersion version;
     private final WireValueDecoder.Registries registries;
     private final ModelItemValues items;
-    private final Function<String, PaintingSize> paintings;
+    private final BiFunction<ProtocolContext, String, PaintingSize> paintings;
     private Scratch scratch;
 
     ModelEntityMetadataValues(
@@ -45,6 +47,15 @@ final class ModelEntityMetadataValues {
             ProtocolVersion version,
             WireValueDecoder.Registries registries,
             Function<String, PaintingSize> paintings) {
+        this(decoder, version, registries, (context, name) -> paintings.apply(name));
+    }
+
+    /** {@code paintings} resolves a painting variant's name against the context of the read that found it. */
+    ModelEntityMetadataValues(
+            WireValueDecoder decoder,
+            ProtocolVersion version,
+            WireValueDecoder.Registries registries,
+            BiFunction<ProtocolContext, String, PaintingSize> paintings) {
         this.decoder = decoder;
         this.version = version;
         this.registries = registries;
@@ -64,14 +75,14 @@ final class ModelEntityMetadataValues {
     EntityMetadata read(ByteBuf input, FrameLease lease) {
         var scratch = this.scratch == null ? this.scratch = new Scratch() : this.scratch;
         try {
-            return read(input, lease, scratch);
+            return read(input, lease, null, scratch);
         } finally {
             if (scratch.kinds.length > Scratch.HELD) this.scratch = null;
             else scratch.clear();
         }
     }
 
-    private EntityMetadata read(ByteBuf input, FrameLease lease, Scratch scratch) {
+    private EntityMetadata read(ByteBuf input, FrameLease lease, ProtocolContext context, Scratch scratch) {
         int id = Wire.readVarInt(input);
         int payloadStart = input.readerIndex();
         decoder.metadata(version, input, registries, ModelNbtFactory.INSTANCE, scratch);
@@ -80,7 +91,7 @@ final class ModelEntityMetadataValues {
         byte[] payload = lease == null ? ByteBufUtil.getBytes(input, payloadStart, payloadLength) : null;
         for (int i = 0; i < size; i++) {
             String kind = scratch.kinds[i];
-            Object converted = value(kind, scratch.values[i]);
+            Object converted = value(kind, scratch.values[i], context);
             if (converted == null && kind.equals("painting_variant")) return null;
             scratch.values[i] = converted;
         }
@@ -101,13 +112,18 @@ final class ModelEntityMetadataValues {
 
     /** As {@link #read(ByteBuf, FrameLease)}, for a reader that decodes a single packet. */
     EntityMetadata readOnce(ByteBuf input, FrameLease lease) {
+        return readOnce(input, lease, null);
+    }
+
+    /** As {@link #readOnce(ByteBuf, FrameLease)}, resolving painting variants against {@code context}. */
+    EntityMetadata readOnce(ByteBuf input, FrameLease lease, ProtocolContext context) {
         WeakReference<Scratch> reference = THREAD_SCRATCH.get();
         Scratch scratch = reference == null ? null : reference.get();
         if (scratch == null) THREAD_SCRATCH.set(new WeakReference<>(scratch = new Scratch()));
-        else if (scratch.busy) return read(input, lease, new Scratch());
+        else if (scratch.busy) return read(input, lease, context, new Scratch());
         scratch.busy = true;
         try {
-            return read(input, lease, scratch);
+            return read(input, lease, context, scratch);
         } finally {
             scratch.busy = false;
             if (scratch.kinds.length > Scratch.HELD) THREAD_SCRATCH.remove();
@@ -117,13 +133,13 @@ final class ModelEntityMetadataValues {
 
     /** The model value of a decoded {@code kind} value; null for a painting variant this connection cannot resolve. */
     @SuppressWarnings("unchecked") // The metadata call uses the same NBT factory as item conversion.
-    private Object value(String kind, Object value) {
+    private Object value(String kind, Object value, ProtocolContext context) {
         return switch (kind) {
-            case "item" -> items.item((WireValueDecoder.DecodedItem<NbtValue>) value);
+            case "item" -> items.itemOnRead((WireValueDecoder.DecodedItem<NbtValue>) value);
             case "painting_variant" ->
                 value instanceof int[] dimensions
                         ? new PaintingSize(dimensions[0], dimensions[1])
-                        : paintings.apply((String) value);
+                        : paintings.apply(context, (String) value);
             case "pose" -> EntityPose.byId((int) value);
             case "direction" -> Direction.from3DDataValue((int) value);
             case "optional_position" -> value == null ? Optional.empty() : Optional.of(position((int[]) value));

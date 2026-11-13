@@ -112,7 +112,7 @@ class ExactFractionParityTest {
             Twin a = Twin.of(value);
             if (a.signum() == 0) continue;
             Twin negated = a.negate();
-            assertSame(a.denominator(), negated.denominator());
+            assertEquals(a.denominator(), negated.denominator());
             a.add(a);
             a.add(negated);
             a.subtract(a);
@@ -120,7 +120,7 @@ class ExactFractionParityTest {
         }
         for (long denominator : ODD) {
             Twin a = Twin.fraction(7, denominator);
-            assertSame(a.denominator(), a.negate().denominator());
+            assertEquals(a.denominator(), a.negate().denominator());
             a.add(a);
             a.add(a.negate());
             a.add(a.negate().negate());

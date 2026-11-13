@@ -13,6 +13,7 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.stream.IntStream;
@@ -53,6 +54,15 @@ class FrameCopiesTest {
                 assertArrayEquals(referenceInto, into, shape);
                 assertEquals(reader, view.readerIndex(), shape);
                 assertEquals(writer, view.writerIndex(), shape);
+                for (int offset : new int[] {0, 1, 7, 11}) {
+                    byte[] referenceAt = filled(offset + length + 9);
+                    referenceCopyInto(view, referenceAt, offset);
+                    byte[] at = filled(offset + length + 9);
+                    FrameCopies.copyInto(view, at, offset);
+                    assertArrayEquals(referenceAt, at, shape + " at " + offset);
+                    assertEquals(reader, view.readerIndex(), shape);
+                    assertEquals(writer, view.writerIndex(), shape);
+                }
             }
             frame.release();
         }
@@ -153,6 +163,30 @@ class FrameCopiesTest {
         boolean scalar = referenceScalar(frame, bytes.length);
         if (scalar || frame.nioBufferCount() == 1) referenceCopyDirect(frame, bytes, scalar);
         else frame.getBytes(frame.readerIndex(), bytes);
+    }
+
+    private static void referenceCopyInto(ByteBuf frame, byte[] bytes, int offset) {
+        int from = frame.readerIndex();
+        int length = frame.readableBytes();
+        if (frame.hasArray()) {
+            frame.getBytes(from, bytes, offset, length);
+        } else if (referenceScalar(frame, length)) {
+            int at = 0;
+            for (; at + Long.BYTES <= length; at += Long.BYTES)
+                BIG_ENDIAN_LONGS.set(bytes, offset + at, frame.getLong(from + at));
+            for (; at < length; at++) bytes[offset + at] = frame.getByte(from + at);
+        } else if (frame.nioBufferCount() == 1) {
+            frame.internalNioBuffer(from, length).get(bytes, offset, length);
+        } else {
+            frame.getBytes(from, bytes, offset, length);
+        }
+    }
+
+    /** A prefilled destination, so a write outside the copied range shows. */
+    private static byte[] filled(int length) {
+        byte[] bytes = new byte[length];
+        Arrays.fill(bytes, (byte) 0xA5);
+        return bytes;
     }
 
     private static boolean referenceScalar(ByteBuf frame, int length) {

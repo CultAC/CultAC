@@ -44,12 +44,80 @@ public final class Sections {
          * column is not loaded.
          */
         byte[] section(int x, int y, int z);
+
+        /**
+         * {@link #section}'s body as a record written where the frame keeps it; null while its column is not loaded.
+         * Valid until the next call; the caller does not keep it.
+         */
+        default Body record(int x, int y, int z) {
+            byte[] body = section(x, y, z);
+            return body == null ? null : new Copied(body);
+        }
+    }
+
+    /** A record body written straight into the frame's storage: its length, then its bytes. */
+    public interface Body {
+        int length();
+
+        /** Writes the {@link #length} bytes into {@code into} from {@code offset}. */
+        void write(byte[] into, int offset);
+    }
+
+    /** A record body held in an array of its own. */
+    private record Copied(byte[] body) implements Body {
+        @Override
+        public int length() {
+            return body.length;
+        }
+
+        @Override
+        public void write(byte[] into, int offset) {
+            System.arraycopy(body, 0, into, offset, body.length);
+        }
+    }
+
+    /** A {@code block} or {@code section_gone} record, rewritten for each one. */
+    private static final class Small implements Body {
+        int kind;
+        int x;
+        int y;
+        int z;
+        int state;
+
+        Small of(int kind, int x, int y, int z, int state) {
+            this.kind = kind;
+            this.x = x;
+            this.y = y;
+            this.z = z;
+            this.state = state;
+            return this;
+        }
+
+        @Override
+        public int length() {
+            return kind == IntakeWire.BLOCK
+                    ? IntakeWire.blockLength(x, y, z, state)
+                    : IntakeWire.sectionGoneLength(x, y, z);
+        }
+
+        @Override
+        public void write(byte[] into, int offset) {
+            if (kind == IntakeWire.BLOCK) IntakeWire.block(x, y, z, state, into, offset);
+            else IntakeWire.sectionGone(x, y, z, into, offset);
+        }
     }
 
     /** Where records go. */
     interface Out {
         /** Puts a record of {@code section} into the open frame; false when the frame dropped it. */
         boolean put(int kind, byte[] body, long section, long nanos);
+
+        /** As {@link #put(int, byte[], long, long)}, the body written into the frame's storage as it is put. */
+        default boolean put(int kind, Body body, long section, long nanos) {
+            byte[] bytes = new byte[body.length()];
+            body.write(bytes, 0);
+            return put(kind, bytes, section, nanos);
+        }
 
         /**
          * Bytes the open frame has left for section records: half the frame, or all its room while it holds none, so
@@ -87,6 +155,7 @@ public final class Sections {
     /** The frame has no room left, or dropped the record: the rest waits for a later check. */
     private static final int FULL = 2;
 
+    private final Small small = new Small();
     private final LongOpenHashSet held = new LongOpenHashSet();
     /** Held sections whose last record may not have reached the service, or whose column loaded again. */
     private final LongLinkedOpenHashSet resend = new LongLinkedOpenHashSet();
@@ -257,7 +326,7 @@ public final class Sections {
     void block(int x, int y, int z, int state, Out out, long nanos) {
         long section = pack(x >> 4, y >> 4, z >> 4);
         if (!held.contains(section) || resend.contains(section)) return;
-        if (!out.put(IntakeWire.BLOCK, IntakeWire.block(x, y, z, state), section, nanos)) {
+        if (!out.put(IntakeWire.BLOCK, small.of(IntakeWire.BLOCK, x, y, z, state), section, nanos)) {
             resend.add(section);
             checkedAt = NONE;
         }
@@ -288,7 +357,7 @@ public final class Sections {
         }
         for (LongIterator owed = gone.iterator(); owed.hasNext(); ) {
             long section = owed.nextLong();
-            byte[] body = IntakeWire.sectionGone(x(section), y(section), z(section));
+            Body body = small.of(IntakeWire.SECTION_GONE, x(section), y(section), z(section), 0);
             if (!out.put(IntakeWire.SECTION_GONE, body, section, nanos)) {
                 checkedAt = NONE;
                 return false;
@@ -310,14 +379,15 @@ public final class Sections {
             checkedAt = NONE;
             return FULL;
         }
-        byte[] body = terrain.section(x, y, z);
+        Body body = terrain.record(x, y, z);
         if (body == null) return UNLOADED;
         long section = pack(x, y, z);
-        if (body.length > out.maxRoom()) {
-            tooLarge(section, body.length);
+        int length = body.length();
+        if (length > out.maxRoom()) {
+            tooLarge(section, length);
             return SENT;
         }
-        if (body.length > out.room() || !out.put(IntakeWire.SECTION, body, section, nanos)) {
+        if (length > out.room() || !out.put(IntakeWire.SECTION, body, section, nanos)) {
             checkedAt = NONE;
             return FULL;
         }

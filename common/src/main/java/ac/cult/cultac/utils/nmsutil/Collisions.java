@@ -237,6 +237,7 @@ public class Collisions {
 
         CollisionBoxPool pool = CollisionBoxPool.current();
         int mark = pool.mark();
+        int boxMark = pool.markBoxes();
         try {
             return collide(
                     player,
@@ -253,10 +254,11 @@ public class Collisions {
                     pool);
         } finally {
             pool.release(mark);
+            pool.releaseBoxes(boxMark);
         }
     }
 
-    /** Native colliders come from {@code pool}; none of them outlives this call. */
+    /** Native colliders and working boxes come from {@code pool}; none of them outlives this call. */
     private static Vec3 collide(
             CultPlayer player,
             SimpleCollisionBox box,
@@ -270,7 +272,7 @@ public class Collisions {
             boolean onGroundForStep,
             Vec3[] withoutStep,
             CollisionBoxPool pool) {
-        SimpleCollisionBox grabBoxesBB = box.copy();
+        SimpleCollisionBox grabBoxesBB = pool.copyOf(box);
         double stepUpHeight = player.getMaxUpStep();
         boolean separateStepQuery = !player.isBedrockMovement();
 
@@ -298,7 +300,7 @@ public class Collisions {
         getCollisionBoxes(player, grabBoxesBB, desiredMovementCollisionBoxes, false, entityBottom, CURRENT_ACTOR, pool);
         addAdditionalCollisionBoxes(grabBoxesBB, desiredMovementCollisionBoxes, additionalCollisionBoxes);
 
-        SimpleCollisionBox moved = new SimpleCollisionBox();
+        SimpleCollisionBox moved = pool.box();
         Vec3 collisionResult = collideBoundingBoxLegacy(
                 desiredX,
                 desiredY,
@@ -328,8 +330,9 @@ public class Collisions {
             // first candidate that improves horizontal movement.
             boolean collidedDown = collisionResult.y != desiredY && desiredY < 0.0D;
             SimpleCollisionBox stepStartBox =
-                    collidedDown ? box.copy().offset(0.0D, collisionResult.y, 0.0D) : box.copy();
-            SimpleCollisionBox stepSearchBox = stepStartBox.copy().expandToCoordinate(desiredX, stepUpHeight, desiredZ);
+                    collidedDown ? pool.copyOf(box).offset(0.0D, collisionResult.y, 0.0D) : pool.copyOf(box);
+            SimpleCollisionBox stepSearchBox =
+                    pool.copyOf(stepStartBox).expandToCoordinate(desiredX, stepUpHeight, desiredZ);
             if (!collidedDown) {
                 stepSearchBox.expandToCoordinate(0.0D, separateStepQuery ? -(double) 1.0E-5F : -1.0E-5D, 0.0D);
             }

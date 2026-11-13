@@ -16,6 +16,7 @@ import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundCustomPayload;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomPayload;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
+import ac.grim.grimac.api.config.ConfigManager;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.player.ServerPostConnectEvent;
@@ -117,13 +118,18 @@ public final class BridgeService implements BridgeSessions, AutoCloseable {
     }
 
     /**
-     * Strips the bridge channel from the packet stream and, when a secret is available, starts opening sessions.
+     * Strips the bridge channel from the packet stream and, when {@code bridge.enabled} is on and a secret is
+     * available, starts opening sessions. {@code bridge.secret} empty uses Velocity's modern-forwarding secret.
      *
-     * @param secretOverride CultAC's {@code bridge.secret}; empty uses Velocity's modern-forwarding secret
      * @return whether sessions are enabled
      */
-    public boolean start(PacketDispatcher dispatcher, String secretOverride) {
+    public boolean start(PacketDispatcher dispatcher, ConfigManager config) {
         registerStripRoutes(dispatcher);
+        if (!config.getBooleanElse("bridge.enabled", true)) {
+            logger.info("CultAC companion bridge off by configuration (bridge.enabled: false)");
+            return false;
+        }
+        String secretOverride = config.getStringElse("bridge.secret", "");
         Forwarding forwarding = forwarding(proxy);
         byte[] resolved =
                 secretOverride.isEmpty() ? forwarding.secret() : secretOverride.getBytes(StandardCharsets.UTF_8);

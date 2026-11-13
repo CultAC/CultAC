@@ -269,7 +269,9 @@ update-permission-ticks: -1
 # Velocity only: shared secret for the bridge to the CultAC companion on backend servers.
 # Leave empty to use Velocity's modern-forwarding secret; the companion must use the same value.
 # Use a long random value (at least 32 characters): a short one can be guessed offline.
+# Set enabled to false to open no bridge and send backend servers nothing on its channel; a change needs a proxy restart.
 bridge:
+  enabled: true
   secret: ""
 
 # Upload of captured play to an intake service, which analyses it. Off while url or api-key is empty;
@@ -288,6 +290,11 @@ cloud:
   # Names this proxy among the writers sharing one api-key, required while server-id uses {proxy}. On a server it
   # is the server's own name, and required.
   proxy-id: ""
+  # Backends whose players are not captured for the intake service while they are on them, such as lobbies: names
+  # as velocity.toml gives them, ignoring case, where * stands for any characters (hub-*). Local checks, alerts and
+  # punishments run there as everywhere else. On a server, a name matching proxy-id stops the capture on the whole
+  # server. Empty captures every backend.
+  uncaptured-servers: []
   # When true, sends CPU and allocation stack samples of this server to the intake service: short profiles it asks
   # for, recorded off the main thread. Off by default; CULTAC_CLOUD_PERF (true/1/yes, false/0/no) wins when set.
   perf: false
@@ -366,4 +373,4 @@ update:
   webhook: ""
 
 config-flavor: V2
-config-version: 18
+config-version: 20

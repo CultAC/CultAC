@@ -64,6 +64,7 @@ public class VehicleTimer extends AbstractTimerCheck {
 
     @CultPacketHandler
     public void onPong(PacketReceiveEvent<ServerboundPong> event, CultPlayer player, ServerboundPong packet) {
+        if (!event.isAcceptedTransactionResponse()) return;
         recordTimerEvent(event, true, false);
     }
 

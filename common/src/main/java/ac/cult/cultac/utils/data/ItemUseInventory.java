@@ -25,15 +25,16 @@ public final class ItemUseInventory {
     }
 
     public static ClientItemUseState.Snapshot prepare(CultPlayer player) {
-        var cached = player.clientItemUse.preparedAt(player.packetStateData.acceptedClientTick);
+        var state = player.clientItemUse;
+        var cached = state.preparedAt(player.packetStateData.acceptedClientTick);
         if (cached != null) return cached;
-        return player.clientItemUse.prepare(
+        return state.prepare(
                 player.packetStateData.acceptedClientTick,
                 player.lastTransactionReceived.get(),
                 player.getClientVersion(),
                 player.getInventory().getHandItem(Hand.MAIN_HAND),
                 player.getInventory().getHandItem(Hand.OFF_HAND),
-                hotbar(player));
+                state.preparesFromHotbar() ? hotbar(player) : List.of());
     }
 
     /**

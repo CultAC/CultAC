@@ -6,6 +6,7 @@ import ac.cult.cultac.bedrock.prediction.integration.BedrockMovementEngine;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.runner.PredictionScratch;
 import ac.cult.cultac.checks.impl.prediction.stage.UncertaintyPipeline;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -31,6 +32,9 @@ public class ValidMovements {
 
     /** Per modifier: it reads only the position and overrides {@link UncertaintyHandler}'s positionInto. */
     private static final boolean[] MODIFIER_POSITION_FORM = positionForm(MODIFIERS, MODIFIER_POSITION_ONLY);
+
+    /** Per modifier: towards an extent end it returns the trace it is given, with no side effect (see headKeepsStart). */
+    private static final boolean[] MODIFIER_KEEPS_EXTENT_START = keepsExtentStart(MODIFIERS);
 
     private static final int LAST_MODIFIER = MODIFIERS.length - 1;
 
@@ -231,7 +235,9 @@ public class ValidMovements {
                                                 SimulationContext.class,
                                                 PredictionResult.class,
                                                 PredVector.class,
-                                                Vec3.class)
+                                                double.class,
+                                                double.class,
+                                                double.class)
                                         .getDeclaringClass()
                                 != UncertaintyHandler.class;
             } catch (NoSuchMethodException impossible) {
@@ -239,6 +245,15 @@ public class ValidMovements {
             }
         }
         return positionForm;
+    }
+
+    private static boolean[] keepsExtentStart(UncertaintyHandler[] handlers) {
+        boolean[] keeps = new boolean[handlers.length];
+        for (int i = 0; i < handlers.length; i++) {
+            Class<?> type = handlers[i].getClass();
+            keeps[i] = type == CollisionModifier.class || type == StepTransform.class;
+        }
+        return keeps;
     }
 
     public ValidMovements computeExtents(PredictionResult lastResult) {
@@ -352,7 +367,22 @@ public class ValidMovements {
             tail = count;
             while (tail > 0 && ((kept & (1L << (tail - 1))) == 0 || MODIFIER_POSITION_FORM[tail - 1])) tail--;
         }
-        double[] xyz = tail < count ? new double[3] : null;
+        double[] xyz = tail < count ? extentCoordinates() : null;
+        if (handlers == MODIFIERS && headKeepsStart(kept, tail)) {
+            PredVector start = startTrace.position();
+            double x = initialStartingVel.x;
+            double y = initialStartingVel.y;
+            double z = initialStartingVel.z;
+            double posX = tailExtent(kept, tail, count, last, xyz, start, LARGE_MOVEMENT, y, z, lastResult, 0);
+            double negX = tailExtent(kept, tail, count, last, xyz, start, -LARGE_MOVEMENT, y, z, lastResult, 0);
+            double posY = tailExtent(kept, tail, count, last, xyz, start, x, LARGE_MOVEMENT, z, lastResult, 1);
+            double negY = tailExtent(kept, tail, count, last, xyz, start, x, -LARGE_MOVEMENT, z, lastResult, 1);
+            double posZ = tailExtent(kept, tail, count, last, xyz, start, x, y, LARGE_MOVEMENT, lastResult, 2);
+            double negZ = tailExtent(kept, tail, count, last, xyz, start, x, y, -LARGE_MOVEMENT, lastResult, 2);
+            runTrace = null;
+
+            return new SimpleCollisionBox(negX, negY, negZ, posX, posY, posZ).sort();
+        }
         double posX = extent(kept, tail, count, last, xyz, initialStartingVel.withX(LARGE_MOVEMENT), lastResult, 0);
         double negX = extent(kept, tail, count, last, xyz, initialStartingVel.withX(-LARGE_MOVEMENT), lastResult, 0);
         double posY = extent(kept, tail, count, last, xyz, initialStartingVel.withY(LARGE_MOVEMENT), lastResult, 1);
@@ -362,6 +392,12 @@ public class ValidMovements {
         runTrace = null;
 
         return new SimpleCollisionBox(negX, negY, negZ, posX, posY, posZ).sort();
+    }
+
+    /** Each tail run writes all three coordinates before a handler reads them. */
+    private double[] extentCoordinates() {
+        PredictionScratch scratch = PredictionScratch.of(player);
+        return scratch == null ? new double[3] : scratch.extentCoordinates;
     }
 
     /**
@@ -378,8 +414,38 @@ public class ValidMovements {
             PredictionResult lastResult,
             int axis) {
         PredVector position = positionTowards(kept, tail, end, lastResult);
+        return tailExtent(kept, tail, count, last, xyz, position, end.x, end.y, end.z, lastResult, axis);
+    }
+
+    /**
+     * {@link #extent} from the kept handlers' position before {@code tail}, {@code position}, towards an end at
+     * {@code endX}, {@code endY}, {@code endZ}.
+     */
+    private double tailExtent(
+            long kept,
+            int tail,
+            int count,
+            PointThreeTesting last,
+            double[] xyz,
+            PredVector position,
+            double endX,
+            double endY,
+            double endZ,
+            PredictionResult lastResult,
+            int axis) {
         if (tail == count) {
-            if (last != null) return last.coordinate(player, result.getSimulationContext(), position, end, axis);
+            if (last != null) {
+                return last.coordinate(
+                        player,
+                        result.getSimulationContext(),
+                        position.x,
+                        position.y,
+                        position.z,
+                        endX,
+                        endY,
+                        endZ,
+                        axis);
+            }
             return axis == 0 ? position.x : axis == 1 ? position.y : position.z;
         }
         SimulationContext context = result.getSimulationContext();
@@ -389,16 +455,33 @@ public class ValidMovements {
         for (int i = tail; i < count; i++) {
             if ((kept & (1L << i)) == 0) continue;
             handlers[i].positionInto(
-                    xyz, player, result.getValidMovements(), result, context, lastResult, position, end);
+                    xyz, player, result.getValidMovements(), result, context, lastResult, position, endX, endY, endZ);
         }
-        if (last != null) return last.coordinate(player, context, xyz[0], xyz[1], xyz[2], end, axis);
+        if (last != null) return last.coordinate(player, context, xyz[0], xyz[1], xyz[2], endX, endY, endZ, axis);
         return xyz[axis];
     }
 
+    /**
+     * Whether, towards any extent end, each kept handler before {@code tail} returns the trace it is given with no side
+     * effect, so the position there is the start trace's. CollisionModifier returns it for any end
+     * {@link #isTestingMaxStartingVelExtents} holds for; StepTransform for a result whose movements cannot step.
+     */
+    private boolean headKeepsStart(long kept, int tail) {
+        ValidMovements valid = result.getValidMovements();
+        if (player == null || valid == null || valid.isCanStep()) return false;
+        for (int i = 0; i < tail; i++) {
+            if ((kept & (1L << i)) != 0 && !MODIFIER_KEEPS_EXTENT_START[i]) return false;
+        }
+        return true;
+    }
+
     public boolean isTestingMaxStartingVelExtents(Vec3 end) {
-        return Math.abs(end.x) == LARGE_MOVEMENT
-                || Math.abs(end.y) == LARGE_MOVEMENT
-                || Math.abs(end.z) == LARGE_MOVEMENT;
+        return isTestingMaxStartingVelExtents(end.x, end.y, end.z);
+    }
+
+    /** {@link #isTestingMaxStartingVelExtents(Vec3)} for an end at {@code x}, {@code y}, {@code z}. */
+    public boolean isTestingMaxStartingVelExtents(double x, double y, double z) {
+        return Math.abs(x) == LARGE_MOVEMENT || Math.abs(y) == LARGE_MOVEMENT || Math.abs(z) == LARGE_MOVEMENT;
     }
 
     public void addTransformers(UncertaintyPipeline uncertaintyPipeline) {}

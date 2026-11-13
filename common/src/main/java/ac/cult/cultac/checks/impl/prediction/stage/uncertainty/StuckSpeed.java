@@ -51,7 +51,9 @@ public class StuckSpeed implements UncertaintyHandler {
             SimulationContext context,
             PredictionResult lastResult,
             PredVector carrier,
-            Vec3 end) {
+            double endX,
+            double endY,
+            double endZ) {
         if (!player.isBedrockMovement() && JavaMovementEngine.contextUsesExactEffects(context)) return;
         if (lastResult == null) return;
         Vec3 lastStuckSpeed =
@@ -63,8 +65,8 @@ public class StuckSpeed implements UncertaintyHandler {
         double stuckX = x * lastStuckSpeed.x;
         double stuckY = y * lastStuckSpeed.y;
         double stuckZ = z * lastStuckSpeed.z;
-        xyz[0] = CultMath.clamp(end.x, Math.min(x, stuckX), Math.max(x, stuckX));
-        xyz[1] = CultMath.clamp(end.y, Math.min(y, stuckY), Math.max(y, stuckY));
-        xyz[2] = CultMath.clamp(end.z, Math.min(z, stuckZ), Math.max(z, stuckZ));
+        xyz[0] = CultMath.clamp(endX, Math.min(x, stuckX), Math.max(x, stuckX));
+        xyz[1] = CultMath.clamp(endY, Math.min(y, stuckY), Math.max(y, stuckY));
+        xyz[2] = CultMath.clamp(endZ, Math.min(z, stuckZ), Math.max(z, stuckZ));
     }
 }

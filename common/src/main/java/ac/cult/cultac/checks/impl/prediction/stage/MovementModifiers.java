@@ -150,7 +150,9 @@ public class MovementModifiers {
         addFireworkBoosts(player, start, state);
 
         // To prevent trying to add a million vectors, we limit the overridden vels
-        for (TransactionVel order : player.checkManager.getKnockbackHandler().overriddenVels) {
+        List<TransactionVel> overriddenVels = player.checkManager.getKnockbackHandler().overriddenVels;
+        for (int i = 0, size = overriddenVels.size(); i < size; i++) {
+            TransactionVel order = overriddenVels.get(i);
             PredVector overriddenVel = new PredVector(order.getVel());
             overriddenVel.setTickSkip(canTickSkip);
             overriddenVel.setEntityMotion(true);
@@ -176,7 +178,8 @@ public class MovementModifiers {
         // TODO: This should just be refactored for 1.20.4+ clients with tick end and bundle packet!
         for (int eventIndex = 0, eventCount = packetEventsInOrder.size(); eventIndex < eventCount; eventIndex++) {
             TransactionVel vel = packetEventsInOrder.get(eventIndex);
-            for (PredVector vector : new ArrayList<>(start)) {
+            for (int i = 0, size = start.size(); i < size; i++) {
+                PredVector vector = start.get(i);
                 Vec3 eventVel = vel.getVel();
 
                 if (vel.isVelocity()) { // Velocity
@@ -228,7 +231,8 @@ public class MovementModifiers {
     }
 
     private static void addSlimePistonLaunches(List<PredVector> start, SimulationContext state) {
-        for (PredVector vector : new ArrayList<>(start)) {
+        for (int i = 0, size = start.size(); i < size; i++) {
+            PredVector vector = start.get(i);
             for (Direction direction : state.getWorldData().getPistonPushes().getSlimeBlockLaunches()) {
                 double x = direction.getModX() == 0 ? vector.getX() : direction.getModX();
                 double y = direction.getModY() == 0 ? vector.getY() : direction.getModY();

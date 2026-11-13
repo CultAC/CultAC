@@ -20,6 +20,8 @@ final class ValueContext implements CodecContext, CodecContext.RegistryAccess {
 
     private static final Map<String, String> QUALIFIED = new ConcurrentHashMap<>();
     private static final Map<String, Key> KEYS = new ConcurrentHashMap<>();
+    /** Boxed registry ids, shared by every context; ids outside it box through Integer#valueOf. */
+    private static final Integer[] IDS = ids(2048);
 
     private final WireValueDecoder.Registries names;
     private final ProtocolVersion version;
@@ -118,8 +120,18 @@ final class ValueContext implements CodecContext, CodecContext.RegistryAccess {
             if (QUALIFIED.size() < MAX_SHARED) QUALIFIED.put(registry, qualified);
         }
         String name = names.name(qualified, id);
-        references.computeIfAbsent(qualified, key -> new java.util.HashMap<>()).put(id, name);
+        references.computeIfAbsent(qualified, key -> new java.util.HashMap<>()).put(boxed(id), name);
         return key(modelName(qualified, name));
+    }
+
+    private static Integer boxed(int id) {
+        return id >= 0 && id < IDS.length ? IDS[id] : Integer.valueOf(id);
+    }
+
+    private static Integer[] ids(int count) {
+        Integer[] ids = new Integer[count];
+        for (int id = 0; id < count; id++) ids[id] = id;
+        return ids;
     }
 
     private static Key key(String name) {

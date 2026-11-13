@@ -360,6 +360,66 @@ public final class IntakeWire {
         return out;
     }
 
+    /** The length of {@link #section(int, int, int, byte[])}'s body for block states of {@code blocks} bytes. */
+    public static int sectionLength(int x, int y, int z, int blocks) {
+        return positionSize(x, y, z)
+                + CodedOutputStream.computeTagSize(4)
+                + CodedOutputStream.computeUInt32SizeNoTag(blocks)
+                + blocks;
+    }
+
+    /**
+     * Writes the start of {@link #section(int, int, int, byte[])}'s body for block states of {@code blocks} bytes into
+     * {@code out} from {@code offset}: every field up to the block states. Returns the index the block states go at.
+     */
+    public static int sectionHead(int x, int y, int z, int blocks, byte[] out, int offset) {
+        int at = putPosition(out, offset, x, y, z);
+        out[at++] = (byte) (4 << 3 | WireFormat.WIRETYPE_LENGTH_DELIMITED);
+        return putUInt32(out, at, blocks);
+    }
+
+    /** As {@link #block}, the {@link #blockLength} bytes into {@code out} from {@code offset}. */
+    public static void block(int x, int y, int z, int state, byte[] out, int offset) {
+        int at = putPosition(out, offset, x, y, z);
+        out[at++] = (byte) (4 << 3 | WireFormat.WIRETYPE_VARINT);
+        putUInt32(out, at, state);
+    }
+
+    /** The length of {@link #block}'s body. */
+    public static int blockLength(int x, int y, int z, int state) {
+        return positionSize(x, y, z) + CodedOutputStream.computeUInt32Size(4, state);
+    }
+
+    /** As {@link #sectionGone}, the {@link #sectionGoneLength} bytes into {@code out} from {@code offset}. */
+    public static void sectionGone(int x, int y, int z, byte[] out, int offset) {
+        putPosition(out, offset, x, y, z);
+    }
+
+    /** The length of {@link #sectionGone}'s body. */
+    public static int sectionGoneLength(int x, int y, int z) {
+        return positionSize(x, y, z);
+    }
+
+    /** {@link #writePosition} into {@code out} from {@code at}; returns the index past it. */
+    private static int putPosition(byte[] out, int at, int x, int y, int z) {
+        out[at++] = (byte) (1 << 3 | WireFormat.WIRETYPE_VARINT);
+        at = putUInt32(out, at, CodedOutputStream.encodeZigZag32(x));
+        out[at++] = (byte) (2 << 3 | WireFormat.WIRETYPE_VARINT);
+        at = putUInt32(out, at, CodedOutputStream.encodeZigZag32(y));
+        out[at++] = (byte) (3 << 3 | WireFormat.WIRETYPE_VARINT);
+        return putUInt32(out, at, CodedOutputStream.encodeZigZag32(z));
+    }
+
+    /** {@code value} as an unsigned varint, as {@link CodedOutputStream#writeUInt32NoTag} writes it. */
+    private static int putUInt32(byte[] out, int at, int value) {
+        while ((value & ~0x7F) != 0) {
+            out[at++] = (byte) (value & 0x7F | 0x80);
+            value >>>= 7;
+        }
+        out[at++] = (byte) value;
+        return at;
+    }
+
     /** A {@code BLOCK} record's body: the block's x, y and z, then its block-state id in the server's registry. */
     public static byte[] block(int x, int y, int z, int state) {
         byte[] out = new byte[positionSize(x, y, z) + CodedOutputStream.computeUInt32Size(4, state)];

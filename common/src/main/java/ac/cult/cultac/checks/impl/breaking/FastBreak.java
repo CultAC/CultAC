@@ -15,7 +15,6 @@ import ac.cult.cultac.protocol.value.PlayerAction;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import ac.cult.cultac.utils.collisions.ViaClientBlockShapeMappings;
 import ac.cult.cultac.utils.math.CultMath;
-import ac.cult.cultac.utils.nmsutil.BlockBreakSpeed;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 
 // Based loosely off of Hawk BlockBreakSpeedSurvival
@@ -52,6 +51,8 @@ public class FastBreak extends Check implements BlockBreakListener {
 
     // The buffer to this check
     double blockBreakBalance = 0;
+
+    private final BlockDamageMemo damage = new BlockDamageMemo();
 
     public void onBlockBreak(BlockBreak blockBreak) {
         if (blockBreak.action == PlayerAction.START_DESTROY_BLOCK) {
@@ -139,14 +140,18 @@ public class FastBreak extends Check implements BlockBreakListener {
 
     private void updateMaximumBlockDamage() {
         if (targetBlockPosition != null) {
-            maximumBlockDamage =
-                    Math.max(maximumBlockDamage, BlockBreakSpeed.getBlockDamage(player, targetBlockPosition));
+            int block = player.compensatedWorld.getBlockStateIdAt(targetBlockPosition);
+            maximumBlockDamage = Math.max(maximumBlockDamage, blockDamage(block));
         }
     }
 
     private double getClientBlockDamage(int serverState) {
         int clientState = ViaClientBlockShapeMappings.clientBlockStateId(player, serverState);
-        return BlockBreakSpeed.getBlockDamage(player, player.getInventory().getHeldItem(), clientState);
+        return blockDamage(clientState);
+    }
+
+    private double blockDamage(int clientState) {
+        return damage.damage(player, player.getInventory().getHeldItem(), clientState);
     }
 
     private void clampBalance() {

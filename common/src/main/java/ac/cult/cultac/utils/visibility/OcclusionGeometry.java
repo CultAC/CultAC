@@ -135,13 +135,13 @@ public final class OcclusionGeometry {
 
     private static List<Row> shadow(ExactFraction[] low, ExactFraction[] high) {
         List<Row> rows = new ArrayList<>();
-        rows.add(new Row(zeros(), ExactFraction.ONE, ExactFraction.ONE.negate())); // lambda >= 1
+        rows.add(new Row(zeros(), ExactFraction.ONE, ExactFraction.MINUS_ONE)); // lambda >= 1
         for (int axis = 0; axis < 3; axis++) {
             ExactFraction[] positive = zeros();
             positive[axis] = ExactFraction.ONE;
             rows.add(new Row(positive, ExactFraction.ZERO, high[axis].negate()));
             ExactFraction[] negative = zeros();
-            negative[axis] = ExactFraction.ONE.negate();
+            negative[axis] = ExactFraction.MINUS_ONE;
             rows.add(new Row(negative, ExactFraction.ZERO, low[axis]));
         }
         List<Row> result = new ArrayList<>();

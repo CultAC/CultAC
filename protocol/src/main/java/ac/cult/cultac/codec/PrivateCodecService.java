@@ -19,6 +19,7 @@ import ac.cult.shaded.vialib.util.Key;
 import io.netty.buffer.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 
 /** One-time type initialization, then concurrent reads without private player connections. */
 public final class PrivateCodecService implements WireValueDecoder {
@@ -27,6 +28,10 @@ public final class PrivateCodecService implements WireValueDecoder {
     private record Versions(ProtocolVersion source, ProtocolVersion target) {}
 
     private final Map<Versions, ModelIdMappings> mappings = new ConcurrentHashMap<>();
+    private static final int VERSIONS = ProtocolVersion.values().length;
+    /** {@link #mappings}' values by source and target ordinal, read before the map. */
+    private final AtomicReferenceArray<ModelIdMappings> mappingsByOrdinal =
+            new AtomicReferenceArray<>(VERSIONS * VERSIONS);
     private final Map<ProtocolVersion, PlayerTextCodec> playerText = new ConcurrentHashMap<>();
     private volatile boolean closed;
 
@@ -48,6 +53,16 @@ public final class PrivateCodecService implements WireValueDecoder {
     @Override
     public ModelIdMappings mappings(ProtocolVersion source, ProtocolVersion target) {
         checkOpen();
+        if (source == null || target == null) return computeMappings(source, target);
+        int slot = source.ordinal() * VERSIONS + target.ordinal();
+        var known = mappingsByOrdinal.get(slot);
+        if (known != null) return known;
+        var computed = computeMappings(source, target);
+        mappingsByOrdinal.compareAndSet(slot, null, computed);
+        return computed;
+    }
+
+    private ModelIdMappings computeMappings(ProtocolVersion source, ProtocolVersion target) {
         return mappings.computeIfAbsent(new Versions(source, target), versions -> {
             var original = ModelRegistryData.load(source);
             var destination = ModelRegistryData.load(target);
@@ -578,6 +593,7 @@ public final class PrivateCodecService implements WireValueDecoder {
             // ModernProtocols caches only read-only mappings/types for the plugin lifetime.
             // Its workers are stopped after initialization; each facade owns its own cache.
             mappings.clear();
+            for (int i = 0; i < mappingsByOrdinal.length(); i++) mappingsByOrdinal.set(i, null);
         }
     }
 }

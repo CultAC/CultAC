@@ -101,6 +101,7 @@ public final class CloudService {
         StaffBans.configure(settings, StaffBans.Commands.read(config), ownId, proxy);
         CloudFlags.configure(settings, ownId);
         CloudCapture.uplinks(UPLINKS);
+        CloudCapture.uncaptured(UncapturedServers.of(config.getStringListElse("cloud.uncaptured-servers", List.of())));
         boolean on = UPLINKS.enabled();
         if (on && !hooksOn) {
             hooksOn = true;
@@ -261,6 +262,8 @@ public final class CloudService {
                         ? "Cloud upload on" + UPLINKS.draining() + ", protocols " + settings.protocols() + ", "
                                 + INSTALLED.size() + " captures"
                         : "Cloud upload off");
+        UncapturedServers uncaptured = CloudCapture.uncaptured();
+        if (!uncaptured.isEmpty()) lines.add("Not captured on backends " + uncaptured);
         lines.addAll(CONNECTIONS.summaries());
         lines.addAll(CONNECTIONS.diagnosticsSummaries());
         lines.add(CloudCapture.summary());

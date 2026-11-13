@@ -135,6 +135,7 @@ public class PlayerDataManager {
         CultPlayer tracked;
         synchronized (user.getCultConnection()) {
             tracked = user.getCultPlayer();
+            if (tracked != null) tracked.retirePings();
             user.getCultConnection().player(null);
             if (tracked != null) activePlayers.remove(tracked);
         }

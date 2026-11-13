@@ -7,6 +7,7 @@ import ac.cult.blocksim.engine.shapes.VoxelShape;
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.runner.PredictionScratch;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.GameMode;
@@ -35,11 +36,19 @@ public final class JavaInsideBlockEffects {
         PacketEntity actor =
                 context.getVehicle() == null ? context.getEntities().getSelf() : context.getVehicle();
         if (actor.isDead || player.gamemode == GameMode.SPECTATOR) return null;
-        Vec3 end = context.getStart().add(movement);
-        SimpleCollisionBox to = context.getToActualPose().offset(end.subtract(context.getEnd()));
-        SimpleCollisionBox from = to.copy().offset(movement.scale(-1));
+        Vec3 start = context.getStart();
+        double endX = start.x + movement.x;
+        double endY = start.y + movement.y;
+        double endZ = start.z + movement.z;
+        Vec3 contextEnd = context.getEnd();
+        PredictionScratch scratch = PredictionScratch.of(player);
+        SimpleCollisionBox to = context.getToActualPose(scratch == null ? new SimpleCollisionBox() : scratch.insideTo)
+                .offset(endX + -contextEnd.x, endY + -contextEnd.y, endZ + -contextEnd.z);
+        SimpleCollisionBox from = (scratch == null ? new SimpleCollisionBox() : scratch.insideFrom)
+                .set(to)
+                .offset(movement.x * -1.0, movement.y * -1.0, movement.z * -1.0);
         if (!InsideBlockEffectScan.mayHaveEffects(player, from, to, false)) return null;
-        return new Scan(actor, end, from, to, attemptedMovement(result));
+        return new Scan(actor, new Vec3(endX, endY, endZ), from.copy(), to.copy(), attemptedMovement(result));
     }
 
     public static State resolve(

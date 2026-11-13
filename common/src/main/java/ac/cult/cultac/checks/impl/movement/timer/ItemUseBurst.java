@@ -47,6 +47,8 @@ public final class ItemUseBurst extends Check implements PostPredictionListener,
             .setback(0)
             .build();
 
+    private static final Hand[] HANDS = Hand.values();
+
     private final ItemUseBurstBalance balance = new ItemUseBurstBalance();
     private final ServerItemUseView view;
     private final LongSupplier now;
@@ -137,7 +139,7 @@ public final class ItemUseBurst extends Check implements PostPredictionListener,
      */
     public void serverSlotSent(int storageSlot, SimItemStack item) {
         if (!player.usesModernJavaItemUse() || item == null) return;
-        for (Hand hand : Hand.values()) {
+        for (Hand hand : HANDS) {
             String used = view.activeItem(hand == Hand.OFF_HAND);
             if (used != null && storageSlot == storageSlot(hand) && used.equals(item.itemKey()))
                 view.serverKeepsItem("server sent slot " + storageSlot);
@@ -201,7 +203,7 @@ public final class ItemUseBurst extends Check implements PostPredictionListener,
         view.period(period());
         // LivingEntity#updatingUsingItem stops the client once its hand holds another item. The
         // client-view inventory mirrors its own clicks and drops, and server slots at their proofs.
-        for (Hand hand : Hand.values()) {
+        for (Hand hand : HANDS) {
             String used = view.activeItem(hand == Hand.OFF_HAND);
             if (used != null)
                 view.clientHolds(

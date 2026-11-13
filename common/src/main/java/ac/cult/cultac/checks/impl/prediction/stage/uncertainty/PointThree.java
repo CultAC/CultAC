@@ -102,14 +102,16 @@ public class PointThree implements UncertaintyHandler {
             SimulationContext context,
             PredictionResult lastResult,
             PredVector carrier,
-            Vec3 end) {
+            double endX,
+            double endY,
+            double endZ) {
         double offsetHorizontal = getOffsetHorizontal(player, carrier, context, lastResult);
-        UncertaintyHelper.circularInto(xyz, end, offsetHorizontal);
+        UncertaintyHelper.circularInto(xyz, endX, endZ, offsetHorizontal);
 
         if (carrier.isTickSkip() && player.compensatedEntities.getLevitationAmplifier() != null) {
             double maxY = 0.05 * (player.compensatedEntities.getLevitationAmplifier() + 1) * 0.2;
-            if (end.y > xyz[1]) {
-                UncertaintyHelper.verticalInto(xyz, end, maxY);
+            if (endY > xyz[1]) {
+                UncertaintyHelper.verticalInto(xyz, endY, maxY);
             }
         }
 
@@ -136,7 +138,7 @@ public class PointThree implements UncertaintyHandler {
             result.getValidMovements().setControlsVerticalMovement(true);
         }
 
-        if (canVerticalTickSkip && end.y < xyz[1]) {
+        if (canVerticalTickSkip && endY < xyz[1]) {
             double minY = xyz[1];
             double maxY = xyz[1];
             double gravity = player.compensatedEntities.getEntityInControl().gravity;
@@ -150,23 +152,23 @@ public class PointThree implements UncertaintyHandler {
             double skipped = explosionImpulseY(carrier) + (-gravity - threshold * 2) * verticalDrag;
             if (skipped < minY) minY = skipped;
             if (skipped > maxY) maxY = skipped;
-            double x = CultMath.clamp(end.x, xyz[0], xyz[0]);
-            double y = CultMath.clamp(end.y, minY, maxY);
-            double z = CultMath.clamp(end.z, xyz[2], xyz[2]);
+            double x = CultMath.clamp(endX, xyz[0], xyz[0]);
+            double y = CultMath.clamp(endY, minY, maxY);
+            double z = CultMath.clamp(endZ, xyz[2], xyz[2]);
             xyz[0] = x;
             xyz[1] = y;
             xyz[2] = z;
 
-            if (!valid.isTestingMaxStartingVelExtents(end)) {
+            if (!valid.isTestingMaxStartingVelExtents(endX, endY, endZ)) {
                 result.getValidMovements().setDidTickSkipGravity(true);
             }
         } else if (controlsVerticalMovement) {
-            UncertaintyHelper.verticalInto(xyz, end, threshold);
+            UncertaintyHelper.verticalInto(xyz, endY, threshold);
         } else if (recoveringTickSkip || onGroundFuckery) {
             if (lastControlVertical || lastGravity || onGroundFuckery) {
-                UncertaintyHelper.verticalInto(xyz, end, threshold);
-            } else if (end.y < xyz[1]) {
-                UncertaintyHelper.verticalInto(xyz, end, threshold);
+                UncertaintyHelper.verticalInto(xyz, endY, threshold);
+            } else if (endY < xyz[1]) {
+                UncertaintyHelper.verticalInto(xyz, endY, threshold);
             }
         }
     }

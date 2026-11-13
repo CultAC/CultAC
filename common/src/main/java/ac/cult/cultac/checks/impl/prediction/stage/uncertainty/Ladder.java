@@ -15,6 +15,7 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.FluidFallingAdjustedMovement;
+import java.util.List;
 
 public class Ladder implements UncertaintyHandler {
     /** The reason of the vector LivingEntity#handleOnClimbable leaves, whose last vector is the one it clamped. */
@@ -119,7 +120,9 @@ public class Ladder implements UncertaintyHandler {
     private static double afterPacketsThisTick(CultPlayer player, PredVector start, double carriedY) {
         KnockbackHandler knockback = player.checkManager.getKnockbackHandler();
         ExplosionHandler explosion = player.checkManager.getExplosionHandler();
-        for (TransactionVel packet : start.getPacketModifiers()) {
+        List<TransactionVel> packets = start.getPacketModifiers();
+        for (int i = 0; i < packets.size(); i++) {
+            TransactionVel packet = packets.get(i);
             if (packet != knockback.firstBread
                     && packet != knockback.secondBread
                     && packet != explosion.firstBread

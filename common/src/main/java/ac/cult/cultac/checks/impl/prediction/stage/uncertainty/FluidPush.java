@@ -62,16 +62,18 @@ public class FluidPush implements UncertaintyHandler {
             SimulationContext context,
             PredictionResult lastContext,
             PredVector carrier,
-            Vec3 end) {
+            double endX,
+            double endY,
+            double endZ) {
         if (!pushes(context)) return;
         double waterRadius = flowingCurrentRadius(context, lastContext);
-        double verticalRadius = end.y < xyz[1] ? waterRadius : 0.0D;
+        double verticalRadius = endY < xyz[1] ? waterRadius : 0.0D;
         if (waterRadius <= 0.0D) {
             return;
         }
 
-        UncertaintyHelper.circularInto(xyz, end, waterRadius);
-        if (verticalRadius > 0.0D) UncertaintyHelper.verticalInto(xyz, end, verticalRadius);
+        UncertaintyHelper.circularInto(xyz, endX, endZ, waterRadius);
+        if (verticalRadius > 0.0D) UncertaintyHelper.verticalInto(xyz, endY, verticalRadius);
     }
 
     private boolean pushes(SimulationContext context) {

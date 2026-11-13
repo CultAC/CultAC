@@ -146,6 +146,7 @@ public interface WireValueDecoder extends AutoCloseable {
 
         T sequence(List<T> values);
 
+        /** The factory may keep {@code values}, which the caller never changes afterwards. */
         T compound(Map<String, T> values);
     }
 

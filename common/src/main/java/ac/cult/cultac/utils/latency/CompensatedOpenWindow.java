@@ -133,10 +133,7 @@ public final class CompensatedOpenWindow implements CheckListener, ClientTickEnd
     }
 
     public boolean mustBeOpen() {
-        for (Window window : possibleOpenWindows) {
-            if (window == null) return false;
-        }
-        return true;
+        return !possibleOpenWindows.contains(null);
     }
 
     public Set<@Nullable Window> getPossibilities() {

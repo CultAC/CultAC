@@ -19,6 +19,7 @@ public final class FrameCopies {
     private static final int SCALAR_COPY_BYTES = 1024;
 
     private static final VarHandle LONGS = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
+    private static final VarHandle INTS = MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.BIG_ENDIAN);
 
     private FrameCopies() {}
 
@@ -52,9 +53,7 @@ public final class FrameCopies {
         if (frame.hasArray()) {
             frame.getBytes(from, bytes, offset, length);
         } else if (scalar(frame, length)) {
-            int at = 0;
-            for (; at + Long.BYTES <= length; at += Long.BYTES) LONGS.set(bytes, offset + at, frame.getLong(from + at));
-            for (; at < length; at++) bytes[offset + at] = frame.getByte(from + at);
+            copyScalar(frame, from, bytes, offset, length);
         } else if (frame.nioBufferCount() == 1) {
             frame.internalNioBuffer(from, length).get(bytes, offset, length);
         } else {
@@ -72,8 +71,21 @@ public final class FrameCopies {
             frame.internalNioBuffer(from, bytes.length).get(bytes);
             return;
         }
-        int at = 0;
-        for (; at + Long.BYTES <= bytes.length; at += Long.BYTES) LONGS.set(bytes, at, frame.getLong(from + at));
-        for (; at < bytes.length; at++) bytes[at] = frame.getByte(from + at);
+        copyScalar(frame, from, bytes, 0, bytes.length);
+    }
+
+    /** The last read overlaps bytes already copied when the length is not a multiple of its width. */
+    private static void copyScalar(ByteBuf frame, int from, byte[] bytes, int offset, int length) {
+        if (length >= Long.BYTES) {
+            int last = length - Long.BYTES;
+            for (int at = 0; at < last; at += Long.BYTES) LONGS.set(bytes, offset + at, frame.getLong(from + at));
+            LONGS.set(bytes, offset + last, frame.getLong(from + last));
+        } else if (length >= Integer.BYTES) {
+            int last = length - Integer.BYTES;
+            INTS.set(bytes, offset, frame.getInt(from));
+            INTS.set(bytes, offset + last, frame.getInt(from + last));
+        } else {
+            for (int at = 0; at < length; at++) bytes[offset + at] = frame.getByte(from + at);
+        }
     }
 }

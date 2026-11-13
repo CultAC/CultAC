@@ -54,30 +54,34 @@ public class EntityPush implements UncertaintyHandler {
             SimulationContext context,
             PredictionResult lastContext,
             PredVector carrier,
-            Vec3 end) {
+            double endX,
+            double endY,
+            double endZ) {
         WorldData world = context.getWorldData();
         SimpleCollisionBox loading = world.getLoadingLevelPushes();
         if (loading != null) {
-            double x = CultMath.clamp(end.x, xyz[0] + loading.minX, xyz[0] + loading.maxX);
-            double z = CultMath.clamp(end.z, xyz[2] + loading.minZ, xyz[2] + loading.maxZ);
+            double x = CultMath.clamp(endX, xyz[0] + loading.minX, xyz[0] + loading.maxX);
+            double z = CultMath.clamp(endZ, xyz[2] + loading.minZ, xyz[2] + loading.maxZ);
             xyz[0] = x;
             xyz[2] = z;
         }
         int carried = world.getNumCarriedPushing();
         CarriedPush carriedPush = world.getCarriedPush();
         if (carried == 0 || carriedPush.isIdentity() && !carrier.isEntityMotion()) {
-            UncertaintyHelper.circularInto(xyz, end, maxHorizontalImpulse(world.getNumPushing()));
+            UncertaintyHelper.circularInto(xyz, endX, endZ, maxHorizontalImpulse(world.getNumPushing()));
             return;
         }
         if (!carrier.isEntityMotion()) {
-            // CarriedPush#push reads only the start's coordinates.
+            // CarriedPush#push reads only the coordinates of the start and the end.
             PredVector pushed = carriedPush.push(
-                    carrier.withXYZ(xyz[0], xyz[1], xyz[2], "carried push start"), end, maxHorizontalImpulse(carried));
+                    carrier.withXYZ(xyz[0], xyz[1], xyz[2], "carried push start"),
+                    new Vec3(endX, endY, endZ),
+                    maxHorizontalImpulse(carried));
             xyz[0] = pushed.x;
             xyz[1] = pushed.y;
             xyz[2] = pushed.z;
         }
-        UncertaintyHelper.circularInto(xyz, end, maxHorizontalImpulse(world.getNumPushing() - carried));
+        UncertaintyHelper.circularInto(xyz, endX, endZ, maxHorizontalImpulse(world.getNumPushing() - carried));
     }
 
     /**
@@ -148,7 +152,9 @@ public class EntityPush implements UncertaintyHandler {
         // ticks before LocalPlayer can push the player before LocalPlayer#sendPosition
         // in the same tick; a later-ticking remote boat pushes after sendPosition and
         // is carried into the following player-body tick.
-        for (PacketEntity entity : state.getEntities().boats()) {
+        List<PacketEntity> boats = state.getEntities().boats();
+        for (int i = 0, size = boats.size(); i < size; i++) {
+            PacketEntity entity = boats.get(i);
             if (!entity.isBoat()
                     || entity.isDead
                     || entity.hasPassenger(player.compensatedEntities.getSelf())

@@ -12,7 +12,7 @@ public class TickInventory implements Tickable {
 
             CorrectingPlayerInventoryStorage correcting = (CorrectingPlayerInventoryStorage)
                     player.getInventory().inventory.getInventoryStorage();
-            player.runSafely(correcting::tickServerView);
+            player.runSafely(correcting.serverViewTick());
         }
     }
 }

@@ -63,6 +63,7 @@ public class BadPacketsO extends Check implements CheckListener {
 
     @CultPacketHandler("serverbound.client_tick_end")
     public void onClientTickEnd(PacketReceiveEvent<Opaque> event, CultPlayer player, Opaque packet) {
+        if (keepalives.isEmpty()) return;
         int received = player.lastTransactionReceived.get();
         // handlePing runs on the client thread between ticks. Its pong proves the preceding
         // keepalive was handled, but a deferred reply can still follow that pong. The next

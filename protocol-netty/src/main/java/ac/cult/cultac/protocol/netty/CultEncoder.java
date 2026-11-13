@@ -12,6 +12,8 @@ import ac.cult.cultac.protocol.PacketBundlePolicy;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.UnsupportedOnVersionException;
+import ac.cult.cultac.protocol.codec.entity.EntityPositionSyncCodec;
+import ac.cult.cultac.protocol.codec.entity.MoveEntityCodec;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPacket;
 import ac.cult.cultac.protocol.wire.Wire;
@@ -37,6 +39,8 @@ import java.util.function.Predicate;
 public final class CultEncoder extends ChannelOutboundHandlerAdapter {
     public static final String NAME = "cult-encoder";
     private static final String HOST_CONTROL_NAME = NAME + "-host-control";
+    private static final long UNREADABLE_ID = Long.MIN_VALUE;
+    private static final Object UNRESOLVED = new Object();
 
     private final CultConnection connection;
     private final RouteProbe routeProbe = new RouteProbe();
@@ -137,41 +141,41 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             ctx.write(message, promise);
             return;
         }
-        if (emission == null
-                && !connection.isPreparingWrites()
-                && !connection.packets().translated()
-                && message instanceof ByteBuf frame
-                && !PacketBundlePolicy.requiresStandalone(wireType(frame))) {
-            try {
-                var phase = connection.phase(PacketDirection.CLIENTBOUND);
-                var route = connection.dispatcher().get(PacketDirection.CLIENTBOUND, phase, Wire.peekVarInt(frame));
-                if (route == null || route.type().codec().forwardsUndecoded(frame, afterPacketId(frame))) {
-                    if (connection.packetLoggingActive()) {
-                        connection.runInModel(
-                                () -> connection.observePacket(PacketDirection.CLIENTBOUND, phase, frame));
+        if (emission == null && !connection.isPreparingWrites() && message instanceof ByteBuf frame) {
+            long id = peekId(frame);
+            Object resolved = id == UNREADABLE_ID ? UNRESOLVED : resolve((int) id);
+            PacketType<?> type = resolved == UNRESOLVED ? null : (PacketType<?>) resolved;
+            if (!PacketBundlePolicy.requiresStandalone(type)) {
+                if (!connection.packets().translated()) {
+                    try {
+                        var phase = connection.phase(PacketDirection.CLIENTBOUND);
+                        // An unreadable ID is peeked again so the lookup reports its own failure.
+                        int packetId = id == UNREADABLE_ID ? Wire.peekVarInt(frame) : (int) id;
+                        var route = connection.dispatcher().get(PacketDirection.CLIENTBOUND, phase, packetId);
+                        if (route == null || route.type().codec().forwardsUndecoded(frame, afterPacketId(frame))) {
+                            if (connection.packetLoggingActive()) {
+                                connection.runInModel(
+                                        () -> connection.observePacket(PacketDirection.CLIENTBOUND, phase, frame));
+                                writeRaw(ctx, frame, promise);
+                            } else writeRaw(ctx, frame, promise, type);
+                            return;
+                        }
+                    } catch (Throwable failure) {
+                        CultNetworkManager.reportFailure("outbound packet lookup", failure);
+                        writeRaw(ctx, frame, promise);
+                        return;
                     }
-                    writeRaw(ctx, frame, promise);
+                } else if (unroutedTranslated(resolved)) {
+                    if (removed || !ctx.channel().isActive()) {
+                        new Pending(frame, promise).discard(new ClosedChannelException());
+                    } else {
+                        connection.observePacket(
+                                PacketDirection.CLIENTBOUND, connection.phase(PacketDirection.CLIENTBOUND), frame);
+                        writeRaw(ctx, frame, promise);
+                    }
                     return;
                 }
-            } catch (Throwable failure) {
-                CultNetworkManager.reportFailure("outbound packet lookup", failure);
-                writeRaw(ctx, frame, promise);
-                return;
             }
-        }
-        if (emission == null
-                && !connection.isPreparingWrites()
-                && message instanceof ByteBuf frame
-                && !PacketBundlePolicy.requiresStandalone(wireType(frame))
-                && unroutedTranslated(frame)) {
-            if (removed || !ctx.channel().isActive()) {
-                new Pending(frame, promise).discard(new ClosedChannelException());
-            } else {
-                connection.observePacket(
-                        PacketDirection.CLIENTBOUND, connection.phase(PacketDirection.CLIENTBOUND), frame);
-                writeRaw(ctx, frame, promise);
-            }
-            return;
         }
         ModelWrite task = idleWrite;
         if (task == null) task = new ModelWrite();
@@ -337,13 +341,15 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         }
     }
 
-    /** A translated frame whose type has no route, which the expansion would emit alone and unchanged. */
-    private boolean unroutedTranslated(ByteBuf frame) {
+    /**
+     * A translated frame whose type has no route, which the expansion would emit alone and unchanged. {@code resolved}
+     * is what {@link #resolve} gave for the frame's ID, {@link #UNRESOLVED} when the ID or its type could not be read.
+     */
+    private boolean unroutedTranslated(Object resolved) {
         try {
             var packets = connection.packets();
-            if (!packets.translated() || packets.closed()) return false;
-            var type = packets.type(
-                    connection.phase(PacketDirection.CLIENTBOUND), PacketDirection.CLIENTBOUND, Wire.peekVarInt(frame));
+            if (!packets.translated() || packets.closed() || resolved == UNRESOLVED) return false;
+            var type = (PacketType<?>) resolved;
             return type == null || connection.dispatcher().get(type) == null;
         } catch (Throwable failure) {
             return false;
@@ -483,17 +489,26 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         PacketType<?> forwardedType = null;
         var lender = connection.frameLender();
         FrameLease lease = null;
+        var sunkMove = connection.sunkMove();
+        var sunkSync = connection.sunkPositionSync();
+        boolean sunk = false, syncSunk = false;
         try {
             routeProbe.phase = phase;
             routeProbe.found = null;
             routeProbe.skipped = null;
             lease = lender.open(bytes);
-            Object value;
+            boolean heldBefore = sunkMove.held(), syncHeldBefore = sunkSync.held();
+            Object value = null;
             try {
                 value = connection.packets().readOne(phase, PacketDirection.CLIENTBOUND, bytes, connection, routeProbe);
             } finally {
+                connection.sinkMoves(false);
                 lender.close(lease);
+                if (!heldBefore && value != MoveEntityCodec.SUNK && sunkMove.held()) sunkMove.release();
+                if (!syncHeldBefore && value != EntityPositionSyncCodec.SUNK && sunkSync.held()) sunkSync.release();
             }
+            sunk = value == MoveEntityCodec.SUNK;
+            syncSunk = value == EntityPositionSyncCodec.SUNK;
             var route = routeProbe.found;
             if (routeProbe.skipped != null) forwardedType = routeProbe.skipped.type();
             if (value != null) {
@@ -580,6 +595,8 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             }
             return requested;
         } finally {
+            if (sunk) sunkMove.release();
+            if (syncSunk) sunkSync.release();
             if (lease != null) lender.end(lease);
             if (bytes != null) bytes.release();
         }
@@ -601,6 +618,11 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                     || route.send() != null && route.send().hasConnectionHandlers();
             found = route;
             skipped = consumed ? null : route;
+            connection.sinkMoves(consumed
+                    && (type == ClientboundPackets.MOVE_ENTITY || type == ClientboundPackets.ENTITY_POSITION_SYNC)
+                    && route.own()
+                    && route.send() != null
+                    && !route.send().hasConnectionHandlers());
             return consumed;
         }
     }
@@ -739,7 +761,11 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
 
     /** A frame forwarded without expansion; inside an open flush bundle it is an ordinary member. */
     private void writeRaw(ChannelHandlerContext ctx, ByteBuf frame, ChannelPromise promise) {
-        PacketType<?> type = wireType(frame);
+        writeRaw(ctx, frame, promise, wireType(frame));
+    }
+
+    /** As {@link #writeRaw(ChannelHandlerContext, ByteBuf, ChannelPromise)}, for the frame's {@link #wireType}. */
+    private void writeRaw(ChannelHandlerContext ctx, ByteBuf frame, ChannelPromise promise, PacketType<?> type) {
         if (PacketBundlePolicy.requiresStandalone(type)) {
             // Even a model-context fallback must serialize the close/write/resume sequence against reentry.
             var output = new Output();
@@ -764,6 +790,26 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                             Wire.peekVarInt(frame));
         } catch (RuntimeException failure) {
             return null;
+        }
+    }
+
+    /** The frame's packet ID, or {@link #UNREADABLE_ID} where {@link Wire#peekVarInt} throws. */
+    private static long peekId(ByteBuf frame) {
+        try {
+            return Wire.peekVarInt(frame);
+        } catch (RuntimeException failure) {
+            return UNREADABLE_ID;
+        }
+    }
+
+    /** {@link #wireType} of a frame with packet ID {@code id}: a type or null, else {@link #UNRESOLVED} when it throws. */
+    private Object resolve(int id) {
+        try {
+            return connection
+                    .packets()
+                    .type(connection.phase(PacketDirection.CLIENTBOUND), PacketDirection.CLIENTBOUND, id);
+        } catch (RuntimeException failure) {
+            return UNRESOLVED;
         }
     }
 

@@ -2,6 +2,7 @@ package ac.cult.cultac.checks.impl.prediction.pipeline.java;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -17,6 +18,7 @@ import ac.cult.cultac.network.TestUsers;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.platform.api.player.PlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
@@ -74,6 +76,10 @@ class StuckStatesFromCurrentWorldTest {
         when(context.getEnd()).thenReturn(END);
         when(context.getToActualPose())
                 .thenAnswer(ignored -> GetBoundingBox.getBoundingBoxFromPosAndSize(END.x, END.y, END.z, 0.6F, 1.8F));
+        when(context.getToActualPose(any(SimpleCollisionBox.class)))
+                .thenAnswer(invocation -> invocation
+                        .<SimpleCollisionBox>getArgument(0)
+                        .set(GetBoundingBox.getBoundingBoxFromPosAndSize(END.x, END.y, END.z, 0.6F, 1.8F)));
         when(context.getLastStuckSpeed()).thenReturn(new Vec3(1.0D, 1.0D, 1.0D));
         ValidMovements valid = mock(ValidMovements.class);
         when(valid.getClosestTrace()).thenReturn(MovementTrace.start(new PredVector(MOVEMENT)));

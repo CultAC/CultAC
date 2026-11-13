@@ -176,6 +176,11 @@ public class CheckManager {
     private final NoFallPseudo noFallPseudo;
     private final InvalidStep invalidStep;
     private final VerticalOffset verticalOffset;
+    private final CompensatedCooldown compensatedCooldown;
+    private final DebugHandler debugHandler;
+    private final NoFallExecutor noFallExecutor;
+    private final OffsetHandler offsetHandler;
+    private final FairReach fairReach;
     private final Speed speed;
     private final Strafe strafe;
 
@@ -245,6 +250,11 @@ public class CheckManager {
         noFallPseudo = getListener(NoFallPseudo.class);
         invalidStep = getListener(InvalidStep.class);
         verticalOffset = getListener(VerticalOffset.class);
+        compensatedCooldown = getListener(CompensatedCooldown.class);
+        debugHandler = getListener(DebugHandler.class);
+        noFallExecutor = getListener(NoFallExecutor.class);
+        offsetHandler = getListener(OffsetHandler.class);
+        fairReach = getListener(FairReach.class);
 
         List<CheckListener> positionUpdates = new ArrayList<>();
         for (var checks : List.of(prePredictionChecks, positionCheck, packetChecks)) {
@@ -944,6 +954,11 @@ public class CheckManager {
         return shouldRegister(listener);
     }
 
+    /** {@link #shouldDispatch} for a player on Bedrock movement; for any other player it is true. */
+    private static boolean dispatchesOnBedrock(CheckListener listener) {
+        return !(listener instanceof Check check) || check.isBedrockSupported();
+    }
+
     /** {@link #shouldDispatch} of {@code listener} as a route gate; null where it is true whatever the player. */
     private BooleanSupplier dispatchGate(CheckListener listener) {
         if (!(listener instanceof Check check) || ALWAYS_BEDROCK_SUPPORTED.get(check.getClass())) return null;
@@ -1043,8 +1058,10 @@ public class CheckManager {
         if (event.getPhase() != ConnectionPhase.PLAY) {
             return;
         }
-        for (DecodedPacketReceiveListener listener : decodedReceiveListeners) {
-            if (shouldDispatch(listener)) {
+        boolean bedrock = player.isBedrockMovement();
+        for (int i = 0, n = decodedReceiveListeners.size(); i < n; i++) {
+            DecodedPacketReceiveListener listener = decodedReceiveListeners.get(i);
+            if (!bedrock || dispatchesOnBedrock(listener)) {
                 listener.onDecodedPacketReceive(event);
             }
         }
@@ -1073,12 +1090,14 @@ public class CheckManager {
     }
 
     public void doChecksWithKnownLook() {
-        for (BlockPlace place : placesToCheck) {
-            for (BlockPlaceCheck check : blockPlaceListeners) {
-                if (!shouldDispatch(check)) {
-                    continue;
+        if (!placesToCheck.isEmpty()) {
+            for (BlockPlace place : placesToCheck) {
+                for (BlockPlaceCheck check : blockPlaceListeners) {
+                    if (!shouldDispatch(check)) {
+                        continue;
+                    }
+                    check.onPostFlyingBlockPlace(place);
                 }
-                check.onPostFlyingBlockPlace(place);
             }
         }
         placesToCheck.clear();
@@ -1119,8 +1138,9 @@ public class CheckManager {
     }
 
     public void onPositionUpdate(final PositionUpdate position) {
+        boolean bedrock = player.isBedrockMovement();
         for (CheckListener check : positionUpdateListeners) {
-            if (!shouldDispatch(check)) {
+            if (bedrock && !dispatchesOnBedrock(check)) {
                 continue;
             }
             check.onPositionUpdate(position);
@@ -1128,8 +1148,9 @@ public class CheckManager {
     }
 
     public void onRotationUpdate(final RotationUpdate rotation) {
+        boolean bedrock = player.isBedrockMovement();
         for (RotationListener check : rotationListeners) {
-            if (!shouldDispatch(check)) {
+            if (bedrock && !dispatchesOnBedrock(check)) {
                 continue;
             }
             check.process(rotation);
@@ -1150,14 +1171,15 @@ public class CheckManager {
         // A tick predicted without a movement packet is the client's movement for that tick as well.
         setbacks.movementReceived();
         try {
+            boolean bedrock = player.isBedrockMovement();
             for (PostPredictionListener check : predictionListeners) {
-                if (!shouldDispatch(check)) {
+                if (bedrock && !dispatchesOnBedrock(check)) {
                     continue;
                 }
                 check.onPredictionComplete(complete);
             }
             for (PostPredictionListener check : pseudoListeners) {
-                if (!shouldDispatch(check)) {
+                if (bedrock && !dispatchesOnBedrock(check)) {
                     continue;
                 }
                 if (!MovementProfiles.forPlayer(player).shouldRunPseudoCheck(check.getClass())) {
@@ -1280,7 +1302,7 @@ public class CheckManager {
     }
 
     public NoFallExecutor getNoFall() {
-        return getListener(NoFallExecutor.class);
+        return noFallExecutor;
     }
 
     private KnockbackHandler knockbackHandlerCache;
@@ -1309,15 +1331,20 @@ public class CheckManager {
     }
 
     public CompensatedCooldown getCompensatedCooldown() {
-        return getListener(CompensatedCooldown.class);
+        return compensatedCooldown;
     }
 
     public DebugHandler getDebugHandler() {
-        return getListener(DebugHandler.class);
+        return debugHandler;
     }
 
     public OffsetHandler getOffsetHandler() {
-        return getListener(OffsetHandler.class);
+        return offsetHandler;
+    }
+
+    /** {@code getListener(FairReach.class)}, read on every tracked player's movement. */
+    public FairReach getFairReach() {
+        return fairReach;
     }
 
     /** Construction data only: callbacks retain their listener, never these collections. */

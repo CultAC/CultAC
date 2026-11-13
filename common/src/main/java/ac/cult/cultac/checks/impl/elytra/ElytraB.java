@@ -64,6 +64,7 @@ public class ElytraB extends Check implements PostPredictionListener {
     // isUpdate: transaction pong
     @CultPacketHandler
     public void onPong(PacketReceiveEvent<ServerboundPong> event, CultPlayer player, ServerboundPong packet) {
+        if (!event.isAcceptedTransactionResponse()) return;
         onUpdate();
     }
 

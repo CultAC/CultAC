@@ -14,13 +14,33 @@ import ac.cult.cultac.utils.inventory.ItemTypes;
 public record JavaCollisionState(
         double fallDistance, boolean walksOnPowderSnow, boolean descending, boolean fallingBlock) {
     private static final VoxelShape FALLING_SNOW = Shapes.create(0, 0, 0, 1, (double) 0.9F, 1);
+    /** States with a +0.0 fall distance by {@link #flagIndex}. */
+    private static final JavaCollisionState[] AT_REST = atRest();
 
     public static JavaCollisionState of(CultPlayer player, PacketEntity actor, double fallDistance) {
         boolean self = actor == player.compensatedEntities.getSelf();
         boolean walks = EntityTags.POWDER_SNOW_WALKABLE_MOBS.test(actor.type)
                 || self && player.getInventory().getBoots().getItem() == ItemTypes.LEATHER_BOOTS;
-        return new JavaCollisionState(
-                fallDistance, walks, isDescending(player, actor), actor.type == EntityTypeIds.FALLING_BLOCK);
+        return of(fallDistance, walks, isDescending(player, actor), actor.type == EntityTypeIds.FALLING_BLOCK);
+    }
+
+    /** A state with these components; a shared one when the fall distance is +0.0. */
+    static JavaCollisionState of(
+            double fallDistance, boolean walksOnPowderSnow, boolean descending, boolean fallingBlock) {
+        if (Double.doubleToRawLongBits(fallDistance) == 0L)
+            return AT_REST[flagIndex(walksOnPowderSnow, descending, fallingBlock)];
+        return new JavaCollisionState(fallDistance, walksOnPowderSnow, descending, fallingBlock);
+    }
+
+    private static int flagIndex(boolean walksOnPowderSnow, boolean descending, boolean fallingBlock) {
+        return (walksOnPowderSnow ? 1 : 0) | (descending ? 2 : 0) | (fallingBlock ? 4 : 0);
+    }
+
+    private static JavaCollisionState[] atRest() {
+        JavaCollisionState[] states = new JavaCollisionState[8];
+        for (int i = 0; i < states.length; i++)
+            states[i] = new JavaCollisionState(0.0, (i & 1) != 0, (i & 2) != 0, (i & 4) != 0);
+        return states;
     }
 
     /** Entity#isDescending: LocalPlayer's shift key, or another entity's shared crouching flag. */

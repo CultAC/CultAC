@@ -16,7 +16,6 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.PistonData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.debug.DebugText;
-import ac.cult.cultac.utils.lists.EvictingQueue;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
@@ -47,7 +46,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         }
     }
 
-    private final List<MovementFrame> movementHistory = new EvictingQueue<>(40);
+    private final MovementHistory movementHistory = new MovementHistory();
 
     /** Set while something watches this player's predictions: each one also goes to it. */
     private volatile PredictionObserver diag;
@@ -109,19 +108,20 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
             return;
         }
 
-        Location location = player.platformPlayer == null
-                ? new Location(player.x, player.y, player.z, player.xRot, player.yRot, null, "")
-                : new Location(
-                        player.x,
-                        player.y,
-                        player.z,
-                        player.xRot,
-                        player.yRot,
-                        player.platformPlayer.getWorld().getName(),
-                        Location.marks(predictionComplete.isExempt(), predictionComplete.isTeleport()));
+        double x = player.x;
+        double y = player.y;
+        double z = player.z;
+        float xRot = player.xRot;
+        float yRot = player.yRot;
+        String world = null;
+        String marks = "";
+        if (player.platformPlayer != null) {
+            world = player.platformPlayer.getWorld().getName();
+            marks = Location.marks(predictionComplete.isExempt(), predictionComplete.isTeleport());
+        }
 
         if (predictionComplete.isTeleport()) {
-            movementHistory.add(new MovementFrame(TELEPORT_MARKER, TELEPORT_MARKER, location));
+            movementHistory.add(TELEPORT_MARKER, TELEPORT_MARKER, x, y, z, xRot, yRot, world, marks);
             PredictionObserver watch = diag;
             if (watch != null) captureTeleport(watch);
             return;
@@ -132,7 +132,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         Vec3 target = result.getTarget();
         Vec3 closest = MovementProfiles.forPlayer(player).debugPredictionVector(result);
 
-        movementHistory.add(new MovementFrame(closest, target, location));
+        movementHistory.add(closest, target, x, y, z, xRot, yRot, world, marks);
 
         PredictionObserver watch = diag;
         if (watch != null) {
@@ -240,7 +240,8 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
     /** The movement history as a watch starts: what came before its first tick. On the packet thread. */
     public String history() {
         StringBuilder sb = new StringBuilder(4096);
-        for (MovementFrame frame : movementHistory) frame.appendTo(sb);
+        for (int i = 0; i < movementHistory.size(); i++)
+            movementHistory.frame(i).appendTo(sb);
         return sb.toString();
     }
 
@@ -468,7 +469,7 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
     }
 
     private void appendMovementHistory(DebugText.Builder sb) {
-        for (MovementFrame frame : movementHistory) sb.append(frame);
+        for (int i = 0; i < movementHistory.size(); i++) sb.append(movementHistory.frame(i));
     }
 
     private static void appendFlagDetails(DebugText.Builder sb, PredictionResult result) {
@@ -712,6 +713,101 @@ public class SuperDebug extends CultProcessor implements PostPredictionListener 
         static String marks(boolean exempt, boolean teleport) {
             if (exempt) return teleport ? " exempt! teleport!" : " exempt!";
             return teleport ? "  teleport!" : " ";
+        }
+    }
+
+    /**
+     * The last {@value #CAPACITY} ticks of movement, oldest first, held as values and read back as frames. A vector of
+     * exactly {@link Vec3} is held as its coordinates; any other, or null, is held as itself, since it may print more.
+     * On the packet thread.
+     */
+    private static final class MovementHistory {
+        private static final int CAPACITY = 40;
+        /** Marks a held null vector. */
+        private static final Vec3 NO_VECTOR = new Vec3(0, 0, 0);
+
+        /** Per slot: predicted, actual and location coordinates. */
+        private double[] coordinates;
+        /** Per slot: xRot, yRot. */
+        private float[] rotations;
+        /** Per slot: predicted, actual; null where the coordinates hold the vector. */
+        private Vec3[] vectors;
+
+        private String[] worlds;
+        private String[] marks;
+        private int head;
+        private int size;
+
+        void add(
+                Vec3 predicted,
+                Vec3 actual,
+                double x,
+                double y,
+                double z,
+                float xRot,
+                float yRot,
+                String world,
+                String marks) {
+            if (coordinates == null) {
+                coordinates = new double[CAPACITY * 9];
+                rotations = new float[CAPACITY * 2];
+                vectors = new Vec3[CAPACITY * 2];
+                worlds = new String[CAPACITY];
+                this.marks = new String[CAPACITY];
+            }
+            int slot;
+            if (size < CAPACITY) {
+                slot = size++;
+            } else {
+                slot = head;
+                head = head + 1 == CAPACITY ? 0 : head + 1;
+            }
+            hold(slot * 2, slot * 9, predicted);
+            hold(slot * 2 + 1, slot * 9 + 3, actual);
+            coordinates[slot * 9 + 6] = x;
+            coordinates[slot * 9 + 7] = y;
+            coordinates[slot * 9 + 8] = z;
+            rotations[slot * 2] = xRot;
+            rotations[slot * 2 + 1] = yRot;
+            if (worlds[slot] != world) worlds[slot] = world;
+            if (this.marks[slot] != marks) this.marks[slot] = marks;
+        }
+
+        private void hold(int vector, int at, Vec3 value) {
+            Vec3 held = value == null ? NO_VECTOR : value.getClass() == Vec3.class ? null : value;
+            if (vectors[vector] != held) vectors[vector] = held;
+            if (held != null) return;
+            coordinates[at] = value.x;
+            coordinates[at + 1] = value.y;
+            coordinates[at + 2] = value.z;
+        }
+
+        int size() {
+            return size;
+        }
+
+        /** The {@code index}th tick, oldest first. */
+        MovementFrame frame(int index) {
+            int slot = head + index;
+            if (slot >= CAPACITY) slot -= CAPACITY;
+            int at = slot * 9;
+            return new MovementFrame(
+                    vector(slot * 2, at),
+                    vector(slot * 2 + 1, at + 3),
+                    new Location(
+                            coordinates[at + 6],
+                            coordinates[at + 7],
+                            coordinates[at + 8],
+                            rotations[slot * 2],
+                            rotations[slot * 2 + 1],
+                            worlds[slot],
+                            marks[slot]));
+        }
+
+        private Vec3 vector(int vector, int at) {
+            Vec3 held = vectors[vector];
+            if (held == NO_VECTOR) return null;
+            return held != null ? held : new Vec3(coordinates[at], coordinates[at + 1], coordinates[at + 2]);
         }
     }
 }

@@ -42,7 +42,9 @@ public class InsideBlock implements UncertaintyHandler {
             SimulationContext context,
             PredictionResult lastContext,
             PredVector carrier,
-            Vec3 end) {
+            double endX,
+            double endY,
+            double endZ) {
         boolean mightBePushed = context.getWorldData().isMightBeInBlock();
         // No handler with a position form records the sprint jump's reason, so the lineage since carrier holds none.
         Vec3 addedAfterPush = carrier.additionOfReason(VelocityTransformer.SPRINT_JUMP_REASON);
@@ -50,12 +52,12 @@ public class InsideBlock implements UncertaintyHandler {
             double x = xyz[0];
             double y = xyz[1];
             double z = xyz[2];
-            double allowedX = CultMath.clamp(end.x, addedAfterPush.x - 0.1, addedAfterPush.x + 0.1);
-            double allowedY = CultMath.clamp(end.y, y, y);
-            double allowedZ = CultMath.clamp(end.z, addedAfterPush.z - 0.1, addedAfterPush.z + 0.1);
-            xyz[0] = CultMath.clamp(end.x, Math.min(x, allowedX), Math.max(x, allowedX));
-            xyz[1] = CultMath.clamp(end.y, Math.min(y, allowedY), Math.max(y, allowedY));
-            xyz[2] = CultMath.clamp(end.z, Math.min(z, allowedZ), Math.max(z, allowedZ));
+            double allowedX = CultMath.clamp(endX, addedAfterPush.x - 0.1, addedAfterPush.x + 0.1);
+            double allowedY = CultMath.clamp(endY, y, y);
+            double allowedZ = CultMath.clamp(endZ, addedAfterPush.z - 0.1, addedAfterPush.z + 0.1);
+            xyz[0] = CultMath.clamp(endX, Math.min(x, allowedX), Math.max(x, allowedX));
+            xyz[1] = CultMath.clamp(endY, Math.min(y, allowedY), Math.max(y, allowedY));
+            xyz[2] = CultMath.clamp(endZ, Math.min(z, allowedZ), Math.max(z, allowedZ));
         }
     }
 

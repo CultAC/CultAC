@@ -1,11 +1,14 @@
 package ac.cult.cultac.network;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.network.codec.ClientPacketCodecs;
 import ac.cult.cultac.network.logging.PacketLogObserver;
 import ac.cult.cultac.network.packet.FrameLease;
 import ac.cult.cultac.network.protocol.player.User;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.*;
+import ac.cult.cultac.protocol.codec.entity.EntityPositionSyncCodec;
+import ac.cult.cultac.protocol.codec.entity.MoveEntityCodec;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.runtime.RuntimeEnvironment;
@@ -13,6 +16,8 @@ import ac.cult.cultac.utils.anticheat.LogUtil;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
 import io.netty.util.concurrent.EventExecutor;
+import it.unimi.dsi.fastutil.ints.IntCollection;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.lang.reflect.Method;
 import java.nio.channels.ClosedChannelException;
 import java.util.ArrayList;
@@ -23,9 +28,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import org.jetbrains.annotations.ApiStatus;
 
 /** Authoritative identity, player attachment and transport state for one channel. */
-public final class CultConnection implements CodecState, FrameLease.Source {
+public final class CultConnection
+        implements CodecState, FrameLease.Source, MoveEntityCodec.Sink, EntityPositionSyncCodec.Sink {
     private static final int CONTEXT_SLOTS = 256;
 
     private final Channel channel;
@@ -88,10 +95,40 @@ public final class CultConnection implements CodecState, FrameLease.Source {
         flushPingSource = source;
     }
 
+    /** Takes over the ids of CultAC pings written for a player removed from this connection. */
+    public void retirePings(IntCollection ids) {
+        synchronized (retiredPings) {
+            retiredPings.addAll(ids);
+        }
+    }
+
+    /** Takes over the id of a CultAC ping its removed player writes after the removal. */
+    public void retirePing(int id) {
+        synchronized (retiredPings) {
+            retiredPings.add(id);
+        }
+    }
+
+    /** Whether {@code id} answers a retired CultAC ping; each id is taken once. */
+    public boolean takeRetiredPing(int id) {
+        synchronized (retiredPings) {
+            return retiredPings.remove(id);
+        }
+    }
+
+    /** Whether {@code id} answers a retired CultAC ping not yet taken; it takes nothing. */
+    public boolean holdsRetiredPing(int id) {
+        synchronized (retiredPings) {
+            return retiredPings.contains(id);
+        }
+    }
+
     private boolean ownerResolved, prepared;
     private Consumer<CultConnection> initializer = ignored -> {};
     private BiConsumer<Object, ChannelPromise> reentrantWriter;
     private java.util.function.IntSupplier flushPingSource;
+    /** Ids of CultAC pings whose player was removed while the connection stays open; guarded by itself. */
+    private final IntOpenHashSet retiredPings = new IntOpenHashSet(0);
     private volatile CompletableFuture<Void> removed;
     private volatile PacketLogObserver packetObserver = PacketLogObserver.NONE;
     private io.netty.util.concurrent.GenericFutureListener<io.netty.util.concurrent.Future<? super Void>> closeListener;
@@ -100,6 +137,12 @@ public final class CultConnection implements CodecState, FrameLease.Source {
     private final ProtocolContext[] contexts = new ProtocolContext[CONTEXT_SLOTS];
 
     private final FrameLease.Lender frameLender = new FrameLease.Lender();
+    private final SunkMove sunkMove = new SunkMove();
+    private final SunkPositionSync sunkPositionSync = new SunkPositionSync();
+    /** The encoder's current read may sink a move or a linear position sync. Owner only. */
+    private boolean sinksMoves;
+
+    private ClientPacketCodecs.MetadataReader metadataReader;
 
     public void packetObserver(PacketLogObserver observer) {
         packetObserver = Objects.requireNonNull(observer);
@@ -191,6 +234,89 @@ public final class CultConnection implements CodecState, FrameLease.Source {
     @Override
     public FrameLease lease(ByteBuf frame) {
         return frameLender.lease(frame);
+    }
+
+    /** Lets the read the encoder begins next sink a move or a linear position sync, or stops it. Model context only. */
+    @ApiStatus.Internal
+    public void sinkMoves(boolean sink) {
+        sinksMoves = sink;
+    }
+
+    @Override
+    public boolean sinksMove() {
+        return sinksMoves && !sunkMove.held;
+    }
+
+    @Override
+    @ApiStatus.Internal
+    public void move(
+            int entityId,
+            short x,
+            short y,
+            short z,
+            float yaw,
+            float pitch,
+            boolean onGround,
+            boolean hasPosition,
+            boolean hasRotation) {
+        sunkMove.hold(entityId, x, y, z, yaw, pitch, onGround, hasPosition, hasRotation);
+    }
+
+    @Override
+    public boolean sinksSteps(int steps) {
+        return sinksMove() && steps <= SunkMove.MAX_STEPS;
+    }
+
+    @Override
+    @ApiStatus.Internal
+    public void step(int index, short x, short y, short z, int ticks) {
+        sunkMove.step(index, x, y, z, ticks);
+    }
+
+    @Override
+    @ApiStatus.Internal
+    public void steppedMove(int entityId, int steps, float yaw, float pitch, boolean onGround, boolean hasRotation) {
+        sunkMove.holdStepped(entityId, steps, yaw, pitch, onGround, hasRotation);
+    }
+
+    /**
+     * The values of the move the encoder's read returned as {@link MoveEntityCodec#SUNK}, until it
+     * {@link SunkMove#release releases} them once its dispatch returns. Model context only.
+     */
+    @ApiStatus.Internal
+    public SunkMove sunkMove() {
+        return sunkMove;
+    }
+
+    @Override
+    public boolean sinksPositionSync() {
+        return sinksMoves && !sunkPositionSync.held;
+    }
+
+    @Override
+    @ApiStatus.Internal
+    public void positionSync(int entityId, double x, double y, double z, float yaw, float pitch, boolean onGround) {
+        sunkPositionSync.hold(entityId, x, y, z, yaw, pitch, onGround);
+    }
+
+    /**
+     * The values of the position sync the encoder's read returned as {@link EntityPositionSyncCodec#SUNK}, until it
+     * {@link SunkPositionSync#release releases} them once its dispatch returns. Model context only.
+     */
+    @ApiStatus.Internal
+    public SunkPositionSync sunkPositionSync() {
+        return sunkPositionSync;
+    }
+
+    /** The entity metadata reader last built for this connection's registry names, or null. */
+    @ApiStatus.Internal
+    public ClientPacketCodecs.MetadataReader metadataReader() {
+        return metadataReader;
+    }
+
+    @ApiStatus.Internal
+    public void metadataReader(ClientPacketCodecs.MetadataReader reader) {
+        metadataReader = reader;
     }
 
     @Override

@@ -9,6 +9,7 @@ import ac.cult.blocksim.entity.EntityTags;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaInsideBlockEffects;
+import ac.cult.cultac.checks.impl.prediction.runner.PredictionScratch;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.BlockPos;
@@ -54,7 +55,9 @@ public final class GeyserVelocity {
             return velocities;
         }
 
-        SimpleCollisionBox playerBox = context.getToActualPose();
+        PredictionScratch scratch = PredictionScratch.of(player);
+        SimpleCollisionBox playerBox =
+                context.getToActualPose(scratch == null ? new SimpleCollisionBox() : scratch.geyserBox);
         List<Float> caps = findIntersectingColumnCaps(player, playerBox);
         if (caps.isEmpty()) {
             return velocities;
@@ -71,7 +74,9 @@ public final class GeyserVelocity {
         PacketEntity actor =
                 context.getVehicle() == null ? context.getEntities().getSelf() : context.getVehicle();
         if (actor.isDead || player.gamemode == GameMode.SPECTATOR) return state;
-        SimpleCollisionBox box = context.getToActualPose().copy().offset(end.subtract(context.getEnd()));
+        PredictionScratch scratch = PredictionScratch.of(player);
+        SimpleCollisionBox box =
+                movedToActualPose(scratch == null ? new SimpleCollisionBox() : scratch.geyserBox, context, end);
         boolean launch = canLaunch(actor, context.getVehicle() == null, player.isFlying, player.gamemode);
         for (float cap : findIntersectingColumnCaps(player, box)) {
             double distance = capFallDistance(state.fallDistance(), state.velocity().y);
@@ -82,12 +87,18 @@ public final class GeyserVelocity {
         return state;
     }
 
+    /** {@code context.getToActualPose().copy().offset(end.subtract(context.getEnd()))} written into {@code out}. */
+    static SimpleCollisionBox movedToActualPose(SimpleCollisionBox out, SimulationContext context, Vec3 end) {
+        Vec3 to = context.getEnd();
+        return context.getToActualPose(out).offset(end.x + -to.x, end.y + -to.y, end.z + -to.z);
+    }
+
     public static double capFallDistance(double distance, double velocityY) {
         return distance > 1 && velocityY > -0.5 ? 1 : distance;
     }
 
     private static List<Float> findIntersectingColumnCaps(CultPlayer player, SimpleCollisionBox box) {
-        List<Float> caps = new ArrayList<>();
+        List<Float> caps = null;
         int minX = (int) Math.floor(box.minX);
         int maxX = (int) Math.floor(box.maxX);
         int minZ = (int) Math.floor(box.minZ);
@@ -113,10 +124,11 @@ public final class GeyserVelocity {
 
             int forceHeight = unobstructedCount(player, x, y + 1, z, FORCE_HEIGHT_PER_WATER_BLOCK * waterBlocks);
             if (intersectsPlume(box, x, y, z, forceHeight)) {
+                if (caps == null) caps = new ArrayList<>();
                 caps.add(launchCap(waterBlocks));
             }
         }
-        return caps;
+        return caps == null ? List.of() : caps;
     }
 
     static SimpleCollisionBox plumeBox(int x, int y, int z, int forceHeight) {

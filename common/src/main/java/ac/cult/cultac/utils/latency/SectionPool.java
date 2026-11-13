@@ -8,6 +8,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.IntUnaryOperator;
+import org.jetbrains.annotations.ApiStatus;
 
 public final class SectionPool {
     private static final CachedSection CANONICAL_AIR = createCanonicalAir();
@@ -25,9 +26,10 @@ public final class SectionPool {
     /** Pooled sections compared with offered block containers. */
     public static final LongAdder wireCandidateCounter = new LongAdder();
     /**
-     * Offered block containers read in full into storage with a non-zero bit width, including a uniform container
-     * written with a multi-entry palette. A hit always has a non-zero bit width, so hits / (hits + this) is
-     * the share of such containers that share a pooled section's storage.
+     * Offered block containers that no pooled section held, read in full or shared with a {@link SectionStore} entry,
+     * into storage with a non-zero bit width, including a uniform container written with a multi-entry palette. A hit
+     * always has a non-zero bit width, so hits / (hits + this) is the share of such containers that share a pooled
+     * section's storage.
      */
     public static final LongAdder multiValueFullReadCounter = new LongAdder();
     /**
@@ -72,7 +74,18 @@ public final class SectionPool {
             int sourceRegistrySize,
             IntUnaryOperator mapper,
             int targetRegistrySize) {
-        wireOfferCounter.increment();
+        return sharedBlocks(input, lengthPrefixed, sourceRegistrySize, mapper, targetRegistrySize, ReadCounts.NOW);
+    }
+
+    /** As {@link #sharedBlocks(ByteBuf, boolean, int, IntUnaryOperator, int)}, its counts going to {@code counts}. */
+    synchronized PalettedSection.PooledRead sharedBlocks(
+            ByteBuf input,
+            boolean lengthPrefixed,
+            int sourceRegistrySize,
+            IntUnaryOperator mapper,
+            int targetRegistrySize,
+            ReadCounts counts) {
+        counts.offer();
         if (nonUniformSections == null) return null;
         int copiedAt = PalettedSection.NO_WORD_COPY;
         int candidates = Math.min(nonUniformSections.size(), WIRE_CANDIDATES);
@@ -82,13 +95,60 @@ public final class SectionPool {
             copiedAt = states.skipIfEncodes(
                     input, lengthPrefixed, sourceRegistrySize, mapper, targetRegistrySize, copiedAt);
             if (copiedAt == PalettedSection.MATCHED) {
-                wireCandidateCounter.add(i + 1);
-                wireHitCounter.increment();
+                counts.hit(i + 1);
                 return new PalettedSection.PooledRead(states.copyOnWriteFromPool(), pooled.fluidCount());
             }
         }
-        wireCandidateCounter.add(candidates);
+        counts.miss(candidates);
         return null;
+    }
+
+    /**
+     * The wire match and full read counts of one block container read: added to the counters as they occur, or held
+     * until the consumer that keeps the read adds them. A holder is confined to the thread that reads.
+     */
+    @ApiStatus.Internal
+    public static final class ReadCounts {
+        static final ReadCounts NOW = new ReadCounts();
+        private static final int OFFER = 1, HIT = 2, FULL_READ = 4, CANDIDATES = 3;
+        private int held;
+
+        void offer() {
+            if (this == NOW) wireOfferCounter.increment();
+            else held |= OFFER;
+        }
+
+        void hit(int candidates) {
+            if (this == NOW) {
+                wireCandidateCounter.add(candidates);
+                wireHitCounter.increment();
+            } else held |= HIT | candidates << CANDIDATES;
+        }
+
+        void miss(int candidates) {
+            if (this == NOW) wireCandidateCounter.add(candidates);
+            else held |= candidates << CANDIDATES;
+        }
+
+        void fullRead() {
+            if (this == NOW) multiValueFullReadCounter.increment();
+            else held |= FULL_READ;
+        }
+
+        /** The counts held since the last take, never negative; none are held afterwards. */
+        public int take() {
+            int taken = held;
+            held = 0;
+            return taken;
+        }
+
+        /** Adds counts {@link #take} gave to the counters. */
+        public static void add(int counts) {
+            if ((counts & OFFER) != 0) wireOfferCounter.increment();
+            wireCandidateCounter.add(counts >>> CANDIDATES);
+            if ((counts & HIT) != 0) wireHitCounter.increment();
+            if ((counts & FULL_READ) != 0) multiValueFullReadCounter.increment();
+        }
     }
 
     CachedSection internRetained(CachedSection section) {

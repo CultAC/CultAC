@@ -8,6 +8,8 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
 import org.jetbrains.annotations.Nullable;
 
@@ -42,13 +44,15 @@ public final class UnknownCollisionProvider {
                 && player.compensatedEntities.getSelf().getRiding().isBoat();
         boolean inVehicle = player.compensatedEntities.getSelf().inVehicle();
 
-        Iterable<PacketEntity> candidates = inBoat
-                ? player.compensatedEntities.entityMap.values()
-                : player.compensatedEntities.unknownCollisionCandidates();
+        Collection<PacketEntity> all = inBoat ? player.compensatedEntities.entityMap.values() : null;
+        List<PacketEntity> candidates = inBoat ? null : player.compensatedEntities.unknownCollisionCandidates();
         PacketEntity selfRidingRoot = player.compensatedEntities.selfRidingRoot();
         PacketEntity serverVehicleRoot = player.compensatedEntities.serverVehicleRoot();
         PacketEntity rootOfSelf = inVehicle ? player.compensatedEntities.rootOfSelf() : null;
-        for (PacketEntity entity : candidates) {
+        Iterator<PacketEntity> every = all == null ? null : all.iterator();
+        int count = candidates == null ? 0 : candidates.size();
+        for (int i = 0; every != null ? every.hasNext() : i < count; i++) {
+            PacketEntity entity = every != null ? every.next() : candidates.get(i);
             if (player.compensatedEntities.isUntrackedRider(entity, selfRidingRoot, serverVehicleRoot)) continue;
             // EntityGetter#getEntityCollisions never returns the moving vehicle itself, and
             // AbstractBoat#canVehicleCollide rejects anything Entity#isPassengerOfSameVehicle.

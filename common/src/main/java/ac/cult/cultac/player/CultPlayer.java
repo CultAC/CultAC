@@ -85,13 +85,12 @@ import com.viaversion.viaversion.api.protocol.packet.PacketTracker;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -157,7 +156,10 @@ public class CultPlayer implements GrimUser {
     // Start transaction handling stuff
     // Determining player ping
     // The difference between keepalive and transactions is that keepalive is async while transactions are sync
-    private Queue<SentTransaction> transactionsSent = new ArrayDeque<>();
+    /** Written pings once a native boundary exists; until then {@link #writtenPings} holds them, and this is null. */
+    private LinkedList<SentTransaction> transactionsSent;
+
+    private final WrittenPings writtenPings = new WrittenPings();
     /** The entries of {@link #transactionsSent} by id; it never holds one id twice. */
     private final Int2ObjectOpenHashMap<SentTransaction> transactionsSentById = new Int2ObjectOpenHashMap<>();
 
@@ -170,6 +172,8 @@ public class CultPlayer implements GrimUser {
     private final IntSupplier nextWireWord = () -> wireIdBlock.next(wireIds);
     /** Backend pings in flight, whose ids a CultAC ping must not take or the backend's pong is swallowed. */
     private final ForeignPings foreignPings = new ForeignPings();
+    /** Set once the connection has taken over this player's ping ids; it writes no ping after that. */
+    private volatile boolean pingsRetired;
 
     public final @NotNull AtomicInteger lastTransactionSent = new AtomicInteger(0);
     public final @NotNull AtomicInteger lastTransactionReceived = new AtomicInteger(0);
@@ -661,24 +665,36 @@ public class CultPlayer implements GrimUser {
     // But if some error made a client miss a packet, then it won't hurt them too bad.
     // Also it forces players to take knockback
     public synchronized boolean addTransactionResponse(int id) {
-        SentTransaction answered = transactionsSentById.get(id);
-        if (answered == null) {
-            return false;
+        SentTransaction answered = null;
+        int sequence = -1;
+        if (transactionsSent == null) {
+            sequence = writtenPings.sequence(id);
+            if (sequence < 0) return false;
+        } else {
+            answered = transactionsSentById.get(id);
+            if (answered == null) {
+                return false;
+            }
         }
 
         // A skipped transaction is only suspicious with a valid keep alive baseline;
         // switching servers can legitimately drop transaction responses.
-        if (!isBedrockMovement() && keepAliveProcessor.lastKeepAlivePing > 0 && transactionsSent.peek() != answered) {
+        if (!isBedrockMovement()
+                && keepAliveProcessor.lastKeepAlivePing > 0
+                && (answered == null ? sequence != writtenPings.headSequence() : transactionsSent.peek() != answered)) {
             // Count how many unacknowledged transactions this response jumps past. Each is acknowledged below.
             int skipped = 0;
-            for (SentTransaction pending : transactionsSent) {
-                if (pending == answered) break;
-                skipped++;
-            }
+            if (answered == null) skipped = writtenPings.before(sequence);
+            else
+                for (SentTransaction pending : transactionsSent) {
+                    if (pending == answered) break;
+                    skipped++;
+                }
             checkManager.getCheck(TransactionOrder.class).skipped(skipped);
         }
 
-        SentTransaction acknowledged = acknowledgeThrough(id);
+        boolean acknowledged =
+                transactionsSent == null ? acknowledgeWrittenThrough(id) : acknowledgeThrough(id) != null;
         if (!isBedrockMovement() && getSetbackTeleportUtil().javaTeleports().hasWithheldJavaTeleport()) {
             withheld("answered a ping sent after a teleport it did not answer");
         }
@@ -692,7 +708,25 @@ public class CultPlayer implements GrimUser {
 
         // A transaction response marks a new tick boundary for latency-compensated tasks
         latencyUtils.handleNettySyncTransaction(lastTransactionReceived.get());
-        return acknowledged != null;
+        return acknowledged;
+    }
+
+    /** As {@link #acknowledgeThrough}, over {@link #writtenPings}; whether ping {@code id} was among them. */
+    private boolean acknowledgeWrittenThrough(int id) {
+        int current;
+        do {
+            if (transactionsSent != null) return acknowledgeThrough(id) != null;
+            if (writtenPings.isEmpty()) return false;
+            current = writtenPings.headId();
+            int transaction = writtenPings.headTransaction();
+            long sentAt = writtenPings.headSentAt();
+            writtenPings.removeHead();
+            lastTransactionReceived.set(transaction);
+            rawTransactionPing = System.nanoTime() - sentAt;
+            playerClockAtLeast = sentAt;
+            if (usesModernJavaItemUse()) itemUseBurst.acknowledge(transaction);
+        } while (current != id);
+        return true;
     }
 
     private SentTransaction acknowledgeThrough(int id) {
@@ -779,11 +813,18 @@ public class CultPlayer implements GrimUser {
      * needs the tick's own ping.
      */
     private void endServerTick(int kind, int serverTick) {
-        user.executeAfterWrites(() -> {
-            PlayerObserver observer = this.observer;
-            if (kind == PING_END_OF_TICK && observer != null) observer.serverTickEnded(serverTick);
-            if (user.getCultConnection().provingPing() <= 0) sendTransaction(false, kind, serverTick);
-        });
+        user.executeAfterWrites(
+                kind == PING_LEADING && serverTick == 0
+                        ? endEstimatedServerTick
+                        : () -> endServerTickAfterWrites(kind, serverTick));
+    }
+
+    private final Runnable endEstimatedServerTick = () -> endServerTickAfterWrites(PING_LEADING, 0);
+
+    private void endServerTickAfterWrites(int kind, int serverTick) {
+        PlayerObserver observer = this.observer;
+        if (kind == PING_END_OF_TICK && observer != null) observer.serverTickEnded(serverTick);
+        if (user.getCultConnection().provingPing() <= 0) sendTransaction(false, kind, serverTick);
     }
 
     private int sendTransaction(boolean async, int kind, int serverTick) {
@@ -815,6 +856,7 @@ public class CultPlayer implements GrimUser {
     private boolean canSendTransactionNow() {
         var phase = user.getEncoderState();
         return user.getPlayer() != null
+                && !pingsRetired
                 && !protocolSwitchPending()
                 && (phase == ConnectionPhase.PLAY || phase == ConnectionPhase.CONFIGURATION);
     }
@@ -969,6 +1011,7 @@ public class CultPlayer implements GrimUser {
         CultWrite packet = new CultWrite(new ClientboundPing(transactionID), false);
         TrackedTransaction transaction = new TrackedTransaction(lastTransactionSent.incrementAndGet(), packet);
         transactionsPendingSend.put(transactionID, transaction);
+        if (pingsRetired) user.getCultConnection().retirePing(transactionID);
         if (recordProvenance) {
             int slot = Math.floorMod(transaction.transaction(), RECENT_WIRE_IDS);
             recentTransactions[slot] = transaction.transaction();
@@ -1049,11 +1092,14 @@ public class CultPlayer implements GrimUser {
         if (isBedrockMovement()) {
             sent = new BedrockTransaction(transaction.transaction(), transaction.id());
             bedrockTransactions().add(sent);
+            transactionsSentById.put(sent.id(), sent);
+        } else if (transactionsSent == null) {
+            writtenPings.add(transaction.transaction(), transaction.id(), System.nanoTime());
         } else {
             sent = new SentTransaction(transaction.transaction(), transaction.id(), System.nanoTime());
             transactionsSent.add(sent);
+            transactionsSentById.put(sent.id(), sent);
         }
-        transactionsSentById.put(sent.id(), sent);
         if (!TransactionChannels.SEND.isEmpty()) {
             TransactionChannels.SEND.fire(
                     ac.cult.cultac.runtime.RuntimeEnvironment.outwardUser(this), transaction.id(), timestamp);
@@ -1070,9 +1116,23 @@ public class CultPlayer implements GrimUser {
         foreignPings.remove(id);
     }
 
+    /**
+     * Hands the ids of every ping this player wrote or queued and has no pong for to its connection, before the
+     * player is detached from a connection that stays open; the player writes no ping afterwards.
+     */
+    public synchronized void retirePings() {
+        pingsRetired = true;
+        var connection = user.getCultConnection();
+        connection.retirePings(transactionsSentById.keySet());
+        connection.retirePings(writtenPings.ids());
+        connection.retirePings(transactionsPendingSend.keySet());
+    }
+
     /** Whether {@code id} is a ping CultAC created whose response has not arrived yet. */
     public synchronized boolean awaitsTransactionResponse(int id) {
-        return transactionsPendingSend.containsKey(id) || transactionsSentById.containsKey(id);
+        return transactionsPendingSend.containsKey(id)
+                || transactionsSentById.containsKey(id)
+                || writtenPings.contains(id);
     }
 
     private int nextTransactionId() {
@@ -1085,8 +1145,10 @@ public class CultPlayer implements GrimUser {
         do {
             id = nextWireId(random);
             used = transactionsSentById.containsKey(id);
+            used |= writtenPings.contains(id);
             used |= transactionsPendingSend.containsKey(id);
             used |= foreignPings.contains(id);
+            used |= user.getCultConnection().holdsRetiredPing(id);
         } while (used);
         return id;
     }
@@ -1109,11 +1171,19 @@ public class CultPlayer implements GrimUser {
         }
     }
 
-    private java.util.LinkedList<SentTransaction> bedrockTransactions() {
-        if (!(transactionsSent instanceof java.util.LinkedList)) {
-            transactionsSent = new java.util.LinkedList<>(transactionsSent);
+    private LinkedList<SentTransaction> bedrockTransactions() {
+        if (transactionsSent == null) {
+            LinkedList<SentTransaction> sent = new LinkedList<>();
+            while (!writtenPings.isEmpty()) {
+                var written = new SentTransaction(
+                        writtenPings.headTransaction(), writtenPings.headId(), writtenPings.headSentAt());
+                writtenPings.removeHead();
+                sent.add(written);
+                transactionsSentById.put(written.id(), written);
+            }
+            transactionsSent = sent;
         }
-        return (java.util.LinkedList<SentTransaction>) transactionsSent;
+        return transactionsSent;
     }
 
     public synchronized BedrockTransaction getLastClientboundBedrockTransaction() {

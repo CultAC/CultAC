@@ -200,6 +200,7 @@ public final class PacketOrderProcessor extends Check implements DecodedPacketRe
 
     @CultPacketHandler
     public void onPong(PacketReceiveEvent<ServerboundPong> event, CultPlayer player, ServerboundPong packet) {
+        if (!event.isAcceptedTransactionResponse()) return;
         maybeReset(player, false);
     }
 

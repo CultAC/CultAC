@@ -2,6 +2,7 @@ package ac.cult.cultac.cloud.capture;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.cloud.transport.CloudConnection;
 import ac.cult.cultac.cloud.wire.IntakeWire;
 import io.netty.buffer.ByteBuf;
@@ -144,5 +145,114 @@ class CaptureStreamGoldenTest {
         String hash = HexFormat.of().formatHex(sink.digest.digest());
         System.out.println("CAPTURE-GOLDEN " + hash + " " + sink.sends + " sends " + sink.bytes + " B");
         assertEquals(EXPECTED, hash);
+    }
+
+    private static final String TERRAIN_EXPECTED = "1961016d5edab473bebbc0e1f1ea76860ed83760db9eb3c32d2848166015ab79";
+    private static final int STATES = DataTables.defaults().registry().stateCount();
+
+    /** A socket for terrain: sections within three columns and one index, frames of 64 KiB, budget refused at times. */
+    private static final class TerrainSink implements CaptureStream.Sink {
+        final Digesting digest;
+        final int maxFrameBytes;
+        int holds;
+
+        TerrainSink(Digesting digest, int maxFrameBytes) {
+            this.digest = digest;
+            this.maxFrameBytes = maxFrameBytes;
+        }
+
+        @Override
+        public boolean send(byte[] record) {
+            return digest.send(record);
+        }
+
+        @Override
+        public boolean hold(long bytes) {
+            return ++holds % 41 != 0;
+        }
+
+        @Override
+        public void release(long bytes) {}
+
+        @Override
+        public int maxFrameBytes() {
+            return maxFrameBytes;
+        }
+
+        @Override
+        public CloudConnection.Terms terms() {
+            return CloudConnection.Terms.sections(3, 1);
+        }
+    }
+
+    @Test
+    void aFixedWalkSendsTheSameTerrain() throws NoSuchAlgorithmException {
+        SplittableRandom random = new SplittableRandom(23);
+        Digesting digest = new Digesting();
+        CaptureStream.Session overworld = new CaptureStream.Session(7, 0, "minecraft:overworld", false);
+        for (int maxFrameBytes : new int[] {64 * 1024, 12 * 1024, 1 << 20}) {
+            TerrainSink sink = new TerrainSink(digest, maxFrameBytes);
+            SyntheticTerrain terrain = new SyntheticTerrain();
+            CaptureStream stream = new CaptureStream(PLAYER);
+            stream.start(0);
+            stream.pingPacket(PING);
+            stream.pongPacket(PONG);
+            stream.chunks(new ChunkIds(200, 201, 202, 203));
+            stream.terrain(terrain);
+            terrain.at(8, 70, 8);
+            for (int x = -5; x <= 5; x++) for (int z = -5; z <= 5; z++) terrain.load(x, z);
+            // A section of every palette width, and past the widest into the registry's own ids.
+            int[] widths = {2, 9, 17, 33, 65, 129, 300, 1200};
+            for (int i = 0; i < widths.length; i++) {
+                for (int b = 0; b < 4096; b++) {
+                    int id = 1 + (b * 7919 + i) % widths[i];
+                    terrain.set(16 * (i - 4) + (b & 15), 64 + (b >> 8), b >> 4 & 15, id);
+                }
+            }
+            stream.join(sink, IntakeWire.join(PLAYER, 773, "vanilla", -64, 384, null, null, 0), 0, overworld);
+            stream.capture(new int[] {TICK_END, PONG, MOVE}, new int[] {PING, ENTITY}, new int[] {RESPAWN});
+            long nanos = 0;
+            int wireId = 1;
+            for (int t = 1; t <= TICKS; t++) {
+                for (int i = 0; i < 3 + random.nextInt(6); i++) {
+                    nanos += 1_000 + random.nextInt(200_000);
+                    ByteBuf entity = packet(ENTITY, 4 + random.nextInt(60), random);
+                    tap(stream, IntakeWire.CLIENTBOUND, ENTITY, entity, nanos, overworld, 0);
+                }
+                for (int i = random.nextInt(4) == 0 ? 1 + random.nextInt(30) : 0; i > 0; i--) {
+                    int x = random.nextInt(-40, 40);
+                    int y = random.nextInt(40, 100);
+                    int z = random.nextInt(-40, 40);
+                    stream.blockChanged(x, y, z, terrain.set(x, y, z, random.nextInt(1, STATES)), nanos);
+                }
+                if (t % 37 == 0) {
+                    int x = random.nextInt(-5, 6);
+                    int z = random.nextInt(-5, 6);
+                    if (terrain.loaded(x, z)) {
+                        terrain.unload(x, z);
+                        stream.columnUnloaded(x, z, nanos);
+                    } else {
+                        terrain.load(x, z);
+                        stream.columnLoaded(x, z, nanos);
+                    }
+                }
+                if (t % 9 == 0) {
+                    terrain.at(16 * random.nextInt(-3, 4) + 8, random.nextInt(40, 110), 16 * random.nextInt(-3, 4));
+                }
+                nanos += 20_000;
+                ByteBuf ping = probe(PING, wireId++);
+                tap(stream, IntakeWire.CLIENTBOUND, PING, ping, nanos, overworld, IntakeWire.PING_FOREIGN);
+                tap(stream, IntakeWire.SERVERBOUND, PONG, probe(PONG, wireId - 1), nanos, overworld, 0);
+                tap(stream, IntakeWire.SERVERBOUND, MOVE, packet(MOVE, 25, random), nanos, overworld, 0);
+                tap(stream, IntakeWire.SERVERBOUND, TICK_END, packet(TICK_END, 0, random), nanos, overworld, 0);
+                stream.cut(nanos);
+                long verdict = t - random.nextInt(3);
+                if (verdict > 0) stream.verdict(verdict, verdict, 0, List.of(), null, List.of(), null);
+            }
+            stream.leave(nanos + 1_000);
+        }
+        String hash = HexFormat.of().formatHex(digest.digest.digest());
+        System.out.println("CAPTURE-TERRAIN-GOLDEN " + hash + " " + digest.sends + " sends " + digest.bytes + " B");
+        assertEquals(TERRAIN_EXPECTED, hash);
     }
 }

@@ -119,14 +119,30 @@ public final class ClientFluidQueries {
     }
 
     public static boolean eyesInWater(CultPlayer player, SimpleCollisionBox body, Vec3 feet, double eyeY) {
+        return eyesInWater(
+                player, body.minX, body.minY, body.minZ, body.maxX, body.maxY, body.maxZ, feet.x, feet.z, eyeY);
+    }
+
+    /** {@link #eyesInWater(CultPlayer, SimpleCollisionBox, Vec3, double)} on the body's bounds and the feet's X and Z. */
+    public static boolean eyesInWater(
+            CultPlayer player,
+            double minX,
+            double minY,
+            double minZ,
+            double maxX,
+            double maxY,
+            double maxZ,
+            double feetX,
+            double feetZ,
+            double eyeY) {
         if (!player.isBedrockMovement()) {
             // EntityFluidInteraction#update samples the eye from 26.1.
             if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_1)) {
-                return eyesInside(player, body, feet, eyeY, FluidTags.WATER);
+                return eyesInside(player, minX, minY, minZ, maxX, maxY, maxZ, feetX, feetZ, eyeY, FluidTags.WATER);
             }
             // Entity#updateFluidOnEyes: the float top of the fluid in the eye's block is over the eye.
             if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_20_5)) {
-                float level = (float) player.compensatedWorld.getWaterFluidLevelAt(feet.x, eyeY, feet.z);
+                float level = (float) player.compensatedWorld.getWaterFluidLevelAt(feetX, eyeY, feetZ);
                 return (float) Math.floor(eyeY) + level > eyeY;
             }
         }
@@ -134,7 +150,7 @@ public final class ClientFluidQueries {
         double legacyEyeY = eyeY - 0.1111111119389534D;
         return legacyEyeY
                 < (float) Math.floor(legacyEyeY)
-                        + player.compensatedWorld.getWaterFluidLevelAt(feet.x, legacyEyeY, feet.z);
+                        + player.compensatedWorld.getWaterFluidLevelAt(feetX, legacyEyeY, feetZ);
     }
 
     public static DesyncStatus floatWhileRidden(
@@ -184,20 +200,36 @@ public final class ClientFluidQueries {
 
     public static boolean eyesInside(
             CultPlayer player, SimpleCollisionBox body, Vec3 feet, double eyeY, FluidTags tag) {
-        SimpleCollisionBox box = body.copy().expand(-0.001D);
-        int x = (int) Math.floor(feet.x), z = (int) Math.floor(feet.z);
-        if (x < Math.floor(box.minX)
-                || x >= Math.ceil(box.maxX)
-                || z < Math.floor(box.minZ)
-                || z >= Math.ceil(box.maxZ)) return false;
-        if (!player.compensatedWorld.mayHaveFluid(
-                x, (int) Math.floor(box.minY), z, x, (int) Math.ceil(box.maxY) - 1, z)) return false;
-        for (int y = (int) Math.floor(box.minY); y < Math.ceil(box.maxY); y++) {
+        return eyesInside(
+                player, body.minX, body.minY, body.minZ, body.maxX, body.maxY, body.maxZ, feet.x, feet.z, eyeY, tag);
+    }
+
+    private static boolean eyesInside(
+            CultPlayer player,
+            double bodyMinX,
+            double bodyMinY,
+            double bodyMinZ,
+            double bodyMaxX,
+            double bodyMaxY,
+            double bodyMaxZ,
+            double feetX,
+            double feetZ,
+            double eyeY,
+            FluidTags tag) {
+        // SimpleCollisionBox#expand(-0.001D) on a copy of the body.
+        double inflate = -0.001D;
+        double minX = bodyMinX - inflate, minY = bodyMinY - inflate, minZ = bodyMinZ - inflate;
+        double maxX = bodyMaxX + inflate, maxY = bodyMaxY + inflate, maxZ = bodyMaxZ + inflate;
+        int x = (int) Math.floor(feetX), z = (int) Math.floor(feetZ);
+        if (x < Math.floor(minX) || x >= Math.ceil(maxX) || z < Math.floor(minZ) || z >= Math.ceil(maxZ)) return false;
+        if (!player.compensatedWorld.mayHaveFluid(x, (int) Math.floor(minY), z, x, (int) Math.ceil(maxY) - 1, z))
+            return false;
+        for (int y = (int) Math.floor(minY); y < Math.ceil(maxY); y++) {
             BlockPos pos = new BlockPos(x, y, z);
             SimFluidState fluid = fluidAt(player.compensatedWorld, pos);
             if (fluid.isEmpty() || !is(player, fluid, tag)) continue;
             float ordinaryHeight = height(player.compensatedWorld, pos, fluid);
-            if ((double) y + ordinaryHeight < box.minY || eyeY < y) continue;
+            if ((double) y + ordinaryHeight < minY || eyeY < y) continue;
             BlockPos above = pos.above();
             // 26.3 measures the eye against FluidState#getHeightForCamera, 26.1 and 26.2 against FluidState#getHeight.
             float eyeHeight = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_3)

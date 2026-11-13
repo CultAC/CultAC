@@ -667,7 +667,8 @@ public class VelocityTransformer {
 
         List<PredVector> outputs = new ArrayList<>(input.size());
         boolean noCurrent = false;
-        for (PredVector vector : input) {
+        for (int i = 0; i < input.size(); i++) {
+            PredVector vector = input.get(i);
             if (!mayFallUnderMovementThreshold(vector, version)) {
                 outputs.add(vector);
                 continue;

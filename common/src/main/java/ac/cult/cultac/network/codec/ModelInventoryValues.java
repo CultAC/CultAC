@@ -72,6 +72,7 @@ final class ModelInventoryValues {
     }
 
     private InventoryPackets.Equipment equipment(ByteBuf input) {
+        if (values.convertsLater()) return sentEquipment(input);
         int id = Wire.readVarInt(input), slot;
         var entries = new ArrayList<EquipmentEntry>();
         do {
@@ -79,6 +80,26 @@ final class ModelInventoryValues {
             entries.add(new EquipmentEntry(EquipmentSlot.VALUES.get(slot & 127), values.sentItem(input)));
         } while ((slot & 128) != 0);
         return new InventoryPackets.Equipment(id, entries);
+    }
+
+    /** As the eager read; the deferred task that consumes an entry decides whether its stack is ever read. */
+    @SuppressWarnings("unchecked")
+    private InventoryPackets.Equipment sentEquipment(ByteBuf input) {
+        int id = Wire.readVarInt(input), slot, count = 0;
+        var slots = new EquipmentSlot[2];
+        Supplier<SimItemStack>[] items = new Supplier[2];
+        do {
+            slot = input.readUnsignedByte();
+            var equipment = EquipmentSlot.VALUES.get(slot & 127);
+            if (count == slots.length) {
+                slots = Arrays.copyOf(slots, count * 2);
+                items = Arrays.copyOf(items, count * 2);
+            }
+            slots[count] = equipment;
+            items[count++] = values.sentLater(input);
+        } while ((slot & 128) != 0);
+        if (count != slots.length) slots = Arrays.copyOf(slots, count);
+        return new InventoryPackets.Equipment(id, new InventoryPackets.SentEquipment(slots, items));
     }
 
     private InventoryClick click(ByteBuf input) {
