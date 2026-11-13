@@ -27,20 +27,26 @@ final class BedrockOffsetBlockShape {
         PositionOffset offset =
                 positionOffset(position.x() - frame.originX(), position.z() - frame.originZ(), maxOffset);
         PositionOffset originOffset = positionOffset(0, 0, maxOffset);
-        double deltaX = offset.x() - originOffset.x();
-        double deltaZ = offset.z() - originOffset.z();
 
         List<WorldCollisionBox> boxes = new ArrayList<>(originShape.boxes().size());
         for (BlockAabb box : originShape.boxes()) {
             boxes.add(new WorldCollisionBox(
-                    position.x() + box.minX() + deltaX,
+                    position.x() + unshifted(box.minX(), originOffset.x()) + offset.x(),
                     position.y() + box.minY(),
-                    position.z() + box.minZ() + deltaZ,
-                    position.x() + box.maxX() + deltaX,
+                    position.z() + unshifted(box.minZ(), originOffset.z()) + offset.z(),
+                    position.x() + unshifted(box.maxX(), originOffset.x()) + offset.x(),
                     position.y() + box.maxY(),
-                    position.z() + box.maxZ() + deltaZ));
+                    position.z() + unshifted(box.maxZ(), originOffset.z()) + offset.z()));
         }
         return List.copyOf(boxes);
+    }
+
+    /**
+     * The bound a catalog shape had before the shift of position (0, 0). The catalog rounds the shifted bounds to six
+     * decimals, which can leave a face a float step past the one the shape has; every unshifted bound is a sixteenth.
+     */
+    private static double unshifted(double catalogBound, float originOffset) {
+        return Math.rint((catalogBound - originOffset) * 16.0D) / 16.0D;
     }
 
     private static PositionOffset positionOffset(int x, int z, float maxOffset) {

@@ -128,6 +128,74 @@ public class BedrockOffsetBlockShapeTest {
         assertEquals(20113.645833, box(TIP, new BlockPosition(20113, 120, 20030), frame).maxX(), 1.0E-5);
     }
 
+    /**
+     * Flag 94 (2026-11-13): a frustum at (20121, 120, 20178) in a frame from (20064, 20176) is shifted by steps 13 and
+     * 9, 0.091667 and 0.025, so its north face is the float 2.775 of the frame. The catalog keeps its bounds rounded
+     * to six decimals after the shift of position (0, 0); taken as they are, they put the face one float step further.
+     */
+    @Test
+    public void aShiftedFaceIsTheFloatOfItsSixteenthAndStep() {
+        var frame = new BedrockCoordinateFrame(20064, 20176, 3);
+        WorldCollisionBox frustum = box(dripstone("frustum", "up"), new BlockPosition(20121, 120, 20178), frame);
+        assertEquals(2.775F, frame.localZ(frustum.maxZ()), 0.0F);
+        assertEquals(2.275F, frame.localZ(frustum.minZ()), 0.0F);
+        assertEquals(57.341667F, frame.localX(frustum.minX()), 0.0F);
+        assertEquals(57.841667F, frame.localX(frustum.maxX()), 0.0F);
+    }
+
+    /** The player of flag 94 walks into that face and stays flush with it: nothing pushes it back out. */
+    @Test
+    public void aPlayerFlushWithAShiftedFaceIsNotPushedOutOfIt() {
+        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            int stone = DataTables.defaults().registry().block("minecraft:stone").defaultState();
+            for (int x = 20118; x <= 20124; x++)
+                for (int z = 20175; z <= 20182; z++) {
+                    player.compensatedWorld.ensureValidationChunkLoaded(x >> 4, z >> 4);
+                    player.compensatedWorld.updateBlock(x, 119, z, stone);
+                }
+            player.compensatedWorld.updateBlock(20121, 120, 20178, dripstone("frustum", "up"));
+            var coordinates = new BedrockCoordinateFrame(20064, 20176, 3);
+            var feet = new Vec3(20121.332927703857, 120.0, 20179.075000047684);
+            player.x = player.lastX = feet.x;
+            player.y = player.lastY = feet.y;
+            player.z = player.lastZ = feet.z;
+            player.onGround = player.lastOnGround = true;
+            player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, feet.x, feet.y, feet.z);
+            var local = coordinates.toLocal(feet);
+            var velocity = new Vec3(0, GRAVITY_TICK, 0);
+            for (long tick = 2409; tick < 2414; tick++) {
+                var frame = BedrockAuthInputFrame.builder(player.playerUUID)
+                        .protocolVersion(2225)
+                        .clientTick(tick)
+                        .inputMode(1)
+                        .playMode(2)
+                        .deviceId(3)
+                        .coordinateFrame(coordinates)
+                        .position(feet)
+                        .packetPosition(new Vec3((float) local.x, (float) (feet.y + 1.62001), (float) local.z))
+                        .rotation(180, 45, 180)
+                        .moveVector(0, 1)
+                        .delta(velocity)
+                        .reportedEndOfTickVelocity(velocity)
+                        .rawInputFlags(1L << PlayerAuthInputData.VERTICAL_COLLISION.ordinal())
+                        .build();
+                player.bedrockState.offerAuthInputFrame(frame);
+                var result = player.checkManager
+                        .getSimulationProcessor()
+                        .processBedrockAuthInputFrame(frame, BedrockPredictionTrigger.OFFLINE_REPLAY);
+                assertNotNull("tick " + tick, result);
+                var state = result.getProfileResult(BedrockPredictionResult.class).nextTickBaseState();
+                assertNotNull("tick " + tick, state);
+                assertEquals("tick " + tick + " velocity " + state.velocity(), 0.0, state.velocity().z(), 1.0E-6);
+                assertEquals(
+                        "tick " + tick, 0, player.checkManager.getListener(BedrockMovement.class).violations, 0);
+            }
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
     @Test
     public void aPlayerOverTheTipOfItsOwnSessionStandsOnIt() {
         withTip(player -> {
