@@ -89,7 +89,6 @@ class SprintEResidualWallTest {
         var packet = new ServerboundPlayerCommand(f.player.entityID, PlayerCommandAction.START_SPRINTING, 0);
         PacketReceiveEvent<ServerboundPlayerCommand> event = f.event(ServerboundPackets.PLAYER_COMMAND, packet);
         new PacketEntityAction().onPlayerCommand(event, f.player, packet);
-        sprintE.onPlayerCommand(event, f.player, packet);
         return sprintE;
     }
 

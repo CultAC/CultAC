@@ -6,11 +6,7 @@ import ac.cult.cultac.checks.impl.prediction.ClientHorizontalCollision;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.type.PostPredictionListener;
-import ac.cult.cultac.network.CultPacketHandler;
-import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
-import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 
 @CheckData(
@@ -20,20 +16,11 @@ import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
         setback = 5,
         experimental = true)
 public final class SprintE extends Check implements PostPredictionListener {
-    private boolean startedSprintingThisTick;
     private boolean wasHardHorizontalCollision;
     private boolean previousPredictionChecked;
 
     public SprintE(CultPlayer player) {
         super(player);
-    }
-
-    @CultPacketHandler
-    public void onPlayerCommand(
-            PacketReceiveEvent<ServerboundPlayerCommand> event, CultPlayer player, ServerboundPlayerCommand packet) {
-        if (packet.action() == PlayerCommandAction.START_SPRINTING) {
-            startedSprintingThisTick = true;
-        }
     }
 
     @Override
@@ -46,7 +33,6 @@ public final class SprintE extends Check implements PostPredictionListener {
         if (complete.isTeleport()) {
             wasHardHorizontalCollision = false;
             previousPredictionChecked = false;
-            startedSprintingThisTick = false;
             return;
         }
 
@@ -59,10 +45,11 @@ public final class SprintE extends Check implements PostPredictionListener {
         boolean inWater = result != null
                 && result.getSimulationContext().getWorldData().isInWater();
 
+        // LocalPlayer#aiStep stops a sprint it started in the same tick once the last move collided hard, so no
+        // START precedes a sprinting move after one.
         if (checked
                 && previousPredictionChecked
                 && wasHardHorizontalCollision
-                && !startedSprintingThisTick
                 && !player.inVehicle()
                 && !inWater) {
             if (player.isSprinting) {
@@ -76,6 +63,5 @@ public final class SprintE extends Check implements PostPredictionListener {
         wasHardHorizontalCollision =
                 checked && ClientHorizontalCollision.hardForEveryReality(result).determinePessimistically();
         previousPredictionChecked = checked;
-        startedSprintingThisTick = false;
     }
 }
