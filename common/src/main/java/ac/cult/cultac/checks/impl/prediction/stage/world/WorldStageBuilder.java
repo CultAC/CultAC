@@ -487,7 +487,8 @@ public class WorldStageBuilder {
     /**
      * The horizontal direction that leaves the shapes the box overlaps, or null when nothing pushes it. Each axis
      * points away from their mean center, turns around when only the opposite corridor is free and is dropped when
-     * neither is. A box centered on them leaves towards +x and +z.
+     * neither is. A box centered on them leaves towards +x and +z. The boxes are in the float coordinates collision
+     * uses, and a box no more than one float step inside a face only touches it.
      */
     public static Vec3 moveTowardsClosestSpaceBedrock(SimpleCollisionBox box, List<SimpleCollisionBox> shapes) {
         List<SimpleCollisionBox> surrounding = new ArrayList<>();
@@ -497,7 +498,7 @@ public class WorldStageBuilder {
         int overlaps = 0;
         for (SimpleCollisionBox shape : shapes) {
             if (!search.isIntersected(shape)) continue;
-            if (box.isIntersected(shape)) {
+            if (overlapsPastContact(box, shape)) {
                 centerX += (float) ((shape.minX + shape.maxX) * 0.5);
                 centerZ += (float) ((shape.minZ + shape.maxZ) * 0.5);
                 overlaps++;
@@ -521,6 +522,23 @@ public class WorldStageBuilder {
         float pushX = dx * freeCorridor(centered, surrounding, Math.signum(dx), 0.0F);
         float pushZ = dz * freeCorridor(centered, surrounding, 0.0F, Math.signum(dz));
         return pushX == 0.0F && pushZ == 0.0F ? null : new Vec3(pushX, 0.0, pushZ);
+    }
+
+    /**
+     * Whether the box is more than one float step inside the shape through every face. A box carried from a reported
+     * position can sit a step past a face it was left flush with, so an overlap that shallow is not one to leave.
+     */
+    private static boolean overlapsPastContact(SimpleCollisionBox box, SimpleCollisionBox shape) {
+        return pastContact(shape.maxX - box.minX, shape.maxX)
+                && pastContact(box.maxX - shape.minX, shape.minX)
+                && pastContact(shape.maxY - box.minY, shape.maxY)
+                && pastContact(box.maxY - shape.minY, shape.minY)
+                && pastContact(shape.maxZ - box.minZ, shape.maxZ)
+                && pastContact(box.maxZ - shape.minZ, shape.minZ);
+    }
+
+    private static boolean pastContact(double depth, double face) {
+        return depth > Math.max(SimpleCollisionBox.COLLISION_EPSILON, Math.ulp((float) face));
     }
 
     /** 1 when the corridor along the direction is free, -1 when only the opposite one is, else 0. */

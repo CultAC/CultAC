@@ -24,6 +24,7 @@ import ac.cult.cultac.bedrock.prediction.world.EntityContactState;
 import ac.cult.cultac.bedrock.prediction.world.FluidState;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import ac.cult.cultac.bedrock.prediction.world.WorldContactState;
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.Test;
@@ -92,20 +93,61 @@ public final class BedrockEndTickBlockPushTest {
         assertEquals(0.07071068D, pushed.z(), 1.0E-7D);
     }
 
-    // A swim pushed out of a wall at z 20066 ends with its float box one float step (0.00195) inside the wall's
-    // block, its reported position 0.39 in front of it. The client raises the post-drag velocity z -0.068914 to the
-    // push speed; the same box ending flush with the wall is not pushed.
+    // A box one float step (0.00195 at z 20066) inside a wall's block only touches it: a box carried from a reported
+    // position can sit a step past a face it was left flush with. Two steps inside is pushed out at the push speed.
     @Test
-    public void boxOneFloatStepInsideAWallIsPushed() {
+    public void boxMoreThanOneFloatStepInsideAWallIsPushed() {
         var world = new BlockCollisionWorld(List.of(cube(20055, 119, 20066)));
         var feet = new Vec3d(20055.528120040894D, 119.16706085205078D, 20065.610872268677D);
         var velocity = new Vec3d(0.052746D, 0.009384D, -0.068914D);
 
-        Vec3d pushed = pushBox(world, feet, velocity, 20065.220703125D, 20066.001953125D);
+        assertEquals(velocity, pushBox(world, feet, velocity, 20065.21875D, 20066.0D));
+        assertEquals(velocity, pushBox(world, feet, velocity, 20065.220703125D, 20066.001953125D));
+
+        Vec3d pushed = pushBox(world, feet, velocity, 20065.22265625D, 20066.00390625D);
         assertEquals(velocity.x(), pushed.x(), 0.0D);
         assertEquals(-PUSH, pushed.z(), 1.0E-3D);
+    }
 
-        assertEquals(velocity, pushBox(world, feet, velocity, 20065.21875D, 20066.0D));
+    // Flag 117 (2026-11-13): a sprint jump against a one-high step at z 20152, in a frame whose origin is
+    // (20064, 20176). The move was stopped at the step's face and the reported velocity kept z at 0; the carried box
+    // sat one float step (1.9e-6) inside that face.
+    @Test
+    public void boxOneFloatStepInsideAStepFaceInARebasedFrameIsNotPushed() {
+        var frame = new BedrockCoordinateFrame(20064, 20176, 3L);
+        var world = new BlockCollisionWorld(List.of(cube(20002, 122, 20152), cube(20003, 122, 20152)), frame);
+        var feet = new Vec3d(20003.00500869751D, 122.7531967163086D, 20151.70000076294D);
+        var velocity = new Vec3d(0.10817278921604156D, 0.2481359988451004D, 0.0D);
+        double step = Math.ulp(24.0F);
+        var flush = new WorldCollisionBox(
+                frame.roundX(feet.x() - 0.3D),
+                feet.y(),
+                frame.roundZ(feet.z() - 0.3D),
+                frame.roundX(feet.x() + 0.3D),
+                feet.y() + 1.8D,
+                20152.0D);
+
+        assertEquals(velocity, pushBox(world, feet, velocity, flush, frame));
+        assertEquals(velocity, pushBox(world, feet, velocity, withMaxZ(flush, 20152.0D + step), frame));
+        Vec3d pushed = pushBox(world, feet, velocity, withMaxZ(flush, 20152.0D + 2.0D * step), frame);
+        assertEquals(-PUSH, pushed.z(), 1.0E-4D);
+    }
+
+    private static WorldCollisionBox withMaxZ(WorldCollisionBox box, double maxZ) {
+        return new WorldCollisionBox(box.minX(), box.minY(), box.minZ(), box.maxX(), box.maxY(), maxZ);
+    }
+
+    private static Vec3d pushBox(
+            BlockCollisionWorld world,
+            Vec3d feet,
+            Vec3d velocity,
+            WorldCollisionBox box,
+            BedrockCoordinateFrame frame) {
+        var state = BedrockMovementState.fromPhysicalFeet(
+                        feet, velocity, BedrockInputFrame.idle(0L), BedrockCollisionFlags.AIR)
+                .withCoordinateFrame(frame)
+                .withCollisionBox(box);
+        return BedrockEndTickBlockPush.apply(travelTick(world), state).velocity();
     }
 
     private static Vec3d pushBox(BlockCollisionWorld world, Vec3d feet, Vec3d velocity, double minZ, double maxZ) {

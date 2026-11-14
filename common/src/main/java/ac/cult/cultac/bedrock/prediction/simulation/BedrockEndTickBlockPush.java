@@ -5,6 +5,7 @@ import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockBlockSurfaceMovement;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
+import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldStageBuilder;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
@@ -12,6 +13,7 @@ import ac.cult.cultac.utils.math.Vec3;
 /**
  * Pushes the velocity a tick ends with out of the blocks its box overlaps, after travel and the
  * end-of-tick velocity effects. The push only raises a slower axis to its speed, it never adds to a faster one.
+ * A box no more than one float step inside a block only touches it and is not pushed.
  */
 final class BedrockEndTickBlockPush {
     private static final float PUSH_SPEED = 0.1F;
@@ -46,12 +48,12 @@ final class BedrockEndTickBlockPush {
         // against the block shapes in the same float coordinates its collision uses.
         var world = movement.movementContext().worldState().blockCollisionWorld();
         var frame = world.coordinateFrame();
-        var box = simple(state.collisionBox(movement.movementContext().playerDimensionsState()));
+        var box = local(state.collisionBox(movement.movementContext().playerDimensionsState()), frame);
         // Only blocks push: an actor the box overlaps is left through the move or not at all.
         var shapes = world.blocks().stream()
                 .filter(block -> !block.isEntityCollision())
                 .flatMap(block -> block.collisionBoxes().stream())
-                .map(shape -> simple(frame.roundBox(shape)))
+                .map(shape -> local(shape, frame))
                 .toList();
         Vec3 direction = WorldStageBuilder.moveTowardsClosestSpaceBedrock(box, shapes);
         if (direction == null) return state;
@@ -68,8 +70,15 @@ final class BedrockEndTickBlockPush {
                 state.collisionFlags());
     }
 
-    private static SimpleCollisionBox simple(WorldCollisionBox box) {
-        return new SimpleCollisionBox(box.minX(), box.minY(), box.minZ(), box.maxX(), box.maxY(), box.maxZ());
+    /** The box in the frame's float coordinates, where a float step is the one collision rounds to. */
+    private static SimpleCollisionBox local(WorldCollisionBox box, BedrockCoordinateFrame frame) {
+        return new SimpleCollisionBox(
+                frame.localX(box.minX()),
+                (float) box.minY(),
+                frame.localZ(box.minZ()),
+                frame.localX(box.maxX()),
+                (float) box.maxY(),
+                frame.localZ(box.maxZ()));
     }
 
     private static double pushed(double velocity, float direction, float standingSlowdown) {
