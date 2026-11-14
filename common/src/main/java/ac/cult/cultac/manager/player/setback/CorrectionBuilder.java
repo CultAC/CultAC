@@ -15,6 +15,7 @@ import ac.cult.cultac.utils.data.MainSupportingBlockData;
 import ac.cult.cultac.utils.data.SetBackData;
 import ac.cult.cultac.utils.data.SetbackPosWithVector;
 import ac.cult.cultac.utils.data.TeleportData;
+import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
@@ -125,7 +126,9 @@ public final class CorrectionBuilder {
                 && flagged != null
                 && !player.isBedrockMovement()
                 && flagged.getSimulationContext().getVehicle() != null;
-        boolean onFootTick = simulateNext
+        Vec3 serverVehiclePosition = vehicleSimulated ? null : unplacedVehiclePosition(safe);
+        boolean onFootTick = serverVehiclePosition == null
+                && simulateNext
                 && lastPrediction != null
                 && !player.compensatedEntities.getSelf().inVehicle();
         // We don't want to make it IMPOSSIBLE for high ping players to play after taking knockback
@@ -217,6 +220,9 @@ public final class CorrectionBuilder {
                             player, flagged, lastPrediction, movement, null)
                     .iterator()
                     .next();
+        } else if (serverVehiclePosition != null) {
+            position = serverVehiclePosition;
+            clientVel = Vec3.ZERO;
         }
 
         if (bedrockVehicle && profileState != null) {
@@ -259,6 +265,18 @@ public final class CorrectionBuilder {
             }
         }
         return data;
+    }
+
+    /**
+     * Where the server has the vehicle a Java setback moves when the safe position is not one of that vehicle's, such
+     * as an on-foot position from before the server seated the player; null otherwise.
+     */
+    private Vec3 unplacedVehiclePosition(SetbackPosWithVector safe) {
+        if (player.isBedrockMovement()) return null;
+        SetbackEntity moved = SetbackEntity.current(player);
+        if (moved.isPlayer() || moved.equals(safe.getOwner())) return null;
+        TrackerData tracked = player.compensatedEntities.getTrackedEntity(moved.vehicleId());
+        return tracked == null ? null : new Vec3(tracked.getX(), tracked.getY(), tracked.getZ());
     }
 
     /**

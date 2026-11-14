@@ -136,6 +136,11 @@ public final class SetbackPolicy {
     }
 
     public boolean executeTooHighLatencySetback(String cause) {
+        return executeTooHighLatencySetback(cause, true);
+    }
+
+    /** {@code ignoreUnchanged} skips the setback when the player barely moves in the engine's world. */
+    public boolean executeTooHighLatencySetback(String cause, boolean ignoreUnchanged) {
         if (isExempt()) return false;
         // Latency is measured by forwarded movement: a dead client's movement is never forwarded, and a client
         // that has not accepted its placement teleport has no movement to send yet.
@@ -146,7 +151,7 @@ public final class SetbackPolicy {
         blockMovementsUntilResync(
                 true, // simulate next tick
                 false, // full resync
-                true, // ignore if no forced change
+                ignoreUnchanged, // ignore if no forced change
                 null,
                 SetbackReason.LATENCY,
                 cause,

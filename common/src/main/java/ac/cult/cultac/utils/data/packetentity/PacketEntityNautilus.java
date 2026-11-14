@@ -1,6 +1,7 @@
 package ac.cult.cultac.utils.data.packetentity;
 
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.math.CultMath;
 
 /** Client-visible state used by AbstractNautilus#travelRidden. */
 public final class PacketEntityNautilus extends PacketEntityTrackXRot {
@@ -33,6 +34,11 @@ public final class PacketEntityNautilus extends PacketEntityTrackXRot {
             if (hasSaddle && dashCooldown <= 0) pendingJumpScale = nextPendingJumpScale;
             nextPendingJumpScale = 0.0D;
         }
+    }
+
+    public float getRiddenTickYaw(float controllerYaw) {
+        float rootYaw = clientPhysicalYaw;
+        return (rootYaw + CultMath.wrapDegrees(controllerYaw - rootYaw) * 0.5F) % 360.0F;
     }
 
     public void setDashingFromMetadata(boolean dashing) {

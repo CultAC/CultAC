@@ -20,7 +20,7 @@ import org.junit.Test;
 public class ClippedAxisReselectTest {
     private static final double RADIUS = 0.25D;
     private static final double CLIP_X = 0.1D;
-    /** Entity#WATER_FLOW_SCALE, the circular allowance FluidPush grants a water current. */
+    /** Entity#WATER_FLOW_SCALE, the length of a water current's push. */
     private static final double WATER_FLOW_SCALE = 0.014D;
     /** LivingEntity#BASE_SWIM_SPEED, the input LivingEntity#travelInWater moves by. */
     private static final double BASE_SWIM_SPEED = 0.02F;

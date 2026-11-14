@@ -23,6 +23,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveVehicle;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRemoveEntities;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.SetBackData;
@@ -47,6 +48,12 @@ class DroppedVehicleSetbackVelocityTest {
     private static final int FULL_CHARGE = 100;
     private static final double GROUNDED_Y = -0.0784000015258789;
     private static final int VEHICLE_SWITCH_TICKS = 5;
+    /** LocalPlayer#aiStep's jumpRidingScale reaches 1.0 after the press and ten held ticks. */
+    private static final int FULL_CHARGE_TICKS = 10;
+    private static final ServerboundPlayerInput JUMP_HELD =
+            new ServerboundPlayerInput(false, false, false, false, true, false, false);
+    private static final ServerboundPlayerInput RELEASED =
+            new ServerboundPlayerInput(false, false, false, false, false, false, false);
 
     @Test
     void aHorseRemovedDuringItsJumpSetbackGivesThePlayerNoJumpVelocity() throws Exception {
@@ -74,6 +81,8 @@ class DroppedVehicleSetbackVelocityTest {
             horse.onGround = true;
 
             for (int i = 0; i < VEHICLE_SWITCH_TICKS; i++) assertVehicleExact(ride(f, GROUND, true, false), i);
+            f.input(JUMP_HELD);
+            for (int i = 0; i <= FULL_CHARGE_TICKS; i++) assertVehicleExact(ride(f, GROUND, true, false), i);
             ride(f, GROUND, true, true);
             // The jump tick claims a height no jump reaches.
             assertRejected(ride(f, GROUND.add(0, 3, 0), false, false), "VehicleOffset");
@@ -111,7 +120,10 @@ class DroppedVehicleSetbackVelocityTest {
     /** LocalPlayer#aiStep may release the jump, then LocalPlayer#tick sends the rider's Rot, the move and the tick end. */
     private static PredictionResult ride(JavaTickFixture f, Vec3 to, boolean onGround, boolean releaseJump) {
         PredictionResult before = f.player.checkManager.getSimulationProcessor().getLastPrediction();
-        if (releaseJump) f.command(PlayerCommandAction.START_JUMPING_WITH_HORSE, FULL_CHARGE);
+        if (releaseJump) {
+            f.command(PlayerCommandAction.START_JUMPING_WITH_HORSE, FULL_CHARGE);
+            f.input(RELEASED);
+        }
         var rot = new ServerboundMovePlayer(0, 0, 0, 0, 0, false, false, false, true);
         f.listener.onMovePlayer(f.event(ServerboundPackets.MOVE_PLAYER, rot), f.player, rot);
         var move = new ServerboundMoveVehicle(new Vec3d(to.x, to.y, to.z), 0, 0, onGround, true);

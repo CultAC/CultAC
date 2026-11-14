@@ -246,6 +246,7 @@ class PredictionPipelineEquivalenceTest {
         if (type == boolean.class) return true;
         if (type == int.class) return 7;
         if (type == DesyncStatus.class) return DesyncStatus.TRUE;
+        if (type == List.class) return new ArrayList<>();
         return new ObjenesisStd().newInstance(type);
     }
 }

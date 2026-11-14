@@ -93,25 +93,36 @@ public final class ClientFluidQueries {
     }
 
     public static Sample sample(CultPlayer player, int block, int x, int y, int z) {
+        CompensatedWorld world = player.compensatedWorld;
+        if (usesTagBasedFluidRules(player)) block = world.getBlockStateIdAt(x, y, z);
+        return sample(player, block, world.getBlockStateIdAt(x, y + 1, z));
+    }
+
+    /** Classify a cell holding {@code block} under a cell holding {@code above}. */
+    public static Sample sample(CultPlayer player, int block, int above) {
+        SimFluidState fluid = modelFluid(block);
         if (usesTagBasedFluidRules(player)) {
-            CompensatedWorld world = player.compensatedWorld;
-            SimFluidState fluid = modelFluid(world.getBlockStateIdAt(x, y, z));
             if (fluid.isEmpty()) return Sample.EMPTY;
             return new Sample(
                     is(player, fluid, FluidTags.WATER),
                     is(player, fluid, FluidTags.LAVA),
-                    fluid.height(modelFluid(world.getBlockStateIdAt(x, y + 1, z))));
+                    fluid.height(modelFluid(above)));
         }
         // Older clients and Bedrock use the material and height rules,
         // including waterlogged blocks and the amount/9 height calculation.
-        SimFluidState fluid = modelFluid(block);
         if (fluid.is("minecraft:water") || fluid.is("minecraft:flowing_water")) {
-            return new Sample(true, false, player.compensatedWorld.getWaterFluidLevelAt(x, y, z));
+            return new Sample(true, false, legacyHeight(fluid, above, FluidTags.WATER));
         }
         if (BlockIds.is(block, BlockIds.LAVA)) {
-            return new Sample(false, true, player.compensatedWorld.getLavaFluidLevelAt(x, y, z));
+            return new Sample(false, true, legacyHeight(fluid, above, FluidTags.LAVA));
         }
         return Sample.EMPTY;
+    }
+
+    // A fluid under the same fluid is a full block, as CompensatedWorld#getWaterFluidLevelAt and #getLavaFluidLevelAt.
+    private static double legacyHeight(SimFluidState fluid, int above, FluidTags tag) {
+        if (!tag.test(fluid)) return 0;
+        return tag.test(modelFluid(above)) ? 1 : fluid.amount() / 9f;
     }
 
     public record Sample(boolean water, boolean lava, double height) {

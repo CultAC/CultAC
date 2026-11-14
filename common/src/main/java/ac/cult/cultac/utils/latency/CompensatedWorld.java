@@ -30,6 +30,8 @@ import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.JavaCollisionState;
 import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
 import io.netty.buffer.ByteBuf;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntList;
 import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
@@ -77,6 +79,7 @@ public class CompensatedWorld {
     private final ClientEnvironment clientEnvironment = new ClientEnvironment();
     private long clientGameTime;
     private long endedTickGameTime;
+    private boolean blockEntitiesTickThisClientTick;
     private Map<String, Set<String>> clientRecipeInputs = Map.of();
     // Initial ClientListenerCookie uses DEFAULT_FLAGS; ClientLevelData begins at NORMAL.
     private Set<String> clientEnabledFeatures = Set.of("minecraft:vanilla");
@@ -84,6 +87,9 @@ public class CompensatedWorld {
     private final Long2IntOpenHashMap recentClientCollisionChanges = new Long2IntOpenHashMap();
     private final Long2IntOpenHashMap recentClientFluidChanges = new Long2IntOpenHashMap();
     private final Long2ByteOpenHashMap recentClientFluidChangeKinds = new Long2ByteOpenHashMap();
+    // Every state a recently changed fluid cell held since its mark, which the client may still hold.
+    private final Long2ObjectOpenHashMap<IntArrayList> recentClientFluidReplacedStates =
+            new Long2ObjectOpenHashMap<>();
     // Blocks a Bedrock client's own predictions wrote that no server update has replaced since. Its predictions are
     // written straight into this world, and the client may not hold them: Geyser can refuse a use and restore the
     // block on the client without anything reaching this world.
@@ -121,8 +127,10 @@ public class CompensatedWorld {
     private final ServerBlockView serverBlockView = new ServerBlockView();
     // Blocks the client changed while placing or breaking blocks
     private List<BlockPos> currentlyChangedBlocks = new LinkedList<>();
-    private final Map<Integer, List<BlockPos>> serverIsCurrentlyProcessingThesePredictions = new LinkedHashMap<>();
+    private final Map<Integer, PredictionBatch> serverIsCurrentlyProcessingThesePredictions = new LinkedHashMap<>();
     private int clientPredictionSequence;
+    /** The sequence the client sent with its newest sequenced action; the server acknowledges this value. */
+    private int clientWireSequence;
     /** The newest block-changed ack sequence sent to the client: the server answered every prediction up to it. */
     private int answeredPredictionSequence = -1;
     /** BlockStatePredictionHandler#lastTeleportSequence: the prediction sequence when the client last took a teleport. */
@@ -611,15 +619,17 @@ public class CompensatedWorld {
                         "Block changes " + (debugBlockChanges ? "enabled" : "disabled") + ".", NamedTextColor.GRAY)));
     }
 
-    public void advanceClientPredictionSequence() {
+    /** BlockStatePredictionHandler#startPredicting; a vanilla client sends the new counter as {@code wireSequence}. */
+    public void advanceClientPredictionSequence(int wireSequence) {
         if (player.isBedrockMovement()) return;
         clientPredictionSequence++;
+        clientWireSequence = wireSequence;
     }
 
     /** ClientPacketListener#handleMovePlayer -> BlockStatePredictionHandler#onTeleport. */
     public void onClientTeleport() {
         if (!tracksTeleportSequence()) return;
-        lastTeleportPredictionSequence = clientPredictionSequence;
+        lastTeleportPredictionSequence = clientWireSequence;
     }
 
     public void onClientPositionSet() {
@@ -647,6 +657,7 @@ public class CompensatedWorld {
         player.blockActionReconciler.reset();
         endSelectionSnapshot();
         clientPredictionSequence = 0;
+        clientWireSequence = 0;
         answeredPredictionSequence = -1;
         lastTeleportPredictionSequence = -1;
         isCurrentlyPredicting = false;
@@ -662,12 +673,14 @@ public class CompensatedWorld {
 
     public void handlePredictionConfirmation(int prediction, int transaction) {
         answeredPredictionSequence = Math.max(answeredPredictionSequence, prediction);
-        for (Iterator<Map.Entry<Integer, List<BlockPos>>> it =
-                        serverIsCurrentlyProcessingThesePredictions.entrySet().iterator();
+        // The server acknowledges the sequence each action carried; a vanilla client sends its prediction counter
+        // there, so a batch ends at the acknowledgement of its own sequence. Every batch is scanned.
+        for (Iterator<PredictionBatch> it =
+                        serverIsCurrentlyProcessingThesePredictions.values().iterator();
                 it.hasNext(); ) {
-            Map.Entry<Integer, List<BlockPos>> iter = it.next();
-            if (iter.getKey() <= prediction) {
-                applyBlockChanges(iter.getValue(), transaction, prediction);
+            PredictionBatch batch = it.next();
+            if (batch.wireSequence() <= prediction) {
+                applyBlockChanges(batch.blocks(), transaction, prediction);
                 it.remove();
             }
         }
@@ -675,17 +688,7 @@ public class CompensatedWorld {
     }
 
     public void handlePredictionConfirmation(int prediction, CultPlayer.TrackedTransaction transaction) {
-        answeredPredictionSequence = Math.max(answeredPredictionSequence, prediction);
-        for (Iterator<Map.Entry<Integer, List<BlockPos>>> it =
-                        serverIsCurrentlyProcessingThesePredictions.entrySet().iterator();
-                it.hasNext(); ) {
-            Map.Entry<Integer, List<BlockPos>> iter = it.next();
-            if (iter.getKey() <= prediction) {
-                applyBlockChanges(iter.getValue(), transaction, prediction);
-                it.remove();
-            }
-        }
-        endGhostPositionsUpTo(prediction, transaction.transaction());
+        handlePredictionConfirmation(prediction, transaction.transaction());
     }
 
     /** ClientLevel#handleBlockChangedAck: the client has ended every prediction up to this sequence. */
@@ -698,6 +701,11 @@ public class CompensatedWorld {
     /** BlockStatePredictionHandler#currentSequence: the client's local block prediction counter. */
     public int clientPredictionSequence() {
         return clientPredictionSequence;
+    }
+
+    /** The sequence the client sent with its newest sequenced action. */
+    public int clientWireSequence() {
+        return clientWireSequence;
     }
 
     public void handleServerBlockUpdate(BlockPos pos, int state, CultPlayer.TrackedTransaction transaction) {
@@ -805,11 +813,6 @@ public class CompensatedWorld {
         });
     }
 
-    private void applyBlockChanges(
-            List<BlockPos> toApplyBlocks, CultPlayer.TrackedTransaction transaction, int sequence) {
-        applyBlockChanges(toApplyBlocks, transaction.transaction(), sequence);
-    }
-
     private void handleAck(BlockPos vector3i, int originalBlockId, Vec3 playerPosition, boolean snapsBack) {
         // make sure that this "delayed" block update is always known to the ghost block mitigator
         final GhostBlockMitigator mitigator = player.getGhostBlockMitigator();
@@ -840,7 +843,7 @@ public class CompensatedWorld {
         }
     }
 
-    public void stopPredicting(int ignoredWireSequence) {
+    public void stopPredicting(int wireSequence) {
         this.isCurrentlyPredicting = false; // We aren't in a block place or use item
 
         if (this.currentlyChangedBlocks.isEmpty()) return; // Nothing to change
@@ -849,17 +852,38 @@ public class CompensatedWorld {
                 this.currentlyChangedBlocks; // We must now track the client applying the server predicted blocks
         this.currentlyChangedBlocks = new LinkedList<>(); // Reset variable without changing original
 
-        // Only a client whose wire sequence stops advancing reaches this; its oldest prediction reverts to the server.
+        // Only a client whose actions go unacknowledged reaches this; its oldest prediction reverts to the server.
         if (serverIsCurrentlyProcessingThesePredictions.size() >= MAX_PENDING_PREDICTIONS) {
-            Iterator<Map.Entry<Integer, List<BlockPos>>> oldest =
-                    serverIsCurrentlyProcessingThesePredictions.entrySet().iterator();
-            Map.Entry<Integer, List<BlockPos>> entry = oldest.next();
-            applyBlockChanges(entry.getValue(), player.lastTransactionSent.get() + 1, entry.getKey());
+            Iterator<PredictionBatch> oldest =
+                    serverIsCurrentlyProcessingThesePredictions.values().iterator();
+            PredictionBatch batch = oldest.next();
+            applyBlockChanges(batch.blocks(), player.lastTransactionSent.get() + 1, batch.wireSequence());
             oldest.remove();
         }
-        // Vanilla stores predictions under its local monotonic counter, not the untrusted packet sequence.
-        serverIsCurrentlyProcessingThesePredictions.put(clientPredictionSequence, toApplyBlocks);
+        // Keyed by the local counter so a repeated wire sequence cannot replace a pending batch.
+        serverIsCurrentlyProcessingThesePredictions.put(
+                clientPredictionSequence, new PredictionBatch(wireSequence, toApplyBlocks));
     }
+
+    /** The highest sequence among predictions no acknowledgement has ended, or -1 when there are none. */
+    public int highestUnacknowledgedPredictionSequence() {
+        int highest = -1;
+        for (PredictionBatch batch : serverIsCurrentlyProcessingThesePredictions.values()) {
+            highest = Math.max(highest, batch.wireSequence());
+        }
+        return highest;
+    }
+
+    /** The positions of every prediction no acknowledgement has ended. */
+    public List<BlockPos> unacknowledgedPredictionPositions() {
+        List<BlockPos> positions = new ArrayList<>();
+        for (PredictionBatch batch : serverIsCurrentlyProcessingThesePredictions.values()) {
+            positions.addAll(batch.blocks());
+        }
+        return positions;
+    }
+
+    private record PredictionBatch(int wireSequence, List<BlockPos> blocks) {}
 
     public static long chunkPositionToLong(int x, int z) {
         return ((x & 0xFFFFFFFFL) << 32L) | (z & 0xFFFFFFFFL);
@@ -1132,6 +1156,13 @@ public class CompensatedWorld {
         long key = pos.asLong();
         recentClientFluidChanges.put(key, RECENT_CLIENT_FLUID_CHANGE_TICKS);
         recentClientFluidChangeKinds.put(key, kinds);
+        IntArrayList replaced = recentClientFluidReplacedStates.computeIfAbsent(key, k -> new IntArrayList(1));
+        if (!replaced.contains(oldState)) replaced.add(oldState);
+    }
+
+    /** The states a fluid change in the last ticks replaced at the cell, or null without one. */
+    public IntList recentClientFluidReplacedStates(int x, int y, int z) {
+        return recentClientFluidReplacedStates.get(BlockPos.asLong(x, y, z));
     }
 
     private void markRecentClientCollisionChange(BlockPos pos, int oldState, int newState) {
@@ -1194,6 +1225,7 @@ public class CompensatedWorld {
             int ticks = entry.getIntValue() - 1;
             if (ticks <= 0) {
                 recentClientFluidChangeKinds.remove(entry.getLongKey());
+                recentClientFluidReplacedStates.remove(entry.getLongKey());
                 iterator.remove();
             } else entry.setValue(ticks);
         }
@@ -1224,13 +1256,13 @@ public class CompensatedWorld {
                                 serverState,
                                 newState,
                                 isPlayerTryingToDisableCult ? null : new Vec3(player.x, player.y, player.z),
-                                clientPredictionSequence)); // Remember server controlled block type
+                                clientWireSequence)); // Remember server controlled block type
             } else {
                 prediction.setForBlockUpdate(
                         currentlyChangedBlocks); // Block existing there was placed by client, mark block to have a new
                 // prediction
                 prediction.setPredictedBlockId(newState);
-                prediction.setSequence(clientPredictionSequence);
+                prediction.setSequence(clientWireSequence);
             }
             currentlyChangedBlocks.add(asVector);
         }
@@ -1251,8 +1283,8 @@ public class CompensatedWorld {
         // This works because of how we optimized wrappedblockstate (avoid messing with inner tick predictions)
         if (getBlockStateIdAt(asVector) == newState) return original;
 
-        player.checkManager.getSimulationProcessor().handleBlockChange(asVector, original);
-        player.checkManager.getSimulationProcessor().handleBlockChange(asVector, newState);
+        player.checkManager.getSimulationProcessor().handleBlockChange(asVector, original, isCurrentlyPredicting);
+        player.checkManager.getSimulationProcessor().handleBlockChange(asVector, newState, isCurrentlyPredicting);
         markRecentClientCollisionChange(asVector, original, newState);
         markRecentClientFluidChange(asVector, original, newState);
 
@@ -1325,15 +1357,28 @@ public class CompensatedWorld {
 
     public void onClientTickEnd() {
         endedTickGameTime = clientGameTime;
-        if (!player.isBedrockMovement() && clientRunsNormally()) {
-            clientClocks.tick(++clientGameTime);
+        blockEntitiesTickThisClientTick = !player.isBedrockMovement() && clientRunsNormally();
+        if (blockEntitiesTickThisClientTick) clientClocks.tick(++clientGameTime);
+        clientEnvironment.tick();
+        tickClientWorldState(player.isBedrockMovement());
+        pruneOrphanedShulkerBoxes();
+        processPendingReinterns();
+    }
+
+    /**
+     * Level#tickBlockEntities of the client tick that ended, after its LocalPlayer#tick: the tick-end handlers
+     * simulate the travel of a tick that sent no movement, so it must run after them.
+     */
+    public void tickClientBlockEntities() {
+        if (!player.isBedrockMovement()) {
+            pistons.tickClientTickEnd();
+            pruneOrphanedShulkerBoxes();
+        }
+        if (blockEntitiesTickThisClientTick) {
             clientBlockEntities.tick();
         } else {
             clientBlockEntities.skipTick();
         }
-        clientEnvironment.tick();
-        removeInvalidPistonLikeStuff();
-        processPendingReinterns();
     }
 
     /**
@@ -1491,7 +1536,7 @@ public class CompensatedWorld {
         if (transactionId == 0) {
             // End-of-client-tick path: advance time-based state instead of
             // pruning by transaction watermark.
-            tickClientWorldState();
+            tickClientWorldState(true);
         } else {
             // Transaction path: drop entries the client has provably seen.
             pistons.removeSentBefore(transactionId);
@@ -1501,10 +1546,10 @@ public class CompensatedWorld {
         pruneOrphanedShulkerBoxes();
     }
 
-    private void tickClientWorldState() {
+    private void tickClientWorldState(boolean pistonPass) {
         tickRecentClientCollisionChanges();
         tickRecentClientFluidChanges();
-        pistons.tickClientTickEnd();
+        if (pistonPass) pistons.tickClientTickEnd();
         if (!openShulkerBoxes.isEmpty()) openShulkerBoxes.removeIf(ShulkerData::tickIfGuaranteedFinished);
     }
 
@@ -1522,6 +1567,7 @@ public class CompensatedWorld {
         recentClientCollisionChanges.clear();
         recentClientFluidChanges.clear();
         recentClientFluidChangeKinds.clear();
+        recentClientFluidReplacedStates.clear();
     }
 
     /**
@@ -1550,8 +1596,40 @@ public class CompensatedWorld {
         SimpleCollisionBox combinedPushes = pistonPush.copy().union(shulkerPushes);
         PistonPushes pushes =
                 new PistonPushes(combinedPushes, pistonPush, shulkerPushes, pistonResult.getSlimeBlockLaunches());
-        if (!shulkerBoxShoves.isEmpty()) shoveByShulkerBoxes(context, onGround, lastPushes, shulkerBoxShoves, pushes);
+        if (!shulkerBoxShoves.isEmpty()) {
+            shoveByShulkerBoxes(context, onGround, lastPushes, shulkerBoxShoves, pushes);
+        } else if (shulkerPushes.isEmpty() && (lastPushes == null || lastPushes.getShulkerPush().isEmpty())) {
+            shoveByPistonBeforeTravel(context, onGround, pushes);
+        }
         return pushes;
+    }
+
+    /**
+     * Before 26.3 the last client tick's PistonMovingBlockEntity#moveCollidedEntities calls Entity#move(MoverType.PISTON)
+     * between the reported position and this travel. When one piston's move is the only one, the travel starts from
+     * where that move leaves the player; otherwise the travel starts anywhere in the pass's push envelope.
+     */
+    private void shoveByPistonBeforeTravel(SimulationContext context, boolean onGround, PistonPushes pushes) {
+        if (pushes.getPistonPush().isEmpty() || context.getVehicle() != null) return;
+        Vec3 stuckSpeed = context.getLastStuckSpeed();
+        if (stuckSpeed.x != 1.0D || stuckSpeed.y != 1.0D || stuckSpeed.z != 1.0D) return;
+        Vec3 start = context.getStart();
+        Pose pose = context.getPose();
+        SimpleCollisionBox box = GetBoundingBox.getBoundingBoxFromPosAndSize(
+                start.x, start.y, start.z, pose.width * context.getScale(), pose.height * context.getScale());
+        CompensatedWorldPistons.PistonShove shove = pistons.exactShoveBeforeTravel(box);
+        if (shove == null) return;
+        ShulkerBoxShoveResult result = shoveByShulkerBoxes(context, shove.shove(), start, pose, onGround, false);
+        if (result == null) return;
+        Vec3 moved = result.movement();
+        if (pistons.anotherPistonReaches(shove.source(), box.copy().offset(moved.x, moved.y, moved.z))) return;
+        SimpleCollisionBox envelope = new SimpleCollisionBox();
+        envelope.unionX(result.movement().x);
+        envelope.unionY(result.movement().y);
+        envelope.unionZ(result.movement().z);
+        pushes.setShulkerBoxPush(envelope);
+        pushes.setShulkerBoxShoveBeforeTravel(true);
+        pushes.setShulkerBoxShoveResult(result);
     }
 
     /**

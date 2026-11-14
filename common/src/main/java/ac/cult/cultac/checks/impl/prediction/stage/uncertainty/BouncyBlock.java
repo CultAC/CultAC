@@ -57,6 +57,10 @@ public class BouncyBlock implements UncertaintyHandler {
         // VelocityCandidates. SlimeBlock#stepOn horizontal reduction above is
         // a separate mechanic and still applies in 26.2.
         if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_2)) return start;
+        // From 1.21.2 VelocityCandidates derives the SlimeBlock#bounceUp and BedBlock#bounceUp start of every landing.
+        if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2)) {
+            return start;
+        }
 
         // restrict bouncing upwards
         if (start.isJump()) return start;

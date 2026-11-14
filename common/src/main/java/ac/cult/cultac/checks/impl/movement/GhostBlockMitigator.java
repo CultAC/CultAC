@@ -154,7 +154,7 @@ public class GhostBlockMitigator extends CultProcessor implements PostPrediction
     public void handlePseudoPlace(GhostBlock ghostBlock) {
         GhostBlock existing = pseudoPlaces.remove(ghostBlock.getPosition());
         if (existing != null && isEndCrystal(ghostBlock) && !isEndCrystal(existing)) ghostBlock = existing;
-        ghostBlock.setSequence(player.compensatedWorld.clientPredictionSequence());
+        ghostBlock.setSequence(player.compensatedWorld.clientWireSequence());
         if (pseudoPlaces.size() >= MAX_PSEUDO_PLACES) {
             pseudoPlaces.remove(pseudoPlaces.keySet().iterator().next());
         }
@@ -167,7 +167,7 @@ public class GhostBlockMitigator extends CultProcessor implements PostPrediction
 
     // This method is called if and only if it isn't placed on a known desync pos
     public void handleBlockPlace(BlockPos placeBox, int original, int newState, BlockPlace place) {
-        int sequence = player.compensatedWorld.clientPredictionSequence();
+        int sequence = player.compensatedWorld.clientWireSequence();
         if (place.isUseItem()) {
             bucketUseLocations.put(placeBox, sequence);
         }

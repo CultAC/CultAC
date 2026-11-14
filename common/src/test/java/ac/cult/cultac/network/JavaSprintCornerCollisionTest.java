@@ -18,12 +18,8 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
 import ac.cult.cultac.checks.impl.sprint.SprintE;
-import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
-import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.protocol.ProtocolVersion;
-import ac.cult.cultac.protocol.packet.ServerboundPackets;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
@@ -517,10 +513,7 @@ class JavaSprintCornerCollisionTest {
         }
 
         void command(PlayerCommandAction action) {
-            var packet = new ServerboundPlayerCommand(f.player.entityID, action, 0);
-            PacketReceiveEvent<ServerboundPlayerCommand> event = f.event(ServerboundPackets.PLAYER_COMMAND, packet);
-            new PacketEntityAction().onPlayerCommand(event, f.player, packet);
-            sprintE.onPlayerCommand(event, f.player, packet);
+            f.command(action);
         }
     }
 }

@@ -56,6 +56,10 @@ public class Sneaking implements UncertaintyHandler {
                 start = withHiddenVelocity(player, result, context, lastResult, lastOnEdge, start, end);
             }
 
+            // Player#maybeBackOffFromEdge leaves a rising delta whole.
+            PredVector initial = result.getInitialStartingVel();
+            if (initial != null && initial.y > 0) return start;
+
             boolean isNorth = thisEdge.isNorth() || (lastOnEdge != null && lastOnEdge.isNorth());
             boolean isSouth = thisEdge.isSouth() || (lastOnEdge != null && lastOnEdge.isSouth());
             boolean isEast = thisEdge.isEast() || (lastOnEdge != null && lastOnEdge.isEast());

@@ -1,9 +1,12 @@
 package ac.cult.cultac.checks.impl.prediction.stage;
 
+import ac.cult.blocksim.data.FluidTags;
 import ac.cult.blocksim.entity.EntityTypeIds;
+import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.Riptide;
+import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.KnownInput;
@@ -19,6 +22,7 @@ import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 import ac.cult.cultac.utils.nmsutil.FlightToggle;
 import ac.cult.cultac.utils.nmsutil.WaterCurrent;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Setter;
@@ -40,9 +44,10 @@ public class VelocityTransformer {
         }
 
         input = Riptide.release(player, simulationContext, input);
+        // Minecraft#tick runs handleKeybinds, whose attacks damp the player's deltaMovement, before Entity#baseTick.
+        input = applyAttackSlow(input);
         input = applyBaseTickFluidCurrents(player, input);
         input = applyLegacyLivingVehicleDrag(player, input);
-        input = applyAttackSlow(input);
         if (simulationContext.getVehicle() instanceof PacketEntityHappyGhast) {
             input = applyMovementThreshold(input, simulationContext.getVersion(), false);
             return applyRideableInput(player, input);
@@ -93,9 +98,7 @@ public class VelocityTransformer {
             input = applyFlightTakeoff(player, input);
             input = applyFlightInput(player, input);
         }
-        input = simulationContext.getVehicle() == null
-                ? applyPushedMovementThreshold(player, input, abilityFlying)
-                : applyMovementThreshold(input, simulationContext.getVersion(), false);
+        input = applyMovementThreshold(input, simulationContext.getVersion(), simulationContext.getVehicle() == null);
         // Player#isAffectedByFluids is false in flight, so LivingEntity#aiStep runs neither jump.
         return abilityFlying ? input : applyJumps(player, input);
     }
@@ -181,39 +184,76 @@ public class VelocityTransformer {
         return transformed;
     }
 
+    /** Entity#updateFluidInteraction's current, added to the deltaMovement of the player or its controlled root. */
     private List<PredVector> applyBaseTickFluidCurrents(CultPlayer player, List<PredVector> input) {
         PacketEntity vehicle = simulationContext.getVehicle();
-        // Preserve CultAC's on-foot fluid contract: FluidPush only projects the
-        // packet displacement, and the accepted displacement is carried through
-        // the normal end-of-tick velocity derivation. Exact base-tick currents
-        // here are solely for client-controlled mounted roots.
-        if (input.isEmpty()
-                || vehicle == null
-                || EntityTypeUtil.isBoat(vehicle.type)
+        if (input.isEmpty()) return input;
+        if (vehicle == null) {
+            // Player#isPushedByFluid is false while flying.
+            if (FlightToggle.flyingBeforeAiStep(player)) return input;
+        } else if (EntityTypeUtil.isBoat(vehicle.type)
                 || vehicle instanceof PacketEntityNautilus
                 || !player.packetStateData.isVehicleMovementFromClientTick()) {
             return input;
         }
 
+        WorldData worldData = simulationContext.getWorldData();
+        Vec3 start = simulationContext.getStart();
+        // A fluid whose presence the engine cannot resolve leaves the tick with its current and without it, and a
+        // recent change to the cells its current reads leaves the current of the cells before the change too.
+        FluidOptions water = new FluidOptions(
+                FluidTags.WATER,
+                worldData.getInWater() == DesyncStatus.UNKNOWN,
+                WaterCurrent.hasRecentChanges(player, simulationContext, start, FluidTags.WATER));
+        FluidOptions lava = new FluidOptions(
+                FluidTags.LAVA,
+                worldData.getInLava() == DesyncStatus.UNKNOWN,
+                WaterCurrent.hasRecentChanges(player, simulationContext, start, FluidTags.LAVA));
         List<PredVector> transformed = new ArrayList<>(input.size());
         for (PredVector vector : input) {
-            transformed.add(addFluidCurrents(player, vector));
+            for (Vec3 waterCurrent : water.currents(player, vector)) {
+                PredVector watered = waterCurrent == null ? vector : vector.add(waterCurrent, "water current");
+                for (Vec3 lavaCurrent : lava.currents(player, watered)) {
+                    transformed.add(lavaCurrent == null ? watered : watered.add(lavaCurrent, "lava current"));
+                }
+            }
         }
         return transformed;
     }
 
-    private PredVector addFluidCurrents(CultPlayer player, PredVector vector) {
-        PredVector current = vector;
-        Vec3 water =
-                WaterCurrent.calculateWaterCurrent(player, simulationContext, simulationContext.getStart(), current);
-        if (water != null && isFinite(water)) {
-            current = current.add(water, "water current");
+    /** The currents one fluid may add to a velocity in this tick's Entity#baseTick; null adds none. */
+    private final class FluidOptions {
+        private final FluidTags fluid;
+        private final boolean unknown;
+        private final boolean recentlyChanged;
+
+        private FluidOptions(FluidTags fluid, boolean unknown, boolean recentlyChanged) {
+            this.fluid = fluid;
+            this.unknown = unknown;
+            this.recentlyChanged = recentlyChanged;
         }
-        Vec3 lava = WaterCurrent.calculateLavaCurrent(player, simulationContext, simulationContext.getStart(), current);
-        if (lava != null && isFinite(lava)) {
-            current = current.add(lava, "lava current");
+
+        private List<Vec3> currents(CultPlayer player, Vec3 before) {
+            Vec3 current = current(player, before, false);
+            if (!unknown && !recentlyChanged) return Collections.singletonList(current);
+            List<Vec3> currents = new ArrayList<>(3);
+            currents.add(current);
+            if (recentlyChanged) addDistinct(currents, current(player, before, true));
+            if (unknown) addDistinct(currents, null);
+            return currents;
         }
-        return current;
+
+        private Vec3 current(CultPlayer player, Vec3 before, boolean beforeRecentChanges) {
+            Vec3 start = simulationContext.getStart();
+            Vec3 current = fluid == FluidTags.WATER
+                    ? WaterCurrent.calculateWaterCurrent(player, simulationContext, start, before, beforeRecentChanges)
+                    : WaterCurrent.calculateLavaCurrent(player, simulationContext, start, before, beforeRecentChanges);
+            return current != null && isFinite(current) ? current : null;
+        }
+
+        private static void addDistinct(List<Vec3> currents, Vec3 current) {
+            if (!currents.contains(current)) currents.add(current);
+        }
     }
 
     private boolean isFinite(Vec3 vector) {
@@ -322,9 +362,7 @@ public class VelocityTransformer {
     private List<Vec3> exactRideableInputVectors(CultPlayer player, Vec3 riddenInput) {
         List<Vec3> vectors = new ArrayList<>(6);
         if (simulationContext.getVehicle() instanceof PacketEntityHappyGhast happyGhast) {
-            // HappyGhast#tickRidden turns the root 8% toward the controlling player's yaw before LivingEntity#travel.
-            float travelYaw = happyGhast.getRiddenTickYaw(player.xRot);
-            addDistinctInputVector(vectors, happyGhast.getTravelInputVector(player, riddenInput, travelYaw));
+            addDistinctInputVector(vectors, happyGhast.getTravelInputVector(player, riddenInput, travelYaw(player)));
             return vectors;
         }
 
@@ -560,6 +598,26 @@ public class VelocityTransformer {
         return new Vec3(modifiedX, 0.0D, modifiedZ);
     }
 
+    /** The yaw the root travels along: the one its tickRidden turned it to, else the one its move reports. */
+    private float travelYaw(CultPlayer player) {
+        float yaw = riddenTurnYaw(player, simulationContext.getVehicle());
+        return Float.isNaN(yaw) ? simulationContext.getXRot() : yaw;
+    }
+
+    /**
+     * HappyGhast#tickRidden and AbstractNautilus#tickRidden turn the root 8% and 50% of the way from its yaw toward the
+     * controller's before LivingEntity#travel, and ServerboundMoveVehiclePacket#fromEntity reports the turned yaw. NaN
+     * for another root, or when the root's yaw before the tick is not known.
+     */
+    public static float riddenTurnYaw(CultPlayer player, PacketEntity vehicle) {
+        if (!player.packetStateData.isVehicleMovementFromClientTick() || !vehicle.clientPhysicalYawCurrent) {
+            return Float.NaN;
+        }
+        if (vehicle instanceof PacketEntityHappyGhast happyGhast) return happyGhast.getRiddenTickYaw(player.xRot);
+        if (vehicle instanceof PacketEntityNautilus nautilus) return nautilus.getRiddenTickYaw(player.xRot);
+        return Float.NaN;
+    }
+
     private Vec3 inputVectorForSpeed(CultPlayer player, Vec3 riddenInput, float speed) {
         double lengthSqr = riddenInput.lengthSqr();
         if (lengthSqr < 1.0E-7D) {
@@ -567,7 +625,7 @@ public class VelocityTransformer {
         }
 
         Vec3 scaled = (lengthSqr > 1.0D ? riddenInput.normalize() : riddenInput).scale(speed);
-        float yawRadians = simulationContext.getXRot() * ((float) Math.PI / 180F);
+        float yawRadians = travelYaw(player) * ((float) Math.PI / 180F);
         float sin = player.trigHandler.sin(yawRadians);
         float cos = player.trigHandler.cos(yawRadians);
         return new Vec3(scaled.x * cos - scaled.z * sin, scaled.y, scaled.z * cos + scaled.x * sin);
@@ -599,6 +657,20 @@ public class VelocityTransformer {
                 // KeepSprint compares this with the attacks PacketPlayerAttack proves reached causeExtraKnockback.
                 slowed.setAttackSlows(i);
                 output.add(slowed);
+            }
+            int certain = simulationContext.getMinAttackSlow();
+            int last = Math.max(certain, Math.min(simulationContext.getMaxAttackSlow(), 64));
+            if (last > 5) {
+                // Each Player#causeExtraKnockback damps in turn; 0.6^64 is below any reported movement.
+                for (int count = Math.max(6, certain); count <= last; count++) {
+                    Vec3 multVector = new Vec3(1, 1, 1);
+                    for (int j = 0; j < Math.min(count, 64); j++) {
+                        multVector = multVector.multiply(attackSlowMultiplier);
+                    }
+                    PredVector slowed = new PredVector(vector.multiply(multVector), vector, "Attack slow");
+                    slowed.setAttackSlows(count);
+                    output.add(slowed);
+                }
             }
         }
 
@@ -653,44 +725,6 @@ public class VelocityTransformer {
         return vector;
     }
 
-    /**
-     * LivingEntity#aiStep thresholds the deltaMovement that Entity#baseTick has already pushed by the fluid current.
-     * The on-foot current itself stays with FluidPush, so only the threshold reads it here.
-     */
-    private List<PredVector> applyPushedMovementThreshold(
-            CultPlayer player, List<PredVector> input, boolean abilityFlying) {
-        ClientVersion version = simulationContext.getVersion();
-        // Player#isPushedByFluid is false in flight.
-        if (abilityFlying) {
-            return applyMovementThreshold(input, version, true);
-        }
-
-        List<PredVector> outputs = new ArrayList<>(input.size());
-        boolean noCurrent = false;
-        for (int i = 0; i < input.size(); i++) {
-            PredVector vector = input.get(i);
-            if (!mayFallUnderMovementThreshold(vector, version)) {
-                outputs.add(vector);
-                continue;
-            }
-
-            // Whether any current is added depends on the start box alone, not on the starting velocity.
-            Vec3 pushed = noCurrent ? vector : addFluidCurrents(player, vector);
-            noCurrent = pushed == vector;
-            outputs.add(applyMovementThreshold(vector, pushed, version, true));
-        }
-        return outputs;
-    }
-
-    /** Whether a water (at most 0.014) and lava (at most 0.007) current can leave an axis under the threshold. */
-    private static boolean mayFallUnderMovementThreshold(Vec3 vector, ClientVersion version) {
-        double minimumMovement = 0.003D + 0.014D + 0.007D;
-        boolean horizontal = version.isNewerThanOrEquals(ClientVersion.V_1_21_5)
-                ? vector.x * vector.x + vector.z * vector.z < minimumMovement * minimumMovement
-                : Math.abs(vector.x) < minimumMovement || Math.abs(vector.z) < minimumMovement;
-        return horizontal || Math.abs(vector.y) < minimumMovement;
-    }
-
     private List<PredVector> applyJumps(CultPlayer player, List<PredVector> velocities) {
         boolean canPlayerJump = simulationContext.getWorldData().isCanJump();
         // AbstractHorse#tickRidden and AbstractNautilus#tickRidden run the rider's jump inside travelRidden,
@@ -719,7 +753,6 @@ public class VelocityTransformer {
         List<PredVector> outputs = new ArrayList<>(velocities);
 
         for (PredVector vectorData : velocities) {
-            // TODO: Restrict this for not being in shallow water (above some level submerged)
             if (Riptide.pushed(simulationContext, vectorData)) continue;
             outputs.addAll(applyPossibleJumpStates(player, vectorData));
         }

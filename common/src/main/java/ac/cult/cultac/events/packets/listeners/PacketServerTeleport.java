@@ -226,30 +226,41 @@ public class PacketServerTeleport {
             }
 
             PacketEntity controlledRoot = player.compensatedEntities.getEntity(rootVehicleId);
-            if (controlledRoot != null) {
+            // An answer already received applied the snap, and the client may have ticked on from it since.
+            boolean answered = !player.getSetbackTeleportUtil()
+                    .vehicleTeleports()
+                    .isUnanswered(rootVehicleId, proofTransaction);
+            if (controlledRoot != null && !answered) {
                 if (snaps) {
+                    // Entity#absSnapRotationTo keeps the yaw within one turn.
+                    float snappedYaw = finalYaw % 360.0F;
                     controlledRoot.setPositionRaw(
                             GetBoundingBox.getPacketEntityBoundingBox(
                                     player, finalPos.x, finalPos.y, finalPos.z, controlledRoot),
-                            finalYaw,
+                            snappedYaw,
                             finalPitch);
                     if (controlledRoot instanceof PacketEntityTrackXRot yawTrackedRoot) {
                         // ClientPacketListener#handleMoveVehicle snaps rotation with position.
-                        yawTrackedRoot.packetYaw = finalYaw;
-                        yawTrackedRoot.interpYaw = finalYaw;
+                        yawTrackedRoot.packetYaw = snappedYaw;
+                        yawTrackedRoot.interpYaw = snappedYaw;
                         yawTrackedRoot.steps = 0;
                     }
                     // The snapped yaw is the one AbstractBoat#controlBoat turns in the client's next tick.
                     PacketEntity riding = player.compensatedEntities.getSelf().getRiding();
-                    if (controlledRoot.isBoat() && controlledRoot == riding) player.boatYawBeforeTurn = finalYaw;
+                    if (controlledRoot.isBoat() && controlledRoot == riding) player.boatYawBeforeTurn = snappedYaw;
                 }
             }
         });
-        // An unsnapped response serializes the current physical position.
+        // An unsnapped response serializes the current physical position; a snapped one echoes the packet exactly.
         player.getSetbackTeleportUtil()
                 .vehicleTeleports()
-                .addVehicleTeleport(
-                        rootVehicleId, proofTransaction, expectedResponsePosition, MOVE_VEHICLE_SNAP_EPSILON);
+                .addVehicleMoveTeleport(
+                        rootVehicleId,
+                        proofTransaction,
+                        expectedResponsePosition,
+                        snaps ? 0.0D : MOVE_VEHICLE_SNAP_EPSILON,
+                        finalYaw % 360.0F,
+                        snaps);
         player.getSetbackTeleportUtil()
                 .updateSafeVehiclePosition(rootVehicleId, proofTransaction, expectedResponsePosition);
     }

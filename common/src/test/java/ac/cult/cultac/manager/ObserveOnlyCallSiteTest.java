@@ -90,6 +90,7 @@ class ObserveOnlyCallSiteTest {
             "resyncCancelledClick",
             "sendCorrections",
             "rejectPlace",
+            "rejectUse",
             "rejectDig",
             "rejectEarly",
             "sendServerStates",
@@ -142,6 +143,8 @@ class ObserveOnlyCallSiteTest {
             [reachesServer(] CheckManagerListener.reachesServer(PacketReceiveEvent) is true in observe-only
             events/packets/listeners/CheckManagerListener.java#handle(PacketReceiveEvent,CultPlayer,Object) rejectEarly
             events/packets/listeners/CheckManagerListener.java#onContainerClick(PacketReceiveEvent,CultPlayer,InventoryClick) resyncCancelledClick
+            events/packets/listeners/CheckManagerListener.java#onUseItem(PacketReceiveEvent,CultPlayer,ServerboundUseItem) rejectUse
+            events/packets/listeners/CheckManagerListener.java#onUseItemOn(PacketReceiveEvent,CultPlayer,ServerboundUseItemOn) rejectPlace
             events/packets/listeners/CheckManagerListener.java#processPlayerActionReceive(PacketReceiveEvent,CultPlayer,ServerboundPlayerAction) rejectDig
             [] sends the correction its caller decided on; each caller is listed
             events/packets/patch/ResyncWorldUtil.java#sendServerStates(CultPlayer,Collection,int) sendCorrections x2
@@ -177,9 +180,10 @@ class ObserveOnlyCallSiteTest {
             events/packets/listeners/CheckManagerListener.java#processMovePlayerReceive(PacketReceiveEvent,CultPlayer,ServerboundMovePlayer) replace x2
             events/packets/listeners/CheckManagerListener.java#processMovePlayerReceive(PacketReceiveEvent,CultPlayer,ServerboundMovePlayer) setCancelled x3
             events/packets/listeners/CheckManagerListener.java#processMoveVehicleReceive(PacketReceiveEvent,CultPlayer,ServerboundMoveVehicle) setCancelled x5
+            events/packets/listeners/CheckManagerListener.java#withholdDroppedAction(PacketReceiveEvent,CultPlayer) setCancelled
             events/packets/listeners/PacketServerTeleport.java#onAcceptTeleportation(PacketReceiveEvent,CultPlayer,ServerboundAcceptTeleportation) setCancelled
             manager/player/PluginChannelManager.java#handle(String,byte[],PacketReceiveEvent) setCancelled
-            utils/latency/CompensatedInventory.java#onContainerClick(PacketReceiveEvent,CultPlayer,InventoryClick) setCancelled
+            utils/latency/CompensatedInventory.java#onContainerClick(PacketReceiveEvent,CultPlayer,InventoryClick) setCancelled x2
             [] README: a non-finite rotation from the server is sent as 0
             events/packets/PacketServerPlayerRotation.java#onPlayerRotation(PacketSendEvent,CultPlayer,ClientboundPlayerRotation) replace
             [] README: the self pose strip; the health spoof breaks out on isObserveOnly() first

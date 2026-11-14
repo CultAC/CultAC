@@ -184,9 +184,11 @@ final class JavaTickFixture implements AutoCloseable {
     }
 
     /** A ServerboundMoveVehiclePacket for the root at {@code to}, whether or not the root accepts it. */
-    void moveVehicle(Vec3 to, float yaw, float pitch, boolean onGround) {
+    PacketReceiveEvent<ServerboundMoveVehicle> moveVehicle(Vec3 to, float yaw, float pitch, boolean onGround) {
         var move = new ServerboundMoveVehicle(new Vec3d(to.x, to.y, to.z), yaw, pitch, onGround, true);
-        listener.onMoveVehicle(event(ServerboundPackets.MOVE_VEHICLE, move), player, move);
+        var event = event(ServerboundPackets.MOVE_VEHICLE, move);
+        listener.onMoveVehicle(event, player, move);
+        return event;
     }
 
     /** A passive passenger tick: LocalPlayer sends Rot even when the root is not locally controlled. */

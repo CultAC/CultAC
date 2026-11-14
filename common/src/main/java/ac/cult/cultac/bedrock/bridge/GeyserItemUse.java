@@ -81,7 +81,7 @@ final class GeyserItemUse {
                 if (packet.getActionType() == 0 && packet.getBlockFace() >= 0 && packet.getBlockFace() < FACES.length) {
                     var pos = packet.getBlockPosition();
                     var cursor = packet.getClickPosition();
-                    player.compensatedWorld.advanceClientPredictionSequence();
+                    player.compensatedWorld.advanceClientPredictionSequence(sequence);
                     var worldPos = GeyserBedrockBridgeRuntime.worldBlock(session, pos);
                     PlaceHandler.handleQueuedUseItemOn(
                             player,
@@ -111,7 +111,7 @@ final class GeyserItemUse {
                                             .get("classHierarchy")
                                             .split(","))
                                     .contains("net.minecraft.world.item.PlaceOnWaterBlockItem")) {
-                        player.compensatedWorld.advanceClientPredictionSequence();
+                        player.compensatedWorld.advanceClientPredictionSequence(sequence);
                         PlaceHandler.handleQueuedUseItem(
                                 player, new ServerboundUseItem(Hand.MAIN_HAND, sequence, yaw, pitch));
                     }

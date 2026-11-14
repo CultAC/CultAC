@@ -53,6 +53,8 @@ public class CompensatedEntities {
     private long clientTicks;
     public final EntityMap entityMap = new EntityMap();
     public final Int2ObjectOpenHashMap<TrackerData> serverPositionsMap = new Int2ObjectOpenHashMap<>(40, 0.7f);
+    // Removed spawns the client had not proven: it may hold them from its spawn until it proves the removal.
+    private final Int2ObjectOpenHashMap<UnprovenRemoval> unprovenRemovals = new Int2ObjectOpenHashMap<>();
     public final CompensatedVehicleState vehicles;
     public List<SimpleCollisionBox> fishingRodPulls = new EvictingQueue<>(100); // sanity limit to prevent leaks.
     private long nextClientEntityTickOrder = 1L;
@@ -84,6 +86,8 @@ public class CompensatedEntities {
 
     public TrackerData selfTrackedEntity;
     public PacketEntitySelf playerEntity;
+    // ClientboundLogin packets sent; ClientPacketListener#handleLogin discards every entity the earlier ones made.
+    public int loginsSent;
     private Vec3 rideTickSeat;
     // The client holds every sent change to the local player's passengers once it answers this transaction.
     private int selfPassengersSettleTransaction = Integer.MIN_VALUE;
@@ -878,7 +882,8 @@ public class CompensatedEntities {
         player.z = seat.z;
         player.packetStateData.clientSidePosition = seat;
         player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, seat.x, seat.y, seat.z);
-        player.onGround = false;
+        // A tick that sends no movement keeps LocalPlayer#lastOnGround, which a ridden tick never writes.
+        player.onGround = player.packetStateData.lastSendPositionOnGround;
         player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.FALSE);
     }
 
@@ -1015,6 +1020,31 @@ public class CompensatedEntities {
         }
         return serverPositionsMap.get(id);
     }
+
+    /** A removal of {@code tracked} sent to the client, which it handles before answering {@code removedAt}. */
+    public void onRemovalSent(int entityID, TrackerData tracked, int removedAt) {
+        if (getEntity(entityID) == null) {
+            unprovenRemovals.put(entityID, new UnprovenRemoval(tracked.getEntityType(), removedAt));
+        }
+    }
+
+    public void onRemovalProven(int entityID, int removedAt) {
+        UnprovenRemoval removal = unprovenRemovals.get(entityID);
+        if (removal != null && removal.removedAt() == removedAt) unprovenRemovals.remove(entityID);
+    }
+
+    /**
+     * The type of an entity missing from entityMap that the client may still hold: a spawn it has not proven, or one
+     * removed before it proved the spawn and whose removal it has not proven either. -1 when it cannot hold one.
+     */
+    public int unprovenEntityType(int entityID) {
+        TrackerData sent = serverPositionsMap.get(entityID);
+        if (sent != null) return sent.getEntityType();
+        UnprovenRemoval removal = unprovenRemovals.get(entityID);
+        return removal == null ? -1 : removal.type();
+    }
+
+    private record UnprovenRemoval(int type, int removedAt) {}
 
     public void updateEntityEquipment(int entityID, List<EquipmentEntry> slots) {
         PacketEntity entity = getEntity(entityID);

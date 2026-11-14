@@ -14,15 +14,19 @@ import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.TraverseBlocks;
 import java.util.function.Supplier;
+import org.jetbrains.annotations.Nullable;
 
 public class PlaceHandler {
-    public static void handleQueuedUseItem(CultPlayer player, ServerboundUseItem place) {
-        handleQueuedPlace(
+    /** The prediction applied to the simulation world, or {@code null} when none was made. */
+    public static @Nullable ClientBlockActions.Prediction handleQueuedUseItem(
+            CultPlayer player, ServerboundUseItem place) {
+        return handleQueuedPlace(
                 player, true, place.yaw(), place.pitch(), place.sequence(), () -> handleUseItem(player, place));
     }
 
-    public static void handleQueuedUseItemOn(CultPlayer player, ServerboundUseItemOn place) {
-        handleQueuedPlace(player, false, 0, 0, place.sequence(), () -> handleUseItemOn(player, place));
+    /** The prediction applied to the simulation world. */
+    public static ClientBlockActions.Prediction handleQueuedUseItemOn(CultPlayer player, ServerboundUseItemOn place) {
+        return handleQueuedPlace(player, false, 0, 0, place.sequence(), () -> handleUseItemOn(player, place));
     }
 
     public static ClientBlockActions.Prediction predictRejectedUseItemOn(
@@ -38,17 +42,21 @@ public class PlaceHandler {
                                 player, place, player.getInventory().getHandItem(place.hand()))));
     }
 
-    private static void handleQueuedPlace(
-            CultPlayer player, boolean updateRotation, float yaw, float pitch, int sequence, Runnable action) {
-        atClientPosition(player, updateRotation, yaw, pitch, () -> {
+    private static ClientBlockActions.Prediction handleQueuedPlace(
+            CultPlayer player,
+            boolean updateRotation,
+            float yaw,
+            float pitch,
+            int sequence,
+            Supplier<ClientBlockActions.Prediction> action) {
+        return atClientPosition(player, updateRotation, yaw, pitch, () -> {
             player.compensatedWorld.startPredicting();
             try (SmoketestPredictionSafety.Scope ignored =
                     SmoketestPredictionSafety.enter(player, updateRotation ? "use-item" : "use-item-on")) {
-                action.run();
+                return action.get();
             } finally {
                 player.compensatedWorld.stopPredicting(sequence);
             }
-            return null;
         });
     }
 
@@ -94,13 +102,13 @@ public class PlaceHandler {
         }
     }
 
-    private static void handleUseItem(CultPlayer player, ServerboundUseItem place) {
-        ClientBlockActions.use(player, place.hand());
+    private static ClientBlockActions.Prediction handleUseItem(CultPlayer player, ServerboundUseItem place) {
+        return ClientBlockActions.use(player, place.hand());
     }
 
-    private static void handleUseItemOn(CultPlayer player, ServerboundUseItemOn place) {
+    private static ClientBlockActions.Prediction handleUseItemOn(CultPlayer player, ServerboundUseItemOn place) {
         Hand hand = place.hand();
-        ClientBlockActions.useOn(
+        return ClientBlockActions.useOn(
                 player,
                 createUseItemOnBlockPlace(player, place, player.getInventory().getHandItem(hand)));
     }

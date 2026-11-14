@@ -84,7 +84,7 @@ class BoatRemountInputTest {
         try (var f = new JavaTickFixture(ProtocolVersion.V26_1, ClientVersion.V_26_1);
                 var ignored = observeOnly()) {
             ride(f, NONE, 1);
-            f.player.compensatedEntities.addEntity(OTHER_BOAT, EntityTypeIds.OAK_BOAT, OTHER_REST, 0, BOAT_YAW, 0);
+            f.player.compensatedEntities.addEntity(OTHER_BOAT, EntityTypeIds.OAK_BOAT, OTHER_REST, BOAT_YAW, 0, 0);
             int trailing = f.startRiding(OTHER_BOAT, 2, OTHER_SEAT, OTHER_REST, BOAT_YAW, 0.0F);
             f.input(FORWARD);
             rideTick(f, false, REST);
@@ -103,7 +103,7 @@ class BoatRemountInputTest {
             Mockito.when(f.fixture.user.getPlayer().getWorld()).thenReturn(Mockito.mock(PlatformWorld.class));
             f.water(new BlockPos(-3, FLOOR_Y - 1, -3), new BlockPos(3, FLOOR_Y - 1, 3));
             f.place(SEAT.add(1.5, 0.5, 1.5), Vec3.ZERO);
-            f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, REST, 0, BOAT_YAW, 0);
+            f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, REST, BOAT_YAW, 0, 0);
         }
         board(f, f.startRiding(BOAT, teleportId, SEAT, REST, BOAT_YAW, 0.0F), teleportId, SEAT, REST);
         if (input != null) {

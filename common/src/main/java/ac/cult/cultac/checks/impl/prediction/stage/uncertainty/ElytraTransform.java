@@ -58,7 +58,7 @@ public class ElytraTransform implements UncertaintyHandler {
         // A server velocity set replaces the stored velocity; a grounded riptide lift that consumes a stuck
         // multiplier zeroes it.
         boolean replaced = start.hasReason("Velocity") || context.getRiptideLiftStuck() != null;
-        if (BubbleColumn.beforeElytra(context) && !replaced) {
+        if (BubbleColumn.beforeElytra(context) && !replaced && !BubbleColumn.committedAfterTravel(player, context)) {
             Boosted boosted = start.firstInLineage(Boosted.class);
             if (boosted == null) {
                 minStart = BubbleColumn.apply(context, lastResult, start, Double.NEGATIVE_INFINITY);

@@ -19,6 +19,7 @@ public class PacketChangeGameState extends CultProcessor implements CheckListene
     @CultPacketHandler
     public void onGameEvent(
             PacketSendEvent<ClientboundGameEvent> event, CultPlayer player, ClientboundGameEvent packet) {
+        if (packet.event() == GameEventType.WIN_GAME) player.blockActionReconciler.wonGameSent();
         if (packet.event() != GameEventType.CHANGE_GAME_MODE) {
             return;
         }
@@ -29,6 +30,7 @@ public class PacketChangeGameState extends CultProcessor implements CheckListene
             case 3 -> GameMode.SPECTATOR;
             default -> GameMode.SURVIVAL;
         };
+        GameMode sentBefore = player.serverGamemode;
         player.serverGamemode = next;
         PlayerObserver observer = player.observer;
         if (observer != null) observer.gameModeSent(next);
@@ -39,6 +41,9 @@ public class PacketChangeGameState extends CultProcessor implements CheckListene
 
         player.sendTransaction();
         int preceding = player.lastTransactionSent.get();
+        // Leaving spectator revokes unsimulated movement at this ping.
+        if (sentBefore == GameMode.SPECTATOR && next != GameMode.SPECTATOR)
+            PacketPlayerAbilities.limitRevocation(player, preceding);
         player.latencyUtils.addRealTimeTaskNow(() -> {
             GameMode previous = player.gamemode;
             player.gamemode = next;

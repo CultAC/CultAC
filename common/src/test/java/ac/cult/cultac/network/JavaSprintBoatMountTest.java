@@ -179,7 +179,7 @@ class JavaSprintBoatMountTest {
             f.player.compensatedEntities.addEntity(CAMEL, EntityTypeIds.CAMEL, camelAt, 0, 0, 0);
             ((PacketEntityHorse) f.player.compensatedEntities.getEntity(CAMEL)).hasSaddle = true;
             Vec3 boat = at(240.39491855367655, 61.535082140448594, 204.5464472442114);
-            f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, boat, 0, BOAT_YAW, 0);
+            f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, boat, BOAT_YAW, 0, 0);
             f.setPassengers(CAMEL, List.of(f.player.entityID));
             f.pongThrough(f.player.lastTransactionSent.get());
             f.player.isSprinting = true;
@@ -221,9 +221,9 @@ class JavaSprintBoatMountTest {
         f.player.sprintState.onClientTickEnd();
         f.input(FORWARD_SPRINT);
         Vec3 boat = at(240.39491855367655, 61.535082140448594, 204.5464472442114);
-        f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, boat, 0, BOAT_YAW, 0);
+        f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, boat, BOAT_YAW, 0, 0);
         f.player.compensatedEntities.addEntity(
-                OTHER_BOAT, EntityTypeIds.OAK_BOAT, boat.add(OTHER_BOAT_OFFSET), 0, BOAT_YAW, 0);
+                OTHER_BOAT, EntityTypeIds.OAK_BOAT, boat.add(OTHER_BOAT_OFFSET), BOAT_YAW, 0, 0);
         f.pongThrough(f.player.lastTransactionSent.get());
         f.player.xRot = 194.90788F;
         f.player.yRot = 41.457066F;

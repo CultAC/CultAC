@@ -11,6 +11,22 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.VectorUtils;
 
 public class StuckSpeed implements UncertaintyHandler {
+    private static final String REASON = "maybe stuck speed";
+
+    /** Whether this handler cut {@code moved} to its start scaled by {@code multiplier} on every moving axis. */
+    public static boolean tookMultiplier(PredVector moved, Vec3 multiplier) {
+        PredVector cut = moved.latestWithReason(REASON);
+        if (cut == null) return false;
+        Vec3 start = cut.vectorBeforeFirstReason(REASON);
+        return tookAxis(start.x, cut.x, multiplier.x)
+                && tookAxis(start.y, cut.y, multiplier.y)
+                && tookAxis(start.z, cut.z, multiplier.z);
+    }
+
+    private static boolean tookAxis(double start, double cut, double multiplier) {
+        return start == 0.0D || Math.abs(cut - start * multiplier) <= 1.0E-7;
+    }
+
     @Override
     public boolean skipsContext(CultPlayer player, SimulationContext context, PredictionResult lastResult) {
         return !player.isBedrockMovement() && JavaMovementEngine.contextUsesExactEffects(context)
@@ -39,7 +55,7 @@ public class StuckSpeed implements UncertaintyHandler {
         if (lastStuckSpeed == null) return start;
         SimpleCollisionBox allowedMovement = new SimpleCollisionBox(start, start.multiply(lastStuckSpeed)).sort();
         Vec3 cut = VectorUtils.cutBoxToVector(end, allowedMovement);
-        return start.withXYZ(cut.x, cut.y, cut.z, "maybe stuck speed");
+        return start.withXYZ(cut.x, cut.y, cut.z, REASON);
     }
 
     @Override

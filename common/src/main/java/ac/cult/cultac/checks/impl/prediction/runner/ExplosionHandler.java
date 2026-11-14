@@ -212,7 +212,7 @@ public class ExplosionHandler extends PacketModHandler {
                 new TransactionVel(push, transaction, false, isSetbackVal, ravager.getEntityId(), sequence);
         // The tick end being handled counts this tick, so the next one counts the tick that consumes the push.
         if (afterTravel) velocity.setConsumedAtClientTick(player.packetStateData.acceptedClientTick + 2);
-        lastSent = velocity;
+        sent(velocity);
         confirmVelocity(velocity, push);
     }
 

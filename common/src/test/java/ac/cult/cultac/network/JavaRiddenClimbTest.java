@@ -129,7 +129,7 @@ class JavaRiddenClimbTest {
         f.player.yRot = f.player.lastTickYRot = pitch;
         f.place(seat.add(0, 1, 0), Vec3.ZERO);
         f.player.compensatedEntities.addEntity(
-                VEHICLE, EntityTypes.defaults().byKey("minecraft:nautilus").id(), seat, 0, yaw, 0);
+                VEHICLE, EntityTypes.defaults().byKey("minecraft:nautilus").id(), seat, yaw, 0, 0);
         var nautilus = (PacketEntityNautilus) f.player.compensatedEntities.getEntity(VEHICLE);
         nautilus.hasSaddle = true;
         nautilus.isTame = true;

@@ -37,6 +37,47 @@ public final class EntityPositionWorlds {
         UnknownCollisionProvider.addDynamicBlockUnknownCollisions(player, context, region, dynamicBlocks);
         if (!dynamicBlocks.isEmpty()) return null;
 
+        List<List<SimpleCollisionBox>> choices = choices(player, context, playerPos, region);
+        int worlds = 1;
+        for (int e = 0; e < choices.size(); e++) {
+            worlds *= choices.get(e).size();
+            if (worlds > MAX_POSITION_SETS) return null;
+        }
+
+        List<List<SimpleCollisionBox>> result = new ArrayList<>(worlds);
+        for (int w = 0; w < worlds; w++) {
+            List<SimpleCollisionBox> world = new ArrayList<>(choices.size());
+            int digits = w;
+            for (int e = 0; e < choices.size(); e++) {
+                List<SimpleCollisionBox> boxes = choices.get(e);
+                SimpleCollisionBox box = boxes.get(digits % boxes.size());
+                digits /= boxes.size();
+                if (box != null) world.add(box);
+            }
+            result.add(world);
+        }
+        return result;
+    }
+
+    /**
+     * Every box an entity of the worlds {@link #of} builds may hold within {@code region}, however many worlds there
+     * are, for a Java move.
+     */
+    public static List<SimpleCollisionBox> possibleBoxes(
+            CultPlayer player, SimulationContext context, Vec3 playerPos, SimpleCollisionBox region) {
+        List<SimpleCollisionBox> boxes = new ArrayList<>();
+        for (List<SimpleCollisionBox> choice : choices(player, context, playerPos, region)) {
+            for (int i = 0; i < choice.size(); i++) {
+                if (choice.get(i) != null) boxes.add(choice.get(i));
+            }
+        }
+        return boxes;
+    }
+
+    /** For each entity that may lie in {@code region}, its distinct boxes there, and null when it may lie elsewhere. */
+    private static List<List<SimpleCollisionBox>> choices(
+            CultPlayer player, SimulationContext context, Vec3 playerPos, SimpleCollisionBox region) {
+        PacketEntity vehicle = context.getVehicle();
         CompensatedEntities entities = player.compensatedEntities;
         PacketEntity selfRidingRoot = entities.selfRidingRoot();
         PacketEntity serverVehicleRoot = entities.serverVehicleRoot();
@@ -44,14 +85,13 @@ public final class EntityPositionWorlds {
         SimpleCollisionBox envelope = new SimpleCollisionBox();
         SimpleCollisionBox scratch = new SimpleCollisionBox();
         List<List<SimpleCollisionBox>> choices = new ArrayList<>();
-        int worlds = 1;
         List<PacketEntity> candidates = entities.unknownCollisionCandidates();
         for (int e = 0, size = candidates.size(); e < size; e++) {
             PacketEntity entity = candidates.get(e);
             if (entities.isUntrackedRider(entity, selfRidingRoot, serverVehicleRoot)) continue;
             if (vehicle != null && entities.sharesRootVehicleWithSelf(entity, rootOfSelf)) continue;
             if (!UnknownCollisionProvider.collidesAtPossiblePositions(
-                    player.compensatedEntities.getSelf(), vehicle, playerPos, entity, envelope, scratch)) {
+                    entities.getSelf(), vehicle, playerPos, entity, envelope, scratch)) {
                 continue;
             }
             if (!boundingBox(entity, entity.getPossibleMovementCollisionBoxes(envelope, scratch))
@@ -70,24 +110,9 @@ public final class EntityPositionWorlds {
             }
             if (boxes.isEmpty()) continue;
             if (outside) boxes.add(null);
-            worlds *= boxes.size();
-            if (worlds > MAX_POSITION_SETS) return null;
             choices.add(boxes);
         }
-
-        List<List<SimpleCollisionBox>> result = new ArrayList<>(worlds);
-        for (int w = 0; w < worlds; w++) {
-            List<SimpleCollisionBox> world = new ArrayList<>(choices.size());
-            int digits = w;
-            for (int e = 0; e < choices.size(); e++) {
-                List<SimpleCollisionBox> boxes = choices.get(e);
-                SimpleCollisionBox box = boxes.get(digits % boxes.size());
-                digits /= boxes.size();
-                if (box != null) world.add(box);
-            }
-            result.add(world);
-        }
-        return result;
+        return choices;
     }
 
     /**

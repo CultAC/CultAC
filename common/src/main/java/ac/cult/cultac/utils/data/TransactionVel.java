@@ -17,6 +17,9 @@ public class TransactionVel implements TransactionOrder {
     final int sourceEntityId;
     /** Outbound impulse order, independent of the receipt ping shared by a flush. */
     final long outboundSequence;
+    /** System#nanoTime when the server sent it. */
+    @ToString.Exclude
+    final long sentAt = System.nanoTime();
 
     private double offset = Double.MAX_VALUE;
     private boolean consumed;

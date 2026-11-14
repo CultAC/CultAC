@@ -160,6 +160,9 @@ public final class VehicleTeleportTracker {
             data = required.getTeleportData();
         }
         accepted.setTeleportData(data);
+        accepted.setForwardedPosition(teleport.position());
+        accepted.setAnswerSnapYaw(teleport.snapYaw());
+        accepted.setAnswerSnaps(teleport.snaps());
         accepted.setVehicleTeleportData(teleport.state());
         accepted.setTeleport(true);
         return accepted;
@@ -225,6 +228,31 @@ public final class VehicleTeleportTracker {
             Vec3 position,
             VehicleTeleportData state,
             double responseDistanceTolerance) {
+        addVehicleTeleport(vehicleId, transaction, position, state, responseDistanceTolerance, Float.NaN, false);
+    }
+
+    /**
+     * A ClientboundMoveVehicle's answer: ClientPacketListener#handleMoveVehicle snaps the root to {@code snapYaw} when
+     * the root is farther than its snap distance, which {@code snaps} says it was when the move was sent.
+     */
+    public void addVehicleMoveTeleport(
+            int vehicleId,
+            int transaction,
+            Vec3 position,
+            double responseDistanceTolerance,
+            float snapYaw,
+            boolean snaps) {
+        addVehicleTeleport(vehicleId, transaction, position, null, responseDistanceTolerance, snapYaw, snaps);
+    }
+
+    private void addVehicleTeleport(
+            int vehicleId,
+            int transaction,
+            Vec3 position,
+            VehicleTeleportData state,
+            double responseDistanceTolerance,
+            float snapYaw,
+            boolean snaps) {
         if (player.isBedrockMovement()
                 && ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl.isSupported(
                         player.compensatedEntities.getEntity(vehicleId))) {
@@ -233,11 +261,28 @@ public final class VehicleTeleportTracker {
             responseDistanceTolerance = 0.0D;
         }
         vehicleTeleports.add(
-                new VehicleTeleport(vehicleId, transaction, position, state, responseDistanceTolerance, false));
+                new VehicleTeleport(
+                        vehicleId,
+                        transaction,
+                        position,
+                        state,
+                        responseDistanceTolerance,
+                        false,
+                        snapYaw,
+                        snaps));
+    }
+
+    /** Whether the client has yet to answer the vehicle teleport {@code transaction} proves for {@code vehicleId}. */
+    public boolean isUnanswered(int vehicleId, int transaction) {
+        for (VehicleTeleport teleport : vehicleTeleports) {
+            if (teleport.vehicleId() == vehicleId && teleport.transaction() == transaction) return true;
+        }
+        return false;
     }
 
     public void addBedrockVehicleTeleport(int vehicleId, int transaction, Vec3 position) {
-        vehicleTeleports.add(new VehicleTeleport(vehicleId, transaction, position, null, 0.0D, true));
+        vehicleTeleports.add(
+                new VehicleTeleport(vehicleId, transaction, position, null, 0.0D, true, Float.NaN, false));
     }
 
     /** Receipt alone cannot complete a rewind. Called only after movement from the corrected state passes. */
@@ -328,7 +373,9 @@ public final class VehicleTeleportTracker {
             Vec3 position,
             VehicleTeleportData state,
             double responseDistanceTolerance,
-            boolean rewind) {}
+            boolean rewind,
+            float snapYaw,
+            boolean snaps) {}
 
     public boolean hasUnacknowledgedSetbackVehicleTeleport() {
         SetBackData required = corrections.required();

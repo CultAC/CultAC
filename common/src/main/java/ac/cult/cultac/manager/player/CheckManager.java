@@ -736,8 +736,6 @@ public class CheckManager {
                 PacketOrderL.class,
                 PacketOrderM.class,
                 BadPacketsX.class,
-                SprintD.class,
-                SprintE.class,
                 MultiInteractA.class,
                 MultiInteractB.class,
                 ElytraB.class,
@@ -1034,15 +1032,15 @@ public class CheckManager {
         if (packet.getPacketType() == ac.cult.cultac.protocol.packet.ServerboundPackets.CLIENT_TICK_END) {
             // MCP-Reborn Minecraft#tick sends ServerboundClientTickEndPacket only
             // after ClientLevel#tickEntities and Level#tickBlockEntities have
-            // both finished. Tick-end handlers that simulate the completed client
-            // tick therefore must see the post-block-entity piston phase and the
-            // post-entity interpolation state, not the stale pre-tick-end cache.
+            // both finished. Tick-end handlers see the post-entity interpolation
+            // state; the block-entity pass follows the travel they simulate.
             player.compensatedWorld.onClientTickEnd();
             dispatchingTickEnd = !packet.isSynthetic();
             try {
                 for (TickEndHandlerRegistration handler : tickEndHandlers) {
                     handler.handle(packet, player);
                 }
+                player.compensatedWorld.tickClientBlockEntities();
                 PlayerObserver observer = player.observer;
                 if (observer != null && !packet.isSynthetic()) observer.tickEnded();
             } finally {

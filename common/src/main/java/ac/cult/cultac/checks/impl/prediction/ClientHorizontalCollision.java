@@ -58,7 +58,25 @@ public final class ClientHorizontalCollision {
             DesyncStatus other = hardFrom(reality);
             if (other != verdict) verdict = other == DesyncStatus.FALSE ? other : DesyncStatus.UNKNOWN;
         }
-        return verdict;
+        return verdict == DesyncStatus.TRUE && pushedAroundTravel(result, true) ? DesyncStatus.UNKNOWN : verdict;
+    }
+
+    /**
+     * Whether a PistonMovingBlockEntity#moveCollidedEntities or Shulker#onPeekAmountChange Entity#move this packet
+     * carries may come after its travel ({@code afterTravel}) or before it, and set horizontalCollision from its own
+     * movement. From 26.3 the packet carries the block entities' moves after its travel, before 26.3 those of the last
+     * client tick before it; a shulker ticks before or after the player.
+     */
+    private static boolean pushedAroundTravel(PredictionResult result, boolean afterTravel) {
+        SimulationContext context = result.getSimulationContext();
+        PistonPushes pushes = context == null || context.getWorldData() == null
+                ? null
+                : context.getWorldData().getPistonPushes();
+        if (pushes == null) return false;
+        if (pushes.getShulkerPush() != null && !pushes.getShulkerPush().isEmpty()) return true;
+        if (pushes.getPistonPush() == null || pushes.getPistonPush().isEmpty()) return false;
+        CultPlayer player = result.getPlayer();
+        return player == null || player.compensatedWorld.pistons.reportsAfterBlockEntities() == afterTravel;
     }
 
     private static boolean judgeable(PredictionResult result) {
@@ -178,6 +196,7 @@ public final class ClientHorizontalCollision {
      * shove before the travel reaches the player.
      */
     public static DesyncStatus hardBeforeTravel(PredictionResult result, Input input) {
+        if (pushedAroundTravel(result, false)) return DesyncStatus.UNKNOWN;
         SimulationContext context = result.getSimulationContext();
         PistonPushes pushes = context == null || context.getWorldData() == null
                 ? null

@@ -2,6 +2,7 @@ package ac.cult.cultac.network;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.Components;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.engine.SimItemStack;
@@ -14,6 +15,7 @@ import ac.cult.cultac.checks.impl.combat.EntityReach;
 import ac.cult.cultac.checks.impl.combat.PlayerHitboxes;
 import ac.cult.cultac.checks.impl.combat.PlayerReach;
 import ac.cult.cultac.checks.impl.combat.ReachCheck;
+import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.verbose.VerboseCodecs;
 import ac.cult.cultac.checks.impl.visibility.AttackMobVisibility;
 import ac.cult.cultac.checks.impl.visibility.AttackPlayerVisibility;
@@ -47,6 +49,7 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSetCarriedItem;
 import ac.cult.cultac.protocol.value.AttributeModifier;
 import ac.cult.cultac.protocol.value.AttributeSnapshot;
+import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.EntityDelta;
 import ac.cult.cultac.protocol.value.EntityPose;
 import ac.cult.cultac.protocol.value.GameMode;
@@ -711,6 +714,7 @@ class ReachInteractionRangeTest {
     @Test
     void aScaleProvenWhileTheTargetWasTheVehicleLeavesNoSmallerAlternative() throws Exception {
         try (var setup = new Setup()) {
+            setup.standOnAFloor();
             List<String> flagged = setup.attackDismountedScaledHorse(
                     horse -> assertEquals(2F, horse.leastScale()), horse -> assertEquals(2F, horse.leastScale()));
             assertEquals(List.of("EntityReach"), flagged);
@@ -819,6 +823,7 @@ class ReachInteractionRangeTest {
     void aNewLocalPlayerIsJudgedWithTheHeadYawOfItsFirstTick() throws Exception {
         // LivingEntity's constructor head yaw, between 0 and 2*PI degrees, holds only until the first tick.
         try (var setup = new Setup()) {
+            setup.standOnAFloor();
             setup.respawnFacing(90, REACH);
             setup.unloadedTickEnd();
             setup.playerLoaded();
@@ -868,6 +873,7 @@ class ReachInteractionRangeTest {
     @Test
     void aSnapOntoAFarPositionSyncKeepsTheMargin() throws Exception {
         try (var setup = new Setup()) {
+            setup.standOnAFloor();
             assertEquals(List.of(), setup.attackAfter(3.01, entity -> snapAwayAndBack(setup, entity)));
             assertEquals(List.of("EntityReach"), setup.attackAfter(3.10, entity -> snapAwayAndBack(setup, entity)));
         }
@@ -1041,6 +1047,7 @@ class ReachInteractionRangeTest {
         List<String> failures = new ArrayList<>();
         for (ProtocolVersion version : CODEC_BASE_VERSIONS) {
             try (var setup = new Setup(version)) {
+                setup.standOnAFloor();
                 int id = setup.spawn(spawn);
                 before.accept(setup, id);
                 setup.teleport(id, teleport);
@@ -1293,6 +1300,18 @@ class ReachInteractionRangeTest {
             // ReachCheck#measuredAttacks keeps a tick's attacks only while something observes the player.
             player.observer = new PlayerObserver() {};
             fixture.registrar.register(routes -> routes.registerReceiveListener(PacketListenerPriority.LOW, listener));
+        }
+
+        // Tick ends without a position still run LocalPlayer#tick, so a player idling through them stands on a floor.
+        void standOnAFloor() {
+            for (int x = 0; x <= 1; x++) {
+                for (int z = -3; z <= 0; z++) {
+                    player.compensatedWorld.updateBlock(new BlockPos(x, 63, z), BlockIds.STONE.defaultState());
+                }
+            }
+            for (int tick = 0; tick < 3; tick++) player.compensatedWorld.removeInvalidPistonLikeStuff(0);
+            player.onGround = player.lastOnGround = true;
+            player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.TRUE);
         }
 
         ac.cult.cultac.utils.data.packetentity.PacketEntitySelf self() {

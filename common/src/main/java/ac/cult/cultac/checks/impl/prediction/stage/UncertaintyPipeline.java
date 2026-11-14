@@ -13,7 +13,6 @@ public class UncertaintyPipeline {
             new ElytraTransform(),
             new BoatTransform(),
             new PistonShulkerPush(),
-            new FluidPush(true),
             new CollisionModifier(),
             new StepTransform(), // Relies on collisions
             new Honey(), // This fucks up elytras.
@@ -21,13 +20,12 @@ public class UncertaintyPipeline {
             new Ladder(), // No climbing while using an elytra
             new FishingRod(), // No clue where this goes, but it's pre-tick, so I'll throw it here.
             new PointThree(),
+            new InsideBlock(), // LocalPlayer#aiStep pushes out of blocks before travel's edge backoff and stuck speed
             new Sneaking(),
             new StuckSpeed(),
             new BubbleColumn(),
             new SwimSpaceShift(),
             new AquaticUpdateSwim(),
-            new FluidPush(),
-            new InsideBlock(),
             new EntityPush(),
             new Riptide(),
             new PointThreeTesting() // We want to be within 0.03 of the target, not exact

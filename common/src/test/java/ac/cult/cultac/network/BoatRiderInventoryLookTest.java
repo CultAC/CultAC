@@ -77,10 +77,11 @@ class BoatRiderInventoryLookTest {
 
     @Test
     void aBoatYawThatIsNotTheBoatsTurnCannotExplainTheRidersLook() throws Exception {
-        // The boat reports a yaw that clampRotation turns into a look the keys gave no boat to make.
+        // The boat reports a yaw that clampRotation turns into a look the keys gave no boat to make. The engine keeps
+        // the boat's own yaw, so every turned look after it is judged against that yaw too.
         Run run = drive(true, OPEN_TICK + 2, 0, 0, -120);
 
-        assertEquals(1, run.violations);
+        assertEquals(9, run.violations);
     }
 
     /**

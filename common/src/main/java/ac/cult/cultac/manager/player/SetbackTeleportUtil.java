@@ -52,6 +52,9 @@ public class SetbackTeleportUtil extends CultProcessor
     @Getter
     private boolean debug = false;
 
+    /** The last answered ping when a revocation bound last set the player back. */
+    private int revocationStall = Integer.MIN_VALUE;
+
     /** The packets a correction is sent with. */
     public CorrectionSender sender() {
         return sender;
@@ -189,6 +192,25 @@ public class SetbackTeleportUtil extends CultProcessor
 
     public boolean executeTooHighLatencySetback(String cause) {
         return policy.executeTooHighLatencySetback(cause);
+    }
+
+    public boolean executeTooHighLatencySetback(String cause, boolean ignoreUnchanged) {
+        return policy.executeTooHighLatencySetback(cause, ignoreUnchanged);
+    }
+
+    /**
+     * A revocation the client has not proven by {@code transaction} sets it back once per stall: revocations that
+     * expire while the client still has answered the same last ping share the one setback.
+     */
+    public void revocationExpired(int transaction, String cause) {
+        int received = player.lastTransactionReceived.get();
+        if (received >= transaction || received == revocationStall) return;
+        if (executeTooHighLatencySetback(cause)) revocationStall = received;
+    }
+
+    /** Movements stage no safe position until the client answers {@code transaction}. */
+    public void holdSafePositionsUntil(int transaction) {
+        capture.holdUntil(transaction);
     }
 
     /**

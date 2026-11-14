@@ -76,7 +76,7 @@ class PredictionScratchBenchTest {
                     int fixture = i % fixtures.size();
                     SimulationProcessor processor =
                             fixtures.get(fixture).player.checkManager.getSimulationProcessor();
-                    processor.handleBlockChange((i & 1) == 0 ? beside[fixture] : far[fixture], 0);
+                    processor.handleBlockChange((i & 1) == 0 ? beside[fixture] : far[fixture], 0, false);
                 }
                 long b = threads.getCurrentThreadAllocatedBytes() - b0, c = threads.getCurrentThreadCpuTime() - c0;
                 if (round >= 0) {

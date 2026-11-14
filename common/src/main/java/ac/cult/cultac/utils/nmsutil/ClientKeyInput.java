@@ -3,9 +3,7 @@ package ac.cult.cultac.utils.nmsutil;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.KnownInput;
-import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.Vec3;
 
 /**
@@ -19,8 +17,8 @@ public final class ClientKeyInput {
     /**
      * LivingEntity#moveRelative's addition for {@code keys}: KeyboardInput#tick, LocalPlayer#modifyInput with
      * {@code itemUseMultiplier} and {@code movingSlowlyFactor}, and Entity#getInputVector at {@code speed}.
-     * LocalPlayer#aiStep computes crouching from the previous keys before Input#tick. Null when a pose the context does
-     * not determine could slow the input.
+     * LocalPlayer#aiStep computes crouching from the previous keys before Input#tick; {@code movingSlowlyFactor} carries
+     * its outcome.
      */
     public static Vec3 travelInput(
             CultPlayer player,
@@ -32,17 +30,6 @@ public final class ClientKeyInput {
         // LivingEntity#aiStep clears xxa/zza after applyInput when health <= 0. PLAYER_INPUT still reports the
         // held keys. Use receipt-proven health, not the legacy isDead flag which may precede the health packet.
         if (!player.compensatedEntities.getSelf().actionAlive) return Vec3.ZERO;
-        Vec3 start = context.getStart();
-        SimpleCollisionBox standing = GetBoundingBox.getBoundingBoxFromPosAndSize(
-                        start.x,
-                        start.y,
-                        start.z,
-                        Pose.STANDING.width * context.getScale(),
-                        Pose.STANDING.height * context.getScale())
-                .expand(-SimpleCollisionBox.COLLISION_EPSILON);
-        // LocalPlayer#aiStep crouches where crouching fits and shift was held or standing does not fit.
-        if (!Collisions.isEmpty(player, standing)) return null;
-
         Vec3 modified = VelocityTransformer.getExactControllerModifiedInputStatic(
                 new Vec3(keys.strafeImpulse(), 0.0D, keys.forwardImpulse()), itemUseMultiplier, movingSlowlyFactor);
         return inputVector(context, modified, speed);
@@ -60,28 +47,7 @@ public final class ClientKeyInput {
         return inputVector(context, modified, speed);
     }
 
-    /**
-     * Whether {@link #travelInput} gives an input rather than null in this context, whatever the keys, multipliers and
-     * speed. {@code standing} is working space.
-     */
-    public static boolean decidesTravelInput(CultPlayer player, SimulationContext context, SimpleCollisionBox standing) {
-        if (!player.compensatedEntities.getSelf().actionAlive) return true;
-        Vec3 start = context.getStart();
-        GetBoundingBox.getBoundingBoxFromPosAndSize(
-                        standing,
-                        start.x,
-                        start.y,
-                        start.z,
-                        Pose.STANDING.width * context.getScale(),
-                        Pose.STANDING.height * context.getScale())
-                .expand(-SimpleCollisionBox.COLLISION_EPSILON);
-        return Collisions.isEmpty(player, standing);
-    }
-
-    /**
-     * {@link #travelInput}'s x and z written into {@code out[at]} and {@code out[at + 1]}, in a context
-     * {@link #decidesTravelInput} accepts.
-     */
+    /** {@link #travelInput}'s x and z written into {@code out[at]} and {@code out[at + 1]}. */
     public static void travelInput(
             double[] out,
             int at,

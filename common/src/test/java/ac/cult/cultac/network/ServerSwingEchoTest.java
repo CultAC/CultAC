@@ -284,9 +284,12 @@ class ServerSwingEchoTest {
             for (int tick = 0; tick < 2; tick++) f.tick(STANDING, true);
             assertTrue(f.player.attackStrength.isFullStrength(1));
             echo(f);
-            assertTrue(f.player.attackStrength.isFullStrength(1));
+            tickEnd(f);
+            assertTrue(f.player.attackStrength.isFullStrength(2));
+            // The tick end closes a tick without a position, whose Player#tick advances the ticker once.
             swing(f, Hand.MAIN_HAND);
-            assertFalse(f.player.attackStrength.isFullStrength(1));
+            tickEnd(f);
+            assertFalse(f.player.attackStrength.isFullStrength(2));
         }
     }
 

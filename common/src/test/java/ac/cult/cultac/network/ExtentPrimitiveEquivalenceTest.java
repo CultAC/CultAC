@@ -101,7 +101,6 @@ class ExtentPrimitiveEquivalenceTest {
                 "BubbleColumn",
                 "SwimSpaceShift",
                 "AquaticUpdateSwim",
-                "FluidPush",
                 "InsideBlock",
                 "EntityPush",
                 "Ladder",
@@ -120,14 +119,7 @@ class ExtentPrimitiveEquivalenceTest {
         for (UncertaintyHandler handler : forms) names.add(handler.getClass().getSimpleName());
         assertEquals(
                 List.of(
-                        "FluidPush",
-                        "PointThree",
-                        "StuckSpeed",
-                        "BubbleColumn",
-                        "SwimSpaceShift",
-                        "FluidPush",
-                        "InsideBlock",
-                        "EntityPush"),
+                        "PointThree", "InsideBlock", "StuckSpeed", "BubbleColumn", "SwimSpaceShift", "EntityPush"),
                 names);
 
         List<String> mismatches = new ArrayList<>();

@@ -40,19 +40,7 @@ public class PacketPlayerAbilities extends CultProcessor implements CheckListene
             PacketSendEvent<ClientboundPlayerAbilities> event, CultPlayer player, ClientboundPlayerAbilities packet) {
         boolean pingPrecedes = player.sendTransactionAndGetId() != -1;
 
-        if (lastSentPlayerCanFly && !packet.canFly()) {
-            int noFlying = player.lastTransactionSent.get();
-            int maxFlyingPing =
-                    CultAPI.INSTANCE.getConfigManager().getConfig().getIntElse("max-ping-out-of-flying", 600);
-
-            player.nettyScheduler.runTaskInMs(
-                    () -> {
-                        if (player.lastTransactionReceived.get() < noFlying) {
-                            player.getSetbackTeleportUtil().executeTooHighLatencySetback("flying");
-                        }
-                    },
-                    maxFlyingPing);
-        }
+        if (lastSentPlayerCanFly && !packet.canFly()) limitRevocation(player, player.lastTransactionSent.get());
 
         lastSentPlayerCanFly = packet.canFly();
 
@@ -72,5 +60,18 @@ public class PacketPlayerAbilities extends CultProcessor implements CheckListene
             player.latencyUtils.addRealTimeTask(
                     preceding, () -> player.abilitiesSent(packet.instabuild(), packet.invulnerable()));
         }
+    }
+
+    /**
+     * Movement the server no longer allows stays possible until the client answers {@code transaction}, the ping it
+     * applies at. Left unanswered past max-ping-out-of-flying, the player is set back, without a flag, to where it was
+     * when the change was sent; a value of 0 or less turns this off.
+     */
+    public static void limitRevocation(CultPlayer player, int transaction) {
+        int maxFlyingPing = CultAPI.INSTANCE.getConfigManager().getConfig().getIntElse("max-ping-out-of-flying", 1000);
+        if (maxFlyingPing <= 0) return;
+        player.getSetbackTeleportUtil().holdSafePositionsUntil(transaction);
+        player.nettyScheduler.runTaskInMs(
+                () -> player.getSetbackTeleportUtil().revocationExpired(transaction, "flying"), maxFlyingPing);
     }
 }

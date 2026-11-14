@@ -6,6 +6,7 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.data.MainSupportingBlockData;
+import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.math.CultMath;
@@ -55,7 +56,7 @@ public final class Friction {
         // Water friction - has highest priority
         if (inWater && fluidTravel) {
             int start = out.size();
-            List<Double> frictions = getSwimFriction(context);
+            List<Double> frictions = getSwimFriction(player, context);
             for (int i = 0, size = frictions.size(); i < size; i++) {
                 double friction = frictions.get(i);
                 if (!Double.isFinite(friction)) {
@@ -127,11 +128,17 @@ public final class Friction {
         // gravity / 16 only when the entity is not sprinting. Use the frozen
         // SimulationContext sprint candidates for this simulated client tick;
         // mutable CultPlayer sprint state may already reflect a later packet.
+        PacketEntity vehicle = context.getVehicle();
+        if (vehicle != null) {
+            // The travelling vehicle reads its own shared sprinting flag.
+            boolean sprinting = !player.isBedrockMovement() && (vehicle.actionSharedFlags & 8) != 0;
+            Vec3 candidate = sprinting ? movement : applyFluidGravity(gravity, falling, movement);
+            if (!finiteOnly || isFinite(candidate)) addDistinct(results, from, candidate);
+            return;
+        }
         List<Boolean> sprintingStates = context.getIsSprinting().getStates();
         for (int i = 0, size = sprintingStates.size(); i < size; i++) {
-            Vec3 candidate = sprintingStates.get(i) && context.getVehicle() == null
-                    ? movement
-                    : applyFluidGravity(gravity, falling, movement);
+            Vec3 candidate = sprintingStates.get(i) ? movement : applyFluidGravity(gravity, falling, movement);
             if (!finiteOnly || isFinite(candidate)) addDistinct(results, from, candidate);
         }
     }
@@ -144,13 +151,19 @@ public final class Friction {
         return new Vec3(movement.x, y, movement.z);
     }
 
-    public static List<Double> getSwimFriction(SimulationContext context) {
-        boolean skeletonHorse =
-                context.getVehicle() != null && context.getVehicle().type == EntityTypeIds.SKELETON_HORSE;
+    public static List<Double> getSwimFriction(CultPlayer player, SimulationContext context) {
+        PacketEntity vehicle = context.getVehicle();
+        boolean skeletonHorse = vehicle != null && vehicle.type == EntityTypeIds.SKELETON_HORSE;
         boolean dolphinsGrace = context.getEntities().getPotionLevelForPlayer(MovementEffect.DOLPHINS_GRACE) != null;
         List<Double> frictions = getSwimFriction(skeletonHorse, dolphinsGrace, context.getWaterMovementEfficiency());
+        if (frictions.size() != 2) return frictions;
+        if (vehicle != null) {
+            if (player.isBedrockMovement()) return frictions;
+            // LivingEntity#travelInWater reads the travelling vehicle's own shared sprinting flag.
+            return Collections.singletonList(frictions.get((vehicle.actionSharedFlags & 8) != 0 ? 0 : 1));
+        }
         List<Boolean> sprinting = context.getIsSprinting().getStates();
-        if (context.getVehicle() != null || frictions.size() != 2 || sprinting.size() != 1) return frictions;
+        if (sprinting.size() != 1) return frictions;
         // LivingEntity#travelInWater slows a player sprinting at travel by 0.9F and any other by 0.8F.
         return Collections.singletonList(frictions.get(sprinting.getFirst() ? 0 : 1));
     }

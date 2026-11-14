@@ -4,6 +4,7 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.CultProcessor;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.BoatTransform;
 import ac.cult.cultac.checks.impl.vehicle.VehicleC;
 import ac.cult.cultac.checks.impl.vehicle.VehicleGround;
@@ -28,11 +29,19 @@ import java.util.Set;
 public class VehiclePredictionRunner extends CultProcessor implements VehicleListener, ClientTickEndListener {
     // The collision result that replaced this packet's disproven onGround claim.
     private Boolean correctedOnGround;
+    private float correctedYaw = Float.NaN;
 
     /** The onGround a disproven claim of the last processed packet is replaced with, once; null if none. */
     public Boolean takeCorrectedOnGround() {
         Boolean corrected = correctedOnGround;
         correctedOnGround = null;
+        return corrected;
+    }
+
+    /** The yaw the root's tick gave it for the last processed packet when that packet claimed another, once. */
+    public float takeCorrectedYaw() {
+        float corrected = correctedYaw;
+        correctedYaw = Float.NaN;
         return corrected;
     }
 
@@ -102,6 +111,7 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
     @Override
     public void process(final VehiclePositionUpdate vehicleUpdate) {
         correctedOnGround = null;
+        correctedYaw = Float.NaN;
         // We previously didn't do vehicle setbacks because vehicle netcode sucks
         // But the only solution is to fix mojang's bugs, as otherwise bypasses and falses will occur
         PredictionResult result = player.checkManager.getSimulationProcessor().onVehiclePositionUpdate(vehicleUpdate);
@@ -193,8 +203,17 @@ public class VehiclePredictionRunner extends CultProcessor implements VehicleLis
             // deltaRotation on the root entity. A packet accepted from
             // LocalPlayer#tick proves that AbstractBoat#tick completed, so carry
             // those exact post-tick fields into the next vehicle prediction.
-            BoatTransform.commitAcceptedBoatTickState(player, result);
-        } else if (riding instanceof PacketEntityHappyGhast) {
+            float claimed = vehicleUpdate.getXRot();
+            float yaw = riding.clientPhysicalYawCurrent
+                    ? BoatTransform.acceptedBoatYaw(player, result, claimed)
+                    : Float.NaN;
+            if (!Float.isNaN(yaw) && Float.compare(yaw, claimed) != 0) correctedYaw = yaw;
+            BoatTransform.commitAcceptedBoatTickState(player, result, Float.isNaN(yaw) ? claimed : yaw);
+        } else if (riding != null) {
+            float yaw = VelocityTransformer.riddenTurnYaw(player, riding);
+            if (!Float.isNaN(yaw) && Float.compare(yaw, vehicleUpdate.getXRot()) != 0) correctedYaw = yaw;
+        }
+        if (riding instanceof PacketEntityHappyGhast) {
             Vec3 velocity =
                     uniqueVelocity(player.checkManager.getSimulationProcessor().getValidPlayerStartingVels());
             if (velocity != null) {

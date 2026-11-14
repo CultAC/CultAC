@@ -43,6 +43,10 @@ spectators:
 # How long should players have until we kick them for timing out? Default = 60 seconds
 max-transaction-time: 60
 
+# Sets a Java player back once, without a flag, when its movement arrives more than this many milliseconds after a
+# ping it has not answered. 0 or less turns this off.
+max-pending-ping-ms: 0
+
 # When CultAC itself fails (it cannot attach to a player or the client version is unsupported), let the player
 # play uninspected instead of disconnecting them. Kicks for packet floods, crash exploits and pings left
 # unanswered past max-transaction-time still apply.

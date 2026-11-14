@@ -362,9 +362,9 @@ class VehicleWallCollisionTest {
         Vec3 seat = new Vec3(2.0 - 0.05 - HORSE_HALF_WIDTH, FLOOR_Y, 2.9 + HORSE_HALF_WIDTH);
         for (boolean clipped : new boolean[] {true, false}) {
             try (var f = ridden(EntityTypeIds.HORSE, seat)) {
+                carry(f, seat, new Vec3(0.19, 0.0, 0.198));
                 flowingWater(f, true);
                 column(f, 2, 2);
-                carry(f, seat, new Vec3(0.19, 0.0, 0.198));
                 double x = 2.0 - HORSE_HALF_WIDTH + (clipped ? 0.0 : 0.01);
                 PredictionResult result = f.rideTick(new Vec3(x, seat.y, seat.z + 0.198), true);
                 if (clipped) assertExact(result);
@@ -382,9 +382,9 @@ class VehicleWallCollisionTest {
         Vec3 seat = new Vec3(2.9 + HORSE_HALF_WIDTH, FLOOR_Y, 2.0 - 0.05 - HORSE_HALF_WIDTH);
         for (boolean clipped : new boolean[] {true, false}) {
             try (var f = ridden(EntityTypeIds.HORSE, seat)) {
+                carry(f, seat, new Vec3(0.198, 0.0, 0.19));
                 flowingWater(f, false);
                 column(f, 2, 2);
-                carry(f, seat, new Vec3(0.198, 0.0, 0.19));
                 double z = 2.0 - HORSE_HALF_WIDTH + (clipped ? 0.0 : 0.01);
                 PredictionResult result = f.rideTick(new Vec3(seat.x + 0.198, seat.y, z), true);
                 if (clipped) assertExact(result);
@@ -403,11 +403,11 @@ class VehicleWallCollisionTest {
         Vec3 seat = new Vec3(2.4375 - 0.05 - HORSE_HALF_WIDTH, FLOOR_Y, 5.0 - 0.05 - HORSE_HALF_WIDTH);
         for (boolean clipped : new boolean[] {true, false}) {
             try (var f = ridden(EntityTypeIds.HORSE, seat)) {
+                carry(f, seat, new Vec3(0.19, 0.0, 0.198));
                 flowingWater(f, true);
                 PredictionScenarios.fill(f, 0, 64, 5, 3, 64, 5, BlockIds.STONE.defaultState());
                 PredictionScenarios.fill(f, 2, 65, 3, 2, 65, 3, block("minecraft:glass_pane"));
                 settle(f);
-                carry(f, seat, new Vec3(0.19, 0.0, 0.198));
                 double x = 2.4375 - HORSE_HALF_WIDTH + (clipped ? 0.0 : 0.01);
                 PredictionResult result = f.rideTick(new Vec3(x, FLOOR_Y + 1.0, seat.z + 0.198), true);
                 if (clipped) assertExact(result);

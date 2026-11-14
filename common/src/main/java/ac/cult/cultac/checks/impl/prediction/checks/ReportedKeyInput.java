@@ -42,7 +42,6 @@ public final class ReportedKeyInput {
         private final float[] itemUses = new float[4];
         private double[] inputs = new double[24];
         private boolean[] endedInputs = new boolean[12];
-        private final SimpleCollisionBox standing = new SimpleCollisionBox();
         private final SimpleCollisionBox pose = new SimpleCollisionBox();
         private final SimpleCollisionBox firstRest = new SimpleCollisionBox();
         private final SimpleCollisionBox secondRest = new SimpleCollisionBox();
@@ -59,7 +58,6 @@ public final class ReportedKeyInput {
         if (!appliesTo(player, result, lastResult)) return 0.0D;
         int speeds = groundSpeeds(player, result, scratch);
         int inputs = travelInputs(player, result, speeds, scratch);
-        if (inputs < 0) return 0.0D;
         SimpleCollisionBox extents = result.getValidMovements().getCollisionIgnoredMaxStartingVelExtents();
         if (extents == null) return 0.0D;
         double best = Double.MAX_VALUE;
@@ -85,10 +83,21 @@ public final class ReportedKeyInput {
      * that input.
      */
     public static List<Vec3> travelInputs(CultPlayer player, PredictionResult result, PredictionResult lastResult) {
-        if (appliesTo(player, result, lastResult)) return travelInputs(player, result, groundSpeeds(player, result));
+        float[] itemUses = itemUses(result.getSimulationContext().getItemUse());
+        if (appliesTo(player, result, lastResult))
+            return travelInputs(player, result, groundSpeeds(player, result), itemUses);
         return inAir(player, result, lastResult)
-                ? travelInputs(player, result, flyingSpeeds(player, result.getSimulationContext()))
+                ? travelInputs(player, result, flyingSpeeds(player, result.getSimulationContext()), itemUses)
                 : null;
+    }
+
+    /**
+     * LocalPlayer#modifyInput's item multiplier is the legal one, the required one of a use the client owes, or that of
+     * a use it may have started: Minecraft#tick runs handleKeybinds, whose startUseItem precedes the tick's
+     * LocalPlayer#aiStep, so a use slows the tick that sends its USE_ITEM.
+     */
+    private static float[] itemUses(ClientItemUseState.Snapshot use) {
+        return new float[] {use.legalMultiplier(), use.requiredMultiplier(), use.slowestMultiplier()};
     }
 
     private static float[] groundSpeeds(CultPlayer player, PredictionResult result) {
@@ -136,16 +145,12 @@ public final class ReportedKeyInput {
         return context.getIsSprinting() == DesyncStatus.TRUE && player.packetStateData.knownInput.forwardImpulse() <= 0;
     }
 
-    private static List<Vec3> travelInputs(CultPlayer player, PredictionResult result, float[] speeds) {
+    private static List<Vec3> travelInputs(
+            CultPlayer player, PredictionResult result, float[] speeds, float[] itemUses) {
         SimulationContext context = result.getSimulationContext();
         KnownInput keys = player.packetStateData.knownInput;
-        ClientItemUseState.Snapshot use = context.getItemUse();
         float[] slows = new float[2];
         int slowCount = slows(player, context, slows);
-        // LocalPlayer#modifyInput's item multiplier is the legal one, the required one of a use the client owes, or
-        // that of a use it may have started: Minecraft#tick runs handleKeybinds, whose startUseItem precedes the
-        // tick's LocalPlayer#aiStep, so a use slows the tick that sends its USE_ITEM.
-        float[] itemUses = {use.legalMultiplier(), use.requiredMultiplier(), use.slowestMultiplier()};
         List<Vec3> inputs = new ArrayList<>(slowCount * speeds.length * itemUses.length);
         for (int l = 0; l < slowCount; l++) {
             float slow = slows[l];
@@ -156,9 +161,7 @@ public final class ReportedKeyInput {
                 for (int u = 0; u < itemUses.length; u++) {
                     float itemUse = itemUses[u];
                     if (repeats(itemUses, u)) continue;
-                    Vec3 input = ClientKeyInput.travelInput(player, context, keys, itemUse, slow, speed);
-                    if (input == null) return null;
-                    inputs.add(input);
+                    inputs.add(ClientKeyInput.travelInput(player, context, keys, itemUse, slow, speed));
                 }
             }
         }
@@ -166,9 +169,8 @@ public final class ReportedKeyInput {
     }
 
     /**
-     * {@link #travelInputs(CultPlayer, PredictionResult, float[])} for the first {@code speedCount} of
-     * {@code scratch.speeds}, each input's x and z written in order into {@code scratch.inputs}; returns their count,
-     * or -1 for null.
+     * {@link #travelInputs(CultPlayer, PredictionResult, float[], float[])} for the first {@code speedCount} of
+     * {@code scratch.speeds}, each input's x and z written in order into {@code scratch.inputs}; returns their count.
      */
     private static int travelInputs(CultPlayer player, PredictionResult result, int speedCount, Scratch scratch) {
         SimulationContext context = result.getSimulationContext();
@@ -183,8 +185,6 @@ public final class ReportedKeyInput {
         itemUses[2] = use.slowestMultiplier();
         // The multiplier of a use that has ended moves the keys at the walking speed only.
         itemUses[ENDED_USE] = use.endedMultiplier();
-        // The loop below runs at least once, and ClientKeyInput's pose test is the same for every combination.
-        if (!ClientKeyInput.decidesTravelInput(player, context, scratch.standing)) return -1;
         if (scratch.inputs.length < 2 * slowCount * speedCount * itemUses.length) {
             scratch.inputs = new double[2 * slowCount * speedCount * itemUses.length];
             scratch.endedInputs = new boolean[slowCount * speedCount * itemUses.length];

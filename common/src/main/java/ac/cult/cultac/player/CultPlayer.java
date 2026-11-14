@@ -53,6 +53,7 @@ import ac.cult.cultac.utils.data.ClientSprintState;
 import ac.cult.cultac.utils.data.ClientSwimState;
 import ac.cult.cultac.utils.data.PacketStateData;
 import ac.cult.cultac.utils.data.ServerSwingEcho;
+import ac.cult.cultac.utils.data.RidingJumpCharge;
 import ac.cult.cultac.utils.data.VehicleData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
@@ -228,7 +229,9 @@ public class CultPlayer implements GrimUser {
      * The last poll before the first ping or during a protocol switch. A client attached in configuration
      * gets no ping until play traffic starts one, so the timeout runs from no earlier than this.
      */
-    private long pingsHeldAt = playerClockAtLeast;
+    private volatile long pingsHeldAt = playerClockAtLeast;
+    /** When the last Java movement or client tick end arrived, System#nanoTime; 0 before the first. */
+    public volatile long lastClientTickArrivedAt;
 
     public int powderSnowFrozenTicks = 0;
     public double x;
@@ -327,6 +330,7 @@ public class CultPlayer implements GrimUser {
 
     public long lastRotated;
     public final @NotNull VehicleData vehicleData = new VehicleData();
+    public final RidingJumpCharge ridingJumpCharge = new RidingJumpCharge();
     public boolean serverOpenedInventoryThisTick;
     // Whether this tick's movement intersected a nether portal block (see MultiActionsD)
     public boolean intersectedWithNetherPortal;
@@ -336,6 +340,10 @@ public class CultPlayer implements GrimUser {
 
     public int minPlayerAttackSlow = 0;
     public int maxPlayerAttackSlow = 0;
+    // Certain dampings from attacks after this tick's travel, which the next travel carries.
+    public int attackSlowsAfterTravel = 0;
+    // A prediction committed since the last tick end packet, accepted or not.
+    public boolean travelPredictedThisClientTick = false;
     public @MonotonicNonNull GameMode gamemode;
     /** The mode of the last packet the server sent, which the client only adopts once it acknowledges that packet. */
     public @MonotonicNonNull GameMode serverGamemode;
@@ -413,9 +421,11 @@ public class CultPlayer implements GrimUser {
         packetStateData.lastSentTickPitch = 0;
         packetStateData.lastSendPositionYaw = 0;
         packetStateData.lastSendPositionPitch = 0;
+        packetStateData.lastSendPositionOnGround = false;
         headArcFrom = Float.NaN;
         unclampedHeadYaw = Float.NaN;
         boatYawBeforeTurn = Float.NaN;
+        ridingJumpCharge.forget();
     }
 
     /**
@@ -1747,6 +1757,16 @@ public class CultPlayer implements GrimUser {
 
     public long getClockBehindInMs() {
         return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - playerClockAtLeast);
+    }
+
+    /** Since when a Java client owes its oldest unanswered ping, as {@link #pollData} times it; 0 while it owes none. */
+    public synchronized long oldestPendingPingSince() {
+        if (isBedrockMovement() || protocolSwitchPending()) return 0;
+        if (transactionsSent == null) {
+            return writtenPings.isEmpty() ? 0 : Math.max(writtenPings.headSentAt(), pingsHeldAt);
+        }
+        SentTransaction oldest = transactionsSent.peek();
+        return oldest == null ? 0 : Math.max(oldest.sentAt(), pingsHeldAt);
     }
 
     public SetbackTeleportUtil getSetbackTeleportUtil() {

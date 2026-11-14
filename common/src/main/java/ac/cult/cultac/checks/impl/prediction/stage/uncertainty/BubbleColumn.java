@@ -33,11 +33,14 @@ public class BubbleColumn implements UncertaintyHandler {
             PredictionResult lastResult,
             PredVector start,
             Vec3 end) {
-        if (context.getVehicle() != null
-                && !player.isBedrockMovement()
-                && JavaMovementEngine.contextUsesExactEffects(context)) return start;
+        if (committedAfterTravel(player, context)) return start;
         if (beforeElytra(context)) return start;
         return apply(context, lastResult, start, end.y);
+    }
+
+    /** Whether the carried velocity already holds the bubble column callbacks of the previous move. */
+    static boolean committedAfterTravel(CultPlayer player, SimulationContext context) {
+        return !player.isBedrockMovement() && JavaMovementEngine.contextUsesExactEffects(context);
     }
 
     @Override
@@ -52,9 +55,7 @@ public class BubbleColumn implements UncertaintyHandler {
             double endX,
             double endY,
             double endZ) {
-        if (context.getVehicle() != null
-                && !player.isBedrockMovement()
-                && JavaMovementEngine.contextUsesExactEffects(context)) return;
+        if (committedAfterTravel(player, context)) return;
         if (beforeElytra(context)) return;
         xyz[1] = applyY(context, lastResult, xyz[1], endY);
     }

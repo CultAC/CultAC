@@ -82,6 +82,8 @@ public class PacketStateData {
     // that carried one outside passenger Rot, NaN while unknown.
     public float lastSendPositionYaw = Float.NaN;
     public float lastSendPositionPitch = Float.NaN;
+    // LocalPlayer#lastOnGround, written only by sendPosition: false for a new LocalPlayer.
+    public boolean lastSendPositionOnGround = false;
     // LocalPlayer#tick emits passenger Rot immediately before MoveVehicle; packet-handler echoes send MoveVehicle
     // alone.
     private boolean awaitingVehicleMoveAfterPassengerRotation = false;

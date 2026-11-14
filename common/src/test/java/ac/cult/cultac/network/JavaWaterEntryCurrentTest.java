@@ -18,8 +18,8 @@ import org.junit.jupiter.api.Test;
 /**
  * A client falls into flowing water placed two ticks earlier, beside its source. Not in water at the tick's start, it
  * enters the flowing block during Entity#move, and LivingEntity#checkFallDamage pushes it by the current before
- * LivingEntity#travelInAir's drag. The recent placement leaves the engine unsure whether the tick started in water.
- * The source drains before the next tick, which therefore starts in still water.
+ * LivingEntity#travelInAir's drag. Neither the placed nor the replaced state of the flowing block reaches the box at
+ * the tick's start. The source drains before the next tick, which therefore starts in still water.
  */
 class JavaWaterEntryCurrentTest {
     private static final ServerboundPlayerInput BACK_JUMP =
@@ -39,19 +39,23 @@ class JavaWaterEntryCurrentTest {
     void theEntryCurrentCarriesIntoTheFirstSwimmingTick() throws Exception {
         try (var f = fixture()) {
             PredictionResult entry = enter(f);
-            assertSame(DesyncStatus.UNKNOWN, entry.getSimulationContext().getWorldData().getInWater());
+            assertSame(DesyncStatus.FALSE, entry.getSimulationContext().getWorldData().getInWater());
             drainSource(f);
             PredictionResult swim = swim(f, SWAM);
             assertTrue(exact(swim), describe(swim));
         }
     }
 
-    /** A client that adds a second entry current's worth of motion needs more input than the water gives. */
+    /**
+     * A client that adds a second entry current's worth of motion, once the drain is past the block-change timing,
+     * needs more input than the water gives.
+     */
     @Test
     void aSecondEntryCurrentIsStrafe() throws Exception {
         try (var f = fixture()) {
             enter(f);
             drainSource(f);
+            for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
             assertRejected(swim(f, SWAM.add(0.0, 0.0, -0.0036)), "Strafe");
         }
     }

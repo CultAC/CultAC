@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.checks.psuedo.VehicleOffset;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.network.event.PacketListenerPriority;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
@@ -164,6 +165,29 @@ class BoatSetbackTest {
             for (int tick = 0; tick < 3; tick++) {
                 JavaTickFixture.assertVehicleExact(boat.tick(ride.f, -1, Vec3.ZERO), tick);
             }
+        }
+    }
+
+    /** An echo of the setback at its position with another yaw reaches the server with the yaw the snap gave the boat. */
+    @Test
+    void aVehicleSetbackEchoedWithAnotherYawCarriesTheSnappedYaw() throws Exception {
+        try (Ride ride = mount(GROUND_SEAT)) {
+            ride.f.player.checkManager.getCheck(VehicleOffset.class).setEnabled(true);
+            TurningBoat boat = new TurningBoat();
+            for (int tick = 0; tick < FALL_TICKS; tick++) {
+                JavaTickFixture.assertVehicleExact(boat.tick(ride.f, tick == 0 ? 0 : -1, Vec3.ZERO), tick);
+            }
+            JavaTickFixture.assertRejected(boat.tick(ride.f, -1, new Vec3(0.5, 0, 0)), "VehicleOffset");
+            SetBackData setback = ride.f.player.getSetbackTeleportUtil().getRequiredSetBack();
+            float snapped = ride.moves.getLast().yaw() % 360.0F;
+            ride.f.pongThrough(ride.f.player.lastTransactionSent.get());
+            Vec3 at = setback.getTeleportData().getLocation();
+            var echo = new ServerboundMoveVehicle(new Vec3d(at.x, at.y, at.z), snapped + 90.0F, 0, false, true);
+            var event = ride.f.event(ServerboundPackets.MOVE_VEHICLE, echo);
+            ride.f.listener.onMoveVehicle(event, ride.f.player, echo);
+            assertTrue(setback.isComplete(), "the setback echo was not accepted");
+            assertEquals(snapped, event.getPacket().yaw());
+            assertEquals(snapped, ride.f.player.compensatedEntities.getEntity(BOAT).clientPhysicalYaw);
         }
     }
 

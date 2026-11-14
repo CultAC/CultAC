@@ -15,17 +15,13 @@ import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.sprint.SprintE;
 import ac.cult.cultac.events.packets.listeners.PacketBlockAction;
-import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.events.packets.worldreader.PacketWorldReaderTwentySix;
-import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
-import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundBlockEvent;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
@@ -71,7 +67,7 @@ class JavaShulkerBoxSprintTest {
 
             Vec3 ground = ClientMoveInput.of(f, SPRINT, 1.0F, GROUND_SPEED, YAW);
             f.input(SPRINT);
-            command(f, sprintE, PlayerCommandAction.START_SPRINTING);
+            f.command(PlayerCommandAction.START_SPRINTING);
             double lid = FLOOR_Y + 1.0;
             position = new Vec3(position.x + ground.x, shove(lid, 0.0F, 0.1F), position.z);
             PredictionResult shoved = f.tick(position, false);
@@ -103,7 +99,7 @@ class JavaShulkerBoxSprintTest {
 
             Vec3 ground = ClientMoveInput.of(f, SPRINT, 1.0F, GROUND_SPEED, YAW);
             f.input(SPRINT);
-            command(f, sprintE, PlayerCommandAction.START_SPRINTING);
+            f.command(PlayerCommandAction.START_SPRINTING);
             position = new Vec3(position.x + ground.x, FLOOR_Y + 1.0, position.z);
             PredictionResult blocked = f.tick(position, true);
             assertTrue(exact(blocked), describe(blocked));
@@ -149,7 +145,7 @@ class JavaShulkerBoxSprintTest {
             f.player.xRot = shovedYaw;
             Vec3 air = ClientMoveInput.of(f, SPRINT, 1.0F, AIR_SPEED, shovedYaw);
             f.input(SPRINT);
-            command(f, sprintE, PlayerCommandAction.START_SPRINTING);
+            f.command(PlayerCommandAction.START_SPRINTING);
             position = position.add(sidewaysShove(progress, progress + 0.1F) + air.x, 0.0, air.z);
             PredictionResult sprinting = f.tick(position, true);
             assertTrue(exact(sprinting), describe(sprinting));
@@ -215,7 +211,7 @@ class JavaShulkerBoxSprintTest {
             for (int tick = 0; tick <= runUp; tick++) {
                 if (tick == runUp) open(f, box, state);
                 f.input(SPRINT);
-                if (tick == 0) command(f, sprintE, PlayerCommandAction.START_SPRINTING);
+                if (tick == 0) f.command(PlayerCommandAction.START_SPRINTING);
                 double moveZ = velocityZ + ground.z;
                 velocityZ = moveZ * GROUND_FRICTION;
                 position = new Vec3(position.x + moves[tick], FLOOR_Y, position.z + moveZ);
@@ -241,7 +237,7 @@ class JavaShulkerBoxSprintTest {
 
             Vec3 ground = ClientMoveInput.of(f, SPRINT, 1.0F, GROUND_SPEED, YAW);
             f.input(SPRINT);
-            command(f, sprintE, PlayerCommandAction.START_SPRINTING);
+            f.command(PlayerCommandAction.START_SPRINTING);
             position = position.add(ground.x, 0.0, 0.0);
             PredictionResult blocked = f.tick(position, true);
             assertTrue(exact(blocked), describe(blocked));
@@ -325,12 +321,5 @@ class JavaShulkerBoxSprintTest {
         double bottom = FLOOR_Y + 1.0 + (double) progressOld;
         double top = FLOOR_Y + 1.0 + (double) progress;
         return y + top - bottom + 0.01;
-    }
-
-    private static void command(JavaTickFixture f, SprintE sprintE, PlayerCommandAction action) {
-        var packet = new ServerboundPlayerCommand(f.player.entityID, action, 0);
-        PacketReceiveEvent<ServerboundPlayerCommand> event = f.event(ServerboundPackets.PLAYER_COMMAND, packet);
-        new PacketEntityAction().onPlayerCommand(event, f.player, packet);
-        sprintE.onPlayerCommand(event, f.player, packet);
     }
 }

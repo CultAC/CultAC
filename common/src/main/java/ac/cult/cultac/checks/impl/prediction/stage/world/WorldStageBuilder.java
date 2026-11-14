@@ -10,6 +10,8 @@ import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext.HardCollidingEntityCollision;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFallDistance;
+import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaInsideBlockEffects;
 import ac.cult.cultac.checks.impl.prediction.runner.PredictionScratch;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CarriedPush;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.EntityPush;
@@ -30,7 +32,9 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityStrider;
 import ac.cult.cultac.utils.enums.Pose;
+import ac.cult.cultac.utils.inventory.ItemTypes;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
+import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.Vector3dm;
@@ -41,11 +45,18 @@ import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.FluidTypeFlowing;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.RiptideUtil;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.function.IntPredicate;
-import lombok.AllArgsConstructor;
 import lombok.Data;
 import org.jetbrains.annotations.Nullable;
 
@@ -68,6 +79,8 @@ public class WorldStageBuilder {
     /** Never written: BubbleColumnData has no mutating caller. */
     private static final BubbleColumnData NO_BUBBLE_COLUMN = new BubbleColumnData(0, 0, 0, 0);
     private static final IntPredicate IS_BUBBLE_COLUMN = state -> BlockIds.is(state, BlockIds.BUBBLE_COLUMN);
+    /** The probes' suffocation tests while {@link #blockPushes} walks an envelope, else null. */
+    private Map<SuffocationProbe, Boolean> suffocation;
 
     private final SupportScan supportScan = new SupportScan();
     // Box scratch: each holds a box for one query on the owning player's thread and is never stored or returned.
@@ -106,21 +119,32 @@ public class WorldStageBuilder {
 
         // -0.001 is mojang's magic value, not ours.
         double expandAmount = 0.001;
-        SimpleCollisionBox minFluid =
-                simulationContext.getFromMinimumExtent(minFluidBox).expand(-expandAmount);
-        SimpleCollisionBox maxFluid =
-                simulationContext.getFromMaximumExtent(maxFluidBox).expand(-expandAmount);
+        boolean javaOnFoot = simulationContext.getVehicle() == null && !player.isBedrockMovement();
+        FluidState minFluidState;
+        FluidState maxFluidState;
+        if (javaOnFoot) {
+            // Entity#baseTick reads the box of the pose and scale Player#updatePlayerPose left last tick.
+            SimpleCollisionBox poseBox = simulationContext.getFromActualPose(minFluidBox);
+            double poseReferenceY = poseBox.minY;
+            minFluidState = getFluidState(player, poseBox.expand(-expandAmount), poseReferenceY, true);
+            maxFluidState = minFluidState;
+        } else {
+            SimpleCollisionBox minFluid =
+                    simulationContext.getFromMinimumExtent(minFluidBox).expand(-expandAmount);
+            SimpleCollisionBox maxFluid =
+                    simulationContext.getFromMaximumExtent(maxFluidBox).expand(-expandAmount);
 
-        double minFluidReferenceY = simulationContext.getFromMinimumExtent(extentBox).minY;
-        double maxFluidReferenceY = simulationContext.getVehicle() != null
-                ? minFluidReferenceY
-                : simulationContext.getFromMaximumExtent(extentBox).minY;
+            double minFluidReferenceY = simulationContext.getFromMinimumExtent(extentBox).minY;
+            double maxFluidReferenceY = simulationContext.getVehicle() != null
+                    ? minFluidReferenceY
+                    : simulationContext.getFromMaximumExtent(extentBox).minY;
 
-        FluidState minFluidState = getFluidState(player, minFluid, minFluidReferenceY);
-        // Vehicles have the same thing as the fluid state as before.
-        FluidState maxFluidState = simulationContext.getVehicle() != null
-                ? minFluidState
-                : getFluidState(player, maxFluid, maxFluidReferenceY);
+            minFluidState = getFluidState(player, minFluid, minFluidReferenceY, false);
+            // Vehicles have the same thing as the fluid state as before.
+            maxFluidState = simulationContext.getVehicle() != null
+                    ? minFluidState
+                    : getFluidState(player, maxFluid, maxFluidReferenceY, false);
+        }
 
         DesyncStatus isInWater = DesyncStatus.fromBooleans(minFluidState.isInWater(), maxFluidState.isInWater());
         DesyncStatus isInLava = DesyncStatus.fromBooleans(minFluidState.isInLava(), maxFluidState.isInLava());
@@ -129,13 +153,20 @@ public class WorldStageBuilder {
                 DesyncStatus.fromBooleans(minFluidState.isInFlowingFluid(), maxFluidState.isInFlowingFluid());
 
         if (minFluidState.isWaterTimingUncertain() || maxFluidState.isWaterTimingUncertain()) {
-            isInWater = DesyncStatus.UNKNOWN;
+            if (!javaOnFoot) isInWater = DesyncStatus.UNKNOWN;
             isInFlowingFluid = DesyncStatus.UNKNOWN;
         }
         if (minFluidState.isLavaTimingUncertain() || maxFluidState.isLavaTimingUncertain()) {
-            isInLava = DesyncStatus.UNKNOWN;
-            touchingLava = DesyncStatus.UNKNOWN;
+            if (!javaOnFoot) {
+                isInLava = DesyncStatus.UNKNOWN;
+                touchingLava = DesyncStatus.UNKNOWN;
+            }
             isInFlowingFluid = DesyncStatus.UNKNOWN;
+        }
+        if (javaOnFoot) {
+            isInWater = FluidRange.presence(minFluidState.getWater(), maxFluidState.getWater());
+            isInLava = FluidRange.presence(minFluidState.getLava(), maxFluidState.getLava());
+            touchingLava = isInLava;
         }
 
         if (player.packetStateData.riptideLevel > 0) {
@@ -176,10 +207,8 @@ public class WorldStageBuilder {
 
         DesyncStatus climbing = DesyncStatus.fromBoolean(Collisions.onClimbable(player, to.x, to.y, to.z));
 
-        int toState = player.compensatedWorld.getBlockStateIdAt(BlockPos.containing(to.x, to.y, to.z));
-        if (BlockIds.is(toState, BlockIds.POWDER_SNOW)
-                && player.getInventory().getBoots().getItem()
-                        == ac.cult.cultac.utils.inventory.ItemTypes.LEATHER_BOOTS) {
+        if (player.getInventory().getBoots().getItem() == ItemTypes.LEATHER_BOOTS
+                && wasInPowderSnow(player, lastPrediction, to)) {
             climbing = DesyncStatus.UNKNOWN;
         }
 
@@ -200,7 +229,6 @@ public class WorldStageBuilder {
                 simulationContext.getToMaxPose(),
                 player.onGround);
 
-        boolean isSuffocating = mightBeSuffocating(player, simulationContext);
         int numColliding = getNumEntitiesCollidingWith(player, simulationContext);
         SpinTarget spinTarget = spinTarget(player, simulationContext);
         CarriedPush carriedPush = player.checkManager.getSimulationProcessor().getCarriedPush();
@@ -212,7 +240,11 @@ public class WorldStageBuilder {
 
         SimpleCollisionBox minExtent = simulationContext.getFromMinimumExtent(extentBox);
         StuckEdgeData stuckEdgeData = couldBeOnStuckEdge(
-                player, simulationContext.getTarget(), lastOnGround.determineOptimistically(), minExtent);
+                player,
+                simulationContext.getTarget(),
+                lastOnGround.determineOptimistically(),
+                JavaFallDistance.leastBeforeMove(player, simulationContext, isInWater, isInLava),
+                minExtent);
         // If the player isn't in water, then they aren't in a bubble column
         final BubbleColumnData bubble = computeBubbleColumns(player, to, simulationContext);
 
@@ -222,6 +254,7 @@ public class WorldStageBuilder {
                 lastPrediction == null
                         ? null
                         : lastPrediction.getSimulationContext().getWorldData().getPistonPushes());
+        List<BlockPush> blockPushes = blockPushes(player, simulationContext, push);
         // Java 1.21.2+ sends tick-end after the block-entity pass. Its piston,
         // shulker and recent world state already advance in CheckManager at that
         // boundary, including idle ticks; prediction must not advance them again.
@@ -288,6 +321,7 @@ public class WorldStageBuilder {
                 player.compensatedEntities.getPotionLevelForPlayer(MovementEffect.JUMP_BOOST) != null
                         && player.compensatedEntities.getPotionLevelForPlayer(MovementEffect.JUMP_BOOST) < 0;
         boolean canJump = desyncLastOnGround.determineOptimistically()
+                && (!javaOnFoot || mayJumpFromGround(minFluidState, fluidJumpThreshold(simulationContext)))
                 && (!simulationContext.isOnGround()
                         || hasNegativeJumpBoost
                         || canGroundJumpInShallowFluid(simulationContext, minFluidState, maxFluidState))
@@ -300,7 +334,8 @@ public class WorldStageBuilder {
                 isInLava,
                 touchingLava,
                 isInFlowingFluid,
-                isSuffocating,
+                blockPushes.stream().anyMatch(BlockPush::pushes),
+                blockPushes,
                 canJump,
                 canFluidHop,
                 canFloatWhileRidden,
@@ -353,11 +388,40 @@ public class WorldStageBuilder {
         return ClientFluidQueries.eyesInWater(player, body, from, from.y + pose.eyeHeight * player.dimensionScale);
     }
 
+    /**
+     * Entity#wasInPowderSnow, which LivingEntity#handleRelativeFrictionAndCalculateMovement reads after this move:
+     * Entity#baseTick copies it from the powder snow the previous tick's Entity#applyEffectsFromBlocks entered.
+     */
+    private static boolean wasInPowderSnow(CultPlayer player, @Nullable PredictionResult lastPrediction, Vec3 to) {
+        Boolean entered =
+                lastPrediction == null ? null : JavaInsideBlockEffects.enteredPowderSnow(player, lastPrediction);
+        if (entered != null) return entered;
+        return BlockIds.is(
+                player.compensatedWorld.getBlockStateIdAt(BlockPos.containing(to.x, to.y, to.z)),
+                BlockIds.POWDER_SNOW);
+    }
+
     private DesyncStatus sampleClimbingAtStart(CultPlayer player, SimulationContext context) {
         Vec3 position = context.getStart();
         DesyncStatus climbingAtStart = DesyncStatus.fromBoolean(
                 Collisions.onClimbable(player, position.x, position.y, position.z, context.isGliding()));
         return climbingAtStart;
+    }
+
+    /**
+     * Whether LivingEntity#aiStep may run jumpFromGround for some state the fluid cells may hold: in lava only at or
+     * below the threshold, otherwise in water only at or below it.
+     */
+    private static boolean mayJumpFromGround(FluidState state, double threshold) {
+        FluidRange water = state.getWater();
+        FluidRange lava = state.getLava();
+        return lava.may && lava.least() <= threshold
+                || !lava.must && (!water.must || water.least() <= threshold);
+    }
+
+    /** Entity#getFluidJumpThreshold at the pose and scale LivingEntity#aiStep runs with. */
+    private static double fluidJumpThreshold(SimulationContext context) {
+        return context.getPose().eyeHeight * context.getScale() < 0.4 ? 0.0 : 0.4;
     }
 
     private boolean canGroundJumpInShallowFluid(
@@ -374,7 +438,6 @@ public class WorldStageBuilder {
     }
 
     @Data
-    @AllArgsConstructor
     private static class FluidState {
         boolean inWater;
         boolean inLava;
@@ -383,6 +446,8 @@ public class WorldStageBuilder {
         double maxLavaHeight;
         boolean waterTimingUncertain;
         boolean lavaTimingUncertain;
+        final FluidRange water = new FluidRange();
+        final FluidRange lava = new FluidRange();
 
         private boolean canGroundJumpFromFluid() {
             return (inWater && maxWaterHeight > 0.0D && maxWaterHeight <= 0.4D)
@@ -390,10 +455,126 @@ public class WorldStageBuilder {
         }
     }
 
-    private FluidState getFluidState(CultPlayer player, SimpleCollisionBox box, double entityBoundingBoxMinY) {
-        FluidState state = new FluidState(false, false, false, 0.0D, 0.0D, false, false);
+    /**
+     * One fluid in a box over every combination of the states recently changed cells may still hold on the client;
+     * heights are EntityFluidInteraction#update's tracker height.
+     */
+    private static final class FluidRange {
+        boolean may;
+        boolean must;
+        double highest;
+        private double mustLeast;
+        private double optionalLeast = Double.POSITIVE_INFINITY;
+
+        /** The least height of a combination holding the fluid. */
+        double least() {
+            return must ? mustLeast : optionalLeast;
+        }
+
+        void addCell(boolean any, boolean all, double low, double high) {
+            if (!any) return;
+            may = true;
+            highest = Math.max(highest, high);
+            if (all) {
+                must = true;
+                mustLeast = Math.max(mustLeast, low);
+            } else {
+                optionalLeast = Math.min(optionalLeast, low);
+            }
+        }
+
+        static DesyncStatus presence(FluidRange a, FluidRange b) {
+            return DesyncStatus.fromBooleans(a.must && b.must, a.may || b.may);
+        }
+    }
+
+    private FluidState getFluidState(
+            CultPlayer player, SimpleCollisionBox box, double entityBoundingBoxMinY, boolean withRecentChanges) {
+        FluidState state = new FluidState();
         state.setWaterTimingUncertain(player.compensatedWorld.hasRecentClientWaterChanges(box));
         state.setLavaTimingUncertain(player.compensatedWorld.hasRecentClientLavaChanges(box));
+        scanClientFluid(player, box, entityBoundingBoxMinY, state);
+        if (withRecentChanges && !scanRecentFluidChanges(player, box, entityBoundingBoxMinY, state)) {
+            state.water.addCell(state.inWater, true, state.maxWaterHeight, state.maxWaterHeight);
+            state.lava.addCell(state.inLava, true, state.maxLavaHeight, state.maxLavaHeight);
+        }
+        return state;
+    }
+
+    /**
+     * Fills {@code state}'s ranges from every combination of the states the cells of {@code box}, and the cells above
+     * them, held since a recent change; false when no such cell has one.
+     */
+    private boolean scanRecentFluidChanges(
+            CultPlayer player, SimpleCollisionBox box, double entityBoundingBoxMinY, FluidState state) {
+        CompensatedWorld world = player.compensatedWorld;
+        int minX = (int) Math.floor(box.minX), maxX = (int) Math.floor(box.maxX);
+        int minY = (int) Math.floor(box.minY), maxY = (int) Math.floor(box.maxY);
+        int minZ = (int) Math.floor(box.minZ), maxZ = (int) Math.floor(box.maxZ);
+        boolean changed = false;
+        for (int x = minX; x <= maxX && !changed; x++) {
+            for (int y = minY; y <= maxY + 1 && !changed; y++) {
+                for (int z = minZ; z <= maxZ && !changed; z++) {
+                    changed = world.recentClientFluidReplacedStates(x, y, z) != null;
+                }
+            }
+        }
+        if (!changed) return false;
+
+        IntArrayList blocks = new IntArrayList(2);
+        IntArrayList aboves = new IntArrayList(2);
+        for (int x = minX; x <= maxX; x++) {
+            for (int y = minY; y <= maxY; y++) {
+                for (int z = minZ; z <= maxZ; z++) {
+                    statesAt(world, x, y, z, blocks);
+                    statesAt(world, x, y + 1, z, aboves);
+                    BlockPos pos = new BlockPos(x, y, z);
+                    boolean anyWater = false, allWater = true, anyLava = false, allLava = true;
+                    double lowWater = Double.POSITIVE_INFINITY, highWater = 0.0D;
+                    double lowLava = Double.POSITIVE_INFINITY, highLava = 0.0D;
+                    for (int b = 0; b < blocks.size(); b++) {
+                        for (int a = 0; a < aboves.size(); a++) {
+                            ClientFluidQueries.Sample fluid =
+                                    ClientFluidQueries.sample(player, blocks.getInt(b), aboves.getInt(a));
+                            boolean inside = (fluid.water() || fluid.lava())
+                                    && calculateStatusForFluid(player, box, fluid.height(), pos);
+                            double height = getFluidHeightAboveMinY(entityBoundingBoxMinY, fluid.height(), pos);
+                            if (inside && fluid.water()) {
+                                anyWater = true;
+                                lowWater = Math.min(lowWater, height);
+                                highWater = Math.max(highWater, height);
+                            } else {
+                                allWater = false;
+                            }
+                            if (inside && fluid.lava()) {
+                                anyLava = true;
+                                lowLava = Math.min(lowLava, height);
+                                highLava = Math.max(highLava, height);
+                            } else {
+                                allLava = false;
+                            }
+                        }
+                    }
+                    state.water.addCell(anyWater, allWater, lowWater, highWater);
+                    state.lava.addCell(anyLava, allLava, lowLava, highLava);
+                }
+            }
+        }
+        return true;
+    }
+
+    private static void statesAt(CompensatedWorld world, int x, int y, int z, IntArrayList out) {
+        out.clear();
+        out.add(world.getBlockStateIdAt(x, y, z));
+        IntList replaced = world.recentClientFluidReplacedStates(x, y, z);
+        if (replaced == null) return;
+        for (int i = 0; i < replaced.size(); i++) {
+            if (!out.contains(replaced.getInt(i))) out.add(replaced.getInt(i));
+        }
+    }
+
+    private void scanClientFluid(
+            CultPlayer player, SimpleCollisionBox box, double entityBoundingBoxMinY, FluidState state) {
         // Collisions#hasState visits floor(min) to floor(max) on each axis.
         if (!player.compensatedWorld.mayHaveFluid(
                 (int) Math.floor(box.minX),
@@ -401,7 +582,7 @@ public class WorldStageBuilder {
                 (int) Math.floor(box.minZ),
                 (int) Math.floor(box.maxX),
                 (int) Math.floor(box.maxY),
-                (int) Math.floor(box.maxZ))) return state;
+                (int) Math.floor(box.maxZ))) return;
 
         Collisions.hasState(player, box, (block, x, y, z) -> {
             ClientFluidQueries.Sample fluid = ClientFluidQueries.sample(player, block, x, y, z);
@@ -441,8 +622,6 @@ public class WorldStageBuilder {
             }
             return false;
         });
-
-        return state;
     }
 
     private double getFluidHeightAboveMinY(double entityBoundingBoxMinY, double fluidHeight, BlockPos fluidPos) {
@@ -451,16 +630,171 @@ public class WorldStageBuilder {
         return Math.max(0.0D, fluidPos.getY() + fluidHeight - entityBoundingBoxMinY);
     }
 
-    private boolean mightBeSuffocating(CultPlayer player, SimulationContext context) {
-        if (player.compensatedEntities.getSelf().inVehicle()) return false;
+    /**
+     * The pushes LocalPlayer#aiStep's moveTowardsClosestSpace may set this tick, one of which it sets. Before 26.3
+     * Level#tickBlockEntities shoves the player after LocalPlayer#sendPosition, so the probes test the box at the
+     * reported position moved by those shoves; a shove the engine does not know exactly lies anywhere in the pass's
+     * push envelope, and each region of it where every probe tests the same blocks and picks the same side gives
+     * one push.
+     */
+    private List<BlockPush> blockPushes(CultPlayer player, SimulationContext context, PistonPushes pushes) {
+        if (player.compensatedEntities.getSelf().inVehicle()) return List.of(BlockPush.NONE);
+        if (player.isBedrockMovement()) return List.of(BlockPush.NONE);
+        if (player.compensatedWorld.pistons.reportsAfterBlockEntities()) {
+            return List.of(blockPushAt(player, context, 0.0D, 0.0D, 0.0D));
+        }
+        ShulkerBoxShoveResult exactShove = pushes.getShulkerBoxShoveResult();
+        if (exactShove != null) {
+            Vec3 moved = exactShove.movement();
+            return List.of(blockPushAt(player, context, moved.x, moved.y, moved.z));
+        }
+        SimpleCollisionBox shoves = pushes.getPush().copy();
+        if (pushes.isShulkerBoxShoveBeforeTravel()) shoves.union(pushes.getShulkerBoxPush());
+        if (shoves.isEmpty()) return List.of(blockPushAt(player, context, 0.0D, 0.0D, 0.0D));
+        suffocation = new HashMap<>();
+        try {
+            return blockPushesWithin(
+                    player,
+                    context,
+                    new SimpleCollisionBox(
+                            Math.min(0.0D, shoves.minX),
+                            Math.min(0.0D, shoves.minY),
+                            Math.min(0.0D, shoves.minZ),
+                            Math.max(0.0D, shoves.maxX),
+                            Math.max(0.0D, shoves.maxY),
+                            Math.max(0.0D, shoves.maxZ)));
+        } finally {
+            suffocation = null;
+        }
+    }
+
+    /**
+     * Every push the probes give for an offset in {@code envelope}. A probe's push changes only where its point
+     * crosses a block or half-block line (the block it tests, and the nearer of its west and east or north and south
+     * sides), where its x and z fractions are equal or sum to one (the nearer of its two axes), or where the box's
+     * bottom or top crosses a suffocating shape; the offsets tested hit every region and boundary those lines leave.
+     */
+    private List<BlockPush> blockPushesWithin(CultPlayer player, SimulationContext context, SimpleCollisionBox envelope) {
+        Vec3 start = context.getStart();
+        float bbWidth = context.getPose().width * context.getScale();
+        double half = bbWidth * 0.35D;
+        double bottom = player.boundingBox.minY;
+        double top = player.boundingBox.maxY;
+        int minBlockX = (int) Math.floor(start.x - half + envelope.minX) - 1;
+        int maxBlockX = (int) Math.floor(start.x + half + envelope.maxX) + 1;
+        int minBlockZ = (int) Math.floor(start.z - half + envelope.minZ) - 1;
+        int maxBlockZ = (int) Math.floor(start.z + half + envelope.maxZ) + 1;
+        int minBlockY = (int) Math.floor(bottom + envelope.minY);
+        int maxBlockY = (int) Math.ceil(top + envelope.maxY);
+
+        Set<Long> suffocatingColumns = new HashSet<>();
+        TreeSet<Double> dys = new TreeSet<>(List.of(envelope.minY, envelope.maxY));
+        List<SimpleCollisionBox> shapes = new ArrayList<>();
+        for (int x = minBlockX; x <= maxBlockX; x++) {
+            for (int z = minBlockZ; z <= maxBlockZ; z++) {
+                for (int y = minBlockY; y < maxBlockY; y++) {
+                    if (!Collisions.doesBlockSuffocate(player, x, y, z)) continue;
+                    suffocatingColumns.add(column(x, z));
+                    shapes.clear();
+                    int state = player.compensatedWorld.getBlockStateIdAt(x, y, z);
+                    ClientBlockShapes.movement(player, state, x, y, z).downCast(shapes);
+                    for (SimpleCollisionBox shape : shapes) {
+                        addWithin(dys, shape.maxY - bottom - 1.0E-7, envelope.minY, envelope.maxY);
+                        addWithin(dys, shape.minY - top + 1.0E-7, envelope.minY, envelope.maxY);
+                    }
+                }
+            }
+        }
+        if (suffocatingColumns.isEmpty()) return List.of(BlockPush.NONE);
+
+        Set<Double> xLines = new HashSet<>(), zLines = new HashSet<>();
+        Set<Double> differences = new HashSet<>(), sums = new HashSet<>();
+        for (int sx = -1; sx <= 1; sx += 2) {
+            for (int sz = -1; sz <= 1; sz += 2) {
+                double px = start.x + sx * half, pz = start.z + sz * half;
+                if (!anySuffocates(suffocatingColumns, px + envelope.minX, px + envelope.maxX,
+                        pz + envelope.minZ, pz + envelope.maxZ)) continue;
+                for (long k = (long) Math.ceil(2 * (px + envelope.minX)); k <= Math.floor(2 * (px + envelope.maxX)); k++)
+                    xLines.add(k / 2.0D - px);
+                for (long k = (long) Math.ceil(2 * (pz + envelope.minZ)); k <= Math.floor(2 * (pz + envelope.maxZ)); k++)
+                    zLines.add(k / 2.0D - pz);
+                for (long m = (long) Math.ceil(px + envelope.minX - pz - envelope.maxZ);
+                        m <= Math.floor(px + envelope.maxX - pz - envelope.minZ); m++)
+                    differences.add(m - px + pz);
+                for (long m = (long) Math.ceil(px + envelope.minX + pz + envelope.minZ);
+                        m <= Math.floor(px + envelope.maxX + pz + envelope.maxZ); m++)
+                    sums.add(m - px - pz);
+            }
+        }
+
+        // Each z between two crossings of the lines crosses every region spanning it.
+        TreeSet<Double> crossings = new TreeSet<>(List.of(envelope.minZ, envelope.maxZ));
+        for (double z : zLines) addWithin(crossings, z, envelope.minZ, envelope.maxZ);
+        List<Double> verticals = new ArrayList<>(xLines);
+        verticals.add(envelope.minX);
+        verticals.add(envelope.maxX);
+        for (double x : verticals) {
+            for (double d : differences) addWithin(crossings, x - d, envelope.minZ, envelope.maxZ);
+            for (double s : sums) addWithin(crossings, s - x, envelope.minZ, envelope.maxZ);
+        }
+        for (double d : differences) {
+            for (double s : sums) addWithin(crossings, (s - d) / 2.0D, envelope.minZ, envelope.maxZ);
+        }
+
+        Set<BlockPush> found = new LinkedHashSet<>();
+        double[] ys = withMidpoints(dys);
+        for (double dz : withMidpoints(crossings)) {
+            TreeSet<Double> xs = new TreeSet<>(List.of(envelope.minX, envelope.maxX));
+            for (double x : xLines) addWithin(xs, x, envelope.minX, envelope.maxX);
+            for (double d : differences) addWithin(xs, dz + d, envelope.minX, envelope.maxX);
+            for (double s : sums) addWithin(xs, s - dz, envelope.minX, envelope.maxX);
+            for (double dx : withMidpoints(xs)) {
+                for (double dy : ys) found.add(blockPushAt(player, context, dx, dy, dz));
+            }
+        }
+        return List.copyOf(found);
+    }
+
+    private static long column(int x, int z) {
+        return ((long) x << 32) | (z & 0xFFFFFFFFL);
+    }
+
+    private static boolean anySuffocates(Set<Long> columns, double minX, double maxX, double minZ, double maxZ) {
+        for (int x = (int) Math.floor(minX); x <= (int) Math.floor(maxX); x++) {
+            for (int z = (int) Math.floor(minZ); z <= (int) Math.floor(maxZ); z++) {
+                if (columns.contains(column(x, z))) return true;
+            }
+        }
+        return false;
+    }
+
+    private static void addWithin(TreeSet<Double> values, double value, double min, double max) {
+        if (value >= min && value <= max) values.add(value);
+    }
+
+    private static double[] withMidpoints(TreeSet<Double> values) {
+        double[] out = new double[values.size() * 2 - 1];
+        int i = 0;
+        Double last = null;
+        for (double value : values) {
+            if (last != null) out[i++] = (last + value) / 2.0D;
+            out[i++] = value;
+            last = value;
+        }
+        return out;
+    }
+
+    private BlockPush blockPushAt(CultPlayer player, SimulationContext context, double dx, double dy, double dz) {
         Vec3 oldPos = context.getStart();
-        if (player.isBedrockMovement()) return false;
+        double x = oldPos.x + dx;
+        double z = oldPos.z + dz;
         // TODO: Does 0.03 affect this and if so, how?
         float bbWidth = context.getPose().width * context.getScale();
-        return this.moveToClosestSpace(player, oldPos.x - bbWidth * 0.35D, oldPos.y, oldPos.z + bbWidth * 0.35D)
-                || this.moveToClosestSpace(player, oldPos.x - bbWidth * 0.35D, oldPos.y, oldPos.z - bbWidth * 0.35D)
-                || this.moveToClosestSpace(player, oldPos.x + bbWidth * 0.35D, oldPos.y, oldPos.z - bbWidth * 0.35D)
-                || this.moveToClosestSpace(player, oldPos.x + bbWidth * 0.35D, oldPos.y, oldPos.z + bbWidth * 0.35D);
+        BlockPush push = BlockPush.NONE;
+        push = this.moveToClosestSpace(player, push, x - bbWidth * 0.35D, z + bbWidth * 0.35D, dy);
+        push = this.moveToClosestSpace(player, push, x - bbWidth * 0.35D, z - bbWidth * 0.35D, dy);
+        push = this.moveToClosestSpace(player, push, x + bbWidth * 0.35D, z - bbWidth * 0.35D, dy);
+        return this.moveToClosestSpace(player, push, x + bbWidth * 0.35D, z + bbWidth * 0.35D, dy);
     }
 
     public static boolean moveTowardsClosestSpaceBedrock(SimpleCollisionBox box, List<SimpleCollisionBox> shapes) {
@@ -503,23 +837,32 @@ public class WorldStageBuilder {
     }
 
     // Does minY to maxY exist in a block?
-    private boolean suffocatesAt(CultPlayer player, int x, int z) {
+    private boolean suffocatesAt(CultPlayer player, int x, int z, double dy) {
+        if (suffocation == null) return testSuffocatesAt(player, x, z, dy);
+        return suffocation.computeIfAbsent(new SuffocationProbe(x, z, dy), p -> testSuffocatesAt(player, x, z, dy));
+    }
+
+    private record SuffocationProbe(int x, int z, double dy) {}
+
+    private boolean testSuffocatesAt(CultPlayer player, int x, int z, double dy) {
         SimpleCollisionBox axisAlignedBB = extentBox
-                .set(x, player.boundingBox.minY, z, x + 1.0, player.boundingBox.maxY, z + 1.0, false)
+                .set(x, player.boundingBox.minY + dy, z, x + 1.0, player.boundingBox.maxY + dy, z + 1.0, false)
                 .expand(-1.0E-7);
         return Collisions.suffocatesAt(player, axisAlignedBB);
     }
 
-    private boolean moveToClosestSpace(CultPlayer player, double xPos, double yPos, double zPos) {
-        return moveTowardsClosestSpaceModern(player, xPos, zPos);
+    private BlockPush moveToClosestSpace(CultPlayer player, BlockPush push, double xPos, double zPos, double dy) {
+        Direction direction = moveTowardsClosestSpaceModern(player, xPos, zPos, dy);
+        return direction == null ? push : push.then(direction);
     }
 
-    private boolean moveTowardsClosestSpaceModern(CultPlayer player, double xPosition, double zPosition) {
+    private Direction moveTowardsClosestSpaceModern(
+            CultPlayer player, double xPosition, double zPosition, double dy) {
         int blockX = (int) Math.floor(xPosition);
         int blockZ = (int) Math.floor(zPosition);
 
-        if (!this.suffocatesAt(player, blockX, blockZ)) {
-            return false;
+        if (!this.suffocatesAt(player, blockX, blockZ, dy)) {
+            return null;
         }
         double relativeXMovement = xPosition - blockX;
         double relativeZMovement = zPosition - blockZ;
@@ -536,17 +879,17 @@ public class WorldStageBuilder {
             boolean doesSuffocate;
             switch (direction2) {
                 case EAST:
-                    doesSuffocate = this.suffocatesAt(player, blockX + 1, blockZ);
+                    doesSuffocate = this.suffocatesAt(player, blockX + 1, blockZ, dy);
                     break;
                 case WEST:
-                    doesSuffocate = this.suffocatesAt(player, blockX - 1, blockZ);
+                    doesSuffocate = this.suffocatesAt(player, blockX - 1, blockZ, dy);
                     break;
                 case NORTH:
-                    doesSuffocate = this.suffocatesAt(player, blockX, blockZ - 1);
+                    doesSuffocate = this.suffocatesAt(player, blockX, blockZ - 1, dy);
                     break;
                 default:
                 case SOUTH:
-                    doesSuffocate = this.suffocatesAt(player, blockX, blockZ + 1);
+                    doesSuffocate = this.suffocatesAt(player, blockX, blockZ + 1, dy);
                     break;
             }
 
@@ -554,7 +897,7 @@ public class WorldStageBuilder {
             lowestValue = d6;
             direction = direction2;
         }
-        return direction != null;
+        return direction;
     }
 
     private boolean calculateStatusForFluid(
@@ -909,10 +1252,10 @@ public class WorldStageBuilder {
     }
 
     private StuckEdgeData couldBeOnStuckEdge(
-            CultPlayer player, Vec3 target, boolean lastOnGround, SimpleCollisionBox playerBB) {
+            CultPlayer player, Vec3 target, boolean lastOnGround, double fallDistance, SimpleCollisionBox playerBB) {
         if (!player.isFlying
                 && player.isSneaking
-                && Collisions.isAboveGround(player, lastOnGround, playerBB)
+                && Collisions.isAboveGround(player, lastOnGround, fallDistance, playerBB)
                 && !player.compensatedEntities.getSelf().inVehicle()) {
             // 16 - Magic number to stop people from crashing the server
             // 0.05 - Mojang's magic value that they use to calculate precision of sneaking
@@ -923,14 +1266,14 @@ public class WorldStageBuilder {
             double negX = Math.min(-0.05, CultMath.clamp(target.x, -16, 16) - 0.05);
             double negZ = Math.min(-0.05, CultMath.clamp(target.z, -16, 16) - 0.05);
 
-            Vector3dm NE =
-                    Collisions.maybeBackOffFromEdge(new Vector3dm(posX, 0, negZ), player, lastOnGround, playerBB, true);
-            Vector3dm NW =
-                    Collisions.maybeBackOffFromEdge(new Vector3dm(negX, 0, negZ), player, lastOnGround, playerBB, true);
-            Vector3dm SE =
-                    Collisions.maybeBackOffFromEdge(new Vector3dm(posX, 0, posZ), player, lastOnGround, playerBB, true);
-            Vector3dm SW =
-                    Collisions.maybeBackOffFromEdge(new Vector3dm(negX, 0, posZ), player, lastOnGround, playerBB, true);
+            Vector3dm NE = Collisions.maybeBackOffFromEdge(
+                    new Vector3dm(posX, 0, negZ), player, lastOnGround, fallDistance, playerBB);
+            Vector3dm NW = Collisions.maybeBackOffFromEdge(
+                    new Vector3dm(negX, 0, negZ), player, lastOnGround, fallDistance, playerBB);
+            Vector3dm SE = Collisions.maybeBackOffFromEdge(
+                    new Vector3dm(posX, 0, posZ), player, lastOnGround, fallDistance, playerBB);
+            Vector3dm SW = Collisions.maybeBackOffFromEdge(
+                    new Vector3dm(negX, 0, posZ), player, lastOnGround, fallDistance, playerBB);
 
             boolean isEast = NE.getX() != posX || SE.getX() != posX;
             boolean isWest = NW.getX() != negX || SW.getX() != negX;

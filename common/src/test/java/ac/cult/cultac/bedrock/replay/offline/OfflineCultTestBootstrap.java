@@ -35,6 +35,8 @@ public final class OfflineCultTestBootstrap {
                 .thenAnswer(invocation -> invocation.getArgument(1));
         Mockito.when(config.getBooleanElse(Mockito.anyString(), Mockito.anyBoolean()))
                 .thenAnswer(invocation -> invocation.getArgument(1));
+        Mockito.when(config.getLongElse(Mockito.anyString(), Mockito.anyLong()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
 
         Mockito.when(config.getBooleanElse("experimental-checks", false)).thenReturn(true);
         Mockito.when(config.getDoubleElse(Mockito.anyString(), Mockito.anyDouble()))

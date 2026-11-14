@@ -64,7 +64,8 @@ class ElytraTransformGravityTest {
         SimulationContext context = mock(SimulationContext.class);
         when(context.usesFallFlyingMovement()).thenReturn(true);
         when(context.getWorldData()).thenReturn(worldData);
-        when(context.getVersion()).thenReturn(ClientVersion.V_26_1);
+        // From 1.21.11 the carried velocity already holds the column's push; older clients take it as a range here.
+        when(context.getVersion()).thenReturn(ClientVersion.V_1_21_4);
         when(context.getXRot()).thenReturn(YAW);
         when(context.getYRot()).thenReturn(PITCH);
         PredictionResult result = mock(PredictionResult.class);

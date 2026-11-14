@@ -438,7 +438,7 @@ class JavaSneakEdgeWaterTest {
             f.place(new Vec3(0.5, FLOOR_Y + 0.6 + 5.0E-6, 0.5), new Vec3(0.0, 0.0, 0.0));
             f.player.isSneaking = true;
             return Collisions.maybeBackOffFromEdge(
-                            new Vector3dm(0.1, 0.0, 0.0), f.player, true, f.player.boundingBox, false)
+                            new Vector3dm(0.1, 0.0, 0.0), f.player, true, 0.0, f.player.boundingBox)
                     .getX();
         }
     }

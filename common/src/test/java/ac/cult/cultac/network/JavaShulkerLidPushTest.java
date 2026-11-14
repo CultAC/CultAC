@@ -29,6 +29,7 @@ import ac.cult.cultac.protocol.packet.clientbound.ClientboundTickingState;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundAcceptTeleportation;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
+import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.latency.CompensatedBlockEntities;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
@@ -59,6 +60,7 @@ class JavaShulkerLidPushTest {
     private static final Map<Integer, Double> LIFT = Map.of(2, 1.33);
     private static final int SERVER_TELEPORT = 900;
     private static final int BOAT = 50;
+    private static final int VIEWER = 51;
 
     /**
      * A 26.1 client standing on a shulker box while it opens. Each ShulkerBoxBlockEntity#updateAnimation after
@@ -69,6 +71,46 @@ class JavaShulkerLidPushTest {
     @Test
     void aShovedPlayerFallingPastAnOpeningShulkerLidIsNotOnGround() throws Exception {
         rideOpeningLid(ClientVersion.V_26_1, 6, 0, LIFT, -1, 0, false);
+    }
+
+    /** A player standing on an upward shulker box rides the whole opening lid on every client version. */
+    @ParameterizedTest
+    @EnumSource(
+            value = ClientVersion.class,
+            names = {"V_1_21_4", "V_1_21_11", "V_26_1", "V_26_3"})
+    void aPlayerStandingOnAnOpeningShulkerBoxRidesTheLid(ClientVersion version) throws Exception {
+        rideOpeningLid(version, 14, 0, Map.of(), -1, 0, false);
+    }
+
+    /** A player standing on the open lid follows it down as it closes, from the client tick after the block event. */
+    @ParameterizedTest
+    @EnumSource(
+            value = ClientVersion.class,
+            names = {"V_1_21_4", "V_1_21_11", "V_26_1", "V_26_3"})
+    void aPlayerStandingOnAClosingShulkerBoxFollowsTheLidDown(ClientVersion version) throws Exception {
+        new Ride(version).open(14, 0).run(30);
+    }
+
+    /** The same ride with the player who opens and closes the box standing beside it. */
+    @ParameterizedTest
+    @EnumSource(
+            value = ClientVersion.class,
+            names = {"V_1_21_11", "V_26_3"})
+    void aPlayerStandingOnAShulkerBoxBesideItsViewerRidesTheLid(ClientVersion version) throws Exception {
+        new Ride(version).viewer().open(14, 0).run(30);
+    }
+
+    /**
+     * The same ride from a client that sends nothing on a tick it stays still: the tick that handles each block event
+     * reports only its tick end, and before 26.3 the lid moves the player only after it.
+     */
+    @ParameterizedTest
+    @CsvSource({"V_1_21_11, false", "V_1_21_11, true", "V_1_21_4, false", "V_26_3, false"})
+    void aStillPlayerOnAnOpeningAndClosingShulkerBoxRidesTheLid(ClientVersion version, boolean viewer)
+            throws Exception {
+        Ride ride = new Ride(version).unmovedSendsNothing().open(20, 0);
+        if (viewer) ride.viewer();
+        ride.run(40);
     }
 
     /** The last shove of the opening, at progress 1.0F, is reported with the landing on the fully open lid. */
@@ -558,6 +600,33 @@ class JavaShulkerLidPushTest {
             return this;
         }
 
+        private boolean viewer;
+
+        /** Another player stands beside the box, two blocks south of its centre. */
+        Ride viewer() {
+            viewer = true;
+            return this;
+        }
+
+        private boolean unmovedSendsNothing;
+
+        /**
+         * LocalPlayer#sendPosition sends no move on a tick that leaves the position and ground state as last sent, so
+         * such a tick reports only its tick end.
+         */
+        Ride unmovedSendsNothing() {
+            unmovedSendsNothing = true;
+            return this;
+        }
+
+        /** A tick that sends only its tick end; a prediction it commits is exact. */
+        private static void unmoved(JavaTickFixture f, int tick) {
+            PredictionResult before = f.player.checkManager.getSimulationProcessor().getLastPrediction();
+            f.tickEnd();
+            PredictionResult result = f.player.checkManager.getSimulationProcessor().getLastPrediction();
+            if (result != before) assertTrue(exact(result), "unmoved tick " + tick + ": " + describe(result));
+        }
+
         /** The ticking state freezing the game, handled at the start of {@code tick}. */
         Ride freeze(int tick) {
             freezeTick = tick;
@@ -585,12 +654,15 @@ class JavaShulkerLidPushTest {
                 boolean shoveAfterTravel = version.isNewerThanOrEquals(ClientVersion.V_26_3);
                 int box = REGISTRY.block("minecraft:shulker_box").defaultState();
                 f.player.compensatedWorld.updateBlock(BOX, box);
+                if (viewer) f.addRemotePlayer(VIEWER, new Vec3(0.5, FLOOR_Y, 2.6), GameMode.SURVIVAL);
                 f.place(new Vec3(0.5, y, 0.5), new Vec3(0, velocity, 0));
                 f.player.onGround = f.player.lastOnGround = onGround;
                 f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.fromBoolean(onGround));
                 travel();
                 f.input(NONE);
                 assertExact(f.tick(new Vec3(0.5, y, 0.5), onGround));
+                double reportedY = y;
+                boolean reportedOnGround = onGround;
                 for (int tick = 0; tick < ticks; tick++) {
                     Integer openCount = openCounts.get(tick);
                     if (openCount != null) {
@@ -611,7 +683,13 @@ class JavaShulkerLidPushTest {
                     f.input(NONE);
                     if (tick == fakeTick)
                         return f.tick(new Vec3(0.5, Double.isNaN(fakeY) ? y : fakeY, 0.5), fakeOnGround);
-                    assertExact(f.tick(new Vec3(0.5, y, 0.5), onGround));
+                    if (unmovedSendsNothing && y == reportedY && onGround == reportedOnGround) {
+                        unmoved(f, tick);
+                    } else {
+                        assertExact(f.tick(new Vec3(0.5, y, 0.5), onGround));
+                        reportedY = y;
+                        reportedOnGround = onGround;
+                    }
                     if (!shoveAfterTravel) updateAnimation();
                 }
             }

@@ -8,6 +8,7 @@ import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.data.StateFacts;
 import ac.cult.blocksim.engine.shapes.Shapes;
 import ac.cult.blocksim.engine.shapes.VoxelShape;
+import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.events.packets.PacketWorldBorder;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -835,12 +836,8 @@ public class Collisions {
     }
 
     public static Vector3dm maybeBackOffFromEdge(
-            Vector3dm vec3,
-            CultPlayer player,
-            boolean lastOnGround,
-            SimpleCollisionBox playerBB,
-            boolean overrideVersion) {
-        if (!player.isFlying && player.isSneaking && isAboveGround(player, lastOnGround, playerBB)) {
+            Vector3dm vec3, CultPlayer player, boolean lastOnGround, double fallDistance, SimpleCollisionBox playerBB) {
+        if (!player.isFlying && player.isSneaking && isAboveGround(player, lastOnGround, fallDistance, playerBB)) {
             Vec3 backedOff = SneakEdgeBackoff.backOff(
                     player, player.boundingBox, new Vec3(vec3.getX(), vec3.getY(), vec3.getZ()), player.getMaxUpStep());
             vec3 = new Vector3dm(backedOff.x, vec3.getY(), backedOff.z);
@@ -849,9 +846,17 @@ public class Collisions {
         return vec3;
     }
 
-    public static boolean isAboveGround(CultPlayer player, boolean lastOnGround, SimpleCollisionBox playerBB) {
-        // https://bugs.mojang.com/browse/MC-2404
-        return lastOnGround || !isEmpty(player, playerBB.copy().offset(0.0, -player.getMaxUpStep(), 0.0));
+    /**
+     * The delta the client's keys built before Player#maybeBackOffFromEdge shortened it to {@code move}, or null when
+     * they do not reproduce a shortened move from {@code result}'s starting velocity.
+     */
+    public static Vec3 deltaBeforeSneakEdgeBackOff(PredictionResult result, Vec3 move) {
+        return SneakEdgeBackoff.deltaBeforeBackOff(result, move);
+    }
+
+    public static boolean isAboveGround(
+            CultPlayer player, boolean lastOnGround, double fallDistance, SimpleCollisionBox playerBB) {
+        return SneakEdgeBackoff.isAboveGround(player, lastOnGround, fallDistance, playerBB);
     }
 
     public static boolean isSlidingDown(CultPlayer player, int locationX, int locationY, int locationZ, Vec3 pos) {
@@ -1856,9 +1861,13 @@ public class Collisions {
 
     public static boolean doesBlockSuffocate(CultPlayer player, int x, int y, int z) {
         int state = player.compensatedWorld.getBlockStateIdAt(x, y, z);
-        // BlockBehaviour's predicate uses generated state/full-shape facts. The
-        // shulker predicate sees no block entity in CompensatedWorld, as before.
-        return DataTables.defaults().registry().facts(state).has(StateFacts.SUFFOCATING);
+        // BlockBehaviour's predicate uses generated state/full-shape facts.
+        if (!DataTables.defaults().registry().facts(state).has(StateFacts.SUFFOCATING)) return false;
+        if (!ClientBlockProperties.isShulkerBox(state)) return true;
+        // ShulkerBoxBlock suffocates only while its ShulkerBoxBlockEntity#isClosed.
+        var shulker = player.compensatedWorld.getClientBlockEntityData(new BlockPos(x, y, z));
+        var status = shulker == null ? null : shulker.data().get("animation_status");
+        return status == null || status.getAsString().equals("CLOSED");
     }
 
     @FunctionalInterface

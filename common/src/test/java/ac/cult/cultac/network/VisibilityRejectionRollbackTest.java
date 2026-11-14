@@ -39,6 +39,9 @@ class VisibilityRejectionRollbackTest {
     void rejectedPlaceSendsBlockInventoryAndAckCorrectionsWithoutApplyingOrTrackingIt() throws Exception {
         try (var setup = new Setup()) {
             setup.held("stone", 3);
+            setup.fixture.user.write(
+                    new InventoryPackets.Slot(0, 7, 36, ItemUtil.modelItems().stack("minecraft:stone", 3)));
+            setup.confirm(setup.output());
             setup.reject(place(TARGET, Direction.NORTH, 1));
             var player = setup.player;
             assertEquals(state("air"), player.compensatedWorld.getBlockStateIdAt(TARGET.north()));

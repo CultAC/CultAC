@@ -13,6 +13,7 @@ import ac.cult.cultac.checks.impl.breaking.AirLiquidBreak;
 import ac.cult.cultac.checks.impl.breaking.FastBreak;
 import ac.cult.cultac.checks.impl.combat.FairReach;
 import ac.cult.cultac.checks.impl.elytra.ElytraC;
+import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
 import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.events.packets.PacketChangeGameState;
 import ac.cult.cultac.events.packets.RegistryGenerationAlerts;
@@ -23,6 +24,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.player.PlayerObserver;
 import ac.cult.cultac.protocol.packet.Opaque;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundLogin;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerCombatKill;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundRespawn;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundSetHealth;
 import ac.cult.cultac.protocol.value.GameMode;
@@ -36,6 +38,12 @@ import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.nmsutil.FlightToggle;
 
 public class PacketPlayerRespawn {
+
+    @CultPacketHandler
+    public void onPlayerCombatKill(
+            PacketSendEvent<ClientboundPlayerCombatKill> event, CultPlayer player, ClientboundPlayerCombatKill packet) {
+        if (packet.playerId() == player.entityID) player.blockActionReconciler.deathSent();
+    }
 
     // HIGH
     @CultPacketHandler
@@ -95,6 +103,8 @@ public class PacketPlayerRespawn {
             // before new self metadata can start another use; receipt resets only client state.
             // reset() preserves accumulated debt.
             if (newJavaLocalPlayer) player.itemUseBurst.reset();
+            // A Java login places a new LocalPlayer, whose ticks start with it.
+            if (!player.isBedrockMovement()) player.checkManager.getListener(DumbTimer.class).resetTimerWindow();
         });
 
         var spawnInfo = packet.spawnInfo();
@@ -115,6 +125,7 @@ public class PacketPlayerRespawn {
         clearFairReachLevel(player);
         player.compensatedEntities.vehicles.clearServerVehicle();
         final PacketEntitySelf freshSelf = new PacketEntitySelf(player);
+        player.compensatedEntities.loginsSent++;
         player.compensatedEntities.playerEntity = freshSelf;
         // ClientPacketListener#handleLogin clears clientLoaded until ServerboundPlayerLoadedPacket.
         player.packetStateData.playerLoadedIntoLevel = false;
@@ -202,6 +213,7 @@ public class PacketPlayerRespawn {
         player.compensatedWorld.clientSeaLevel(spawnInfo.seaLevel());
         player.compensatedWorld.clientBiomeZoomSeed(spawnInfo.biomeZoomSeed());
         player.compensatedWorld.resetClientPredictions();
+        player.blockActionReconciler.loginSent();
         player.checkManager.getListener(BadPacketsH.class).resetLevel();
         player.getGhostBlockMitigator().clearLevel();
         final long joinedAt = System.currentTimeMillis();
@@ -275,6 +287,9 @@ public class PacketPlayerRespawn {
             });
         }
         event.getTasksAfterSend().add(player::sendTrailingTransaction);
+        if (player.blockActionReconciler.isServerRespawn()) {
+            event.getTasksAfterSend().add(() -> player.blockActionReconciler.serverRespawned(!worldChange));
+        }
 
         final boolean keepEntityData = packet.shouldKeep(ClientboundRespawn.KEEP_ENTITY_DATA);
         final boolean keepAttributeModifiers = packet.shouldKeep(ClientboundRespawn.KEEP_ATTRIBUTE_MODIFIERS);

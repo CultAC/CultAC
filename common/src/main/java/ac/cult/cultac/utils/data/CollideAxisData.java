@@ -3,10 +3,11 @@ package ac.cult.cultac.utils.data;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.debug.DebugText;
 import java.util.List;
+import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.Setter;
 
-@AllArgsConstructor
 @Data
 public class CollideAxisData implements DebugText.Recordable {
     CollideResult x;
@@ -14,6 +15,45 @@ public class CollideAxisData implements DebugText.Recordable {
     CollideResult yNeg;
     CollideResult z;
     List<SimpleCollisionBox> unknown;
+    // Each horizontal direction on its own: Entity#collide clips an axis only against shapes ahead of the move.
+    @Setter(AccessLevel.NONE)
+    CollideResult xPos;
+
+    @Setter(AccessLevel.NONE)
+    CollideResult xNeg;
+
+    @Setter(AccessLevel.NONE)
+    CollideResult zPos;
+
+    @Setter(AccessLevel.NONE)
+    CollideResult zNeg;
+
+    /** Each direction of X and Z holds the combined result when that result can lie in it. */
+    public CollideAxisData(
+            CollideResult x,
+            CollideResult yPos,
+            CollideResult yNeg,
+            CollideResult z,
+            List<SimpleCollisionBox> unknown) {
+        this.x = x;
+        this.yPos = yPos;
+        this.yNeg = yNeg;
+        this.z = z;
+        this.unknown = unknown;
+        this.xPos = inDirection(x, 1);
+        this.xNeg = inDirection(x, -1);
+        this.zPos = inDirection(z, 1);
+        this.zNeg = inDirection(z, -1);
+    }
+
+    private static CollideResult inDirection(CollideResult result, int direction) {
+        if (result == null) return null;
+        int side = result.side != 0 ? result.side : (int) Math.signum(result.result);
+        if (side != 0 && side != direction) return null;
+        return result instanceof ImmutableCollideResult
+                ? result
+                : new CollideResult(result.isLikelyCollide, result.result, direction);
+    }
 
     @Override
     public void appendTo(DebugText.Builder sb) {
@@ -70,6 +110,33 @@ public class CollideAxisData implements DebugText.Recordable {
     public void combineZ(boolean likelyCollide, double result, int side) {
         if (z == null) z = new CollideResult(likelyCollide, result, side);
         else z.combine(likelyCollide, result, side);
+    }
+
+    /** Combines a probe of X towards {@code direction} (+1/-1) into that direction's result. */
+    public void combineX(int direction, boolean likelyCollide, double result) {
+        if (direction > 0) xPos = combined(xPos, likelyCollide, result, direction);
+        else xNeg = combined(xNeg, likelyCollide, result, direction);
+    }
+
+    /** Combines a probe of Z towards {@code direction} (+1/-1) into that direction's result. */
+    public void combineZ(int direction, boolean likelyCollide, double result) {
+        if (direction > 0) zPos = combined(zPos, likelyCollide, result, direction);
+        else zNeg = combined(zNeg, likelyCollide, result, direction);
+    }
+
+    private static CollideResult combined(CollideResult current, boolean likelyCollide, double result, int direction) {
+        if (current == null) return new CollideResult(likelyCollide, result, direction);
+        return current.combine(likelyCollide, result, direction);
+    }
+
+    /** The result of X's probes towards the sign of {@code movement}; null when it is zero or none probed there. */
+    public CollideResult xTowards(double movement) {
+        return movement > 0.0D ? xPos : movement < 0.0D ? xNeg : null;
+    }
+
+    /** The result of Z's probes towards the sign of {@code movement}; null when it is zero or none probed there. */
+    public CollideResult zTowards(double movement) {
+        return movement > 0.0D ? zPos : movement < 0.0D ? zNeg : null;
     }
 
     public boolean couldCollideHorizontally() {
@@ -137,6 +204,16 @@ public class CollideAxisData implements DebugText.Recordable {
         public void combineZ(boolean likelyCollide, double result, int side) {
             throw new UnsupportedOperationException();
         }
+
+        @Override
+        public void combineX(int direction, boolean likelyCollide, double result) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void combineZ(int direction, boolean likelyCollide, double result) {
+            throw new UnsupportedOperationException();
+        }
     }
 
     /**
@@ -160,6 +237,10 @@ public class CollideAxisData implements DebugText.Recordable {
             yNeg = null;
             z = null;
             unknown = List.of();
+            xPos = null;
+            xNeg = null;
+            zPos = null;
+            zNeg = null;
             return this;
         }
 

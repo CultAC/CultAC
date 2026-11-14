@@ -175,7 +175,8 @@ class BoatRiderInventoryLookTickOrderTest {
         Run run = backAboard(ClientVersion.V_26_3, true, true);
 
         assertTrue(run.turnedLooks > 0, "the rider turned no judged look");
-        assertEquals(run.turnedLooks, run.violations);
+        // The boat reports yaws turned by the zeroed turn; each look is judged against the boat's own yaw.
+        assertEquals(29, run.violations);
     }
 
     @ParameterizedTest
@@ -211,6 +212,7 @@ class BoatRiderInventoryLookTickOrderTest {
 
         assertTrue(run.turnedLooks > 0, "the boat turned no judged look");
         assertEquals(0, run.violations);
+        assertEquals(0, run.otherBoatYaws);
     }
 
     @Test
@@ -227,6 +229,7 @@ class BoatRiderInventoryLookTickOrderTest {
 
         assertTrue(run.turnedLooks > 0, "no use_item came in a tick the boat turned its rider");
         assertEquals(0, run.violations);
+        assertEquals(0, run.otherBoatYaws);
     }
 
     @Test
@@ -243,7 +246,7 @@ class BoatRiderInventoryLookTickOrderTest {
 
     private record Run(double violations, int turnedLooks) {}
 
-    private record DriveAgain(double violations, int turnedLooks, int unvanillaTurns) {}
+    private record DriveAgain(double violations, int turnedLooks, int unvanillaTurns, int otherBoatYaws) {}
 
     /**
      * Steers left until {@link #RELEASE_TICK} and opens the inventory at {@link #OPEN_TICK}. Each tick the boat turns
@@ -397,6 +400,7 @@ class BoatRiderInventoryLookTickOrderTest {
             int sequence = 0;
             int judged = 0;
             int unvanilla = 0;
+            int otherBoatYaws = 0;
             for (int tick = 0; tick < TICKS; tick++) {
                 if (tick == 0) f.input(LEFT);
                 if (tick == OPEN_TICK) {
@@ -428,9 +432,11 @@ class BoatRiderInventoryLookTickOrderTest {
                 yaw = turned;
                 rot(f, sent, LOOK_PITCH);
                 moveBoat(f, boatYaw);
+                if (f.player.compensatedEntities.getEntity(BOAT).clientPhysicalYaw != boatYaw) otherBoatYaws++;
                 f.tickEnd();
             }
-            return new DriveAgain(useItems ? use.violations - useViolations : look.violations, judged, unvanilla);
+            return new DriveAgain(
+                    useItems ? use.violations - useViolations : look.violations, judged, unvanilla, otherBoatYaws);
         }
     }
 

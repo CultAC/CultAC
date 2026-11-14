@@ -6,14 +6,22 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext.SpinRebound;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ElytraTransform;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.EntityPush;
+import ac.cult.cultac.checks.impl.prediction.stage.world.WorldData;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.Direction;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.TransactionVel;
+import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import ac.cult.cultac.utils.math.Vector3dm;
+import ac.cult.cultac.utils.nmsutil.ClientFluidQueries;
+import ac.cult.cultac.utils.nmsutil.Collisions;
+import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
+import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.ReachUtils;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class MovementModifiers {
@@ -94,7 +102,19 @@ public class MovementModifiers {
         boolean canStartWithRiddenFluidHopFloat = canStartWithRiddenFluidHopFloat(lastResult);
         Set<Vec3> unrebounded = state.getSpinRebound() == SpinRebound.ONLY ? Set.of() : initial;
         if (canStartWithFluidHop) {
+            Map<Vec3, List<FluidHop>> committedHops = lastResult == null ? null : lastResult.getFluidHops();
             for (Vec3 vector : unrebounded) {
+                List<FluidHop> hops = committedHops == null ? null : committedHops.get(vector);
+                if (hops != null) {
+                    for (FluidHop hop : hops) {
+                        if (hop.blockedBox() != null && !isFree(player, hop.blockedBox(), hop.feetY())) continue;
+                        Vec3 hopped = hop.velocity();
+                        start.add(PredVector.fromStartingVector(vector)
+                                .withXYZ(hopped.x, hopped.y, hopped.z, FLUID_HOP_REASON));
+                    }
+                    continue;
+                }
+                if (!mayJumpOutOfFluid(player, state, lastResult, vector)) continue;
                 addFluidHopCandidates(start, PredVector.fromStartingVector(vector), canStartWithRiddenFluidHopFloat);
             }
         }
@@ -267,6 +287,95 @@ public class MovementModifiers {
         // following simulated client tick. Tick-skipped packets can span that exact tick.
         return lastResult.getSimulationContext().getWorldData().isCanFluidHop()
                 && lastResult.getSimulationContext().getWorldData().maybeInLiquid();
+    }
+
+    /**
+     * A velocity the client may carry out of a move after LivingEntity#jumpOutOfFluid set its y, with the block
+     * callbacks of that move applied after the hop. {@code blockedBox} is the Entity#isFree box that held a block or
+     * fluid in the world of the hop's tick, which the hop still needs free, or null when nothing stops the hop.
+     */
+    public record FluidHop(Vec3 velocity, SimpleCollisionBox blockedBox, double feetY) {}
+
+    /**
+     * Whether the move of {@code result} may end in LivingEntity#jumpOutOfFluid: a Java water or lava travel that
+     * collided horizontally, outside a boat.
+     */
+    public static boolean mayEndInFluidHop(CultPlayer player, PredictionResult result) {
+        SimulationContext context = result.getSimulationContext();
+        if (player.isBedrockMovement() || context == null || result.getCollideAxisData() == null) return false;
+        WorldData world = context.getWorldData();
+        return world != null
+                && (world.getInWater().determineOptimistically()
+                        || world.getInLava().determineOptimistically())
+                && result.getCollideAxisData().couldCollideHorizontally()
+                && (context.getVehicle() == null || !EntityTypeUtil.isBoat(context.getVehicle().type));
+    }
+
+    /**
+     * The y values the move of {@code result} leaves after LivingEntity#jumpOutOfFluid: 0.3, and 0.34 once
+     * LivingEntity#floatInLiquidWhileRidden adds to it.
+     */
+    public static double[] fluidHopYs(PredictionResult result) {
+        return result.getSimulationContext().getWorldData().isCouldFloatWhileRidden()
+                ? new double[] {FLUID_HOP_Y, RIDDEN_FLUID_HOP_Y}
+                : new double[] {FLUID_HOP_Y};
+    }
+
+    /**
+     * LivingEntity#jumpOutOfFluid's Entity#isFree box for a player whose move of {@code context} ended at {@code end}
+     * with {@code movement} after travel: the pose box there moved by {@code movement} and raised 0.6 above where the
+     * move started; null when it is free in the current world, and always for a vehicle.
+     */
+    public static SimpleCollisionBox blockedFluidHopBox(
+            CultPlayer player, SimulationContext context, Vec3 end, Vec3 movement) {
+        if (context.getVehicle() != null) return null;
+        SimpleCollisionBox box = fluidHopBox(context, end, movement);
+        return isFree(player, box, end.y) ? null : box;
+    }
+
+    private static SimpleCollisionBox fluidHopBox(SimulationContext context, Vec3 end, Vec3 movement) {
+        float scale = context.getScale();
+        return GetBoundingBox.getBoundingBoxFromPosAndSize(
+                        end.x,
+                        end.y,
+                        end.z,
+                        context.getPose().width * scale,
+                        context.getPose().height * scale)
+                .offset(movement.x, movement.y + 0.6F - end.y + context.getStart().y, movement.z);
+    }
+
+    /** Entity#isFree: no block collides with {@code box} and it holds no fluid. */
+    private static boolean isFree(CultPlayer player, SimpleCollisionBox box, double feetY) {
+        return Collisions.isEmpty(player, box, feetY) && !containsAnyFluid(player, box);
+    }
+
+    /**
+     * LivingEntity#jumpOutOfFluid's Entity#isFree for a carried velocity no commit resolved the hop for, against the
+     * current world.
+     */
+    private static boolean mayJumpOutOfFluid(
+            CultPlayer player, SimulationContext state, PredictionResult lastResult, Vec3 movement) {
+        if (player.isBedrockMovement()
+                || state.getVehicle() != null
+                || !state.getWorldData().isCanFluidHop()
+                || lastResult == null
+                || lastResult.getSimulationContext() == null) return true;
+        SimulationContext last = lastResult.getSimulationContext();
+        return isFree(player, fluidHopBox(last, last.getEnd(), movement), last.getEnd().y);
+    }
+
+    /** LevelReader#containsAnyLiquid over the blocks from floor(min) to below ceil(max) on each axis. */
+    private static boolean containsAnyFluid(CultPlayer player, SimpleCollisionBox box) {
+        int maxX = CultMath.ceil(box.maxX), maxY = CultMath.ceil(box.maxY), maxZ = CultMath.ceil(box.maxZ);
+        for (int x = CultMath.floor(box.minX); x < maxX; x++) {
+            for (int y = CultMath.floor(box.minY); y < maxY; y++) {
+                for (int z = CultMath.floor(box.minZ); z < maxZ; z++) {
+                    int block = player.compensatedWorld.getBlockStateIdAt(x, y, z);
+                    if (!ClientFluidQueries.modelFluid(block).isEmpty()) return true;
+                }
+            }
+        }
+        return false;
     }
 
     private boolean canStartWithRiddenFluidHopFloat(PredictionResult lastResult) {

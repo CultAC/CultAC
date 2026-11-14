@@ -7,6 +7,7 @@ import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.Ladder;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
+import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.StuckSpeed;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
@@ -99,7 +100,7 @@ public final class VelocityCandidates {
             diff = applyPostMoveLivingFluidCurrent(player, result, diff);
             boolean exactStart = exactSneakEdgeStart(result, lastPrediction);
             SneakEdgeBackoff.Carry edge = moved.equals(diff)
-                            && !hasUnknownStuckSpeed(lastPrediction)
+                            && !tookUnknownStuckSpeed(result, lastPrediction)
                             && !consumedRequiredStuckSpeedThisMove(result)
                     ? SneakEdgeBackoff.addDeltaMovements(result, diff, validPlayerStartingVels, exactStart)
                     : SneakEdgeBackoff.Carry.UNKNOWN;
@@ -156,7 +157,7 @@ public final class VelocityCandidates {
         if (withoutCurrent != null) addVelocityCandidates(validPlayerStartingVels, withoutCurrent, isX, isY, isZ);
         addPostMoveDeltaMovementCandidates(validPlayerStartingVels, result, isX, isY, isZ, collisionMovementY, stepped);
 
-        if (hasUnknownStuckSpeed(lastPrediction)) {
+        if (tookUnknownStuckSpeed(result, lastPrediction)) {
             validPlayerStartingVels.add(Vec3.ZERO);
         }
 
@@ -175,14 +176,33 @@ public final class VelocityCandidates {
         return validPlayerStartingVels;
     }
 
-    private static boolean hasUnknownStuckSpeed(PredictionResult lastPrediction) {
-        return lastPrediction != null
-                && lastPrediction
-                                .getSimulationContext()
-                                .getWorldData()
-                                .getStuckSpeed()
-                                .getUnknownStuckSpeedMultiplier()
-                        != null;
+    /**
+     * Entity#move zeroes deltaMovement only in the branch that scales the move by the stuck multiplier, so the last
+     * tick's open multiplier gives a zero carry only when the accepted move took it. Before 1.21.2 a tick hidden
+     * under the movement threshold may have taken it instead.
+     */
+    private static boolean tookUnknownStuckSpeed(PredictionResult result, PredictionResult lastPrediction) {
+        Vec3 multiplier = unknownStuckSpeed(lastPrediction);
+        if (multiplier == null) return false;
+        CultPlayer player = result.getPlayer();
+        if (player == null
+                || player.isBedrockMovement()
+                || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2)) {
+            return true;
+        }
+        MovementTrace trace =
+                result.getValidMovements() == null ? null : result.getValidMovements().getClosestTrace();
+        return trace != null && StuckSpeed.tookMultiplier(trace.position(), multiplier);
+    }
+
+    private static Vec3 unknownStuckSpeed(PredictionResult lastPrediction) {
+        return lastPrediction == null
+                ? null
+                : lastPrediction
+                        .getSimulationContext()
+                        .getWorldData()
+                        .getStuckSpeed()
+                        .getUnknownStuckSpeedMultiplier();
     }
 
     private static Vec3 applyPostMoveLivingFluidCurrent(
@@ -718,12 +738,14 @@ public final class VelocityCandidates {
         }
 
         if (deltaY < 0.0D) {
+            // SlimeBlock#bounceUp and BedBlock#bounceUp keep 0.8 of the bounce for a mover that is not living.
+            double mover = living ? 1.0D : 0.8D;
             if (BlockIds.is(onBlock, BlockIds.SLIME_BLOCK)) {
-                return -deltaY;
+                return -deltaY * mover;
             }
 
             if (ClientBlockProperties.isBed(onBlock)) {
-                return -deltaY * 0.66F;
+                return -deltaY * 0.66F * mover;
             }
         }
 

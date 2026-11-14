@@ -16,7 +16,7 @@ public class PacketEntityHappyGhast extends PacketEntityTrackXRot {
 
     public float getRiddenTickYaw(float controllerYaw) {
         float rootYaw = clientPhysicalYaw;
-        return rootYaw + CultMath.wrapDegrees(controllerYaw - rootYaw) * 0.08F;
+        return (rootYaw + CultMath.wrapDegrees(controllerYaw - rootYaw) * 0.08F) % 360.0F;
     }
 
     public Vec3 getRiddenInput(Vec3 rawInputState, boolean jumping, float controllerPitch) {

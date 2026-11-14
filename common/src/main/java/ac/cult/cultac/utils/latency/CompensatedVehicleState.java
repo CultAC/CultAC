@@ -9,8 +9,10 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
 import ac.cult.cultac.utils.anticheat.StringReturner;
+import ac.cult.cultac.utils.data.RidingJumpCharge;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityCamel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
@@ -567,6 +569,29 @@ public final class CompensatedVehicleState implements Debuggable {
         }
 
         result.exempt();
+    }
+
+    /**
+     * LocalPlayer#jumpableVehicle with a getJumpCooldown of 0 for the client's tick: a saddled AbstractHorse the player
+     * controls. Unknown while a mount, dismount or control switch may be in flight, and for a camel or nautilus.
+     */
+    public RidingJumpCharge.Jumpable ridingJumpable() {
+        PacketEntity vehicle = entities.playerEntity.getRiding();
+        PacketEntity serverVehicle = serverVehicleEntity();
+        if (vehicle == null) {
+            return serverVehicle == null ? RidingJumpCharge.Jumpable.NO : RidingJumpCharge.Jumpable.UNKNOWN;
+        }
+        if (serverVehicle != vehicle
+                || !hasClientObservedServerVehicle()
+                || hasPendingServerDismount()
+                || isVehicleSwitchBufferActiveFor(vehicle)
+                || vehicle instanceof PacketEntityCamel
+                || vehicle instanceof PacketEntityNautilus) {
+            return RidingJumpCharge.Jumpable.UNKNOWN;
+        }
+        return vehicle instanceof PacketEntityHorse && mayLocalPlayerControl(vehicle)
+                ? RidingJumpCharge.Jumpable.YES
+                : RidingJumpCharge.Jumpable.NO;
     }
 
     @Nullable

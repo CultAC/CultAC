@@ -62,6 +62,29 @@ public final class EntityTypeUtil {
         return hasFamily(type, EntityTypes.MINECART);
     }
 
+    /**
+     * Entity#isPickable by type, which Minecraft#pick requires of an attacked entity. The ender dragon is picked through
+     * its EnderDragonParts. Removal, marker armor stands, spectators and arrows in ground depend on state, not type.
+     */
+    public static boolean isPickable(int type) {
+        return (isLiving(type) && type != EntityTypeIds.ENDER_DRAGON)
+                || isBoat(type)
+                || isMinecart(type)
+                || type == EntityTypeIds.END_CRYSTAL
+                || type == EntityTypeIds.INTERACTION
+                || type == EntityTypeIds.FALLING_BLOCK
+                || type == EntityTypeIds.TNT
+                || type == EntityTypeIds.FIREBALL
+                || type == EntityTypeIds.WIND_CHARGE
+                || type == EntityTypeIds.BREEZE_WIND_CHARGE
+                || isType(type, "shulker_bullet")
+                || isType(type, "item_frame")
+                || isType(type, "glow_item_frame")
+                || isType(type, "painting")
+                || isType(type, "leash_knot")
+                || isType(type, "cushion");
+    }
+
     public static boolean canFloatWhileRidden(int type) {
         return type == EntityTypeIds.HORSE
                 || type == EntityTypeIds.ZOMBIE_HORSE

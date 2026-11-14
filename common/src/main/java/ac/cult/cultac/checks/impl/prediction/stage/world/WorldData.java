@@ -5,6 +5,7 @@ import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CarriedPush;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.*;
 import ac.cult.cultac.utils.debug.DebugText;
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.Setter;
@@ -28,6 +29,9 @@ public class WorldData implements DebugText.Recordable {
 
     @Setter
     boolean mightBeInBlock;
+
+    /** The pushes LocalPlayer#moveTowardsClosestSpace may set this tick, one of which it sets; never empty. */
+    List<BlockPush> blockPushes;
 
     boolean canJump;
     boolean canFluidHop;
@@ -108,6 +112,7 @@ public class WorldData implements DebugText.Recordable {
         sb.append(", touchingLava=").append(touchingLava);
         sb.append(", inFlowingLiquid=").append(inFlowingLiquid);
         sb.append(", mightBeInBlock=").append(mightBeInBlock);
+        sb.append(", blockPushes=").append(blockPushes);
         sb.append(", canJump=").append(canJump);
         sb.append(", canFluidHop=").append(canFluidHop);
         sb.append(", canFloatWhileRidden=").append(canFloatWhileRidden);
@@ -155,6 +160,7 @@ public class WorldData implements DebugText.Recordable {
                 touchingLava,
                 inFlowingLiquid,
                 mightBeInBlock,
+                blockPushes,
                 canJump,
                 canFluidHop,
                 canFloatWhileRidden,

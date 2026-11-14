@@ -31,9 +31,11 @@ import ac.cult.cultac.utils.nmsutil.ReusableVelocitySet;
 import ac.cult.cultac.utils.nmsutil.VelocityCandidates;
 import java.util.AbstractSet;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Set;
@@ -230,20 +232,24 @@ public final class JavaMovementEngine implements MovementEngine {
             JavaInsideBlockEffects.Scan scan = JavaInsideBlockEffects.scan(player, result, moved.movement());
             Vec3 end = result.getSimulationContext().getStart().add(moved.movement());
             var states = new ArrayList<JavaPredictionCarry.State>(velocities.size());
+            Map<Vec3, List<MovementModifiers.FluidHop>> hops =
+                    MovementModifiers.mayEndInFluidHop(player, result) ? new HashMap<>() : null;
             for (Vec3 velocity : velocities) {
-                Vec3 stepped = JavaInsideBlockEffects.stepOn(player, result, moved, velocity);
-                var effects = JavaInsideBlockEffects.resolve(
-                        player, result, scan, moved.fallDistance(), stepped, moved.landed());
-                effects = afterActorTick(player, result.getSimulationContext(), moved.movement(), effects);
-                effects = GeyserVelocity.applyToState(player, result, end, effects);
-                ShulkerBoxShoveResult shove = shulkerBoxShoveAfterTravel(result);
-                if (shove != null)
-                    effects = new JavaInsideBlockEffects.State(
-                            effects.fallDistance(), shove.velocityAfter(effects.velocity()), effects.stuckSpeed());
+                var effects = afterTravel(player, result, moved, scan, end, velocity);
                 var state =
                         new JavaPredictionCarry.State(effects.velocity(), effects.fallDistance(), effects.stuckSpeed());
                 if (!states.contains(state)) states.add(state);
+                if (hops == null) continue;
+                // LivingEntity#jumpOutOfFluid runs at the end of travel, before aiStep's block callbacks.
+                SimpleCollisionBox blocked =
+                        MovementModifiers.blockedFluidHopBox(player, result.getSimulationContext(), end, velocity);
+                for (double hopY : MovementModifiers.fluidHopYs(result)) {
+                    Vec3 hopped = afterTravel(player, result, moved, scan, end, new Vec3(velocity.x, hopY, velocity.z))
+                            .velocity();
+                    addFluidHop(hops, state.velocity(), new MovementModifiers.FluidHop(hopped, blocked, end.y));
+                }
             }
+            result.setFluidHops(hops);
             var stateList = List.copyOf(states);
             Vec3 required = stateList.isEmpty() ? null : stateList.getFirst().stuckSpeed();
             for (int i = 0; i < stateList.size(); i++)
@@ -266,10 +272,54 @@ public final class JavaMovementEngine implements MovementEngine {
                     stateList);
             return new PredictionCommit(carry, new StateVelocities(stateList));
         }
-        return new PredictionCommit(
-                JavaFallDistance.commit(player, result, acceptedDiff),
-                NextTickVelocityDeriver.findVelocitiesForNextTick(
-                        player, result, lastPrediction, acceptedDiff, scratch));
+        Set<Vec3> velocities =
+                NextTickVelocityDeriver.findVelocitiesForNextTick(player, result, lastPrediction, acceptedDiff, scratch);
+        Map<Vec3, List<MovementModifiers.FluidHop>> hops = null;
+        if (MovementModifiers.mayEndInFluidHop(player, result)) {
+            hops = new HashMap<>();
+            Vec3 end = result.getSimulationContext().getEnd();
+            for (Vec3 velocity : velocities) {
+                SimpleCollisionBox blocked =
+                        MovementModifiers.blockedFluidHopBox(player, result.getSimulationContext(), end, velocity);
+                for (double hopY : MovementModifiers.fluidHopYs(result)) {
+                    addFluidHop(
+                            hops,
+                            velocity,
+                            new MovementModifiers.FluidHop(new Vec3(velocity.x, hopY, velocity.z), blocked, end.y));
+                }
+            }
+        }
+        result.setFluidHops(hops);
+        return new PredictionCommit(JavaFallDistance.commit(player, result, acceptedDiff), velocities);
+    }
+
+    private static void addFluidHop(
+            Map<Vec3, List<MovementModifiers.FluidHop>> hops, Vec3 carried, MovementModifiers.FluidHop hop) {
+        List<MovementModifiers.FluidHop> list = hops.computeIfAbsent(carried, key -> new ArrayList<>(2));
+        if (!list.contains(hop)) list.add(hop);
+    }
+
+    /**
+     * The state {@code velocity}, as LivingEntity#travel leaves it, carries into the next tick:
+     * Entity#applyEffectsFromBlocks and what the actor's tick runs after it.
+     */
+    private static JavaInsideBlockEffects.State afterTravel(
+            CultPlayer player,
+            PredictionResult result,
+            JavaFallDistance.Moved moved,
+            JavaInsideBlockEffects.Scan scan,
+            Vec3 end,
+            Vec3 velocity) {
+        Vec3 stepped = JavaInsideBlockEffects.stepOn(player, result, moved, velocity);
+        var effects =
+                JavaInsideBlockEffects.resolve(player, result, scan, moved.fallDistance(), stepped, moved.landed());
+        effects = afterActorTick(player, result.getSimulationContext(), moved.movement(), effects);
+        effects = GeyserVelocity.applyToState(player, result, end, effects);
+        ShulkerBoxShoveResult shove = shulkerBoxShoveAfterTravel(result);
+        if (shove != null)
+            effects = new JavaInsideBlockEffects.State(
+                    effects.fallDistance(), shove.velocityAfter(effects.velocity()), effects.stuckSpeed());
+        return effects;
     }
 
     /**

@@ -76,17 +76,16 @@ class JavaIdleTickGroundTest {
     }
 
     @Test
-    void aGroundClaimHoveringAboveTheFloorStillFlagsTheStrafe() throws Exception {
+    void aGroundClaimHoveringAboveTheFloorFlagsTheNextUnsentTick() throws Exception {
         try (var f = spawnedBeforeTheChunk()) {
             loadFloor(f);
             double hover = FLOOR + 1.0;
             f.place(new Vec3(SPAWN.x, hover, SPAWN.z), Vec3.ZERO);
             f.statusTick(true, false);
-            for (int tick = 0; tick < 6; tick++) f.tickEnd();
-            f.input(SPRINT_LEFT);
-            PredictionResult result = f.tick(new Vec3(STRAFE_X[0], hover, SPAWN.z), true);
-            assertRejected(result, "Strafe");
-            assertRejected(result, "GroundSpoof");
+            assertRejected(f.player.checkManager.getSimulationProcessor().getLastPrediction(), "GroundSpoof");
+            f.tickEnd();
+            // The unsent ticks fall from rest like sent ones.
+            assertRejected(f.player.checkManager.getSimulationProcessor().getLastPrediction(), "VerticalOffset");
         }
     }
 

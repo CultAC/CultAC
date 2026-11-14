@@ -31,9 +31,16 @@ final class VanillaStepProof {
 
     // Modern stepping can move beyond the shape that grounded the player.
     boolean canStandAtDestination(CultPlayer player, PredictionResult result) {
+        if (!mayRequestDownwardY(result)) return false;
         return standsOnUnknownCollision(player, result)
                 || hasCollisionDirectlyBelowDestination(player, result)
                 || (result.getValidMovements().isCanStep() && hasSourceProvenStepCandidate(player, result));
+    }
+
+    // Entity#move sets onGround only when a downward requested move collides.
+    private static boolean mayRequestDownwardY(PredictionResult result) {
+        SimpleCollisionBox attempted = result.getValidMovements().getCollisionIgnoredMaxStartingVelExtents();
+        return (attempted == null ? result.getInitialStartingVel().y : attempted.minY) < 0.0D;
     }
 
     private boolean needsStepProof(CultPlayer player, PredictionResult result) {
@@ -97,8 +104,9 @@ final class VanillaStepProof {
             return proveSourceStep(player, result, List.of(), !hasUnknownCollisionAtDestination(result));
         }
         // The client collides with each entity at the one position it holds it.
+        boolean selectable = !hasUnknownCollisionAtDestination(result);
         for (List<SimpleCollisionBox> colliders : worlds.colliders()) {
-            if (proveSourceStep(player, result, colliders, true)) return true;
+            if (proveSourceStep(player, result, colliders, selectable)) return true;
         }
         return false;
     }

@@ -197,9 +197,8 @@ class TimerMovementBudgetTest {
             f.tickEnd();
             assertEquals(before + ONE_MOVEMENT, balance(dumb), 0.0, "the counted tick's end counted again");
 
-            // The production cap, outside any long-teleport window, with a minute of unanswered pings behind it.
+            // The production cap, with a minute of unanswered pings behind it.
             JavaTickFixture.setField(DumbTimer.class, dumb, "limitAbuseOverPing", 1_000_000_000L);
-            JavaTickFixture.setField(DumbTimer.class, dumb, "lastLongTeleport", System.nanoTime() - 3e9);
             JavaTickFixture.setField(DumbTimer.class, dumb, "balance", System.nanoTime() - 60e9);
             long start = System.nanoTime();
             var alone = moveHorse(f, AIR.add(0, FIRST_FALL, 0));
@@ -232,7 +231,6 @@ class TimerMovementBudgetTest {
             f.pongThrough(f.player.sendTrailingTransaction());
             DumbTimer dumb = f.player.checkManager.getListener(DumbTimer.class);
             JavaTickFixture.setField(DumbTimer.class, dumb, "limitAbuseOverPing", 1_000_000_000L);
-            JavaTickFixture.setField(DumbTimer.class, dumb, "lastLongTeleport", System.nanoTime() - 3e9);
             JavaTickFixture.setField(DumbTimer.class, dumb, "balance", System.nanoTime() - 60e9);
 
             // 22 ticks of 45 ms stay inside one second of real time.

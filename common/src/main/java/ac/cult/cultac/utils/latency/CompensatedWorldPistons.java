@@ -21,6 +21,7 @@ import ac.cult.cultac.utils.nmsutil.NativeBlockCollisionHelper;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -112,7 +113,9 @@ public final class CompensatedWorldPistons {
         List<SimpleCollisionBox> retractingSourceFixBoxes = Collections.emptyList();
         if (!extending) {
             addTrackedMovingPistonMovementBoxes(pos, boxes, movingPositions);
-            retractingSourceFixBoxes = retractingSourceFixBoxes(pos, direction);
+            retractingSourceFixBoxes = player.isBedrockMovement()
+                    ? retractingSourceFixBoxes(pos, direction)
+                    : Collections.singletonList(blockBox(pos));
         }
 
         if (structure.resolved()) {
@@ -359,67 +362,25 @@ public final class CompensatedWorldPistons {
                         .isEmpty();
     }
 
+    /**
+     * The pushes of a pass over {@code playerBox}, which grows by each. Level#tickBlockEntities ticks the pistons in the
+     * order the client created their block entities and each tests the box the earlier ones moved, so every piston is
+     * tested against the grown box until it stops growing.
+     */
     public PistonPushes tickPlayerInPistonPushingArea(SimpleCollisionBox playerBox) {
-        Set<Direction> launches = null;
+        Set<Direction> launches = EnumSet.noneOf(Direction.class);
         SimpleCollisionBox pistonPushes = new SimpleCollisionBox();
         boolean currentPass = reportsAfterBlockEntities();
-
-        for (PistonData data : activePistons) {
-            if (!currentPass && !data.canAffectMovement()) {
-                continue;
-            }
-
-            // Read the current pass for 26.3 without advancing it. Older clients
-            // report before block entities and consume the last completed pass.
-            // In both cases tick-end is the sole owner of piston clock advancement.
-            List<SimpleCollisionBox> movementBoxes =
-                    currentPass ? collectCurrentMovingPistonMovementBoxes(data.getMovingPositions()) : data.boxes;
-            if (currentPass && movementBoxes.isEmpty()) continue;
-            double movementAmount = 0.0D;
-            for (SimpleCollisionBox box : movementBoxes) {
-                if (playerBox.isIntersected(box)) {
-                    movementAmount =
-                            Math.max(movementAmount, movementNeededToExit(box, data.getMovementDirection(), playerBox));
-                }
-            }
-
-            Direction direction = data.getMovementDirection();
-            boolean movementIntersects = movementAmount > 0.0D;
-            boolean sourceFixIntersects = !data.retractingSourceFixBoxes.isEmpty()
-                    && (!currentPass || hasCurrentRetractingSource(data))
-                    && intersectsAny(playerBox, data.retractingSourceFixBoxes);
-
-            if (!movementIntersects && !sourceFixIntersects) {
-                continue;
-            }
-
-            if (movementIntersects) {
-                double shove = Math.min(movementAmount, PISTON_PROGRESS_PER_CLIENT_TICK) + PISTON_ENTITY_PUSH_EPSILON;
-                shove = Math.min(shove, MAX_PISTON_MOVEMENT_PER_TICK);
-                playerBox.expand(
-                        Math.abs(direction.getModX()) * shove,
-                        Math.abs(direction.getModY()) * shove,
-                        Math.abs(direction.getModZ()) * shove);
-                // MCP-Reborn PistonMovingBlockEntity#moveCollidedEntities computes
-                // getMovement(...) against the swept piston area, adds 0.01, and
-                // Entity#limitPistonMovement caps the total axis delta to +/-0.51.
-                // With ServerboundClientTickEndPacket, the start AABB is the exact
-                // entity box before the client block-entity tick that can shove it.
-                unionSignedAxis(pistonPushes, direction, shove);
-            }
-
-            if (movementIntersects && data.hasSlimeBlock) {
-                if (launches == null) launches = new HashSet<>();
-                launches.add(direction);
-            }
-
-            if (sourceFixIntersects) {
-                Direction sourceFixDirection = direction.getOppositeFace();
-                playerBox.expand(
-                        Math.abs(sourceFixDirection.getModX()),
-                        Math.abs(sourceFixDirection.getModY()),
-                        Math.abs(sourceFixDirection.getModZ()));
-                unionSignedAxis(pistonPushes, sourceFixDirection, MAX_PISTON_MOVEMENT_PER_TICK);
+        Set<PistonData> reached = null;
+        boolean grew = true;
+        while (grew) {
+            grew = false;
+            for (PistonData data : activePistons) {
+                if (reached != null && reached.contains(data)) continue;
+                if (!push(data, currentPass, playerBox, pistonPushes, launches)) continue;
+                if (reached == null) reached = new HashSet<>();
+                reached.add(data);
+                grew = true;
             }
         }
 
@@ -427,7 +388,142 @@ public final class CompensatedWorldPistons {
                 pistonPushes,
                 pistonPushes,
                 new SimpleCollisionBox(),
-                launches == null ? Collections.emptySet() : launches);
+                launches.isEmpty() ? Collections.emptySet() : launches);
+    }
+
+    /** Grows {@code playerBox} and {@code pistonPushes} by the pushes of {@code data}; whether it reaches the box. */
+    private boolean push(
+            PistonData data,
+            boolean currentPass,
+            SimpleCollisionBox playerBox,
+            SimpleCollisionBox pistonPushes,
+            Set<Direction> launches) {
+        if (!currentPass && !data.canAffectMovement()) {
+            return false;
+        }
+
+        // Read the current pass for 26.3 without advancing it. Older clients
+        // report before block entities and consume the last completed pass.
+        // In both cases tick-end is the sole owner of piston clock advancement.
+        List<SimpleCollisionBox> movementBoxes =
+                currentPass ? collectCurrentMovingPistonMovementBoxes(data.getMovingPositions()) : data.boxes;
+        if (currentPass && movementBoxes.isEmpty()) return false;
+        double movementAmount = 0.0D;
+        for (SimpleCollisionBox box : movementBoxes) {
+            if (playerBox.isIntersected(box)) {
+                movementAmount =
+                        Math.max(movementAmount, movementNeededToExit(box, data.getMovementDirection(), playerBox));
+            }
+        }
+
+        Direction direction = data.getMovementDirection();
+        boolean movementIntersects = movementAmount > 0.0D;
+        boolean bedrock = player.isBedrockMovement();
+        boolean retractingSource = !data.retractingSourceFixBoxes.isEmpty()
+                && (!currentPass || hasCurrentRetractingSource(data));
+        boolean sourceFixIntersects = retractingSource
+                && (bedrock
+                        ? intersectsAny(playerBox, data.retractingSourceFixBoxes)
+                        : movementIntersects);
+
+        if (!movementIntersects && !sourceFixIntersects) {
+            return false;
+        }
+
+        SimpleCollisionBox unshoved = playerBox.copy();
+        double shove = 0.0D;
+        if (movementIntersects) {
+            shove = Math.min(movementAmount, PISTON_PROGRESS_PER_CLIENT_TICK) + PISTON_ENTITY_PUSH_EPSILON;
+            shove = Math.min(shove, MAX_PISTON_MOVEMENT_PER_TICK);
+            playerBox.expand(
+                    Math.abs(direction.getModX()) * shove,
+                    Math.abs(direction.getModY()) * shove,
+                    Math.abs(direction.getModZ()) * shove);
+            // MCP-Reborn PistonMovingBlockEntity#moveCollidedEntities computes
+            // getMovement(...) against the swept piston area, adds 0.01, and
+            // Entity#limitPistonMovement caps the total axis delta to +/-0.51.
+            // With ServerboundClientTickEndPacket, the start AABB is the exact
+            // entity box before the client block-entity tick that can shove it.
+            unionSignedAxis(pistonPushes, direction, shove);
+        }
+
+        if (movementIntersects && data.hasSlimeBlock) {
+            launches.add(direction);
+        }
+
+        if (sourceFixIntersects) {
+            Direction sourceFixDirection = direction.getOppositeFace();
+            double net = bedrock
+                    ? MAX_PISTON_MOVEMENT_PER_TICK
+                    : sourceFixNet(unshoved, data.retractingSourceFixBoxes, direction, shove);
+            double expansion = bedrock ? 1.0D : net;
+            if (net > 0.0D) {
+                playerBox.expand(
+                        Math.abs(sourceFixDirection.getModX()) * expansion,
+                        Math.abs(sourceFixDirection.getModY()) * expansion,
+                        Math.abs(sourceFixDirection.getModZ()) * expansion);
+                unionSignedAxis(pistonPushes, sourceFixDirection, net);
+            }
+        }
+        return true;
+    }
+
+    /**
+     * The PistonMovingBlockEntity#moveCollidedEntities move of the last client block-entity pass that a client before
+     * 26.3 makes between its reported position and its travel, when one piston's captured area holds {@code box},
+     * without a slime block or a retracting source. Null otherwise. It is the pass's only move of the box when
+     * {@link #anotherPistonReaches} finds no other piston at the box it leaves.
+     */
+    PistonShove exactShoveBeforeTravel(SimpleCollisionBox box) {
+        if (player.isBedrockMovement() || reportsAfterBlockEntities()) return null;
+        CompensatedBlockEntities.ShulkerShove shove = null;
+        PistonData source = null;
+        for (PistonData data : activePistons) {
+            if (!data.canAffectMovement()) continue;
+            double movementAmount = 0.0D;
+            SimpleCollisionBox area = null;
+            for (SimpleCollisionBox moving : data.boxes) {
+                if (!box.isIntersected(moving)) continue;
+                double needed = movementNeededToExit(moving, data.getMovementDirection(), box);
+                if (area == null || needed > movementAmount) {
+                    movementAmount = Math.max(movementAmount, needed);
+                    area = moving;
+                }
+            }
+            if (area == null) continue;
+            if (shove != null || !data.retractingSourceFixBoxes.isEmpty() || data.hasSlimeBlock) return null;
+            double amount = Math.min(
+                    Math.min(movementAmount, PISTON_PROGRESS_PER_CLIENT_TICK) + PISTON_ENTITY_PUSH_EPSILON,
+                    MAX_PISTON_MOVEMENT_PER_TICK);
+            Direction direction = data.getMovementDirection();
+            shove = new CompensatedBlockEntities.ShulkerShove(
+                    area, direction.getModX() * amount, direction.getModY() * amount, direction.getModZ() * amount);
+            source = data;
+        }
+        return shove == null ? null : new PistonShove(source, List.of(shove));
+    }
+
+    /** A piston's move of the player's box and the piston that makes it. */
+    record PistonShove(PistonData source, List<CompensatedBlockEntities.ShulkerShove> shove) {}
+
+    /**
+     * Whether a piston of the last client block-entity pass other than {@code source} tests a box it moves at
+     * {@code box}: Level#tickBlockEntities may tick it after {@code source}, against the box that piston's move left.
+     */
+    boolean anotherPistonReaches(PistonData source, SimpleCollisionBox box) {
+        for (PistonData data : activePistons) {
+            if (data == source || !data.canAffectMovement()) continue;
+            for (SimpleCollisionBox moving : data.boxes) {
+                // AABB#intersects
+                if (box.minX < moving.maxX
+                        && box.maxX > moving.minX
+                        && box.minY < moving.maxY
+                        && box.maxY > moving.minY
+                        && box.minZ < moving.maxZ
+                        && box.maxZ > moving.minZ) return true;
+            }
+        }
+        return false;
     }
 
     private boolean hasCurrentRetractingSource(PistonData data) {
@@ -467,6 +563,27 @@ public final class CompensatedWorldPistons {
             case NORTH -> entityBox.maxZ - area.minZ;
             default -> 0.0D;
         };
+    }
+
+    /**
+     * The most PistonMovingBlockEntity#fixEntityWithinPistonBase moves {@code box}, shoved by up to {@code shove} along
+     * the retract {@code movement}, back along the facing, net of that shove. The fix moves the shoved box out of the
+     * base by its depth plus 0.01, capped at the tick's progress, plus 0.01; net of the shove that is at most the
+     * unshoved box's depth plus 0.02, capped at 0.51.
+     */
+    private static double sourceFixNet(
+            SimpleCollisionBox box, List<SimpleCollisionBox> bases, Direction movement, double shove) {
+        SimpleCollisionBox shoved = box.copy()
+                .expandToCoordinate(
+                        movement.getModX() * shove, movement.getModY() * shove, movement.getModZ() * shove);
+        Direction facing = movement.getOppositeFace();
+        double net = 0.0D;
+        for (SimpleCollisionBox base : bases) {
+            if (!shoved.isIntersected(base)) continue;
+            double depth = movementNeededToExit(base, facing, box) + PISTON_ENTITY_PUSH_EPSILON;
+            net = Math.max(net, Math.min(depth, PISTON_PROGRESS_PER_CLIENT_TICK) + PISTON_ENTITY_PUSH_EPSILON);
+        }
+        return net;
     }
 
     private static boolean intersectsAny(SimpleCollisionBox playerBox, List<SimpleCollisionBox> boxes) {

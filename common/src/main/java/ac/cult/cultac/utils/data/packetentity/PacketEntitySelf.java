@@ -1,13 +1,11 @@
 package ac.cult.cultac.utils.data.packetentity;
 
 import ac.cult.blocksim.entity.EntityTypeIds;
-import ac.cult.cultac.checks.impl.sprint.SprintD;
 import ac.cult.cultac.network.packet.EntityPositionPath;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.AttributeModifier;
 import ac.cult.cultac.protocol.value.AttributeSnapshot;
-import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ClientAttributeInstance;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
@@ -180,19 +178,6 @@ public class PacketEntitySelf extends PacketEntity {
             float pitch,
             CultPlayer player) {
         // please don't send this type of packet to the player self, it's not possible in vanilla
-    }
-
-    @Override
-    public void addPotionEffect(MovementEffect effect, int amplifier) {
-        // Blindness does not cancel sprinting that began before the effect.
-        if (effect == MovementEffect.BLINDNESS
-                && (potionsMap == null || !potionsMap.containsKey(MovementEffect.BLINDNESS))) {
-            SprintD check = player.checkManager.getCheck(SprintD.class);
-            if (check != null) {
-                check.startedSprintingBeforeBlind = player.isSprinting;
-            }
-        }
-        super.addPotionEffect(effect, amplifier);
     }
 
     public double getBlockInteractionRange() {

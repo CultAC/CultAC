@@ -5,7 +5,6 @@ import ac.cult.blocksim.engine.FluidQueries;
 import ac.cult.blocksim.engine.SimFluidState;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
-import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 
 /** A fluid current computed into owned scratch, allocating nothing once its player's view exists. */
@@ -14,7 +13,6 @@ public final class FluidCurrent {
     public double y;
     public double z;
 
-    private final BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
     private final double[] flow = new double[3];
     private FluidQueries.View view;
     private CultPlayer viewPlayer;
@@ -32,6 +30,22 @@ public final class FluidCurrent {
             double velocityZ,
             FluidTags fluidTag,
             double scale) {
+        return compute(player, entityBox, playerEntity, velocityX, velocityZ, fluidTag, scale, false);
+    }
+
+    /**
+     * {@link #compute}; with {@code beforeRecentChanges}, every cell a recent fluid change touched is read at the
+     * first state those changes replaced.
+     */
+    public boolean compute(
+            CultPlayer player,
+            SimpleCollisionBox entityBox,
+            boolean playerEntity,
+            double velocityX,
+            double velocityZ,
+            FluidTags fluidTag,
+            double scale,
+            boolean beforeRecentChanges) {
         double fluidMinY = entityBox.minY + 0.001D;
         int minX = (int) Math.floor(entityBox.minX + 0.001D);
         int minY = (int) Math.floor(fluidMinY);
@@ -39,10 +53,17 @@ public final class FluidCurrent {
         int maxX = (int) Math.ceil(entityBox.maxX - 0.001D) - 1;
         int maxY = (int) Math.ceil(entityBox.maxY - 0.001D) - 1;
         int maxZ = (int) Math.ceil(entityBox.maxZ - 0.001D) - 1;
-        if (!player.compensatedWorld.mayHaveFluid(minX, minY, minZ, maxX, maxY, maxZ)) return false;
-        if (this.viewPlayer != player) {
-            this.view = FluidTypeFlowing.view(player);
-            this.viewPlayer = player;
+        if (!beforeRecentChanges && !player.compensatedWorld.mayHaveFluid(minX, minY, minZ, maxX, maxY, maxZ))
+            return false;
+        FluidQueries.View view;
+        if (beforeRecentChanges) {
+            view = FluidTypeFlowing.viewBeforeRecentChanges(player);
+        } else {
+            if (this.viewPlayer != player) {
+                this.view = FluidTypeFlowing.view(player);
+                this.viewPlayer = player;
+            }
+            view = this.view;
         }
 
         double currentX = 0.0D;
@@ -58,20 +79,19 @@ public final class FluidCurrent {
         for (int blockX = minX; blockX <= maxX; blockX++) {
             for (int blockY = minY; blockY <= maxY; blockY++) {
                 for (int blockZ = minZ; blockZ <= maxZ; blockZ++) {
-                    this.pos.set(blockX, blockY, blockZ);
-                    SimFluidState fluidState = ClientFluidQueries.fluidAt(player.compensatedWorld, this.pos);
+                    SimFluidState fluidState = view.fluidAt(blockX, blockY, blockZ);
                     // An empty cell is in no fluid tag; skipping it keeps a dry tick off the client tag projection.
                     if (fluidState.isEmpty() || !ClientFluidQueries.is(player, fluidState, fluidTag)) {
                         continue;
                     }
 
-                    double fluidTop = blockY + ClientFluidQueries.height(player.compensatedWorld, this.pos, fluidState);
+                    double fluidTop = blockY + fluidState.height(view.fluidAt(blockX, blockY + 1, blockZ));
                     if (fluidTop < fluidMinY) {
                         continue;
                     }
 
                     height = Math.max(fluidTop - entityMinY, height);
-                    FluidTypeFlowing.flow(this.view, blockX, blockY, blockZ, fluidState, this.flow);
+                    FluidTypeFlowing.flow(view, blockX, blockY, blockZ, fluidState, this.flow);
                     double flowX = this.flow[0];
                     double flowY = this.flow[1];
                     double flowZ = this.flow[2];
@@ -90,7 +110,10 @@ public final class FluidCurrent {
         }
 
         double lengthSqr = currentX * currentX + currentY * currentY + currentZ * currentZ;
-        if (currentCount == 0 || lengthSqr < 1.0E-5F) {
+        // 26.1 EntityFluidInteraction.CurrentAccumulator#applyTo drops a current under 1.0E-5F squared; before it,
+        // Entity#updateFluidHeightAndDoFluidPushing pushes by any current longer than 0.
+        boolean dropsWeakCurrent = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_1);
+        if (currentCount == 0 || (dropsWeakCurrent ? lengthSqr < 1.0E-5F : lengthSqr <= 0.0D)) {
             return false;
         }
 
@@ -103,10 +126,17 @@ public final class FluidCurrent {
             currentY *= average;
             currentZ *= average;
         } else {
+            // Vec3#normalize returns zero below a length of 1.0E-5F.
             double length = Math.sqrt(lengthSqr);
-            currentX /= length;
-            currentY /= length;
-            currentZ /= length;
+            if (length < 1.0E-5F) {
+                currentX = 0.0D;
+                currentY = 0.0D;
+                currentZ = 0.0D;
+            } else {
+                currentX /= length;
+                currentY /= length;
+                currentZ /= length;
+            }
         }
         currentX *= scale;
         currentY *= scale;

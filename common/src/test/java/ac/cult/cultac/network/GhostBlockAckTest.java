@@ -131,6 +131,136 @@ class GhostBlockAckTest {
         }
     }
 
+    @Test
+    @DisplayName("A placement ends at the acknowledgement of the sequence it was sent with, below the action count")
+    void placementSentWithALowerSequenceEndsAtItsAck() throws Exception {
+        try (var setup = new Setup()) {
+            BlockPos placed = FIRST_SUPPORT.above();
+            setup.place(FIRST_SUPPORT, 0);
+            assertEquals(state("stone"), setup.world(placed));
+
+            setup.fixture.user.write(new ClientboundBlockChangedAck(0));
+            setup.confirm(setup.output());
+
+            assertEquals(state("air"), setup.world(placed));
+            setup.assertNoGhostPositions();
+            setup.assertMovementIntoIsJudgedNormally(placed);
+        }
+    }
+
+    @Test
+    @DisplayName("Placements sent with one repeated sequence all end at its acknowledgement")
+    void placementsSentWithARepeatedSequenceEndAtItsAck() throws Exception {
+        try (var setup = new Setup()) {
+            BlockPos first = FIRST_SUPPORT.above();
+            BlockPos second = SECOND_SUPPORT.above();
+            setup.place(FIRST_SUPPORT, 1);
+            setup.fixture.user.write(new ClientboundBlockChangedAck(1));
+            setup.confirm(setup.output());
+            setup.fixture.forward(setup.fixture.id(ServerboundPackets.CLIENT_TICK_END, "client_tick_end"));
+            setup.place(SECOND_SUPPORT, 1);
+            assertEquals(state("stone"), setup.world(second));
+
+            setup.fixture.user.write(new ClientboundBlockChangedAck(1));
+            setup.confirm(setup.output());
+
+            assertEquals(state("air"), setup.world(first));
+            assertEquals(state("air"), setup.world(second));
+            setup.assertNoGhostPositions();
+            setup.assertMovementIntoIsJudgedNormally(second);
+        }
+    }
+
+    @Test
+    @DisplayName("A placement sent with a sequence above the action count stays until an acknowledgement reaches it")
+    void placementSentWithAHigherSequenceStaysUntilItsAck() throws Exception {
+        try (var setup = new Setup()) {
+            BlockPos placed = FIRST_SUPPORT.above();
+            setup.place(FIRST_SUPPORT, 100);
+
+            setup.fixture.user.write(new ClientboundBlockChangedAck(99));
+            setup.confirm(setup.output());
+            assertEquals(state("stone"), setup.world(placed), "BlockStatePredictionHandler#endPredictionsUpTo");
+
+            setup.fixture.user.write(new ClientboundBlockChangedAck(100));
+            setup.confirm(setup.output());
+            assertEquals(state("air"), setup.world(placed));
+            setup.assertNoGhostPositions();
+        }
+    }
+
+    @Test
+    @DisplayName("A burst of placements keeps every prediction the late acknowledgements have not reached yet")
+    void burstOfPlacementsEndsInAckOrder() throws Exception {
+        try (var setup = new Setup()) {
+            List<BlockPos> supports = setup.supportsAroundPlayer(20);
+            for (int i = 0; i < supports.size(); i++) {
+                setup.place(supports.get(i), i + 1);
+                setup.fixture.forward(setup.fixture.id(ServerboundPackets.CLIENT_TICK_END, "client_tick_end"));
+            }
+            // The acknowledgements arrive together after the stall; the client has not answered their ping yet.
+            setup.fixture.user.write(new ClientboundBlockChangedAck(10));
+            List<Object> firstAck = setup.output();
+            for (BlockPos support : supports) assertEquals(state("stone"), setup.world(support.above()));
+
+            setup.confirm(firstAck);
+            for (int i = 0; i < supports.size(); i++) {
+                assertEquals(state(i < 10 ? "air" : "stone"), setup.world(supports.get(i).above()));
+            }
+
+            setup.fixture.user.write(new ClientboundBlockChangedAck(20));
+            setup.confirm(setup.output());
+            for (BlockPos support : supports) assertEquals(state("air"), setup.world(support.above()));
+            setup.assertNoGhostPositions();
+        }
+    }
+
+    @Test
+    @DisplayName("Accepted placements from a burst stay placed when one acknowledgement answers them all")
+    void burstOfAcceptedPlacementsKeepsEveryBlock() throws Exception {
+        try (var setup = new Setup()) {
+            List<BlockPos> supports = setup.supportsAroundPlayer(20);
+            for (int i = 0; i < supports.size(); i++) {
+                setup.place(supports.get(i), i + 1);
+                setup.fixture.forward(setup.fixture.id(ServerboundPackets.CLIENT_TICK_END, "client_tick_end"));
+            }
+            for (BlockPos support : supports) assertEquals(state("stone"), setup.world(support.above()));
+            for (BlockPos support : supports) {
+                setup.fixture.user.write(new BlockUpdate(support.above(), state("stone")));
+            }
+            setup.fixture.user.write(new ClientboundBlockChangedAck(20));
+            setup.confirm(setup.output());
+
+            for (BlockPos support : supports) assertEquals(state("stone"), setup.world(support.above()));
+            setup.assertNoGhostPositions();
+        }
+    }
+
+    @Test
+    @DisplayName("A break under the player stays broken through a late acknowledgement the server accepted")
+    void breakUnderThePlayerStaysThroughALateAck() throws Exception {
+        try (var setup = new Setup()) {
+            BlockPos below = new BlockPos(0, 63, -2);
+            setup.block(below, "stone");
+            var world = setup.player.compensatedWorld;
+            world.advanceClientPredictionSequence(1);
+            world.startPredicting();
+            world.updateBlock(below, state("air"));
+            world.stopPredicting(1);
+
+            setup.fixture.user.write(new BlockUpdate(below, state("air")));
+            setup.fixture.user.write(new ClientboundBlockChangedAck(1));
+            List<Object> late = setup.output();
+            assertEquals(state("air"), setup.world(below));
+            assertTrue(world.hasPendingBlockPrediction(below), "the ack has not reached the client yet");
+
+            setup.confirm(late);
+            assertEquals(state("air"), setup.world(below));
+            assertEquals(64, setup.player.y);
+            setup.assertNoGhostPositions();
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private static Map<BlockPos, GhostBlock> pseudoPlaces(GhostBlockMitigator mitigator) throws Exception {
         Field field = GhostBlockMitigator.class.getDeclaredField("pseudoPlaces");
@@ -194,6 +324,28 @@ class GhostBlockAckTest {
 
         void block(BlockPos pos, String name) {
             player.compensatedWorld.applyBlockChangeRawDANGER(pos.x(), pos.y(), pos.z(), state(name));
+        }
+
+        /** Stands the player at the centre of a 5x5 grid and returns stone supports within reach, nearest first. */
+        List<BlockPos> supportsAroundPlayer(int count) {
+            player.x = 8.5;
+            player.z = 8.5;
+            player.packetStateData.clientSidePosition = new Vec3(8.5, 64, 8.5);
+            player.boundingBox = new SimpleCollisionBox(8.2, 64, 8.2, 8.8, 65.8, 8.8);
+            player.getInventory().inventory.setHeldItem(ItemUtil.modelItems().stack("minecraft:stone", 64));
+            block(new BlockPos(8, 63, 8), "stone");
+            List<BlockPos> supports = new ArrayList<>();
+            for (int ring = 1; ring <= 2; ring++) {
+                for (int x = 8 - ring; x <= 8 + ring; x++) {
+                    for (int z = 8 - ring; z <= 8 + ring; z++) {
+                        if (Math.max(Math.abs(x - 8), Math.abs(z - 8)) != ring || supports.size() == count) continue;
+                        BlockPos support = new BlockPos(x, 63, z);
+                        block(support, "stone");
+                        supports.add(support);
+                    }
+                }
+            }
+            return supports;
         }
 
         void place(BlockPos support, int sequence) {

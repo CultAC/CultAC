@@ -129,10 +129,10 @@ class VehicleMountResyncTest {
         }
         for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff(0);
         f.place(new Vec3(1.5, FLOOR_Y, 1.5), Vec3.ZERO);
-        f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, CORNER, 0, BOAT_YAW, 0);
+        f.player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, CORNER, BOAT_YAW, 0, 0);
         f.player.compensatedEntities.getEntity(BOAT).onGround = true;
         f.player.compensatedEntities.serverPositionsMap.put(
-                BOAT, new TrackerData(CORNER.x, CORNER.y, CORNER.z, 0, BOAT_YAW, EntityTypeIds.OAK_BOAT, 0));
+                BOAT, new TrackerData(CORNER.x, CORNER.y, CORNER.z, BOAT_YAW, 0, EntityTypeIds.OAK_BOAT, 0));
         f.input(FORWARD);
         f.tickEnd();
 

@@ -12,6 +12,7 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.ClientItemUseState;
 import ac.cult.cultac.utils.data.ClientSprintState;
 import ac.cult.cultac.utils.data.KnownInput;
+import ac.cult.cultac.utils.enums.Pose;
 import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
@@ -143,6 +144,44 @@ public final class SneakEdgeBackoff {
         return counts[UNKNOWN] == 0 ? Carry.NOTHING_HIDDEN : Carry.UNKNOWN;
     }
 
+    /**
+     * The delta LivingEntity#travel built from {@code result}'s starting velocity and the client's keys, which
+     * Player#maybeBackOffFromEdge shortened to {@code accepted}, or null when the keys do not reproduce that move at
+     * one delta for every speed the client's sprint state and multiplier its item use allow.
+     */
+    static Vec3 deltaBeforeBackOff(PredictionResult result, Vec3 accepted) {
+        CultPlayer player = result.getPlayer();
+        if (player == null || !appliesTo(player)) return null;
+        SimulationContext context = result.getSimulationContext();
+        if (context == null || !appliesTo(player, result, context)) return null;
+        float movingSlowlyFactor = movingSlowlyFactor(player, context);
+        float[] speeds = speeds(player, result.getInitialStartingVel(), context);
+        ClientItemUseState.Snapshot use = context.getItemUse();
+        SimpleCollisionBox box = context.getFromActualPose();
+        Vec3 found = null;
+        for (int u = 0; u < 3; u++) {
+            float itemUse = itemUseMultiplier(use, u);
+            for (float speed : speeds) {
+                Vec3 delta =
+                        delta(player, context, result.getInitialStartingVel(), itemUse, movingSlowlyFactor, speed);
+                if (delta == null || !reaches(player, box, delta, accepted)) continue;
+                if (found != null && !found.equals(delta)) return null;
+                found = delta;
+            }
+        }
+        return found;
+    }
+
+    /** Whether Entity#move, after Player#maybeBackOffFromEdge shortens {@code delta}, moves by {@code accepted}. */
+    private static boolean reaches(CultPlayer player, SimpleCollisionBox box, Vec3 delta, Vec3 accepted) {
+        Vec3 backedOff = backOff(player, box, delta, player.getMaxUpStep());
+        Vec3 movement = Collisions.collide(player, box, backedOff.x, backedOff.y, backedOff.z);
+        double movementLength = movement.lengthSqr();
+        boolean moved = movementLength > 1.0E-7 || backedOff.lengthSqr() - movementLength < 1.0E-7;
+        Vec3 position = moved ? movement : Vec3.ZERO;
+        return position.distanceToSqr(accepted) <= 1.0E-14;
+    }
+
     private static int addDeltaMovement(PredictionResult result, Vec3 accepted, Set<Vec3> out) {
         CultPlayer player = result.getPlayer();
         SimulationContext context = result.getSimulationContext();
@@ -192,6 +231,9 @@ public final class SneakEdgeBackoff {
         double input = 0.0D;
         if (player.packetStateData.knownInput.strafeImpulse() != 0.0F
                 || player.packetStateData.knownInput.forwardImpulse() != 0.0F) {
+            if (player.compensatedEntities.getSelf().actionAlive && !standingFits(player, context)) {
+                return Double.POSITIVE_INFINITY;
+            }
             float[] speeds = speeds(player, result.getInitialStartingVel(), context);
             float movingSlowlyFactor = movingSlowlyFactor(player, context);
             ClientItemUseState.Snapshot use = context.getItemUse();
@@ -332,20 +374,21 @@ public final class SneakEdgeBackoff {
             float movingSlowlyFactor,
             float speed) {
         boolean water = context.getWorldData().getInWater() == DesyncStatus.TRUE;
+        boolean swimming = water && context.getWorldData().isSwimming();
         KnownInput keys = player.packetStateData.knownInput;
-        Vec3 input = water && context.getWorldData().isSwimming()
+        // The shift key alone decides LocalPlayer#aiStep's crouching only where the standing pose fits.
+        if (!swimming && player.compensatedEntities.getSelf().actionAlive && !standingFits(player, context)) {
+            return null;
+        }
+        Vec3 input = swimming
                 ? ClientKeyInput.swimmingTravelInput(player, context, keys, itemUseMultiplier, speed)
                 : ClientKeyInput.travelInput(player, context, keys, itemUseMultiplier, movingSlowlyFactor, speed);
         if (input == null) return null;
-        // Entity#baseTick's updateInWaterStateAndDoFluidPushing adds the water current before LocalPlayer#aiStep.
-        Vec3 current = water ? WaterCurrent.calculateWaterCurrent(player, context, context.getStart(), start) : null;
-        double startX = current == null ? start.x : start.x + current.x;
-        double startY = current == null ? start.y : start.y + current.y;
-        double startZ = current == null ? start.z : start.z + current.z;
+        // The starting velocity already holds the water current Entity#baseTick added.
         // LocalPlayer#aiStep's goDownInWater adds -0.04F while shift is held in water, before travel.
-        double deltaY = water ? startY + (double) -0.04F : startY;
-        if (water && context.getWorldData().isSwimming()) deltaY = swimPull(player, context, deltaY);
-        Vec3 delta = new Vec3(startX + input.x, deltaY, startZ + input.z);
+        double deltaY = water ? start.y + (double) -0.04F : start.y;
+        if (swimming) deltaY = swimPull(player, context, deltaY);
+        Vec3 delta = new Vec3(start.x + input.x, deltaY, start.z + input.z);
         if (!(Math.abs(delta.x) <= MAX_PROBED_AXIS) || !(Math.abs(delta.z) <= MAX_PROBED_AXIS)) return null;
         return delta;
     }
@@ -389,6 +432,19 @@ public final class SneakEdgeBackoff {
                 && player.packetStateData.knownInput.shift();
     }
 
+    /** Whether the standing box at the tick's start is clear of blocks and entities. */
+    private static boolean standingFits(CultPlayer player, SimulationContext context) {
+        Vec3 start = context.getStart();
+        SimpleCollisionBox standing = GetBoundingBox.getBoundingBoxFromPosAndSize(
+                        start.x,
+                        start.y,
+                        start.z,
+                        Pose.STANDING.width * context.getScale(),
+                        Pose.STANDING.height * context.getScale())
+                .expand(-SimpleCollisionBox.COLLISION_EPSILON);
+        return Collisions.isEmpty(player, standing);
+    }
+
     /**
      * Player#travel's pull of a swimming player's vertical delta toward its look, after LocalPlayer#aiStep's
      * goDownInWater and before LivingEntity#travelInWater's move.
@@ -415,16 +471,17 @@ public final class SneakEdgeBackoff {
     private static boolean isAboveGround(CultPlayer player, PredVector start, SimulationContext context) {
         DesyncStatus onGround = context.getWorldData().getLastOnGround();
         if (onGround != DesyncStatus.FALSE) return onGround == DesyncStatus.TRUE;
-        float maxDownStep = player.getMaxUpStep();
         double fallDistance = JavaFallDistance.beforeMove(player, context, start).fallDistance();
-        return fallDistance < maxDownStep
-                && !canFallAtLeast(
-                        player,
-                        context.getFromActualPose(),
-                        new SimpleCollisionBox(),
-                        0.0,
-                        0.0,
-                        maxDownStep - fallDistance);
+        return isAboveGround(player, false, fallDistance, context.getFromActualPose());
+    }
+
+    /** Player#isAboveGround for {@code box}, with the fallDistance Entity#move reads. */
+    static boolean isAboveGround(CultPlayer player, boolean onGround, double fallDistance, SimpleCollisionBox box) {
+        float maxDownStep = player.getMaxUpStep();
+        return onGround
+                || fallDistance < maxDownStep
+                        && !canFallAtLeast(
+                                player, box, new SimpleCollisionBox(), 0.0, 0.0, maxDownStep - fallDistance);
     }
 
     /** Player#maybeBackOffFromEdge once its flying, mover, shift and Player#isAboveGround conditions hold. */

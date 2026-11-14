@@ -15,6 +15,9 @@ import ac.cult.cultac.checks.impl.badpackets.BadPacketsV;
 import ac.cult.cultac.checks.impl.movement.timer.DumbTimer;
 import ac.cult.cultac.checks.impl.prediction.OffsetHandler;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.type.CheckListener;
+import ac.cult.cultac.checks.type.PositionListener;
+import ac.cult.cultac.manager.player.CheckManager;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -28,10 +31,14 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Relative;
+import ac.cult.cultac.utils.anticheat.update.PositionUpdate;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.math.Vec3;
 import java.lang.reflect.Field;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -255,17 +262,27 @@ class JavaClientTickTest {
             f.place(STANDING, Vec3.ZERO);
             f.input(NONE);
             f.tick(STANDING, true);
-            DumbTimer dumbTimer = f.player.checkManager.getListener(DumbTimer.class);
-            Field lastLongTeleport = DumbTimer.class.getDeclaredField("lastLongTeleport");
-            lastLongTeleport.setAccessible(true);
+            List<PositionUpdate> updates = new ArrayList<>();
+            Field listeners = CheckManager.class.getDeclaredField("positionUpdateListeners");
+            listeners.setAccessible(true);
+            CheckListener[] registered = (CheckListener[]) listeners.get(f.player.checkManager);
+            CheckListener[] probed = Arrays.copyOf(registered, registered.length + 1);
+            probed[registered.length] = new PositionListener() {
+                @Override
+                public void onPositionUpdate(PositionUpdate update) {
+                    updates.add(update);
+                }
+            };
+            listeners.set(f.player.checkManager, probed);
 
-            // 26.3 sends no PosRot after the acceptance; DumbTimer's long-teleport window still opens.
+            // 26.3 sends no PosRot after the acceptance; position listeners still see the teleport.
             Vec3 far = new Vec3(1_000.5, FLOOR_Y, 1_000.5);
-            long beforeTeleport = System.nanoTime();
             f.teleport(far, new RelativeFlag(0));
 
-            // Only DumbTimer#onPositionUpdate's long-teleport branch moves this past the construction time.
-            assertTrue(lastLongTeleport.getDouble(dumbTimer) >= beforeTeleport);
+            assertTrue(
+                    updates.stream().anyMatch(update -> update.getTeleportData().isTeleport()
+                            && far.equals(update.getTo())),
+                    "no position listener saw the teleport at its target");
             assertEquals(
                     far, f.player.getSetbackTeleportUtil().safePosition().getPos());
             assertEquals(far.x, f.player.x, 0);
@@ -425,7 +442,7 @@ class JavaClientTickTest {
             BlockPos broken = new BlockPos(3, FLOOR_Y, 0);
             world.updateBlock(broken, BlockIds.STONE.defaultState());
 
-            world.advanceClientPredictionSequence();
+            world.advanceClientPredictionSequence(1);
             world.startPredicting();
             world.updateBlock(broken, BlockIds.AIR.defaultState());
             world.stopPredicting(1);

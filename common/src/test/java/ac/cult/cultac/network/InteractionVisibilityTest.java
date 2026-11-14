@@ -1238,10 +1238,12 @@ class InteractionVisibilityTest {
             world.applyClientBlockEvent("minecraft:overworld", new ClientboundBlockEvent(box, 1, 1, blockId));
             for (int tick = 0; tick < 8; tick++) {
                 world.onClientTickEnd();
+                world.tickClientBlockEntities();
                 progress += 0.1F;
             }
             world.applyClientBlockEvent("minecraft:overworld", new ClientboundBlockEvent(box, 1, 0, blockId));
             world.onClientTickEnd();
+            world.tickClientBlockEntities();
             progress -= 0.1F;
             assertEquals(
                     progress,

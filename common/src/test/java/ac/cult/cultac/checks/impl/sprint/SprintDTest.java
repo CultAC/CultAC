@@ -85,7 +85,7 @@ class SprintDTest {
             player.setExperimentalChecks(true);
             doReturn(setbacks).when(player).getSetbackTeleportUtil();
             doReturn(true).when(setbacks).executeViolationSetback(any(Check.class));
-            // Sprinting began after the blindness, so SprintD applies.
+            // The client holds blindness and claims a sprint.
             player.compensatedEntities.getSelf().addPotionEffect(MovementEffect.BLINDNESS, 0);
             player.isSprinting = true;
             sprintD = new SprintD(player);

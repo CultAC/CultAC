@@ -13,6 +13,19 @@ public final class WaterCurrent {
 
     public static Vec3 calculateWaterCurrent(
             CultPlayer player, SimulationContext context, Vec3 position, Vec3 velocityBeforeCurrent) {
+        return calculateWaterCurrent(player, context, position, velocityBeforeCurrent, false);
+    }
+
+    /**
+     * The water current at {@code position}; with {@code beforeRecentChanges}, read with every recently changed cell
+     * at the first state its recent changes replaced.
+     */
+    public static Vec3 calculateWaterCurrent(
+            CultPlayer player,
+            SimulationContext context,
+            Vec3 position,
+            Vec3 velocityBeforeCurrent,
+            boolean beforeRecentChanges) {
         SimpleCollisionBox fluidInteractionBox =
                 getWaterCurrentInteractionBox(scratchBox(player), player, context, position);
         PacketEntity vehicle = context.getVehicle();
@@ -27,21 +40,54 @@ public final class WaterCurrent {
             // current rule for that vehicle entity. Mounted non-boat motion in
             // water therefore starts from the vehicle box and normalized current,
             // not from the passenger player's box/current path.
-            return calculateWaterCurrent(player, fluidInteractionBox, false, velocityBeforeCurrent);
+            return calculateFluidCurrent(
+                    player,
+                    fluidInteractionBox,
+                    false,
+                    velocityBeforeCurrent,
+                    FluidTags.WATER,
+                    0.014D,
+                    beforeRecentChanges);
         }
 
-        return calculateWaterCurrent(player, fluidInteractionBox, true, velocityBeforeCurrent);
+        return calculateFluidCurrent(
+                player, fluidInteractionBox, true, velocityBeforeCurrent, FluidTags.WATER, 0.014D, beforeRecentChanges);
     }
 
     public static Vec3 calculateLavaCurrent(
             CultPlayer player, SimulationContext context, Vec3 position, Vec3 velocityBeforeCurrent) {
+        return calculateLavaCurrent(player, context, position, velocityBeforeCurrent, false);
+    }
+
+    /** {@link #calculateWaterCurrent(CultPlayer, SimulationContext, Vec3, Vec3, boolean)} for lava. */
+    public static Vec3 calculateLavaCurrent(
+            CultPlayer player,
+            SimulationContext context,
+            Vec3 position,
+            Vec3 velocityBeforeCurrent,
+            boolean beforeRecentChanges) {
         PacketEntity vehicle = context.getVehicle();
         if (vehicle instanceof ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus) {
             return null;
         }
         SimpleCollisionBox entityBox = getWaterCurrentInteractionBox(scratchBox(player), player, context, position);
         double scale = player.compensatedWorld.hasFastLava() ? 0.007D : 0.0023333333333333335D;
-        return calculateFluidCurrent(player, entityBox, vehicle == null, velocityBeforeCurrent, FluidTags.LAVA, scale);
+        return calculateFluidCurrent(
+                player, entityBox, vehicle == null, velocityBeforeCurrent, FluidTags.LAVA, scale, beforeRecentChanges);
+    }
+
+    /**
+     * Whether a recent change of {@code fluid} touched a cell the current at {@code position} reads: the cells of the
+     * fluid interaction box, their horizontal neighbors and the cells above and below them.
+     */
+    public static boolean hasRecentChanges(
+            CultPlayer player, SimulationContext context, Vec3 position, FluidTags fluid) {
+        SimpleCollisionBox box = getWaterCurrentInteractionBox(player, context, position);
+        SimpleCollisionBox read = new SimpleCollisionBox(
+                box.minX - 1.0D, box.minY - 1.0D, box.minZ - 1.0D, box.maxX + 1.0D, box.maxY + 1.0D, box.maxZ + 1.0D);
+        return fluid == FluidTags.WATER
+                ? player.compensatedWorld.hasRecentClientWaterChanges(read)
+                : player.compensatedWorld.hasRecentClientLavaChanges(read);
     }
 
     public static Vec3 calculateNonPlayerWaterCurrent(
@@ -84,7 +130,8 @@ public final class WaterCurrent {
 
     private static Vec3 calculateWaterCurrent(
             CultPlayer player, SimpleCollisionBox entityBox, boolean playerEntity, Vec3 velocityBeforeCurrent) {
-        return calculateFluidCurrent(player, entityBox, playerEntity, velocityBeforeCurrent, FluidTags.WATER, 0.014D);
+        return calculateFluidCurrent(
+                player, entityBox, playerEntity, velocityBeforeCurrent, FluidTags.WATER, 0.014D, false);
     }
 
     private static Vec3 calculateFluidCurrent(
@@ -93,8 +140,9 @@ public final class WaterCurrent {
             boolean playerEntity,
             Vec3 velocityBeforeCurrent,
             FluidTags fluidTag,
-            double scale) {
-        if (!FluidCurrent.mayTouchFluid(player, entityBox)) return null;
+            double scale,
+            boolean beforeRecentChanges) {
+        if (!beforeRecentChanges && !FluidCurrent.mayTouchFluid(player, entityBox)) return null;
         FluidCurrent current = new FluidCurrent();
         return current.compute(
                         player,
@@ -103,7 +151,8 @@ public final class WaterCurrent {
                         velocityBeforeCurrent.x,
                         velocityBeforeCurrent.z,
                         fluidTag,
-                        scale)
+                        scale,
+                        beforeRecentChanges)
                 ? new Vec3(current.x, current.y, current.z)
                 : null;
     }

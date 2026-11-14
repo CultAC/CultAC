@@ -64,6 +64,9 @@ public class BaseConfigManager {
 
     @Getter
     private int maxPingKnockback = 1000;
+
+    @Getter
+    private int maxPendingPingMs = 0;
     // cult.client-brand.strip-pattern regex; null when disabled (empty key)
     private Pattern brandRemover = null;
 
@@ -156,6 +159,7 @@ public class BaseConfigManager {
         disablePongCancelling = config.getBooleanElse("disable-pong-cancelling", false);
         launchFailOpen = config.getBooleanElse("launch-safety.fail-open", true);
         maxPingKnockback = config.getIntElse("cult.prediction.max-knockback-ping-ms", 1000);
+        maxPendingPingMs = config.getIntElse("max-pending-ping-ms", 0);
 
         // owner-authored config semantics: strip e.g. the " (Velocity)" suffix from brands
         String brandRegex = config.getStringElse("cult.client-brand.strip-pattern", " \\(Velocity\\)$");

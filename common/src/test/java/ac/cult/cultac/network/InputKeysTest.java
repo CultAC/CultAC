@@ -460,6 +460,9 @@ class InputKeysTest {
             Vec3 target = new Vec3(2 - 0.3F, FLOOR_Y, face + 0.3F);
             Vec3 start = target.add(-0.01, 0, 0.012);
             f.player.compensatedEntities.entityMap.get(100).setClientTickOrder(-1L);
+            // A zombie ticking before the player pushes it along -z, so Direction#axisStepOrder moves z first.
+            f.player.compensatedEntities.addEntity(101, EntityTypeIds.ZOMBIE, start.add(0, 0, 0.5), 0, 0, 0);
+            f.player.compensatedEntities.entityMap.get(101).setClientTickOrder(-1L);
             f.place(start, new Vec3(0, GROUNDED.y, -0.09));
             f.player.xRot = -90.0F;
             f.player.yRot = 0.0F;

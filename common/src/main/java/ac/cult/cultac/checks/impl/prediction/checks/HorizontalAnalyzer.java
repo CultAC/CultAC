@@ -9,6 +9,7 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InputKeys;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.NoSneakSlow;
 import ac.cult.cultac.checks.impl.prediction.checks.psuedo.OmniSprint;
+import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.Ladder;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.MovementTrace;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
@@ -100,6 +101,12 @@ public class HorizontalAnalyzer implements EngineCheck {
                     () -> NumFormatter.formatNumberStandard(minimumInputX) + " "
                             + NumFormatter.formatNumberStandard(minimumInputZ),
                     speedFlagAmount);
+        } else {
+            double clampExcess = climbClampExcess(result, target);
+            if (clampExcess > HORIZONTAL_INPUT_UNCERTAINTY) {
+                result.addFlag(
+                        speedOrStrafe, () -> "climb " + NumFormatter.formatNumberStandard(clampExcess), clampExcess);
+            }
         }
 
         double keysOffset = ReportedKeyInput.offset(player, result, lastResult, keyInputScratch);
@@ -145,8 +152,8 @@ public class HorizontalAnalyzer implements EngineCheck {
                         || !player.canPlayerFitWithinBlocksAndEntitiesWhen(Pose.CROUCHING, from.x, from.y, from.z))) {
             isSlowed = false;
         }
-        // FluidPush grants the on-foot current as a radius around the prediction, which does not keep the residual
-        // inside the sneaking input square.
+        // Sneaking's hidden edge velocity decays by block friction, not by a current's build-up behind the edge,
+        // which leaves the crouching input a residual outside the sneaking input square.
         if (result.getSimulationContext().getWorldData().getInFlowingLiquid() != DesyncStatus.FALSE) isSlowed = false;
 
         if (isSlowed && !player.isFlying && player.usesModernJavaItemUse()) {
@@ -185,9 +192,35 @@ public class HorizontalAnalyzer implements EngineCheck {
                 ? null
                 : lastResult.getSimulationContext().getWorldData().getSneak();
 
+        // Player#maybeBackOffFromEdge shortens the delta after the input is in it; judge the input before that.
+        Vec3 judgedTarget = target;
+        Vec3 judgedClosest = closestForSpeed;
+        double judgedInputX = minimumInputX;
+        double judgedInputZ = minimumInputZ;
+        double judgedInputScaledToSpeed = inputScaledToSpeed;
+        if (result.getSimulationContext().getWorldData().getSneak().isOnEdge()) {
+            Vec3 beforeBackOff = Collisions.deltaBeforeSneakEdgeBackOff(result, target);
+            if (beforeBackOff != null) {
+                judgedTarget = new Vec3(beforeBackOff.x, target.y, beforeBackOff.z);
+                judgedClosest = result.getInitialStartingVel();
+                getBestTheoreticalPlayerInput(
+                        theoreticalInput,
+                        judgedTarget.x - judgedClosest.x,
+                        judgedTarget.z - judgedClosest.z,
+                        result.getSimulationContext().getXRot(),
+                        result.getSimulationContext().getVersion());
+                judgedInputX = theoreticalInput[0];
+                judgedInputZ = theoreticalInput[1];
+                judgedInputScaledToSpeed = playerSpeed > 0
+                        ? Math.sqrt(judgedInputX * judgedInputX + 0.0D * 0.0D + judgedInputZ * judgedInputZ)
+                                / playerSpeed
+                        : 0;
+            }
+        }
+
         // From here on are checks we cannot do if the player doesn't have inputs, is sneaking, or is colliding with a
         // wall
-        if (inputScaledToSpeed < 0.01
+        if (judgedInputScaledToSpeed < 0.01
                 || result.getCollideAxisData().getX().isLikelyCollide()
                 || result.getCollideAxisData().getZ().isLikelyCollide()
                 || (lastOnEdge != null && lastOnEdge.isOnEdge())
@@ -200,13 +233,13 @@ public class HorizontalAnalyzer implements EngineCheck {
 
         double playerAngle = normalizeAngle(result.getSimulationContext().getXRot());
         AngleResult angleResult = getAngleRange(
-                result.getValidMovements().getCollisionIgnoredMaxStartingVelExtents(), target, playerAngle);
+                result.getValidMovements().getCollisionIgnoredMaxStartingVelExtents(), judgedTarget, playerAngle);
 
         if (sprintHasForwardImpulse(result.getSimulationContext())) {
             double sprintOffset = distanceToForwardImpulse(
                     result.getValidMovements().getCollisionIgnoredMaxStartingVelExtents(),
-                    closestForSpeed,
-                    target,
+                    judgedClosest,
+                    judgedTarget,
                     result.getSimulationContext().getXRot(),
                     result.getSimulationContext().getVersion());
             if (sprintOffset > HORIZONTAL_INPUT_UNCERTAINTY) {
@@ -221,8 +254,8 @@ public class HorizontalAnalyzer implements EngineCheck {
         if (result.getValidMovements()
                 .getCollisionIgnoredMaxStartingVelExtents()
                 .isHorizEmpty()) {
-            double absX = Math.abs(minimumInputX);
-            double absZ = Math.abs(minimumInputZ);
+            double absX = Math.abs(judgedInputX);
+            double absZ = Math.abs(judgedInputZ);
 
             double distToValid = Math.min(Math.min(Math.abs(absX - absZ), absX), absZ);
             if (distToValid > 0.01) { // More lenient than it must be.
@@ -243,6 +276,23 @@ public class HorizontalAnalyzer implements EngineCheck {
                         distanceToValid / 500); // Not that bad to flag
             }
         }
+    }
+
+    /**
+     * The horizontal distance from {@code target} to the move LivingEntity#handleOnClimbable leaves: it clamps the
+     * delta after moveRelative added the input, so no input reaches past the clamp. Zero when the travel does not
+     * clamp, or when a shove moved the player apart from the delta.
+     */
+    static double climbClampExcess(PredictionResult result, Vec3 target) {
+        if (Ladder.clampsDeltaMovement(result.getSimulationContext()) == DesyncStatus.FALSE) return 0.0D;
+        MovementTrace trace = result.getValidMovements() == null
+                ? null
+                : result.getValidMovements().getClosestTrace();
+        if (trace == null
+                || trace.positionOnlyDelta().lengthSqr() > 1.0E-14
+                || trace.collisionBaseOffset().lengthSqr() > 1.0E-14) return 0.0D;
+        Vec3 clamped = result.getLegacyLikePredictionVector();
+        return Math.hypot(target.x - clamped.x, target.z - clamped.z);
     }
 
     static boolean sprintHasForwardImpulse(SimulationContext context) {

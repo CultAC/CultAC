@@ -416,9 +416,14 @@ public class SimulationContext implements DebugText.Recordable {
 
     /** Radius of the circular horizontal input allowance around the input-free movement of {@code candidate}. */
     public double getHorizontalInputRadius(CultPlayer player, PredVector candidate) {
-        return getVehicle() == null
-                ? getHorizontalInputAllowance(player, getSprintOutcome(player, candidate))
-                : getMaxSpeed(player);
+        if (getVehicle() != null) {
+            return getMaxSpeed(player);
+        }
+        // LivingEntity#travelFallFlying moves without moveRelative, so a dry glide takes no input.
+        if (usesFallFlyingMovement() && !worldData.maybeInLiquid()) {
+            return 0;
+        }
+        return getHorizontalInputAllowance(player, getSprintOutcome(player, candidate));
     }
 
     /**

@@ -40,7 +40,7 @@ class ReceivedClientActionsTest {
             var ownedHeld = held.copy();
             player.getInventory().inventory.setHeldItem(ownedHeld);
             player.packetStateData.clientSidePosition = new ac.cult.cultac.utils.math.Vec3(.5, 64, -2);
-            player.compensatedWorld.advanceClientPredictionSequence();
+            player.compensatedWorld.advanceClientPredictionSequence(1);
             ac.cult.cultac.events.packets.blockplace.PlaceHandler.handleQueuedUseItemOn(
                     player,
                     new ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn(
@@ -57,7 +57,7 @@ class ReceivedClientActionsTest {
             assertEquals(2, player.getInventory().getHeldItem().getCount());
             assertEquals(3, held.getCount(), "Prediction preserves the received stack");
             assertEquals(ownedHeld.patch(), player.getInventory().getHeldItem().patch());
-            player.compensatedWorld.advanceClientPredictionSequence();
+            player.compensatedWorld.advanceClientPredictionSequence(2);
             player.compensatedWorld.startPredicting();
             try {
                 assertTrue(ClientBlockActions.breakBlock(player, support.above()));
@@ -342,7 +342,7 @@ class ReceivedClientActionsTest {
     }
 
     private static void queuedUse(ac.cult.cultac.player.CultPlayer player, Hand hand, int sequence) {
-        player.compensatedWorld.advanceClientPredictionSequence();
+        player.compensatedWorld.advanceClientPredictionSequence(sequence);
         ac.cult.cultac.events.packets.blockplace.PlaceHandler.handleQueuedUseItem(
                 player,
                 new ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem(

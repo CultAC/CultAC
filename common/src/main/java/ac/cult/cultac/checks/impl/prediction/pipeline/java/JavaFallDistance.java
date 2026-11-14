@@ -27,11 +27,15 @@ public final class JavaFallDistance {
         return context.getVehicle() == null ? player.compensatedEntities.getSelf() : context.getVehicle();
     }
 
-    public static JavaCollisionState beforeMove(CultPlayer player, SimulationContext context, PredVector velocity) {
-        PacketEntity actor = actor(player, context);
-        double distance = context.getProfileCarry() instanceof JavaPredictionCarry carry && carry.actor() == actor
+    private static double carried(SimulationContext context, PacketEntity actor) {
+        return context.getProfileCarry() instanceof JavaPredictionCarry carry && carry.actor() == actor
                 ? carry.fallDistance()
                 : 0.0;
+    }
+
+    public static JavaCollisionState beforeMove(CultPlayer player, SimulationContext context, PredVector velocity) {
+        PacketEntity actor = actor(player, context);
+        double distance = carried(context, actor);
         var world = context.getWorldData();
         boolean water = world.getInWater().determinePessimistically();
         boolean lava = world.getInLava().determinePessimistically();
@@ -50,6 +54,27 @@ public final class JavaFallDistance {
                                 || player.compensatedEntities.getLevitationAmplifier() != null);
         distance = beforeMove(distance, lava, reset, context.isGliding(), velocity.y);
         return JavaCollisionState.of(player, actor, storedDistance(context.getVersion(), distance));
+    }
+
+    /** The least fallDistance Entity#move can read this tick, from the fluid states before WorldData exists. */
+    public static double leastBeforeMove(
+            CultPlayer player, SimulationContext context, DesyncStatus inWater, DesyncStatus inLava) {
+        PacketEntity actor = actor(player, context);
+        double distance = carried(context, actor);
+        Vec3 start = context.getStart();
+        boolean climb = actor.isLivingEntity()
+                && inWater != DesyncStatus.TRUE
+                && inLava != DesyncStatus.TRUE
+                && !context.usesFallFlyingMovement()
+                && Collisions.onClimbable(player, start.x, start.y, start.z);
+        boolean reset = inWater.determineOptimistically()
+                || climb
+                || context.getVehicle() == null && player.isFlying
+                || actor.isLivingEntity()
+                        && (player.compensatedEntities.getSlowFallingAmplifier() != null
+                                || player.compensatedEntities.getLevitationAmplifier() != null);
+        distance = beforeMove(distance, inLava.determineOptimistically(), reset, context.isGliding(), 0.0);
+        return storedDistance(context.getVersion(), distance);
     }
 
     static double beforeMove(double distance, boolean lava, boolean reset, boolean gliding, double velocityY) {

@@ -4,6 +4,8 @@ import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.prediction.checks.HorizontalAnalyzer;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaFallDistance;
 import ac.cult.cultac.checks.impl.prediction.profile.MovementProfiles;
+import ac.cult.cultac.checks.impl.prediction.stage.MovementModifiers;
+import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.Ladder;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.UncertaintyHelper;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ValidMovements;
 import ac.cult.cultac.player.CultPlayer;
@@ -11,11 +13,13 @@ import ac.cult.cultac.utils.anticheat.StringReturner;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.CollideAxisData;
 import ac.cult.cultac.utils.data.TeleportData;
+import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.function.IntSupplier;
 import lombok.*;
 
@@ -39,6 +43,11 @@ public class PredictionResult {
     @EqualsAndHashCode.Exclude
     @ToString.Exclude
     JavaFallDistance.Moved javaCommittedMove;
+
+    /** The fluid hops the move may end in, by the velocity its commit carries without the hop; null without any. */
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    Map<Vec3, List<MovementModifiers.FluidHop>> fluidHops;
 
     /** Whether the committed next-tick velocities are the deltaMovement a sneaking edge's back-off left. */
     @EqualsAndHashCode.Exclude
@@ -280,8 +289,8 @@ public class PredictionResult {
         }
         Vec3 closest = getAcceptedClosestToTarget();
         if (closest == null) {
-            return UncertaintyHelper.handleCircularInput(
-                    new PredVector(closest), getTarget(), getHorizontalInputRadius());
+            return clampClimbing(UncertaintyHelper.handleCircularInput(
+                    new PredVector(closest), getTarget(), getHorizontalInputRadius()));
         }
         Vec3 target = getTarget();
         double radius = getHorizontalInputRadius();
@@ -289,13 +298,28 @@ public class PredictionResult {
         if (legacyLikeVector != null
                 && closest == legacyLikeClosest
                 && target == legacyLikeTarget
-                && radiusBits == legacyLikeRadius) return legacyLikeVector;
+                && radiusBits == legacyLikeRadius) return clampClimbing(legacyLikeVector);
         Vec3 vector = UncertaintyHelper.handleCircularInput(new PredVector(closest), target, radius);
         legacyLikeClosest = closest;
         legacyLikeTarget = target;
         legacyLikeRadius = radiusBits;
         legacyLikeVector = vector;
-        return vector;
+        return clampClimbing(vector);
+    }
+
+    /** LivingEntity#handleOnClimbable clamps the delta moveRelative has already added the input to. */
+    private Vec3 clampClimbing(Vec3 moved) {
+        DesyncStatus clamps = player == null || player.isBedrockMovement()
+                ? DesyncStatus.FALSE
+                : Ladder.clampsDeltaMovement(getSimulationContext());
+        if (clamps == DesyncStatus.FALSE) return moved;
+        double x = CultMath.clamp(moved.x, -0.15F, 0.15F);
+        double z = CultMath.clamp(moved.z, -0.15F, 0.15F);
+        if (clamps.isDesync()) {
+            x = CultMath.clamp(getTarget().x, Math.min(moved.x, x), Math.max(moved.x, x));
+            z = CultMath.clamp(getTarget().z, Math.min(moved.z, z), Math.max(moved.z, z));
+        }
+        return new Vec3(x, moved.y, z);
     }
 
     /** Radius of the circular horizontal input allowance around the closest movement. */

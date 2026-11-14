@@ -8,6 +8,7 @@ import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
+import ac.cult.cultac.utils.data.RidingJumpCharge;
 import ac.grim.grimac.api.storage.verbose.Verbose;
 import ac.grim.grimac.api.storage.verbose.VerboseTags;
 
@@ -17,9 +18,21 @@ import ac.grim.grimac.api.storage.verbose.VerboseTags;
         description = "Sent a horse jump packet with an invalid entity, action, or boost value")
 public class BadPacketsQ extends Check implements CheckListener {
     private static final Verbose V = Verbose.of("boost={sint}, action={entityaction}, entity={sint}");
+    private static final Verbose CHARGE = Verbose.of("boost={sint}, charged={sint}");
+    // Below any data LocalPlayer#sendRidingJump can send.
+    private static final int NO_CHARGE = -1000;
 
     public BadPacketsQ(final CultPlayer player) {
         super(player);
+    }
+
+    /**
+     * A START_RIDING_JUMP whose data is not the charge LocalPlayer#aiStep built from the jump key, or a release the key
+     * did not make ({@code charged} NO_RELEASE). True when the packet is to be corrected.
+     */
+    public boolean onReleaseBeyondCharge(int boost, int charged) {
+        int expected = charged == RidingJumpCharge.NO_RELEASE ? NO_CHARGE : charged;
+        return flag(CHARGE.write(verbose()).sint(boost).sint(expected)) && shouldModifyPackets();
     }
 
     @CultPacketHandler

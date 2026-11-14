@@ -58,6 +58,68 @@ public final class JavaInsideBlockEffects {
                 actor, new Vec3(endX, endY, endZ), from.copy(), to.copy(), movement, attemptedMovement(result));
     }
 
+    /**
+     * Entity#isInPowderSnow as {@code result}'s Entity#applyEffectsFromBlocks left it: PowderSnowBlock#entityInside
+     * ran for a powder snow block its inside-block pass entered. {@code null} when {@code result} committed no
+     * exactly modelled move.
+     */
+    public static Boolean enteredPowderSnow(CultPlayer player, PredictionResult result) {
+        JavaFallDistance.Moved moved = result.getJavaCommittedMove();
+        if (moved == null) return null;
+        Scan scan = scan(player, result, moved.movement());
+        if (scan == null) return false;
+        PacketEntity actor = scan.actor();
+        boolean stuckAllowed = result.getSimulationContext().getVehicle() != null || !player.isFlying;
+        boolean berryStuck = actor.type != EntityTypeIds.FOX && actor.type != EntityTypeIds.BEE;
+        double width = scan.to().maxX - scan.to().minX;
+        double[] fallDistance = {moved.fallDistance()};
+        // A honey slide resets the fall distance only below a vertical speed this replay does not carry.
+        boolean[] honeyMayReset = {false};
+        boolean[] entered = {false};
+        Collisions.visitInsideBlocks26Dot2(
+                scan.from(), scan.to(), scan.originalMovement(), (segmentFrom, segmentTo, pos, precise) -> {
+                    if (entered[0]) return false;
+                    int block = player.compensatedWorld.getBlockStateIdAt(pos);
+                    int effects = InsideBlockEffectScan.effects(block);
+                    if (effects == 0) return false;
+                    if ((effects & InsideBlockEffectScan.POWDER) != 0) {
+                        entered[0] = entersPowderSnow(player, actor, fallDistance[0], segmentFrom, segmentTo, pos, scan)
+                                || honeyMayReset[0]
+                                        && entersPowderSnow(player, actor, 0, segmentFrom, segmentTo, pos, scan);
+                        return entered[0];
+                    }
+                    if (stuckAllowed
+                            && ((effects & InsideBlockEffectScan.WEB) != 0
+                                    || (effects & InsideBlockEffectScan.BERRY) != 0 && berryStuck)) {
+                        fallDistance[0] = 0;
+                    }
+                    if ((effects & InsideBlockEffectScan.HONEY) != 0
+                            && slidesAtAnySpeed(scan.end(), pos, width, moved.landed())) {
+                        honeyMayReset[0] = true;
+                    }
+                    if ((effects & InsideBlockEffectScan.BUBBLE) != 0
+                            && precise
+                            && stuckAllowed
+                            && !bubbleSurface(player, pos)) {
+                        fallDistance[0] = 0;
+                    }
+                    return true;
+                });
+        return entered[0];
+    }
+
+    private static boolean entersPowderSnow(
+            CultPlayer player,
+            PacketEntity actor,
+            double fallDistance,
+            SimpleCollisionBox segmentFrom,
+            SimpleCollisionBox segmentTo,
+            BlockPos pos,
+            Scan scan) {
+        VoxelShape shape = JavaCollisionState.of(player, actor, fallDistance).powderSnowShape(pos.getY(), scan.end().y);
+        return shape.isEmpty() || shape == Shapes.block() || intersects(segmentFrom, segmentTo, shape, pos);
+    }
+
     public static State resolve(
             CultPlayer player, PredictionResult result, Scan scan, double distance, Vec3 velocity, boolean landed) {
         if (scan == null) return new State(distance, velocity, null);
@@ -109,18 +171,9 @@ public final class JavaInsideBlockEffects {
                             state = new State(0, slideVelocity(state.velocity()), state.stuckSpeed());
                         }
                         if (bubble && precise && (context.getVehicle() != null || !player.isFlying)) {
-                            int above = player.compensatedWorld.getBlockStateIdAt(pos.above());
-                            boolean surface = player.compensatedWorld
-                                            .geometry()
-                                            .collision(above, pos)
-                                            .isEmpty()
-                                    && ClientFluidQueries.modelFluid(above).isEmpty();
+                            boolean surface = bubbleSurface(player, pos);
                             // AbstractBoat overrides the surface callback without changing client velocity.
-                            if (context.getVehicle() == null) {
-                                // Player bubble velocity uses the existing uncertainty handler;
-                                // committing it here would force one pose and apply it twice.
-                                if (!surface) state = new State(0, state.velocity(), state.stuckSpeed());
-                            } else if (!surface || !actor.isBoat()) {
+                            if (!surface || !actor.isBoat()) {
                                 state = bubble(state, surface, BlockProps.DRAG.booleanValue(block));
                             }
                         }
@@ -207,6 +260,20 @@ public final class JavaInsideBlockEffects {
                 && oldDeltaY(velocityY) < -0.08
                 && (Math.abs(pos.getX() + 0.5 - end.x) + 1.0E-7 > 0.4375 + width / 2
                         || Math.abs(pos.getZ() + 0.5 - end.z) + 1.0E-7 > 0.4375 + width / 2);
+    }
+
+    private static boolean slidesAtAnySpeed(Vec3 end, BlockPos pos, double width, boolean landed) {
+        return !landed
+                && end.y <= pos.getY() + 0.9375 - 1.0E-7
+                && (Math.abs(pos.getX() + 0.5 - end.x) + 1.0E-7 > 0.4375 + width / 2
+                        || Math.abs(pos.getZ() + 0.5 - end.z) + 1.0E-7 > 0.4375 + width / 2);
+    }
+
+    /** BubbleColumnBlock#entityInside's surface test: no collision and no fluid above the column block. */
+    private static boolean bubbleSurface(CultPlayer player, BlockPos pos) {
+        int above = player.compensatedWorld.getBlockStateIdAt(pos.above());
+        return player.compensatedWorld.geometry().collision(above, pos).isEmpty()
+                && ClientFluidQueries.modelFluid(above).isEmpty();
     }
 
     private static double oldDeltaY(double y) {

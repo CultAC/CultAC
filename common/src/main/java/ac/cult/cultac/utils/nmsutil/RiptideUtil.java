@@ -176,6 +176,21 @@ public final class RiptideUtil {
     }
 
     /**
+     * Whether Entity#wasTouchingWater holds when this tick's LocalPlayer#aiStep calls Player#tryToStartFallFlying:
+     * the last move ended in water and every {@link #glideStartBoxes} box touches it. LivingEntity#baseTick refreshes
+     * it at the end of the last move, and after TridentItem#releaseUsing's lift.
+     */
+    public static boolean glideStartsInWater(CultPlayer player) {
+        PredictionResult last = player.checkManager.getSimulationProcessor().getLastPrediction();
+        if (last == null
+                || !last.getSimulationContext().getWorldData().getInWater().determinePessimistically()) return false;
+        for (SimpleCollisionBox box : glideStartBoxes(player)) {
+            if (!JavaFallDistance.touchesWater(player, box)) return false;
+        }
+        return true;
+    }
+
+    /**
      * The boxes TridentItem#releaseUsing's lift on the ground may move {@code box} to, by a lift that consumes a
      * carried Entity#stuckSpeedMultiplier.
      */

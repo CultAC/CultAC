@@ -118,10 +118,13 @@ class ElytraTransformFireworkTest {
             Vec3 pushedFirst = boosted(player, VELOCITY.add(0, 0.1D, 0), 1);
             Vec3 boostedFirst = start.add(0, 0.1D, 0);
 
+            // From 1.21.11 the carried velocity already holds the column's push; older clients take it as a range here.
+            SimulationContext context = context(player);
+            when(context.getVersion()).thenReturn(ClientVersion.V_1_21_4);
             Vec3 vanilla = glide(player, pushedFirst);
-            assertClose(vanilla, transform(player, context(player), last, start, vanilla));
+            assertClose(vanilla, transform(player, context, last, start, vanilla));
             Vec3 reordered = glide(player, boostedFirst);
-            assertTrue(reordered.distanceTo(transform(player, context(player), last, start, reordered)) > 0.04D);
+            assertTrue(reordered.distanceTo(transform(player, context, last, start, reordered)) > 0.04D);
         });
     }
 

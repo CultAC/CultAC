@@ -73,7 +73,7 @@ public class RecentBlockChangeRetentionTest {
             world.beginSelectionSnapshot();
             for (int i = 0; i < BULK; i++) {
                 BlockPos pos = position(i);
-                world.advanceClientPredictionSequence();
+                world.advanceClientPredictionSequence(0);
                 world.startPredicting();
                 world.updateBlock(pos.getX(), pos.getY(), pos.getZ(), air);
                 world.stopPredicting(0);

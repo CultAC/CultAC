@@ -1006,11 +1006,16 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
             return;
         }
 
+        // MobEffectInstance clamps a received VarInt amplifier to 0..255.
+        int amplifier = !player.isBedrockMovement()
+                        && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_20_5)
+                ? Math.clamp(packet.amplifier(), 0, 255)
+                : packet.amplifier();
         final Runnable applyMobEffect = () -> {
             PacketEntity entity = player.compensatedEntities.getEntity(packet.entityId());
             if (entity == null) return;
 
-            entity.addPotionEffect(type, packet.amplifier());
+            entity.addPotionEffect(type, amplifier);
         };
         applyMobEffectChange(event, packet.entityId(), applyMobEffect);
     }
@@ -1036,7 +1041,18 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
     // the packet; the local player's next tick reads its own and its vehicle's.
     private void applyMobEffectChange(PacketSendEvent<?> event, int entityId, Runnable change) {
         whenHandled(
-                event, isDirectlyAffectingPlayer(player, entityId) ? Proof.BEFORE_NEXT_TICK : entityProof(), change);
+                event,
+                isDirectlyAffectingPlayer(player, entityId) ? Proof.BEFORE_NEXT_TICK : entityProof(),
+                sinceLastLogin(change));
+    }
+
+    /** {@code change}, dropped when it runs after a later login replaced the entities it was sent for. */
+    private Runnable sinceLastLogin(Runnable change) {
+        if (player.isBedrockMovement()) return change;
+        int logins = player.compensatedEntities.loginsSent;
+        return () -> {
+            if (player.compensatedEntities.loginsSent == logins) change.run();
+        };
     }
 
     @CultPacketHandler
@@ -1049,7 +1065,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         boolean affectsPlayer = entityID == player.entityID || isDirectlyAffectingPlayer(player, entityID);
         int proven = proveHandled(event, affectsPlayer ? Proof.BEFORE_NEXT_TICK : entityProof());
         player.latencyUtils.addRealTimeTask(
-                proven, () -> player.compensatedEntities.updateAttributes(entityID, values, proven));
+                proven, sinceLastLogin(() -> player.compensatedEntities.updateAttributes(entityID, values, proven)));
         if (hasScale(values)) retireSizeAt(entityID, proven);
     }
 
@@ -1513,7 +1529,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                     player.compensatedEntities.vehicles.clearServerVehicle();
                 }
             }
-            player.compensatedEntities.serverPositionsMap.remove(entityID);
+            TrackerData tracked = player.compensatedEntities.serverPositionsMap.remove(entityID);
+            if (tracked != null) player.compensatedEntities.onRemovalSent(entityID, tracked, removedAt);
         }
 
         // A Java login clears entities; an older level's removal must not remove a reused ID in the new one.
@@ -1526,6 +1543,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                     : player.compensatedEntities.dismountSeat(riding);
             boolean hadRideTick = player.checkManager.getSimulationProcessor().hasRideTick();
             for (int integer : destroyEntityIds) {
+                player.compensatedEntities.onRemovalProven(integer, removedAt);
                 if (!player.isBedrockMovement() && level == player.compensatedWorld.level())
                     player.compensatedEntities.removeEntity(integer);
             }
@@ -1565,7 +1583,8 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
         // A resync teleport, accepted before the proof, already set the position.
         if (resync != DismountResync.TELEPORT && seat != null) player.compensatedEntities.commitDismountSeat(seat);
         if (hadRideTick) {
-            player.onGround = false;
+            // A tick that sends no movement keeps LocalPlayer#lastOnGround, which a ridden tick never writes.
+            player.onGround = player.packetStateData.lastSendPositionOnGround;
             simulation.setLastOnGround(DesyncStatus.FALSE);
         }
         // Leaving the vehicle reseeds from the velocity the player held; the resync's zero motion follows it.

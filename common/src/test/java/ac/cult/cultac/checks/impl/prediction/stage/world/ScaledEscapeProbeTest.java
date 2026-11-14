@@ -132,8 +132,8 @@ class ScaledEscapeProbeTest {
         when(context.getPose()).thenReturn(pose);
         when(context.getScale()).thenReturn(scale);
         Method method = WorldStageBuilder.class.getDeclaredMethod(
-                "mightBeSuffocating", CultPlayer.class, SimulationContext.class);
+                "blockPushAt", CultPlayer.class, SimulationContext.class, double.class, double.class, double.class);
         method.setAccessible(true);
-        return (boolean) method.invoke(new WorldStageBuilder(), player, context);
+        return ((BlockPush) method.invoke(new WorldStageBuilder(), player, context, 0.0D, 0.0D, 0.0D)).pushes();
     }
 }

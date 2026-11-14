@@ -32,7 +32,7 @@ import org.junit.jupiter.api.Test;
  * built a fresh box per use, on the seeded scenarios' predictions and on randomized and edge block positions.
  */
 class PredictionScratchEquivalenceTest {
-    private static final int SCENARIOS = 66;
+    private static final int SCENARIOS = 100;
     private static final int RANDOM_POSITIONS = 120;
     private static final double[] DIRT = {
         Double.NaN, -0.0, 0.0, 1.0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, -1.0E300, 4.9E-324
@@ -146,7 +146,7 @@ class PredictionScratchEquivalenceTest {
                     boolean expected = !inVehicle && baseInReach(context, pos);
                     DesyncStatus before = world.getInWater();
                     world.setInWater(DesyncStatus.FALSE);
-                    processor.handleBlockChange(pos, BlockIds.WATER.defaultState());
+                    processor.handleBlockChange(pos, BlockIds.WATER.defaultState(), false);
                     boolean actual = world.getInWater() == DesyncStatus.UNKNOWN;
                     world.setInWater(before);
                     assertEquals(expected, actual, "seed " + seed + " block " + pos + " reach " + reach);

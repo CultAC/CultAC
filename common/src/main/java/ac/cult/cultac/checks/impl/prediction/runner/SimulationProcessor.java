@@ -1191,6 +1191,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             this.commitSprintOutcomes(result);
             this.player.minPlayerAttackSlow = 0;
             this.player.maxPlayerAttackSlow = 0;
+            this.player.attackSlowsAfterTravel = 0;
+            this.player.travelPredictedThisClientTick = true;
             if (this.player.isFlying) {
                 this.lastFlying.reset();
             }
@@ -1532,6 +1534,9 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             // LocalPlayer#aiStep crouches the next tick from this tick's shift, whether or not it sends a position.
             this.lastSneaking = this.player.isSneaking;
             this.player.checkManager.getListener(JavaAutoJump.class).onExemptNoPositionTick(result);
+            // An exempt tick completes no prediction, yet the client's tick still passes.
+            this.player.lastInstanceManager.tick();
+            if (this.player.isFlying) this.lastFlying.reset();
         }
         if (flyingThroughTravel) {
             this.stopFlyingAfterTravel();
@@ -1747,6 +1752,15 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
     }
 
+    /**
+     * A Java client from 1.21.2 ends every tick with ServerboundClientTickEndPacket, so each tick without a position is
+     * simulated on its own and none restarts from rest.
+     */
+    private boolean clientEndsEveryTick() {
+        return !this.player.isBedrockMovement()
+                && this.player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2);
+    }
+
     private PredictionResult predict(
             CultPlayer player,
             Set<Vec3> startingVel,
@@ -1844,7 +1858,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                     startingVel,
                     curSimulationContext,
                     lastPrediction,
-                    this.couldPotentiallyTickSkip);
+                    this.couldPotentiallyTickSkip && !this.clientEndsEveryTick());
             List<PredVector> validInitialVelocities = withSprintOutcomes(
                     player,
                     curSimulationContext,
@@ -2653,7 +2667,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
     }
 
-    public void handleBlockChange(BlockPos pos, int to) {
+    public void handleBlockChange(BlockPos pos, int to, boolean clientPredicted) {
         if (this.lastPrediction != null) {
             if (!this.player.compensatedEntities.getSelf().inVehicle()) {
                 SimulationContext context = this.lastPrediction.getSimulationContext();
@@ -2686,10 +2700,13 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                                     .setInFlowingLiquid(DesyncStatus.UNKNOWN);
                         }
 
-                        if (BlockTags.CLIMBABLE.test(to)
-                                || BlockIds.is(to, BlockIds.POWDER_SNOW)
-                                        && this.player.getInventory().getBoots().getItem()
-                                                == ac.cult.cultac.utils.inventory.ItemTypes.LEATHER_BOOTS) {
+                        // A client placement runs in Minecraft#handleKeybinds, after the last movement's travel.
+                        if (!clientPredicted
+                                && readsClimbable(context, pos)
+                                && (BlockTags.CLIMBABLE.test(to)
+                                        || BlockIds.is(to, BlockIds.POWDER_SNOW)
+                                                && this.player.getInventory().getBoots().getItem()
+                                                        == ac.cult.cultac.utils.inventory.ItemTypes.LEATHER_BOOTS)) {
                             this.lastPrediction
                                     .getSimulationContext()
                                     .getWorldData()
@@ -2703,7 +2720,11 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                                     .getSimulationContext()
                                     .getWorldData()
                                     .setStuckSpeed(new StuckSpeedData(null, stuckSpeed));
-                            this.validPlayerStartingVels.add(Vec3.ZERO);
+                            // Before 1.21.2 a tick hidden under the movement threshold may have taken the multiplier.
+                            if (this.player.isBedrockMovement()
+                                    || this.player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2)) {
+                                this.validPlayerStartingVels.add(Vec3.ZERO);
+                            }
                             if (JavaMovementEngine.contextUsesExactEffects(context)
                                     && !this.player.isBedrockMovement()
                                     && this.profileCarry instanceof JavaPredictionCarry carry
@@ -2727,6 +2748,22 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 CultMath.floor(context.getEnd().y),
                 CultMath.floor(context.getEnd().z));
         return rootBlockPosition.equals(pos);
+    }
+
+    /**
+     * Whether Collisions#onClimbable at the client's position after {@code context} reads {@code pos}: the feet block
+     * or, under a trapdoor, the one below. A 0.03 context's reported end may miss that position by the threshold.
+     */
+    private boolean readsClimbable(SimulationContext context, BlockPos pos) {
+        Vec3 end = context.getEnd();
+        double slack = context.isTestingPointThree() ? this.player.getMovementThreshold() : 0.0;
+        return within(pos.getX(), end.x, slack)
+                && within(pos.getZ(), end.z, slack)
+                && (within(pos.getY(), end.y, slack) || within(pos.getY() + 1, end.y, slack));
+    }
+
+    private static boolean within(int block, double coordinate, double slack) {
+        return block >= CultMath.floor(coordinate - slack) && block <= CultMath.floor(coordinate + slack);
     }
 
     private boolean couldChangedStuckSpeedBlockAffectLastMovement(SimulationContext context, BlockPos pos) {

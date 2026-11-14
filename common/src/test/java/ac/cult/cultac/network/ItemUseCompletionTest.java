@@ -432,8 +432,8 @@ class ItemUseCompletionTest {
     }
 
     private void use(Hand hand) {
-        player.compensatedWorld.advanceClientPredictionSequence();
-        PlaceHandler.handleQueuedUseItem(player, new ServerboundUseItem(hand, ++sequence, player.xRot, player.yRot));
+        player.compensatedWorld.advanceClientPredictionSequence(++sequence);
+        PlaceHandler.handleQueuedUseItem(player, new ServerboundUseItem(hand, sequence, player.xRot, player.yRot));
     }
 
     private void tick() {

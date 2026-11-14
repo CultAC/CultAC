@@ -1018,7 +1018,7 @@ public class PacketEntity {
         }
     }
 
-    private boolean hasActiveLocalRootInterpolation() {
+    public boolean hasActiveLocalRootInterpolation() {
         return hasActiveSteppedInterpolation()
                 || (boat
                         && newPacketLocation != null
