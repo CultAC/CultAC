@@ -8,6 +8,7 @@ import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.runner.PacketModHandler;
 import ac.cult.cultac.checks.impl.prediction.stage.UncertaintyPipeline;
 import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.CarriedPush;
@@ -21,6 +22,7 @@ import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.BubbleColumnData;
 import ac.cult.cultac.utils.data.StuckEdgeData;
 import ac.cult.cultac.utils.data.StuckSpeedData;
+import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.utils.math.Vec3;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -36,7 +38,7 @@ import org.junit.jupiter.api.Test;
  */
 class ExtentPrimitiveEquivalenceTest {
     private static final int SCENARIOS = 66;
-    private static final int PERTURBATIONS = 12;
+    private static final int PERTURBATIONS = 14;
     private static final double[] EDGES = {
         0.0,
         -0.0,
@@ -80,7 +82,8 @@ class ExtentPrimitiveEquivalenceTest {
                             for (int bit = 0; bit < PERTURBATIONS; bit++) masks.add(1 << bit);
                             for (int i = 0; i < 3; i++) masks.add(random.nextInt(1 << PERTURBATIONS));
                             for (int mask : masks) {
-                                compareBox(scenario, mask, candidate, last[0], mismatches, kept);
+                                compareBox(
+                                        scenario, mask, candidate, lastFor(mask, candidate, last[0]), mismatches, kept);
                                 boxes[0]++;
                             }
                         }
@@ -119,6 +122,7 @@ class ExtentPrimitiveEquivalenceTest {
         for (UncertaintyHandler handler : forms) names.add(handler.getClass().getSimpleName());
         assertEquals(
                 List.of(
+                        "Ladder",
                         "PointThree",
                         "InsideBlock",
                         "StuckSpeed",
@@ -144,7 +148,8 @@ class ExtentPrimitiveEquivalenceTest {
                             if (candidate.getValidMovements() == null) continue;
                             for (int i = 0; i < 24; i++) {
                                 int mask = random.nextInt(1 << PERTURBATIONS);
-                                PredictionResult lastResult = random.nextInt(16) == 0 ? broken(candidate) : last[0];
+                                PredictionResult lastResult =
+                                        random.nextInt(16) == 0 ? broken(candidate) : lastFor(mask, candidate, last[0]);
                                 List<Runnable> undo = perturb(mask, candidate, lastResult);
                                 try {
                                     for (UncertaintyHandler handler : forms) {
@@ -232,6 +237,18 @@ class ExtentPrimitiveEquivalenceTest {
 
         double sx = pick(random), sy = pick(random), sz = pick(random);
         PredVector root = random.nextBoolean() ? initial : new PredVector(new Vec3(pick(random), sy, pick(random)));
+        PacketModHandler bread = null;
+        TransactionVel oldBread = null;
+        if (root != initial && random.nextBoolean()) {
+            // A packet this tick that the ladder carry reads through the start's lineage.
+            TransactionVel packet = new TransactionVel(new Vec3(0, pick(random), 0), 1, random.nextBoolean(), false);
+            root.addPacketModifier(packet);
+            bread = random.nextBoolean()
+                    ? player.checkManager.getKnockbackHandler()
+                    : player.checkManager.getExplosionHandler();
+            oldBread = bread.firstBread;
+            bread.firstBread = packet;
+        }
         if (random.nextBoolean()) root.setTickSkip(!root.isTickSkip());
         if (random.nextInt(4) == 0) root.setEntityMotion(!root.isEntityMotion());
         try {
@@ -263,6 +280,7 @@ class ExtentPrimitiveEquivalenceTest {
                         + want + " != " + got);
             }
         } finally {
+            if (bread != null) bread.firstBread = oldBread;
             initial.setTickSkip(tickSkip);
             initial.setEntityMotion(entityMotion);
             valid.setControlsVerticalMovement(vertical);
@@ -320,6 +338,8 @@ class ExtentPrimitiveEquivalenceTest {
         if ((mask & 1 << 9) != 0) set(undo, context, "isTestingPointThree", true);
         if ((mask & 1 << 10) != 0) set(undo, world, "sneak", new StuckEdgeData(true, false, false, true, false));
         if ((mask & 1 << 11) != 0) set(undo, world, "climbingAtStart", DesyncStatus.TRUE);
+        if ((mask & 1 << 12) != 0 && lastWorld != null) set(undo, lastWorld, "climbing", DesyncStatus.TRUE);
+        if ((mask & 1 << 13) != 0 && lastWorld != null) set(undo, lastWorld, "inWater", DesyncStatus.TRUE);
         return undo;
     }
 
@@ -377,6 +397,11 @@ class ExtentPrimitiveEquivalenceTest {
                         double.class,
                         double.class);
         return method.getDeclaringClass() != UncertaintyHandler.class;
+    }
+
+    /** {@code last}, or {@code result} as its own last when bits 12/13 need a last world the first tick lacks. */
+    private static PredictionResult lastFor(int mask, PredictionResult result, PredictionResult last) {
+        return last != null || (mask & (3 << 12)) == 0 ? last : result;
     }
 
     /** A last result without a context, which every handler that reads the last context fails on. */
