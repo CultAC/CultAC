@@ -49,79 +49,6 @@ migration schema names remain unchanged for compatibility.
 CultAC can upload captured play to an intake service for analysis. The upload is off until configured;
 [Cloud upload](docs/cloud-upload.md) says what it sends, how to configure it and what it costs.
 
-Set `observe-only: true` in `config.yml` to flag and alert without changing gameplay: no punishment commands,
-kicks or setbacks, no cancelled or rewritten packets, no block or inventory resyncs and no health spoofing.
-Teleports the server sends are left to the server, even when the client ends up elsewhere. A player who
-answers no ping within `max-transaction-time` is let go instead of disconnected, and on Velocity a client on
-an unsupported version, a Bedrock client without Geyser, or a player whose connection cannot be attached joins
-uninspected. The server receives every packet exactly as the client sent it: what a check, crash protection,
-movement integrity, `max-clicks-per-tick` or the plugin message limit would cancel, rewrite or drop is still
-inspected and flagged, then forwarded unchanged, and a client past `packet-spam-threshold` is logged once
-instead of disconnected. `/cult observe <on|off>` (`cult.observe`) writes the key and reloads, unless
-`CULTAC_OBSERVE_ONLY` pins the mode; bare `/cult observe` shows the mode and its source. Observe-only still
-does the following:
-
-* CultAC sends its own pings, bundled with the packets they follow, and withholds the pong that answers one;
-* a non-finite rotation from the server is sent as 0, and the player's own pose metadata is stripped;
-* the Bedrock movement bridge, including disconnecting a session whose bridge hooks fail;
-* while staff `/cult spectate`, their spectator game mode is hidden from the tab list, and staff
-  `/cult spectate` and `/cult debug` actions run;
-* clicks on CultAC's own menus, such as `/cult label`, are kept from the server;
-* on Velocity, client plugin messages on `cultac:bridge` are dropped.
-
-## Updating without a restart
-
-Install `bukkit/build/libs/CultAC-paper.jar` on Paper or
-`velocity-bootstrap/build/libs/CultAC-velocity.jar` on Velocity once to enable the loader.
-The native plugin stays loaded while each anticheat generation runs in its own classloader.
-
-1. Copy a compatible plugin release or runtime jar into the plugin data directory's `updates/` folder
-   (`plugins/CultAC/updates/` on Paper, `plugins/cultac/updates/` on Velocity).
-2. Run `/cult update <filename.jar>` with `cult.update` permission.
-3. Run `/cult runtimes` with `cult.runtimes` permission to see current and draining generations.
-
-### Numbered builds on Velocity
-
-Three branches publish builds, from most to least proven: `main`, `experimental` and `dev`. Their builds belong to the
-channels `stable`, `experimental` and `dev`: main's channel is called stable. Changes land on `dev` and are promoted to
-`experimental`, then `main`, by pull request. Every push to one of them is built as build N and published as the
-GitHub release `build-N`, with `cultac-velocity.jar`, `cultac-companion.jar`, `cultac-bukkit.jar` and a signed
-`manifest.json`. Stable builds are full releases, the newest marked latest; the others are prereleases.
-The version reads `0.1.0-b<N>-<channel>-<commit>`. From the proxy console, or with `cult.update` permission:
-
-* `/cult update <N>` installs build N without a restart;
-* `/cult update latest [channel]` installs the newest build of a channel, by default the channel of the jar the proxy started from;
-* `/cult update builds [channel]` lists the newest builds and marks the running one;
-* `/cult update <filename.jar>` still installs a jar from the `updates/` folder.
-
-The loader downloads the manifest and its Ed25519 signature from the release, verifies the signature, then downloads
-the jar from the same release, checking its size and sha256, and hot-swaps it. A build that needs another loader
-version is refused with "needs a proxy restart"; install its jar and restart. Each install ends in one console line,
-such as `b141 → b142 (stable abc1234), 3 players draining`. Players move to the new build on their next server switch or
-reconnect.
-
-The installed build number is kept in a state file. On the next start, the loader fetches and verifies that build
-before it activates a runtime, for at most 10 seconds, and starts the bundled build after one warning if that fails.
-Installing a jar with `/cult update <filename.jar>` forgets the number.
-
-The settings live in the `update` section of the plugin's `config.yml`. Each environment variable wins over its key.
-
-| Key | Environment variable | Default |
-| --- | --- | --- |
-| `update.repository` | `CULTAC_UPDATE_REPOSITORY` | the `owner/repo` the plugin was built from |
-| `update.public-key` | `CULTAC_UPDATE_PUBKEY` | the official signing key; a fork that signs its own builds sets its own |
-| `update.token` | `CULTAC_UPDATE_TOKEN` | none; sent only to `api.github.com`, which allows 60 anonymous requests an hour |
-| `update.webhook` | `CULTAC_UPDATE_WEBHOOK` | none; a Discord-style webhook that receives each install line |
-| `update.state-file` | `CULTAC_UPDATE_STATE` | `update-state.json` in the plugin data directory |
-| `update.build` | `CULTAC_UPDATE_BUILD` | none; the build to start on boot while the state file names none, or `latest` / `latest:<channel>` to start the newest build of the bundled jar's channel, or of `<channel>`, on every boot whatever the state file names; a channel is its branch's name except main's `stable`, a boot never starts a build older than the bundled one, and a `/cult update` install lasts until the next boot (turning follow off later starts the last build it installed) |
-
-```yaml
-update:
-  repository: CultAC/CultAC
-  webhook: ""
-  build: 142
-```
-
 ## Compiling From Source
 
 Install JDK 25 and Git, and set `JAVA_HOME` to the JDK 25 installation.
@@ -141,7 +68,8 @@ separately; [Geyser's mappings-generator](https://github.com/GeyserMC/mappings-g
     * Tridents, elytra, slime, honey, water, lava, bubble columns, etc. all match bedrock client
   * Machine generated based upon replaying bedrock packets sequences thousands of times, human validated
   * Listens to bedrock packets directly to increase accuracy
-  * Supports client-sided bedrock vehicles such as boats and horses
+  * Supports all client-sided bedrock vehicles such as boats and horses
+* Reach, hitbox, and visibility checks for bedrock players
 * Chunk section deduplication. Only one copy per unique chunk section is stored reducing memory usage in common areas.
   * Copy on write on shared chunk sections preserves packet-based blocks, version differences, and latency differences
   * Servers with many players in one area will see a substantial memory decrease
@@ -161,10 +89,6 @@ separately; [Geyser's mappings-generator](https://github.com/GeyserMC/mappings-g
 ## What's not done
 * Few additional checks compared to upstream Grim 2.0, the focus is on the bedrock and 3.0 simulation engine
 * Extensive bedrock validation
-* Some bedrock actions such as riptide aren't perfect, and some feature from the most recent versions of the game aren't implemented
-* Reach support for bedrock players. The basis is the same as Java, but Geyser and Bedrock clients change a bunch of small things.
-* Validation for non-latest bedrock versions.
-* Validation on a variety of bedrock platforms, the primary target was bedrock clients running on Android via Linux
 * Validation for bedrock block placing, breaking, interactions etc, especially on touchscreen
 
 ## Cult Supremacy
@@ -226,3 +150,56 @@ What makes Cult stand out against other anticheats?
 
 * All systems are designed to be highly secure and mathematically impossible to bypass
 * For example, the prediction engine knows all possible movements and cannot be bypassed
+
+## Updating without a restart
+
+Install `bukkit/build/libs/CultAC-paper.jar` on Paper or
+`velocity-bootstrap/build/libs/CultAC-velocity.jar` on Velocity once to enable the loader.
+The native plugin stays loaded while each anticheat generation runs in its own classloader.
+
+1. Copy a compatible plugin release or runtime jar into the plugin data directory's `updates/` folder
+   (`plugins/CultAC/updates/` on Paper, `plugins/cultac/updates/` on Velocity).
+2. Run `/cult update <filename.jar>` with `cult.update` permission.
+3. Run `/cult runtimes` with `cult.runtimes` permission to see current and draining generations.
+
+### Numbered builds on Velocity
+
+Three branches publish builds, from most to least proven: `main`, `experimental` and `dev`. Their builds belong to the
+channels `stable`, `experimental` and `dev`: main's channel is called stable. Changes land on `dev` and are promoted to
+`experimental`, then `main`. Every push to one of them is built as build N and published as the
+GitHub release `build-N`, with `cultac-velocity.jar`, `cultac-companion.jar`, `cultac-bukkit.jar` and a signed
+`manifest.json`. Stable builds are full releases, the newest marked latest; the others are prereleases.
+The version reads `0.1.0-b<N>-<channel>-<commit>`. From the proxy console, or with `cult.update` permission:
+
+* `/cult update <N>` installs build N without a restart;
+* `/cult update latest [channel]` installs the newest build of a channel, by default the channel of the jar the proxy started from;
+* `/cult update builds [channel]` lists the newest builds and marks the running one;
+* `/cult update <filename.jar>` still installs a jar from the `updates/` folder.
+
+The loader downloads the manifest and its Ed25519 signature from the release, verifies the signature, then downloads
+the jar from the same release, checking its size and sha256, and hot-swaps it. A build that needs another loader
+version is refused with "needs a proxy restart"; install its jar and restart. Each install ends in one console line,
+such as `b141 → b142 (stable abc1234), 3 players draining`. Players move to the new build on their next server switch or
+reconnect.
+
+The installed build number is kept in a state file. On the next start, the loader fetches and verifies that build
+before it activates a runtime, for at most 10 seconds, and starts the bundled build after one warning if that fails.
+Installing a jar with `/cult update <filename.jar>` forgets the number.
+
+The settings live in the `update` section of the plugin's `config.yml`. Each environment variable wins over its key.
+
+| Key | Environment variable | Default |
+| --- | --- | --- |
+| `update.repository` | `CULTAC_UPDATE_REPOSITORY` | the `owner/repo` the plugin was built from |
+| `update.public-key` | `CULTAC_UPDATE_PUBKEY` | the official signing key; a fork that signs its own builds sets its own |
+| `update.token` | `CULTAC_UPDATE_TOKEN` | none; sent only to `api.github.com`, which allows 60 anonymous requests an hour |
+| `update.webhook` | `CULTAC_UPDATE_WEBHOOK` | none; a Discord-style webhook that receives each install line |
+| `update.state-file` | `CULTAC_UPDATE_STATE` | `update-state.json` in the plugin data directory |
+| `update.build` | `CULTAC_UPDATE_BUILD` | none; the build to start on boot while the state file names none, or `latest` / `latest:<channel>` to start the newest build of the bundled jar's channel, or of `<channel>`, on every boot whatever the state file names; a channel is its branch's name except main's `stable`, a boot never starts a build older than the bundled one, and a `/cult update` install lasts until the next boot (turning follow off later starts the last build it installed) |
+
+```yaml
+update:
+  repository: CultAC/CultAC
+  webhook: ""
+  build: 142
+```
