@@ -127,7 +127,7 @@ public class HorizontalAnalyzer implements EngineCheck {
         SimpleCollisionBox oldBox = GetBoundingBox.getBoundingBoxFromPosAndSize(
                         crawlBox, from.x, from.y, from.z, 0.6f, 0.6f)
                 .expand(-SimpleCollisionBox.COLLISION_EPSILON);
-        if (!Collisions.isEmpty(player, oldBox)) {
+        if (!player.checkManager.getSimulationProcessor().getStepCollisionMemo().isEmpty(player, oldBox)) {
             isSlowed = false;
         }
         if (player.inVehicle()) isSlowed = false;
