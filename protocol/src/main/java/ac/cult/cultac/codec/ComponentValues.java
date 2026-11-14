@@ -116,10 +116,14 @@ final class ComponentValues {
             return layouts;
         }
 
-        /** The present components' encodings, keyed by namespaced component name. */
-        Map<String, WireValueDecoder.ComponentEncoding> encodings() {
+        /**
+         * The present components' encodings, keyed by namespaced component name; {@code capacity} sizes the scratch
+         * buffer, which grows past it as needed.
+         */
+        Map<String, WireValueDecoder.ComponentEncoding> encodings(int capacity) {
             var encodings = new HashMap<String, WireValueDecoder.ComponentEncoding>();
-            ByteBuf scratch = Unpooled.buffer();
+            if (keys.isEmpty()) return encodings;
+            ByteBuf scratch = Unpooled.buffer(capacity);
             try {
                 int next = 0;
                 for (var data : item.dataContainer().data().values()) {

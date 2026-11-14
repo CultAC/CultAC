@@ -1201,6 +1201,78 @@ class WireValueDecoderTest {
         }
     }
 
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void componentEncodingsAreEachComponentsOwnBytesWhateverThePatchSize() {
+        for (var version : ProtocolVersion.values()) {
+            var types = PrivateCodecService.types(version);
+            var ids = ModelRegistryData.load(version).registry("minecraft:data_component_type");
+            var names = names(version);
+            int customName = ids.id("minecraft:custom_name");
+            int repairCost = ids.id("minecraft:repair_cost");
+            int damage = ids.id("minecraft:damage");
+            StructuredDataKey nameKey = types.structuredData().key(customName);
+            var shortName = data(nameKey, new StringTag("a"), customName);
+            var longName = data(nameKey, new StringTag("n".repeat(700)), customName);
+            var cost = data(types.structuredData().key(repairCost), 3, repairCost);
+            var removal = StructuredData.empty(types.structuredData().key(damage), damage);
+            List<StructuredData<?>[]> patches = List.of(
+                    new StructuredData<?>[0],
+                    new StructuredData<?>[] {removal},
+                    new StructuredData<?>[] {cost},
+                    new StructuredData<?>[] {cost, removal},
+                    new StructuredData<?>[] {shortName, cost},
+                    new StructuredData<?>[] {longName},
+                    new StructuredData<?>[] {cost, longName, removal});
+            for (var patch : patches) {
+                var item = new StructuredItem(
+                        names.id("minecraft:item", "minecraft:stone"), 1, new StructuredDataContainer(patch));
+                var input = Unpooled.buffer();
+                try {
+                    types.item().write(input, item);
+                    int start = input.readerIndex();
+                    var direct = decoder.item(version, input, names, PortableNbtTest.MODEL, noReuse());
+                    input.readerIndex(start);
+                    var value = decoder.item(version, input, false, names);
+                    input.readerIndex(start);
+                    var components = ComponentValues.components(
+                            types.item().read(input),
+                            new ValueContext(names, version, decoder.mappings(version, ProtocolVersion.V26_3)));
+                    var hinted = new ArrayList<Map<String, WireValueDecoder.ComponentEncoding>>(
+                            List.of(direct.componentEncodings(), value.componentEncodings()));
+                    for (int capacity : new int[] {0, 1, 256}) hinted.add(components.encodings(capacity));
+                    for (var encodings : hinted) {
+                        var present = new HashMap<String, byte[]>();
+                        for (var data : patch)
+                            if (!data.isEmpty())
+                                present.put("minecraft:" + data.key().identifier(), written(data));
+                        assertEquals(present.keySet(), encodings.keySet(), version + "/" + patch.length);
+                        for (var entry : present.entrySet())
+                            assertArrayEquals(
+                                    entry.getValue(),
+                                    encodings.get(entry.getKey()).bytes(),
+                                    version + "/" + entry.getKey());
+                    }
+                } finally {
+                    input.release();
+                }
+            }
+        }
+    }
+
+    private static <T> WireValueDecoder.ItemReuse<T, WireValueDecoder.DecodedItem<T>> noReuse() {
+        return new WireValueDecoder.ItemReuse<>() {
+            public WireValueDecoder.DecodedItem<T> reuse(ByteBuf input) {
+                return null;
+            }
+
+            public WireValueDecoder.DecodedItem<T> decoded(
+                    WireValueDecoder.DecodedItem<T> value, ByteBuf input, int start, int end) {
+                return value;
+            }
+        };
+    }
+
     private static byte[] written(StructuredData<?> data) {
         var buffer = Unpooled.buffer();
         try {

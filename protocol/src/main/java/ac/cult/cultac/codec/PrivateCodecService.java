@@ -290,7 +290,7 @@ public final class PrivateCodecService implements WireValueDecoder {
                 layoutBytes = ByteBufUtil.getBytes(output);
             }
             // Via's component writers preserve fields that the persistent NBT codec omits.
-            var encodings = values.encodings();
+            var encodings = values.encodings(scratchCapacity(wirePatch));
             return new ItemValue(
                     item.identifier(),
                     item.amount(),
@@ -310,7 +310,7 @@ public final class PrivateCodecService implements WireValueDecoder {
         if (item == null || item.isEmpty()) return new DecodedItem<>(0, 0, null, null, Map.of(), null);
         var context = new ValueContext(registries, version, mappings(version, ProtocolVersion.V26_3));
         var values = ComponentValues.components(item, context);
-        var encodings = values.encodings();
+        var encodings = values.encodings(scratchCapacity(wirePatch));
         return new DecodedItem<>(
                 item.identifier(),
                 item.amount(),
@@ -318,6 +318,11 @@ public final class PrivateCodecService implements WireValueDecoder {
                 values.layouts().isEmpty() ? null : PortableNbt.read(values.layouts(), factory),
                 encodings,
                 wirePatch == null ? null : new ComponentEncoding(version.protocol(), wirePatch, context.references()));
+    }
+
+    /** A capacity hint for the encodings scratch: the patch length when known, else netty's default. */
+    private static int scratchCapacity(byte[] wirePatch) {
+        return wirePatch == null ? 256 : wirePatch.length;
     }
 
     @Override
