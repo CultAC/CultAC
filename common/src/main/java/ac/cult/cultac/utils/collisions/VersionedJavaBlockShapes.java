@@ -57,7 +57,8 @@ final class VersionedJavaBlockShapes {
 
     private static Optional<CollisionBox> firstMatch(
             List<ShapeOverride> overrides, ClientVersion shapeVersion, int state, int x, int y, int z) {
-        for (ShapeOverride override : overrides) {
+        for (int i = 0, size = overrides.size(); i < size; i++) {
+            ShapeOverride override = overrides.get(i);
             if (override.matches(state)) {
                 return override.create(shapeVersion, state, x, y, z);
             }
