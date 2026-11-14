@@ -113,6 +113,31 @@ public final class BedrockScaffoldingTickTest {
         assertEquals(-0.22246D, falling.predictedVelocity().y(), 1.0E-5D);
     }
 
+    // A sneaking fall onto one layer of scaffolding over air: from feet 120.57969 at -0.64919 a tick the
+    // client lands on the layer at 120. It takes the 0.15 step only where a block holds the layer up.
+    @Test
+    public void sneakingFallLandsOnScaffoldingThatHangsOverAir() {
+        Vec3d falling = new Vec3d(0.0D, -0.6491939425468445D, 0.0D);
+
+        BedrockMovementContext hanging = layer(119, false);
+        var landed = tick(above(hanging, 120.5796890258789D, falling), sneak(1L, false), hanging, false);
+        assertEquals(-0.5796890258789D, moved(landed).y(), 2.0E-5D);
+        assertTrue(landed.predictedState().collisionFlags().onGround());
+
+        BedrockMovementContext resting = layer(119, true);
+        var descending = tick(above(resting, 120.5796890258789D, falling), sneak(1L, false), resting, false);
+        assertEquals(-STEP, moved(descending).y(), 2.0E-5D);
+    }
+
+    private static BedrockMovementState above(BedrockMovementContext world, double feetY, Vec3d velocity) {
+        Vec3d feet = new Vec3d(0.5D, feetY, 0.5D);
+        var contact = BedrockClimbableContact.fromBlockWorld(world.worldState().blockCollisionWorld(), feet, 0.6D, 1.8D);
+        assertTrue(contact.overScaffolding());
+        return BedrockMovementState.fromPhysicalFeet(
+                        feet, velocity, BedrockInputFrame.idle(0L), BedrockCollisionFlags.AIR)
+                .withClimbableContact(contact);
+    }
+
     private static BedrockMovementState inside(
             BedrockMovementContext world, double feetY, Vec3d velocity, boolean onGround) {
         Vec3d feet = new Vec3d(0.5D, feetY, 0.5D);
@@ -164,6 +189,25 @@ public final class BedrockScaffoldingTickTest {
         }
     }
 
+    /** One block of scaffolding at x 0, z 0, over air or on a stone block. */
+    private static BedrockMovementContext layer(int y, boolean onStone) {
+        List<PlacedBlockCollision> blocks = new ArrayList<>();
+        if (onStone) {
+            blocks.add(PlacedBlockCollision.manual(
+                    new BlockPosition(0, y - 1, 0),
+                    "minecraft:stone",
+                    "minecraft:stone",
+                    List.of(new WorldCollisionBox(0.0D, y - 1.0D, 0.0D, 1.0D, y, 1.0D))));
+        }
+        blocks.add(PlacedBlockCollision.manual(
+                new BlockPosition(0, y, 0),
+                "minecraft:scaffolding[bottom=false,distance=0,waterlogged=false]",
+                "minecraft:scaffolding",
+                List.of(new WorldCollisionBox(0.0D, y + 0.875D, 0.0D, 1.0D, y + 1.0D, 1.0D)),
+                Set.of(BlockContactBehavior.CLIMBABLE, BlockContactBehavior.SCAFFOLDING)));
+        return context(blocks);
+    }
+
     /** A column of scaffolding at x 0, z 0 on a stone floor. Only its top block holds a player up. */
     private static BedrockMovementContext column(int bottomY, int topY) {
         List<PlacedBlockCollision> blocks = new ArrayList<>();
@@ -180,6 +224,10 @@ public final class BedrockScaffoldingTickTest {
                     y == topY ? List.of(new WorldCollisionBox(0.0D, y + 0.875D, 0.0D, 1.0D, y + 1.0D, 1.0D)) : List.of(),
                     Set.of(BlockContactBehavior.CLIMBABLE, BlockContactBehavior.SCAFFOLDING)));
         }
+        return context(blocks);
+    }
+
+    private static BedrockMovementContext context(List<PlacedBlockCollision> blocks) {
         return new BedrockMovementContext(
                 BedrockEffectState.NONE,
                 AttributeState.DEFAULT,

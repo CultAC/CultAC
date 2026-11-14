@@ -6,6 +6,7 @@ import static org.junit.Assert.assertTrue;
 import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision.BlockContactBehavior;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import org.junit.Test;
@@ -76,5 +77,37 @@ public final class BedrockClimbableContactTest {
 
         assertFalse(contact.ascendableBlock());
         assertTrue(contact.descendAllowed());
+    }
+
+    // Scaffolding under the feet lets a sneaking player through only where a block holds it up.
+    @Test
+    public void scaffoldingHangingOverAirOrWaterAllowsNoDescent() {
+        assertFalse(overScaffolding(null).descendAllowed());
+        assertFalse(overScaffolding("minecraft:water").descendAllowed());
+        assertFalse(overScaffolding("minecraft:flowing_water").descendAllowed());
+        assertTrue(overScaffolding(null).overScaffolding());
+    }
+
+    @Test
+    public void scaffoldingRestingOnABlockAllowsDescent() {
+        assertTrue(overScaffolding("minecraft:stone").descendAllowed());
+        assertTrue(overScaffolding("minecraft:scaffolding").descendAllowed());
+        assertTrue(overScaffolding("minecraft:lava").descendAllowed());
+    }
+
+    /** The contact of a player standing on scaffolding at y 3 that rests on {@code below}, or on nothing. */
+    private static BedrockClimbableContact overScaffolding(String below) {
+        List<PlacedBlockCollision> blocks = new ArrayList<>();
+        blocks.add(PlacedBlockCollision.manual(
+                new BlockPosition(0, 3, 0),
+                "minecraft:scaffolding[bottom=false,distance=0,waterlogged=false]",
+                "minecraft:scaffolding",
+                List.of(),
+                Set.of(BlockContactBehavior.CLIMBABLE, BlockContactBehavior.SCAFFOLDING)));
+        if (below != null) {
+            blocks.add(PlacedBlockCollision.manual(new BlockPosition(0, 2, 0), below, below, List.of()));
+        }
+        return BedrockClimbableContact.fromBlockWorld(
+                new BlockCollisionWorld(blocks), new Vec3d(0.5D, 4.0D, 0.5D), 0.6D, 1.8D);
     }
 }

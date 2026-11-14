@@ -40,6 +40,7 @@ public record BedrockClimbableContact(
         boolean ascendableBlock = false;
         // The client scans the block columns its box reaches, edges included: the row its feet
         // are in holds what it can ascend, the row one below what it can descend through.
+        // Scaffolding in the row below counts only where a block holds it up.
         WorldCollisionBox box = BedrockActorBox.create(
                 physicalFeetPosition,
                 new PlayerDimensionsState(playerWidth, playerHeight),
@@ -58,7 +59,7 @@ public record BedrockClimbableContact(
                 }
                 if (block.position().y() == rowBelow) {
                     overScaffolding |= scaffolding;
-                    descendAllowed = true;
+                    descendAllowed |= !scaffolding || heldUpFromBelow(blockCollisionWorld, block.position());
                 }
                 continue;
             }
@@ -69,7 +70,7 @@ public record BedrockClimbableContact(
                 }
             }
         }
-        if (scaffoldingContact || descendAllowed || climbableContact || ascendableBlock) {
+        if (scaffoldingContact || overScaffolding || descendAllowed || climbableContact || ascendableBlock) {
             return new BedrockClimbableContact(
                     climbableContact, scaffoldingContact, overScaffolding, descendAllowed, ascendableBlock);
         }
@@ -93,6 +94,24 @@ public record BedrockClimbableContact(
         return descendAllowed;
     }
 
+    /**
+     * Whether the scaffolding at {@code scaffolding} rests on a block. Sneak falls through scaffolding only where the
+     * block under it is neither air nor water: a layer hanging over either holds a sneaking player up.
+     */
+    private static boolean heldUpFromBelow(BlockCollisionWorld world, BlockPosition scaffolding) {
+        for (PlacedBlockCollision block : world.blocks()) {
+            BlockPosition position = block.position();
+            if (position.y() == scaffolding.y() - 1
+                    && position.x() == scaffolding.x()
+                    && position.z() == scaffolding.z()
+                    && !block.isEntityCollision()
+                    && !isWaterBlock(block)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static boolean inBoxColumns(PlacedBlockCollision block, WorldCollisionBox box) {
         BlockPosition position = block.position();
         return position.x() >= Math.floor(box.minX())
@@ -114,6 +133,11 @@ public record BedrockClimbableContact(
 
     private static boolean isClimbableBlock(PlacedBlockCollision block) {
         return block.hasContactBehavior(BlockContactBehavior.CLIMBABLE);
+    }
+
+    private static boolean isWaterBlock(PlacedBlockCollision block) {
+        return "minecraft:water".equals(block.bedrockIdentifier())
+                || "minecraft:flowing_water".equals(block.bedrockIdentifier());
     }
 
     private static boolean isPowderSnowBlock(PlacedBlockCollision block) {

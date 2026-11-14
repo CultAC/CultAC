@@ -9,6 +9,8 @@ record BedrockCollisionSampleRegion(double minX, double minY, double minZ, doubl
     private static final double MAX_MOVE_LENGTH = 16.0D;
     // A shape can leave its own block (a fence is 1.5 tall), so a fetch needs the blocks around it too.
     private static final double SHAPE_REACH = 1.0D;
+    // Scaffolding under the feet lets a sneaking player through by the block under it, two blocks below the feet.
+    private static final double REACH_BELOW = 2.0D;
 
     /** Covers a move at the speed the actor carried into the tick, before any impulse of this tick. */
     static BedrockCollisionSampleRegion around(SimpleCollisionBox actorBox, double carriedSpeed) {
@@ -17,17 +19,17 @@ record BedrockCollisionSampleRegion(double minX, double minY, double minZ, doubl
                 : CARRIED_MOVE_MARGIN;
         return new BedrockCollisionSampleRegion(
                 actorBox.minX - reach,
-                actorBox.minY - reach,
+                actorBox.minY - reach - (REACH_BELOW - SHAPE_REACH),
                 actorBox.minZ - reach,
                 actorBox.maxX + reach,
                 actorBox.maxY + reach,
                 actorBox.maxZ + reach);
     }
 
-    /** Whether every shape a move with this fetch box can touch is in the sample. */
+    /** Whether every shape a move with this fetch box can touch, and every block its end reads, is in the sample. */
     boolean holds(WorldCollisionBox fetched) {
         return fetched.minX() - SHAPE_REACH >= minX
-                && fetched.minY() - SHAPE_REACH >= minY
+                && fetched.minY() - REACH_BELOW >= minY
                 && fetched.minZ() - SHAPE_REACH >= minZ
                 && fetched.maxX() + SHAPE_REACH <= maxX
                 && fetched.maxY() + SHAPE_REACH <= maxY
@@ -37,7 +39,7 @@ record BedrockCollisionSampleRegion(double minX, double minY, double minZ, doubl
     BedrockCollisionSampleRegion including(WorldCollisionBox fetched) {
         return new BedrockCollisionSampleRegion(
                 Math.min(minX, fetched.minX() - SHAPE_REACH),
-                Math.min(minY, fetched.minY() - SHAPE_REACH),
+                Math.min(minY, fetched.minY() - REACH_BELOW),
                 Math.min(minZ, fetched.minZ() - SHAPE_REACH),
                 Math.max(maxX, fetched.maxX() + SHAPE_REACH),
                 Math.max(maxY, fetched.maxY() + SHAPE_REACH),

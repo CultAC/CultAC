@@ -65,7 +65,9 @@ final class BedrockBlockCollisionWorldSampler {
                         box,
                         box.copy()
                                 .expand(Math.max(
-                                        2.0D, Math.min(16.0D, state.velocity().length() + 2.0D))),
+                                        2.0D, Math.min(16.0D, state.velocity().length() + 2.0D)))
+                                // Scaffolding under the feet is read with the block under it.
+                                .expandMin(0.0D, -1.0D, 0.0D),
                         snapshot.movementContext().equipmentState().leatherBoots(),
                         state.fallDistance())
                 .world();
