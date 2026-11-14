@@ -14,7 +14,6 @@ import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockBlockSurfaceMov
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockClimbState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockFluidStateResolver;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockGlideState;
-import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJump;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockTravelTypeResolver;
 import ac.cult.cultac.bedrock.prediction.simulation.travel.BedrockMoveRequest;
 import ac.cult.cultac.bedrock.prediction.simulation.travel.BedrockTravelHorizontalControl;
@@ -113,10 +112,6 @@ record BedrockPostMoveContext(BedrockTravelPlan plan, BedrockMoveRequest moveReq
         return plan.frame().branch().selection().liquidTravelActive();
     }
 
-    BedrockMobJump mobJump() {
-        return plan.frame().mobJump();
-    }
-
     BedrockPostMoveFrame startEffectFrame(Vec3d velocity, BedrockCollisionFlags flags, boolean standingBounceBounced) {
         return BedrockPostMoveFrame.initial(velocity, flags, context(), standingBounceBounced, horizontalFriction());
     }
@@ -127,13 +122,6 @@ record BedrockPostMoveContext(BedrockTravelPlan plan, BedrockMoveRequest moveReq
      */
     BedrockPostMoveFrame applyFlyingGroundContact(BedrockPostMoveFrame frame) {
         if (playerFlying() && frame.flags().onGround() && !frame.flags().verticalCollisionBelow()) {
-            return frame.withFlags(frame.flags().withOnGround(false));
-        }
-        return frame;
-    }
-
-    BedrockPostMoveFrame applyWaterJumpGroundReset(BedrockPostMoveFrame frame) {
-        if (mobJump().zeroedWaterVelocity()) {
             return frame.withFlags(frame.flags().withOnGround(false));
         }
         return frame;
