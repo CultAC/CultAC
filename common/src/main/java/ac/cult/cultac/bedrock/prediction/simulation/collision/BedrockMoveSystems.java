@@ -43,14 +43,38 @@ public final class BedrockMoveSystems {
                 request.requestedPosition().subtract(previous.physicalFeetPosition()),
                 frame.input().options().maxUpStep(),
                 previous.coordinateFrame());
+        BedrockFrameFacts facts = frame.frameFacts();
+        BlockCollisionWorld world = facts.blockCollisionWorld();
+        int order = frame.input().options().solidActorOrder();
+        int sneakEdges = 0;
         if (!frame.branch().glidingTravel()) {
-            request = BedrockTravelMoveRequest.applySneakMovement(frame.input(), frame.frameFacts(), request);
+            // The moving actor a sneaking player stands on may show its edge elsewhere: the tick's first move
+            // counts those places, and the move of each meets the actor there.
+            var elsewhere = BedrockSneakEdgeMovement.shownElsewhere(
+                    previous,
+                    frame.input().inputFrame().sneaking(),
+                    facts.movementDimensions(),
+                    frame.input().options().maxUpStep(),
+                    request,
+                    world);
+            if (order == 0) {
+                sneakEdges = elsewhere.size();
+            } else if (!BedrockSolidActorOrders.isCollected(order)
+                    && BedrockSolidActorOrders.sneakEdge(order) != 0
+                    && BedrockSolidActorOrders.sneakEdge(order) <= elsewhere.size()) {
+                world = BedrockSneakEdgeMovement.shown(world, elsewhere.get(BedrockSolidActorOrders.sneakEdge(order) - 1));
+            }
+            request = BedrockSneakEdgeMovement.applyBeforeCollision(
+                    previous,
+                    frame.input().inputFrame().sneaking(),
+                    facts.movementDimensions(),
+                    frame.input().options().maxUpStep(),
+                    request,
+                    world);
         }
 
-        BedrockFrameFacts facts = frame.frameFacts();
         // A player without collision moves its box by the whole request: nothing stops it, steps it or grounds it.
-        BlockCollisionWorld collisionWorld =
-                facts.context().movementNoClip() ? BlockCollisionWorld.EMPTY : facts.blockCollisionWorld();
+        BlockCollisionWorld collisionWorld = facts.context().movementNoClip() ? BlockCollisionWorld.EMPTY : world;
         BedrockEntityMove.Result blockMove = BedrockEntityMove.move(
                 frame.input().previousState(),
                 frame.input().inputFrame(),
@@ -63,8 +87,13 @@ public final class BedrockMoveSystems {
                 frame.input().options().maxUpStep(),
                 facts.context().movementAbilityFlying(),
                 fetchBox,
-                frame.input().options().solidActorOrder(),
+                order,
                 frame.input().options().actorPositionEnd());
+        if (sneakEdges != 0) {
+            blockMove = blockMove.withSolidActorOrder(
+                    BedrockSolidActorOrders.withSneakEdges(blockMove.solidActorOrder(), sneakEdges),
+                    blockMove.solidActorOrderRange());
+        }
         BedrockClimbableContact nextClimbableContact = frame.boat() != null
                 ? BedrockClimbableContact.NONE
                 : frame.input().worldSnapshot().climbableContactAt(blockMove.position(), facts.movementDimensions());

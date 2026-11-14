@@ -33,10 +33,14 @@ import java.util.List;
  * before the step: bits 23..25 name those axes and 26..28 the selected ones, which multiply the moves again, to at
  * most {@link #MAX_VARIANTS} current-tick moves. Only the selected movement state is retained for the following
  * tick.
+ *
+ * <p>A sneaking player's moving actor may also hold its move back from an edge elsewhere (see
+ * {@link BedrockSneakEdgeMovement#shownElsewhere}). Bits 29..30 count those places in the collected order; each is one
+ * more move of the tick, which names its place, from 1, in the same bits and takes no other change.
  */
 public final class BedrockSolidActorOrders {
     public static final int MAX_ORDERS = 4;
-    public static final int MAX_VARIANTS = MAX_ORDERS * 8 * 8;
+    public static final int MAX_VARIANTS = MAX_ORDERS * 8 * 8 + BedrockSneakEdgeMovement.MAX_SHOWN_ELSEWHERE;
     private static final int ARRANGED = 1 << 6;
     private static final int COLLECTED = 1 << 7;
     private static final int[] AXIS_PRIORITY = {0, 2, 1};
@@ -72,6 +76,8 @@ public final class BedrockSolidActorOrders {
      * actors shown inside the box.
      */
     public static int order(int collected, int index) {
+        int others = count(axes(collected)) * count(positionAxes(collected)) * count(overlapAxes(collected));
+        if (index >= others) return ARRANGED | index - others + 1 << 29;
         int axes = axes(collected);
         int flipped = 0;
         int bit = 0;
@@ -127,6 +133,16 @@ public final class BedrockSolidActorOrders {
         return order | stepped << 17 | stepped << 20;
     }
 
+    /** The collected order of a tick whose sneaking player's edge may lie at {@code places} other places. */
+    static int withSneakEdges(int order, int places) {
+        return places == 0 ? order : order | ARRANGED | COLLECTED | places << 29;
+    }
+
+    /** In a collected order, how many other places the edge may lie at; in any other, which of them, from 1. */
+    static int sneakEdge(int order) {
+        return order >> 29 & 3;
+    }
+
     static int positionAxes(int order) {
         return order >> 8 & 7;
     }
@@ -140,7 +156,7 @@ public final class BedrockSolidActorOrders {
     }
 
     public static int variants(int order) {
-        return count(axes(order)) * count(positionAxes(order)) * count(overlapAxes(order));
+        return count(axes(order)) * count(positionAxes(order)) * count(overlapAxes(order)) + sneakEdge(order);
     }
 
     /**
