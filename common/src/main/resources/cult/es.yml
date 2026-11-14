@@ -1,5 +1,10 @@
 # Configuración específica de CultAC.
 cult:
+  # Omite todas las comprobaciones para los jugadores de Bedrock (Geyser/Floodgate) o de Java.
+  # Por defecto se comprueban ambas ediciones.
+  exempt-bedrock-players: false
+  exempt-java-players: false
+
   checks:
     bedrock-movement:
       # Registra una infracción cuando la desviación de validación de Bedrock alcanza este valor.

@@ -1,5 +1,10 @@
 # CultAC'ye özgü yapılandırma.
 cult:
+  # Bedrock oyuncuları (Geyser/Floodgate) veya Java oyuncuları için tüm denetimleri atlar.
+  # Varsayılan olarak her iki sürüm de denetlenir.
+  exempt-bedrock-players: false
+  exempt-java-players: false
+
   checks:
     bedrock-movement:
       # Bedrock doğrulama sapması bu değere ulaştığında ihlal bildirir.

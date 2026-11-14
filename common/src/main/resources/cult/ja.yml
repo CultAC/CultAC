@@ -1,5 +1,10 @@
 # CultAC 固有の設定。
 cult:
+  # Bedrock プレイヤー（Geyser/Floodgate）または Java プレイヤーのすべてのチェックを省略します。
+  # 既定では両方のエディションをチェックします。
+  exempt-bedrock-players: false
+  exempt-java-players: false
+
   checks:
     bedrock-movement:
       # Bedrock の検証誤差がこの値に達すると違反として検出します。
