@@ -1585,6 +1585,14 @@ public final class GeyserBedrockBridgeRuntime {
         packet.setTeleportationCause(MovePlayerPacket.TeleportationCause.BEHAVIOR);
     }
 
+    /**
+     * Whether Geyser answers a move it held back from the server only because a piston moved the player. The answer
+     * names the position before the push; a client taken there loses the push, a slime block's launch included.
+     */
+    static boolean answersPistonMove(MovePlayerPacket packet, boolean pistonMovedPlayer) {
+        return pistonMovedPlayer && packet.getMode() == MovePlayerPacket.Mode.NORMAL && packet.getTick() == 0;
+    }
+
     private static final class OutboundPacketTap extends ChannelDuplexHandler {
         private final PacketTapHandler owner;
         private final GeyserBlockUpdates blockUpdates = new GeyserBlockUpdates();
@@ -2132,6 +2140,11 @@ public final class GeyserBedrockBridgeRuntime {
                                     coordinates));
                     context.write(message, promise);
                     if (replay != null) owner.writeLatencyBoundary(context, wrapper, replay);
+                    return;
+                }
+                if (answersPistonMove(move, owner.connection.getPistonCache().isPlayerCollided())) {
+                    io.netty.util.ReferenceCountUtil.release(message);
+                    promise.trySuccess();
                     return;
                 }
                 convertSelfCorrectionToTeleport(move);

@@ -708,6 +708,18 @@ public final class GeyserBedrockBridgeRuntimeTest {
     }
 
     @Test
+    public void selfCorrectionAnsweringAPistonMoveIsNotSent() {
+        MovePlayerPacket correction = new MovePlayerPacket();
+        correction.setMode(MovePlayerPacket.Mode.NORMAL);
+        assertTrue(GeyserBedrockBridgeRuntime.answersPistonMove(correction, true));
+        assertFalse(GeyserBedrockBridgeRuntime.answersPistonMove(correction, false));
+
+        MovePlayerPacket teleport = new MovePlayerPacket();
+        teleport.setMode(MovePlayerPacket.Mode.TELEPORT);
+        assertFalse(GeyserBedrockBridgeRuntime.answersPistonMove(teleport, true));
+    }
+
+    @Test
     public void onlyATeleportNamingNoVehicleStopsTheRidingClient() {
         var riding = new GeyserClientRiding();
         MovePlayerPacket packet = new MovePlayerPacket();
