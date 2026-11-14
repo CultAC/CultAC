@@ -67,6 +67,26 @@ public final class BedrockLegacyActorEnvelope {
         return offsets;
     }
 
+    /**
+     * For each history delay the client may run, 0 to {@link #WINDOW_TICKS} ticks, whether actor {@code entityId}
+     * where it was sent that long before client tick {@code tick} is {@code near}: bit d is a delay of d ticks. Every
+     * bit for an actor with no history.
+     */
+    public int delaysNear(int entityId, long tick, java.util.function.Predicate<Vec3> near) {
+        Track track = tracks.get(entityId);
+        if (track == null || track.samples.isEmpty()) return -1;
+        int delays = 0;
+        for (int delay = 0; delay <= WINDOW_TICKS; delay++) {
+            Sample shown = track.samples.peekFirst();
+            for (Sample sample : track.samples) {
+                if (sample.tick() > tick - delay) break;
+                shown = sample;
+            }
+            if (near.test(new Vec3(shown.x(), shown.y(), shown.z()))) delays |= 1 << delay;
+        }
+        return delays;
+    }
+
     public void clear() {
         tracks.clear();
     }

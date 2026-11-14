@@ -37,6 +37,19 @@ class BedrockLegacyActorEnvelopeTest {
     }
 
     @Test
+    void anActorIsNearForTheDelaysThatShowItWhereItWasNear() {
+        var envelope = new BedrockLegacyActorEnvelope();
+        // Sent a block nearer every tick: 110 at tick 100 down to 105 at tick 105.
+        for (int tick = 100; tick <= 105; tick++) envelope.buffer(1, tick, at(210.0 - tick), at(210.0 - tick));
+        // Within 107 only where it was sent on ticks 103 to 105: the delays of 0, 1 and 2 ticks.
+        assertEquals(0b111, envelope.delaysNear(1, 105, sent -> sent.y <= 107.0));
+        // A delay longer than its history shows it where it was first sent.
+        int every = (1 << BedrockLegacyActorEnvelope.WINDOW_TICKS + 1) - 1;
+        assertEquals(every & ~0b111, envelope.delaysNear(1, 105, sent -> sent.y > 107.0));
+        assertEquals(-1, envelope.delaysNear(2, 105, sent -> false));
+    }
+
+    @Test
     void anActorThatNeverMovedHasNoBuffer() {
         var envelope = new BedrockLegacyActorEnvelope();
         envelope.buffer(1, 100, at(10.0), at(10.0));

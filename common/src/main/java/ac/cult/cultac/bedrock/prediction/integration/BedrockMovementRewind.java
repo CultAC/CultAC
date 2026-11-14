@@ -120,33 +120,65 @@ final class BedrockMovementRewind {
     }
 
     PredictionCommit apply(CultPlayer player, PredictionCommit current) {
+        return apply(player, current, null, null);
+    }
+
+    /**
+     * Takes the queued updates before the tick that reports {@code position} and {@code velocity}. A client before
+     * 1.26.60 shows each actor where it was sent some delay before, one delay the server does not see, so which
+     * solid actors each replayed tick met depends on it. The replay runs once for each delay that gives its ticks
+     * different actors, and the one that tick started from is the client's.
+     */
+    PredictionCommit apply(CultPlayer player, PredictionCommit current, Vec3d position, Vec3d velocity) {
         if (updates.isEmpty()) return current;
         if (player == null) return apply(null, current, (state, world) -> world);
         var actors = player.bedrockState.movementCorrections.replaySolidActors(player);
+        var variants = new ArrayList<BedrockReplayTick.Actors>();
+        for (int delay : delays(position != null)) {
+            // A replayed tick meets the solid actors its live tick met, at their replay boxes.
+            variants.add((frame, state, world) -> BedrockReplayCollisionWorld.withNearbyActors(
+                    world,
+                    frame.solidActors() == null
+                            ? actors.around(reachStart(state))
+                            : actors.met(frame.solidActors(), delay)));
+        }
         return apply(
-                player,
-                current,
-                (state, world) -> worlds.replayWorld(player, state, world),
-                // A replayed tick meets the solid actors its live tick met, at their replay boxes.
-                (frame, state, world) -> BedrockReplayCollisionWorld.withNearbyActors(
-                        world,
-                        frame.solidActors() == null
-                                ? actors.around(reachStart(state))
-                                : actors.met(frame.solidActors())));
+                player, current, (state, world) -> worlds.replayWorld(player, state, world), variants, position, velocity);
+    }
+
+    /**
+     * One history delay, in ticks, for each different way the held frames met their solid actors, the shortest
+     * first: only the shortest unless {@code every}.
+     */
+    private List<Integer> delays(boolean every) {
+        var delays = new ArrayList<Integer>();
+        var seen = new java.util.HashSet<List<java.util.BitSet>>();
+        var frames = authoritative.frames();
+        for (int delay = 0; delay <= (every ? BedrockLegacyActorEnvelope.WINDOW_TICKS : 0); delay++) {
+            var met = new ArrayList<java.util.BitSet>();
+            for (var frame : frames) {
+                if (frame.solidActors() != null && !frame.solidActors().delays().isEmpty())
+                    met.add(frame.solidActors().met(delay));
+            }
+            if (seen.add(met)) delays.add(delay);
+        }
+        return delays;
     }
 
     PredictionCommit apply(
             CultPlayer player,
             PredictionCommit current,
             BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> worldSampler) {
-        return apply(player, current, worldSampler, (frame, state, world) -> world);
+        return apply(player, current, worldSampler, List.of((frame, state, world) -> world), null, null);
     }
 
     private PredictionCommit apply(
             CultPlayer player,
             PredictionCommit current,
             BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> worldSampler,
-            BedrockReplayTick.Actors actorSampler) {
+            List<BedrockReplayTick.Actors> actorSamplers,
+            Vec3d position,
+            Vec3d velocity) {
         if (updates.isEmpty()) return current;
         List<Entry> entries = BedrockProfileState.profileEntries(current.carry());
         if (entries.isEmpty()) {
@@ -230,7 +262,10 @@ final class BedrockMovementRewind {
         }
         // One replay, from the oldest frame any update marked, takes them all.
         if (replays) {
-            var replayed = authoritative.replay(worldSampler, actorSampler);
+            // A ridden actor's rider reports the position, which does not tell where the actor's own replay ended.
+            var replayed = live.isVehicle()
+                    ? authoritative.replay(worldSampler, actorSamplers.getFirst())
+                    : authoritative.replay(worldSampler, actorSamplers, position, velocity);
             if (!replayed.isEmpty()) {
                 entries = replayed;
                 for (var event : unrecorded) entries = taken(entries, event);

@@ -268,6 +268,65 @@ public final class BedrockActorHistory {
         return List.copyOf(states);
     }
 
+    /**
+     * As {@link #replay(BiFunction, BedrockReplayTick.Actors)}, for a replay the client ran with one of several sets
+     * of solid actors, {@code variants}. Each runs from the same frames, and the history keeps the one whose end the
+     * client's next tick, which reported {@code position} and {@code velocity}, started from: the first of those
+     * that fit it equally.
+     */
+    List<Entry> replay(
+            BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> world,
+            List<BedrockReplayTick.Actors> variants,
+            Vec3d position,
+            Vec3d velocity) {
+        if (variants.size() == 1 || position == null || marks.isEmpty()) return replay(world, variants.getFirst());
+        var others = new ArrayList<BedrockActorHistory>();
+        for (int i = 1; i < variants.size(); i++) others.add(copy());
+        List<Entry> ends = replay(world, variants.getFirst());
+        double least = distance(ends, position, velocity);
+        BedrockActorHistory taken = null;
+        for (int i = 1; i < variants.size(); i++) {
+            BedrockActorHistory other = others.get(i - 1);
+            List<Entry> otherEnds = other.replay(world, variants.get(i));
+            double distance = distance(otherEnds, position, velocity);
+            if (!(distance < least - 1.0E-6D)) continue;
+            least = distance;
+            taken = other;
+            ends = otherEnds;
+        }
+        if (taken != null) {
+            frames.clear();
+            frames.addAll(taken.frames);
+            sequence = taken.sequence;
+            departed = taken.departed;
+        }
+        return ends;
+    }
+
+    /**
+     * How far a tick that reported {@code position} and {@code velocity} is from having started at one of
+     * {@code ends}. Along an axis it reports moving on, it moved by about that velocity; along one it reports none
+     * on, it was stopped somewhere within the move its start velocity gives.
+     */
+    private static double distance(List<Entry> ends, Vec3d position, Vec3d velocity) {
+        double nearest = Double.POSITIVE_INFINITY;
+        for (Entry end : ends) {
+            Vec3d moved = position.subtract(end.state().physicalFeetPosition());
+            Vec3d start = end.state().velocity();
+            nearest = Math.min(
+                    nearest,
+                    distance(moved.x(), velocity == null ? 0 : velocity.x(), start.x())
+                            + distance(moved.y(), velocity == null ? 0 : velocity.y(), start.y())
+                            + distance(moved.z(), velocity == null ? 0 : velocity.z(), start.z()));
+        }
+        return nearest;
+    }
+
+    private static double distance(double moved, double reported, double start) {
+        if (reported != 0.0D) return Math.abs(moved - reported);
+        return Math.max(0.0D, Math.max(Math.min(0.0D, start) - moved, moved - Math.max(0.0D, start)));
+    }
+
     public void advance(
             Frame frame, BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> world) {
         if (frames.isEmpty() || frame.tick() != newestTick() + 1) {

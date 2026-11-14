@@ -15,6 +15,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -111,8 +112,21 @@ public final class BedrockSolidActors {
                     new HardCollidingEntityCollision(box.copy(), depenetrationLimit(entity), actorBuffer, elsewhere);
             solid.add(collision);
             // A replayed tick meets the actors within reach of its live tick. Which those were is known for a client
-            // that shows an actor at its box; for an earlier one they are all it may have shown that near.
-            if (legacy || box.isIntersected(reach)) nearby.add(new Nearby(entity, NO_CLIENT_ACTOR, collision));
+            // that shows an actor at its box. An earlier one shows it where it was sent some delay before, so the
+            // actor was within reach for some delays and not for others.
+            if (legacy) {
+                int delays = shown == null
+                        ? EVERY_DELAY
+                        : player.bedrockState.solidActorBuffer.legacy.delaysNear(
+                                entity.getEntityId(),
+                                context.getBedrockInput().getClientTick(),
+                                sent -> box.copy()
+                                        .offset(sent.x - shown.x, sent.y - shown.y, sent.z - shown.z)
+                                        .isIntersected(reach));
+                if (delays != 0) nearby.add(new Nearby(entity, NO_CLIENT_ACTOR, collision, delays));
+            } else if (box.isIntersected(reach)) {
+                nearby.add(new Nearby(entity, NO_CLIENT_ACTOR, collision));
+            }
         }
         player.bedrockState.clientActors.colliders(reach, (runtimeId, actor, placed, sent, shown, stepsLeft) -> {
             float actorBuffer = 0.0F;
@@ -185,6 +199,7 @@ public final class BedrockSolidActors {
     /**
      * The solid actors of one replay. Each replayed tick meets the actors its own live tick met ({@link Met}), at
      * their replay boxes; a tick recorded without them meets those within {@link #REACH} of its replayed start.
+     * {@code delay} is the history delay the client runs, in ticks, for the actors whose reach depends on it.
      */
     record Replay(CultPlayer player, List<Nearby> actors) {
         static final Replay NONE = new Replay(null, List.of());
@@ -201,10 +216,10 @@ public final class BedrockSolidActors {
             return met;
         }
 
-        List<HardCollidingEntityCollision> met(Met live) {
+        List<HardCollidingEntityCollision> met(Met live, int delay) {
             if (player == null || live.isEmpty()) return List.of();
             List<HardCollidingEntityCollision> met = new ArrayList<>();
-            for (var actor : actors) if (live.entities().contains(actor.entity())) met.add(actor.collision());
+            for (var actor : actors) if (live.meets(actor.entity(), delay)) met.add(actor.collision());
             for (long runtimeId : live.clientActors()) {
                 SimpleCollisionBox box = player.bedrockState.clientActors.collider(runtimeId);
                 if (box != null)
@@ -214,28 +229,67 @@ public final class BedrockSolidActors {
         }
     }
 
-    record Nearby(PacketEntity entity, long clientActor, HardCollidingEntityCollision collision) {}
+    /**
+     * A solid actor near a live tick. {@code delays} are the history delays of a client before 1.26.60 that put it
+     * within reach of that tick, bit d for d ticks: every bit for an actor within reach whatever the delay.
+     */
+    record Nearby(PacketEntity entity, long clientActor, HardCollidingEntityCollision collision, int delays) {
+        Nearby(PacketEntity entity, long clientActor, HardCollidingEntityCollision collision) {
+            this(entity, clientActor, collision, EVERY_DELAY);
+        }
+    }
 
     private static final long NO_CLIENT_ACTOR = Long.MIN_VALUE;
+    private static final int EVERY_DELAY = -1;
 
-    /** The solid actors one live tick met, by identity, in the order it met them. */
-    record Met(Set<PacketEntity> entities, long[] clientActors) {
+    /**
+     * The solid actors one live tick met, by identity, in the order it met them. {@code delays} holds the actors
+     * that were within its reach for only some history delays, with those delays.
+     */
+    record Met(Set<PacketEntity> entities, long[] clientActors, Map<PacketEntity, Integer> delays) {
         static final Met NONE = new Met(Set.of(), new long[0]);
+
+        Met(Set<PacketEntity> entities, long[] clientActors) {
+            this(entities, clientActors, Map.of());
+        }
 
         static Met of(List<Nearby> nearby) {
             if (nearby == null || nearby.isEmpty()) return NONE;
             Set<PacketEntity> entities = Collections.newSetFromMap(new IdentityHashMap<>());
+            Map<PacketEntity, Integer> delays = new IdentityHashMap<>();
             long[] clientActors = new long[nearby.size()];
             int count = 0;
             for (Nearby actor : nearby) {
-                if (actor.entity() != null) entities.add(actor.entity());
-                else clientActors[count++] = actor.clientActor();
+                if (actor.entity() == null) {
+                    clientActors[count++] = actor.clientActor();
+                    continue;
+                }
+                entities.add(actor.entity());
+                if (actor.delays() != EVERY_DELAY) delays.put(actor.entity(), actor.delays());
             }
-            return new Met(entities, Arrays.copyOf(clientActors, count));
+            return new Met(entities, Arrays.copyOf(clientActors, count), delays.isEmpty() ? Map.of() : delays);
         }
 
         boolean isEmpty() {
             return entities.isEmpty() && clientActors.length == 0;
+        }
+
+        /** Whether the tick met {@code entity} when the client's history delay is {@code delay} ticks. */
+        boolean meets(PacketEntity entity, int delay) {
+            if (!entities.contains(entity)) return false;
+            Integer near = delays.get(entity);
+            return near == null || (near >>> delay & 1) != 0;
+        }
+
+        /** Which of the actors whose reach depends on the delay the tick met at {@code delay} ticks. */
+        java.util.BitSet met(int delay) {
+            var met = new java.util.BitSet();
+            int index = 0;
+            for (int near : delays.values()) {
+                if ((near >>> delay & 1) != 0) met.set(index);
+                index++;
+            }
+            return met;
         }
     }
 
