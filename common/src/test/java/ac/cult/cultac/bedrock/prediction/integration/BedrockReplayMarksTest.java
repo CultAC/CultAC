@@ -55,6 +55,33 @@ public final class BedrockReplayMarksTest {
     }
 
     @Test
+    public void aSecondStartOnTheNewestFrameKeepsItsMarkThroughTheReplayOfTheFirst() {
+        var history = BedrockActorHistoryTest.history(1, 10);
+        var rewind = new BedrockMovementRewind(history);
+        var player = player();
+
+        // Both starts are taken together. The first replays the newest frame. The second is stamped on that frame,
+        // so it marks the frame that follows it, which does not exist until that replay is over.
+        rewind.queue(9, true, new BedrockReplayEvent.Boost(1_000_000));
+        rewind.queue(10, true, new BedrockReplayEvent.Boost(1_000_000));
+        var started = rewind.apply(player, commit(history.current()), (state, world) -> world);
+        assertEquals(1, frame(history, 10).events().size());
+        assertTrue(history.marked());
+
+        // The stop replays from the frame after the second start, not only from its own.
+        for (long tick = 11; tick <= 14; tick++)
+            history.record(BedrockActorHistoryTest.forward(
+                    history.current().getFirst(), tick, BedrockActorHistoryTest.ground(), new Vec3d(0, 0, 1)));
+        var before = history.frames();
+        rewind.queue(13, true, new BedrockReplayEvent.Boost(0));
+        rewind.apply(player, started, (state, world) -> world);
+        assertSame(before.get(8), frame(history, 9));
+        assertNotSame(before.get(10), frame(history, 11));
+        assertNotSame(before.get(13), frame(history, 14));
+        assertFalse(history.marked());
+    }
+
+    @Test
     public void aStopWithNoBoostRunningOnlyMarks() {
         var history = BedrockActorHistoryTest.history(1, 6);
         var rewind = new BedrockMovementRewind(history);

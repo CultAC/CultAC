@@ -237,15 +237,19 @@ public final class BedrockActorHistory {
     }
 
     /**
-     * Runs every frame after the oldest marked one again, each with the updates recorded on it, and clears the marks.
-     * Returns the states the newest frame then ends with: the current ones when nothing is marked.
+     * Runs every frame after the oldest marked one again, each with the updates recorded on it, and clears the marks
+     * of the frames it ran. Returns the states the newest frame then ends with: the current ones when nothing is
+     * marked.
      */
     List<Entry> replay(
             BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> world,
             BedrockReplayTick.Actors actors) {
         if (marks.isEmpty()) return current();
         long start = marks.first();
-        marks.clear();
+        // A mark on the newest frame is for the frame that will follow it, which the client marks once that frame
+        // exists: after this replay, so the next one still starts there.
+        marks.headSet(newestTick()).clear();
+        if (start >= newestTick()) return current();
         int anchor = index(start);
         Frame first = anchor >= 0 ? frames.get(anchor) : departed != null && departed.tick() == start ? departed : null;
         if (first == null) return current();
