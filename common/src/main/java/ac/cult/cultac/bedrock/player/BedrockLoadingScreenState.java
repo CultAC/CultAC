@@ -13,8 +13,28 @@ import org.cloudburstmc.protocol.bedrock.data.ServerboundLoadingScreenPacketType
  * https://github.com/Mojang/bedrock-protocol-docs/blob/main/json/ServerboundLoadingScreenPacket.json
  */
 public final class BedrockLoadingScreenState {
+    /** When the screen of an announcement may start. */
+    private enum Start {
+        /** The client may not have handled the announcement yet. */
+        UNPROVEN,
+        /** The client has handled the announcement: its screen starts before the client's next input. */
+        DUE,
+        /** Another screen has shown since the announcement: its screen starts whenever that one lets it. */
+        OPEN
+    }
+
     /** A screen the server announced; a dimension change carries the wire feet position it places the actor at. */
-    private record Announced(Integer id, Vec3 position) {}
+    private static final class Announced {
+        private final Integer id;
+        private final Vec3 position;
+        private Start start;
+
+        private Announced(Integer id, Vec3 position, Start start) {
+            this.id = id;
+            this.position = position;
+            this.start = start;
+        }
+    }
 
     // Screens the server has announced and the client has not started yet, in order. A dimension change may carry
     // no id, and two of them sent back to back announce two screens with the same one.
@@ -25,25 +45,43 @@ public final class BedrockLoadingScreenState {
 
     public void startGame() {
         anticipated.clear();
-        anticipated.add(new Announced(null, null));
+        // The client sends no input before it handles the start of the game.
+        anticipated.add(new Announced(null, null, Start.DUE));
         active = false;
         activeId = null;
         placement = null;
     }
 
     public void changeDimension(Integer id, Vec3 position) {
-        anticipated.add(new Announced(id, position));
+        anticipated.add(new Announced(id, position, active ? Start.OPEN : Start.UNPROVEN));
+    }
+
+    /**
+     * The proof that the client has handled every screen announced so far: run it once the client answers a marker
+     * written behind them.
+     */
+    public Runnable announcementsHandled() {
+        List<Announced> announced = List.copyOf(anticipated);
+        return () -> {
+            for (Announced screen : announced) if (screen.start == Start.UNPROVEN) screen.start = Start.DUE;
+        };
+    }
+
+    /** The client sent an input: a screen that was due before it can no longer start. */
+    public void input() {
+        if (!active) anticipated.removeIf(screen -> screen.start == Start.DUE);
     }
 
     public boolean accept(ServerboundLoadingScreenPacketType type, Integer id) {
         if (type == ServerboundLoadingScreenPacketType.START_LOADING_SCREEN) {
             for (Iterator<Announced> it = anticipated.iterator(); it.hasNext(); ) {
                 Announced announced = it.next();
-                if (!Objects.equals(announced.id(), id)) continue;
+                if (!Objects.equals(announced.id, id)) continue;
                 it.remove();
                 activeId = id;
                 active = true;
-                placement = announced.position();
+                placement = announced.position;
+                for (Announced waiting : anticipated) waiting.start = Start.OPEN;
                 return true;
             }
             return false;
@@ -75,12 +113,15 @@ public final class BedrockLoadingScreenState {
         // One entry per announced screen, so an id announced twice is listed twice.
         var ids = new ArrayList<Integer>();
         var positions = new ArrayList<List<Double>>();
+        var starts = new ArrayList<String>();
         for (Announced announced : anticipated) {
-            ids.add(announced.id());
-            positions.add(coordinates(announced.position()));
+            ids.add(announced.id);
+            positions.add(coordinates(announced.position));
+            starts.add(announced.start.name());
         }
         state.put("anticipated", ids);
         state.put("anticipated-positions", positions);
+        state.put("anticipated-starts", starts);
         state.put("active", active);
         if (activeId != null) state.put("active-id", activeId);
         return java.util.Map.copyOf(state);
@@ -90,8 +131,14 @@ public final class BedrockLoadingScreenState {
         anticipated.clear();
         var ids = (List<?>) state.get("anticipated");
         var positions = (List<?>) state.get("anticipated-positions");
+        var starts = (List<?>) state.get("anticipated-starts");
         for (int i = 0; i < ids.size(); i++) {
-            anticipated.add(new Announced((Integer) ids.get(i), positions == null ? null : position(positions.get(i))));
+            // The marker that proves an announcement handled does not cross with it: its screen stays open to start.
+            Start start = starts == null || Start.valueOf((String) starts.get(i)) == Start.UNPROVEN
+                    ? Start.OPEN
+                    : Start.valueOf((String) starts.get(i));
+            anticipated.add(new Announced(
+                    (Integer) ids.get(i), positions == null ? null : position(positions.get(i)), start));
         }
         active = (Boolean) state.get("active");
         activeId = (Integer) state.get("active-id");

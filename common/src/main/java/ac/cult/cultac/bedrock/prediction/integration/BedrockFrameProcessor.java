@@ -47,6 +47,8 @@ public final class BedrockFrameProcessor {
         if (player.checkManager.getCheck(TimerCheck.class).onBedrockAuthInput()
                         == TimerCheck.BedrockAuthInputDecision.REJECT
                 || player.checkManager.getListener(DumbTimer.class).onBedrockAuthInput()) return null;
+        // A loading screen that was due before this input can no longer start.
+        player.bedrockState.loadingScreen.input();
         var state = processMovement(player, original, trigger, localBlockActions);
         if (state == null) {
             player.packetStateData.bedrockTranslatedMovement.reject();

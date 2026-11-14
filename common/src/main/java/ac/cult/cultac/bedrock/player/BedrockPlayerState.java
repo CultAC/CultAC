@@ -126,6 +126,14 @@ public final class BedrockPlayerState {
         return true;
     }
 
+    /**
+     * The client answered a marker after it sent the input of {@code tick}, whether or not that input was accepted:
+     * every input it sends from then on carries a later tick.
+     */
+    public void answeredAfterMovementTick(long tick) {
+        if (tick > lastMovementTick) lastMovementTick = tick;
+    }
+
     private BedrockMoveFrame lastMoveFrame;
     private String lastAuthInputMatchStatus = "no auth input processed";
     private BedrockAuthInputFrame lastPoseAppliedFrame;

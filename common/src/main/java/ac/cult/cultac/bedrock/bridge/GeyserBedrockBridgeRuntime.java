@@ -1126,8 +1126,7 @@ public final class GeyserBedrockBridgeRuntime {
             CultPlayer.BedrockTransaction transaction = player.createBedrockTransactionAfterClientbound();
             glideBoostAcks.watch(transaction.id());
             player.addBedrockTransactionTask(transaction, () -> {
-                long acknowledgedAfterTick =
-                        glideBoostAcks.release(transaction.id(), player.bedrockState.processedClientTick());
+                long acknowledgedAfterTick = glideBoostAcks.release(transaction.id(), player.bedrockState);
                 acknowledgement.accept(player, acknowledgedAfterTick);
             });
             writeTransactionBoundary(context, source, player, transaction);
@@ -2165,6 +2164,11 @@ public final class GeyserBedrockBridgeRuntime {
             }
 
             context.write(message, promise);
+            if (packet instanceof org.cloudburstmc.protocol.bedrock.packet.ChangeDimensionPacket) {
+                // The answer to a marker written behind the dimension change proves the client handled it.
+                Runnable handled = owner.loadingScreen.announcementsHandled();
+                owner.writeLatencyBoundary(context, wrapper, player -> handled.run());
+            }
             if (packet instanceof StartGamePacket startGame) {
                 var definition = owner.poses.collisionDefinition(
                         startGame.getRuntimeEntityId(), owner.sprintBoundary().generation());

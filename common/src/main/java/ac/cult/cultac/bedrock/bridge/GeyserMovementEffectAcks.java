@@ -1,5 +1,6 @@
 package ac.cult.cultac.bedrock.bridge;
 
+import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -21,6 +22,16 @@ final class GeyserMovementEffectAcks {
         // Bedrock returns server latency timestamps in microseconds.
         if (wireTimestamp % 1_000_000L != 0) return;
         pending.computeIfPresent(wireTimestamp / 1_000_000L, (id, previous) -> lastAuthTick);
+    }
+
+    /**
+     * The auth tick the client answered {@code markerId} after. That tick reached the wire with an input {@code state}
+     * may not have accepted, so it dates the marker only for a client whose later inputs follow it.
+     */
+    long release(long markerId, BedrockPlayerState state) {
+        long tick = release(markerId, state.processedClientTick());
+        state.answeredAfterMovementTick(tick);
+        return tick;
     }
 
     long release(long markerId, long fallbackTick) {

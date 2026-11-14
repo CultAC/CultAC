@@ -187,6 +187,90 @@ public final class BedrockLoadingScreenTest {
         assertEquals(-0.0784F, state.velocity().y(), 1e-8);
     }
 
+    @Test
+    public void theJoinScreenStartsBeforeTheFirstInputOrNotAtAll() {
+        var loading = new BedrockLoadingScreenState();
+        loading.startGame();
+        loading.input();
+        assertFalse(loading.accept(START_LOADING_SCREEN, null));
+        assertFalse(loading.active());
+
+        // Inputs under the screen and after it change nothing for a screen that started in time.
+        loading.startGame();
+        assertTrue(loading.accept(START_LOADING_SCREEN, null));
+        loading.input();
+        assertTrue(loading.active());
+        assertTrue(loading.accept(END_LOADING_SCREEN, null));
+        loading.input();
+        assertFalse(loading.accept(START_LOADING_SCREEN, null));
+    }
+
+    @Test
+    public void aDimensionChangeScreenStartsBeforeTheInputAfterItsAnnouncementIsHandled() {
+        var loading = new BedrockLoadingScreenState();
+        // Inputs the client sent before it handled the announcement leave its screen to start.
+        loading.changeDimension(null, DIMENSION_SPAWN);
+        Runnable handled = loading.announcementsHandled();
+        for (int input = 0; input < 5; input++) loading.input();
+        handled.run();
+        assertTrue(loading.accept(START_LOADING_SCREEN, null));
+        assertEquals(DIMENSION_SPAWN, loading.placement());
+        loading.input();
+        assertTrue(loading.accept(END_LOADING_SCREEN, null));
+
+        // One the client handled and then sent an input without starting is gone.
+        loading.changeDimension(null, DIMENSION_SPAWN);
+        handled = loading.announcementsHandled();
+        handled.run();
+        loading.input();
+        assertFalse(loading.accept(START_LOADING_SCREEN, null));
+        assertFalse(loading.active());
+    }
+
+    @Test
+    public void aScreenAnnouncedBehindAnotherWaitsForIt() {
+        var loading = new BedrockLoadingScreenState();
+        loading.changeDimension(null, DIMENSION_SPAWN);
+        loading.announcementsHandled();
+        loading.changeDimension(7, DIMENSION_SPAWN);
+        Runnable handled = loading.announcementsHandled();
+        handled.run();
+        assertTrue(loading.accept(START_LOADING_SCREEN, null));
+        for (int input = 0; input < 5; input++) loading.input();
+        assertTrue(loading.accept(END_LOADING_SCREEN, null));
+        for (int input = 0; input < 5; input++) loading.input();
+        assertTrue(loading.accept(START_LOADING_SCREEN, 7));
+        assertTrue(loading.accept(END_LOADING_SCREEN, 7));
+
+        // Neither started: the input after both were handled passes both.
+        loading.changeDimension(null, DIMENSION_SPAWN);
+        loading.changeDimension(7, DIMENSION_SPAWN);
+        loading.announcementsHandled().run();
+        loading.input();
+        assertFalse(loading.accept(START_LOADING_SCREEN, null));
+        assertFalse(loading.accept(START_LOADING_SCREEN, 7));
+    }
+
+    @Test
+    public void continuationKeepsWhenAScreenMayStart() {
+        var previous = new BedrockLoadingScreenState();
+        previous.startGame();
+        var continued = new BedrockLoadingScreenState();
+        continued.restore(previous.continuation());
+        continued.input();
+        assertFalse(continued.accept(START_LOADING_SCREEN, null));
+
+        // The proof that an announcement was handled stays with the state it was announced to.
+        previous = new BedrockLoadingScreenState();
+        previous.changeDimension(7, DIMENSION_SPAWN);
+        Runnable handled = previous.announcementsHandled();
+        continued = new BedrockLoadingScreenState();
+        continued.restore(previous.continuation());
+        handled.run();
+        continued.input();
+        assertTrue(continued.accept(START_LOADING_SCREEN, 7));
+    }
+
     private static BedrockMovementState advance(
             BedrockMovementState previous, long tick, BedrockLoadingScreenState loading) {
         var frame = BedrockInputFrame.idle(tick);
