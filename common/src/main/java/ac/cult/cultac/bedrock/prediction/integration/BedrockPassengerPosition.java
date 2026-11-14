@@ -10,23 +10,26 @@ import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 /**
  * The client seats remote passengers from the vehicle's render position and SEAT_OFFSET. Rotation and translation
  * use floats in the client's coordinate frame. Resolve the chain lazily, keeping the own-tree positioning pass.
+ * Each client tick seats a passenger where its vehicle stood when that tick began, before the vehicle's lerp step,
+ * so the passenger of a moving vehicle is a tick behind it, and a passenger of that passenger a tick further.
  */
 public final class BedrockPassengerPosition {
     private BedrockPassengerPosition() {}
 
     public static SimpleCollisionBox box(CultPlayer player, PacketEntity passenger, SimpleCollisionBox out) {
-        return box(player, passenger, out, player.compensatedEntities.entityMap.size());
+        return box(player, passenger, out, 0, player.compensatedEntities.entityMap.size());
     }
 
+    // The box {@code passenger} had when the client tick {@code ticks} back began; 0 is the box it has now.
     private static SimpleCollisionBox box(
-            CultPlayer player, PacketEntity passenger, SimpleCollisionBox out, int remaining) {
+            CultPlayer player, PacketEntity passenger, SimpleCollisionBox out, int ticks, int remaining) {
         PacketEntity vehicle = passenger.getRiding();
         if (vehicle == null || remaining < 0) {
-            Vec3 feet = passenger.clientPhysicalPosition;
+            Vec3 feet = passenger.bedrockTickStart(ticks);
             return GetBoundingBox.getPacketEntityBoundingBox(out, player, feet.x, feet.y, feet.z, passenger);
         }
         // Read the position box, before a shulker's shell can move its centre or feet.
-        box(player, vehicle, out, remaining - 1);
+        box(player, vehicle, out, ticks + 1, remaining - 1);
         var coordinates = player.getSetbackTeleportUtil().bedrockTeleports().getActiveBedrockCoordinateFrame();
         float x = coordinates.localX((out.minX + out.maxX) * 0.5);
         float y = (float) (out.minY + vehicle.bedrockPositionOffset);

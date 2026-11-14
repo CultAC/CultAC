@@ -483,6 +483,7 @@ public class PacketEntityReplication extends CultProcessor implements CheckListe
                 return;
             }
             if (player.isBedrockMovement() && player.compensatedEntities.isInBedrockLimbo(entity)) return;
+            if (player.isBedrockMovement()) entity.beginBedrockClientTick();
             entity.onMovement(player, true);
             player.compensatedEntities.vehicles.tickRemoteLivingVelocity(entity);
             // LivingEntity#aiStep replaces frost after interpolating, for remote entities too.

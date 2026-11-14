@@ -71,6 +71,9 @@ public class PacketEntity {
     // bedrockBaseFrom.
     private Vec3 bedrockBaseFrom;
     private float bedrockBaseY;
+    // Where the last two Bedrock client ticks found this actor before their lerp steps, the later one first.
+    private Vec3 bedrockTickStart;
+    private Vec3 bedrockEarlierTickStart;
     // The box size and scale Geyser last sent this actor (WIDTH, HEIGHT, SCALE) that the client has applied: a Bedrock
     // client's actor box is width and height times scale, a player's following its pose. NaN until known.
     public float bedrockWidth = Float.NaN;
@@ -371,6 +374,23 @@ public class PacketEntity {
             return ac.cult.cultac.bedrock.prediction.integration.BedrockPassengerPosition.box(player, this, out);
         return GetBoundingBox.getPacketEntityBoundingBox(
                 out, player, clientPhysicalPosition.x, clientPhysicalPosition.y, clientPhysicalPosition.z, this);
+    }
+
+    /** A Bedrock client tick begins for this actor, before its lerp step. */
+    public void beginBedrockClientTick() {
+        bedrockEarlierTickStart = bedrockTickStart;
+        bedrockTickStart = clientPhysicalPosition;
+    }
+
+    /**
+     * Where this actor stood when the Bedrock client tick {@code ticks} back began: 1 is the last tick it took, 0
+     * where it stands now. Two ticks are kept; an older tick, or one before its first, reads the oldest kept.
+     */
+    public Vec3 bedrockTickStart(int ticks) {
+        Vec3 start = ticks <= 0
+                ? clientPhysicalPosition
+                : ticks == 1 || bedrockEarlierTickStart == null ? bedrockTickStart : bedrockEarlierTickStart;
+        return start == null ? clientPhysicalPosition : start;
     }
 
     /** The type test a push or collision with the player applies before any position or riding test. */

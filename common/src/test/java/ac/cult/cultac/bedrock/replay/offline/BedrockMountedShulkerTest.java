@@ -33,6 +33,7 @@ import org.junit.Test;
 public class BedrockMountedShulkerTest {
     private static final int BOAT = 5801;
     private static final int SHULKER = 5802;
+    private static final int TOP = 5803;
     private static final float BOAT_X = 316.3F;
     private static final float BOAT_Y = 120.0F;
     private static final float Z = -34.5F;
@@ -73,16 +74,70 @@ public class BedrockMountedShulkerTest {
     }
 
     @Test
-    public void aPassengerFollowsTheShownBoatInsteadOfItsOldSpawnOrNewLerpTarget() {
+    public void aPassengerSitsWhereItsBoatStartedTheLastClientTick() {
         withBoat(player -> {
             PacketEntity boat = boat(player);
             assertSeat(player, BOAT_X, 120.7625F, Z);
             boat.handleBedrockMove(player, new Vec3(BOAT_X + 0.3F, BOAT_Y, Z), 0, 0, false, false, true);
             assertSeat(player, BOAT_X, 120.7625F, Z);
+            // Each client tick seats the passenger where the boat stood before that tick's lerp step.
+            player.checkManager.endBedrockClientTick();
+            assertSeat(player, BOAT_X, 120.7625F, Z);
             player.checkManager.endBedrockClientTick();
             assertSeat(player, BOAT_X + 0.1F, 120.7625F, Z);
             player.checkManager.endBedrockClientTick();
             assertSeat(player, BOAT_X + 0.2F, 120.7625F, Z);
+            player.checkManager.endBedrockClientTick();
+            assertSeat(player, BOAT_X + 0.3F, 120.7625F, Z);
+        });
+    }
+
+    @Test
+    public void aRiderOfAPassengerSitsOneMoreClientTickBehind() {
+        withBoat(player -> {
+            player.compensatedEntities.addEntity(TOP, EntityTypeIds.SHULKER, new Vec3(320.5, 120, Z), 0, 0, 0);
+            PacketEntity top = player.compensatedEntities.getEntity(TOP);
+            top.bedrockSeatOffset = new Vec3(0, 1, 0);
+            top.mount(shulker(player));
+            boat(player).handleBedrockMove(player, new Vec3(BOAT_X + 0.3F, BOAT_Y, Z), 0, 0, false, false, true);
+            for (int i = 0; i < 3; i++) player.checkManager.endBedrockClientTick();
+            assertSeat(player, BOAT_X + 0.2F, 120.7625F, Z);
+            SimpleCollisionBox box = top.bedrockShownBox(player, new SimpleCollisionBox());
+            assertEquals(BOAT_X + 0.1F, (box.minX + box.maxX) * 0.5, 3.1E-5);
+            assertEquals(121.7625F, box.minY, 2.0E-6);
+        });
+    }
+
+    /** The boat slides out from under a player standing on the edge of its passenger's shell. */
+    @Test
+    public void aPlayerStandsOnThePassengerUntilTheClientSeatsItAway() {
+        withBoat(player -> {
+            float top = (float) shulker(player).bedrockShownBox(player, new SimpleCollisionBox()).maxY;
+            // The shell spans x 315.8 to 316.8: the player's box overlaps its last 0.05.
+            Vec3 standing = new Vec3(317.05F, top, Z);
+            Vec3 resting = new Vec3(0, -0.0784F, 0);
+            seed(player, 99, standing, resting, true);
+            capturedTick(player, 100, standing, resting, true);
+            boat(player).handleBedrockMove(player, new Vec3(BOAT_X - 0.3F, BOAT_Y, Z), 0, 0, false, false, true);
+            capturedTick(player, 101, standing, resting, true);
+            // The boat has stepped 0.1 away, and its passenger is still seated where the boat was.
+            capturedTick(player, 102, standing, resting, true);
+            capturedTick(player, 103, new Vec3(317.05F, top - 0.0784F, Z), new Vec3(0, -0.155232F, 0), false);
+        });
+    }
+
+    /** The client may already show the boat a step further, and then seats its passenger a step further too. */
+    @Test
+    public void aPlayerMayLeaveThePassengerAStepBeforeCultSeatsItAway() {
+        withBoat(player -> {
+            float top = (float) shulker(player).bedrockShownBox(player, new SimpleCollisionBox()).maxY;
+            Vec3 standing = new Vec3(317.05F, top, Z);
+            Vec3 resting = new Vec3(0, -0.0784F, 0);
+            seed(player, 99, standing, resting, true);
+            capturedTick(player, 100, standing, resting, true);
+            boat(player).handleBedrockMove(player, new Vec3(BOAT_X - 0.3F, BOAT_Y, Z), 0, 0, false, false, true);
+            capturedTick(player, 101, standing, resting, true);
+            capturedTick(player, 102, new Vec3(317.05F, top - 0.0784F, Z), new Vec3(0, -0.155232F, 0), false);
         });
     }
 
@@ -248,6 +303,8 @@ public class BedrockMountedShulkerTest {
         PacketEntity boat = boat(player);
         boat.setPositionRaw(
                 GetBoundingBox.getPacketEntityBoundingBox(player, 317.2342F, 82, -34.457516F, boat), -43.854736F, 0);
+        // The passenger is seated at the placed boat from the next client tick.
+        player.checkManager.endBedrockClientTick();
     }
 
     private static void peek(CultPlayer player, int amount) {

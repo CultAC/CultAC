@@ -48,14 +48,28 @@ public final class BedrockSolidActors {
             if (!entity.bedrockShownBox(player, box).isIntersected(reach)) continue;
             float actorBuffer = 0.0F;
             List<ac.cult.cultac.utils.math.Vec3> elsewhere = List.of();
+            // A rider is seated from the vehicle its chain ends at, a client tick behind it for each seat between
+            // them, so it may stand off Cult's box wherever that vehicle may.
+            PacketEntity carrier = entity;
+            int seats = 0;
+            if (entity.getRiding() != null && entities.isUntrackedRider(entity)) {
+                while (carrier.getRiding() != null && seats < entities.entityMap.size()) {
+                    carrier = carrier.getRiding();
+                    seats++;
+                }
+            }
+            var shown = carrier.bedrockTickStart(seats);
             if (!legacy && context.getBedrockInput() != null) {
                 var envelope = player.bedrockState.solidActorBuffer.steps;
+                // The rider's next step is the one its vehicle took a tick before.
                 actorBuffer = envelope.buffer(
                         entity.getEntityId(),
                         context.getBedrockInput().getClientTick(),
-                        entity.clientPhysicalPosition,
-                        entity.desyncClientPos,
-                        entity.newPacketLocation == null ? 0 : entity.newPacketLocation.bedrockStepsLeft());
+                        shown,
+                        seats == 0 ? carrier.desyncClientPos : carrier.bedrockTickStart(seats - 1),
+                        seats != 0
+                                ? 1
+                                : carrier.newPacketLocation == null ? 0 : carrier.newPacketLocation.bedrockStepsLeft());
                 if (actorBuffer > 0.0F) {
                     elsewhere = envelope.alternatives(entity.getEntityId());
                     touch(player, context, box, actorBuffer, depenetrationLimit(entity));
@@ -63,9 +77,8 @@ public final class BedrockSolidActors {
             } else if (legacy) {
                 var envelope = player.bedrockState.solidActorBuffer.legacy;
                 long tick = context.getBedrockInput().getClientTick();
-                actorBuffer = envelope.buffer(
-                        entity.getEntityId(), tick, entity.desyncClientPos, entity.clientPhysicalPosition);
-                if (actorBuffer > 0.0F) elsewhere = envelope.alternatives(entity.getEntityId(), entity.clientPhysicalPosition);
+                actorBuffer = envelope.buffer(entity.getEntityId(), tick, carrier.desyncClientPos, shown);
+                if (actorBuffer > 0.0F) elsewhere = envelope.alternatives(entity.getEntityId(), shown);
                 // Such a client also pushes a player out of an actor it overlaps, however still the actor is.
                 touch(player, context, box, Math.max(actorBuffer, overlapPush(player, box, context)), depenetrationLimit(entity));
             }
