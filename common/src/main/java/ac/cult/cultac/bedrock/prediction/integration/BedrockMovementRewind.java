@@ -176,7 +176,7 @@ final class BedrockMovementRewind {
         }
         // Arrival order: an attribute update and a replay acknowledged together must both survive.
         boolean replays = false;
-        // The updates the history does not record: a replay ends without them.
+        // The updates whose change to the live state a replay does not carry: they are taken again after it.
         var unrecorded = new ArrayList<BedrockReplayEvent>();
         for (Update update : updates) {
             boolean attributes = attributes(update);
@@ -222,8 +222,11 @@ final class BedrockMovementRewind {
                         : (int) Math.max(0, boost.duration() - Math.max(0, authoritative.newestTick() - update.tick()));
                 player.bedrockState.movementEffects.setGlideBoost(remaining);
             }
-            if (authoritative.attach(tick, event) && update.taking() == BedrockReplayTaking.REPLAYS) replays = true;
-            else entries = taken(entries, event);
+            if (authoritative.attach(tick, event) && update.taking() == BedrockReplayTaking.REPLAYS) {
+                replays = true;
+                // The effect a replay was made for still changes the speed of the state it ends with.
+                if (event instanceof BedrockReplayContextEvent) unrecorded.add(event);
+            } else entries = taken(entries, event);
         }
         // One replay, from the oldest frame any update marked, takes them all.
         if (replays) {
@@ -260,9 +263,15 @@ final class BedrockMovementRewind {
         return update.taking() == BedrockReplayTaking.REPLAYS && update.tick() >= authoritative.newestTick();
     }
 
+    /** The live states once the actor has taken {@code event}. */
     private static List<Entry> taken(List<Entry> entries, BedrockReplayEvent event) {
         return entries.stream()
-                .map(entry -> entry.withState(event.state(entry.state())))
+                .map(entry -> {
+                    var state = event.state(entry.state());
+                    // An effect changes the speed of the live state only: a replay does not take it again.
+                    return entry.withState(
+                            event instanceof BedrockReplayContextEvent effect ? effect.withEffectSpeed(state) : state);
+                })
                 .toList();
     }
 
