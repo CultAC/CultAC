@@ -171,7 +171,7 @@ class LatencyTaskQueueOrderTest {
         try {
             while (node != null) {
                 var next = node.next();
-                var task = node.runnable();
+                var task = (Runnable) node.task();
                 released = node.clearAndLink(released);
                 task.run();
                 node = next;
@@ -298,7 +298,7 @@ class LatencyTaskQueueOrderTest {
             try {
                 while (node != null) {
                     var next = node.next();
-                    var task = node.runnable();
+                    var task = (Runnable) node.task();
                     released = node.clearAndLink(released);
                     task.run();
                     node = next;

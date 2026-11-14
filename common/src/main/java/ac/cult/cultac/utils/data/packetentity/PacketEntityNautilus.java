@@ -1,6 +1,7 @@
 package ac.cult.cultac.utils.data.packetentity;
 
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.math.CultMath;
 import ac.cult.cultac.utils.nmsutil.EntityTypeUtil;
 
 /** Client-visible state used by AbstractNautilus#travelRidden. */
@@ -86,6 +87,11 @@ public final class PacketEntityNautilus extends PacketEntityTrackXRot {
     }
 
     /** SynchedEntityData#assignValues calls onSyncedDataUpdated for every DASH entry it receives, changed or not. */
+    public float getRiddenTickYaw(float controllerYaw) {
+        float rootYaw = clientPhysicalYaw;
+        return (rootYaw + CultMath.wrapDegrees(controllerYaw - rootYaw) * 0.5F) % 360.0F;
+    }
+
     public void setDashingFromMetadata(boolean dashing) {
         this.dashing = dashing;
         onDashUpdated();

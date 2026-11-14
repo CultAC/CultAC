@@ -90,6 +90,7 @@ class ObserveOnlyCallSiteTest {
             "resyncCancelledClick",
             "sendCorrections",
             "rejectPlace",
+            "rejectUse",
             "rejectDig",
             "rejectEarly",
             "sendServerStates",
@@ -114,7 +115,7 @@ class ObserveOnlyCallSiteTest {
     private static final String ALLOWED = """
             [isExempt()] SetbackPolicy.isExempt() is true in observe-only
             manager/player/setback/SetbackPolicy.java#executeTooHighLatencySetback(String) blockMovementsUntilResync
-            manager/player/setback/SetbackPolicy.java#executeViolationSetback(PredictionResult) blockMovementsUntilResync
+            manager/player/setback/SetbackPolicy.java#executeViolationSetback(PredictionResult,Check) blockMovementsUntilResync
             [shouldBlockMovement()] true in observe-only only before the world loads; the codec forwards the client's packet
             checks/impl/combat/ReachCheck.java#handleInteract(PacketReceiveEvent,ServerboundInteract) setCancelled
             checks/impl/movement/timer/AbstractTimerCheck.java#recordModernMovePlayerPacket(PacketReceiveEvent,boolean) setCancelled
@@ -135,12 +136,15 @@ class ObserveOnlyCallSiteTest {
             manager/player/setback/CorrectionSender.java#sendSetback(SetBackData) sendSetback
             manager/player/setback/CorrectionSender.java#sendSetback(SetBackData,boolean) sendSetback
             manager/player/setback/CorrectionSender.java#sendSetback(SetBackData,boolean,boolean) sendSetback
-            manager/player/setback/SetbackPolicy.java#blockMovementsUntilResync(boolean,boolean,boolean,PredictionResult) sendSetback
+            manager/player/setback/CorrectionSender.java#sendSetback(SetBackData,boolean,boolean,SetbackReason,String,Check) sendSetback
+            manager/player/setback/SetbackPolicy.java#blockMovementsUntilResync(boolean,boolean,boolean,PredictionResult,SetbackReason,String,Check) sendSetback
             [] needs a Bedrock vehicle setback in flight; observe-only sends none and drops it when it starts
             manager/player/setback/VehicleTeleportTracker.java#transferBedrockVehicleSetback(int) sendDismounted
             [reachesServer(] CheckManagerListener.reachesServer(PacketReceiveEvent) is true in observe-only
             events/packets/listeners/CheckManagerListener.java#handle(PacketReceiveEvent,CultPlayer,Object) rejectEarly
             events/packets/listeners/CheckManagerListener.java#onContainerClick(PacketReceiveEvent,CultPlayer,InventoryClick) resyncCancelledClick
+            events/packets/listeners/CheckManagerListener.java#onUseItem(PacketReceiveEvent,CultPlayer,ServerboundUseItem) rejectUse
+            events/packets/listeners/CheckManagerListener.java#onUseItemOn(PacketReceiveEvent,CultPlayer,ServerboundUseItemOn) rejectPlace
             events/packets/listeners/CheckManagerListener.java#processPlayerActionReceive(PacketReceiveEvent,CultPlayer,ServerboundPlayerAction) rejectDig
             [] sends the correction its caller decided on; each caller is listed
             events/packets/patch/ResyncWorldUtil.java#sendServerStates(CultPlayer,Collection,int) sendCorrections x2
@@ -176,9 +180,10 @@ class ObserveOnlyCallSiteTest {
             events/packets/listeners/CheckManagerListener.java#processMovePlayerReceive(PacketReceiveEvent,CultPlayer,ServerboundMovePlayer) replace x2
             events/packets/listeners/CheckManagerListener.java#processMovePlayerReceive(PacketReceiveEvent,CultPlayer,ServerboundMovePlayer) setCancelled x3
             events/packets/listeners/CheckManagerListener.java#processMoveVehicleReceive(PacketReceiveEvent,CultPlayer,ServerboundMoveVehicle) setCancelled x5
+            events/packets/listeners/CheckManagerListener.java#withholdDroppedAction(PacketReceiveEvent,CultPlayer) setCancelled
             events/packets/listeners/PacketServerTeleport.java#onAcceptTeleportation(PacketReceiveEvent,CultPlayer,ServerboundAcceptTeleportation) setCancelled
             manager/player/PluginChannelManager.java#handle(String,byte[],PacketReceiveEvent) setCancelled
-            utils/latency/CompensatedInventory.java#onContainerClick(PacketReceiveEvent,CultPlayer,InventoryClick) setCancelled
+            utils/latency/CompensatedInventory.java#onContainerClick(PacketReceiveEvent,CultPlayer,InventoryClick) setCancelled x2
             [] README: a non-finite rotation from the server is sent as 0
             events/packets/PacketServerPlayerRotation.java#onPlayerRotation(PacketSendEvent,CultPlayer,ClientboundPlayerRotation) replace
             [] README: the self pose strip; the health spoof breaks out on isObserveOnly() first
@@ -217,7 +222,8 @@ class ObserveOnlyCallSiteTest {
             bedrock/prediction/integration/BedrockReplayContextEvent.java#state(BedrockMovementState) replace
             bedrock/prediction/state/BedrockActorAttributes.java#replace(Map) replace
             checks/impl/prediction/runner/PacketModHandler.java#bundlePacketWithTrailingTransaction(PacketSendEvent,R) replace
-            events/packets/listeners/PacketPingListener.java#onPong(PacketReceiveEvent,CultPlayer,ServerboundPong) setCancelled
+            events/packets/listeners/PacketPingListener.java#onPong(PacketReceiveEvent,CultPlayer,ServerboundPong) cancelFinally
+            events/packets/listeners/PacketPingListener.java#onRetiredPong(PacketReceiveEvent,ServerboundPong) cancelFinally
             events/packets/worldreader/BasePacketWorldReader.java#handleBlockChange(CultPlayer,PacketSendEvent,BlockUpdate) replace
             events/packets/worldreader/BasePacketWorldReader.java#handleBlockEvent(CultPlayer,PacketSendEvent,ClientboundBlockEvent) replace
             network/PacketDispatcher.java#clear() replace

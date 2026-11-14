@@ -25,7 +25,7 @@ public class VerticalAnalyzer implements EngineCheck {
         double offset = closest.y - target.y;
         double absOffset = Math.abs(offset);
         if (absOffset > 0.001) {
-            final VerticalOffset verticalOffset = player.checkManager.getListener(VerticalOffset.class);
+            final VerticalOffset verticalOffset = player.checkManager.getVerticalOffset();
             result.addFlag(verticalOffset, () -> NumFormatter.formatNumberStandard(offset), absOffset);
         }
     }

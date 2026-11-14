@@ -26,10 +26,16 @@ public class CorrectingPlayerInventoryStorage extends InventoryStorage {
     private final CultPlayer player;
     // Slot ID -> tick at which a recently changed slot is compared with the server
     private final Map<Integer, Integer> pendingFinalizedSlot = new ConcurrentHashMap<>();
+    private final Runnable serverViewTick = this::tickServerView;
 
     public CorrectingPlayerInventoryStorage(CultPlayer player, int size) {
         super(size);
         this.player = player;
+    }
+
+    /** {@link #tickServerView} as a task, for the owner thread to run once per server tick. */
+    public Runnable serverViewTick() {
+        return serverViewTick;
     }
 
     @Override
@@ -46,12 +52,14 @@ public class CorrectingPlayerInventoryStorage extends InventoryStorage {
         }
 
         int tickID = CultAPI.INSTANCE.getTickManager().currentTick;
-        for (Iterator<Map.Entry<Integer, Integer>> it =
-                        pendingFinalizedSlot.entrySet().iterator();
-                it.hasNext(); ) {
-            Map.Entry<Integer, Integer> entry = it.next();
-            if (entry.getValue() <= tickID && checkThatServerIsSynced(entry.getKey())) {
-                it.remove();
+        if (!pendingFinalizedSlot.isEmpty()) {
+            for (Iterator<Map.Entry<Integer, Integer>> it =
+                            pendingFinalizedSlot.entrySet().iterator();
+                    it.hasNext(); ) {
+                Map.Entry<Integer, Integer> entry = it.next();
+                if (entry.getValue() <= tickID && checkThatServerIsSynced(entry.getKey())) {
+                    it.remove();
+                }
             }
         }
 

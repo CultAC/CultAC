@@ -210,6 +210,23 @@ public final class ClientFluidQueries {
         return eyeContactInWater(player, eyeFluidContact(player, body, feet, eyeY));
     }
 
+    /** {@link #eyesInWater(CultPlayer, SimpleCollisionBox, Vec3, double)} on the body's bounds and the feet's X and Z. */
+    public static boolean eyesInWater(
+            CultPlayer player,
+            double minX,
+            double minY,
+            double minZ,
+            double maxX,
+            double maxY,
+            double maxZ,
+            double feetX,
+            double feetZ,
+            double eyeY) {
+        // The contact reads only the feet's X and Z.
+        return eyesInWater(
+                player, new SimpleCollisionBox(minX, minY, minZ, maxX, maxY, maxZ), new Vec3(feetX, minY, feetZ), eyeY);
+    }
+
     /** A bounded cache: the WATER snapshot bit and the four non-empty static fluid holders. */
     public static int eyeFluidContact(CultPlayer player, SimpleCollisionBox body, Vec3 feet, double eyeY) {
         if (player.isBedrockMovement() || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2))

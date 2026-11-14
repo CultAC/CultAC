@@ -4,6 +4,7 @@ import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
@@ -17,6 +18,8 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.utils.math.Vec3;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * A 26.2 client sprinting off a stair's step with shift pressed. Player#maybeBackOffFromEdge holds it over the stair's
@@ -31,6 +34,9 @@ class JavaSneakEdgeAirborneTest {
             new ServerboundPlayerInput(true, false, false, false, false, false, true);
     private static final ServerboundPlayerInput SNEAK =
             new ServerboundPlayerInput(true, false, false, false, false, true, false);
+    private static final ServerboundPlayerInput SNEAK_STILL =
+            new ServerboundPlayerInput(false, false, false, false, false, true, false);
+    private static final double KNOCKBACK_X = 0.5;
     private static final float YAW = -183.6553F;
     private static final double POST_TOP = FLOOR_Y + 1.5;
 
@@ -102,6 +108,53 @@ class JavaSneakEdgeAirborneTest {
             PredictionResult landing = f.tick(new Vec3(0.5, POST_TOP, position.z + input), true);
             assertTrue(exact(landing), describe(landing));
             assertEquals(0.0, landing.getInitialStartingVel().z);
+        }
+    }
+
+    /**
+     * A shift-holding player falls three blocks beside the floor's east edge and is knocked east within 0.5 of the
+     * floor. fallDistance is past maxUpStep, so Player#isAboveGround is false and the knockback moves it whole; the
+     * knockback may stay pending for several falling ticks before its pong.
+     */
+    @ParameterizedTest
+    @ValueSource(ints = {0, 3})
+    void aKnockbackNearTheFloorAfterALongFallMovesWhole(int pendingTicks) throws Exception {
+        PredictionResult whole = knockedNearTheFloor(pendingTicks, KNOCKBACK_X);
+        assertTrue(exact(whole), describe(whole));
+        PredictionResult backedOff = knockedNearTheFloor(pendingTicks, 0.15);
+        assertFalse(exact(backedOff), describe(backedOff));
+    }
+
+    /** Reports {@code dx} on the tick the east knockback lands, with the feet 0.1 to 0.5 above the floor. */
+    private static PredictionResult knockedNearTheFloor(int pendingTicks, double dx) throws Exception {
+        try (var f = new JavaTickFixture()) {
+            // The box's west face is 0.2 over the floor's east edge at x = 9.
+            Vec3 start = new Vec3(9.1, FLOOR_Y + 3.0, 0.5);
+            int falling = 0;
+            double y = start.y;
+            double vy = 0.0;
+            while (y - FLOOR_Y > 0.5) {
+                y += vy;
+                vy = (vy - 0.08D) * (double) 0.98F;
+                falling++;
+            }
+            assertTrue(y - FLOOR_Y > 0.1, "feet " + (y - FLOOR_Y) + " above the floor");
+            Vec3 knockback = new Vec3(KNOCKBACK_X, vy, 0.0);
+
+            Vec3 position = start;
+            vy = 0.0;
+            f.place(position, Vec3.ZERO);
+            f.input(SNEAK_STILL);
+            int transaction = -1;
+            for (int tick = 0; tick < falling; tick++) {
+                if (tick == falling - pendingTicks) transaction = f.velocity(knockback);
+                position = position.add(0.0, vy, 0.0);
+                assertExactTick(f, position, false);
+                vy = (vy - 0.08D) * (double) 0.98F;
+            }
+            if (transaction == -1) transaction = f.velocity(knockback);
+            f.pongThrough(transaction);
+            return f.tick(position.add(dx, vy, 0.0), false);
         }
     }
 

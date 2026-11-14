@@ -19,6 +19,7 @@ import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundMoveVehicle;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.SetBackData;
@@ -50,6 +51,12 @@ class HorseGroundStateTest {
     private static final double VERTICAL_DRAG = 0.98F;
     /** CompensatedVehicleState absorbs offsets for this many client ticks after the first ridden move. */
     private static final int VEHICLE_SWITCH_TICKS = 5;
+    /** LocalPlayer#aiStep's jumpRidingScale reaches 1.0 after the press and ten held ticks. */
+    private static final int FULL_CHARGE_TICKS = 10;
+    private static final ServerboundPlayerInput JUMP_HELD =
+            new ServerboundPlayerInput(false, false, false, false, true, false, false);
+    private static final ServerboundPlayerInput RELEASED =
+            new ServerboundPlayerInput(false, false, false, false, false, false, false);
 
     /** The control: the same full-charge jump is vanilla from a horse that is on the ground. */
     @Test
@@ -118,6 +125,7 @@ class HorseGroundStateTest {
     @Test
     void aSetbackEchoClaimingGroundCannotJumpAnAirborneHorse() throws Exception {
         try (Ride ride = mount(AIR, Vec3.ZERO, false)) {
+            ride.f.input(JUMP_HELD);
             Vec3[] fall = ride.fallFromRest(AIR);
             // The rider arms a full jump in the tick whose move is rejected.
             assertRejected(ride.tick(fall[0].add(0, 0.5, 0), false, true).result(), "VehicleOffset");
@@ -139,6 +147,7 @@ class HorseGroundStateTest {
     void aSetbackOfAJumpCannotStartAnotherJumpInTheAir() throws Exception {
         try (Ride ride = mount(GROUND, new Vec3(0, GROUNDED_Y, 0), true)) {
             ride.idleOnFloor();
+            ride.chargeOnFloor();
             ride.tick(GROUND, true, true);
             // The jump tick claims a height no jump reaches and re-arms the jump for the next tick.
             assertRejected(ride.tick(GROUND.add(0, 3, 0), false, true).result(), "VehicleOffset");
@@ -158,6 +167,7 @@ class HorseGroundStateTest {
     void aSetbackOnTheFloorKeepsTheJump() throws Exception {
         try (Ride ride = mount(GROUND, new Vec3(0, GROUNDED_Y, 0), true)) {
             ride.idleOnFloor();
+            ride.chargeOnFloor();
             // A move no grounded tick reaches; the rider arms a full jump for the next tick.
             assertRejected(ride.tick(GROUND.add(0.5, 0, 0), true, true).result(), "VehicleOffset");
             SetBackData setback = ride.f.player.getSetbackTeleportUtil().getRequiredSetBack();
@@ -191,7 +201,10 @@ class HorseGroundStateTest {
         Move tick(Vec3 to, boolean onGround, boolean releaseJump) {
             PredictionResult before =
                     f.player.checkManager.getSimulationProcessor().getLastPrediction();
-            if (releaseJump) f.command(PlayerCommandAction.START_JUMPING_WITH_HORSE, FULL_CHARGE);
+            if (releaseJump) {
+                f.command(PlayerCommandAction.START_JUMPING_WITH_HORSE, FULL_CHARGE);
+                f.input(RELEASED);
+            }
             var rot = new ServerboundMovePlayer(0, 0, 0, 0, 0, false, false, false, true);
             f.listener.onMovePlayer(f.event(ServerboundPackets.MOVE_PLAYER, rot), f.player, rot);
             var move = new ServerboundMoveVehicle(new Vec3d(to.x, to.y, to.z), 0, 0, onGround, true);
@@ -207,6 +220,14 @@ class HorseGroundStateTest {
         /** Rides out the vehicle-switch window standing on the floor. */
         void idleOnFloor() {
             for (int i = 0; i < VEHICLE_SWITCH_TICKS; i++) {
+                assertVehicleExact(tick(GROUND, true, false).result(), i);
+            }
+        }
+
+        /** Presses jump on the floor and holds it until the riding jump is fully charged. */
+        void chargeOnFloor() {
+            f.input(JUMP_HELD);
+            for (int i = 0; i <= FULL_CHARGE_TICKS; i++) {
                 assertVehicleExact(tick(GROUND, true, false).result(), i);
             }
         }

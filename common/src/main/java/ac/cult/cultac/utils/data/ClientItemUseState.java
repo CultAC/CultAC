@@ -191,24 +191,28 @@ public final class ClientItemUseState {
             List<SimItemStack> hotbar) {
         if (lastPreparedTick == tick) return prepared;
         lastPreparedTick = tick;
-        var next = new ArrayList<Use>();
-        for (Use use : candidates) {
-            // Minecraft.tick syncs the selected slot BEFORE handleKeybinds. Selection
-            // during keybinds can therefore be unreported for this tick (and scroll
-            // can restore it before the next sync). Only inventory-proven stacks apply.
-            for (SimItemStack held : use.hand() == Hand.MAIN_HAND ? hotbar : List.of(off)) {
-                if (!sameItem(use.stack(), held)) {
-                    inactive = true;
-                    continue;
+        if (candidates.isEmpty()) {
+            candidates = List.of();
+        } else {
+            var next = new ArrayList<Use>();
+            for (Use use : candidates) {
+                // Minecraft.tick syncs the selected slot BEFORE handleKeybinds. Selection
+                // during keybinds can therefore be unreported for this tick (and scroll
+                // can restore it before the next sync). Only inventory-proven stacks apply.
+                for (SimItemStack held : use.hand() == Hand.MAIN_HAND ? hotbar : List.of(off)) {
+                    if (!sameItem(use.stack(), held)) {
+                        inactive = true;
+                        continue;
+                    }
+                    merge(next, new Use(use.hand(), held.copy(), nextRemaining(use.remaining()), held));
+                    // BrushItem.onUseTick directly releases when its pre-travel ray misses.
+                    // The movement packet's look is sent AFTER that callback, so it cannot
+                    // prove the callback's earlier ray hit a block.
+                    if (held.is("minecraft:brush")) inactive = true;
                 }
-                merge(next, new Use(use.hand(), held.copy(), nextRemaining(use.remaining()), held));
-                // BrushItem.onUseTick directly releases when its pre-travel ray misses.
-                // The movement packet's look is sent AFTER that callback, so it cannot
-                // prove the callback's earlier ray hit a block.
-                if (held.is("minecraft:brush")) inactive = true;
             }
+            candidates = List.copyOf(next);
         }
-        candidates = List.copyOf(next);
         if (candidates.isEmpty()) inactive = true;
         if (obligation != null) {
             SimItemStack held = obligation.hand() == Hand.MAIN_HAND ? main : off;
@@ -222,8 +226,8 @@ public final class ClientItemUseState {
         boolean blocksSprint = false;
         var multipliers = new ArrayList<Float>(candidates.size() + 2);
         if (inactive) multipliers.add(1.0F);
-        for (Use use : candidates) {
-            var effects = effects(use.stack(), version);
+        for (int i = 0; i < candidates.size(); i++) {
+            var effects = effects(candidates.get(i).stack(), version);
             legal = Math.max(legal, effects.speedMultiplier());
             slowest = Math.min(slowest, effects.speedMultiplier());
             canSprint |= effects.canSprint();
@@ -247,6 +251,12 @@ public final class ClientItemUseState {
                 blocksSprint,
                 multipliers);
         return prepared;
+    }
+
+    /** Whether {@link #prepare} reads its {@code hotbar} for the next tick: only a use candidate's hand reads it. */
+    public boolean preparesFromHotbar() {
+        for (int i = 0; i < candidates.size(); i++) if (candidates.get(i).hand() == Hand.MAIN_HAND) return true;
+        return false;
     }
 
     public boolean definitelyUsing() {

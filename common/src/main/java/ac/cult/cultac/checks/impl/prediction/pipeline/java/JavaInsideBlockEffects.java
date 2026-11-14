@@ -65,13 +65,15 @@ public final class JavaInsideBlockEffects {
      * The velocity-independent bounds of an actor tick's inside-block passes. The first consumes
      * Entity#movementThisTick: the movements recorded earlier in the tick, then the scanned move from {@code from}
      * with {@code originalMovement}'s axis order. AbstractBoat#tick's second pass finds that queue empty and sweeps
-     * from {@code oldFrom}, the box at Entity#oldPosition, to {@code to} without axis steps.
+     * from {@code oldFrom}, the box at Entity#oldPosition, to {@code to} without axis steps. {@code movement} is the
+     * delta the scanned move covered, or null when it is not known.
      */
     public record Scan(
             PacketEntity actor,
             Vec3 end,
             SimpleCollisionBox from,
             SimpleCollisionBox to,
+            Vec3 movement,
             Vec3 originalMovement,
             List<Segment> recordedBefore,
             SimpleCollisionBox oldFrom) {}
@@ -181,7 +183,16 @@ public final class JavaInsideBlockEffects {
         for (RecordedMove move : recordedBefore)
             segments.add(new Segment(
                     boxAt(context, dimensions, move.from()), boxAt(context, dimensions, move.to()), move.delta()));
-        return scan(player, actor, end, from, to, moveStart == null ? null : originalMovement, segments, oldFrom);
+        return scan(
+                player,
+                actor,
+                end,
+                from,
+                to,
+                moveStart == null ? null : end.subtract(moveStart),
+                moveStart == null ? null : originalMovement,
+                segments,
+                oldFrom);
     }
 
     private static SimpleCollisionBox boxAt(SimulationContext context, Pose pose, Vec3 position) {
@@ -198,7 +209,7 @@ public final class JavaInsideBlockEffects {
             SimpleCollisionBox from,
             SimpleCollisionBox to,
             Vec3 originalMovement) {
-        return scan(player, actor, end, from, to, originalMovement, List.of(), from);
+        return scan(player, actor, end, from, to, null, originalMovement, List.of(), from);
     }
 
     private static Scan scan(
@@ -207,6 +218,7 @@ public final class JavaInsideBlockEffects {
             Vec3 end,
             SimpleCollisionBox from,
             SimpleCollisionBox to,
+            Vec3 movement,
             Vec3 originalMovement,
             List<Segment> recordedBefore,
             SimpleCollisionBox oldFrom) {
@@ -222,7 +234,7 @@ public final class JavaInsideBlockEffects {
         if (!effects && oldFrom != from && actorTickPasses(actor) > 1)
             effects = InsideBlockEffectScan.mayHaveEffects(player, oldFrom, to, false);
         if (!effects) return null;
-        return new Scan(actor, end, from, to, originalMovement, recordedBefore, oldFrom);
+        return new Scan(actor, end, from, to, movement, originalMovement, recordedBefore, oldFrom);
     }
 
     public static State resolve(
@@ -319,7 +331,8 @@ public final class JavaInsideBlockEffects {
             boolean slime,
             JavaMovementPatch patch) {
         if (scan == null) return new State(distance, velocity, null);
-        Vec3 originalMovement = scan.originalMovement();
+        ClientVersion version = context == null ? player.getClientVersion() : context.getVersion();
+        Vec3 originalMovement = axisOrderMovement(version, scan.originalMovement(), scan.movement(), velocity);
         PacketEntity actor = scan.actor();
         boolean shulker = actor.type == EntityTypeIds.SHULKER;
         State[] current = {new State(distance, shulker ? Vec3.ZERO : velocity, null)};
@@ -327,7 +340,6 @@ public final class JavaInsideBlockEffects {
         SimpleCollisionBox to = scan.to();
         SimpleCollisionBox from = scan.from();
         boolean living = actor.isLivingEntity();
-        ClientVersion version = context == null ? player.getClientVersion() : context.getVersion();
         boolean stuckAllowed = actor != player.compensatedEntities.getSelf() || !player.isFlying;
         // These virtual makeStuckInBlock overrides also bypass Entity's fall-distance reset.
         boolean acceptsStuck = stuckAllowed && !EntityTypeUtil.isType(actor.type, "wither");
@@ -496,6 +508,27 @@ public final class JavaInsideBlockEffects {
         Vec3 input = result.getLegacyLikePredictionVector().subtract(result.getAcceptedClosestToTarget());
         Vec3 stuck = trace.position().collisionStuckSpeedMultiplier(result.getSimulationContext());
         return trace.preCollisionMovement().add(input.multiply(stuck));
+    }
+
+    /**
+     * The movement whose {@code Direction#axisStepOrder} the 1.21.11 Entity#checkInsideBlocks replays for the move
+     * that leaves {@code carry}. Entity#move zeroes the deltaMovement of a collided horizontal axis, so a carry with
+     * both horizontal axes nonzero comes from a move that collided on neither and recorded the {@code moved} delta.
+     * A carry ordered unlike the moved delta did not come from that recorded move and keeps the attempted order.
+     */
+    static Vec3 axisOrderMovement(ClientVersion version, Vec3 attempted, Vec3 moved, Vec3 carry) {
+        if (attempted == null
+                || moved == null
+                || version != ClientVersion.V_1_21_11
+                || carry.x == 0.0
+                || carry.z == 0.0
+                || xStepsLast(carry) != xStepsLast(moved)) return attempted;
+        return new Vec3(moved.x, attempted.y, moved.z);
+    }
+
+    /** Direction#axisStepOrder: YZX when |x| < |z|, else YXZ. */
+    private static boolean xStepsLast(Vec3 movement) {
+        return Math.abs(movement.x) < Math.abs(movement.z);
     }
 
     static boolean intersects(SimpleCollisionBox from, SimpleCollisionBox to, VoxelShape shape, BlockPos pos) {

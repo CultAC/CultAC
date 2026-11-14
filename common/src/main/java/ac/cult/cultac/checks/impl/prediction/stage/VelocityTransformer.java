@@ -212,6 +212,7 @@ public class VelocityTransformer {
         return transformed;
     }
 
+    /** Entity#updateFluidInteraction's current, added to the deltaMovement of the player or its controlled root. */
     private List<PredVector> applyBaseTickFluidCurrents(CultPlayer player, List<PredVector> input) {
         PacketEntity vehicle = simulationContext.getVehicle();
         // Entity#baseTick applies the current before LivingEntity#aiStep thresholds velocity and adds input.
@@ -662,6 +663,21 @@ public class VelocityTransformer {
                 slowed.setAttackSlows(i);
                 output.add(slowed);
             }
+            int certain = simulationContext.getMinAttackSlow();
+            int last = Math.max(certain, Math.min(simulationContext.getMaxAttackSlow(), 64));
+            if (last > 5) {
+                // Each Player#causeExtraKnockback damps in turn; 0.6^64 is below any reported movement.
+                for (int count = Math.max(6, certain); count <= last; count++) {
+                    Vec3 multVector = new Vec3(1, 1, 1);
+                    for (int j = 0; j < Math.min(count, 64); j++) {
+                        multVector = multVector.multiply(attackSlowMultiplier);
+                    }
+                    PredVector slowed = JavaVelocityRange.scaled(
+                            new PredVector(vector.multiply(multVector), vector, "Attack slow"), multVector);
+                    slowed.setAttackSlows(count);
+                    output.add(slowed);
+                }
+            }
         }
 
         return output;
@@ -744,7 +760,6 @@ public class VelocityTransformer {
         List<PredVector> outputs = new ArrayList<>(velocities);
 
         for (PredVector vectorData : velocities) {
-            // TODO: Restrict this for not being in shallow water (above some level submerged)
             if (Riptide.pushed(simulationContext, vectorData)) continue;
             outputs.addAll(applyPossibleJumpStates(player, vectorData));
         }

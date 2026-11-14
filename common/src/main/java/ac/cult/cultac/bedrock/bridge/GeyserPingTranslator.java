@@ -1,5 +1,6 @@
 package ac.cult.cultac.bedrock.bridge;
 
+import ac.cult.cultac.network.CultConnection;
 import ac.cult.cultac.player.CultPlayer;
 import org.geysermc.geyser.registry.Registries;
 import org.geysermc.geyser.session.GeyserSession;
@@ -36,9 +37,25 @@ final class GeyserPingTranslator extends PacketTranslator<ClientboundPingPacket>
         int id = packet.getId();
         CultPlayer player = GeyserBedrockBridgeRuntime.playerForSession(session);
         boolean ours = player != null && player.awaitsTransactionResponse(id);
-        session.sendNetworkLatencyStackPacket(id, true, ours
+        session.sendNetworkLatencyStackPacket(id, true, latencyAnswer(session, id, ours));
+    }
+
+    /** The client's answer to ping {@code id}; {@code ours} is whether the attached player awaited it. */
+    static Runnable latencyAnswer(GeyserSession session, int id, boolean ours) {
+        return ours
                 ? () -> GeyserBedrockBridgeRuntime.acceptTransaction(session, id)
-                : () -> session.sendDownstreamPacket(new ServerboundPongPacket(id)));
+                : () -> {
+                    if (forwardsUnclaimedAnswer(GeyserBedrockBridgeRuntime.connectionForSession(session), id))
+                        session.sendDownstreamPacket(new ServerboundPongPacket(id));
+                };
+    }
+
+    /**
+     * Whether the answer to ping {@code id}, which no attached player took, goes downstream; the session answers a
+     * retired CultAC ping natively and takes it once, so only backend pings go downstream.
+     */
+    static boolean forwardsUnclaimedAnswer(CultConnection connection, int id) {
+        return connection == null || !connection.takeRetiredPing(id);
     }
 
     boolean isInstalled() {

@@ -563,9 +563,10 @@ public class SimulationContext implements Cloneable, DebugText.Recordable {
     public double getHorizontalInputRadius(CultPlayer player, PredVector candidate) {
         // A candidate that already holds its exact moveRelative input has no input left to allow.
         if (candidate != null && candidate.hasTravelInput()) return 0.0D;
-        return getVehicle() == null
-                ? getHorizontalInputAllowance(player, getSprintOutcome(player, candidate))
-                : getMaxSpeed(player);
+        if (getVehicle() != null) return getMaxSpeed(player);
+        // LivingEntity#travelFallFlying moves without moveRelative, so a dry glide takes no input.
+        if (usesFallFlyingMovement() && !worldData.isInLiquid()) return 0.0D;
+        return getHorizontalInputAllowance(player, getSprintOutcome(player, candidate));
     }
 
     /**

@@ -50,6 +50,6 @@ final class ModelNbtFactory implements NbtFactory<NbtValue> {
     }
 
     public NbtValue compound(Map<String, NbtValue> values) {
-        return new NbtValue.Compound(values);
+        return NbtValue.Compound.of(values);
     }
 }

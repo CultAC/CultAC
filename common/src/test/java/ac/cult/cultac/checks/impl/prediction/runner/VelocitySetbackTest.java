@@ -1,6 +1,8 @@
 package ac.cult.cultac.checks.impl.prediction.runner;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -49,7 +51,19 @@ class VelocitySetbackTest {
         run(handler, (rig, check) -> {
             rig.velocityTick(check, IGNORED_OFFSET);
             assertEquals(1, check.violations);
-            verify(rig.setbacks, times(1)).executeViolationSetback();
+            verify(rig.setbacks, times(1)).executeViolationSetback(same(check));
+        });
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("handlers")
+    void anIgnoredSetbackVelocitySetsBackInTheHandlersName(
+            String configName, Function<CultPlayer, PacketModHandler> handler) {
+        run(handler, (rig, check) -> {
+            rig.velocityTick(check, IGNORED_OFFSET, true);
+            assertEquals(0, check.violations);
+            verify(rig.setbacks, times(1)).executeViolationSetback(same(check));
+            verify(rig.setbacks, never()).executeViolationSetback();
         });
     }
 
@@ -62,6 +76,7 @@ class VelocitySetbackTest {
             check.updatePermissions();
             rig.velocityTick(check, IGNORED_OFFSET);
             assertEquals(1, check.violations);
+            verify(rig.setbacks, never()).executeViolationSetback(any(Check.class));
             verify(rig.setbacks, never()).executeViolationSetback();
         });
     }
@@ -93,12 +108,17 @@ class VelocitySetbackTest {
             player.gamemode = GameMode.SURVIVAL;
             player.noSetbackPermission = false;
             doReturn(setbacks).when(player).getSetbackTeleportUtil();
-            doReturn(true).when(setbacks).executeViolationSetback();
+            doReturn(true).when(setbacks).executeViolationSetback(any(Check.class));
         }
 
         /** One client tick after a confirmed velocity whose best candidate has this offset. */
         void velocityTick(PacketModHandler check, double offset) {
-            var velocity = new TransactionVel(new Vec3(0, 0.4, 0), 1, true, false);
+            velocityTick(check, offset, false);
+        }
+
+        /** As {@link #velocityTick(PacketModHandler, double)}; {@code setback}: a setback sent the velocity. */
+        void velocityTick(PacketModHandler check, double offset, boolean setback) {
+            var velocity = new TransactionVel(new Vec3(0, 0.4, 0), 1, true, setback);
             velocity.addOffset(offset);
             check.secondBread = velocity;
             var result = mock(PredictionResult.class);

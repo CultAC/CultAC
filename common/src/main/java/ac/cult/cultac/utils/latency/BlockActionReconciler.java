@@ -1,12 +1,15 @@
 package ac.cult.cultac.utils.latency;
 
 import ac.cult.blocksim.SimAction;
+import ac.cult.blocksim.engine.SimItemStack;
 import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.events.packets.blockplace.PlaceHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
 import ac.cult.cultac.network.packet.InventoryPackets;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
+import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItem;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundUseItemOn;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Hand;
@@ -22,14 +25,90 @@ import org.jetbrains.annotations.Nullable;
 
 /** Reject client actions without admitting their writes to the simulation world. Owner-thread only. */
 public final class BlockActionReconciler {
+    /** ServerGamePacketListenerImpl#restartClientLoadTimerAfterRespawn. */
+    private static final int CLIENT_LOADED_TIMEOUT_TICKS = 60;
+
     private final CultPlayer player;
     private final ArrayDeque<Correction> pending = new ArrayDeque<>();
     private int lastForwarded = -1;
     private int lastConfirmedServerAck = -1;
     private @Nullable BlockPos serverDestroyPos;
+    private boolean serverWaitingForRespawn;
+    private boolean serverWonGame;
+    private boolean serverAwaitingLoad;
+    private int loadTimerStartTick;
 
     public BlockActionReconciler(CultPlayer player) {
         this.player = player;
+    }
+
+    /**
+     * ServerGamePacketListenerImpl#hasClientLoaded is false: handleUseItemOn, handleUseItem and handlePlayerAction
+     * drop the action without acknowledging its sequence. The load timer counts server ticks ended since the login or
+     * respawn was sent and runs one tick past the server's, the tick the server may handle the action in.
+     */
+    public boolean serverDropsActions() {
+        if (player.isBedrockMovement() || !player.getObservedProtocol().atLeast(ProtocolVersion.V1_21_4)) return false;
+        if (serverWaitingForRespawn) return true;
+        if (serverAwaitingLoad && player.getTick() - loadTimerStartTick > CLIENT_LOADED_TIMEOUT_TICKS) {
+            serverAwaitingLoad = false;
+        }
+        return serverAwaitingLoad;
+    }
+
+    /** The ServerGamePacketListenerImpl constructor starts the load timer. */
+    public void loginSent() {
+        serverWaitingForRespawn = false;
+        serverWonGame = false;
+        startLoadTimer();
+    }
+
+    /** ServerPlayer#die sends the combat kill, then ServerGamePacketListenerImpl#markClientUnloadedAfterDeath. */
+    public void deathSent() {
+        serverWaitingForRespawn = true;
+    }
+
+    /** ServerPlayer#showEndCredits: the next PERFORM_RESPAWN respawns the player. */
+    public void wonGameSent() {
+        serverWonGame = true;
+    }
+
+    /** ServerGamePacketListenerImpl#markClientLoaded. */
+    public void loadReachedServer() {
+        serverAwaitingLoad = false;
+    }
+
+    /** True when this respawn is PlayerList#respawn after a death or the end credits, not a dimension change. */
+    public boolean isServerRespawn() {
+        return serverWaitingForRespawn || serverWonGame;
+    }
+
+    /**
+     * PlayerList#respawn, sent after the respawn packet. The server has handled every action forwarded before it, so a
+     * prediction no acknowledgement has ended was dropped while the player was dead; its sequence will not be
+     * acknowledged. Pending corrections no longer wait for it, and in the same level the dropped predictions get the
+     * server states and an acknowledgement of their sequence.
+     */
+    public void serverRespawned(boolean sameLevel) {
+        boolean died = serverWaitingForRespawn;
+        serverWaitingForRespawn = false;
+        serverWonGame = false;
+        serverDestroyPos = null;
+        startLoadTimer();
+        if (!died || player.isBedrockMovement() || CultAPI.INSTANCE.getConfigManager().isObserveOnly()) return;
+        lastForwarded = Math.min(lastForwarded, lastConfirmedServerAck);
+        for (Correction correction : pending) correction.barrier = Math.min(correction.barrier, lastForwarded);
+        int dropped = player.compensatedWorld.highestUnacknowledgedPredictionSequence();
+        if (sameLevel && dropped >= 0) {
+            Correction correction = correction(dropped);
+            correction.positions.addAll(player.compensatedWorld.unacknowledgedPredictionPositions());
+            enqueue(correction);
+        } else drain();
+    }
+
+    private void startLoadTimer() {
+        serverAwaitingLoad = true;
+        loadTimerStartTick = player.getTick();
     }
 
     public void forwarded(int sequence) {
@@ -45,10 +124,10 @@ public final class BlockActionReconciler {
     public void rejectEarly(Object packet) {
         if (player.isBedrockMovement()) return;
         if (packet instanceof ServerboundUseItemOn place) {
-            player.compensatedWorld.advanceClientPredictionSequence();
+            player.compensatedWorld.advanceClientPredictionSequence(place.sequence());
             rejectPlace(place);
         } else if (packet instanceof ServerboundPlayerAction dig && isPredictedDig(dig.action())) {
-            player.compensatedWorld.advanceClientPredictionSequence();
+            player.compensatedWorld.advanceClientPredictionSequence(dig.sequence());
             rejectDig(dig);
         }
     }
@@ -59,12 +138,40 @@ public final class BlockActionReconciler {
             forwarded(packet.sequence());
             return;
         }
-        var prediction = PlaceHandler.predictRejectedUseItemOn(player, packet);
+        enqueuePlace(packet, PlaceHandler.predictRejectedUseItemOn(player, packet));
+    }
+
+    /** A place whose prediction was applied before the action was withheld from the server. */
+    public void rejectPlace(ServerboundUseItemOn packet, ClientBlockActions.Prediction prediction) {
+        if (player.isBedrockMovement()) return;
+        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+            forwarded(packet.sequence());
+            return;
+        }
+        enqueuePlace(packet, prediction);
+    }
+
+    private void enqueuePlace(ServerboundUseItemOn packet, ClientBlockActions.Prediction prediction) {
         Correction correction = correction(packet.sequence());
         correction.positions.add(packet.blockPosition());
         correction.positions.add(packet.blockPosition().relative(packet.blockFace()));
+        enqueue(correction, packet.hand(), prediction);
+    }
+
+    /** A use whose prediction was applied before the action was withheld from the server. */
+    public void rejectUse(ServerboundUseItem packet, ClientBlockActions.Prediction prediction) {
+        if (player.isBedrockMovement()) return;
+        if (prediction.writes().isEmpty() && prediction.inventory().isEmpty()) return;
+        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) {
+            forwarded(packet.sequence());
+            return;
+        }
+        enqueue(correction(packet.sequence()), packet.hand(), prediction);
+    }
+
+    private void enqueue(Correction correction, Hand hand, ClientBlockActions.Prediction prediction) {
         correction.slots.add(
-                packet.hand() == Hand.MAIN_HAND
+                hand == Hand.MAIN_HAND
                         ? Inventory.HOTBAR_OFFSET + player.packetStateData.lastSlotSelected
                         : Inventory.SLOT_OFFHAND);
         trackWrites(correction, prediction);
@@ -97,6 +204,7 @@ public final class BlockActionReconciler {
      */
     public void abortServerDestroy(PacketReceiveEvent<ServerboundPlayerAction> event, ServerboundPlayerAction packet) {
         if (player.isBedrockMovement() || CultAPI.INSTANCE.getConfigManager().isObserveOnly()) return;
+        if (serverDropsActions()) return;
         if (packet.action() != PlayerAction.STOP_DESTROY_BLOCK
                 || !packet.position().equals(serverDestroyPos)) return;
         event.setCancelled(false);
@@ -166,9 +274,9 @@ public final class BlockActionReconciler {
         var slots = new ArrayList<InventoryPackets.Slot>();
         for (int slot : correction.slots) {
             int menuSlot = inventory.inventory.menuSlotForStorage(slot);
-            if (menuSlot < 0) continue;
-            slots.add(new InventoryPackets.Slot(
-                    0, inventory.serverStateId(), menuSlot, inventory.serverSlotForCorrection(slot)));
+            SimItemStack item = inventory.serverViewSlot(slot);
+            if (menuSlot < 0 || item == null) continue;
+            slots.add(new InventoryPackets.Slot(0, inventory.serverStateId(), menuSlot, item));
         }
         BlockPredictionAckSender.sendCorrections(player, correction.sequence, true, updates, slots);
     }
@@ -186,7 +294,7 @@ public final class BlockActionReconciler {
 
     private static final class Correction {
         int sequence;
-        final int barrier;
+        int barrier;
         final Set<BlockPos> positions = new LinkedHashSet<>();
         final Set<Integer> slots = new LinkedHashSet<>();
 

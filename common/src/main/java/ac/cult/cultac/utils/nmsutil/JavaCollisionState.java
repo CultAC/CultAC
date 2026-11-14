@@ -20,6 +20,8 @@ public record JavaCollisionState(
     private static final VoxelShape FALLING_SNOW = Shapes.create(0, 0, 0, 1, (double) 0.9F, 1);
     // Strider#getLiquidCollisionShape, Block.column(16, 0, 8); before 26.1 the same LiquidBlock#STABLE_SHAPE.
     private static final VoxelShape STRIDER_LIQUID = Shapes.create(0, 0, 0, 1, 0.5, 1);
+    /** States with a +0.0 fall distance by {@link #flagIndex}. */
+    private static final JavaCollisionState[] AT_REST = atRest();
 
     public static JavaCollisionState of(CultPlayer player, PacketEntity actor, double fallDistance) {
         boolean self = actor == player.compensatedEntities.getSelf();
@@ -27,12 +29,31 @@ public record JavaCollisionState(
                 || self && player.getInventory().getBoots().getItem() == ItemTypes.LEATHER_BOOTS;
         // Entity#isDescending is isShiftKeyDown: LocalPlayer's shift key, or another entity's shared flag 1.
         boolean descending = self ? player.isSneaking : (actor.actionSharedFlags & 2) != 0;
-        return new JavaCollisionState(
+        return of(
                 fallDistance,
                 walks,
                 descending,
                 actor.type == EntityTypeIds.FALLING_BLOCK,
                 actor.type == EntityTypeIds.STRIDER);
+    }
+
+    /** A state with these components; a shared one when the fall distance is +0.0. */
+    static JavaCollisionState of(
+            double fallDistance, boolean walksOnPowderSnow, boolean descending, boolean fallingBlock, boolean strider) {
+        if (Double.doubleToRawLongBits(fallDistance) == 0L)
+            return AT_REST[flagIndex(walksOnPowderSnow, descending, fallingBlock, strider)];
+        return new JavaCollisionState(fallDistance, walksOnPowderSnow, descending, fallingBlock, strider);
+    }
+
+    private static int flagIndex(boolean walksOnPowderSnow, boolean descending, boolean fallingBlock, boolean strider) {
+        return (walksOnPowderSnow ? 1 : 0) | (descending ? 2 : 0) | (fallingBlock ? 4 : 0) | (strider ? 8 : 0);
+    }
+
+    private static JavaCollisionState[] atRest() {
+        JavaCollisionState[] states = new JavaCollisionState[16];
+        for (int i = 0; i < states.length; i++)
+            states[i] = new JavaCollisionState(0.0, (i & 1) != 0, (i & 2) != 0, (i & 4) != 0, (i & 8) != 0);
+        return states;
     }
 
     /** Whether the state's collision shape reads these moving-entity inputs rather than only its bottom. */

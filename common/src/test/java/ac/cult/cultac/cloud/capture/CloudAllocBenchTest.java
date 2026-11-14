@@ -159,7 +159,56 @@ class CloudAllocBenchTest {
         String out = System.getenv("CULTAC_CLOUD_ALLOC_BENCH");
         assumeTrue(out != null && !out.isEmpty());
         Files.writeString(
-                Path.of(out), frames() + strips() + teams(), StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                Path.of(out),
+                frames() + variedFrames() + strips() + teams(),
+                StandardOpenOption.CREATE,
+                StandardOpenOption.APPEND);
+    }
+
+    /** Ticks whose packets differ in length from tick to tick, a few of them past a few hundred bytes. */
+    private static String variedFrames() {
+        SplittableRandom random = new SplittableRandom(43);
+        List<ByteBuf> drawn = new ArrayList<>();
+        for (int i = 0; i < 4093; i++) {
+            int body = random.nextInt(16) == 0 ? 300 + random.nextInt(1800) : 4 + random.nextInt(200);
+            drawn.add(packet(ENTITY, body, random));
+        }
+        ByteBuf move = packet(MOVE, 25, random);
+        ByteBuf end = packet(TICK_END, 0, random);
+        CaptureStream plain = joined(new Discard(false));
+        CaptureStream reusing = joined(new Discard(true));
+        long[] nanos = new long[1];
+        long[] ticks = new long[2];
+        int[] at = new int[2];
+        LongSupplier next = () -> nanos[0] += 600_000;
+        return compare(
+                "varied frame per tick",
+                TICKS,
+                () -> ticks[0] = runVaried(plain, drawn, at, 0, move, end, ticks[0], next),
+                () -> ticks[1] = runVaried(reusing, drawn, at, 1, move, end, ticks[1], next));
+    }
+
+    private static long runVaried(
+            CaptureStream stream,
+            List<ByteBuf> drawn,
+            int[] at,
+            int side,
+            ByteBuf move,
+            ByteBuf end,
+            long tick,
+            LongSupplier nanos) {
+        for (int t = 0; t < TICKS; t++) {
+            tick++;
+            for (int i = 0; i < 64; i++) {
+                tap(stream, IntakeWire.CLIENTBOUND, ENTITY, drawn.get(at[side]), nanos);
+                at[side] = (at[side] + 1) % drawn.size();
+            }
+            tap(stream, IntakeWire.SERVERBOUND, MOVE, move, nanos);
+            tap(stream, IntakeWire.SERVERBOUND, TICK_END, end, nanos);
+            stream.cut(nanos.getAsLong());
+            stream.verdict(tick, tick, 0, List.of(), null, List.of(), null);
+        }
+        return tick;
     }
 
     private static String frames() {
@@ -222,7 +271,7 @@ class CloudAllocBenchTest {
         PlayerText.Reader reader = new PlayerText.Reader();
         int passes = 1500;
         StringBuilder lines = new StringBuilder();
-        for (int limit : new int[] {PlayerText.Reader.MAX_KEPT_LENGTH, Integer.MAX_VALUE}) {
+        for (int limit : new int[] {256, Integer.MAX_VALUE}) {
             List<Drawn> cases =
                     drawn.stream().filter(c -> c.packet().length <= limit).toList();
             lines.append(compare(

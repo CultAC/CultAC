@@ -222,7 +222,7 @@ public final class ReachabilityOrderingParityTest {
             assertEquals(1, order.skipped);
             assertEquals(2, order.queueSizeAtCallback);
             assertEquals(0, order.receivedAtCallback);
-            assertEquals(0, sentTransactions(player).size());
+            assertEquals(0, sentTransactionCount(player));
             assertEquals(2, player.lastTransactionReceived.get());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
@@ -244,7 +244,7 @@ public final class ReachabilityOrderingParityTest {
             player.markBedrockTransactionClientbound(202);
             assertTrue(player.addTransactionResponse(202));
             assertEquals(0, order.skipped);
-            assertEquals(0, sentTransactions(player).size());
+            assertEquals(0, sentTransactionCount(player));
             assertEquals(2, player.lastTransactionReceived.get());
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
@@ -443,26 +443,41 @@ public final class ReachabilityOrderingParityTest {
         return event;
     }
 
-    @SuppressWarnings("unchecked")
-    private static Queue<Object> sentTransactions(CultPlayer player) throws ReflectiveOperationException {
+    /** The written transactions awaiting their pong, wherever the player keeps them. */
+    private static int sentTransactionCount(CultPlayer player) throws ReflectiveOperationException {
         Field field = CultPlayer.class.getDeclaredField("transactionsSent");
         field.setAccessible(true);
-        return (Queue<Object>) field.get(player);
+        Object sent = field.get(player);
+        if (sent != null) return ((Queue<?>) sent).size();
+        Object written = writtenPings(player);
+        Method size = written.getClass().getDeclaredMethod("size");
+        size.setAccessible(true);
+        return (int) size.invoke(written);
+    }
+
+    private static Object writtenPings(CultPlayer player) throws ReflectiveOperationException {
+        Field field = CultPlayer.class.getDeclaredField("writtenPings");
+        field.setAccessible(true);
+        return field.get(player);
     }
 
     @SuppressWarnings("unchecked")
     private static void enqueueSentTransaction(CultPlayer player, int transaction, int id)
             throws ReflectiveOperationException {
-        Class<?> sentTransaction = Class.forName("ac.cult.cultac.player.CultPlayer$"
-                + (player.isBedrockMovement() ? "BedrockTransaction" : "SentTransaction"));
-        Constructor<?> constructor = player.isBedrockMovement()
-                ? sentTransaction.getDeclaredConstructor(int.class, int.class)
-                : sentTransaction.getDeclaredConstructor(int.class, int.class, long.class);
+        if (!player.isBedrockMovement()) {
+            Object written = writtenPings(player);
+            Method add = written.getClass().getDeclaredMethod("add", int.class, int.class, long.class);
+            add.setAccessible(true);
+            add.invoke(written, transaction, id, System.nanoTime());
+            return;
+        }
+        Class<?> sentTransaction = Class.forName("ac.cult.cultac.player.CultPlayer$BedrockTransaction");
+        Constructor<?> constructor = sentTransaction.getDeclaredConstructor(int.class, int.class);
         constructor.setAccessible(true);
-        Object sent = player.isBedrockMovement()
-                ? constructor.newInstance(transaction, id)
-                : constructor.newInstance(transaction, id, System.nanoTime());
-        sentTransactions(player).add(sent);
+        Object sent = constructor.newInstance(transaction, id);
+        Method bedrockTransactions = CultPlayer.class.getDeclaredMethod("bedrockTransactions");
+        bedrockTransactions.setAccessible(true);
+        ((Queue<Object>) bedrockTransactions.invoke(player)).add(sent);
         Field ids = CultPlayer.class.getDeclaredField("transactionsSentById");
         ids.setAccessible(true);
         ((Int2ObjectMap<Object>) ids.get(player)).put(id, sent);
@@ -541,7 +556,7 @@ public final class ReachabilityOrderingParityTest {
         public void skipped(int skipped) {
             this.skipped = skipped;
             try {
-                queueSizeAtCallback = sentTransactions(player).size();
+                queueSizeAtCallback = sentTransactionCount(player);
             } catch (ReflectiveOperationException exception) {
                 throw new IllegalStateException(exception);
             }

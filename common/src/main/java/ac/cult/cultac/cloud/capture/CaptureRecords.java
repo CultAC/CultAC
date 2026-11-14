@@ -17,6 +17,8 @@ final class CaptureRecords {
     private long[] nanos;
     private int[] ids;
     private byte[][] bytes;
+    private int[] offsets;
+    private int[] lengths;
     private int[] minYs;
     private int[] heights;
     private CaptureStream.Session[] sessions;
@@ -29,6 +31,8 @@ final class CaptureRecords {
         nanos = new long[capacity];
         ids = new int[capacity];
         bytes = new byte[capacity][];
+        offsets = new int[capacity];
+        lengths = new int[capacity];
         minYs = new int[capacity];
         heights = new int[capacity];
         sessions = new CaptureStream.Session[capacity];
@@ -42,6 +46,8 @@ final class CaptureRecords {
             long nanos,
             int id,
             byte[] bytes,
+            int offset,
+            int length,
             int minY,
             int height,
             CaptureStream.Session session,
@@ -53,6 +59,8 @@ final class CaptureRecords {
         this.nanos[size] = nanos;
         ids[size] = id;
         this.bytes[size] = bytes;
+        offsets[size] = offset;
+        lengths[size] = length;
         minYs[size] = minY;
         heights[size] = height;
         sessions[size] = session;
@@ -68,6 +76,8 @@ final class CaptureRecords {
         nanos = Arrays.copyOf(nanos, capacity);
         ids = Arrays.copyOf(ids, capacity);
         bytes = Arrays.copyOf(bytes, capacity);
+        offsets = Arrays.copyOf(offsets, capacity);
+        lengths = Arrays.copyOf(lengths, capacity);
         minYs = Arrays.copyOf(minYs, capacity);
         heights = Arrays.copyOf(heights, capacity);
         sessions = Arrays.copyOf(sessions, capacity);
@@ -100,8 +110,17 @@ final class CaptureRecords {
         return ids[index];
     }
 
+    /** The array holding the record's bytes, from {@link #offset} for {@link #length}. */
     byte[] bytes(int index) {
         return bytes[index];
+    }
+
+    int offset(int index) {
+        return offsets[index];
+    }
+
+    int length(int index) {
+        return lengths[index];
     }
 
     int minY(int index) {

@@ -59,6 +59,7 @@ class BadPacketsHSequenceTest {
     void aLoginStartsANewClientLevelAtSequenceOne() {
         useThrough(41);
         login(player, GameMode.SURVIVAL);
+        playerLoaded();
         assertFalse(use(Hand.MAIN_HAND, 1));
         assertEquals(0, check().violations);
         assertTrue(use(Hand.MAIN_HAND, 3), "a skipped id still cancels");
@@ -94,6 +95,7 @@ class BadPacketsHSequenceTest {
         useThrough(4);
         assertFalse(useOn(Hand.MAIN_HAND, 5));
         login(player, GameMode.SURVIVAL);
+        playerLoaded();
         useThrough(4);
         assertFalse(useOn(Hand.OFF_HAND, 5));
         assertFalse(use(Hand.MAIN_HAND, 6));
@@ -147,6 +149,14 @@ class BadPacketsHSequenceTest {
 
     private BadPacketsH check() {
         return player.checkManager.getCheck(BadPacketsH.class);
+    }
+
+    /** ClientPacketListener#notifyPlayerLoaded's ServerboundPlayerLoadedPacket, sent before any use in the level. */
+    private void playerLoaded() {
+        var packet = ServerboundPackets.PLAYER_LOADED.opaqueValue();
+        var event =
+                new PacketReceiveEvent<>(fixture.user, ConnectionPhase.PLAY, ServerboundPackets.PLAYER_LOADED, packet);
+        new CheckManagerListener().onPlayerLoaded(event, player, packet);
     }
 
     /** Main-hand uses 1 to {@code last}, none of them cancelled. */

@@ -59,6 +59,18 @@ public class PredictionResult {
     @EqualsAndHashCode.Exclude
     @ToString.Exclude
     private double selectionOffset = Double.NaN;
+    // The last legacy-like vector and the closest, input target and radius bits it was built from.
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    private Vec3 legacyLikeVector, legacyLikeClosest, legacyLikeTarget;
+
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    private long legacyLikeRadius;
 
     @Getter
     @Setter
@@ -243,7 +255,19 @@ public class PredictionResult {
                     inputTarget.y,
                     pass.result().fixedZ() ? closest.z : inputTarget.z);
         }
-        return UncertaintyHelper.handleCircular(new PredVector(closest), inputTarget, getHorizontalInputRadius());
+        double radius = getHorizontalInputRadius();
+        long radiusBits = Double.doubleToRawLongBits(radius);
+        // An input target a pass rebuilt is a new vector, which no earlier read was built from.
+        if (legacyLikeVector != null
+                && closest == legacyLikeClosest
+                && inputTarget == legacyLikeTarget
+                && radiusBits == legacyLikeRadius) return legacyLikeVector;
+        Vec3 vector = UncertaintyHelper.handleCircular(new PredVector(closest), inputTarget, radius);
+        legacyLikeClosest = closest;
+        legacyLikeTarget = inputTarget;
+        legacyLikeRadius = radiusBits;
+        legacyLikeVector = vector;
+        return vector;
     }
 
     /** Radius of the circular horizontal input allowance around the closest movement. */

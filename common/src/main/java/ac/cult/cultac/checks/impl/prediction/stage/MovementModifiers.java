@@ -142,7 +142,9 @@ public class MovementModifiers {
         }
 
         // To prevent trying to add a million vectors, we limit the overridden vels
-        for (TransactionVel order : player.checkManager.getKnockbackHandler().overriddenVels) {
+        List<TransactionVel> overriddenVels = player.checkManager.getKnockbackHandler().overriddenVels;
+        for (int i = 0, size = overriddenVels.size(); i < size; i++) {
+            TransactionVel order = overriddenVels.get(i);
             PredVector overriddenVel = new PredVector(order.getVel());
             overriddenVel.setEntityMotion(true);
             start.add(overriddenVel);
@@ -170,7 +172,8 @@ public class MovementModifiers {
                 start = pushed;
                 continue;
             }
-            for (PredVector vector : new ArrayList<>(start)) {
+            for (int i = 0, size = start.size(); i < size; i++) {
+                PredVector vector = start.get(i);
                 Vec3 eventVel = vel.getVel();
 
                 if (vel.isVelocity()) { // Velocity

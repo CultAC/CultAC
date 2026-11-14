@@ -99,21 +99,27 @@ public class GhostBlockMitigator extends CultProcessor implements PostPrediction
         }
 
         // Remove illegal blocks if they are in unloaded chunks
-        unknownStuff
-                .entrySet()
-                .removeIf(entry -> player.compensatedWorld.getChunk(
-                                entry.getKey().getX() >> 4, entry.getKey().getZ() >> 4)
-                        == null);
-        pseudoPlaces
-                .values()
-                .removeIf(ghost -> player.compensatedWorld.getChunk(
-                                ghost.getPosition().getX() >> 4,
-                                ghost.getPosition().getZ() >> 4)
-                        == null);
-        bucketUseLocations
-                .keySet()
-                .removeIf(location ->
-                        player.compensatedWorld.getChunk(location.getX() >> 4, location.getZ() >> 4) == null);
+        if (!unknownStuff.isEmpty()) {
+            unknownStuff
+                    .entrySet()
+                    .removeIf(entry -> player.compensatedWorld.getChunk(
+                                    entry.getKey().getX() >> 4, entry.getKey().getZ() >> 4)
+                            == null);
+        }
+        if (!pseudoPlaces.isEmpty()) {
+            pseudoPlaces
+                    .values()
+                    .removeIf(ghost -> player.compensatedWorld.getChunk(
+                                    ghost.getPosition().getX() >> 4,
+                                    ghost.getPosition().getZ() >> 4)
+                            == null);
+        }
+        if (!bucketUseLocations.isEmpty()) {
+            bucketUseLocations
+                    .keySet()
+                    .removeIf(location ->
+                            player.compensatedWorld.getChunk(location.getX() >> 4, location.getZ() >> 4) == null);
+        }
     }
 
     /** Forgets every placement; call when the client replaces its level. */
@@ -148,7 +154,7 @@ public class GhostBlockMitigator extends CultProcessor implements PostPrediction
     public void handlePseudoPlace(GhostBlock ghostBlock) {
         GhostBlock existing = pseudoPlaces.remove(ghostBlock.getPosition());
         if (existing != null && isEndCrystal(ghostBlock) && !isEndCrystal(existing)) ghostBlock = existing;
-        ghostBlock.setSequence(player.compensatedWorld.clientPredictionSequence());
+        ghostBlock.setSequence(player.compensatedWorld.clientWireSequence());
         if (pseudoPlaces.size() >= MAX_PSEUDO_PLACES) {
             pseudoPlaces.remove(pseudoPlaces.keySet().iterator().next());
         }
@@ -161,7 +167,7 @@ public class GhostBlockMitigator extends CultProcessor implements PostPrediction
 
     // This method is called if and only if it isn't placed on a known desync pos
     public void handleBlockPlace(BlockPos placeBox, int original, int newState, BlockPlace place) {
-        int sequence = player.compensatedWorld.clientPredictionSequence();
+        int sequence = player.compensatedWorld.clientWireSequence();
         if (place.isUseItem()) {
             bucketUseLocations.put(placeBox, sequence);
         }

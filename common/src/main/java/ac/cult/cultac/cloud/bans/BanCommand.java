@@ -1,5 +1,6 @@
 package ac.cult.cultac.cloud.bans;
 
+import ac.cult.cultac.cloud.CommandText;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -26,7 +27,11 @@ import org.jetbrains.annotations.Nullable;
  * than filled when a placeholder the template uses would put a word starting with {@code -} into the command, other
  * than {@code silent}, which must be one flag starting with {@code -} or empty. It is also refused when the template
  * holds {@code =%} (a {@code key=value} command) and {@code reason} or {@code reason_label} holds a word starting
- * {@code name=}.
+ * {@code name=}, and when the {@code reason} as the service sent it, used as {@code reason} or as a {@code reason_label}
+ * that is the reason, starts with a {@linkplain #LENGTH_WORD length or server word}. {@code reason},
+ * {@code reason_label}, {@code staff} and {@code cheat} lose {@code <}, section signs and {@code &} format codes, also
+ * those the other removals expose. A {@code reason} that starts with a length or server word only once they are gone
+ * gains a leading {@code '}, and so does a {@code reason_label} the ban carries that starts with one.
  */
 public final class BanCommand {
     static final int MAX_TEXT = 200;
@@ -41,6 +46,10 @@ public final class BanCommand {
     /** A word that starts {@code name=}, which a {@code key=value} command reads as another option. */
     private static final Pattern KEY_WORD = Pattern.compile("(?:^|\\s)[A-Za-z_][A-Za-z0-9_-]*=");
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
+    /** A first word in the form of a length or scope, such as {@code 7d}, {@code 1h30m} or {@code server:lobby}. */
+    private static final Pattern LENGTH_WORD = Pattern.compile(
+            "(?i)(\\d+(s|secs?|seconds?|m|mins?|minutes?|h|hrs?|hours?|d|days?|w|wks?|weeks?|mo|mons?|months?|y|yrs?|years?))+"
+                    + "|server:.*");
     private static final long[] UNIT_SECONDS = {86400, 3600, 60};
     private static final String[] UNITS = {"d", "h", "m"};
     /** The placeholders {@link #fill} fills, the keys of {@link #values}. */
@@ -83,6 +92,7 @@ public final class BanCommand {
     public static String fill(String template, StaffBans.Ban ban) {
         Map<String, String> values = values(ban);
         boolean keyed = template.contains("=%");
+        Set<String> lengthless = ban.reasonLabel() == null ? Set.of("reason", "reason_label") : Set.of("reason");
         StringJoiner command = new StringJoiner(" ");
         for (String word : WHITESPACE.split(template.strip())) {
             Matcher matcher = PLACEHOLDER.matcher(word);
@@ -95,6 +105,9 @@ public final class BanCommand {
                     value = matcher.group();
                 } else {
                     check(name, value, keyed);
+                    if (lengthless.contains(name) && lengthFirst(clean(ban.reason(), Integer.MAX_VALUE))) {
+                        throw new Refused("%" + name + "% starts with a length or a server: word");
+                    }
                     empty |= value.isEmpty();
                 }
                 matcher.appendReplacement(out, Matcher.quoteReplacement(value));
@@ -126,17 +139,21 @@ public final class BanCommand {
         }
     }
 
+    /** Whether {@code text}'s first word is a {@link #LENGTH_WORD}. */
+    static boolean lengthFirst(String text) {
+        int space = text.indexOf(' ');
+        return LENGTH_WORD.matcher(space < 0 ? text : text.substring(0, space)).matches();
+    }
+
     static Map<String, String> values(StaffBans.Ban ban) {
         String uuid = ban.player().toString();
         String name = clean(ban.name(), Integer.MAX_VALUE);
         Map<String, String> values = new HashMap<>();
         values.put("player", NAME.matcher(name).matches() && !name.startsWith("-") ? name : uuid);
         values.put("uuid", uuid);
-        values.put("reason", unflagged(clean(ban.reason(), MAX_TEXT), MAX_TEXT));
-        values.put(
-                "reason_label",
-                unflagged(clean(ban.reasonLabel() == null ? ban.reason() : ban.reasonLabel(), MAX_TEXT), MAX_TEXT));
-        values.put("cheat", keyless(ban.cheatName() == null ? ban.cheat() : ban.cheatName(), Integer.MAX_VALUE));
+        values.put("reason", reason(ban.reason()));
+        values.put("reason_label", ban.reasonLabel() == null ? reason(ban.reason()) : label(ban.reasonLabel()));
+        values.put("cheat", plainKeyless(ban.cheatName() == null ? ban.cheat() : ban.cheatName(), Integer.MAX_VALUE));
         values.put("cheat_id", keyless(ban.cheat(), Integer.MAX_VALUE));
         values.put("duration", duration(ban));
         values.put(
@@ -145,7 +162,7 @@ public final class BanCommand {
                         ? Long.toString(ban.durationSeconds())
                         : "");
         values.put("silent", clean(ban.silentFlag(), Integer.MAX_VALUE));
-        values.put("staff", keyless(ban.staff(), MAX_TEXT));
+        values.put("staff", plainKeyless(ban.staff(), MAX_TEXT));
         values.put("ban_id", keyless(ban.id(), Integer.MAX_VALUE));
         values.put("link", url(ban.link()));
         values.put("staff_uuid", staffUuid(ban.staffUuid()));
@@ -169,9 +186,44 @@ public final class BanCommand {
         };
     }
 
+    /**
+     * {@code text} plain, cleaned and {@linkplain #unflagged unflagged} within {@link #MAX_TEXT}, with a {@code '}
+     * before a {@link #LENGTH_WORD} that only its removals bring to the front.
+     */
+    static String reason(@Nullable String text) {
+        return quoted(text, !lengthFirst(clean(text, Integer.MAX_VALUE)));
+    }
+
+    /**
+     * {@code text} plain, cleaned and {@linkplain #unflagged unflagged} within {@link #MAX_TEXT}, with a {@code '}
+     * before a leading {@link #LENGTH_WORD}.
+     */
+    static String label(String text) {
+        return quoted(text, true);
+    }
+
+    private static String quoted(@Nullable String text, boolean quoteLength) {
+        String shown = unflagged(plain(text, false, MAX_TEXT), MAX_TEXT);
+        return quoteLength && lengthFirst(shown) ? "'" + cut(shown, MAX_TEXT - 1) : shown;
+    }
+
+    /**
+     * {@code text} {@linkplain #clean cleaned} to at most {@code max} characters, without {@code <}, section signs and
+     * {@code &} format codes, and without {@code =} when {@code keyless}; cleaning it again changes nothing.
+     */
+    static String plain(@Nullable String text, boolean keyless, int max) {
+        if (text == null) return "";
+        return clean(CommandText.plain(clean(keyless ? text.replace("=", "") : text, Integer.MAX_VALUE)), max);
+    }
+
     /** {@code text} cleaned to at most {@code max} characters without {@code =}, so it never reads as a key. */
     static String keyless(@Nullable String text, int max) {
         return unflagged(clean(text == null ? null : text.replace("=", ""), max), max);
+    }
+
+    /** {@code text} {@linkplain #plain plain} and {@linkplain #keyless keyless} within {@code max}. */
+    static String plainKeyless(@Nullable String text, int max) {
+        return unflagged(plain(text, true, max), max);
     }
 
     /** {@code text} as a lower-case dashed UUID; empty unless it is one. */

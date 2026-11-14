@@ -5,7 +5,6 @@ import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.CheckInfo;
 import ac.cult.cultac.checks.impl.prediction.ItemUseBurstResult;
 import ac.cult.cultac.checks.impl.prediction.checks.ItemUseInput;
-import ac.cult.cultac.checks.impl.prediction.checks.NoSlow;
 import ac.cult.cultac.checks.type.ClientTickEndListener;
 import ac.cult.cultac.checks.type.PostPredictionListener;
 import ac.cult.cultac.network.CultPacketHandler;
@@ -47,6 +46,8 @@ public final class ItemUseBurst extends Check implements PostPredictionListener,
             .description("Claimed fewer slowed ticks than the server spent using an item")
             .setback(0)
             .build();
+
+    private static final Hand[] HANDS = Hand.values();
 
     private final ItemUseBurstBalance balance = new ItemUseBurstBalance();
     private final ServerItemUseView view;
@@ -138,7 +139,7 @@ public final class ItemUseBurst extends Check implements PostPredictionListener,
      */
     public void serverSlotSent(int storageSlot, SimItemStack item) {
         if (!player.usesModernJavaItemUse() || item == null) return;
-        for (Hand hand : Hand.values()) {
+        for (Hand hand : HANDS) {
             String used = view.activeItem(hand == Hand.OFF_HAND);
             if (used != null && storageSlot == storageSlot(hand) && used.equals(item.itemKey()))
                 view.serverKeepsItem("server sent slot " + storageSlot);
@@ -198,11 +199,11 @@ public final class ItemUseBurst extends Check implements PostPredictionListener,
     public void onPlayerTickEnd(PacketReceiveEvent event) {
         if (!player.usesModernJavaItemUse()) return;
         long time = now.getAsLong();
-        view.threshold(player.checkManager.getListener(NoSlow.class).threshold());
+        view.threshold(player.checkManager.getNoSlow().threshold());
         view.period(period());
         // LivingEntity#updatingUsingItem stops the client once its hand holds another item. The
         // client-view inventory mirrors its own clicks and drops, and server slots at their proofs.
-        for (Hand hand : Hand.values()) {
+        for (Hand hand : HANDS) {
             String used = view.activeItem(hand == Hand.OFF_HAND);
             if (used != null)
                 view.clientHolds(

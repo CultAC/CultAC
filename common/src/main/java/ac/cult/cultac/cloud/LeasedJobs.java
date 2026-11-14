@@ -12,7 +12,6 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,10 +19,11 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.LongFunction;
-import java.util.function.Predicate;
+import java.util.function.LongSupplier;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 
@@ -41,8 +41,14 @@ public abstract class LeasedJobs<J> {
     public static final long MAX_POLL_SECONDS = 60;
     /** How long to wait before asking a service without this kind of job again. */
     public static final long ABSENT_POLL_SECONDS = 300;
+    /** The share of a poll's wait it may be moved by either way. */
+    static final double POLL_SPREAD = 0.2;
 
     public static final long RESULT_RETRY_SECONDS = 10;
+    /** How long a result is retried before it is given up. */
+    public static final Duration MAX_OWED = Duration.ofHours(24);
+    /** The most jobs one round claims; the rest wait for the next. */
+    public static final int MAX_CLAIMS_PER_ROUND = 400;
 
     public static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
     public static final int MAX_BODY = 256 << 10;
@@ -100,8 +106,11 @@ public abstract class LeasedJobs<J> {
 
     protected abstract String id(J job);
 
-    /** Which of this round's jobs are this instance's to claim now, given the pending answer. */
-    protected abstract Predicate<J> due(JsonObject pending);
+    /**
+     * For each of this round's jobs, given the pending answer: null when it is not this instance's to claim now, else
+     * what to run when its claim is not granted.
+     */
+    protected abstract Function<J, Runnable> due(JsonObject pending);
 
     /**
      * Runs a won claim: completes once it {@linkplain #report reported} the result or {@linkplain #release let the
@@ -114,16 +123,27 @@ public abstract class LeasedJobs<J> {
         return id(answered).equals(id(pending));
     }
 
+    /** Starts polling: the first round within {@link #MIN_POLL_SECONDS}, at a random point. */
     public void start() {
         chain = generation.next();
-        poll();
+        after.apply((long) (MIN_POLL_SECONDS * ThreadLocalRandom.current().nextDouble())).execute(this::poll);
     }
 
     private void poll() {
         if (!generation.latest(chain)) return;
         pollOnce()
-                .whenComplete((next, error) ->
-                        after.apply(error == null ? next : DEFAULT_POLL_SECONDS).execute(this::poll));
+                .whenComplete((next, error) -> after.apply(spread(
+                                error == null ? next : DEFAULT_POLL_SECONDS,
+                                ThreadLocalRandom.current().nextDouble()))
+                        .execute(this::poll));
+    }
+
+    /**
+     * {@code seconds} moved by up to {@link #POLL_SPREAD} of itself either way, at {@code random} in [0, 1), rounded
+     * to whole seconds and at least one.
+     */
+    static long spread(long seconds, double random) {
+        return Math.max(1, Math.round(seconds * (1 - POLL_SPREAD + 2 * POLL_SPREAD * random)));
     }
 
     /** One round: fetches the pending jobs and runs each this instance should; completes with the seconds to wait. */
@@ -172,29 +192,50 @@ public abstract class LeasedJobs<J> {
         }
         long next =
                 Math.clamp(number(pending, "pollSeconds", DEFAULT_POLL_SECONDS), MIN_POLL_SECONDS, MAX_POLL_SECONDS);
-        Predicate<J> due = due(pending);
+        Function<J, Runnable> due = due(pending);
         List<CompletableFuture<Void>> runs = new ArrayList<>();
         JsonElement jobs = pending.get(kind.plural());
         if (jobs != null && jobs.isJsonArray()) {
             for (JsonElement item : jobs.getAsJsonArray()) {
+                if (runs.size() >= MAX_CLAIMS_PER_ROUND) break;
                 J job = item.isJsonObject() ? parse(item.getAsJsonObject()) : null;
+                Runnable[] unclaimed = new Runnable[1];
                 if (job != null
-                        && generation.whileLatest(
-                                chain,
-                                () -> !handled.contains(id(job)) && due.test(job) && handled.add(id(job)))) {
-                    runs.add(claim(job));
+                        && generation.whileLatest(chain, () -> (unclaimed[0] = take(job, due)) != null)) {
+                    runs.add(claim(job, unclaimed[0]));
                 }
             }
         }
         return CompletableFuture.allOf(runs.toArray(CompletableFuture[]::new)).handle((done, error) -> next);
     }
 
-    private CompletableFuture<Void> claim(J job) {
+    /** What {@link #due} gave for {@code job} when it is due and not handled yet; it is handled from here on. */
+    private @Nullable Runnable take(J job, Function<J, Runnable> due) {
+        if (handled.contains(id(job))) return null;
+        Runnable unclaimed = due.apply(job);
+        if (unclaimed == null || handled.add(id(job))) return unclaimed;
+        unclaimed.run();
+        return null;
+    }
+
+    private CompletableFuture<Void> claim(J job, Runnable unclaimed) {
         JsonObject body = new JsonObject();
         body.addProperty("server", serverId);
-        return send(request("/api/v1/" + kind.route() + "/" + id(job) + "/claim")
-                        .POST(HttpRequest.BodyPublishers.ofString(body.toString())))
+        CompletableFuture<LabelClient.Reply> sent;
+        try {
+            sent = send(request("/api/v1/" + kind.route() + "/" + id(job) + "/claim")
+                    .POST(HttpRequest.BodyPublishers.ofString(body.toString())));
+        } catch (RuntimeException unsent) {
+            unclaimed.run();
+            release(job);
+            problem(
+                    "claim unsent",
+                    kind.label() + ": a claim was not sent (" + unsent.getClass().getSimpleName() + ")");
+            return CompletableFuture.completedFuture(null);
+        }
+        return sent
                 .handle((reply, error) -> {
+                    if (error != null || reply.status() != 200) unclaimed.run();
                     if ((error != null || reply.status() != 200) && !generation.latest(chain)) {
                         release(job);
                         return CompletableFuture.<Void>completedFuture(null);
@@ -252,7 +293,8 @@ public abstract class LeasedJobs<J> {
 
     /**
      * Posts a result, again every {@link #RESULT_RETRY_SECONDS} after no answer or a 5xx, whatever configure comes
-     * meanwhile, until the service takes it (200) or refuses it for good (any 4xx).
+     * meanwhile, until the service takes it (200) or refuses it for good (any 4xx), or it is no longer
+     * {@linkplain Handled#owing owed}.
      */
     private CompletableFuture<Void> deliver(String id, String body) {
         return send(request("/api/v1/" + kind.route() + "/" + id + "/result")
@@ -280,7 +322,16 @@ public abstract class LeasedJobs<J> {
                                 kind.label() + ": the cloud service answered HTTP " + reply.status()
                                         + " to a result; retrying every " + RESULT_RETRY_SECONDS + " s");
                     }
-                    after.apply(RESULT_RETRY_SECONDS).execute(() -> deliver(id, body));
+                    after.apply(RESULT_RETRY_SECONDS).execute(() -> {
+                        if (handled.owing(id)) {
+                            deliver(id, body);
+                        } else {
+                            problem(
+                                    "result given up",
+                                    kind.label() + ": stopped retrying a result after "
+                                            + MAX_OWED.toHours() + " h or " + handled.maxOwed() + " owed");
+                        }
+                    });
                     return null;
                 });
     }
@@ -335,16 +386,31 @@ public abstract class LeasedJobs<J> {
 
     /**
      * The ids this instance claimed, the oldest forgotten past {@code max}, and those whose result it still owes, kept
-     * until the service takes it.
+     * until the service takes it, for at most {@link #MAX_OWED} and the {@code max} most recent.
      */
     public static final class Handled {
+        private final int max;
+        private final LongSupplier nanos;
         private final Map<String, Boolean> ids;
-        private final Set<String> owed = new HashSet<>();
+        /** By id, when its result was first owed, in {@link #nanos}. */
+        private final Map<String, Long> owed;
 
         public Handled(int max) {
+            this(max, System::nanoTime);
+        }
+
+        Handled(int max, LongSupplier nanos) {
+            this.max = max;
+            this.nanos = nanos;
             ids = new LinkedHashMap<>() {
                 @Override
                 protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
+                    return size() > max;
+                }
+            };
+            owed = new LinkedHashMap<>() {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, Long> eldest) {
                     return size() > max;
                 }
             };
@@ -352,11 +418,11 @@ public abstract class LeasedJobs<J> {
 
         /** Whether {@code id} was not handled yet; it is from here on. */
         public synchronized boolean add(String id) {
-            return !owed.contains(id) && ids.putIfAbsent(id, Boolean.TRUE) == null;
+            return !owed.containsKey(id) && ids.putIfAbsent(id, Boolean.TRUE) == null;
         }
 
         public synchronized boolean contains(String id) {
-            return ids.containsKey(id) || owed.contains(id);
+            return ids.containsKey(id) || owed.containsKey(id);
         }
 
         /** Forgets a claim that was never run. */
@@ -365,11 +431,24 @@ public abstract class LeasedJobs<J> {
         }
 
         public synchronized void owe(String id) {
-            owed.add(id);
+            owed.putIfAbsent(id, nanos.getAsLong());
         }
 
         public synchronized void paid(String id) {
             owed.remove(id);
+        }
+
+        /** Whether {@code id}'s result is still owed; one owed longer than {@link #MAX_OWED} is forgotten. */
+        public synchronized boolean owing(String id) {
+            Long since = owed.get(id);
+            if (since == null) return false;
+            if (nanos.getAsLong() - since <= MAX_OWED.toNanos()) return true;
+            owed.remove(id);
+            return false;
+        }
+
+        int maxOwed() {
+            return max;
         }
     }
 }

@@ -94,6 +94,7 @@ class JavaSlimeBounceBesideBoatTest {
             f.player.xRot = yaw;
             f.player.yRot = 0.0F;
             // Player#getAttackStrengthScale passes 0.9 once the ticker reaches the item's attack delay.
+            f.place(IN_PLACE, Vec3.ZERO);
             for (int tick = 0; tick < 20; tick++) f.tickEnd();
             double firstFall = (0.0D - GRAVITY) * AIR_DRAG;
             double secondFall = (firstFall - GRAVITY) * AIR_DRAG;

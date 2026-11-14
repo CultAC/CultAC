@@ -114,7 +114,39 @@ final class SyntheticTerrain implements Sections.Terrain {
         if (!loaded(x, z)) return null;
         int index = y - minSection();
         if (index < 0 || index >= SECTIONS) return null;
+        handedOut++;
         return SectionBytes.record(x, y, z, column(x, z)[index]);
+    }
+
+    /** Whether {@link #record} writes sections straight into the frame's storage, as the simulation's terrain does. */
+    boolean inPlace = true;
+    /** Sections handed out, as arrays or records. */
+    long handedOut;
+
+    @Override
+    public Sections.Body record(int x, int y, int z) {
+        if (!inPlace) return Sections.Terrain.super.record(x, y, z);
+        if (!loaded(x, z)) return null;
+        int index = y - minSection();
+        if (index < 0 || index >= SECTIONS) return null;
+        CachedSection section = column(x, z)[index];
+        handedOut++;
+        return new Sections.Body() {
+            @Override
+            public int length() {
+                return SectionBytes.recordLength(x, y, z, section);
+            }
+
+            @Override
+            public void write(byte[] into, int offset) {
+                SectionBytes.record(x, y, z, section, into, offset);
+            }
+        };
+    }
+
+    /** Puts {@code section} at section index {@code y} of the column at {@code x}, {@code z}. */
+    void put(int x, int y, int z, CachedSection section) {
+        column(x, z)[y - minSection()] = section;
     }
 
     /**

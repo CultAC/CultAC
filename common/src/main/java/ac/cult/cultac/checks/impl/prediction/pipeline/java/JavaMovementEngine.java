@@ -7,6 +7,7 @@ import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.checks.impl.prediction.pipeline.MovementEngine;
+import ac.cult.cultac.checks.impl.prediction.runner.PredictionScratch;
 import ac.cult.cultac.checks.impl.prediction.stage.MovementModifiers;
 import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
 import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.ElytraTransform;
@@ -24,10 +25,15 @@ import ac.cult.cultac.utils.nmsutil.ClientFluidTagOrder;
 import ac.cult.cultac.utils.nmsutil.GeyserVelocity;
 import ac.cult.cultac.utils.nmsutil.InsideBlockEffectScan;
 import ac.cult.cultac.utils.nmsutil.NextTickVelocityDeriver;
+import ac.cult.cultac.utils.nmsutil.ReusableVelocitySet;
 import ac.cult.cultac.utils.nmsutil.VelocityCandidates;
+import java.util.AbstractSet;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.Set;
 
 public final class JavaMovementEngine implements MovementEngine {
@@ -57,16 +63,26 @@ public final class JavaMovementEngine implements MovementEngine {
                 && player.checkManager.getSimulationProcessor().getCurrentPredictionCarry()
                         instanceof JavaPredictionCarry committed
                 && hasMatchingVelocity(committed, startingVelocities)) {
-            var filtered = new java.util.HashSet<Vec3>();
-            for (var state : selected.states())
-                if (startingVelocities.contains(state.velocity())) filtered.add(state.velocity());
-            if (filtered.isEmpty()) return new ArrayList<>();
-            startingVelocities = filtered;
+            ReusableVelocitySet filtered = filteredVelocities(player);
+            try {
+                for (var state : selected.states())
+                    if (startingVelocities.contains(state.velocity())) filtered.add(state.velocity());
+                if (filtered.isEmpty()) return new ArrayList<>();
+                return modifiers.applyModifers(player, filtered, context, lastPrediction);
+            } finally {
+                filtered.clear();
+            }
         }
         // Minecraft#tick sends CLIENT_TICK_END even without a position packet, so the runner simulates every
         // travel from its carried velocity. ValidMovements#withheldReport checks sendPosition's withheld-position
         // bound.
         return modifiers.applyModifers(player, startingVelocities, context, lastPrediction);
+    }
+
+    /** An empty set that iterates as a fresh {@code HashSet} filled the same way: the player's scratch set, if any. */
+    private static ReusableVelocitySet filteredVelocities(CultPlayer player) {
+        PredictionScratch scratch = PredictionScratch.of(player);
+        return scratch == null ? new ReusableVelocitySet() : scratch.filteredVelocities();
     }
 
     /** From 26.3, the block-entity pass between the selected travel and the report, when it moved the player. */
@@ -707,8 +723,6 @@ public final class JavaMovementEngine implements MovementEngine {
                 }
             }
             var stateList = List.copyOf(states);
-            var nextVelocities = new LinkedHashSet<Vec3>(states.size());
-            for (var state : states) nextVelocities.add(state.velocity());
             // Contexts for subsequent ticks consume the complete per-candidate state below.
             WorldData world = result.getSimulationContext().getWorldData();
             world.setStuckSpeed(new ac.cult.cultac.utils.data.StuckSpeedData(sharedStuckSpeed(stateList), null));
@@ -727,7 +741,7 @@ public final class JavaMovementEngine implements MovementEngine {
                             ? moved.fallDistance()
                             : stateList.getFirst().fallDistance(),
                     stateList);
-            return new PredictionCommit(carry, nextVelocities);
+            return new PredictionCommit(carry, new StateVelocities(stateList));
         }
         Set<Vec3> velocities =
                 NextTickVelocityDeriver.findVelocitiesForNextTick(player, result, lastPrediction, scratch);
@@ -1004,7 +1018,9 @@ public final class JavaMovementEngine implements MovementEngine {
     }
 
     private static boolean hasMatchingVelocity(JavaPredictionCarry carry, Set<Vec3> velocities) {
-        for (var state : carry.states()) if (velocities.contains(state.velocity())) return true;
+        List<JavaPredictionCarry.State> states = carry.states();
+        for (int i = 0; i < states.size(); i++)
+            if (velocities.contains(states.get(i).velocity())) return true;
         return false;
     }
 
@@ -1016,5 +1032,64 @@ public final class JavaMovementEngine implements MovementEngine {
         // Entity#applyEffectsFromBlocks runs after travel from 1.21.2. JavaInsideBlockEffects supplies
         // the pre-1.21.9 traversal as well as the newer axis ordering and protocol773's precision gate.
         return version.isNewerThanOrEquals(ClientVersion.V_1_21_2);
+    }
+
+    /**
+     * The distinct velocities of a list of states in first-seen order, as a {@link LinkedHashSet} adding each state's
+     * velocity in turn holds them. The states list must not change while the set is read.
+     */
+    static final class StateVelocities extends AbstractSet<Vec3> {
+        private final List<JavaPredictionCarry.State> states;
+        private final int size;
+
+        StateVelocities(List<JavaPredictionCarry.State> states) {
+            this.states = states;
+            int size = 0;
+            for (int i = 0; i < states.size(); i++) if (firstAt(i)) size++;
+            this.size = size;
+        }
+
+        /** Whether no state before {@code index} has the velocity of the state at {@code index}. */
+        private boolean firstAt(int index) {
+            Vec3 velocity = states.get(index).velocity();
+            for (int i = 0; i < index; i++)
+                if (Objects.equals(velocity, states.get(i).velocity())) return false;
+            return true;
+        }
+
+        @Override
+        public int size() {
+            return size;
+        }
+
+        @Override
+        public boolean isEmpty() {
+            return size == 0;
+        }
+
+        @Override
+        public Iterator<Vec3> iterator() {
+            return new Iterator<>() {
+                private int next = advance(0);
+
+                private int advance(int from) {
+                    while (from < states.size() && !firstAt(from)) from++;
+                    return from;
+                }
+
+                @Override
+                public boolean hasNext() {
+                    return next < states.size();
+                }
+
+                @Override
+                public Vec3 next() {
+                    if (next >= states.size()) throw new NoSuchElementException();
+                    Vec3 velocity = states.get(next).velocity();
+                    next = advance(next + 1);
+                    return velocity;
+                }
+            };
+        }
     }
 }

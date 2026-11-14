@@ -47,6 +47,10 @@ public class CompensatedWorld {
     private final LongSet chunkPositions;
     // Changes whenever a chunk is added to or removed from chunks; every write to chunks bumps it.
     private long chunkEpoch;
+    // The last getChunk answer, null included; valid while chunkEpoch equals lastChunkEpoch.
+    private long lastChunkPosition;
+    private CachedChunk lastChunk;
+    private long lastChunkEpoch = -1;
     private final Long2ObjectOpenHashMap<String> chunkDimensions = new Long2ObjectOpenHashMap<>();
     // Packet locations for blocks
     public final CompensatedWorldPistons pistons;
@@ -70,6 +74,9 @@ public class CompensatedWorld {
     private final Map<PendingReinternSection, PendingReinternState> pendingReinternSections = new LinkedHashMap<>();
     /** One tick end's reintern candidates, empty outside processPendingReinterns; owned by the packet thread. */
     private final List<PendingReinternCandidate> reinternCandidates = new ArrayList<>();
+    // While known, no pending section was written before this: none is stable earlier than it plus the delay.
+    private long earliestPendingMutatedNanos;
+    private boolean earliestPendingMutatedKnown;
 
     private final SectionPoolLeaseTracker sectionPoolLeases = new SectionPoolLeaseTracker();
     // 1.17 with datapacks, and 1.18, have negative world offset values
@@ -97,8 +104,10 @@ public class CompensatedWorld {
     private final ServerBlockView serverBlockView = new ServerBlockView();
     // Blocks the client changed while placing or breaking blocks
     private List<BlockPos> currentlyChangedBlocks = new LinkedList<>();
-    private final Map<Integer, List<BlockPos>> serverIsCurrentlyProcessingThesePredictions = new LinkedHashMap<>();
+    private final Map<Integer, PredictionBatch> serverIsCurrentlyProcessingThesePredictions = new LinkedHashMap<>();
     private int clientPredictionSequence;
+    /** The sequence the client sent with its newest sequenced action; the server acknowledges this value. */
+    private int clientWireSequence;
     /** The newest block-changed ack sequence sent to the client: the server answered every prediction up to it. */
     private int answeredPredictionSequence = -1;
     /** BlockStatePredictionHandler#lastTeleportSequence: the prediction sequence when the client last took a teleport. */
@@ -313,6 +322,7 @@ public class CompensatedWorld {
         public static final java.util.concurrent.atomic.AtomicLong mutableCopyCounter =
                 new java.util.concurrent.atomic.AtomicLong(0);
         private static final long[] COUNT_WEIGHTS = countWeights();
+        private static final String CANONICAL_AIR_WRITE = "The canonical air section is never written";
 
         private final PalettedSection states;
         private int nonEmptyBlockCount;
@@ -328,7 +338,7 @@ public class CompensatedWorld {
         }
 
         public CachedSection(PalettedSection states, boolean shared) {
-            this.states = states;
+            this.states = states.owned();
             this.shared = shared;
             this.lastMutatedNanos = System.nanoTime();
             recalcCounts();
@@ -336,14 +346,21 @@ public class CompensatedWorld {
 
         /**
          * A received section with the counts its chunk packet carried, which the client's LevelChunkSection.read keeps
-         * without recounting. Wires before 26.1 carry no fluid count: a negative {@code fluidCount} is counted here.
+         * without recounting. Wires before 26.1 carry no fluid count: a negative {@code fluidCount} is counted here. Air
+         * without blocks or fluid by those counts gives the canonical air section every pool interns it to: it is
+         * {@link #isShared}, and {@link #setStateId} and {@link #setLastMutatedNanos} on it throw, so a writer replaces
+         * it first.
          */
         public static CachedSection received(PalettedSection states, int nonEmptyBlockCount, int fluidCount) {
+            CachedSection air = SectionPool.canonicalAir();
+            if (nonEmptyBlockCount == 0
+                    && (fluidCount < 0 ? air.fluidCount : fluidCount) <= 0
+                    && states.sameSingle(air.states)) return air;
             return new CachedSection(states, nonEmptyBlockCount, fluidCount);
         }
 
         private CachedSection(PalettedSection states, int nonEmptyBlockCount, int fluidCount) {
-            this.states = states;
+            this.states = states.owned();
             this.lastMutatedNanos = System.nanoTime();
             if (fluidCount < 0) recalcCounts();
             else this.fluidCount = fluidCount;
@@ -405,6 +422,7 @@ public class CompensatedWorld {
         }
 
         public int setStateId(int index, int state) {
+            if (this == SectionPool.canonicalAir()) throw new IllegalStateException(CANONICAL_AIR_WRITE);
             int replacement = stateIdOrAir(state);
             int previous = states.getAndSet(index & 4095, replacement);
             decrementCounts(previous);
@@ -436,6 +454,7 @@ public class CompensatedWorld {
         }
 
         public void setLastMutatedNanos(long nanos) {
+            if (this == SectionPool.canonicalAir()) throw new IllegalStateException(CANONICAL_AIR_WRITE);
             this.lastMutatedNanos = nanos;
         }
 
@@ -446,6 +465,16 @@ public class CompensatedWorld {
         /** Writes the block states as the pinned 26.3 chunk packet section does, in model ids. */
         public void writeStates(ByteBuf output) {
             states.write(output);
+        }
+
+        /** The bytes {@link #writeStates(ByteBuf)} writes. */
+        public int statesBytes() {
+            return states.writtenBytes();
+        }
+
+        /** As {@link #writeStates(ByteBuf)}, into {@code into} from {@code offset}; returns the index past the last byte. */
+        public int writeStates(byte[] into, int offset) {
+            return states.write(into, offset);
         }
 
         boolean hasCachedContentHash() {
@@ -485,13 +514,17 @@ public class CompensatedWorld {
             }
             nonEmptyBlockCount = 0;
             fluidCount = 0;
-            states.forEachCountWithin(DataTables.defaults().registry().stateCount(), (state, count) -> {
-                var facts = facts(state);
-                if (!facts.has(ac.cult.blocksim.data.StateFacts.AIR)) {
-                    nonEmptyBlockCount += count;
-                    if (!facts.fluid().equals("minecraft:empty")) fluidCount += count;
-                }
-            });
+            int lone = states.loneEntry();
+            if (lone >= 0) addCounts(lone, states.size());
+            else states.forEachCountWithin(DataTables.defaults().registry().stateCount(), this::addCounts);
+        }
+
+        private void addCounts(int state, int count) {
+            var facts = facts(state);
+            if (!facts.has(ac.cult.blocksim.data.StateFacts.AIR)) {
+                nonEmptyBlockCount += count;
+                if (!facts.fluid().equals("minecraft:empty")) fluidCount += count;
+            }
         }
 
         private void decrementCounts(int state) {
@@ -566,15 +599,17 @@ public class CompensatedWorld {
                         "Block changes " + (debugBlockChanges ? "enabled" : "disabled") + ".", NamedTextColor.GRAY)));
     }
 
-    public void advanceClientPredictionSequence() {
+    /** BlockStatePredictionHandler#startPredicting; a vanilla client sends the new counter as {@code wireSequence}. */
+    public void advanceClientPredictionSequence(int wireSequence) {
         if (player.isBedrockMovement()) return;
         clientPredictionSequence++;
+        clientWireSequence = wireSequence;
     }
 
     /** ClientPacketListener#handleMovePlayer -> BlockStatePredictionHandler#onTeleport. */
     public void onClientTeleport() {
         if (!tracksTeleportSequence()) return;
-        lastTeleportPredictionSequence = clientPredictionSequence;
+        lastTeleportPredictionSequence = clientWireSequence;
     }
 
     /** BlockStatePredictionHandler#lastTeleportSequence exists from 26.1; older clients always snap back. */
@@ -586,6 +621,7 @@ public class CompensatedWorld {
         player.blockActionReconciler.reset();
         endSelectionSnapshot();
         clientPredictionSequence = 0;
+        clientWireSequence = 0;
         answeredPredictionSequence = -1;
         lastTeleportPredictionSequence = -1;
         isCurrentlyPredicting = false;
@@ -601,12 +637,14 @@ public class CompensatedWorld {
 
     public void handlePredictionConfirmation(int prediction, int transaction) {
         answeredPredictionSequence = Math.max(answeredPredictionSequence, prediction);
-        for (Iterator<Map.Entry<Integer, List<BlockPos>>> it =
-                        serverIsCurrentlyProcessingThesePredictions.entrySet().iterator();
+        // The server acknowledges the sequence each action carried; a vanilla client sends its prediction counter
+        // there, so a batch ends at the acknowledgement of its own sequence. Every batch is scanned.
+        for (Iterator<PredictionBatch> it =
+                        serverIsCurrentlyProcessingThesePredictions.values().iterator();
                 it.hasNext(); ) {
-            Map.Entry<Integer, List<BlockPos>> iter = it.next();
-            if (iter.getKey() <= prediction) {
-                applyBlockChanges(iter.getValue(), transaction, prediction);
+            PredictionBatch batch = it.next();
+            if (batch.wireSequence() <= prediction) {
+                applyBlockChanges(batch.blocks(), transaction, prediction);
                 it.remove();
             }
         }
@@ -614,17 +652,7 @@ public class CompensatedWorld {
     }
 
     public void handlePredictionConfirmation(int prediction, CultPlayer.TrackedTransaction transaction) {
-        answeredPredictionSequence = Math.max(answeredPredictionSequence, prediction);
-        for (Iterator<Map.Entry<Integer, List<BlockPos>>> it =
-                        serverIsCurrentlyProcessingThesePredictions.entrySet().iterator();
-                it.hasNext(); ) {
-            Map.Entry<Integer, List<BlockPos>> iter = it.next();
-            if (iter.getKey() <= prediction) {
-                applyBlockChanges(iter.getValue(), transaction, prediction);
-                it.remove();
-            }
-        }
-        endGhostPositionsUpTo(prediction, transaction.transaction());
+        handlePredictionConfirmation(prediction, transaction.transaction());
     }
 
     /** ClientLevel#handleBlockChangedAck: the client has ended every prediction up to this sequence. */
@@ -637,6 +665,11 @@ public class CompensatedWorld {
     /** BlockStatePredictionHandler#currentSequence: the client's local block prediction counter. */
     public int clientPredictionSequence() {
         return clientPredictionSequence;
+    }
+
+    /** The sequence the client sent with its newest sequenced action. */
+    public int clientWireSequence() {
+        return clientWireSequence;
     }
 
     public void handleServerBlockUpdate(BlockPos pos, int state, CultPlayer.TrackedTransaction transaction) {
@@ -777,11 +810,6 @@ public class CompensatedWorld {
         });
     }
 
-    private void applyBlockChanges(
-            List<BlockPos> toApplyBlocks, CultPlayer.TrackedTransaction transaction, int sequence) {
-        applyBlockChanges(toApplyBlocks, transaction.transaction(), sequence);
-    }
-
     private void handleAck(BlockPos vector3i, int originalBlockId, Vec3 playerPosition, boolean snapsBack) {
         // make sure that this "delayed" block update is always known to the ghost block mitigator
         final GhostBlockMitigator mitigator = player.getGhostBlockMitigator();
@@ -812,7 +840,7 @@ public class CompensatedWorld {
         }
     }
 
-    public void stopPredicting(int ignoredWireSequence) {
+    public void stopPredicting(int wireSequence) {
         this.isCurrentlyPredicting = false; // We aren't in a block place or use item
 
         if (this.currentlyChangedBlocks.isEmpty()) return; // Nothing to change
@@ -821,17 +849,38 @@ public class CompensatedWorld {
                 this.currentlyChangedBlocks; // We must now track the client applying the server predicted blocks
         this.currentlyChangedBlocks = new LinkedList<>(); // Reset variable without changing original
 
-        // Only a client whose wire sequence stops advancing reaches this; its oldest prediction reverts to the server.
+        // Only a client whose actions go unacknowledged reaches this; its oldest prediction reverts to the server.
         if (serverIsCurrentlyProcessingThesePredictions.size() >= MAX_PENDING_PREDICTIONS) {
-            Iterator<Map.Entry<Integer, List<BlockPos>>> oldest =
-                    serverIsCurrentlyProcessingThesePredictions.entrySet().iterator();
-            Map.Entry<Integer, List<BlockPos>> entry = oldest.next();
-            applyBlockChanges(entry.getValue(), player.lastTransactionSent.get() + 1, entry.getKey());
+            Iterator<PredictionBatch> oldest =
+                    serverIsCurrentlyProcessingThesePredictions.values().iterator();
+            PredictionBatch batch = oldest.next();
+            applyBlockChanges(batch.blocks(), player.lastTransactionSent.get() + 1, batch.wireSequence());
             oldest.remove();
         }
-        // Vanilla stores predictions under its local monotonic counter, not the untrusted packet sequence.
-        serverIsCurrentlyProcessingThesePredictions.put(clientPredictionSequence, toApplyBlocks);
+        // Keyed by the local counter so a repeated wire sequence cannot replace a pending batch.
+        serverIsCurrentlyProcessingThesePredictions.put(
+                clientPredictionSequence, new PredictionBatch(wireSequence, toApplyBlocks));
     }
+
+    /** The highest sequence among predictions no acknowledgement has ended, or -1 when there are none. */
+    public int highestUnacknowledgedPredictionSequence() {
+        int highest = -1;
+        for (PredictionBatch batch : serverIsCurrentlyProcessingThesePredictions.values()) {
+            highest = Math.max(highest, batch.wireSequence());
+        }
+        return highest;
+    }
+
+    /** The positions of every prediction no acknowledgement has ended. */
+    public List<BlockPos> unacknowledgedPredictionPositions() {
+        List<BlockPos> positions = new ArrayList<>();
+        for (PredictionBatch batch : serverIsCurrentlyProcessingThesePredictions.values()) {
+            positions.addAll(batch.blocks());
+        }
+        return positions;
+    }
+
+    private record PredictionBatch(int wireSequence, List<BlockPos> blocks) {}
 
     public static long chunkPositionToLong(int x, int z) {
         return ((x & 0xFFFFFFFFL) << 32L) | (z & 0xFFFFFFFFL);
@@ -859,7 +908,7 @@ public class CompensatedWorld {
         int sectionCount = lastClientboundDimension.sectionCount();
         sectionPoolLeases.retain(visibleDimension, chunkX, chunkZ, sectionCount);
         chunks.put(chunkPosition, new CachedChunk(new CachedSection[sectionCount], player.lastTransactionSent.get()));
-        chunkEpoch++;
+        chunksChanged();
         chunkDimensions.put(chunkPosition, visibleDimension);
         if (player.compensatedEntities != null) player.compensatedEntities.onClientChunkTicking(chunkX, chunkZ, true);
     }
@@ -1036,13 +1085,13 @@ public class CompensatedWorld {
                                 serverState,
                                 newState,
                                 isPlayerTryingToDisableCult ? null : new Vec3(player.x, player.y, player.z),
-                                clientPredictionSequence)); // Remember server controlled block type
+                                clientWireSequence)); // Remember server controlled block type
             } else {
                 prediction.setForBlockUpdate(
                         currentlyChangedBlocks); // Block existing there was placed by client, mark block to have a new
                 // prediction
                 prediction.setPredictedBlockId(newState);
-                prediction.setSequence(clientPredictionSequence);
+                prediction.setSequence(clientWireSequence);
             }
             currentlyChangedBlocks.add(asVector);
         }
@@ -1274,6 +1323,9 @@ public class CompensatedWorld {
         if (pendingReinternSections.isEmpty()) return;
 
         long now = System.nanoTime();
+        if (earliestPendingMutatedKnown && now - earliestPendingMutatedNanos < SectionPool.STABILITY_DELAY_NANOS)
+            return;
+        earliestPendingMutatedKnown = false;
         CachedSection oldest = null;
         Iterator<Map.Entry<PendingReinternSection, PendingReinternState>> iterator =
                 pendingReinternSections.entrySet().iterator();
@@ -1296,7 +1348,12 @@ public class CompensatedWorld {
             if (oldest == null || section.getLastMutatedNanos() < oldest.getLastMutatedNanos()) oldest = section;
         }
         // Candidates run oldest write first and stop at the first unstable one.
-        if (oldest == null || !SectionPool.isStableForReintern(oldest, now)) return;
+        if (oldest == null) return;
+        if (!SectionPool.isStableForReintern(oldest, now)) {
+            earliestPendingMutatedNanos = oldest.getLastMutatedNanos();
+            earliestPendingMutatedKnown = true;
+            return;
+        }
 
         SectionPool.ComparisonBudget comparisonBudget = SectionPool.ComparisonBudget.limited(
                 MAX_REINTERN_CONTENT_COMPARISONS_PER_TICK,
@@ -1341,6 +1398,8 @@ public class CompensatedWorld {
     }
 
     private void queuePendingReintern(int chunkX, int sectionIndex, int chunkZ, CachedSection section) {
+        if (earliestPendingMutatedKnown && section.getLastMutatedNanos() - earliestPendingMutatedNanos < 0)
+            earliestPendingMutatedNanos = section.getLastMutatedNanos();
         var key = new PendingReinternSection(chunkX, sectionIndex, chunkZ);
         var pending = pendingReinternSections.get(key);
         if (pending == null) pendingReinternSections.put(key, new PendingReinternState(section, 0));
@@ -1368,6 +1427,7 @@ public class CompensatedWorld {
     }
 
     private void removePendingReinternSections(int chunkX, int chunkZ) {
+        if (pendingReinternSections.isEmpty()) return;
         pendingReinternSections.keySet().removeIf(key -> key.chunkX == chunkX && key.chunkZ == chunkZ);
     }
 
@@ -1416,6 +1476,15 @@ public class CompensatedWorld {
     }
 
     public int getBlockStateIdAt(int x, int y, int z) {
+        return blockStateIdAt(x, y, z, true);
+    }
+
+    /** getBlockStateIdAt for readers that may run off the connection owner: it never reads or keeps the last column. */
+    public int peekBlockStateIdAt(int x, int y, int z) {
+        return blockStateIdAt(x, y, z, false);
+    }
+
+    private int blockStateIdAt(int x, int y, int z, boolean ownerRead) {
         if (readingSelectionSnapshot) {
             long position = new BlockPos(x, y, z).asLong();
             if (selectionOriginalStates.containsKey(position)) return selectionOriginalStates.get(position);
@@ -1423,7 +1492,11 @@ public class CompensatedWorld {
         int replayed = pistons.replayStateAt(x, y, z);
         if (replayed >= 0) return replayed;
         try {
-            CachedChunk column = getChunk(x >> 4, z >> 4);
+            CachedChunk column = ownerRead
+                    ? getChunk(x >> 4, z >> 4)
+                    : clientChunkCache.contains(x >> 4, z >> 4)
+                            ? chunks.get(chunkPositionToLong(x >> 4, z >> 4))
+                            : null;
 
             y -= minHeight;
             if (column == null || y < 0 || (y >> 4) >= column.sectionCount()) return 0;
@@ -1578,7 +1651,12 @@ public class CompensatedWorld {
     public CachedChunk getChunk(int chunkX, int chunkZ) {
         if (!clientChunkCache.contains(chunkX, chunkZ)) return null;
         long chunkPosition = chunkPositionToLong(chunkX, chunkZ);
-        return chunks.get(chunkPosition);
+        if (chunkPosition == lastChunkPosition && chunkEpoch == lastChunkEpoch) return lastChunk;
+        CachedChunk chunk = chunks.get(chunkPosition);
+        lastChunkPosition = chunkPosition;
+        lastChunk = chunk;
+        lastChunkEpoch = chunkEpoch;
+        return chunk;
     }
 
     /** Whether the client has applied the column at the chunk position and no load or unload of it is in flight. */
@@ -1591,7 +1669,9 @@ public class CompensatedWorld {
 
     public boolean isChunkLoaded(int chunkX, int chunkZ) {
         long chunkPosition = chunkPositionToLong(chunkX, chunkZ);
-        return clientChunkCache.contains(chunkX, chunkZ) && chunks.containsKey(chunkPosition);
+        if (!clientChunkCache.contains(chunkX, chunkZ)) return false;
+        if (lastChunk != null && chunkPosition == lastChunkPosition && chunkEpoch == lastChunkEpoch) return true;
+        return chunks.containsKey(chunkPosition);
     }
 
     public boolean isClientEntityTickingChunk(int x, int z) {
@@ -1605,27 +1685,38 @@ public class CompensatedWorld {
     public void initializeClientChunkCache(int radius) {
         if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_14))
             clientChunkCache.initialize(radius);
-        chunkEpoch++;
+        chunksChanged();
     }
 
     public void clientChunkCacheCenter(int x, int z) {
         if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_14))
             clientChunkCache.center(x, z);
-        chunkEpoch++;
+        chunksChanged();
     }
 
     public void clientChunkCacheRadius(int radius) {
         if (!player.isBedrockMovement() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_14))
             clientChunkCache.radius(radius);
-        chunkEpoch++;
+        chunksChanged();
+    }
+
+    /** isChunkLoaded for readers that may run off the connection owner: it never reads the last column. */
+    public boolean peekChunkLoaded(int chunkX, int chunkZ) {
+        return clientChunkCache.contains(chunkX, chunkZ) && chunks.containsKey(chunkPositionToLong(chunkX, chunkZ));
     }
 
     public void putChunk(int chunkX, int chunkZ, CachedChunk chunk) {
         if (!clientChunkCache.load(chunkX, chunkZ)) return;
         CachedChunk previous = chunks.put(chunkPositionToLong(chunkX, chunkZ), chunk);
-        chunkEpoch++;
+        chunksChanged();
         if (previous == null && player.compensatedEntities != null)
             player.compensatedEntities.onClientChunkTicking(chunkX, chunkZ, true);
+    }
+
+    /** Every write to chunks calls this before anything reads chunks again. */
+    private void chunksChanged() {
+        chunkEpoch++;
+        lastChunk = null;
     }
 
     /** The positions of the received chunks, read-only, in the map's iteration order. */
@@ -1827,7 +1918,7 @@ public class CompensatedWorld {
             internChunkSections(chunk, dimension, chunkX, chunkZ);
             removePendingReinternSections(chunkX, chunkZ);
             previous = chunks.put(chunkPosition, chunk);
-            chunkEpoch++;
+            chunksChanged();
             previousDimension = chunkDimensions.put(chunkPosition, dimension);
             if (previous != null) {
                 String releaseDimension = previousDimension == null ? dimension : previousDimension;
@@ -2050,10 +2141,10 @@ public class CompensatedWorld {
     void discardChunkGeometry(int chunkX, int chunkZ) {
         long position = chunkPositionToLong(chunkX, chunkZ);
         CachedChunk removed = chunks.remove(position);
+        chunksChanged();
         String dimension = chunkDimensions.getOrDefault(position, visibleDimension);
         chunkDimensions.remove(position);
         removePendingReinternSections(chunkX, chunkZ);
-        chunkEpoch++;
         if (removed != null) {
             releaseChunkSections(removed, dimension, chunkX, chunkZ);
             sectionPoolLeases.release(dimension, chunkX, chunkZ, removed.sectionCount());
@@ -2207,7 +2298,7 @@ public class CompensatedWorld {
                 forgetBedrockClientWrites(chunkX, chunkZ);
             }
             iterator.remove();
-            chunkEpoch++;
+            chunksChanged();
             if (terrainListener != null) terrainListener.columnUnloaded(chunkX, chunkZ);
         }
     }
@@ -2230,7 +2321,7 @@ public class CompensatedWorld {
         }
         sectionPoolLeases.clear();
         chunks.clear();
-        chunkEpoch++;
+        chunksChanged();
         chunkDimensions.clear();
         pendingReinternSections.clear();
         geysers.clear();

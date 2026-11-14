@@ -112,7 +112,10 @@ public final class ClientEntityQueries {
         var result = new ArrayList<Box>();
         var search = query.inflate(1.0E-7);
         SimpleCollisionBox candidate = null;
-        for (var entity : player.compensatedEntities.entityMap.values()) {
+        // Remote players stay in the scan: spectator() caches their PlayerInfo and fails without a profile.
+        var entities = player.compensatedEntities.collisionOrPlayerCandidates();
+        for (int e = 0, size = entities.size(); e < size; e++) {
+            var entity = entities.get(e);
             if (!present(entity) || spectator(entity) || !collidable(entity)) continue;
             if (candidate == null) candidate = new SimpleCollisionBox();
             for (int i = 0, count = entity.possibleMovementCollisionBoxCandidateCount(); i < count; i++) {

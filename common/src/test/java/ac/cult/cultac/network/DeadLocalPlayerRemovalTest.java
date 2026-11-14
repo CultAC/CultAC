@@ -11,9 +11,11 @@ import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.manager.player.SetbackTeleportUtil;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.packet.EntityMetadata;
+import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.platform.api.world.PlatformWorld;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketType;
+import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPlayerPosition;
@@ -107,7 +109,8 @@ class DeadLocalPlayerRemovalTest {
 
     @Test
     void theRemovalTicksPositionReminderIsDeadMovement() throws Exception {
-        try (var f = standingPlayer()) {
+        // 26.2's LocalPlayer#tick runs sendPosition after tickDeath; 26.3's Minecraft#tick sends nothing once removed.
+        try (var f = standingPlayer(new JavaTickFixture(ProtocolVersion.V26_3, ClientVersion.V_26_2))) {
             die(f);
             idleTicks(f, 19);
             // The removal tick skips aiStep; LocalPlayer#sendPosition still sends its 20-tick reminder.
@@ -177,7 +180,10 @@ class DeadLocalPlayerRemovalTest {
     }
 
     private static JavaTickFixture standingPlayer() throws Exception {
-        var f = new JavaTickFixture();
+        return standingPlayer(new JavaTickFixture());
+    }
+
+    private static JavaTickFixture standingPlayer(JavaTickFixture f) throws Exception {
         f.player.nettyScheduler.removeScheduler();
         Mockito.when(f.fixture.user.getPlayer().getWorld()).thenReturn(Mockito.mock(PlatformWorld.class));
         f.place(STANDING, Vec3.ZERO);

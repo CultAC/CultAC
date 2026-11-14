@@ -30,6 +30,8 @@ class PlayerTextReaderTest {
         for (int protocol = 768; protocol <= 777; protocol++) protocols.add(cases(protocol));
         PlayerText.TeamNames freshTeams = new PlayerText.TeamNames(new byte[32]);
         PlayerText.TeamNames readerTeams = new PlayerText.TeamNames(new byte[32]);
+        PlayerText.TeamNames sliceTeams = new PlayerText.TeamNames(new byte[32]);
+        PlayerText.TeamNames freshSliceTeams = new PlayerText.TeamNames(new byte[32]);
         PlayerText.Reader reader = new PlayerText.Reader();
         Random random = new Random(7);
         int compared = 0;
@@ -51,21 +53,46 @@ class PlayerTextReaderTest {
                     byte[] fresh = strip(drawn, variant, freshTeams, null);
                     byte[] read = strip(drawn, variant, readerTeams, reader);
                     String what = drawn.text() + " " + drawn.id() + " case " + index + " length " + variant.length;
-                    if (fresh == null) {
-                        assertNull(read, what);
-                    } else if (fresh == variant) {
-                        assertSame(variant, read, what);
-                    } else {
-                        assertNotNull(read, what);
-                        assertTrue(read != variant, what);
-                        assertArrayEquals(fresh, read, what);
-                    }
+                    same(fresh, variant, variant, read, what);
+                    // Within a larger array, the bytes around the packet are the rest of it and some noise.
+                    int offset = random.nextInt(64);
+                    byte[] host = new byte[offset + variant.length + packet.length + 64];
+                    random.nextBytes(host);
+                    System.arraycopy(variant, 0, host, offset, variant.length);
+                    System.arraycopy(packet, 0, host, offset + variant.length, packet.length);
+                    byte[] sliced = slice(drawn, host, offset, variant.length, sliceTeams, reader);
+                    same(fresh, variant, host, sliced, what + " slice");
+                    byte[] freshSliced = slice(drawn, host, offset, variant.length, freshSliceTeams, null);
+                    same(fresh, variant, host, freshSliced, what + " fresh slice");
                     compared++;
                 }
             }
             if (!any) break;
         }
         assertTrue(compared > 10_000, "compared " + compared);
+    }
+
+    /**
+     * {@code read}, from {@code variant}'s bytes held in {@code holder}, keeps what a fresh read kept of {@code variant}
+     * itself: nothing, the bytes as they came, which is {@code holder}, or a copy without the text.
+     */
+    private static void same(byte[] fresh, byte[] variant, byte[] holder, byte[] read, String what) {
+        if (fresh == null) {
+            assertNull(read, what);
+        } else if (fresh == variant) {
+            assertSame(holder, read, what);
+        } else {
+            assertNotNull(read, what);
+            assertTrue(read != holder, what);
+            assertArrayEquals(fresh, read, what);
+        }
+    }
+
+    private static byte[] slice(
+            Case drawn, byte[] host, int offset, int length, PlayerText.TeamNames teams, PlayerText.Reader reader) {
+        return drawn.clientbound()
+                ? drawn.text().clientbound(drawn.id(), host, offset, length, true, teams, reader)
+                : drawn.text().serverbound(drawn.id(), host, offset, length, true, reader);
     }
 
     private static byte[] strip(Case drawn, byte[] packet, PlayerText.TeamNames teams, PlayerText.Reader reader) {

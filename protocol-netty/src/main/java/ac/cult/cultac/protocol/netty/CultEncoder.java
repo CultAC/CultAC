@@ -12,6 +12,8 @@ import ac.cult.cultac.protocol.PacketBundlePolicy;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.PacketType;
 import ac.cult.cultac.protocol.UnsupportedOnVersionException;
+import ac.cult.cultac.protocol.codec.entity.EntityPositionSyncCodec;
+import ac.cult.cultac.protocol.codec.entity.MoveEntityCodec;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundPacket;
 import ac.cult.cultac.protocol.wire.Wire;
@@ -27,6 +29,8 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.function.BiConsumer;
 import java.util.function.IntSupplier;
 import java.util.function.Predicate;
@@ -35,6 +39,8 @@ import java.util.function.Predicate;
 public final class CultEncoder extends ChannelOutboundHandlerAdapter {
     public static final String NAME = "cult-encoder";
     private static final String HOST_CONTROL_NAME = NAME + "-host-control";
+    private static final long UNREADABLE_ID = Long.MIN_VALUE;
+    private static final Object UNRESOLVED = new Object();
 
     private final CultConnection connection;
     private final RouteProbe routeProbe = new RouteProbe();
@@ -69,7 +75,8 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
     private Families idleFamilies = new Families();
     private Output idleOutput = new Output();
     private Batch idleBatch = new Batch(false);
-    private PacketSendEvent<?> idleSendEvent;
+    // Released own-route events; a nested expansion takes the second while its parent holds the first.
+    private PacketSendEvent<?> idleSendEvent, spareSendEvent;
     // Emitted frames for reuse, linked through Frame#next; none holds bytes or a promise.
     private Frame spareFrames;
     private int spareFrameCount;
@@ -134,41 +141,41 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             ctx.write(message, promise);
             return;
         }
-        if (emission == null
-                && !connection.isPreparingWrites()
-                && !connection.packets().translated()
-                && message instanceof ByteBuf frame
-                && !PacketBundlePolicy.requiresStandalone(wireType(frame))) {
-            try {
-                var phase = connection.phase(PacketDirection.CLIENTBOUND);
-                var route = connection.dispatcher().get(PacketDirection.CLIENTBOUND, phase, Wire.peekVarInt(frame));
-                if (route == null || route.type().codec().forwardsUndecoded(frame, afterPacketId(frame))) {
-                    if (connection.packetLoggingActive()) {
-                        connection.runInModel(
-                                () -> connection.observePacket(PacketDirection.CLIENTBOUND, phase, frame));
+        if (emission == null && !connection.isPreparingWrites() && message instanceof ByteBuf frame) {
+            long id = peekId(frame);
+            Object resolved = id == UNREADABLE_ID ? UNRESOLVED : resolve((int) id);
+            PacketType<?> type = resolved == UNRESOLVED ? null : (PacketType<?>) resolved;
+            if (!PacketBundlePolicy.requiresStandalone(type)) {
+                if (!connection.packets().translated()) {
+                    try {
+                        var phase = connection.phase(PacketDirection.CLIENTBOUND);
+                        // An unreadable ID is peeked again so the lookup reports its own failure.
+                        int packetId = id == UNREADABLE_ID ? Wire.peekVarInt(frame) : (int) id;
+                        var route = connection.dispatcher().get(PacketDirection.CLIENTBOUND, phase, packetId);
+                        if (route == null || route.type().codec().forwardsUndecoded(frame, afterPacketId(frame))) {
+                            if (connection.packetLoggingActive()) {
+                                connection.runInModel(
+                                        () -> connection.observePacket(PacketDirection.CLIENTBOUND, phase, frame));
+                                writeRaw(ctx, frame, promise);
+                            } else writeRaw(ctx, frame, promise, type);
+                            return;
+                        }
+                    } catch (Throwable failure) {
+                        CultNetworkManager.reportFailure("outbound packet lookup", failure);
+                        writeRaw(ctx, frame, promise);
+                        return;
                     }
-                    writeRaw(ctx, frame, promise);
+                } else if (unroutedTranslated(resolved)) {
+                    if (removed || !ctx.channel().isActive()) {
+                        new Pending(frame, promise).discard(new ClosedChannelException());
+                    } else {
+                        connection.observePacket(
+                                PacketDirection.CLIENTBOUND, connection.phase(PacketDirection.CLIENTBOUND), frame);
+                        writeRaw(ctx, frame, promise);
+                    }
                     return;
                 }
-            } catch (Throwable failure) {
-                CultNetworkManager.reportFailure("outbound packet lookup", failure);
-                writeRaw(ctx, frame, promise);
-                return;
             }
-        }
-        if (emission == null
-                && !connection.isPreparingWrites()
-                && message instanceof ByteBuf frame
-                && !PacketBundlePolicy.requiresStandalone(wireType(frame))
-                && unroutedTranslated(frame)) {
-            if (removed || !ctx.channel().isActive()) {
-                new Pending(frame, promise).discard(new ClosedChannelException());
-            } else {
-                connection.observePacket(
-                        PacketDirection.CLIENTBOUND, connection.phase(PacketDirection.CLIENTBOUND), frame);
-                writeRaw(ctx, frame, promise);
-            }
-            return;
         }
         ModelWrite task = idleWrite;
         if (task == null) task = new ModelWrite();
@@ -227,11 +234,11 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         }
     }
 
-    /** Keeps an output that holds nothing more for the next write; its frame queue is not kept. */
+    /** Keeps an output that holds nothing more for the next write. */
     private void recycle(Output output) {
         if (!output.isEmpty() || output.hasTasks() || output.flush) return;
         if (output.groups != null && !output.groups.isEmpty()) return;
-        output.tail = null;
+        output.trimTasks();
         idleOutput = output;
     }
 
@@ -318,6 +325,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                     wrap(ctx, batch);
             }
             output.append(batch);
+            batch.trimTasks();
             idleBatch = batch;
         } catch (Throwable failure) {
             batch.discard(failure, fallback == null ? null : promise);
@@ -333,13 +341,15 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         }
     }
 
-    /** A translated frame whose type has no route, which the expansion would emit alone and unchanged. */
-    private boolean unroutedTranslated(ByteBuf frame) {
+    /**
+     * A translated frame whose type has no route, which the expansion would emit alone and unchanged. {@code resolved}
+     * is what {@link #resolve} gave for the frame's ID, {@link #UNRESOLVED} when the ID or its type could not be read.
+     */
+    private boolean unroutedTranslated(Object resolved) {
         try {
             var packets = connection.packets();
-            if (!packets.translated() || packets.closed()) return false;
-            var type = packets.type(
-                    connection.phase(PacketDirection.CLIENTBOUND), PacketDirection.CLIENTBOUND, Wire.peekVarInt(frame));
+            if (!packets.translated() || packets.closed() || resolved == UNRESOLVED) return false;
+            var type = (PacketType<?>) resolved;
             return type == null || connection.dispatcher().get(type) == null;
         } catch (Throwable failure) {
             return false;
@@ -479,17 +489,26 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         PacketType<?> forwardedType = null;
         var lender = connection.frameLender();
         FrameLease lease = null;
+        var sunkMove = connection.sunkMove();
+        var sunkSync = connection.sunkPositionSync();
+        boolean sunk = false, syncSunk = false;
         try {
             routeProbe.phase = phase;
             routeProbe.found = null;
             routeProbe.skipped = null;
             lease = lender.open(bytes);
-            Object value;
+            boolean heldBefore = sunkMove.held(), syncHeldBefore = sunkSync.held();
+            Object value = null;
             try {
                 value = connection.packets().readOne(phase, PacketDirection.CLIENTBOUND, bytes, connection, routeProbe);
             } finally {
+                connection.sinkMoves(false);
                 lender.close(lease);
+                if (!heldBefore && value != MoveEntityCodec.SUNK && sunkMove.held()) sunkMove.release();
+                if (!syncHeldBefore && value != EntityPositionSyncCodec.SUNK && sunkSync.held()) sunkSync.release();
             }
+            sunk = value == MoveEntityCodec.SUNK;
+            syncSunk = value == EntityPositionSyncCodec.SUNK;
             var route = routeProbe.found;
             if (routeProbe.skipped != null) forwardedType = routeProbe.skipped.type();
             if (value != null) {
@@ -500,13 +519,20 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                 activeFamilies.addLast(route.type());
                 try {
                     var type = (PacketType<ClientboundPacket>) route.type();
-                    var idleEvent = route.own() ? idleSendEvent : null;
+                    PacketSendEvent<?> idleEvent = null;
+                    if (route.own()) {
+                        idleEvent = idleSendEvent;
+                        if (idleEvent != null) idleSendEvent = null;
+                        else {
+                            idleEvent = spareSendEvent;
+                            spareSendEvent = null;
+                        }
+                    }
                     PacketSendEvent<ClientboundPacket> event;
                     if (idleEvent == null) {
                         event = new PacketSendEvent<>(
                                 connection.user(), phase, type, (ClientboundPacket) value, batch.inside);
                     } else {
-                        idleSendEvent = null;
                         event = idleEvent.restart(
                                 connection.user(), phase, type, (ClientboundPacket) value, batch.inside);
                     }
@@ -569,6 +595,8 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             }
             return requested;
         } finally {
+            if (sunk) sunkMove.release();
+            if (syncSunk) sunkSync.release();
             if (lease != null) lender.end(lease);
             if (bytes != null) bytes.release();
         }
@@ -590,6 +618,11 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                     || route.send() != null && route.send().hasConnectionHandlers();
             found = route;
             skipped = consumed ? null : route;
+            connection.sinkMoves(consumed
+                    && (type == ClientboundPackets.MOVE_ENTITY || type == ClientboundPackets.ENTITY_POSITION_SYNC)
+                    && route.own()
+                    && route.send() != null
+                    && !route.send().hasConnectionHandlers());
             return consumed;
         }
     }
@@ -728,7 +761,11 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
 
     /** A frame forwarded without expansion; inside an open flush bundle it is an ordinary member. */
     private void writeRaw(ChannelHandlerContext ctx, ByteBuf frame, ChannelPromise promise) {
-        PacketType<?> type = wireType(frame);
+        writeRaw(ctx, frame, promise, wireType(frame));
+    }
+
+    /** As {@link #writeRaw(ChannelHandlerContext, ByteBuf, ChannelPromise)}, for the frame's {@link #wireType}. */
+    private void writeRaw(ChannelHandlerContext ctx, ByteBuf frame, ChannelPromise promise, PacketType<?> type) {
         if (PacketBundlePolicy.requiresStandalone(type)) {
             // Even a model-context fallback must serialize the close/write/resume sequence against reentry.
             var output = new Output();
@@ -753,6 +790,26 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                             Wire.peekVarInt(frame));
         } catch (RuntimeException failure) {
             return null;
+        }
+    }
+
+    /** The frame's packet ID, or {@link #UNREADABLE_ID} where {@link Wire#peekVarInt} throws. */
+    private static long peekId(ByteBuf frame) {
+        try {
+            return Wire.peekVarInt(frame);
+        } catch (RuntimeException failure) {
+            return UNREADABLE_ID;
+        }
+    }
+
+    /** {@link #wireType} of a frame with packet ID {@code id}: a type or null, else {@link #UNRESOLVED} when it throws. */
+    private Object resolve(int id) {
+        try {
+            return connection
+                    .packets()
+                    .type(connection.phase(PacketDirection.CLIENTBOUND), PacketDirection.CLIENTBOUND, id);
+        } catch (RuntimeException failure) {
+            return UNRESOLVED;
         }
     }
 
@@ -1026,7 +1083,8 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
     private void recycle(PacketDispatcher.Route route, PacketSendEvent<?> event) {
         if (!route.own() || !event.tasksAfter().isEmpty()) return;
         event.release();
-        idleSendEvent = event;
+        if (idleSendEvent == null) idleSendEvent = event;
+        else spareSendEvent = event;
     }
 
     /** Keeps a frame that no output, batch or caller holds any more for a later {@link #frame}. */
@@ -1101,48 +1159,53 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         }
     }
 
-    /** Owns only un-emitted frames. Appending transfers ownership without retaining a tree. */
+    /**
+     * Owns only un-emitted frames, linked through {@link Frame#next}; a frame is in at most one output. Appending
+     * transfers ownership without retaining a tree.
+     */
     private static class Output {
-        // Most expansions contain exactly one frame. Allocate a queue only for a second one.
-        Frame first;
-        ArrayDeque<Frame> tail;
+        Frame first, last;
+        int size;
 
         boolean isEmpty() {
             return first == null;
         }
 
         int size() {
-            return first == null ? 0 : 1 + (tail == null ? 0 : tail.size());
+            return size;
         }
 
         void addLast(Frame frame) {
+            frame.next = null;
             if (first == null) first = frame;
-            else {
-                if (tail == null) tail = new ArrayDeque<>(4);
-                tail.addLast(frame);
-            }
+            else last.next = frame;
+            last = frame;
+            size++;
         }
 
         void addFirst(Frame frame) {
-            if (first != null) {
-                if (tail == null) tail = new ArrayDeque<>(4);
-                tail.addFirst(first);
-            }
+            frame.next = first;
+            if (first == null) last = frame;
             first = frame;
+            size++;
         }
 
         Frame removeFirst() {
             Frame result = first;
-            first = tail == null ? null : tail.pollFirst();
+            if (result != null) {
+                first = result.next;
+                result.next = null;
+                if (first == null) last = null;
+                size--;
+            }
             return result;
         }
 
         void collectPromises(java.util.Set<ChannelPromise> parts) {
-            if (first != null) parts.add(first.promise);
-            if (tail != null) for (Frame frame : tail) parts.add(frame.promise);
+            for (Frame frame = first; frame != null; frame = frame.next) parts.add(frame.promise);
         }
 
-        ArrayDeque<Runnable> tasks;
+        TaskQueue tasks;
         List<GroupCompletion> groups;
         boolean flush;
 
@@ -1152,7 +1215,7 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
 
         void addTasks(List<Runnable> actions) {
             if (actions.isEmpty()) return;
-            if (tasks == null) tasks = new ArrayDeque<>(actions.size());
+            if (tasks == null) tasks = new TaskQueue(actions.size());
             for (int i = 0; i < actions.size(); i++) tasks.addLast(actions.get(i));
         }
 
@@ -1161,28 +1224,34 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
             groups.add(group);
         }
 
+        /** Drops a task queue an earlier burst grew, so a kept output retains only a small one. */
+        void trimTasks() {
+            if (tasks != null && !tasks.kept()) tasks = null;
+        }
+
         void append(Output source) {
             if (!source.isEmpty()) {
-                if (isEmpty()) {
-                    first = source.first;
-                    tail = source.tail;
-                    source.first = null;
-                    source.tail = null;
-                } else {
-                    while (!source.isEmpty()) addLast(source.removeFirst());
-                    source.tail = null;
-                }
+                if (isEmpty()) first = source.first;
+                else last.next = source.first;
+                last = source.last;
+                size += source.size;
+                source.first = null;
+                source.last = null;
+                source.size = 0;
             }
             if (source.hasTasks()) {
-                if (tasks == null) tasks = source.tasks;
-                else while (!source.tasks.isEmpty()) tasks.addLast(source.tasks.pollFirst());
+                // An empty queue here trades places with the source's, which keeps it for its next use.
+                if (!hasTasks()) {
+                    TaskQueue empty = tasks;
+                    tasks = source.tasks;
+                    source.tasks = empty;
+                } else while (!source.tasks.isEmpty()) tasks.addLast(source.tasks.removeFirst());
             }
             if (source.groups != null && !source.groups.isEmpty()) {
                 if (groups == null) groups = source.groups;
                 else for (int i = 0; i < source.groups.size(); i++) groups.add(source.groups.get(i));
             }
             flush |= source.flush;
-            source.tasks = null;
             source.groups = null;
             source.flush = false;
         }
@@ -1206,6 +1275,50 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
                 groups.clear();
             }
             if (tasks != null) tasks.clear();
+        }
+    }
+
+    /** Tasks after send in run order; rejects a null task. */
+    private static final class TaskQueue {
+        private static final int KEPT_CAPACITY = 16;
+        private Runnable[] tasks;
+        private int head, size;
+
+        TaskQueue(int expected) {
+            tasks = new Runnable[Math.max(4, Integer.highestOneBit(Math.max(expected, 1) - 1) << 1)];
+        }
+
+        boolean isEmpty() {
+            return size == 0;
+        }
+
+        boolean kept() {
+            return tasks.length <= KEPT_CAPACITY;
+        }
+
+        void addLast(Runnable task) {
+            Objects.requireNonNull(task);
+            if (size == tasks.length) {
+                Runnable[] grown = new Runnable[tasks.length << 1];
+                for (int i = 0; i < size; i++) grown[i] = tasks[(head + i) & (tasks.length - 1)];
+                tasks = grown;
+                head = 0;
+            }
+            tasks[(head + size++) & (tasks.length - 1)] = task;
+        }
+
+        Runnable removeFirst() {
+            if (size == 0) throw new NoSuchElementException();
+            Runnable task = tasks[head];
+            tasks[head] = null;
+            head = (head + 1) & (tasks.length - 1);
+            size--;
+            return task;
+        }
+
+        void clear() {
+            while (size > 0) removeFirst();
+            head = 0;
         }
     }
 }

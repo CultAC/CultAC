@@ -20,6 +20,11 @@ final class LatencyTaskQueue {
         insert(acquire(transaction, runnable, null));
     }
 
+    /** Queues {@code packet} as a task that {@link LatencyUtils} runs by its type. */
+    synchronized void addPacket(int transaction, Object packet) {
+        insert(acquire(transaction, packet, null));
+    }
+
     /**
      * Runs {@code runnable} at {@code transaction}, then {@code next} at the one after in {@code runnable}'s place:
      * right after it when both are ready, otherwise before the tasks added after it.
@@ -94,7 +99,7 @@ final class LatencyTaskQueue {
         return readyHead;
     }
 
-    private TaskNode acquire(int transaction, Runnable runnable, Runnable continuation) {
+    private TaskNode acquire(int transaction, Object runnable, Runnable continuation) {
         TaskNode task = recycledTasks;
         if (task == null) return new TaskNode(transaction, runnable, continuation);
         recycledTasks = task.next;
@@ -122,19 +127,24 @@ final class LatencyTaskQueue {
 
     static final class TaskNode {
         private int transaction;
-        private Runnable runnable;
+        /** A {@link Runnable}, or a packet queued with {@link #addPacket}. */
+        private Object runnable;
         /** Runs at the next transaction, in this task's place; null when there is none. */
         private Runnable continuation;
         private TaskNode next;
 
-        private TaskNode(int transaction, Runnable runnable, Runnable continuation) {
+        private TaskNode(int transaction, Object runnable, Runnable continuation) {
             this.transaction = transaction;
             this.runnable = runnable;
             this.continuation = continuation;
         }
 
-        Runnable runnable() {
+        Object task() {
             return runnable;
+        }
+
+        int transaction() {
+            return transaction;
         }
 
         TaskNode next() {

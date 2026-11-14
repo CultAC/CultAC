@@ -37,6 +37,7 @@ public final class SafePositionCapture {
     // The Java prediction whose commit gives this safe state the deltaMovement it carries on.
     private PredictionResult uncommittedSafeCarry;
     private SetbackPosWithVector uncommittedSafeState;
+    private int heldUntil = Integer.MIN_VALUE;
 
     public SafePositionCapture(CultPlayer player, SafePositionTracker safePositions, CorrectionState corrections) {
         this.player = player;
@@ -162,6 +163,7 @@ public final class SafePositionCapture {
                     .provenBy(
                             SetbackEntity.of(player.getRidingVehicleId()),
                             SafeProof.movement(player.lastTransactionReceived.get()));
+            if (player.lastTransactionReceived.get() < heldUntil) return;
             if (!safePositions.accepts(safe, false)) return;
             safe.setSprintOutcomes(SimulationProcessor.sprintOutcomesAfter(
                     player, predictionComplete.isTeleport() ? null : completedPrediction));
@@ -196,6 +198,11 @@ public final class SafePositionCapture {
         // A setback sent from this state in the meantime keeps the velocity it sent.
         if (!safePositions.holds(state) || corrections.isPending() || carried.isEmpty()) return;
         state.setVector(carried.iterator().next());
+    }
+
+    /** Movements stage no safe position until the client answers {@code transaction}. */
+    public void holdUntil(int transaction) {
+        heldUntil = Math.max(heldUntil, transaction);
     }
 
     /** Whether the client just accepted {@code teleport} as a Java correction whose delta movement is absolute. */

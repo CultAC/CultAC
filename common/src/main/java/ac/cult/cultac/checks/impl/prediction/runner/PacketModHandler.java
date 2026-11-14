@@ -15,6 +15,7 @@ import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.utils.math.Vec3;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.Getter;
@@ -58,6 +59,9 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
 
     @Getter
     public transient TransactionVel lastSent = null;
+
+    /** Java impulses in send order, from the oldest the client has not proven. */
+    private final transient ArrayDeque<TransactionVel> unproven = new ArrayDeque<>();
 
     @Setter
     boolean isSetbackVal = false;
@@ -182,7 +186,7 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
                 }
 
             } else { // We still need to increase violations.
-                player.getSetbackTeleportUtil().executeViolationSetback();
+                player.getSetbackTeleportUtil().executeViolationSetback(this);
             }
         }
 
@@ -292,7 +296,7 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
         int transaction = player.lastTransactionSent.get();
         TransactionVel velocity = new TransactionVel(
                 playerVelocity, transaction, isVel, isSetbackVal, sourceEntityId, player.nextImpulseSequence());
-        lastSent = velocity;
+        sent(velocity);
         player.latencyUtils.addRealTimeTaskWithNextTransaction(
                 transaction,
                 () -> makeVelocityPossible(velocity, playerVelocity),
@@ -336,8 +340,31 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
         if (transaction <= 0) return;
         TransactionVel velocity = new TransactionVel(
                 playerVelocity, transaction, isVel, isSetbackVal, sourceEntityId, player.nextImpulseSequence());
-        lastSent = velocity;
+        sent(velocity);
         player.latencyUtils.addRealTimeTask(transaction, () -> confirmVelocity(velocity, playerVelocity));
+    }
+
+    /** {@code velocity} is the newest impulse the server sent the player. */
+    protected void sent(TransactionVel velocity) {
+        lastSent = velocity;
+        oldestUnproven();
+        unproven.addLast(velocity);
+    }
+
+    /** The oldest impulse the client has not proven, or null; the client proves them in send order. */
+    public TransactionVel oldestUnproven() {
+        while (!unproven.isEmpty() && proven(unproven.peekFirst())) unproven.pollFirst();
+        return unproven.peekFirst();
+    }
+
+    /** Leaves every impulse sent so far out of {@link #oldestUnproven}. */
+    public void forgetUnproven() {
+        unproven.clear();
+    }
+
+    private boolean proven(TransactionVel velocity) {
+        return player.lastTransactionReceived.get()
+                >= Math.max(velocity.getTransaction(), velocity.getProofTransaction());
     }
 
     private boolean shouldCarryPreviousPacketModifier(
@@ -409,5 +436,6 @@ public class PacketModHandler extends Check implements EngineCheck, PostPredicti
             lastSent = null;
         }
         overriddenVels.removeIf(vel -> vel.getSourceEntityId() == entityId);
+        unproven.removeIf(vel -> vel.getSourceEntityId() == entityId);
     }
 }

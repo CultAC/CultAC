@@ -115,9 +115,11 @@ class EntityScanParityTest {
                 SimpleCollisionBox.class,
                 SimpleCollisionBox.class);
         pusherBox.setAccessible(true);
-        Method sweepBox = WorldStageBuilder.class.getDeclaredMethod("playerSweep", SimulationContext.class);
+        Method sweepBox = WorldStageBuilder.class.getDeclaredMethod(
+                "playerSweep", SimulationContext.class, SimpleCollisionBox.class, SimpleCollisionBox.class);
         sweepBox.setAccessible(true);
-        Method contactBox = WorldStageBuilder.class.getDeclaredMethod("pusherContactBox", SimpleCollisionBox.class);
+        Method contactBox = WorldStageBuilder.class.getDeclaredMethod(
+                "pusherContactBox", SimpleCollisionBox.class, SimpleCollisionBox.class);
         contactBox.setAccessible(true);
         Method pushes = WorldStageBuilder.class.getDeclaredMethod(
                 "pushesPlayer", PacketEntity.class, SimpleCollisionBox.class, SimpleCollisionBox.class);
@@ -140,8 +142,10 @@ class EntityScanParityTest {
             rider.mount(riddenBoat);
 
             SimulationContext context = prediction.getSimulationContext();
-            SimpleCollisionBox sweep = (SimpleCollisionBox) sweepBox.invoke(null, context);
-            SimpleCollisionBox playerBox = (SimpleCollisionBox) contactBox.invoke(null, sweep);
+            SimpleCollisionBox sweep = (SimpleCollisionBox)
+                    sweepBox.invoke(null, context, new SimpleCollisionBox(), new SimpleCollisionBox());
+            SimpleCollisionBox playerBox =
+                    (SimpleCollisionBox) contactBox.invoke(null, sweep, new SimpleCollisionBox());
             long playerTickOrder = entities.getSelf().getClientTickOrder();
             int expected = 0;
             int colliding = 0;

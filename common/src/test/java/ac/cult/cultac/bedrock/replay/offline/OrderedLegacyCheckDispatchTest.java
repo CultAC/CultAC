@@ -40,7 +40,6 @@ import ac.cult.cultac.protocol.packet.serverbound.ServerboundKeepAlive;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMovePlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundMoveVehicle;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerAction;
-import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPong;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundSwing;
@@ -49,7 +48,6 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Direction;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.PlayerAction;
-import ac.cult.cultac.protocol.value.PlayerCommandAction;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.anticheat.update.BlockBreak;
 import ac.cult.cultac.utils.data.ClientItemUseState;
@@ -317,18 +315,12 @@ public final class OrderedLegacyCheckDispatchTest {
     }
 
     @Test
-    public void deletedSprintChecksAreRegisteredAndSprintEReceivesCommands() throws Exception {
+    public void deletedSprintChecksAreRegistered() throws Exception {
         CultPlayer player = offlineJavaPlayer();
         player.setDisabled(true);
         try {
             assertTrue(player.checkManager.getListener(SprintB.class) != null);
-            SprintE sprintE = player.checkManager.getListener(SprintE.class);
-            assertTrue(sprintE != null);
-
-            ServerboundPlayerCommand startSprint =
-                    new ServerboundPlayerCommand(0, PlayerCommandAction.START_SPRINTING, 0);
-            player.checkManager.dispatchReceiveHandlers(receiveEvent(player, startSprint));
-            assertTrue(booleanField(sprintE, "startedSprintingThisTick"));
+            assertTrue(player.checkManager.getListener(SprintE.class) != null);
         } finally {
             OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
         }
@@ -528,11 +520,6 @@ public final class OrderedLegacyCheckDispatchTest {
     private static PacketReceiveEvent<ServerboundMoveVehicle> receiveEvent(
             CultPlayer player, ServerboundMoveVehicle packet) {
         return RecordReceiveTestEvents.vehicle(player, packet);
-    }
-
-    private static PacketReceiveEvent<ServerboundPlayerCommand> receiveEvent(
-            CultPlayer player, ServerboundPlayerCommand packet) {
-        return RecordReceiveTestEvents.playerCommand(player, packet);
     }
 
     private static PacketReceiveEvent<ServerboundPlayerAction> receiveEvent(

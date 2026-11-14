@@ -20,6 +20,7 @@ import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundCustomPayload;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundCustomPayload;
+import ac.grim.grimac.api.config.ConfigManager;
 import com.velocitypowered.api.proxy.ProxyServer;
 import java.util.UUID;
 import java.util.logging.Logger;
@@ -70,6 +71,38 @@ class BridgeRoutesTest {
                 .receive()
                 .early()
                 .isEmpty());
+        for (var type : new PacketType<?>[] {ClientboundPackets.CUSTOM_PAYLOAD, ClientboundPackets.LOGIN}) {
+            var route = dispatcher.get(type);
+            assertTrue(route == null || route.send() == null, type::toString);
+        }
+    }
+
+    @Test
+    void switchedOffBridgeStillStripsClientPayloads() {
+        var dispatcher = new PacketDispatcher(ProtocolRuntime.create(
+                ProtocolData.load(ProtocolVersion.V26_3), ClientPacketCodecs.connectionCatalog(), 32767));
+        var service = new BridgeService(
+                mock(ProxyServer.class),
+                new Object(),
+                player -> null,
+                channel -> null,
+                Logger.getLogger("BridgeRoutesTest"));
+        var config = mock(ConfigManager.class);
+        when(config.getBooleanElse(eq("bridge.enabled"), anyBoolean())).thenReturn(false);
+        assertFalse(service.start(dispatcher, config));
+
+        var user = mock(User.class, RETURNS_DEEP_STUBS);
+        when(user.getPacketExecutor().inEventLoop()).thenReturn(true);
+        when(user.getBedrockBridgeConnection()).thenReturn(null);
+        when(user.getCultPlayer()).thenReturn(null);
+        var forged = new PacketReceiveEvent<>(
+                user,
+                ConnectionPhase.PLAY,
+                ServerboundPackets.CUSTOM_PAYLOAD,
+                new ServerboundCustomPayload(BridgeProtocol.CHANNEL, new byte[] {0x2C}));
+        dispatcher.receive(
+                forged, dispatcher.get(ServerboundPackets.CUSTOM_PAYLOAD).receive());
+        assertTrue(forged.isCancelled());
         for (var type : new PacketType<?>[] {ClientboundPackets.CUSTOM_PAYLOAD, ClientboundPackets.LOGIN}) {
             var route = dispatcher.get(type);
             assertTrue(route == null || route.send() == null, type::toString);

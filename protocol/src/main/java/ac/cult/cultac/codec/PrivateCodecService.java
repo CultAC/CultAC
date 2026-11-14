@@ -19,6 +19,7 @@ import ac.cult.shaded.vialib.util.Key;
 import io.netty.buffer.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 
 /** One-time type initialization, then concurrent reads without private player connections. */
 public final class PrivateCodecService implements WireValueDecoder {
@@ -27,6 +28,10 @@ public final class PrivateCodecService implements WireValueDecoder {
     private record Versions(ProtocolVersion source, ProtocolVersion target) {}
 
     private final Map<Versions, ModelIdMappings> mappings = new ConcurrentHashMap<>();
+    private static final int VERSIONS = ProtocolVersion.values().length;
+    /** {@link #mappings}' values by source and target ordinal, read before the map. */
+    private final AtomicReferenceArray<ModelIdMappings> mappingsByOrdinal =
+            new AtomicReferenceArray<>(VERSIONS * VERSIONS);
     private final Map<ProtocolVersion, PlayerTextCodec> playerText = new ConcurrentHashMap<>();
     private volatile boolean closed;
 
@@ -48,6 +53,16 @@ public final class PrivateCodecService implements WireValueDecoder {
     @Override
     public ModelIdMappings mappings(ProtocolVersion source, ProtocolVersion target) {
         checkOpen();
+        if (source == null || target == null) return computeMappings(source, target);
+        int slot = source.ordinal() * VERSIONS + target.ordinal();
+        var known = mappingsByOrdinal.get(slot);
+        if (known != null) return known;
+        var computed = computeMappings(source, target);
+        mappingsByOrdinal.compareAndSet(slot, null, computed);
+        return computed;
+    }
+
+    private ModelIdMappings computeMappings(ProtocolVersion source, ProtocolVersion target) {
         return mappings.computeIfAbsent(new Versions(source, target), versions -> {
             var original = ModelRegistryData.load(source);
             var destination = ModelRegistryData.load(target);
@@ -221,9 +236,11 @@ public final class PrivateCodecService implements WireValueDecoder {
         if (reused != null) return reused;
         var type = types(version);
         var scan = input.duplicate();
-        ItemStructureGuard.scanItemStack(type, version, scan, false);
+        var scanned = ScannedComponents.of(type.item(), type.structuredData());
+        if (scanned == null) ItemStructureGuard.scanItemStack(type, version, scan, false);
+        else ItemStructureGuard.scanItemStack(type, version, scan, scanned);
         int start = input.readerIndex(), end = scan.readerIndex();
-        var decoded = readScanned(type, input, false, false);
+        var decoded = readScanned(scanned == null ? type.item() : scanned.item(), input, false);
         return reuse.decoded(item(decoded.item(), registries, version, decoded.patch(), factory), input, start, end);
     }
 
@@ -233,14 +250,13 @@ public final class PrivateCodecService implements WireValueDecoder {
         boolean lengthPrefixed = creative && version.atLeast(ProtocolVersion.V1_21_5);
         // The structure budget runs on a view: an oversized item must never reach the readers below.
         ItemStructureGuard.scanItemStack(type, version, input.duplicate(), lengthPrefixed);
-        return readScanned(type, input, creative, lengthPrefixed);
+        // 1.21.5 introduced the length-prefixed creative component codec.
+        return readScanned(lengthPrefixed ? type.lengthPrefixedItem() : type.item(), input, creative);
     }
 
-    private static ItemInput readScanned(
-            VersionedTypesHolder type, ByteBuf input, boolean creative, boolean lengthPrefixed) {
+    private static ItemInput readScanned(Type<Item> reader, ByteBuf input, boolean creative) {
         int start = input.readerIndex();
-        // 1.21.5 introduced the length-prefixed creative component codec.
-        Item item = (lengthPrefixed ? type.lengthPrefixedItem() : type.item()).read(input);
+        Item item = reader.read(input);
         // Keep the creative count domain used by the inventory view. The backend
         // validates persistent fields of unused components on the original frame.
         if (creative && item != null && !item.isEmpty() && item.amount() > 99)
@@ -275,7 +291,7 @@ public final class PrivateCodecService implements WireValueDecoder {
                 layoutBytes = ByteBufUtil.getBytes(output);
             }
             // Via's component writers preserve fields that the persistent NBT codec omits.
-            var encodings = values.encodings();
+            var encodings = values.encodings(scratchCapacity(wirePatch));
             return new ItemValue(
                     item.identifier(),
                     item.amount(),
@@ -295,7 +311,7 @@ public final class PrivateCodecService implements WireValueDecoder {
         if (item == null || item.isEmpty()) return new DecodedItem<>(0, 0, null, null, Map.of(), null);
         var context = new ValueContext(registries, version, mappings(version, ProtocolVersion.V26_3));
         var values = ComponentValues.components(item, context);
-        var encodings = values.encodings();
+        var encodings = values.encodings(scratchCapacity(wirePatch));
         return new DecodedItem<>(
                 item.identifier(),
                 item.amount(),
@@ -303,6 +319,11 @@ public final class PrivateCodecService implements WireValueDecoder {
                 values.layouts().isEmpty() ? null : PortableNbt.read(values.layouts(), factory),
                 encodings,
                 wirePatch == null ? null : new ComponentEncoding(version.protocol(), wirePatch, context.references()));
+    }
+
+    /** A capacity hint for the encodings scratch: the patch length when known, else netty's default. */
+    private static int scratchCapacity(byte[] wirePatch) {
+        return wirePatch == null ? 256 : wirePatch.length;
     }
 
     @Override
@@ -593,6 +614,7 @@ public final class PrivateCodecService implements WireValueDecoder {
             // ModernProtocols caches only read-only mappings/types for the plugin lifetime.
             // Its workers are stopped after initialization; each facade owns its own cache.
             mappings.clear();
+            for (int i = 0; i < mappingsByOrdinal.length(); i++) mappingsByOrdinal.set(i, null);
         }
     }
 }

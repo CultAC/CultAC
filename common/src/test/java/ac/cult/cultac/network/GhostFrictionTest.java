@@ -310,7 +310,7 @@ class GhostFrictionTest {
     /** One placement the client predicts: packed ice in the floor under the slide. */
     private static void predictIce(JavaTickFixture f) {
         CompensatedWorld world = f.player.compensatedWorld;
-        world.advanceClientPredictionSequence();
+        world.advanceClientPredictionSequence(world.clientPredictionSequence() + 1);
         world.startPredicting();
         for (BlockPos pos : floor()) world.updateBlock(pos, PACKED_ICE);
         world.stopPredicting(world.clientPredictionSequence());

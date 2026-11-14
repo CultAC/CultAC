@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.cultac.checks.impl.prediction.BlockGrid;
+import ac.cult.cultac.utils.debug.DebugText;
+import ac.cult.cultac.utils.math.Vec3;
 import com.github.luben.zstd.ZstdCompressCtx;
 import com.sun.management.ThreadMXBean;
 import java.io.IOException;
@@ -60,12 +62,60 @@ class DiagTextTest {
                         String expected = text(state, withGrid);
                         assertArrayEquals(
                                 zstd.compress(expected.getBytes(StandardCharsets.UTF_8)),
-                                text.compress(state, withGrid));
+                                text.compress(kept(state), withGrid));
                         assertEquals(expected.length(), text.length());
                     }
                 }
             }
         }
+    }
+
+    @Test
+    void aRecordedStateFramesAsItsPrintedString() throws ReflectiveOperationException {
+        BlockGrid grid = grid(new Random(8), -3, 60, -3, 2, 66, 2);
+        Random random = new Random(9);
+        List<DebugText> states = new ArrayList<>();
+        for (int chars : new int[] {0, 1, 300, 20_000, DiagText.KEPT_CHARS - 50, DiagText.KEPT_CHARS + 10, 20_000}) {
+            states.add(recorded(random, chars, ""));
+        }
+        states.add(recorded(random, 5_000, "Δv 𝄞"));
+        states.add(recorded(random, 5_000, "lone high \ud834"));
+        states.add(recorded(random, 5_000, ""));
+        try (DiagText text = new DiagText(LEVEL);
+                ZstdCompressCtx zstd = new ZstdCompressCtx().setLevel(LEVEL)) {
+            for (DebugText state : states) {
+                for (BlockGrid withGrid : Arrays.asList(null, grid)) {
+                    String expected = text(state.toString(), withGrid);
+                    assertArrayEquals(
+                            zstd.compress(expected.getBytes(StandardCharsets.UTF_8)), text.compress(state, withGrid));
+                    assertEquals(expected.length(), text.length());
+                }
+            }
+        }
+    }
+
+    /** About {@code chars} of SuperDebug-like text appended as strings, numbers and vectors, then {@code tail}. */
+    private static DebugText recorded(Random random, int chars, String tail) {
+        DebugText.Builder sb = new DebugText.Builder();
+        int length = 0;
+        while (length < chars) {
+            Vec3 vector = new Vec3(random.nextDouble() - 0.5, random.nextGaussian(), random.nextInt(100) / 16.0);
+            float yaw = random.nextFloat() * 360;
+            long time = random.nextLong();
+            sb.append("\nStarting vel: ")
+                    .append(vector)
+                    .append(" yaw=")
+                    .append(yaw)
+                    .append(" at ")
+                    .append(time)
+                    .append(' ')
+                    .append(random.nextBoolean());
+            length += 40
+                    + vector.toString().length()
+                    + Float.toString(yaw).length()
+                    + Long.toString(time).length();
+        }
+        return sb.append(tail).toText();
     }
 
     @Test
@@ -79,7 +129,7 @@ class DiagTextTest {
                 for (BlockGrid withGrid : Arrays.asList(null, grid)) {
                     assertArrayEquals(
                             zstd.compress(text(state, withGrid).getBytes(StandardCharsets.UTF_8)),
-                            text.compress(state, withGrid));
+                            text.compress(kept(state), withGrid));
                 }
             }
         }
@@ -111,7 +161,7 @@ class DiagTextTest {
                     for (String state : texts) {
                         byte[] frame = way == 0
                                 ? zstd.compress(text(state, grid).getBytes(StandardCharsets.UTF_8))
-                                : text.compress(state, grid);
+                                : text.compress(kept(state), grid);
                         sink += frame.length;
                     }
                     if (rep < 0) continue;
@@ -138,6 +188,11 @@ class DiagTextTest {
         }
         Files.writeString(
                 Path.of(out), line.append('\n').toString(), StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+    }
+
+    /** {@code state} as a text kept as its string, as a watch keeps a printed state. */
+    static DebugText kept(String state) {
+        return new DebugText.Builder().append(state).toText();
     }
 
     /** The text as a string of its own, sized as the state and the grid's text. */

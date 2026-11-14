@@ -63,6 +63,23 @@ class JavaFireworkGlideTest {
         }
     }
 
+    /** The attachment stays possible on every tick until its ping returns, here 40 ticks later. */
+    @Test
+    void aRocketAppliedLateWhileItsPingIsOutstandingBoostsEachLaterGlide() throws Exception {
+        try (var f = gliding()) {
+            attachRocket(f);
+            Vec3 velocity = CARRIED;
+            Vec3 position = FROM;
+            for (int tick = 0; tick < 40; tick++) {
+                // LivingEntity#aiStep zeroes a vertical speed under 0.003 before travel.
+                Vec3 move = glide(f, Math.abs(velocity.y) < 0.003 ? velocity.multiply(1, 0, 1) : velocity);
+                position = position.add(move);
+                assertExact(f.tick(position, false));
+                velocity = tick >= 20 ? boost(f, move) : move;
+            }
+        }
+    }
+
     /** ClientPacketListener#handleExplosion adds the knockback to the velocity the rocket boosted. */
     @Test
     void anExplosionAddsToTheBoostedVelocity() throws Exception {

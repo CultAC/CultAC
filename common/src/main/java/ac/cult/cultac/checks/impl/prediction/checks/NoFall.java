@@ -32,7 +32,7 @@ public class NoFall implements EngineCheck {
         }
 
         boolean flaggedNoFall = false;
-        final NoFallPseudo noFallPseudo = player.checkManager.getListener(NoFallPseudo.class);
+        final NoFallPseudo noFallPseudo = player.checkManager.getNoFallPseudo();
 
         // From 26.3 the block-entity pass after the travel can hold the packet's last Entity#move, which sets onGround.
         JavaPassAfterTravel pass = JavaMovementEngine.passAfterTravel(result);

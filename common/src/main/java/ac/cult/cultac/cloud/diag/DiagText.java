@@ -1,13 +1,14 @@
 package ac.cult.cultac.cloud.diag;
 
 import ac.cult.cultac.checks.impl.prediction.BlockGrid;
+import ac.cult.cultac.utils.debug.DebugText;
 import com.github.luben.zstd.Zstd;
 import com.github.luben.zstd.ZstdCompressCtx;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 /**
- * A tick's full text as one Zstandard frame: its state as the packet thread printed it, then the block grid, in UTF-8.
+ * A tick's full text as one Zstandard frame: its state as the packet thread recorded it, then the block grid, in UTF-8.
  * The text, its bytes and the frame are built in buffers kept between ticks, so only the frame's exact copy is new; a
  * text past {@link #KEPT_CHARS} or with a char outside ASCII goes through a string of its own. Used by one diagnostics
  * thread at a time.
@@ -29,10 +30,10 @@ final class DiagText implements AutoCloseable {
         zstd = new ZstdCompressCtx().setLevel(level);
     }
 
-    byte[] compress(String state, BlockGrid grid) {
+    byte[] compress(DebugText state, BlockGrid grid) {
         StringBuilder text = this.text;
         text.setLength(0);
-        text.append(state);
+        state.appendTo(text);
         if (grid != null) grid.appendTo(text);
         length = text.length();
         if (length > KEPT_CHARS || !ascii(text)) {

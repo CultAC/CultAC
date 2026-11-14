@@ -56,7 +56,7 @@ public class PacketEntityHappyGhast extends PacketEntityTrackXRot {
 
     public float getRiddenTickYaw(float controllerYaw) {
         float rootYaw = clientPhysicalYaw;
-        return rootYaw + CultMath.wrapDegrees(controllerYaw - rootYaw) * 0.08F;
+        return (rootYaw + CultMath.wrapDegrees(controllerYaw - rootYaw) * 0.08F) % 360.0F;
     }
 
     /** {@code rawInputState} is the rider's xxa/zza on Java, and the raw keys on Bedrock. */

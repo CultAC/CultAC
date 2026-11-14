@@ -1,6 +1,7 @@
 package ac.cult.cultac.checks.impl.combat;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -10,6 +11,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
+import ac.cult.cultac.checks.Check;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
@@ -32,7 +34,7 @@ class KeepSprintSetbackTest {
         run(rig -> {
             rig.attackTick(UNSLOWED_OFFSET);
             assertEquals(1, rig.keepSprint.violations);
-            verify(rig.setbacks, times(1)).executeViolationSetback();
+            verify(rig.setbacks, times(1)).executeViolationSetback(any(Check.class));
         });
     }
 
@@ -41,7 +43,7 @@ class KeepSprintSetbackTest {
         run(rig -> {
             rig.attackTick(0);
             assertEquals(0, rig.keepSprint.violations);
-            verify(rig.setbacks, never()).executeViolationSetback();
+            verify(rig.setbacks, never()).executeViolationSetback(any(Check.class));
         });
     }
 
@@ -68,7 +70,7 @@ class KeepSprintSetbackTest {
             player.gamemode = GameMode.SURVIVAL;
             player.noSetbackPermission = false;
             doReturn(setbacks).when(player).getSetbackTeleportUtil();
-            doReturn(true).when(setbacks).executeViolationSetback();
+            doReturn(true).when(setbacks).executeViolationSetback(any(Check.class));
             keepSprint = new KeepSprint(player);
             keepSprint.reload();
             keepSprint.violations = 0;

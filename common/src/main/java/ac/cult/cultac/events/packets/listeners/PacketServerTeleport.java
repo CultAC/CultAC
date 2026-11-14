@@ -261,7 +261,9 @@ public class PacketServerTeleport {
                         rootVehicleId,
                         proofTransaction,
                         expectedResponsePosition,
-                        VehicleTeleportData.correction(rootVehicleId, finalPos, finalYaw, finalPitch, snaps));
+                        // Entity#absSnapRotationTo keeps the yaw within one turn.
+                        VehicleTeleportData.correction(
+                                rootVehicleId, finalPos, finalYaw % 360.0F, finalPitch, snaps));
     }
 
     private PacketEntity clientVisibleVehicleCorrectionRoot(CultPlayer player) {

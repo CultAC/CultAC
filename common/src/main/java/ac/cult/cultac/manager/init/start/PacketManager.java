@@ -50,6 +50,8 @@ public class PacketManager implements StartableInitable {
 
         PacketPingListener pingListener = new PacketPingListener();
         registrar.registerListener(PacketListenerPriority.LOWEST, pingListener);
+        registrar.receiveConnection(
+                ServerboundPackets.PONG, PacketListenerPriority.LOWEST, pingListener::onRetiredPong);
 
         registrar.registerReceiveListener(PacketListenerPriority.NORMAL, new DialogClickListener());
 

@@ -7,6 +7,7 @@ import ac.cult.cultac.utils.anticheat.LogUtil;
 import ac.cult.cultac.utils.blockplace.SmoketestPredictionSafety;
 import ac.cult.cultac.utils.latency.CompensatedWorld;
 import ac.cult.cultac.utils.latency.SectionPool;
+import ac.cult.cultac.utils.latency.SectionStore;
 import ac.cult.cultac.utils.math.Location;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
@@ -103,7 +104,15 @@ public final class SmoketestControlBridge {
                 + " wireHits=" + SectionPool.wireHitCounter.sum()
                 + " wireCandidates=" + SectionPool.wireCandidateCounter.sum()
                 + " multiValueFullReads=" + SectionPool.multiValueFullReadCounter.sum()
-                + " sharedClones=" + SectionPool.sharedCloneCounter.sum());
+                + " sharedClones=" + SectionPool.sharedCloneCounter.sum()
+                + " storeEntries=" + SectionStore.size()
+                + " storeLookups=" + SectionStore.lookupCounter.sum()
+                + " storeCandidates=" + SectionStore.candidateCounter.sum()
+                + " storeHits=" + SectionStore.hitCounter.sum()
+                + " storeOffers=" + SectionStore.offerCounter.sum()
+                + " storeClones=" + SectionStore.cloneCounter.sum()
+                + " storeValueLookups=" + SectionStore.valueLookupCounter.sum()
+                + " storeValueHits=" + SectionStore.valueHitCounter.sum());
         for (SectionPool.DimensionStats stats : SectionPool.dimensionStats()) {
             LogUtil.info("SectionPool dimension stats: "
                     + "label=" + safeLabel(label)

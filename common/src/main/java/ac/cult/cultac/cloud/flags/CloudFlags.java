@@ -6,6 +6,7 @@ import ac.cult.cultac.cloud.CloudHttp;
 import ac.cult.cultac.cloud.CloudSettings;
 import ac.cult.cultac.cloud.Generation;
 import ac.cult.cultac.cloud.LeasedJobs;
+import ac.cult.cultac.cloud.Pace;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogThrottle;
 import ac.cult.cultac.utils.anticheat.LogUtil;
@@ -24,7 +25,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.LongFunction;
-import java.util.function.Predicate;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -49,6 +49,10 @@ public final class CloudFlags extends LeasedJobs<CloudFlags.Flag> {
     private static final Generation GENERATION = new Generation();
     /** Flag ids this instance claimed and results it still owes, across reloads. */
     private static final Handled HANDLED = new Handled(MAX_HANDLED);
+    /** The most flags claimed per player and hour. */
+    static final int MAX_PER_PLAYER_HOUR = 32;
+    /** Flags claimed per player this hour, across reloads. */
+    private static final Pace<UUID> PACE = new Pace<>(3_600_000, MAX_PER_PLAYER_HOUR);
     private static final Kind KIND = new Kind("Cloud flags", "cloud-flags", "flags", "flag");
 
     /** One pending flag: its id, the player and the flag's check name. */
@@ -68,6 +72,7 @@ public final class CloudFlags extends LeasedJobs<CloudFlags.Flag> {
     }
 
     private final Host host;
+    private final Pace<UUID> pace;
 
     CloudFlags(
             String base,
@@ -78,9 +83,11 @@ public final class CloudFlags extends LeasedJobs<CloudFlags.Flag> {
             Host host,
             Generation generation,
             Handled handled,
+            Pace<UUID> pace,
             LongFunction<Executor> after) {
         super(KIND, base, apiKey, serverId, http, executor, generation, handled, after);
         this.host = host;
+        this.pace = pace;
     }
 
     /**
@@ -101,6 +108,7 @@ public final class CloudFlags extends LeasedJobs<CloudFlags.Flag> {
                         new PlatformHost(),
                         GENERATION,
                         HANDLED,
+                        PACE,
                         seconds -> CompletableFuture.delayedExecutor(seconds, TimeUnit.SECONDS, CloudHttp.CALLS))
                 .start();
     }
@@ -128,10 +136,10 @@ public final class CloudFlags extends LeasedJobs<CloudFlags.Flag> {
         return flag.id();
     }
 
-    /** The flags whose player is online here. */
+    /** The flags whose player is online here, at most {@link #MAX_PER_PLAYER_HOUR} per player an hour. */
     @Override
-    protected Predicate<Flag> due(JsonObject pending) {
-        return flag -> host.online(flag.player());
+    protected Function<Flag, Runnable> due(JsonObject pending) {
+        return flag -> host.online(flag.player()) ? pace.take(flag.player()) : null;
     }
 
     @Override

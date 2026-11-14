@@ -8,6 +8,7 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.NumFormatter;
 import ac.cult.cultac.utils.anticheat.StringReturner;
+import ac.cult.cultac.utils.data.RidingJumpCharge;
 import ac.cult.cultac.utils.data.TrackerData;
 import ac.cult.cultac.utils.data.VehicleTeleportData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
@@ -702,6 +703,29 @@ public final class CompensatedVehicleState implements Debuggable {
         result.exempt();
     }
 
+    /**
+     * LocalPlayer#jumpableVehicle with a getJumpCooldown of 0 for the client's tick: a saddled AbstractHorse the player
+     * controls. Unknown while a mount, dismount or control switch may be in flight, and for a camel or nautilus.
+     */
+    public RidingJumpCharge.Jumpable ridingJumpable() {
+        PacketEntity vehicle = entities.playerEntity.getRiding();
+        PacketEntity serverVehicle = serverVehicleEntity();
+        if (vehicle == null) {
+            return serverVehicle == null ? RidingJumpCharge.Jumpable.NO : RidingJumpCharge.Jumpable.UNKNOWN;
+        }
+        if (serverVehicle != vehicle
+                || !hasClientObservedServerVehicle()
+                || hasPendingServerDismount()
+                || isVehicleSwitchBufferActiveFor(vehicle)
+                || vehicle instanceof PacketEntityCamel
+                || vehicle instanceof PacketEntityNautilus) {
+            return RidingJumpCharge.Jumpable.UNKNOWN;
+        }
+        return vehicle instanceof PacketEntityHorse && mayLocalPlayerControl(vehicle)
+                ? RidingJumpCharge.Jumpable.YES
+                : RidingJumpCharge.Jumpable.NO;
+    }
+
     @Nullable
     public PacketEntityHorse getClientVisibleHorseRoot() {
         if (entities.playerEntity.getRiding() instanceof PacketEntityHorse horse) return horse;
@@ -1042,7 +1066,8 @@ public final class CompensatedVehicleState implements Debuggable {
         }
         // The client ejects and relinks without moving retained riders. Preserve their lazy position and packet
         // interpolation too: our ordinary eject/mount paths discard those only when a rider changes vehicles.
-        for (PacketEntity passenger : List.copyOf(vehicle.passengers)) {
+        List<PacketEntity> previousPassengers = List.copyOf(vehicle.passengers);
+        for (PacketEntity passenger : previousPassengers) {
             if (!keptSeats.contains(passenger)) passenger.eject();
         }
         for (int passengerId : passengerIds) {
@@ -1050,10 +1075,12 @@ public final class CompensatedVehicleState implements Debuggable {
             if (passenger == null || passenger == vehicle) continue;
             // Entity#startRiding refuses a vehicle the passenger already rides or one that rides the passenger.
             if (passenger.getRiding() == vehicle || entities.ridesIndirectly(vehicle, passenger)) continue;
+            boolean fromRidingNothing = passenger.getRiding() == null && !previousPassengers.contains(passenger);
             // Its stopRiding moves nothing on the client: a rider sent straight from another vehicle leaves it from
             // its last seat there, as when that vehicle's own set_passengers comes first.
             if (passenger.getRiding() != null) entities.settleIfUntrackedRider(passenger);
             passenger.mount(vehicle);
+            passenger.onMounted(fromRidingNothing, player.packetStateData.acceptedClientTick);
             // A boat retains its exact pre-mount position until Entity#rideTick ends.
             if (player.isBedrockMovement() || !passenger.isBoat()) passenger.markPositionInexact();
         }

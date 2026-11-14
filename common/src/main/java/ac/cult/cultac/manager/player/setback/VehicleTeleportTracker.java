@@ -189,6 +189,8 @@ public final class VehicleTeleportTracker {
             data = required.getTeleportData();
         }
         accepted.setTeleportData(data);
+        // The answer is forwarded at the queued target, never at the client's coordinates near it.
+        accepted.setForwardedPosition(position);
         accepted.setVehicleTeleportData(state);
         accepted.setVehicleTeleportId(teleport.vehicleId());
         accepted.setTeleport(true);

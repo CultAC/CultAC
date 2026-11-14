@@ -16,7 +16,8 @@ public final class NextTickVelocityDeriver {
 
     /**
      * One player's reusable derivation sets. Velocities derived with a scratch are valid only until
-     * {@link #release()}; a nested take while it is taken gets a fresh one.
+     * {@link #release()}; a nested take while it is taken gets a fresh one. Only the engine's commit derives with a
+     * scratch.
      */
     public static final class Scratch {
         private ReusableVelocitySet candidates = new ReusableVelocitySet();

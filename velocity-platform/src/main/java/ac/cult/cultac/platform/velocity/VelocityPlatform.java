@@ -161,7 +161,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
         CultAPI.INSTANCE.start();
         boolean bridged = bridge.start(
                 CultAPI.INSTANCE.getNetworkManager().dispatcher(),
-                CultAPI.INSTANCE.getConfigManager().getConfig().getStringElse("bridge.secret", ""));
+                CultAPI.INSTANCE.getConfigManager().getConfig());
         synchronized (this) {
             cloudBridge = bridged ? bridge : BridgeSessions.NONE;
             startCloudBackends();

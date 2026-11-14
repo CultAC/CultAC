@@ -43,6 +43,7 @@ public class DumbTimer extends CultProcessor implements PositionListener {
 
     @Override
     public void onPositionUpdate(final PositionUpdate positionUpdate) {
+        if (!player.isBedrockMovement()) return;
         final TeleportAcceptData teleportData = positionUpdate.getTeleportData();
         if (teleportData.isTeleport()) {
             onTeleportAccepted(
@@ -112,11 +113,7 @@ public class DumbTimer extends CultProcessor implements PositionListener {
         final long curTime = System.nanoTime();
 
         // Don't let the player fall behind real time by more than the configured limit.
-        // However, if the player long teleported within the last two seconds, allow it
-        //
-        // Be strict if the player used an item recently
-        // TODO: the above comment was never implemented? this really is a dumb timer check.
-        if (limitAbuseOverPing != -1 && curTime - this.lastLongTeleport > 2000e6) {
+        if (limitAbuseOverPing != -1 && (!player.isBedrockMovement() || curTime - this.lastLongTeleport > 2000e6)) {
             this.balance = Math.max(this.balance, curTime - limitAbuseOverPing);
         }
 

@@ -263,6 +263,7 @@ public final class CompensatedWorldPistons {
         // ClientLevel.unload and LevelChunk.replaceWithPacketData clear live
         // block entities immediately. Completed movement passes keep their
         // existing tick owner; unloading does not undo a previous shove.
+        if (movingPistonStates.isEmpty()) return;
         movingPistonStates
                 .values()
                 .removeIf(state -> state.pos().getX() >> 4 == x && state.pos().getZ() >> 4 == z);

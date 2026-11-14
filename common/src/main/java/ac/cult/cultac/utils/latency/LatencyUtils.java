@@ -1,5 +1,6 @@
 package ac.cult.cultac.utils.latency;
 
+import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.anticheat.LogThrottle;
 
@@ -29,6 +30,22 @@ public class LatencyUtils {
         transactionMap.add(transaction, task);
     }
 
+    /**
+     * Applies {@code packet}'s entity data to the compensated entities, proven at {@code transaction}, as
+     * {@link #addRealTimeTask} runs a task.
+     */
+    public void addEntityDataTask(int transaction, EntityMetadata packet) {
+        if (player.lastTransactionReceived.get() >= transaction) {
+            applyEntityData(packet, transaction);
+            return;
+        }
+        transactionMap.addPacket(transaction, packet);
+    }
+
+    private void applyEntityData(EntityMetadata packet, int transaction) {
+        player.compensatedEntities.updateEntityMetadata(packet.id(), packet.packedItems(), transaction);
+    }
+
     public void addRealTimeTaskWithNextTransaction(
             int transaction, Runnable runnable, Runnable nextTransactionRunnable) {
         if (player.lastTransactionReceived.get()
@@ -47,12 +64,22 @@ public class LatencyUtils {
             // Capture the link before clearing/running: the queued task may
             // enqueue further work and mutate node links.
             LatencyTaskQueue.TaskNode following = drained.next();
-            Runnable queuedTask = drained.runnable();
+            Object queuedTask = drained.task();
+            int queuedAt = drained.transaction();
             released = drained.clearAndLink(released);
-            runQueuedTask(queuedTask);
+            runQueuedTask(queuedTask, queuedAt);
             drained = following;
         }
         transactionMap.recycle(released);
+    }
+
+    private void runQueuedTask(Object queuedTask, int transaction) {
+        try {
+            if (queuedTask instanceof EntityMetadata packet) applyEntityData(packet, transaction);
+            else ((Runnable) queuedTask).run();
+        } catch (Exception e) {
+            FAILURES.error(e.getClass().getName(), "Transaction task failed for " + player.user.getName(), e);
+        }
     }
 
     public void runQueuedTask(Runnable queuedTask) {

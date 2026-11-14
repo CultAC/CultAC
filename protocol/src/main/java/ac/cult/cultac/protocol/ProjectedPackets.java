@@ -23,6 +23,8 @@ public final class ProjectedPackets implements AutoCloseable {
     private final Supplier<PacketValueAdapter> adapter;
     private final byte[][] bundleDelimiters = new byte[ConnectionPhase.values().length][];
     private final Object[][][] modelTypes;
+    // Contexts of translated reads and writes by wire ID; each holds the state it was built for.
+    private final ProtocolContext[][][] readContexts, writeContexts;
     private boolean closed;
 
     public ProjectedPackets(ProtocolRuntime observed, ProtocolRuntime model, Supplier<PacketValueAdapter> adapter) {
@@ -30,6 +32,8 @@ public final class ProjectedPackets implements AutoCloseable {
         this.model = Objects.requireNonNull(model);
         this.adapter = Objects.requireNonNull(adapter);
         modelTypes = new Object[ConnectionPhase.values().length][PacketDirection.values().length][];
+        readContexts = new ProtocolContext[ConnectionPhase.values().length][PacketDirection.values().length][];
+        writeContexts = new ProtocolContext[ConnectionPhase.values().length][PacketDirection.values().length][];
         for (ConnectionPhase phase : ConnectionPhase.values()) {
             for (PacketDirection direction : PacketDirection.values()) {
                 modelTypes[phase.ordinal()][direction.ordinal()] =
@@ -142,14 +146,7 @@ public final class ProjectedPackets implements AutoCloseable {
             if (type.codec().forwardsUndecoded(input, input.readerIndex())) return null;
             Object packet;
             if (translated() && type.codec().requiresModelValues()) {
-                var context = new ProtocolContext(
-                        type,
-                        observed.data(),
-                        phase,
-                        observed.data().packets(phase, direction).name(id),
-                        32767,
-                        0,
-                        state);
+                var context = readContext(type, phase, direction, id, state);
                 var values = Objects.requireNonNull(adapter.get(), "Missing observed value decoder");
                 packet = observation ? values.readForObservation(input, context) : values.read(input, context);
                 if (packet == null) return unavailable(type, state);
@@ -167,6 +164,46 @@ public final class ProjectedPackets implements AutoCloseable {
         }
     }
 
+    /** The context of a translated read of wire packet {@code id}, which {@link #type} resolved to {@code type}. */
+    private ProtocolContext readContext(
+            PacketType<?> type, ConnectionPhase phase, PacketDirection direction, int id, CodecState state) {
+        ProtocolContext[] contexts = contexts(readContexts, phase, direction);
+        ProtocolContext context = id >= 0 && id < contexts.length ? contexts[id] : null;
+        if (context != null && context.type() == type && context.state() == state) return context;
+        context = new ProtocolContext(
+                type,
+                observed.data(),
+                phase,
+                observed.data().packets(phase, direction).name(id),
+                32767,
+                0,
+                state);
+        if (id >= 0 && id < contexts.length) contexts[id] = context;
+        return context;
+    }
+
+    private ProtocolContext[] contexts(
+            ProtocolContext[][][] byPhase, ConnectionPhase phase, PacketDirection direction) {
+        ProtocolContext[] contexts = byPhase[phase.ordinal()][direction.ordinal()];
+        if (contexts == null) {
+            int size = observed.data().packets(phase, direction).size();
+            contexts = new ProtocolContext[size];
+            byPhase[phase.ordinal()][direction.ordinal()] = contexts;
+        }
+        return contexts;
+    }
+
+    /** The context of a translated write of {@code type} under its wire name {@code name}, wire packet {@code id}. */
+    private ProtocolContext writeContext(
+            PacketType<?> type, ConnectionPhase phase, String name, int id, CodecState state) {
+        ProtocolContext[] contexts = contexts(writeContexts, phase, type.direction());
+        ProtocolContext context = id >= 0 && id < contexts.length ? contexts[id] : null;
+        if (context != null && context.type() == type && context.state() == state) return context;
+        context = new ProtocolContext(type, observed.data(), phase, name, 32767, 0, state);
+        if (id >= 0 && id < contexts.length) contexts[id] = context;
+        return context;
+    }
+
     private static Object unavailable(PacketType<?> type, CodecState state) {
         if (state.requiresValues()) throw new ProtocolResolutionException("Unavailable value for " + type);
         return null;
@@ -179,18 +216,17 @@ public final class ProjectedPackets implements AutoCloseable {
         try {
             if (translated() && type.codec().requiresModelValues()) {
                 if (!type.writable()) throw new UnsupportedOnVersionException("Read-only packet " + type);
-                String name = type.wireNames().stream()
-                        .filter(n ->
-                                observed.data().packets(phase, type.direction()).id(n) >= 0)
-                        .findFirst()
-                        .orElseThrow(() -> new UnsupportedOnVersionException("Unavailable packet " + type));
-                Wire.writeVarInt(
-                        output, observed.data().packets(phase, type.direction()).id(name));
+                List<String> names = type.wireNames();
+                String name = null;
+                int id = -1;
+                for (int i = 0; i < names.size() && name == null; i++) {
+                    id = observed.data().packets(phase, type.direction()).id(names.get(i));
+                    if (id >= 0) name = names.get(i);
+                }
+                if (name == null) throw new UnsupportedOnVersionException("Unavailable packet " + type);
+                Wire.writeVarInt(output, id);
                 Objects.requireNonNull(adapter.get(), "Missing observed value writer")
-                        .write(
-                                output,
-                                new ProtocolContext(type, observed.data(), phase, name, 32767, 0, state),
-                                packet);
+                        .write(output, writeContext(type, phase, name, id, state), packet);
             } else observed.encode(phase, type, packet, output, state);
             var result = new Encoded(List.of(output));
             output = null;

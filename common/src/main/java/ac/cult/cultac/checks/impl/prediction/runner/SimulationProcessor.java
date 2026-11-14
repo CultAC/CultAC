@@ -120,11 +120,15 @@ import org.jetbrains.annotations.Nullable;
 public class SimulationProcessor extends CultProcessor implements PositionListener, ClientTickEndListener {
     static long computeTimeNS = 300000L;
     private static final AtomicInteger flags = new AtomicInteger(0);
+    private static final MovementModifiers MOVEMENT_MODIFIERS = new MovementModifiers();
     private static final double TELEPORT_GROUND_UNCERTAIN_DISTANCE_SQ = 4.0E-8;
     private static final double TRAVEL_DEBUG_DISTANCE_SQR = 1.0;
     private static final double TRAVEL_FLAG_DISTANCE_SQR = 400.0;
     // LevelLoadTracker stops waiting after CLIENT_WAIT_TIMEOUT_MS (30 s) and LEVEL_LOAD_CLOSE_DELAY_MS (0.5 s).
     private static final int MAX_LOADING_LEVEL_TICKS = 610;
+    /** Vehicle inputs by {@link #unitIndex} of strafe times three plus that of forward. */
+    private static final Vec3[] UNIT_VEHICLE_INPUTS = unitVehicleInputs();
+
     EvictingQueue<Long> lastMovementTime = new EvictingQueue(3);
     private boolean predictingStationaryTick;
     Set<Vec3> validPlayerStartingVels = new HashSet<>();
@@ -184,6 +188,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
     private final WorldStageBuilder worldStageBuilder = new WorldStageBuilder();
     private final NextTickVelocityDeriver.Scratch velocityScratch = new NextTickVelocityDeriver.Scratch();
     private final StepCollisionMemo stepCollisionMemo = new StepCollisionMemo();
+    private final PredictionScratch scratch = new PredictionScratch();
+    // Filled and emptied within the outermost predict call.
+    private final List<ValidMovements> candidateMovements = new ArrayList<>();
+    private boolean predicting;
 
     public SimulationProcessor(CultPlayer playerData) {
         super(playerData);
@@ -191,6 +199,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
     public NextTickVelocityDeriver.Scratch velocityScratch() {
         return this.velocityScratch;
+    }
+
+    public PredictionScratch scratch() {
+        return this.scratch;
     }
 
     /** Entity#checkSupportingBlock after a move of {@code movement} that ended with the box {@code box}. */
@@ -768,6 +780,13 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                             }
                         } finally {
                             this.predictingAtTickEnd = false;
+                        }
+                        // Player#tick clears a spectator's onGround every tick, and LocalPlayer#sendPosition sends
+                        // nothing while another entity is the camera.
+                        if (this.player.gamemode == GameMode.SPECTATOR
+                                && this.player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_11)) {
+                            this.player.onGround = false;
+                            this.lastOnGround = DesyncStatus.FALSE;
                         }
                     } else if (this.ticksWhileLoadingLevel < MAX_LOADING_LEVEL_TICKS) {
                         // Entity#push adds to the waiting player's deltaMovement with no travel or friction between.
@@ -1649,6 +1668,8 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             if (!this.player.isBedrockMovement()) this.commitClientFrost(result, to);
             this.player.minPlayerAttackSlow = 0;
             this.player.maxPlayerAttackSlow = 0;
+            this.player.attackSlowsAfterTravel = 0;
+            this.player.travelPredictedThisClientTick = true;
             if (this.player.isFlying) {
                 this.lastFlying.reset();
             }
@@ -2823,11 +2844,67 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             MovementProfile movementProfile) {
         List<PredictionResult> alternativeRealities = new ArrayList<>();
         List<PredictionResult> invalidOrValidRealities = new ArrayList<>();
-        List<ValidMovements> valid = new ArrayList<>();
+        if (this.predicting) {
+            return this.predictOnce(
+                    player,
+                    startingVel,
+                    lastPrediction,
+                    target,
+                    start,
+                    end,
+                    testing,
+                    xRot,
+                    yRot,
+                    authoredMovementFrame,
+                    movementProfile,
+                    alternativeRealities,
+                    invalidOrValidRealities,
+                    new ArrayList<>());
+        }
+        List<ValidMovements> valid = this.candidateMovements;
+        valid.clear();
+        this.predicting = true;
+        try {
+            return this.predictOnce(
+                    player,
+                    startingVel,
+                    lastPrediction,
+                    target,
+                    start,
+                    end,
+                    testing,
+                    xRot,
+                    yRot,
+                    authoredMovementFrame,
+                    movementProfile,
+                    alternativeRealities,
+                    invalidOrValidRealities,
+                    valid);
+        } finally {
+            this.predicting = false;
+            valid.clear();
+        }
+    }
+
+    private PredictionResult predictOnce(
+            CultPlayer player,
+            Set<Vec3> startingVel,
+            PredictionResult lastPrediction,
+            Vec3 target,
+            Vec3 start,
+            Vec3 end,
+            boolean testing,
+            float xRot,
+            float yRot,
+            AuthoredMovementFrame authoredMovementFrame,
+            MovementProfile movementProfile,
+            List<PredictionResult> alternativeRealities,
+            List<PredictionResult> invalidOrValidRealities,
+            List<ValidMovements> valid) {
         MovementEngine engine = MovementEngines.requireForProfile(movementProfile);
         boolean debugUncertainty = this.shouldApplyDebugUncertainty();
 
-        for (SimulationContext curSimulationContext : this.createReleaseSimulationContexts(
+        List<SimulationContext> contexts = this.createReleaseSimulationContexts(
                 player,
                 lastPrediction,
                 target,
@@ -2837,10 +2914,12 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 xRot,
                 yRot,
                 authoredMovementFrame,
-                movementProfile)) {
+                movementProfile);
+        for (int contextIndex = 0, contextCount = contexts.size(); contextIndex < contextCount; contextIndex++) {
+            SimulationContext curSimulationContext = contexts.get(contextIndex);
             player.clientFluidTagOrder = curSimulationContext.getFluidTagOrder();
             List<PredVector> contextPacketStart = engine.applyModifiers(
-                    new MovementModifiers(), player, startingVel, curSimulationContext, lastPrediction);
+                    MOVEMENT_MODIFIERS, player, startingVel, curSimulationContext, lastPrediction);
             for (JavaRiptideRelease.Prepared release : JavaSpinAttack.sprintContexts(
                     player,
                     JavaRiptideRelease.prepare(
@@ -3177,8 +3256,11 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
             // Every state's context is built from the same inputs before the state is applied to it.
             CarryWorld world = null;
             boolean worldSpinRebound = false;
-            for (var state :
-                    this.fluidOrderStates(this.movementPatchStates(this.fallRangeStates(carried.states(), start)))) {
+            List<JavaPredictionCarry.State> states =
+                    this.fluidOrderStates(this.movementPatchStates(this.fallRangeStates(carried.states(), start)));
+            for (int stateIndex = 0, stateCount = states.size(); stateIndex < stateCount; stateIndex++) {
+                var state = states.get(stateIndex);
+                if (world != null && stateIndex == stateCount - 1) world.handOff = true;
                 JavaPredictionCarry.PistonStart anchored = state.pistonStart();
                 // Packet processing/interpolation placed a shared vehicle start before travel.
                 // Preserve distinct physical alternatives; a common old anchor must not undo that placement.
@@ -3190,7 +3272,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 if (state.fluidTagOrder() != null) stateWorld = null;
                 if (stateWorld != null
                         && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_26_1)
-                        && stateWorld.world().isUnderwater()
+                        && stateWorld.world.isUnderwater()
                                 != ClientFluidQueries.eyeContactInWater(player, state.playerEyeFluidContact()))
                     stateWorld = null;
                 SimulationContext context = this.createSimulationContext(
@@ -3437,10 +3519,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         // keeps the staged raw keys.
         Vec3 vehicleInputs = !player.isBedrockMovement()
                 ? this.passengerRideTick.movementInput()
-                : Float.floatToRawIntBits(player.boatData.vehicleHoriz) == 0
-                                && Float.floatToRawIntBits(player.boatData.vehicleForward) == 0
-                        ? Vec3.ZERO
-                        : new Vec3(player.boatData.vehicleHoriz, 0.0, player.boatData.vehicleForward);
+                : vehicleInputs(player.boatData.vehicleHoriz, player.boatData.vehicleForward);
         MainSupportingBlockData lastTickSupport = this.lastTickSupport(lastPrediction);
         SimulationContext context = new SimulationContext(
                 start,
@@ -3661,11 +3740,50 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         this.lastOnGround = lastOnGround;
     }
 
-    /** The world one carry state's context built, as it stood before that state was applied. */
-    private record CarryWorld(
-            WorldData world,
-            List<SimpleCollisionBox> entityCollisionBoxes,
-            List<HardCollidingEntityCollision> hardCollidingEntityCollisions) {
+    /** The vector {@code (horiz, 0.0, forward)}; a shared one when both are +0.0F, 1.0F or -1.0F. */
+    static Vec3 vehicleInputs(float horiz, float forward) {
+        int h = unitIndex(horiz);
+        int f = unitIndex(forward);
+        return h < 0 || f < 0 ? new Vec3(horiz, 0.0, forward) : UNIT_VEHICLE_INPUTS[h * 3 + f];
+    }
+
+    /** 0 for -1.0F, 1 for +0.0F, 2 for 1.0F, by raw bits; else -1. */
+    private static int unitIndex(float value) {
+        int bits = Float.floatToRawIntBits(value);
+        if (bits == 0) return 1;
+        if (bits == Float.floatToRawIntBits(1.0F)) return 2;
+        return bits == Float.floatToRawIntBits(-1.0F) ? 0 : -1;
+    }
+
+    private static Vec3[] unitVehicleInputs() {
+        Vec3[] inputs = new Vec3[9];
+        for (int h = 0; h < 3; h++) {
+            for (int f = 0; f < 3; f++) {
+                inputs[h * 3 + f] = h == 1 && f == 1 ? Vec3.ZERO : new Vec3(h - 1.0F, 0.0, f - 1.0F);
+            }
+        }
+        return inputs;
+    }
+
+    /**
+     * The world one carry state's context built, as it stood before that state was applied. Only this holds that
+     * world, so once {@link #handOff} is set the next context takes it in place of a copy and none follows.
+     */
+    private static final class CarryWorld {
+        private final WorldData world;
+        private final List<SimpleCollisionBox> entityCollisionBoxes;
+        private final List<HardCollidingEntityCollision> hardCollidingEntityCollisions;
+        private boolean handOff;
+
+        private CarryWorld(
+                WorldData world,
+                List<SimpleCollisionBox> entityCollisionBoxes,
+                List<HardCollidingEntityCollision> hardCollidingEntityCollisions) {
+            this.world = world;
+            this.entityCollisionBoxes = entityCollisionBoxes;
+            this.hardCollidingEntityCollisions = hardCollidingEntityCollisions;
+        }
+
         private static CarryWorld of(SimulationContext built) {
             return new CarryWorld(
                     built.getWorldData().copy(),
@@ -3674,7 +3792,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         }
 
         private void attachTo(SimulationContext context) {
-            context.setWorldData(world.copy());
+            context.setWorldData(handOff ? world : world.copy());
             context.cacheEntityCollisionBoxesForMovementTick(entityCollisionBoxes);
             context.cacheHardCollidingEntityCollisionsForMovementTick(hardCollidingEntityCollisions);
         }

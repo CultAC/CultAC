@@ -86,6 +86,32 @@ class CloudAndInventoryChecksTest {
         }
     }
 
+    @Test
+    void cloudFindingsOutsideZeroToOneDoNotFlag() throws Exception {
+        try (var services = new RecordConsumerServices();
+                var f = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            var check = new Cloud(f.player);
+            for (double confidence : new double[] {
+                Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, -0.1, 1.5
+            }) {
+                check.finding("aim.tiny_yaw", confidence, "yaw=0.0004");
+            }
+            assertEquals(0, check.getViolations());
+            check.finding("aim.tiny_yaw", 1, "yaw=0.0004");
+            assertEquals(1, check.getViolations());
+        }
+    }
+
+    @Test
+    void cloudFindingsFlagAtMostSixHundredAMinute() throws Exception {
+        try (var services = new RecordConsumerServices();
+                var f = new RecordReceiveFixture(ProtocolVersion.V26_3)) {
+            var check = new Cloud(f.player);
+            for (int i = 0; i < 601; i++) check.finding("aim.tiny_yaw", 0.9, "yaw=0.0004");
+            assertEquals(600, check.getViolations());
+        }
+    }
+
     private static PacketReceiveEvent<ServerboundClientInformation> information(RecordReceiveFixture f, int skin) {
         return new PacketReceiveEvent<>(
                 f.user, ConnectionPhase.PLAY, ServerboundPackets.CLIENT_INFORMATION, information(skin));

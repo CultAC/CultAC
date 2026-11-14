@@ -203,6 +203,7 @@ public class Collisions {
 
         CollisionBoxPool pool = CollisionBoxPool.current();
         int mark = pool.mark();
+        int boxMark = pool.markBoxes();
         try {
             return collide(
                     player,
@@ -218,10 +219,11 @@ public class Collisions {
                     pool);
         } finally {
             pool.release(mark);
+            pool.releaseBoxes(boxMark);
         }
     }
 
-    /** Native colliders come from {@code pool}; none of them outlives this call. */
+    /** Native colliders and working boxes come from {@code pool}; none of them outlives this call. */
     private static Vec3 collide(
             CultPlayer player,
             SimpleCollisionBox box,
@@ -262,6 +264,7 @@ public class Collisions {
         if (delta.equals(Vec3.ZERO)) return Vec3.ZERO;
         CollisionBoxPool pool = CollisionBoxPool.current();
         int mark = pool.mark();
+        int boxMark = pool.markBoxes();
         try {
             return collide(
                     player,
@@ -279,6 +282,7 @@ public class Collisions {
                     actor);
         } finally {
             pool.release(mark);
+            pool.releaseBoxes(boxMark);
         }
     }
 
@@ -296,7 +300,7 @@ public class Collisions {
             CollisionBoxPool pool,
             double stepUpHeight,
             JavaCollisionState actor) {
-        SimpleCollisionBox grabBoxesBB = box.copy();
+        SimpleCollisionBox grabBoxesBB = pool.copyOf(box);
         boolean separateStepQuery = !player.isBedrockMovement();
 
         if (desiredX == 0.0 && desiredZ == 0.0) {
@@ -323,7 +327,7 @@ public class Collisions {
         getCollisionBoxes(player, grabBoxesBB, desiredMovementCollisionBoxes, false, entityBottom, actor, pool);
         addAdditionalCollisionBoxes(grabBoxesBB, desiredMovementCollisionBoxes, additionalCollisionBoxes);
 
-        SimpleCollisionBox moved = new SimpleCollisionBox();
+        SimpleCollisionBox moved = pool.box();
         Vec3 collisionResult = collideBoundingBoxLegacy(
                 desiredX,
                 desiredY,
@@ -352,8 +356,9 @@ public class Collisions {
             // first candidate that improves horizontal movement.
             boolean collidedDown = collisionResult.y != desiredY && desiredY < 0.0D;
             SimpleCollisionBox stepStartBox =
-                    collidedDown ? box.copy().offset(0.0D, collisionResult.y, 0.0D) : box.copy();
-            SimpleCollisionBox stepSearchBox = stepStartBox.copy().expandToCoordinate(desiredX, stepUpHeight, desiredZ);
+                    collidedDown ? pool.copyOf(box).offset(0.0D, collisionResult.y, 0.0D) : pool.copyOf(box);
+            SimpleCollisionBox stepSearchBox =
+                    pool.copyOf(stepStartBox).expandToCoordinate(desiredX, stepUpHeight, desiredZ);
             if (!collidedDown) {
                 stepSearchBox.expandToCoordinate(0.0D, separateStepQuery ? -(double) 1.0E-5F : -1.0E-5D, 0.0D);
             }
@@ -1951,9 +1956,13 @@ public class Collisions {
 
     public static boolean doesBlockSuffocate(CultPlayer player, int x, int y, int z) {
         int state = player.compensatedWorld.getBlockStateIdAt(x, y, z);
-        // BlockBehaviour's predicate uses generated state/full-shape facts. The
-        // shulker predicate sees no block entity in CompensatedWorld, as before.
-        return DataTables.defaults().registry().facts(state).has(StateFacts.SUFFOCATING);
+        // BlockBehaviour's predicate uses generated state/full-shape facts.
+        if (!DataTables.defaults().registry().facts(state).has(StateFacts.SUFFOCATING)) return false;
+        if (!ClientBlockProperties.isShulkerBox(state)) return true;
+        // ShulkerBoxBlock suffocates only while its ShulkerBoxBlockEntity#isClosed.
+        var shulker = player.compensatedWorld.getClientBlockEntityData(new BlockPos(x, y, z));
+        var status = shulker == null ? null : shulker.data().get("animation_status");
+        return status == null || status.getAsString().equals("CLOSED");
     }
 
     @FunctionalInterface

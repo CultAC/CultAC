@@ -1,11 +1,13 @@
 package ac.cult.cultac.cloud;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.cultac.checks.impl.prediction.OffsetHandler;
+import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SuperDebug;
 import ac.cult.cultac.cloud.capture.CaptureStream;
 import ac.cult.cultac.cloud.intake.v3.DiagCoverage;
@@ -22,11 +24,14 @@ import ac.cult.cultac.cloud.intake.v3.Reply;
 import ac.cult.cultac.cloud.transport.CloudConnections;
 import ac.cult.cultac.cloud.transport.ConnectionFixture.Receiver;
 import ac.cult.cultac.cloud.wire.IntakeWire;
+import ac.cult.cultac.platform.api.world.PlatformWorld;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.PacketDirection;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundLogin;
 import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.protocol.value.PlayerSpawnInfo;
+import ac.cult.cultac.utils.anticheat.update.PredictionComplete;
+import ac.cult.cultac.utils.math.Vec3;
 import com.google.protobuf.ByteString;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
@@ -40,6 +45,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 /**
  * Diagnostics over a real socket to a stand-in intake service, through the capture and the service's uplinks: a
@@ -140,6 +146,134 @@ class DiagnosticsStreamTest {
 
             socket.close().sync();
             await(fixture, () -> debug.watch() == null);
+        }
+    }
+
+    @Test
+    void ticksBeforeTheWatchStartItsRingAtTheSeqsTheirFramesWentOutIn() throws Exception {
+        try (Receiver receiver = new Receiver();
+                CaptureFixture fixture = new CaptureFixture(CaptureFixture.Host.SERVER, false)) {
+            SuperDebug debug = fixture.player.checkManager.getListener(SuperDebug.class);
+            Mockito.when(fixture.player.platformPlayer.getWorld()).thenReturn(Mockito.mock(PlatformWorld.class));
+            fixture.player.x = -1;
+            debug.onPredictionComplete(movement(-1));
+            start(fixture, receiver);
+            Channel socket = receiver.handshakes.poll(5, TimeUnit.SECONDS);
+            assertNotNull(socket);
+            OffsetHandler simulation = fixture.player.checkManager.getCheck(OffsetHandler.class);
+
+            Map<Long, Integer> expected = new HashMap<>();
+            for (int tick = 0; tick < 8; tick++) {
+                fixture.player.x = tick;
+                expected.put(frameSeq(fixture), tick);
+                debug.onPredictionComplete(
+                        tick == 4 ? new PredictionComplete((PredictionResult) null) : movement(tick));
+                if (tick == 5) fixture.capture.flagged(simulation, 1.0);
+                fixture.tickEnd();
+            }
+
+            reply(
+                    socket,
+                    Reply.newBuilder()
+                            .setDiagWatch(DiagWatch.newBuilder()
+                                    .setPlayer(player(fixture))
+                                    .setLeaseSeconds(60))
+                            .build());
+            await(fixture, () -> debug.watch() != null);
+            List<Long> captured = new ArrayList<>();
+            for (int tick = 8; tick < 10; tick++) {
+                var watch = debug.watch();
+                long seq = watch.pendingSeq();
+                captured.add(seq);
+                watch.capture(seq, 0, "tick " + tick, "state " + tick, null, System.nanoTime());
+                fixture.tickEnd();
+            }
+
+            Map<Long, Frame> frames = new HashMap<>();
+            await(fixture, () -> {
+                IntakeMessage message;
+                while ((message = receiver.messages.poll()) != null) {
+                    if (message.hasFrame()) frames.put(message.getFrame().getSeq(), message.getFrame());
+                }
+                return frames.keySet().containsAll(captured) && frames.keySet().containsAll(expected.keySet());
+            });
+            long flagged = -1;
+            for (Frame frame : frames.values()) {
+                for (Record record : frame.getRecordsList()) {
+                    if (!record.hasVerdict()) continue;
+                    for (Flag flag : record.getVerdict().getFlagsList()) {
+                        if (flag.getCheck().equals("Simulation")) flagged = frame.getSeq();
+                    }
+                }
+            }
+            assertEquals(5, expected.get(flagged), "the flagged tick's frame is the one its prediction belonged to");
+
+            long from = expected.keySet().stream().min(Long::compare).orElseThrow();
+            reply(
+                    socket,
+                    Reply.newBuilder()
+                            .setDiagCut(DiagCut.newBuilder()
+                                    .setPlayer(player(fixture))
+                                    .setBundle(ByteString.copyFrom(BUNDLE))
+                                    .setFromSeq(0)
+                                    .setToSeq(captured.get(1))
+                                    .setFullFromSeq(flagged)
+                                    .setFullToSeq(flagged))
+                            .build());
+            List<DiagPart> parts = new ArrayList<>();
+            await(fixture, () -> {
+                IntakeMessage message;
+                while ((message = receiver.messages.poll()) != null) {
+                    if (message.hasDiag()) parts.add(message.getDiag());
+                }
+                return !parts.isEmpty() && parts.get(parts.size() - 1).getLast();
+            });
+            assertEquals(
+                    DiagCoverage.DIAG_COVERAGE_PARTIAL,
+                    parts.get(parts.size() - 1).getCoverage());
+            List<DiagTick> ticks = new ArrayList<>();
+            for (DiagPart part : parts) ticks.addAll(part.getTicksList());
+            assertEquals(expected.size() + captured.size(), ticks.size());
+            assertEquals(from, ticks.get(0).getSeq());
+            for (DiagTick tick : ticks) {
+                assertFalse(tick.getTrace().contains("pos -1.0 "), "a tick before the capture is left out");
+                int index = captured.indexOf(tick.getSeq());
+                if (index >= 0) {
+                    assertEquals("tick " + (8 + index), tick.getTrace());
+                    continue;
+                }
+                int expectedTick = expected.get(tick.getSeq());
+                assertTrue(tick.getTrace().contains("pos " + (double) expectedTick + " "), tick.getTrace());
+                assertTrue(tick.getFull().isEmpty(), "a tick before the watch holds its trace only");
+                assertTrue(tick.getFlagsList().isEmpty(), "a tick before the watch carries no flags");
+                if (expectedTick == 4) {
+                    assertTrue(tick.getTrace().startsWith("pos "), tick.getTrace());
+                    assertTrue(tick.getTrace().endsWith(" teleport"), tick.getTrace());
+                } else {
+                    assertTrue(
+                            tick.getTrace().startsWith("pred 0.0 0.0 0.0 act " + (double) expectedTick + " "),
+                            tick.getTrace());
+                }
+            }
+            socket.close().sync();
+        }
+    }
+
+    /** A prediction that moved {@code x} along x; the engine's candidates are not part of it. */
+    private static PredictionComplete movement(double x) {
+        PredictionResult result = Mockito.mock(PredictionResult.class);
+        Mockito.when(result.getTarget()).thenReturn(new Vec3(x, 0, 0));
+        Mockito.when(result.getInputVectorAndVerticals()).thenReturn(new Vec3(0, 0, 0));
+        return new PredictionComplete(result);
+    }
+
+    private static long frameSeq(CaptureFixture fixture) {
+        try {
+            var method = CloudCapture.class.getDeclaredMethod("frameSeq");
+            method.setAccessible(true);
+            return (long) method.invoke(fixture.capture);
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError(e);
         }
     }
 

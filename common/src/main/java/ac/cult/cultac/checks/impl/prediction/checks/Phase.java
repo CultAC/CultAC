@@ -144,7 +144,8 @@ public class Phase extends Check implements PostPredictionListener {
         Map<BlockPos, GhostBlockMitigator.GhostData> ghostDataMap = player.getGhostBlockMitigator().unknownStuff;
         boolean hasGhostBlocks = !ghostDataMap.isEmpty();
 
-        for (SimpleCollisionBox box : boxes) {
+        for (int i = 0, size = boxes.size(); i < size; i++) {
+            SimpleCollisionBox box = boxes.get(i);
             if (intersects(newBox, box, bedrock) && !intersects(oldBox, box, bedrock)) {
                 if (!bedrock && isMovingBlock(player, box)) continue;
                 BlockPos blockPos = BlockPos.containing(

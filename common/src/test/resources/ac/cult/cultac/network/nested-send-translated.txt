@@ -1,0 +1,512 @@
+fresh keep_alive 1
+fresh authored ping 102
+fresh authored motion 102
+write 0 00
+write 1 00
+write 2 2b0000000000000001
+write 3 00
+write 4 3b ping#0
+write 5 00
+task ping 102
+task keep_alive 1
+fresh keep_alive 2
+fresh authored ping 201
+fresh authored motion 201
+fresh authored ping 202
+write 6 00
+write 7 3b ping#1
+write 8 63c901f5ff7ffeffff32
+write 9 00
+write 10 2b0000000000000002
+write 11 00
+write 12 3b ping#2
+write 13 00
+fresh keep_alive 3
+fresh authored ping 302
+fresh authored motion 352
+fresh authored motion 302
+fresh authored ping 303
+fresh authored motion 353
+write 14 00
+write 15 00
+write 16 2b0000000000000003
+write 17 00
+write 18 63e002f4ff7ffeffff58
+write 19 3b ping#3
+write 20 63ae02f6ff7ffeffff4b
+write 21 63e102f5ff7ffeffff58
+write 22 3b ping#4
+write 23 00
+task motion 352
+task motion 302
+task motion 353
+flush
+wire 0 ok
+wire 1 ok
+wire 2 ok
+wire 3 ok
+wire 4 ok
+wire 5 ok
+wire 6 ok
+wire 7 ok
+wire 8 ok
+wire 9 ok
+wire 10 ok
+wire 11 ok
+wire 12 ok
+wire 13 ok
+wire 14 ok
+wire 15 ok
+wire 16 ok
+wire 17 ok
+wire 18 ok
+wire 19 ok
+wire 20 ok
+wire 21 ok
+wire 22 ok
+wire 23 ok
+fresh keep_alive 4
+fresh authored ping 401
+fresh authored motion 401
+fresh authored ping 402
+fresh authored motion 402
+write 24 00
+write 25 3b ping#5
+write 26 639103f5ff7ffeffff64
+write 27 00
+write 28 2b0000000000000004
+write 29 00
+write 30 3b ping#6
+write 31 639203f6ff7ffeffff64
+write 32 00
+task ping 401
+task ping 402
+fresh keep_alive 5
+fresh authored ping 502
+fresh authored motion 502
+write 33 00
+write 34 00
+write 35 2b0000000000000005
+write 36 00
+write 37 3b ping#7
+write 38 63f603f6ff7ffeffff7d
+write 39 00
+task keep_alive 5
+fresh keep_alive 6
+fresh authored ping 601
+fresh authored motion 651
+fresh authored motion 601
+fresh authored ping 602
+fresh authored ping 603
+write 40 00
+write 41 3b ping#8
+write 42 00
+write 43 2b0000000000000006
+write 44 00
+write 45 3b ping#9
+write 46 00
+flush
+wire 24 ok
+wire 25 ok
+wire 26 ok
+wire 27 ok
+wire 28 ok
+wire 29 ok
+wire 30 ok
+wire 31 ok
+wire 32 ok
+wire 33 ok
+wire 34 ok
+wire 35 ok
+wire 36 ok
+wire 37 ok
+wire 38 ok
+wire 39 ok
+wire 40 ok
+wire 41 ok
+wire 42 ok
+wire 43 ok
+wire 44 ok
+wire 45 ok
+wire 46 ok
+fresh keep_alive 7
+fresh keep_alive 8
+fresh authored ping 801
+fresh authored motion 801
+fresh authored ping 802
+fresh authored motion 802
+write 47 00
+write 48 3b ping#10
+write 49 63a106f5ff7ffeffffc801
+write 50 00
+write 51 2b0000000000000008
+write 52 00
+write 53 3b ping#11
+write 54 63a206f6ff7ffeffffc801
+write 55 00
+fresh keep_alive 9
+fresh authored ping 902
+fresh authored motion 952
+fresh authored motion 902
+fresh authored ping 903
+fresh authored motion 953
+write 56 00
+write 57 00
+write 58 2b0000000000000009
+write 59 00
+write 60 63b807f4ff7ffeffffee01
+write 61 3b ping#12
+write 62 638607f6ff7ffeffffe101
+write 63 63b907f5ff7ffeffffee01
+write 64 3b ping#13
+write 65 00
+task motion 952
+task motion 902
+task motion 953
+task keep_alive 9
+flush
+wire 47 ok
+wire 48 ok
+wire 49 ok
+wire 50 ok
+wire 51 ok
+wire 52 ok
+wire 53 ok
+wire 54 ok
+wire 55 ok
+wire 56 ok
+wire 57 ok
+wire 58 ok
+wire 59 ok
+wire 60 ok
+wire 61 ok
+wire 62 ok
+wire 63 ok
+wire 64 ok
+wire 65 ok
+fresh keep_alive 10
+fresh authored ping 1001
+fresh authored motion 1001
+fresh authored ping 1002
+write 66 00
+write 67 3b ping#14
+write 68 63e907f5ff7ffefffffa01
+write 69 00
+write 70 2b000000000000000a
+write 71 00
+write 72 3b ping#15
+write 73 00
+task ping 1001
+fresh keep_alive 11
+write 74 2b000000000000000b
+fresh keep_alive 12
+fresh authored ping 1201
+fresh authored motion 1251
+fresh authored motion 1201
+fresh authored ping 1202
+fresh authored motion 1252
+fresh authored motion 1202
+fresh authored ping 1203
+write 75 00
+write 76 63e309f7ff7ffeffffb802
+write 77 3b ping#16
+write 78 63b109f5ff7ffeffffac02
+write 79 00
+write 80 2b000000000000000c
+write 81 00
+write 82 63e409f4ff7ffeffffb902
+write 83 3b ping#17
+write 84 63b209f6ff7ffeffffac02
+write 85 00
+flush
+wire 66 ok
+wire 67 ok
+wire 68 ok
+wire 69 ok
+wire 70 ok
+wire 71 ok
+wire 72 ok
+wire 73 ok
+wire 74 ok
+wire 75 ok
+wire 76 ok
+wire 77 ok
+wire 78 ok
+wire 79 ok
+wire 80 ok
+wire 81 ok
+wire 82 ok
+wire 83 ok
+wire 84 ok
+wire 85 ok
+flush
+refs flushed written 1 1 1 1 1 1 0 1 1 1 1 1 reached 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1
+fresh keep_alive 13
+fresh authored ping 1302
+fresh authored motion 1302
+write 86 00
+wire 86 failed IOException
+write 87 00
+wire 87 failed IOException
+write 88 2b000000000000000d
+wire 88 failed IOException
+write 89 00
+write 90 3b ping#18
+write 91 63960af6ff7ffeffffc502
+write 92 00
+task motion 1302
+task ping 1302
+task keep_alive 13
+flush
+wire 89 ok
+wire 90 ok
+wire 91 ok
+wire 92 ok
+fresh keep_alive 14
+flush
+fresh keep_alive 15
+fresh authored ping 1502
+fresh authored motion 1552
+fresh authored motion 1502
+fresh authored ping 1503
+fresh authored motion 1553
+write 93 00
+write 94 00
+write 95 2b000000000000000f
+write 96 00
+write 97 63900cf4ff7ffeffff8403
+write 98 3b ping#19
+write 99 63de0bf6ff7ffefffff702
+write 100 63910cf5ff7ffeffff8403
+write 101 3b ping#20
+write 102 00
+task motion 1552
+task motion 1502
+task motion 1553
+flush
+wire 93 ok
+wire 94 ok
+wire 95 ok
+wire 96 ok
+wire 97 ok
+wire 98 ok
+wire 99 ok
+wire 100 ok
+wire 101 ok
+wire 102 ok
+fresh keep_alive 16
+fresh authored ping 1601
+fresh authored motion 1601
+fresh authored ping 1602
+fresh authored motion 1602
+write 103 00
+write 104 3b ping#21
+write 105 00
+write 106 2b0000000000000010
+write 107 00
+write 108 3b ping#22
+write 109 00
+task ping 1601
+task ping 1602
+flush
+wire 103 ok
+wire 104 ok
+wire 105 ok
+wire 106 ok
+wire 107 ok
+wire 108 ok
+wire 109 ok
+refs refused written 1 1 1 1 1 1 0 1 1 1 1 1 0 0 1 1 reached 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1
+fresh keep_alive 17
+fresh authored ping 1702
+fresh authored motion 1702
+write 110 00
+write 111 00
+write 112 2b0000000000000011
+write 113 00
+write 114 3b ping#23
+write 115 63a60df6ff7ffeffffa903
+write 116 00
+task keep_alive 17
+fresh keep_alive 18
+fresh authored ping 1801
+fresh authored motion 1851
+fresh authored motion 1801
+fresh authored ping 1802
+fresh authored ping 1803
+write 117 00
+write 118 63bb0ef7ff7ffeffffce03
+write 119 3b ping#24
+write 120 63890ef5ff7ffeffffc203
+write 121 00
+write 122 2b0000000000000012
+write 123 00
+write 124 3b ping#25
+write 125 00
+fresh keep_alive 19
+fresh authored ping 1902
+fresh authored motion 1902
+write 126 00
+wire 110 failed StacklessClosedChannelException
+wire 111 failed StacklessClosedChannelException
+wire 112 failed StacklessClosedChannelException
+wire 113 failed StacklessClosedChannelException
+wire 114 failed StacklessClosedChannelException
+wire 115 failed StacklessClosedChannelException
+wire 116 failed StacklessClosedChannelException
+wire 117 failed StacklessClosedChannelException
+wire 118 failed StacklessClosedChannelException
+wire 119 failed StacklessClosedChannelException
+wire 120 failed StacklessClosedChannelException
+wire 121 failed StacklessClosedChannelException
+wire 122 failed StacklessClosedChannelException
+wire 123 failed StacklessClosedChannelException
+wire 124 failed StacklessClosedChannelException
+wire 125 failed StacklessClosedChannelException
+wire 126 failed StacklessClosedChannelException
+write 127 00
+wire 127 failed StacklessClosedChannelException
+write 128 2b0000000000000013
+wire 128 failed StacklessClosedChannelException
+write 129 00
+wire 129 failed StacklessClosedChannelException
+write 130 3b ping#26
+wire 130 failed StacklessClosedChannelException
+write 131 63ee0ef6ff7ffeffffdb03
+wire 131 failed StacklessClosedChannelException
+write 132 00
+wire 132 failed StacklessClosedChannelException
+task motion 1902
+task ping 1902
+refs closed written 1 1 1 1 1 1 0 1 1 1 1 1 0 0 1 1 0 0 0 0 0 0 reached 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+caller 0 ok
+caller 1 ok
+caller 2 ok
+caller 3 ok
+caller 4 ok
+caller 5 ok
+caller 6 ok
+caller 7 ok
+caller 8 ok
+caller 9 ok
+caller 10 ok
+caller 11 ok
+caller 12 failed IOException
+caller 13 ok
+caller 14 ok
+caller 15 ok
+caller 16 failed StacklessClosedChannelException
+caller 17 failed StacklessClosedChannelException
+caller 18 failed StacklessClosedChannelException
+caller 19 failed StacklessClosedChannelException
+caller 20 failed StacklessClosedChannelException
+caller 21 failed StacklessClosedChannelException
+open false
+out 00
+out 00
+out 2b0000000000000001
+out 00
+out 3b ping#0
+out 00
+out 00
+out 3b ping#1
+out 63c901f5ff7ffeffff32
+out 00
+out 2b0000000000000002
+out 00
+out 3b ping#2
+out 00
+out 00
+out 00
+out 2b0000000000000003
+out 00
+out 63e002f4ff7ffeffff58
+out 3b ping#3
+out 63ae02f6ff7ffeffff4b
+out 63e102f5ff7ffeffff58
+out 3b ping#4
+out 00
+out 00
+out 3b ping#5
+out 639103f5ff7ffeffff64
+out 00
+out 2b0000000000000004
+out 00
+out 3b ping#6
+out 639203f6ff7ffeffff64
+out 00
+out 00
+out 00
+out 2b0000000000000005
+out 00
+out 3b ping#7
+out 63f603f6ff7ffeffff7d
+out 00
+out 00
+out 3b ping#8
+out 00
+out 2b0000000000000006
+out 00
+out 3b ping#9
+out 00
+out 00
+out 3b ping#10
+out 63a106f5ff7ffeffffc801
+out 00
+out 2b0000000000000008
+out 00
+out 3b ping#11
+out 63a206f6ff7ffeffffc801
+out 00
+out 00
+out 00
+out 2b0000000000000009
+out 00
+out 63b807f4ff7ffeffffee01
+out 3b ping#12
+out 638607f6ff7ffeffffe101
+out 63b907f5ff7ffeffffee01
+out 3b ping#13
+out 00
+out 00
+out 3b ping#14
+out 63e907f5ff7ffefffffa01
+out 00
+out 2b000000000000000a
+out 00
+out 3b ping#15
+out 00
+out 2b000000000000000b
+out 00
+out 63e309f7ff7ffeffffb802
+out 3b ping#16
+out 63b109f5ff7ffeffffac02
+out 00
+out 2b000000000000000c
+out 00
+out 63e409f4ff7ffeffffb902
+out 3b ping#17
+out 63b209f6ff7ffeffffac02
+out 00
+out 00
+out 3b ping#18
+out 63960af6ff7ffeffffc502
+out 00
+out 00
+out 00
+out 2b000000000000000f
+out 00
+out 63900cf4ff7ffeffff8403
+out 3b ping#19
+out 63de0bf6ff7ffefffff702
+out 63910cf5ff7ffeffff8403
+out 3b ping#20
+out 00
+out 00
+out 3b ping#21
+out 00
+out 2b0000000000000010
+out 00
+out 3b ping#22
+out 00
+refs drained written 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 reached 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0

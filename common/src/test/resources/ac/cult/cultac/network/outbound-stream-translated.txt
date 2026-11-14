@@ -1,0 +1,217 @@
+write 0 00
+send camera 2
+write 1 3b ping#0
+write 2 5b02
+task camera 2
+write 3 73
+send camera 3
+send motion 3
+write 4 6303f3ff7ffeffff
+write 5 5b03
+write 6 3b ping#1
+task camera 3
+send camera 4
+write 7 5b04
+send camera 25
+write 8 5b19
+task camera 4
+task camera 25
+send camera 5
+write 9 5b05
+task camera 5
+write 10 00
+flush
+wire 0 ok
+wire 1 ok
+wire 2 ok
+wire 3 ok
+wire 4 ok
+wire 5 ok
+wire 6 ok
+wire 7 ok
+wire 8 ok
+wire 9 ok
+wire 10 ok
+send block 7 8
+write 11 00
+write 12 3b ping#2
+write 13 070000000000001234070801
+write 14 00
+send motion 8
+write 15 00
+write 16 6308f9ff7ffffff9
+write 17 3b ping#3
+write 18 00
+flush
+wire 11 ok
+wire 12 ok
+wire 13 ok
+wire 14 ok
+wire 15 ok
+wire 16 ok
+wire 17 ok
+wire 18 ok
+after writes
+flush
+write 19 2b0000000000000009
+send camera 6
+send motion 6
+write 20 00
+write 21 6306f6ff7ffeffff01
+write 22 3b ping#4
+write 23 00
+write 24 00
+write 25 3b ping#5
+write 26 5b06
+write 27 3b ping#6
+task camera 6
+write 28 00
+flush
+wire 19 ok
+wire 20 ok
+wire 21 ok
+wire 22 ok
+wire 23 ok
+wire 24 ok
+wire 25 ok
+wire 26 ok
+wire 27 ok
+wire 28 ok
+send camera 10
+write 29 00
+write 30 3b ping#7
+write 31 5b0a
+task camera 10
+write 32 00
+flush
+wire 29 ok
+wire 30 ok
+wire 31 ok
+wire 32 ok
+write 33 74
+write 34 04000000000000000c
+flush
+wire 33 ok
+wire 34 ok
+phase CONFIGURATION
+write 35 03
+flush
+wire 35 ok
+send camera 14
+write 36 00
+write 37 3b ping#8
+write 38 5b0e
+task camera 14
+task camera 14.0
+send camera 26
+write 39 5b1a
+task camera 14.1
+task camera 14.2
+task camera 14.3
+task camera 14.4
+task camera 14.5
+task camera 14.6
+task camera 26
+extra task camera 26
+send camera 15
+send motion 15
+write 40 630ff7ff7ffeffff03
+write 41 5b0f
+write 42 3b ping#9
+task camera 15
+send block 16 17
+write 43 3b ping#10
+write 44 070000000000001234101101
+send camera 18
+send motion 18
+write 45 6312f6ff7ffeffff04
+write 46 5b12
+write 47 3b ping#11
+task camera 18
+send camera 21
+send motion 21
+write 48 6315f5ff7ffeffff05
+wire 36 failed StacklessClosedChannelException
+wire 37 failed StacklessClosedChannelException
+wire 38 failed StacklessClosedChannelException
+wire 39 failed StacklessClosedChannelException
+wire 40 failed StacklessClosedChannelException
+wire 41 failed StacklessClosedChannelException
+wire 42 failed StacklessClosedChannelException
+wire 43 failed StacklessClosedChannelException
+wire 44 failed StacklessClosedChannelException
+wire 45 failed StacklessClosedChannelException
+wire 46 failed StacklessClosedChannelException
+wire 47 failed StacklessClosedChannelException
+wire 48 failed StacklessClosedChannelException
+write 49 5b15
+wire 49 failed StacklessClosedChannelException
+write 50 3b ping#12
+wire 50 failed StacklessClosedChannelException
+task camera 21
+task camera 21.0
+task camera 21.1
+task camera 21.2
+task camera 21.3
+task camera 21.4
+task camera 21.5
+task camera 21.6
+caller 0 ok
+caller 1 ok
+caller 2 ok
+caller 3 ok
+caller 4 ok
+caller 5 ok
+caller 6 ok
+caller 7 ok
+caller 8 ok
+caller 9 ok
+caller 10 ok
+caller 11 ok
+caller 12 ok
+caller 13 ok
+caller 14 ok
+caller 15 failed StacklessClosedChannelException
+caller 16 failed StacklessClosedChannelException
+caller 17 failed StacklessClosedChannelException
+caller 18 failed StacklessClosedChannelException
+caller 19 failed StacklessClosedChannelException
+caller 20 failed StacklessClosedChannelException
+caller 21 failed StacklessClosedChannelException
+open false
+out 00
+out 3b ping#0
+out 5b02
+out 73
+out 6303f3ff7ffeffff
+out 5b03
+out 3b ping#1
+out 5b04
+out 5b19
+out 5b05
+out 00
+out 00
+out 3b ping#2
+out 070000000000001234070801
+out 00
+out 00
+out 6308f9ff7ffffff9
+out 3b ping#3
+out 00
+out 2b0000000000000009
+out 00
+out 6306f6ff7ffeffff01
+out 3b ping#4
+out 00
+out 00
+out 3b ping#5
+out 5b06
+out 3b ping#6
+out 00
+out 00
+out 3b ping#7
+out 5b0a
+out 00
+out 74
+out 04000000000000000c
+out 03

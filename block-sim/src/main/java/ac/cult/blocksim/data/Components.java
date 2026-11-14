@@ -175,7 +175,8 @@ public final class Components {
     private static final class OverlayMap<V> extends java.util.AbstractMap<String, V> {
         private final Map<String, V> prototype, added;
         private final Set<String> overridden, removed;
-        private final int size;
+        /** -1 until counted; a racing reader may count again. */
+        private int size = -1;
 
         private OverlayMap(Map<String, V> prototype, Map<String, V> added,
                            Set<String> overridden, Set<String> removed) {
@@ -183,10 +184,6 @@ public final class Components {
             this.added = added;
             this.overridden = overridden;
             this.removed = removed;
-            int count = 0;
-            for (String key : prototype.keySet()) if (retains(key)) count++;
-            for (String key : added.keySet()) if (overridden.contains(key)) count++;
-            size = count;
         }
 
         static <V> Map<String, V> of(Map<String, V> prototype, Map<String, V> added,
@@ -204,7 +201,16 @@ public final class Components {
         }
 
         @Override public boolean containsKey(Object key) { return get(key) != null; }
-        @Override public int size() { return size; }
+        @Override public int size() {
+            int known = size;
+            if (known < 0) {
+                known = 0;
+                for (String key : prototype.keySet()) if (retains(key)) known++;
+                for (String key : added.keySet()) if (overridden.contains(key)) known++;
+                size = known;
+            }
+            return known;
+        }
         @Override public Set<String> keySet() { return java.util.Collections.unmodifiableSet(super.keySet()); }
 
         @Override public void forEach(java.util.function.BiConsumer<? super String, ? super V> action) {
@@ -215,7 +221,7 @@ public final class Components {
 
         @Override public Set<Entry<String, V>> entrySet() {
             return java.util.Collections.unmodifiableSet(new java.util.AbstractSet<>() {
-                @Override public int size() { return size; }
+                @Override public int size() { return OverlayMap.this.size(); }
                 @Override public java.util.Iterator<Entry<String, V>> iterator() {
                     return new java.util.Iterator<>() {
                         private final java.util.Iterator<Entry<String, V>> defaults = prototype.entrySet().iterator();
