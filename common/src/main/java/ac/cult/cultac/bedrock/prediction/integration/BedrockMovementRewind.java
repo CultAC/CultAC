@@ -15,19 +15,21 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiFunction;
 
-/** Ordered client-visible updates publish a replayed continuation once its following frame exists. */
+/**
+ * The updates the client acknowledged, taken in arrival order. A timed update is recorded on the frame of its tick,
+ * which it marks; an untimed one changes the live state only. Some timed updates also make the client run its frames
+ * again: a correction that differs from what its frame reported, a velocity, a boost or an effect that starts or stops.
+ * That replay starts at the oldest frame any update has marked since the last one, once the frame after the update's
+ * tick exists.
+ */
 final class BedrockMovementRewind {
     private final BedrockBlockCollisionWorldSampler worlds = new BedrockBlockCollisionWorldSampler();
     private final BedrockActorHistory authoritative;
     private final List<Update> updates = new ArrayList<>();
     private boolean initialUpdates;
-    // The running boost: the tick and length of the update that began it, and the tick of a later update that
-    // began it again while it ran. NO_BOOST when none runs or none began it again.
-    private long boostStart = NO_BOOST;
-    private long boostRestart = NO_BOOST;
-    private long boostLatest;
-    private int boostDuration;
-    private static final long NO_BOOST = Long.MIN_VALUE;
+    private final BedrockEffectClock glideBoost = new BedrockEffectClock();
+    // A correction within this distance, squared, of what its frame reported is the state the client already has.
+    private static final double TAKEN_DISTANCE_SQUARED = 1.0E-5D;
 
     BedrockMovementRewind() {
         this(new BedrockActorHistory());
@@ -49,7 +51,11 @@ final class BedrockMovementRewind {
         authoritative.clear();
         updates.clear();
         initialUpdates = false;
-        boostStart = boostRestart = NO_BOOST;
+    }
+
+    /** The actor's timed effects were reset: none runs for the client any more. */
+    void clearEffects() {
+        glideBoost.clear();
     }
 
     /** Whether an acknowledged update still waits for the frame after its tick, which the client takes it on. */
@@ -58,7 +64,59 @@ final class BedrockMovementRewind {
     }
 
     void queue(long tick, boolean historical, BedrockReplayEvent event) {
-        updates.add(new Update(tick, historical, event));
+        updates.add(new Update(tick, historical, event, historical ? taking(tick, event) : null));
+    }
+
+    /** How the client takes {@code event}, stamped {@code tick}, as it arrives. */
+    private BedrockReplayTaking taking(long tick, BedrockReplayEvent event) {
+        long now = authoritative.newestTick();
+        return switch (event) {
+            case BedrockReplayEvent.Motion motion -> BedrockReplayTaking.REPLAYS;
+            case BedrockReplayEvent.Transform transform ->
+                taken(tick, transform) ? BedrockReplayTaking.IGNORED : BedrockReplayTaking.REPLAYS;
+            // A boost replays only when it starts one that was not running or stops one that was.
+            case BedrockReplayEvent.Boost boost ->
+                glideBoost.switches(tick, now, boost.duration())
+                        ? BedrockReplayTaking.REPLAYS
+                        : BedrockReplayTaking.MARKS;
+            case BedrockReplayEvent.GeyserBoost boost -> {
+                var current = authoritative.current();
+                boolean runs = !current.isEmpty() && current.getFirst().state().geyserBoostTicks() != 0;
+                boolean left = boost.duration() == -1 || boost.duration() > Math.max(0, now - tick);
+                yield current.isEmpty() || left != runs ? BedrockReplayTaking.REPLAYS : BedrockReplayTaking.MARKS;
+            }
+            // An effect replays only when it changes the level the actor has.
+            case BedrockReplayContextEvent context
+            when context.effectId() != null -> {
+                var newest = authoritative.frame(now);
+                yield newest == null
+                                || context.changesEffect(newest.input()
+                                        .snapshot()
+                                        .movementContext()
+                                        .effectState())
+                        ? BedrockReplayTaking.REPLAYS
+                        : BedrockReplayTaking.MARKS;
+            }
+            default -> BedrockReplayTaking.MARKS;
+        };
+    }
+
+    /** Whether the frame of {@code tick} reported the position, velocity and ground state a correction carries. */
+    private boolean taken(long tick, BedrockReplayEvent.Transform transform) {
+        var correction = transform.correction();
+        var frame = authoritative.frame(tick);
+        if (correction.vehicle() || frame == null || frame.observedVelocity() == null) return false;
+        return squaredDistance(BedrockVectorAdapter.toBedrock(correction.position()), frame.observedPosition())
+                        <= TAKEN_DISTANCE_SQUARED
+                && squaredDistance(BedrockVectorAdapter.toBedrock(correction.velocity()), frame.observedVelocity())
+                        <= TAKEN_DISTANCE_SQUARED
+                && frame.end().stream()
+                        .allMatch(entry -> entry.state().collisionFlags().onGround() == correction.onGround());
+    }
+
+    private static double squaredDistance(Vec3d first, Vec3d second) {
+        Vec3d offset = first.subtract(second);
+        return offset.x() * offset.x() + offset.y() * offset.y() + offset.z() * offset.z();
     }
 
     PredictionCommit apply(CultPlayer player, PredictionCommit current) {
@@ -117,6 +175,9 @@ final class BedrockMovementRewind {
             if (update.event() instanceof BedrockReplayEvent.Boost) latestBoost = update;
         }
         // Arrival order: an attribute update and a replay acknowledged together must both survive.
+        boolean replays = false;
+        // The updates the history does not record: a replay ends without them.
+        var unrecorded = new ArrayList<BedrockReplayEvent>();
         for (Update update : updates) {
             boolean attributes = attributes(update);
             if (attributes && takesVehicleCorrection) continue;
@@ -125,54 +186,32 @@ final class BedrockMovementRewind {
                 continue;
             }
             boolean stale = update.historical() && update.tick() < authoritative.oldestTick();
-            var event = stale ? update.event().ordinary() : update.event();
             if (attributes) {
+                var event = stale ? update.event().ordinary() : update.event();
                 // The client uses an attribute value from its first tick after the packet and never re-runs
                 // the ticks since the stamp with it. A stamped value equal to that tick's own changes nothing.
                 if (update.historical() && !stale && authoritative.matches(update.tick(), event)) continue;
-                // Recorded on the newest frame, so a replay from an earlier frame applies it again there.
-                authoritative.ordinary(event);
-                entries = entries.stream()
-                        .map(entry -> entry.withState(event.state(entry.state())))
-                        .toList();
+                // A stamped value is recorded on its own frame, so a later replay runs the frames since with it.
+                if (!update.historical() || stale || !authoritative.attach(update.tick(), event))
+                    authoritative.ordinary(event);
+                entries = taken(entries, event);
                 continue;
             }
-            if (!update.historical() && event instanceof BedrockReplayEvent.HorseMetadata) {
-                // Apply ordinary updates to live state; replaying metadata would restore stale attributes.
-                entries = entries.stream()
-                        .map(entry -> entry.withState(event.state(entry.state())))
-                        .toList();
+            if (!update.historical()) {
+                // An untimed update changes the live state only; a horse's is not recorded, because replaying
+                // it would restore stale attributes.
+                var event = update.event();
+                if (event instanceof BedrockReplayEvent.HorseMetadata) unrecorded.add(event);
+                else if (!(event instanceof BedrockReplayContextEvent)
+                        && authoritative.matches(authoritative.newestTick(), event)) continue;
+                else authoritative.ordinary(event);
+                entries = taken(entries, event);
                 continue;
             }
-            if (!update.historical() && event instanceof BedrockReplayContextEvent) {
-                authoritative.ordinary(event);
-                entries = entries.stream()
-                        .map(entry -> entry.withState(event.state(entry.state())))
-                        .toList();
-                continue;
-            }
-            long tick = update.historical() && !stale ? update.tick() : authoritative.newestTick();
-            if (stale && event instanceof BedrockReplayEvent.Boost) tick = authoritative.oldestTick();
-            // The client replays the end of a boost from that end's own tick, unless an update on a later tick began
-            // the boost again while it ran: then it replays the end from that later tick.
-            long from = tick;
-            if (event instanceof BedrockReplayEvent.Boost boost) {
-                boolean running = boostStart != NO_BOOST
-                        && (boostDuration == -1 || tick < boostStart + Math.max(1, boostDuration));
-                if (boost.duration() == 0) {
-                    if (running && boostRestart != NO_BOOST && boostRestart < tick)
-                        from = Math.max(boostRestart, authoritative.oldestTick());
-                    boostStart = boostRestart = NO_BOOST;
-                } else if (!running) {
-                    boostStart = boostLatest = tick;
-                    boostDuration = boost.duration();
-                    boostRestart = NO_BOOST;
-                } else {
-                    // Only the update one tick after another is known to do this; a later rocket's is not.
-                    if (tick == boostLatest + 1) boostRestart = tick;
-                    boostLatest = tick;
-                }
-            }
+            if (update.taking() == BedrockReplayTaking.IGNORED) continue;
+            var event = update.event();
+            // An update older than the history is taken on its oldest frame.
+            long tick = stale ? authoritative.oldestTick() : Math.min(update.tick(), authoritative.newestTick());
             // A matching confirmation must neither replay actions nor overwrite a later live replacement.
             if (authoritative.matches(tick, event)) continue;
             if (update == latestBoost
@@ -183,12 +222,16 @@ final class BedrockMovementRewind {
                         : (int) Math.max(0, boost.duration() - Math.max(0, authoritative.newestTick() - update.tick()));
                 player.bedrockState.movementEffects.setGlideBoost(remaining);
             }
-            var replayed = authoritative.apply(tick, from, event, worldSampler, actorSampler);
-            entries = replayed.isEmpty()
-                    ? entries.stream()
-                            .map(entry -> entry.withState(event.state(entry.state())))
-                            .toList()
-                    : replayed;
+            if (authoritative.attach(tick, event) && update.taking() == BedrockReplayTaking.REPLAYS) replays = true;
+            else entries = taken(entries, event);
+        }
+        // One replay, from the oldest frame any update marked, takes them all.
+        if (replays) {
+            var replayed = authoritative.replay(worldSampler, actorSampler);
+            if (!replayed.isEmpty()) {
+                entries = replayed;
+                for (var event : unrecorded) entries = taken(entries, event);
+            }
         }
         updates.clear();
         updates.addAll(deferred);
@@ -214,7 +257,13 @@ final class BedrockMovementRewind {
 
     /** A replay of a tick waits for the frame after it, the tick the client takes it on. */
     private boolean deferred(Update update) {
-        return update.historical() && update.tick() >= authoritative.newestTick();
+        return update.taking() == BedrockReplayTaking.REPLAYS && update.tick() >= authoritative.newestTick();
+    }
+
+    private static List<Entry> taken(List<Entry> entries, BedrockReplayEvent event) {
+        return entries.stream()
+                .map(entry -> entry.withState(event.state(entry.state())))
+                .toList();
     }
 
     private static boolean attributes(Update update) {
@@ -294,5 +343,6 @@ final class BedrockMovementRewind {
         }
     }
 
-    private record Update(long tick, boolean historical, BedrockReplayEvent event) {}
+    /** A queued update; {@code taking} is how the client took a timed one, null for an untimed one. */
+    private record Update(long tick, boolean historical, BedrockReplayEvent event, BedrockReplayTaking taking) {}
 }

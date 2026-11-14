@@ -164,6 +164,7 @@ public final class BedrockPlayerState {
         predictedVehicle = null;
         lastMovementTick = -1;
         movementEffects.clear();
+        movementCorrections.clearEffects();
         clientActors.clear();
         observedActorRuntimeId = runtimeEntityId;
         ridingJump = BedrockRidingJumpState.INITIAL;

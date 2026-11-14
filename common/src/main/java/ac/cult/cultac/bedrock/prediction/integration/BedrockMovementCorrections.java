@@ -342,6 +342,11 @@ public final class BedrockMovementCorrections {
         requestedTransaction = -1;
     }
 
+    /** The actor's timed movement effects were reset. */
+    public void clearEffects() {
+        rewind.clearEffects();
+    }
+
     /** A placement of the vehicle; a null or NaN component keeps the value the frame ends with. */
     private record Placement(
             int vehicleId, int transaction, Vec3 position, Vec3 velocity, float yaw, float pitch, Boolean onGround) {}

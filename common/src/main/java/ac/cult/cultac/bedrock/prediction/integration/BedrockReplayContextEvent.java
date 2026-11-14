@@ -67,6 +67,22 @@ public record BedrockReplayContextEvent(
                 && state.movementAttribute().current() == movementAttribute.current();
     }
 
+    /** Whether this effect update gives the actor a level other than the one {@code effects} holds. */
+    boolean changesEffect(BedrockEffectState effects) {
+        if (effectId == null) return false;
+        return switch (effectId) {
+            case 1 -> effects.speedLevel() != effectLevel;
+            case 2 -> effects.slownessLevel() != effectLevel;
+            case 8 -> effects.jumpBoostLevel() != effectLevel;
+            case 24 -> effects.levitationLevel() != effectLevel;
+            // Held as present or absent only.
+            case 15 -> effects.blindness() != effectLevel > 0;
+            case 27 -> effects.slowFalling() != effectLevel > 0;
+            case 33 -> effects.weaving() != effectLevel > 0;
+            default -> true;
+        };
+    }
+
     @Override
     public BedrockReplayEvent ordinary() {
         return new BedrockReplayContextEvent(

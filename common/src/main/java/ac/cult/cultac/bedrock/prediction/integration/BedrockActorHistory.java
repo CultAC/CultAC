@@ -8,6 +8,7 @@ import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.TreeSet;
 import java.util.function.BiFunction;
 
 /** One actor generation's value-only history. All access belongs to its movement loop. */
@@ -15,7 +16,10 @@ public final class BedrockActorHistory {
     public static final int CAPACITY = 40;
     private final ArrayList<Frame> frames = new ArrayList<>(CAPACITY);
     private long sequence;
-    private Frame pendingMetadataFrame;
+    // The ticks whose following frame an update changed: the next replay starts after the oldest of them.
+    private final TreeSet<Long> marks = new TreeSet<>();
+    // The frame that last left the history: a replay marked on it starts at the oldest frame still held.
+    private Frame departed;
     private BedrockReplayEvent.Metadata metadataReceiptStart;
     private BedrockReplayEvent.Metadata metadataReceipt;
 
@@ -38,7 +42,8 @@ public final class BedrockActorHistory {
     public void clear() {
         frames.clear();
         sequence = 0;
-        pendingMetadataFrame = null;
+        marks.clear();
+        departed = null;
         metadataReceiptStart = null;
         metadataReceipt = null;
     }
@@ -47,7 +52,8 @@ public final class BedrockActorHistory {
         var copy = new BedrockActorHistory();
         copy.frames.addAll(frames);
         copy.sequence = sequence;
-        copy.pendingMetadataFrame = pendingMetadataFrame;
+        copy.marks.addAll(marks);
+        copy.departed = departed;
         copy.metadataReceiptStart = metadataReceiptStart;
         copy.metadataReceipt = metadataReceipt;
         return copy;
@@ -104,13 +110,7 @@ public final class BedrockActorHistory {
                     && (retained.hasValues()
                             || historical.end().stream()
                                     .anyMatch(entry -> otherFlagWordDiffers(entry.state(), flagWords)))) {
-                Frame marked = frames.stream()
-                        .filter(frame -> frame.tick() == comparisonTick)
-                        .findFirst()
-                        .orElseThrow();
-                if (pendingMetadataFrame == null || marked.tick() <= pendingMetadataFrame.tick()) {
-                    pendingMetadataFrame = marked;
-                }
+                mark(comparisonTick);
             }
             Frame latest = frames.getLast();
             if (effective.hasValues() && metadataReceiptStart == null) {
@@ -189,11 +189,79 @@ public final class BedrockActorHistory {
         if (metadataReceipt != null && metadataReceipt.hasValues()) frame = frame.withReceivedMetadata(metadataReceipt);
         metadataReceiptStart = null;
         metadataReceipt = null;
-        if (frames.size() == CAPACITY) frames.removeFirst();
+        if (frames.size() == CAPACITY) departed = frames.removeFirst();
         frames.add(frame);
-        if (pendingMetadataFrame != null && pendingMetadataFrame.tick() + 1 < oldestTick()) {
-            pendingMetadataFrame = null;
+        // A mark lasts as long as the frame after its tick is held.
+        marks.headSet(oldestTick() - 1).clear();
+    }
+
+    /** The frame of {@code tick}, or null when the history does not hold it. */
+    Frame frame(long tick) {
+        int index = index(tick);
+        return index < 0 ? null : frames.get(index);
+    }
+
+    private int index(long tick) {
+        if (frames.isEmpty()) return -1;
+        long index = tick - oldestTick();
+        return index < 0 || index >= frames.size() ? -1 : (int) index;
+    }
+
+    /** Whether an update has marked a frame since the last replay. */
+    boolean marked() {
+        return !marks.isEmpty();
+    }
+
+    /** Marks the frame after {@code tick}: the next replay starts no later than it. */
+    void mark(long tick) {
+        if (index(tick) >= 0) marks.add(tick);
+    }
+
+    /**
+     * Records {@code event} as taken after the frame of {@code tick} and marks the frame that follows. The frames
+     * after it keep the states they were recorded with until a replay runs them again. Returns whether the history
+     * holds that frame.
+     */
+    boolean attach(long tick, BedrockReplayEvent event) {
+        int anchor = index(tick);
+        if (anchor < 0) return false;
+        Frame original = frames.get(anchor);
+        var events = new ArrayList<>(original.events());
+        events.add(new Event(
+                ++sequence, original.tick(), original.end().getFirst().state().simulationTick(), newestTick(), event));
+        frames.set(
+                anchor,
+                original.withEnd(original.beforeEvents(), applyEvents(original.beforeEvents(), events), events));
+        marks.add(tick);
+        return true;
+    }
+
+    /**
+     * Runs every frame after the oldest marked one again, each with the updates recorded on it, and clears the marks.
+     * Returns the states the newest frame then ends with: the current ones when nothing is marked.
+     */
+    List<Entry> replay(
+            BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> world,
+            BedrockReplayTick.Actors actors) {
+        if (marks.isEmpty()) return current();
+        long start = marks.first();
+        marks.clear();
+        int anchor = index(start);
+        Frame first = anchor >= 0 ? frames.get(anchor) : departed != null && departed.tick() == start ? departed : null;
+        if (first == null) return current();
+        List<Entry> states = applyEvents(first.beforeEvents(), first.events());
+        var active = new ArrayList<Event>();
+        if (anchor < 0) active.addAll(first.events());
+        else frames.set(anchor, first.withEnd(first.beforeEvents(), states, first.events()));
+        active.addAll(eventsBefore(start + 1));
+        for (int i = anchor + 1; i < frames.size(); i++) {
+            Frame frame = frames.get(i);
+            List<Entry> before = BedrockReplayTick.advance(frame, states, active, world, actors);
+            states = applyEvents(before, frame.events());
+            active.addAll(frame.events());
+            frames.set(i, frame.withEnd(before, states, frame.events()));
         }
+        return List.copyOf(states);
     }
 
     public void advance(
@@ -206,72 +274,15 @@ public final class BedrockActorHistory {
         record(frame.withEnd(end, end, frame.events()));
     }
 
-    /** The anchor is an end-of-tick state; replay starts at its following frame. */
+    /** Records {@code event} after the frame of {@code tick} and replays from the oldest marked frame. */
     public List<Entry> apply(
             long tick,
             BedrockReplayEvent event,
             BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> world) {
-        return apply(tick, tick, event, world, (frame, state, snapshot) -> snapshot);
-    }
-
-    /** As {@link #apply(long, BedrockReplayEvent, BiFunction)}, replayed from the frame after {@code from}'s. */
-    List<Entry> apply(
-            long tick,
-            long from,
-            BedrockReplayEvent event,
-            BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> world,
-            BedrockReplayTick.Actors actors) {
-        if (frames.isEmpty()) return List.of();
-        int anchor = -1;
-        for (int i = 0; i < frames.size(); i++)
-            if (frames.get(i).tick() == tick) {
-                anchor = i;
-                break;
-            }
-        if (anchor < 0) return List.of();
+        if (index(tick) < 0) return List.of();
         if (matches(tick, event)) return current();
-        Frame original = frames.get(anchor);
-        var events = new ArrayList<>(original.events());
-        events.add(new Event(
-                ++sequence, original.tick(), original.end().getFirst().state().simulationTick(), newestTick(), event));
-        List<Entry> states = applyEvents(original.beforeEvents(), events);
-        frames.set(anchor, original.withEnd(original.beforeEvents(), states, events));
-        var active = new ArrayList<Event>();
-        Frame earlier = pendingMetadataFrame != null && pendingMetadataFrame.tick() < original.tick()
-                ? pendingMetadataFrame
-                : null;
-        if (from < (earlier == null ? original.tick() : earlier.tick())) {
-            for (Frame frame : frames)
-                if (frame.tick() == from) {
-                    earlier = frame;
-                    break;
-                }
-        }
-        if (earlier != null) {
-            long start = earlier.tick();
-            anchor = -1;
-            for (int i = 0; i < frames.size(); i++)
-                if (frames.get(i).tick() == start) {
-                    anchor = i;
-                    break;
-                }
-            Frame first = anchor < 0 ? earlier : frames.get(anchor);
-            states = applyEvents(first.beforeEvents(), first.events());
-            if (anchor < 0) active.addAll(first.events());
-            else frames.set(anchor, first.withEnd(first.beforeEvents(), states, first.events()));
-            active.addAll(eventsBefore(start + 1));
-        } else {
-            active.addAll(eventsBefore(original.tick() + 1));
-        }
-        for (int i = anchor + 1; i < frames.size(); i++) {
-            Frame frame = frames.get(i);
-            List<Entry> before = BedrockReplayTick.advance(frame, states, active, world, actors);
-            states = applyEvents(before, frame.events());
-            active.addAll(frame.events());
-            frames.set(i, frame.withEnd(before, states, frame.events()));
-        }
-        pendingMetadataFrame = null;
-        return List.copyOf(states);
+        attach(tick, event);
+        return replay(world, (frame, state, snapshot) -> snapshot);
     }
 
     private List<Event> eventsBefore(long tick) {
