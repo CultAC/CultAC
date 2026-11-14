@@ -67,7 +67,7 @@ public final class BedrockReplayBoatActorsTest {
         var frame = new BedrockActorHistory.Frame(
                 1, request, List.of(entry), List.of(entry), null, Vec3d.ZERO, Vec3d.ZERO, FEET, null, List.of());
         var samples = new AtomicInteger();
-        BedrockReplayTick.advance(frame, List.of(entry), List.of(), (s, world) -> world, world -> {
+        BedrockReplayTick.advance(frame, List.of(entry), List.of(), (s, world) -> world, (recorded, s, world) -> {
             samples.incrementAndGet();
             return world;
         });

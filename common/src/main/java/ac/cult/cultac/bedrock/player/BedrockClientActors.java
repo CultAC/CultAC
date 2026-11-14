@@ -114,6 +114,12 @@ public final class BedrockClientActors {
         }
     }
 
+    /** The box of the actor with {@code runtimeId} now, or null when it is gone or not collidable. */
+    public SimpleCollisionBox collider(long runtimeId) {
+        Actor actor = actors.get(runtimeId);
+        return actor == null ? null : actor.box();
+    }
+
     private static final class Actor {
         private float x;
         private float y;

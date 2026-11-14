@@ -49,7 +49,7 @@ public final class BedrockMovingActorReplayTest {
                         List.of(new BedrockProfileState.Entry(seed, BedrockMobJumpComponentState.DEFAULT)),
                         List.of(),
                         (old, snapshot) -> snapshot,
-                        snapshot -> world(49.69013977050781))
+                        (state, snapshot) -> world(49.69013977050781))
                 .getFirst()
                 .state();
         assertPosition(replayed, 49.390140533447266, 175.51280212402344);

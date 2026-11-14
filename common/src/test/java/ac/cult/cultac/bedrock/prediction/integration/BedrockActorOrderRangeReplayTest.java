@@ -64,7 +64,7 @@ public final class BedrockActorOrderRangeReplayTest {
                 request.previousState(),
                 request.frame(),
                 request.intent(),
-                BedrockReplayCollisionWorld.withReplayedActors(request.snapshot(), request.snapshot()),
+                BedrockReplayCollisionWorld.withReplayedActors(request.snapshot()),
                 request.canStep(),
                 request.maxUpStep(),
                 request.mobJumpComponent(),

@@ -9,11 +9,11 @@ import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.player.CultPlayer;
+import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiFunction;
-import java.util.function.UnaryOperator;
 
 /** Ordered client-visible updates publish a replayed continuation once its following frame exists. */
 final class BedrockMovementRewind {
@@ -21,6 +21,13 @@ final class BedrockMovementRewind {
     private final BedrockActorHistory authoritative;
     private final List<Update> updates = new ArrayList<>();
     private boolean initialUpdates;
+    // The running boost: the tick and length of the update that began it, and the tick of a later update that
+    // began it again while it ran. NO_BOOST when none runs or none began it again.
+    private long boostStart = NO_BOOST;
+    private long boostRestart = NO_BOOST;
+    private long boostLatest;
+    private int boostDuration;
+    private static final long NO_BOOST = Long.MIN_VALUE;
 
     BedrockMovementRewind() {
         this(new BedrockActorHistory());
@@ -42,6 +49,7 @@ final class BedrockMovementRewind {
         authoritative.clear();
         updates.clear();
         initialUpdates = false;
+        boostStart = boostRestart = NO_BOOST;
     }
 
     /** Whether an acknowledged update still waits for the frame after its tick, which the client takes it on. */
@@ -57,22 +65,30 @@ final class BedrockMovementRewind {
         if (updates.isEmpty()) return current;
         if (player == null) return apply(null, current, (state, world) -> world);
         var actors = player.bedrockState.movementCorrections.replaySolidActors(player);
-        return apply(player, current, (state, world) -> worlds.replayWorld(player, state, world),
-                world -> BedrockReplayCollisionWorld.withNearbyActors(world, actors));
+        return apply(
+                player,
+                current,
+                (state, world) -> worlds.replayWorld(player, state, world),
+                // A replayed tick meets the solid actors its live tick met, at their replay boxes.
+                (frame, state, world) -> BedrockReplayCollisionWorld.withNearbyActors(
+                        world,
+                        frame.solidActors() == null
+                                ? actors.around(reachStart(state))
+                                : actors.met(frame.solidActors())));
     }
 
     PredictionCommit apply(
             CultPlayer player,
             PredictionCommit current,
             BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> worldSampler) {
-        return apply(player, current, worldSampler, UnaryOperator.identity());
+        return apply(player, current, worldSampler, (frame, state, world) -> world);
     }
 
     private PredictionCommit apply(
             CultPlayer player,
             PredictionCommit current,
             BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> worldSampler,
-            UnaryOperator<BedrockWorldSnapshot> actorSampler) {
+            BedrockReplayTick.Actors actorSampler) {
         if (updates.isEmpty()) return current;
         List<Entry> entries = BedrockProfileState.profileEntries(current.carry());
         if (entries.isEmpty()) {
@@ -137,6 +153,26 @@ final class BedrockMovementRewind {
             }
             long tick = update.historical() && !stale ? update.tick() : authoritative.newestTick();
             if (stale && event instanceof BedrockReplayEvent.Boost) tick = authoritative.oldestTick();
+            // The client replays the end of a boost from that end's own tick, unless an update on a later tick began
+            // the boost again while it ran: then it replays the end from that later tick.
+            long from = tick;
+            if (event instanceof BedrockReplayEvent.Boost boost) {
+                boolean running = boostStart != NO_BOOST
+                        && (boostDuration == -1 || tick < boostStart + Math.max(1, boostDuration));
+                if (boost.duration() == 0) {
+                    if (running && boostRestart != NO_BOOST && boostRestart < tick)
+                        from = Math.max(boostRestart, authoritative.oldestTick());
+                    boostStart = boostRestart = NO_BOOST;
+                } else if (!running) {
+                    boostStart = boostLatest = tick;
+                    boostDuration = boost.duration();
+                    boostRestart = NO_BOOST;
+                } else {
+                    // Only the update one tick after another is known to do this; a later rocket's is not.
+                    if (tick == boostLatest + 1) boostRestart = tick;
+                    boostLatest = tick;
+                }
+            }
             // A matching confirmation must neither replay actions nor overwrite a later live replacement.
             if (authoritative.matches(tick, event)) continue;
             if (update == latestBoost
@@ -147,7 +183,7 @@ final class BedrockMovementRewind {
                         : (int) Math.max(0, boost.duration() - Math.max(0, authoritative.newestTick() - update.tick()));
                 player.bedrockState.movementEffects.setGlideBoost(remaining);
             }
-            var replayed = authoritative.apply(tick, event, worldSampler, actorSampler);
+            var replayed = authoritative.apply(tick, from, event, worldSampler, actorSampler);
             entries = replayed.isEmpty()
                     ? entries.stream()
                             .map(entry -> entry.withState(event.state(entry.state())))
@@ -164,6 +200,17 @@ final class BedrockMovementRewind {
         return new PredictionCommit(
                 new BedrockNextTickStates(entries), BedrockNextTickVelocityDerivation.profileStateVelocities(entries));
     }
+
+    /** The box a live tick starting at {@code state} gathers its solid actors around. */
+    private static SimpleCollisionBox reachStart(BedrockMovementState state) {
+        var box = state.collisionBox();
+        Vec3d feet = state.physicalFeetPosition();
+        // A player on foot gathers them around its standing box in any pose.
+        double top = state.isVehicle() ? box.maxY() : Math.max(box.maxY(), feet.y() + STANDING_HEIGHT);
+        return new SimpleCollisionBox(box.minX(), box.minY(), box.minZ(), box.maxX(), top, box.maxZ());
+    }
+
+    private static final double STANDING_HEIGHT = 1.8D;
 
     /** A replay of a tick waits for the frame after it, the tick the client takes it on. */
     private boolean deferred(Update update) {
@@ -235,7 +282,11 @@ final class BedrockMovementRewind {
                         ? null
                         : BedrockVectorAdapter.toBedrock(auth.getReportedEndOfTickVelocity()),
                 List.of(),
-                vector.movementResult().collisionFetchBox());
+                null,
+                vector.movementResult().collisionFetchBox(),
+                player == null || player.bedrockState == null
+                        ? null
+                        : player.bedrockState.movementCorrections.solidActorsMet(auth.getClientTick()));
         authoritative.record(frame);
         if (initialUpdates) {
             updates.removeIf(update -> !update.historical());

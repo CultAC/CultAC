@@ -9,7 +9,6 @@ import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiFunction;
-import java.util.function.UnaryOperator;
 
 /** One actor generation's value-only history. All access belongs to its movement loop. */
 public final class BedrockActorHistory {
@@ -212,14 +211,16 @@ public final class BedrockActorHistory {
             long tick,
             BedrockReplayEvent event,
             BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> world) {
-        return apply(tick, event, world, UnaryOperator.identity());
+        return apply(tick, tick, event, world, (frame, state, snapshot) -> snapshot);
     }
 
+    /** As {@link #apply(long, BedrockReplayEvent, BiFunction)}, replayed from the frame after {@code from}'s. */
     List<Entry> apply(
             long tick,
+            long from,
             BedrockReplayEvent event,
             BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> world,
-            UnaryOperator<BedrockWorldSnapshot> actors) {
+            BedrockReplayTick.Actors actors) {
         if (frames.isEmpty()) return List.of();
         int anchor = -1;
         for (int i = 0; i < frames.size(); i++)
@@ -236,15 +237,25 @@ public final class BedrockActorHistory {
         List<Entry> states = applyEvents(original.beforeEvents(), events);
         frames.set(anchor, original.withEnd(original.beforeEvents(), states, events));
         var active = new ArrayList<Event>();
-        if (pendingMetadataFrame != null && pendingMetadataFrame.tick() < original.tick()) {
-            long start = pendingMetadataFrame.tick();
+        Frame earlier = pendingMetadataFrame != null && pendingMetadataFrame.tick() < original.tick()
+                ? pendingMetadataFrame
+                : null;
+        if (from < (earlier == null ? original.tick() : earlier.tick())) {
+            for (Frame frame : frames)
+                if (frame.tick() == from) {
+                    earlier = frame;
+                    break;
+                }
+        }
+        if (earlier != null) {
+            long start = earlier.tick();
             anchor = -1;
             for (int i = 0; i < frames.size(); i++)
                 if (frames.get(i).tick() == start) {
                     anchor = i;
                     break;
                 }
-            Frame first = anchor < 0 ? pendingMetadataFrame : frames.get(anchor);
+            Frame first = anchor < 0 ? earlier : frames.get(anchor);
             states = applyEvents(first.beforeEvents(), first.events());
             if (anchor < 0) active.addAll(first.events());
             else frames.set(anchor, first.withEnd(first.beforeEvents(), states, first.events()));
@@ -291,7 +302,37 @@ public final class BedrockActorHistory {
             Vec3d observedVelocity,
             List<Event> events,
             BedrockReplayEvent.Metadata receivedMetadata,
-            WorldCollisionBox collisionFetchBox) {
+            WorldCollisionBox collisionFetchBox,
+            BedrockSolidActors.Met solidActors) {
+        public Frame(
+                long tick,
+                BedrockSimulation.Input input,
+                List<Entry> beforeEvents,
+                List<Entry> end,
+                Vec3d imposedVelocity,
+                Vec3d addedVelocity,
+                Vec3d externalDisplacement,
+                Vec3d observedPosition,
+                Vec3d observedVelocity,
+                List<Event> events,
+                BedrockReplayEvent.Metadata receivedMetadata,
+                WorldCollisionBox collisionFetchBox) {
+            this(
+                    tick,
+                    input,
+                    beforeEvents,
+                    end,
+                    imposedVelocity,
+                    addedVelocity,
+                    externalDisplacement,
+                    observedPosition,
+                    observedVelocity,
+                    events,
+                    receivedMetadata,
+                    collisionFetchBox,
+                    null);
+        }
+
         public Frame(
                 long tick,
                 BedrockSimulation.Input input,
@@ -372,7 +413,8 @@ public final class BedrockActorHistory {
                     observedVelocity,
                     events,
                     receivedMetadata,
-                    collisionFetchBox);
+                    collisionFetchBox,
+                    solidActors);
         }
 
         Frame withReceivedMetadata(BedrockReplayEvent.Metadata metadata) {
@@ -388,7 +430,8 @@ public final class BedrockActorHistory {
                     observedVelocity,
                     events,
                     metadata,
-                    collisionFetchBox);
+                    collisionFetchBox,
+                    solidActors);
         }
     }
 

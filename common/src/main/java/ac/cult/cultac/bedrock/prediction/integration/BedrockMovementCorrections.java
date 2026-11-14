@@ -8,7 +8,6 @@ import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMovementCorrection;
 import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.checks.impl.prediction.SimulationContext.HardCollidingEntityCollision;
 import ac.cult.cultac.checks.impl.prediction.SuperDebug;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
@@ -18,13 +17,22 @@ import java.util.function.Consumer;
 
 /** One outstanding correction on the owning movement loop. */
 public final class BedrockMovementCorrections {
+    // The solid actors the last live tick met, and that tick; null when its mover meets none.
     private List<BedrockSolidActors.Nearby> solidActors = List.of();
+    private long solidActorsTick = -1;
 
-    void solidActors(List<BedrockSolidActors.Nearby> nearby) {
+    void solidActors(long tick, List<BedrockSolidActors.Nearby> nearby) {
         solidActors = nearby;
+        solidActorsTick = tick;
     }
 
-    List<HardCollidingEntityCollision> replaySolidActors(CultPlayer player) {
+    /** The solid actors the live tick {@code tick} met, or null when they are not known. */
+    BedrockSolidActors.Met solidActorsMet(long tick) {
+        if (tick < 0 || tick != solidActorsTick) return null;
+        return BedrockSolidActors.Met.of(solidActors);
+    }
+
+    BedrockSolidActors.Replay replaySolidActors(CultPlayer player) {
         return BedrockSolidActors.replay(player, solidActors);
     }
 
@@ -319,6 +327,7 @@ public final class BedrockMovementCorrections {
 
     public void clear() {
         solidActors = List.of();
+        solidActorsTick = -1;
         exemptMovement = false;
         generation++;
         // The client keeps an acknowledged attribute whatever resets this history; so must the actor's carry.

@@ -41,25 +41,45 @@ final class BedrockReplayCollisionWorld {
         return new BlockCollisionWorld(blocks, recorded.coordinateFrame());
     }
 
+    /**
+     * Replayed block shapes may come from history, but solid actors are the ones the replay meets now, in place of
+     * those the recorded tick met.
+     */
     static BedrockWorldSnapshot withNearbyActors(
             BedrockWorldSnapshot snapshot, List<HardCollidingEntityCollision> nearby) {
         var recorded = snapshot.blockCollisionWorld();
-        var blocks = recorded.blocks().stream().filter(block -> !block.isEntityCollision()).toList();
-        return snapshot.withBlockCollisionWorld(BedrockWorldSnapshotBuilder.withHardCollidingEntities(
-                new BlockCollisionWorld(blocks, recorded.coordinateFrame()), nearby));
+        boolean recordedActors = false;
+        for (var block : recorded.blocks()) {
+            if (block.isEntityCollision()) {
+                recordedActors = true;
+                break;
+            }
+        }
+        if (!recordedActors && nearby.isEmpty()) return snapshot;
+        var world = recorded;
+        if (recordedActors) {
+            var blocks = new ArrayList<PlacedBlockCollision>();
+            for (var block : recorded.blocks()) if (!block.isEntityCollision()) blocks.add(block);
+            world = new BlockCollisionWorld(blocks, recorded.coordinateFrame());
+        }
+        return snapshot.withBlockCollisionWorld(BedrockWorldSnapshotBuilder.withHardCollidingEntities(world, nearby));
     }
 
     /**
-     * Replayed block shapes may come from history, but solid actors come from the nearby set at receipt, refreshed
-     * to active interpolation targets. They keep the depenetration limits they give an ordinary move.
+     * A replay keeps each solid actor's depenetration limit. An observation from before the replay cannot select a
+     * replayed position through the live position buffer, so the actors lend it none.
      */
-    static BedrockWorldSnapshot withReplayedActors(BedrockWorldSnapshot snapshot, BedrockWorldSnapshot live) {
+    static BedrockWorldSnapshot withReplayedActors(BedrockWorldSnapshot snapshot) {
         var recorded = snapshot.blockCollisionWorld();
-        var blocks = new ArrayList<PlacedBlockCollision>();
-        for (var block : recorded.blocks()) if (!block.isEntityCollision()) blocks.add(block);
-        for (var block : live.blockCollisionWorld().blocks())
-            if (block.isEntityCollision()) blocks.add(BedrockDepenetrationLimit.replayed(block));
-        if (blocks.equals(recorded.blocks())) return snapshot;
+        ArrayList<PlacedBlockCollision> blocks = null;
+        for (int i = 0; i < recorded.blocks().size(); i++) {
+            var block = recorded.blocks().get(i);
+            var replayed = BedrockDepenetrationLimit.replayed(block);
+            if (replayed == block) continue;
+            if (blocks == null) blocks = new ArrayList<>(recorded.blocks());
+            blocks.set(i, replayed);
+        }
+        if (blocks == null) return snapshot;
         return snapshot.withBlockCollisionWorld(new BlockCollisionWorld(blocks, recorded.coordinateFrame()));
     }
 

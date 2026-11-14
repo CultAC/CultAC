@@ -13,7 +13,6 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.function.BiFunction;
-import java.util.function.UnaryOperator;
 
 /** Replays only movement, with recorded external inputs and no packet/check side effects. */
 final class BedrockReplayTick {
@@ -24,7 +23,7 @@ final class BedrockReplayTick {
             List<Entry> previous,
             List<BedrockActorHistory.Event> active,
             BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> world) {
-        return advance(frame, previous, active, world, UnaryOperator.identity());
+        return advance(frame, previous, active, world, (recorded, state, snapshot) -> snapshot);
     }
 
     static List<Entry> advance(
@@ -32,7 +31,23 @@ final class BedrockReplayTick {
             List<Entry> previous,
             List<BedrockActorHistory.Event> active,
             BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> world,
-            UnaryOperator<BedrockWorldSnapshot> actors) {
+            BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> actors) {
+        return advance(frame, previous, active, world, (recorded, state, snapshot) -> actors.apply(state, snapshot));
+    }
+
+    /** The solid actors a replayed frame meets, from its replayed start state. */
+    @FunctionalInterface
+    interface Actors {
+        BedrockWorldSnapshot apply(
+                BedrockActorHistory.Frame frame, BedrockMovementState state, BedrockWorldSnapshot snapshot);
+    }
+
+    static List<Entry> advance(
+            BedrockActorHistory.Frame frame,
+            List<Entry> previous,
+            List<BedrockActorHistory.Event> active,
+            BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> world,
+            Actors actors) {
         var outcomes = new ArrayList<List<Entry>>();
         for (Entry entry : previous) {
             var recorded = frame.input();
@@ -101,8 +116,8 @@ final class BedrockReplayTick {
                                 snapshot.movementContext(), state.physicalFeetPosition(), state.playerDimensions()));
             }
             // As on a live tick, a ridden boat collides with no solid actor: only a mob does.
-            if (!state.isBoat()) snapshot = actors.apply(snapshot);
-            snapshot = BedrockReplayCollisionWorld.withReplayedActors(snapshot, snapshot);
+            if (!state.isBoat()) snapshot = actors.apply(frame, state, snapshot);
+            snapshot = BedrockReplayCollisionWorld.withReplayedActors(snapshot);
             if (snapshot != request.snapshot()) {
                 request = new BedrockSimulation.Input(
                         state,
