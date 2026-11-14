@@ -51,14 +51,17 @@ public final class ItemStructureGuard {
     private final boolean templateFraming;
     /** 26.x optional templates carry an explicit present flag; earlier schemas fold it into the amount. */
     private final boolean optionalTemplate;
+    /** Keeps the top-level component values the scan reads, or null. */
+    private final ScannedComponents scanned;
 
     private int depth;
     private int items;
     private int components;
 
-    private ItemStructureGuard(VersionedTypesHolder types, ProtocolVersion version) {
+    private ItemStructureGuard(VersionedTypesHolder types, ProtocolVersion version, ScannedComponents scanned) {
         this.types = types;
         this.version = version;
+        this.scanned = scanned;
         templateFraming = types.itemTemplate() != types.item();
         optionalTemplate = types.optionalItemTemplate() != types.itemTemplate();
     }
@@ -66,12 +69,21 @@ public final class ItemStructureGuard {
     /** One stack in the framing of {@code item()}/{@code lengthPrefixedItem()} for the schema. */
     static void scanItemStack(
             VersionedTypesHolder types, ProtocolVersion version, ByteBuf input, boolean lengthPrefixed) {
-        new ItemStructureGuard(types, version).item(input, lengthPrefixed, false);
+        new ItemStructureGuard(types, version, null).item(input, lengthPrefixed, false);
+    }
+
+    /**
+     * One stack in the framing of {@code item()}, keeping each top-level component value the scan reads whole in
+     * {@code scanned}; nested items and the components the scan walks itself are not kept.
+     */
+    static void scanItemStack(
+            VersionedTypesHolder types, ProtocolVersion version, ByteBuf input, ScannedComponents scanned) {
+        new ItemStructureGuard(types, version, scanned).item(input, false, false);
     }
 
     /** One cost in the framing of {@code itemCost()}/{@code optionalItemCost()} for the schema. */
     static void scanItemCost(VersionedTypesHolder types, ProtocolVersion version, ByteBuf input, boolean optional) {
-        var guard = new ItemStructureGuard(types, version);
+        var guard = new ItemStructureGuard(types, version, null);
         if (optional && !input.readBoolean()) return;
         guard.cost(input);
     }
@@ -117,6 +129,7 @@ public final class ItemStructureGuard {
         if (values < 0 || markers < 0) throw new MalformedPacketException("Negative item component count");
         if ((long) values + markers > MAX_COMPONENTS_PER_ITEM)
             throw limit("item component count " + ((long) values + markers) + " exceeds " + MAX_COMPONENTS_PER_ITEM);
+        if (scanned != null && depth == 1 && values > 0) scanned.expect(values);
         for (int index = 0; index < values; index++) component(input, lengthPrefixed);
         for (int index = 0; index < markers; index++) {
             chargeComponent();
@@ -126,6 +139,7 @@ public final class ItemStructureGuard {
 
     private void component(ByteBuf input, boolean lengthPrefixed) {
         chargeComponent();
+        int start = input.readerIndex();
         int id = Wire.readVarInt(input);
         var key = types.structuredData().key(id);
         // The readers reject an unknown id too; the scan cannot size its payload.
@@ -134,14 +148,17 @@ public final class ItemStructureGuard {
             int size = Wire.readVarInt(input);
             if (size < 0 || size > input.readableBytes())
                 throw new MalformedPacketException("Invalid component payload size " + size);
-            payload(input.readSlice(size), key);
+            payload(input.readSlice(size), key, -1, id);
         } else {
-            payload(input, key);
+            payload(input, key, scanned != null && depth == 1 ? start : -1, id);
         }
     }
 
-    /** Recurses into the components that embed further items; every other payload is skipped. */
-    private void payload(ByteBuf input, StructuredDataKey<?> key) {
+    /**
+     * Recurses into the components that embed further items; every other payload is skipped. A payload read whole
+     * from {@code start} at or above zero is kept in {@link #scanned}.
+     */
+    private void payload(ByteBuf input, StructuredDataKey<?> key, int start, int id) {
         switch (Key.stripMinecraftNamespace(key.identifier())) {
             case "container" -> container(input);
             case "charged_projectiles", "bundle_contents" -> itemArray(input);
@@ -164,7 +181,10 @@ public final class ItemStructureGuard {
                 trimOverrides(input, key);
                 key.type().read(input);
             }
-            default -> key.type().read(input);
+            default -> {
+                Object value = key.type().read(input);
+                if (start >= 0) scanned.add(start, input.readerIndex(), key, value, id);
+            }
         }
     }
 

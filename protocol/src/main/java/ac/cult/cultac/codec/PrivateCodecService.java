@@ -236,9 +236,11 @@ public final class PrivateCodecService implements WireValueDecoder {
         if (reused != null) return reused;
         var type = types(version);
         var scan = input.duplicate();
-        ItemStructureGuard.scanItemStack(type, version, scan, false);
+        var scanned = ScannedComponents.of(type.item(), type.structuredData());
+        if (scanned == null) ItemStructureGuard.scanItemStack(type, version, scan, false);
+        else ItemStructureGuard.scanItemStack(type, version, scan, scanned);
         int start = input.readerIndex(), end = scan.readerIndex();
-        var decoded = readScanned(type, input, false, false);
+        var decoded = readScanned(scanned == null ? type.item() : scanned.item(), input, false);
         return reuse.decoded(item(decoded.item(), registries, version, decoded.patch(), factory), input, start, end);
     }
 
@@ -248,14 +250,13 @@ public final class PrivateCodecService implements WireValueDecoder {
         boolean lengthPrefixed = creative && version.atLeast(ProtocolVersion.V1_21_5);
         // The structure budget runs on a view: an oversized item must never reach the readers below.
         ItemStructureGuard.scanItemStack(type, version, input.duplicate(), lengthPrefixed);
-        return readScanned(type, input, creative, lengthPrefixed);
+        // 1.21.5 introduced the length-prefixed creative component codec.
+        return readScanned(lengthPrefixed ? type.lengthPrefixedItem() : type.item(), input, creative);
     }
 
-    private static ItemInput readScanned(
-            VersionedTypesHolder type, ByteBuf input, boolean creative, boolean lengthPrefixed) {
+    private static ItemInput readScanned(Type<Item> reader, ByteBuf input, boolean creative) {
         int start = input.readerIndex();
-        // 1.21.5 introduced the length-prefixed creative component codec.
-        Item item = (lengthPrefixed ? type.lengthPrefixedItem() : type.item()).read(input);
+        Item item = reader.read(input);
         // Keep the creative count domain used by the inventory view. The backend
         // validates persistent fields of unused components on the original frame.
         if (creative && item != null && !item.isEmpty() && item.amount() > 99)
