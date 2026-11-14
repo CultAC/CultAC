@@ -75,6 +75,8 @@ import org.mockito.Mockito;
 /** A 26.3 survival client over a stone floor at {@link #FLOOR_Y}, fed packets through the receive listeners. */
 final class JavaTickFixture implements AutoCloseable {
     static final int FLOOR_Y = 64;
+    /** The vertical velocity of a player at rest on the ground. */
+    static final double RESTING_Y = (0.0 - 0.08) * (double) 0.98F;
 
     final RecordConsumerServices services;
     final RecordReceiveFixture fixture;
@@ -148,7 +150,10 @@ final class JavaTickFixture implements AutoCloseable {
         player.onGround = onGround;
         player.lastOnGround = onGround;
         player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.fromBoolean(onGround));
-        player.checkManager.getSimulationProcessor().seedStartingVelocity(velocity);
+        // A player standing on the floor carries the gravity its last LivingEntity#travel left: (0 - 0.08) * 0.98F.
+        // With no vertical velocity Entity#move would not collide below and the client would report itself airborne.
+        Vec3 seeded = onGround && velocity.y == 0.0 ? new Vec3(velocity.x, RESTING_Y, velocity.z) : velocity;
+        player.checkManager.getSimulationProcessor().seedStartingVelocity(seeded);
     }
 
     /** Adds a remote player whose PlayerInfo gives it {@code mode}. */

@@ -9,7 +9,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.cultac.checks.impl.prediction.OffsetHandler;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InputKeys;
+import ac.cult.cultac.checks.impl.prediction.checks.NoSlow;
+import ac.cult.cultac.checks.impl.prediction.checks.psuedo.Speed;
+import ac.cult.cultac.checks.impl.prediction.checks.psuedo.Strafe;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerDigging;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.protocol.ProtocolVersion;
@@ -280,7 +282,7 @@ class ItemUseEndedInputKeysTest {
                 result = f.tick(new Vec3(0.5, FLOOR_Y, z - 6.0), true);
                 if (tick < 11) assertTrue(exact(result), "tick " + tick + " " + flags(result));
             }
-            assertTrue(result.hasFlag(InputKeys.class), flags(result));
+            assertTrue(rejectsKeys(result), flags(result));
         }
     }
 
@@ -290,7 +292,7 @@ class ItemUseEndedInputKeysTest {
         try (var f = completedStraightWalk()) {
             double velocity = steadySlowedVelocity();
             double half = WALK * 0.5;
-            assertTrue(f.tick(new Vec3(0.5, FLOOR_Y, velocity + half - 6.0), true).hasFlag(InputKeys.class));
+            assertTrue(rejectsKeys(f.tick(new Vec3(0.5, FLOOR_Y, velocity + half - 6.0), true)));
         }
     }
 
@@ -303,13 +305,14 @@ class ItemUseEndedInputKeysTest {
         try (var f = completedStraightWalk()) {
             double velocity = steadySlowedVelocity();
             PredictionResult result = f.tick(new Vec3(0.5, FLOOR_Y, velocity + WALK * 0.5 - 6.0), true);
-            PredictionResult.Flag keys = result.getFlag(InputKeys.class);
+            PredictionResult.Flag keys = result.getFlag(Speed.class);
             assertTrue(keys != null, flags(result));
-            assertEquals(WALK * 0.5, keys.getSeverity(), 1.0E-9, flags(result));
+            // Speed's severity is what the walking input leaves of the move, past its 1.0E-5 of rounding.
+            assertEquals(WALK * 0.5 - 1.0E-5, keys.getSeverity(), 1.0E-9, flags(result));
         }
     }
 
-    /** While the client holds a use, walking at the unslowed speed is no reality. */
+    /** While the client holds a use, walking at the unslowed speed ignores a proven slowdown: NoSlow owns that move. */
     @Test
     void walkingAtTheWalkingSpeedWhileTheUseIsHeldIsFlagged() throws Exception {
         try (var f = new JavaTickFixture()) {
@@ -322,7 +325,7 @@ class ItemUseEndedInputKeysTest {
             f.place(new Vec3(0.5, FLOOR_Y, -6.0), new Vec3(0, -0.0784000015258789, velocity));
             f.input(FORWARD);
             PredictionResult result = f.tick(new Vec3(0.5, FLOOR_Y, velocity + WALK - 6.0), true);
-            assertTrue(result.hasFlag(InputKeys.class), flags(result));
+            assertTrue(f.player.checkManager.getListener(NoSlow.class).violations > 0, flags(result));
         }
     }
 
@@ -331,7 +334,7 @@ class ItemUseEndedInputKeysTest {
     void movingSidewaysAtTheUseSpeedWithForwardKeysAfterTheCompletionIsFlagged() throws Exception {
         try (var f = completedStraightWalk()) {
             double velocity = steadySlowedVelocity();
-            assertTrue(f.tick(new Vec3(0.5 + SLOWED, FLOOR_Y, velocity - 6.0), true).hasFlag(InputKeys.class));
+            assertTrue(rejectsKeys(f.tick(new Vec3(0.5 + SLOWED, FLOOR_Y, velocity - 6.0), true)));
         }
     }
 
@@ -342,8 +345,7 @@ class ItemUseEndedInputKeysTest {
             f.command(PlayerCommandAction.START_SPRINTING);
             f.input(SPRINT_KEY_FORWARD);
             double velocity = steadySlowedVelocity();
-            assertTrue(f.tick(new Vec3(0.5, FLOOR_Y, velocity + SPRINT_SLOWED - 6.0), true)
-                    .hasFlag(InputKeys.class));
+            assertTrue(rejectsKeys(f.tick(new Vec3(0.5, FLOOR_Y, velocity + SPRINT_SLOWED - 6.0), true)));
         }
     }
 
@@ -353,7 +355,7 @@ class ItemUseEndedInputKeysTest {
         try (var f = new JavaTickFixture()) {
             f.place(new Vec3(0.5, FLOOR_Y, -6.0), new Vec3(0, -0.0784000015258789, 0));
             f.input(FORWARD);
-            assertTrue(f.tick(new Vec3(0.5, FLOOR_Y, SLOWED - 6.0), true).hasFlag(InputKeys.class));
+            assertTrue(rejectsKeys(f.tick(new Vec3(0.5, FLOOR_Y, SLOWED - 6.0), true)));
         }
     }
 
@@ -363,7 +365,7 @@ class ItemUseEndedInputKeysTest {
         try (var f = completedStraightWalk()) {
             f.input(NONE);
             double velocity = steadySlowedVelocity();
-            assertTrue(f.tick(new Vec3(0.5, FLOOR_Y, velocity + SLOWED - 6.0), true).hasFlag(InputKeys.class));
+            assertTrue(rejectsKeys(f.tick(new Vec3(0.5, FLOOR_Y, velocity + SLOWED - 6.0), true)));
         }
     }
 
@@ -474,8 +476,14 @@ class ItemUseEndedInputKeysTest {
         return text.toString();
     }
 
+    /** The travel adds exactly the input of the reported keys; what is left of a move flags Speed or Strafe. */
+    private static boolean rejectsKeys(PredictionResult result) {
+        return result.hasFlag(Speed.class) || result.hasFlag(Strafe.class);
+    }
+
     private static void assertNoFlags(JavaTickFixture f) {
-        assertEquals(0, f.player.checkManager.getListener(InputKeys.class).violations);
+        assertEquals(0, f.player.checkManager.getCheck(Speed.class).violations);
+        assertEquals(0, f.player.checkManager.getCheck(Strafe.class).violations);
         assertEquals(0, f.player.checkManager.getCheck(OffsetHandler.class).violations);
     }
 }

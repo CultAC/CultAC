@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
@@ -72,6 +73,9 @@ class JavaSlimeSneakLandingTest {
         f.player.xRot = 1088.0381F;
         f.player.yRot = 29.925932F;
         f.input(BACK_RIGHT_SHIFT);
+        // The client held shift through the fall, so LocalPlayer#aiStep already crouches it on the landing tick.
+        JavaTickFixture.setField(
+                SimulationProcessor.class, f.player.checkManager.getSimulationProcessor(), "lastSneaking", true);
         PredictionResult landing = f.tick(LANDING_TO, true);
         assertTrue(exact(landing), "landing: " + describe(landing));
 

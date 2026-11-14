@@ -213,7 +213,7 @@ class JavaSneakEdgeWaterTest {
     /**
      * A crouched player walking on the pool floor straight at its edge holds its position while deltaMovement builds
      * toward the drop. LivingEntity#travelInWater's drag follows the sprint flag, so each hidden tick leaves a single
-     * deltaMovement, and releasing shift moves on it.
+     * deltaMovement for each sine table, and releasing shift moves on it.
      */
     @Test
     void aHeldEdgeCarriesOneDeltaMovement() throws Exception {
@@ -234,7 +234,12 @@ class JavaSneakEdgeWaterTest {
                 assertTrue(exact(result), "tick " + tick + " " + describe(result));
                 Set<Vec3> carried =
                         f.player.checkManager.getSimulationProcessor().getValidPlayerStartingVels();
-                assertEquals(1, carried.size(), "tick " + tick + " " + carried);
+                // One deltaMovement for each sine table a client may run: Mth's sin(180 degrees) is 1.2246469E-16
+                // and OptiFine's fast table rounds it to 0, so the two differ only by that on x.
+                Vec3 first = carried.iterator().next();
+                for (Vec3 other : carried) {
+                    assertTrue(first.distanceTo(other) < 1.0E-15, "tick " + tick + " " + carried);
+                }
                 velocityZ = (velocityZ + input.z) * 0.8F;
             }
 

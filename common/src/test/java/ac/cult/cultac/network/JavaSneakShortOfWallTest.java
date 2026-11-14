@@ -62,7 +62,8 @@ class JavaSneakShortOfWallTest {
     @Test
     void movingFurtherAlongTheWallThanTheSneakingInputReachesIsRejected() throws Exception {
         try (var f = new JavaTickFixture()) {
-            assertRejected(move(f, MOVE_X, MOVE_Z - 0.005), "NoSneakSlow");
+            // The travel adds exactly the sneaking input, so what the move adds past it is Speed's.
+            assertRejected(move(f, MOVE_X, MOVE_Z - 0.005), "Speed");
         }
     }
 

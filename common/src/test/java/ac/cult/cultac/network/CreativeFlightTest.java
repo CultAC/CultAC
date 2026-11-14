@@ -1035,10 +1035,12 @@ class CreativeFlightTest {
         try (var f = new JavaTickFixture()) {
             block(f, 4, FLOOR_Y, 0, BlockIds.WATER.defaultState());
             armInTheAir(f);
-            f.place(POOL, Vec3.ZERO);
+            // LivingEntity#getFluidFallingAdjustedMovement leaves a player at rest on the pool's floor sinking by
+            // gravity / 16.
+            f.place(POOL, new Vec3(0, -0.005, 0));
             f.input(JUMP);
             // LivingEntity#jumpInLiquid.
-            assertPredicted(f.tick(POOL.add(0, 0.04F, 0), false));
+            assertPredicted(f.tick(POOL.add(0, 0.04F - 0.005, 0), false));
             assertTrue((f.player.packetStateData.jumpTriggerTimes & ~1) == 0, "a blocked toggle was kept");
 
             landThenTakeOff(f);

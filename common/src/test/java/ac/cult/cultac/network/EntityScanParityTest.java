@@ -7,6 +7,7 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.stage.uncertainty.EntityPush;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldStageBuilder;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
@@ -165,6 +166,8 @@ class EntityScanParityTest {
                 if (entities.clientTickOrder(entity) < playerTickOrder) continue;
                 // The recount keeps the movement's own count of riders outside the player's riding trees.
                 if (entities.isUntrackedRider(entity)) continue;
+                // A boat that ticks after a Java player on foot pushes it in the velocity the next tick starts from.
+                if (entity.isBoat() && EntityPush.carriesBoatPushAtReport(f.player, context)) continue;
                 if (entityBox != null && (boolean) pushes.invoke(null, entity, entityBox, sweep)) expected++;
             }
             WorldStageBuilder.recountCollidingTickingAfterPlayer(f.player, prediction);

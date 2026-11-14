@@ -90,7 +90,8 @@ class JavaClimbableCarryTest {
             var keys = new ServerboundPlayerInput(true, false, true, false, false, false, false);
             f.input(keys);
             float friction = 0.6F * 0.91F;
-            Vec3 input = ClientMoveInput.of(f, keys, 1.0F, 0.1F * (0.21600002F / (friction * friction * friction)), 0);
+            // LivingEntity#getFrictionInfluencedSpeed divides by the cube of the block's 0.6F friction.
+            Vec3 input = ClientMoveInput.of(f, keys, 1.0F, 0.1F * (0.21600002F / (0.6F * 0.6F * 0.6F)), 0);
             assertTrue(input.z > 0, "the keys press into the ladder: " + input);
             Vec3 slide = start.add(input.x, 0, 0);
             PredictionResult pressed = f.tick(slide, true);

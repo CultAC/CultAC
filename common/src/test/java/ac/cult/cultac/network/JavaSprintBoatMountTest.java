@@ -116,7 +116,7 @@ class JavaSprintBoatMountTest {
      */
     @Test
     void a1_21_2PassengerPaddlingForwardKeepsItsSprint() throws Exception {
-        try (var f = new JavaTickFixture(ProtocolVersion.V1_21_4, ClientVersion.V_1_21_2)) {
+        try (var f = new JavaTickFixture(ProtocolVersion.V1_21_3, ClientVersion.V_1_21_2)) {
             SprintG sprintG = mount(f);
             SprintA sprintA = hungry(f);
 
@@ -184,7 +184,8 @@ class JavaSprintBoatMountTest {
             f.pongThrough(f.player.lastTransactionSent.get());
             f.player.isSprinting = true;
             for (int tick = 0; tick < 2; tick++) {
-                PredictionResult camelRide = f.rideTick(camelAt, true);
+                // The camel mounts with no velocity: its first Entity#move does not collide below.
+                PredictionResult camelRide = f.rideTick(camelAt, tick != 0);
                 assertTrue(exact(camelRide), "camel ride tick " + tick + ": " + describe(camelRide));
             }
             f.input(FORWARD_SPRINT);

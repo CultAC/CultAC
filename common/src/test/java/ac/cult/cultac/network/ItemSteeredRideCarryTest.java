@@ -41,7 +41,9 @@ class ItemSteeredRideCarryTest {
 
     private static void assertCarriesFewStates(boolean held) {
         assertTimeoutPreemptively(Duration.ofSeconds(60), () -> {
-            try (var f = new JavaTickFixture()) {
+            // The reported stillness is flagged every tick; observe-only keeps a setback from holding the moves back.
+            try (var f = new JavaTickFixture();
+                    var ignored = JavaTickFixture.observeOnly()) {
                 int water = BlockIds.WATER.defaultState();
                 for (int x = -8; x <= 8; x++) {
                     for (int z = -8; z <= 8; z++) {

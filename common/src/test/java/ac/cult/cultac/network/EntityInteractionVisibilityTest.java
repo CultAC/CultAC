@@ -384,17 +384,23 @@ class EntityInteractionVisibilityTest {
 
     @ParameterizedTest
     @MethodSource("clients")
-    void anInteractionRidingAnAreaEffectCloudOutsideTheOwnTreeIsNeverHidden(ProtocolVersion version) throws Exception {
+    void anInteractionRidingAnAreaEffectCloudOutsideTheOwnTreeIsPickedAtItsSeat(ProtocolVersion version)
+            throws Exception {
         try (var setup = new Setup(version)) {
+            // The cloud stands before the wall and the interaction behind it.
             setup.entity(
                     41,
                     EntityTypes.defaults().byKey("minecraft:area_effect_cloud").id(),
-                    1.5);
+                    -.6);
             setup.entity(
                     42, EntityTypes.defaults().byKey("minecraft:interaction").id(), 1.5);
             setup.wall("stone");
             assertTrue(setup.route(42, InteractAction.INTERACT_AT).isCancelled());
+            // Entity#startRiding leaves the passenger where it is; Entity#rideTick seats it at the vehicle's
+            // positionRider on its next tick.
             setup.player.compensatedEntities.vehicles.applyVehiclePassengers(41, new int[] {42});
+            assertTrue(setup.route(42, InteractAction.INTERACT_AT).isCancelled());
+            setup.clientTick();
             assertFalse(setup.route(42, InteractAction.INTERACT_AT).isCancelled());
         }
     }

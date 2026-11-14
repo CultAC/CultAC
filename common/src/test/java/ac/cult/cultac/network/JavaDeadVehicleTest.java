@@ -108,7 +108,7 @@ class JavaDeadVehicleTest {
         }
     }
 
-    /** A saddled horse at {@link #SEAT} mounted through set_passengers, after one stationary ridden tick. */
+    /** A saddled horse at {@link #SEAT} mounted through set_passengers, after two stationary ridden ticks. */
     private static JavaTickFixture ridden() throws Exception {
         JavaTickFixture f = new JavaTickFixture();
         f.place(SEAT, Vec3.ZERO);
@@ -124,6 +124,8 @@ class JavaDeadVehicleTest {
         f.player.packetEntityReplication.onSetPassengers(event, f.player, packet);
         event.tasksAfter().forEach(Runnable::run);
         f.pongThrough(f.player.lastTransactionSent.get());
+        // The horse mounts with no velocity: its first Entity#move does not collide below and reports it airborne.
+        assertTrue(exact(f.rideTick(SEAT, false)));
         assertTrue(exact(f.rideTick(SEAT, true)));
         return f;
     }

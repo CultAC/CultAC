@@ -14,6 +14,7 @@ import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.ProtocolVersion;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundUpdateAttributes;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
@@ -21,6 +22,7 @@ import ac.cult.cultac.protocol.value.AttributeSnapshot;
 import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.InteractAction;
+import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
 import java.util.Optional;
@@ -40,6 +42,7 @@ class JavaAttackSlowWaterCurrentTest {
     private static final double CURRENT = -0.014D;
     // LivingEntity#travelInWater's water slowdown for a player that is not sprinting.
     private static final double WATER_FRICTION = 0.8F;
+    private static final int TARGET = 99;
 
     @ParameterizedTest
     @EnumSource(
@@ -108,14 +111,21 @@ class JavaAttackSlowWaterCurrentTest {
         f.player.xRot = 90.0F;
         f.player.yRot = 0.0F;
         Vec3 start = new Vec3(water.x() + 0.5, FLOOR_Y, water.z() + 0.5);
+        // A player three blocks east, whose spawn the client never answers.
+        var add = new ClientboundAddEntity(
+                TARGET, "minecraft:player", new Vec3d(start.x + 3, FLOOR_Y, start.z), 0, 0, 0);
+        var spawn =
+                new PacketSendEvent<>(f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.ADD_ENTITY, add, false);
+        f.player.packetEntityReplication.onAddEntity(spawn, f.player, add);
+        spawn.tasksAfter().forEach(Runnable::run);
         f.place(start, new Vec3(0, -0.0784000015258789, 0));
         f.input(IDLE);
         return start;
     }
 
-    /** MultiPlayerGameMode#attack on an entity the server never sent: the damping is only possible. */
+    /** MultiPlayerGameMode#attack on a player the client may not hold yet: the damping is only possible. */
     private static void attack(JavaTickFixture f) {
-        var attack = new ServerboundInteract(99, InteractAction.ATTACK, Hand.MAIN_HAND, Optional.empty(), false);
+        var attack = new ServerboundInteract(TARGET, InteractAction.ATTACK, Hand.MAIN_HAND, Optional.empty(), false);
         new PacketPlayerAttack().onInteract(f.event(ServerboundPackets.INTERACT, attack), f.player, attack);
     }
 }

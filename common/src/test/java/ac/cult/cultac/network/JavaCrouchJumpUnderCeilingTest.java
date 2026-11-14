@@ -59,6 +59,8 @@ class JavaCrouchJumpUnderCeilingTest {
     };
     /** The tick whose player_input releases jump. */
     private static final int JUMP_RELEASE = 5;
+    /** The velocity of a client standing on a floor: LivingEntity#travel leaves it the gravity of its last tick. */
+    private static final Vec3 RESTING = new Vec3(0, JavaTickFixture.RESTING_Y, 0);
 
     @Test
     void aCrouchedJumpThatClearsTheCeilingKeepsItsRise() throws Exception {
@@ -151,7 +153,7 @@ class JavaCrouchJumpUnderCeilingTest {
             for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
             Vec3 setback = new Vec3(-834.3350948955106, 62.48687499891035, -734.8960140180537);
             Vec3 floor = new Vec3(STANDING_X, STANDING_FLOOR, STANDING_Z);
-            f.place(floor, Vec3.ZERO);
+            f.place(floor, RESTING);
             f.player.onGround = f.player.lastOnGround = true;
             f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.TRUE);
             f.player.yRot = f.player.lastTickYRot = 2719.457F;
@@ -268,7 +270,7 @@ class JavaCrouchJumpUnderCeilingTest {
         }
         for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         f.player.pose = Pose.SWIMMING;
-        f.place(new Vec3(CRAWL_X, CRAWL_FLOOR, CRAWL_Z), Vec3.ZERO);
+        f.place(new Vec3(CRAWL_X, CRAWL_FLOOR, CRAWL_Z), RESTING);
         f.player.onGround = f.player.lastOnGround = true;
         f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.TRUE);
         f.input(CROUCH);
@@ -292,7 +294,7 @@ class JavaCrouchJumpUnderCeilingTest {
         }
         for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
         Vec3 floor = new Vec3(X, FLOOR, Z);
-        f.place(floor, Vec3.ZERO);
+        f.place(floor, RESTING);
         f.player.onGround = f.player.lastOnGround = true;
         f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.TRUE);
         f.input(CROUCH);

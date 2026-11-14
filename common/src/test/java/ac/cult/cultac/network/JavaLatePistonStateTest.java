@@ -224,9 +224,10 @@ class JavaLatePistonStateTest {
     void aLatePistonRetainsTheInputInclusiveLadderClampInTheFullPipeline() throws Exception {
         try (var f = new JavaTickFixture()) {
             Vec3 start = new Vec3(0.4, FLOOR_Y + 0.5, 0.5);
+            // A south-facing ladder's shape lies north of the box, clear of both the eastward travel and the shove.
             f.player.compensatedWorld.updateBlock(
                     new BlockPos(0, FLOOR_Y, 0),
-                    BLOCKS.with(BLOCKS.block("minecraft:ladder").defaultState(), "facing", "west"));
+                    BLOCKS.with(BLOCKS.block("minecraft:ladder").defaultState(), "facing", "south"));
             BlockPos base = new BlockPos(0, FLOOR_Y + 1, -1);
             int piston = BLOCKS.with(BLOCKS.block("minecraft:piston").defaultState(), "facing", "south");
             f.player.compensatedWorld.updateBlock(base, piston);

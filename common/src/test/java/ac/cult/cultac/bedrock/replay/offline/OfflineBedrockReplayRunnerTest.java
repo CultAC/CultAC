@@ -1969,22 +1969,24 @@ public final class OfflineBedrockReplayRunnerTest {
                     .processBedrockAuthInputFrame(exploitFrame, BedrockPredictionTrigger.OFFLINE_REPLAY);
             assertNotNull(exploitResult);
 
-            Vec3 postExploitPos = new Vec3(player.x, player.y, player.z);
             assertTrue(exploitResult.hasFlag(BedrockMovement.class));
-            assertTrue(player.getSetbackTeleportUtil().isPendingSetback());
-            assertFalse(player.getSetbackTeleportUtil().getRequiredSetBack().isPlugin());
-            assertEquals(
-                    groundPos,
-                    player.getSetbackTeleportUtil()
-                            .getRequiredSetBack()
-                            .getTeleportData()
-                            .getLocation());
-            assertEquals(groundPos, postExploitPos);
+            assertHeldAtBoundary(player, groundPos);
         } finally {
             if (player != null) {
                 closeOfflinePlayer(player);
             }
         }
+    }
+
+    /**
+     * A rejected Bedrock frame is corrected by rewinding the client to the engine's own state: no teleport is queued,
+     * and the model stays where it stood at {@code boundary} instead of following the claim.
+     */
+    private static void assertHeldAtBoundary(CultPlayer player, Vec3 boundary) {
+        assertFalse(player.getSetbackTeleportUtil().isPendingSetback());
+        assertEquals(boundary.x, player.x, 0.01D);
+        assertEquals(boundary.y, player.y, 0.01D);
+        assertEquals(boundary.z, player.z, 0.01D);
     }
 
     @Test
@@ -2018,13 +2020,14 @@ public final class OfflineBedrockReplayRunnerTest {
             boolean onGround = Collisions.collide(player, 0, -SimpleCollisionBox.COLLISION_EPSILON, 0).y == 0;
             player.onGround = onGround;
             player.lastOnGround = onGround;
-            SetbackFixtures.seedSafePosition(player, new SetbackPosWithVector(groundPos, Vec3.ZERO));
-            // Establish a valid initial carry
-            BedrockAuthInputFrame seedFrame = syntheticPillarFrame(0, groundPos, false, false, false);
-            player.bedrockState.offerAuthInputFrame(seedFrame);
-            player.checkManager
-                    .getSimulationProcessor()
-                    .processBedrockAuthInputFrame(seedFrame, BedrockPredictionTrigger.OFFLINE_REPLAY);
+            // The client holds the level around its spawn once it answers the spawn teleport.
+            SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), false);
+            player.getSetbackTeleportUtil()
+                    .bedrockTeleports()
+                    .addImmediateBedrockTransportTeleport(groundPos, onGround);
+            TeleportAcceptData accepted =
+                    player.getSetbackTeleportUtil().bedrockTeleports().acknowledgeBedrockTeleportFrame(groundPos);
+            player.checkManager.getSimulationProcessor().applyAcceptedBedrockTeleport(accepted);
 
             // authorityMode is bridge metadata, not simulation input. Even a
             // missing label must run the same movement prediction.
@@ -2038,15 +2041,7 @@ public final class OfflineBedrockReplayRunnerTest {
                     .processBedrockAuthInputFrame(exploitFrame, BedrockPredictionTrigger.OFFLINE_REPLAY);
             assertNotNull(exploitResult);
             assertTrue(exploitResult.hasFlag(BedrockMovement.class));
-            assertTrue(player.getSetbackTeleportUtil().isPendingSetback());
-            assertFalse(player.getSetbackTeleportUtil().getRequiredSetBack().isPlugin());
-            assertEquals(
-                    groundPos,
-                    player.getSetbackTeleportUtil()
-                            .getRequiredSetBack()
-                            .getTeleportData()
-                            .getLocation());
-            assertEquals(groundPos, new Vec3(player.x, player.y, player.z));
+            assertHeldAtBoundary(player, groundPos);
         } finally {
             if (player != null) {
                 closeOfflinePlayer(player);

@@ -13,7 +13,8 @@ import ac.cult.blocksim.entity.EntityTypeIds;
 import ac.cult.blocksim.entity.EntityTypes;
 import ac.cult.cultac.checks.impl.prediction.OffsetHandler;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.checks.impl.prediction.checks.psuedo.InputKeys;
+import ac.cult.cultac.checks.impl.prediction.checks.psuedo.Speed;
+import ac.cult.cultac.checks.impl.prediction.checks.psuedo.Strafe;
 import ac.cult.cultac.checks.impl.prediction.stage.VelocityTransformer;
 import ac.cult.cultac.events.packets.PacketChangeGameState;
 import ac.cult.cultac.events.packets.listeners.PacketSelfMetadataListener;
@@ -132,6 +133,7 @@ class InputKeysTest {
     };
     private static final double MINECART_MIN_X = 0.01;
     private static final double MINECART_MAX_X = 0.99;
+    private static final double HALF_WIDTH = 0.6F / 2.0F;
 
     @Test
     void zeroHealthClearsTravelInputOnlyAfterItsReceipt() throws Exception {
@@ -168,7 +170,7 @@ class InputKeysTest {
             f.pongThrough(metadataHealth(f, 0));
             f.input(BACK);
             PredictionResult moved = f.tick(position.add(0, 0, -WALK), true);
-            assertTrue(moved.hasFlag(InputKeys.class), describe(moved));
+            assertTrue(rejectsKeys(moved), describe(moved));
         }
     }
 
@@ -201,7 +203,7 @@ class InputKeysTest {
 
             f.pongThrough(health(f, 20));
             assertTrue(f.player.compensatedEntities.getSelf().actionAlive);
-            assertTrue(f.tick(position, true).hasFlag(InputKeys.class), "living keys must move the player again");
+            assertTrue(rejectsKeys(f.tick(position, true)), "living keys must move the player again");
         }
     }
 
@@ -297,7 +299,7 @@ class InputKeysTest {
                 f.tickEnd();
             }
 
-            assertTrue(keyFlags(f) > 0, "InputKeys did not flag");
+            assertTrue(keyFlags(f) > 0, "the keys did not flag");
             assertTrue(simulationFlags(f) > 0, "Simulation did not flag");
             assertTrue(f.player.getSetbackTeleportUtil().isPendingSetback(), "the stall was not set back");
         }
@@ -315,7 +317,7 @@ class InputKeysTest {
             f.input(BACK);
             PredictionResult backedOff = f.tick(new Vec3(0.5, FLOOR_Y, z + (-WALK + 0.05)), true);
 
-            assertTrue(backedOff.hasFlag(InputKeys.class), describe(backedOff));
+            assertTrue(rejectsKeys(backedOff), describe(backedOff));
             assertEquals(1, keyFlags(f));
             assertEquals(1, simulationFlags(f));
         }
@@ -331,7 +333,7 @@ class InputKeysTest {
 
             PredictionResult moved = f.tick(new Vec3(0.5, FLOOR_Y, z - WALK), true);
 
-            assertTrue(moved.hasFlag(InputKeys.class), describe(moved));
+            assertTrue(rejectsKeys(moved), describe(moved));
         }
     }
 
@@ -734,14 +736,19 @@ class InputKeysTest {
 
     /**
      * HappyGhast#canBeCollidedWith admits a player below the top of a ghast's box only while it stays still, and
-     * never admits a ghastling, so neither blocks the standing pose.
+     * never admits a ghastling, so neither blocks the standing pose. The ghast ticks after the LocalPlayer, and its
+     * LivingEntity#pushEntities pushes the player its box holds at the end of each tick.
      */
     private static void sprintUnderAHoveringHappyGhast(JavaTickFixture f, boolean baby) {
         f.player.compensatedEntities.addEntity(
                 100, EntityTypeIds.HAPPY_GHAST, new Vec3(0.5, FLOOR_Y + 1, 0.5), 0, 0, 0);
         var ghast = (PacketEntityHappyGhast) f.player.compensatedEntities.getEntity(100);
         ghast.isBaby = baby;
+        // AgeableMob#onSyncedDataUpdated resizes the box with the baby flag.
+        ghast.refreshDimensions(f.player);
         assertFalse(ghast.staysStill);
+        // HappyGhast's 4.0F box, scaled by 0.2375F for a ghastling.
+        double halfWidth = (baby ? 4.0F * 0.2375F : 4.0F) / 2.0;
         f.place(new Vec3(0.5, FLOOR_Y, -4.5), GROUNDED);
         f.player.isSprinting = true;
         f.player.sprintState.onClientTick(true);
@@ -752,6 +759,7 @@ class InputKeysTest {
             z += velocity + SPRINT;
             f.tick(new Vec3(0.5, FLOOR_Y, z), true);
             velocity = (velocity + SPRINT) * FRICTION;
+            if (z + HALF_WIDTH > 0.5 - halfWidth && z - HALF_WIDTH < 0.5 + halfWidth) velocity += push(0.5 - z);
         }
 
         assertNoFlags(f);
@@ -777,7 +785,7 @@ class InputKeysTest {
     }
 
     /**
-     * The InputKeys violations of a walk with Speed II along +x by {@code accel} under an adult happy ghast that stays
+     * The key violations of a walk with Speed II along +x by {@code accel} under an adult happy ghast that stays
      * still a block up. HappyGhast#canBeCollidedWith admits the player there, so neither the standing nor the crouching pose fits and
      * Player#updatePlayerPose falls back to the swimming pose, which LocalPlayer#isMovingSlowly counts as crawling.
      */
@@ -981,7 +989,7 @@ class InputKeysTest {
     }
 
     /**
-     * The InputKeys violations of one move along +z by {@code accel} without shift from (0.5, FLOOR_Y, -2.5), beside a
+     * The key violations of one move along +z by {@code accel} without shift from (0.5, FLOOR_Y, -2.5), beside a
      * shulker spawned at {@code at}; one {@code moving} over the player's head has had the first ping of that move
      * answered and so may be at either position. A shulker over the head overlaps both the crouching and the standing
      * box, so in no world does LocalPlayer#aiStep crouch the player.
@@ -1034,6 +1042,7 @@ class InputKeysTest {
             assertExact(f.tick(new Vec3(x, FLOOR_Y, 0.5), true));
             // Its box overlaps the swimming box and so the crouching one: LocalPlayer#aiStep does not crouch.
             f.player.compensatedEntities.addEntity(100, EntityTypeIds.SHULKER, new Vec3(x, FLOOR_Y, 0.5), 0, 0, 0);
+            double shulker = x;
             f.tick(new Vec3(x, FLOOR_Y, 0.5), true);
             f.input(SNEAK_FORWARD);
             double velocity = 0.0;
@@ -1042,10 +1051,26 @@ class InputKeysTest {
                 x += velocity;
                 f.tick(new Vec3(x, FLOOR_Y, 0.5), true);
                 velocity *= FRICTION;
+                // The shulker ticks after the LocalPlayer; its LivingEntity#pushEntities pushes the player its box holds.
+                if (x - HALF_WIDTH < shulker + 0.5) velocity += push(shulker - x);
             }
 
             assertEquals(0, keyFlags(f));
         }
+    }
+
+    /**
+     * Entity#push(Entity): what a pusher {@code offset} from the player along one horizontal axis, and level with it
+     * on the other, adds to the player's deltaMovement on that axis.
+     */
+    private static double push(double offset) {
+        double distance = Math.abs(offset);
+        if (distance < (double) 0.01F) return 0.0;
+        distance = Math.sqrt(distance);
+        offset /= distance;
+        offset *= Math.min(1.0 / distance, 1.0);
+        offset *= (double) 0.05F;
+        return -offset;
     }
 
     /** Places the player grounded at {@code (x, y, 0.5)} facing +x with Speed II. */
@@ -1084,8 +1109,17 @@ class InputKeysTest {
                 .orElseThrow();
     }
 
+    /**
+     * The violations of the checks that own a move the reported keys do not produce: the travel adds exactly the
+     * input of those keys, and what is left of the move flags Speed from the ground and Strafe in the air.
+     */
     private static double keyFlags(JavaTickFixture f) {
-        return f.player.checkManager.getListener(InputKeys.class).violations;
+        return f.player.checkManager.getCheck(Speed.class).violations
+                + f.player.checkManager.getCheck(Strafe.class).violations;
+    }
+
+    private static boolean rejectsKeys(PredictionResult result) {
+        return result.hasFlag(Speed.class) || result.hasFlag(Strafe.class);
     }
 
     private static double simulationFlags(JavaTickFixture f) {

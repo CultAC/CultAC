@@ -63,11 +63,13 @@ class JavaFluidPoseBoxTest {
         assertFalse(exact(crawl(BlockIds.WATER, FLOOR_Y + 1, WATER_SPEED)));
     }
 
+    /** Entity#isVisuallyCrawling is false in water, so LocalPlayer#isMovingSlowly leaves this crawl's input whole. */
     @Test
     void aCrawlThroughAOneHighWaterTunnelIsInWater() throws Exception {
-        PredictionResult swim = crawl(BlockIds.STONE, FLOOR_Y, WATER_SPEED);
+        PredictionResult swim = crawl(BlockIds.STONE, FLOOR_Y, WATER_SPEED, 1.0F);
         assertTrue(exact(swim), describe(swim));
-        assertFalse(exact(crawl(BlockIds.STONE, FLOOR_Y, LAND_SPEED)));
+        assertFalse(exact(crawl(BlockIds.STONE, FLOOR_Y, WATER_SPEED, SLOW)));
+        assertFalse(exact(crawl(BlockIds.STONE, FLOOR_Y, LAND_SPEED, SLOW)));
     }
 
     /** One forward tick from rest on the floor at {@code speed}, under a water layer at {@code waterY}. */
@@ -107,6 +109,12 @@ class JavaFluidPoseBoxTest {
      * feet and water filling the feet cell when {@code waterY} is the floor.
      */
     private static PredictionResult crawl(BlockDefinition above, int waterY, float speed) throws Exception {
+        return crawl(above, waterY, speed, SLOW);
+    }
+
+    /** {@link #crawl(BlockDefinition, int, float)} with LocalPlayer#modifyInput scaling the input by {@code slow}. */
+    private static PredictionResult crawl(BlockDefinition above, int waterY, float speed, float slow)
+            throws Exception {
         try (var f = new JavaTickFixture()) {
             layer(f, FLOOR_Y + 1, above);
             if (waterY == FLOOR_Y) layer(f, FLOOR_Y, BlockIds.WATER);
@@ -116,7 +124,7 @@ class JavaFluidPoseBoxTest {
             f.player.pose = Pose.SWIMMING;
             f.place(START, Vec3.ZERO);
             f.input(FORWARD);
-            return f.tick(START.add(ClientMoveInput.of(f, FORWARD, SLOW, speed, 0.0F)), true);
+            return f.tick(START.add(ClientMoveInput.of(f, FORWARD, slow, speed, 0.0F)), true);
         }
     }
 

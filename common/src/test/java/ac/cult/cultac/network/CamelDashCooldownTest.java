@@ -180,7 +180,8 @@ class CamelDashCooldownTest {
             f.pongThrough(f.player.lastTransactionSent.get());
             acceptNewTeleports(f, teleports);
             Vec3 dismounted = new Vec3(f.player.x, f.player.y, f.player.z);
-            for (int tick = 0; tick < DASH_COOLDOWN; tick++) assertExact(f.tick(dismounted, true));
+            // The dismount's teleport leaves the player no velocity: its first Entity#move does not collide below.
+            for (int tick = 0; tick < DASH_COOLDOWN; tick++) assertExact(f.tick(dismounted, tick != 0));
 
             board(f, FORWARD_SPRINT);
             f.command(PlayerCommandAction.START_SPRINTING);

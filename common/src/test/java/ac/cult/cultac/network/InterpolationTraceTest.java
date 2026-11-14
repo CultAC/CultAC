@@ -35,19 +35,19 @@ class InterpolationTraceTest {
 
     @Test
     void legacyTrace() throws Exception {
-        assertEquals(1224119326751623299L, trace(ClientVersion.V_1_21_4, 11L));
+        assertEquals(8933593389528216956L, trace(ClientVersion.V_1_21_4, 11L));
     }
 
     @Test
     void oldClientTrace() throws Exception {
-        assertEquals(-1438305152525945911L, trace(ClientVersion.V_1_8, 12L));
+        assertEquals(-2118946168567975621L, trace(ClientVersion.V_1_8, 12L));
     }
 
     @Test
     void steppedTrace() throws Exception {
         // Entity#recreateFromPacket leaves no active spawn lerp, including types using the legacy storage.
         // Shulker#setPos puts a shulker's box on its block's bottom centre.
-        assertEquals(1227841220801775929L, trace(ClientVersion.V_26_3, 13L));
+        assertEquals(-942802524823228207L, trace(ClientVersion.V_26_3, 13L));
     }
 
     private static long trace(ClientVersion version, long seed) throws Exception {

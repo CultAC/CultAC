@@ -55,7 +55,8 @@ class JavaStepUnderEntityTest {
     void aClientBefore26_3StoppingAtABoatUnderAnotherBoatIsRejected() throws Exception {
         try (var f = new JavaTickFixture()) {
             boatUnderBoat(f, ClientVersion.V_26_2);
-            assertRejected(f.tick(START.add(FACE_GAP, 0.0, 0.0), true), "InputKeys");
+            // The client's only move steps onto the boat, so the stop misses its height.
+            assertRejected(f.tick(START.add(FACE_GAP, 0.0, 0.0), true), "VerticalOffset");
         }
     }
 

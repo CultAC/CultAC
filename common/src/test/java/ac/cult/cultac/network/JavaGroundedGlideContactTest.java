@@ -27,6 +27,9 @@ class JavaGroundedGlideContactTest {
             JavaTickFixture.setField(CultPlayer.class, f.player, "resolvedClientVersion", version);
             Vec3 start = new Vec3(0.5019486597283, FLOOR_Y, 0.5);
             f.place(start, new Vec3(0.0019486597283403166, 0, 0));
+            // A grounded glider rests with no vertical velocity: LivingEntity#travelFallFlying adds its gravity before
+            // the move, and Entity#move zeroes what the floor stopped.
+            f.player.checkManager.getSimulationProcessor().seedStartingVelocity(new Vec3(0.0019486597283403166, 0, 0));
             f.player.isGliding = true;
             f.player.pose = Pose.FALL_FLYING;
             f.player.boundingBox = GetBoundingBox.getPlayerBoundingBox(f.player, start.x, start.y, start.z);

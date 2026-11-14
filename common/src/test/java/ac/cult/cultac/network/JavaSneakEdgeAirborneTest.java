@@ -3,13 +3,16 @@ package ac.cult.cultac.network;
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
+import static ac.cult.cultac.network.JavaTickFixture.setField;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
+import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.events.packets.listeners.PacketEntityAction;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerCommand;
@@ -96,6 +99,8 @@ class JavaSneakEdgeAirborneTest {
             Vec3 position = new Vec3(0.5, POST_TOP + 1.0, z);
             f.place(position, new Vec3(0.0, vy, startZ));
             f.input(SNEAK);
+            // Shift was already down on the tick before, so LocalPlayer#aiStep crouches from the first tick here.
+            setField(SimulationProcessor.class, f.player.checkManager.getSimulationProcessor(), "lastSneaking", true);
 
             for (int tick = 0; tick < 3; tick++) {
                 position = position.add(0.0, vy, dz[tick]);
@@ -107,14 +112,17 @@ class JavaSneakEdgeAirborneTest {
 
             PredictionResult landing = f.tick(new Vec3(0.5, POST_TOP, position.z + input), true);
             assertTrue(exact(landing), describe(landing));
-            assertEquals(0.0, landing.getInitialStartingVel().z);
+            // The landing's deltaMovement before LivingEntity#moveRelative added this tick's input.
+            PredVector start = landing.getInitialStartingVel();
+            assertEquals(0.0, start.z - start.getTravelInput().z);
         }
     }
 
     /**
-     * A shift-holding player falls three blocks beside the floor's east edge and is knocked east within 0.5 of the
+     * A shift-holding player falls three blocks over the floor's east edge and is knocked east within 0.5 of the
      * floor. fallDistance is past maxUpStep, so Player#isAboveGround is false and the knockback moves it whole; the
-     * knockback may stay pending for several falling ticks before its pong.
+     * knockback may stay pending for several falling ticks before its pong. Entity#collide resolves Y first, with
+     * the box still over the edge, so the same move lands on the floor.
      */
     @ParameterizedTest
     @ValueSource(ints = {0, 3})
@@ -125,7 +133,10 @@ class JavaSneakEdgeAirborneTest {
         assertFalse(exact(backedOff), describe(backedOff));
     }
 
-    /** Reports {@code dx} on the tick the east knockback lands, with the feet 0.1 to 0.5 above the floor. */
+    /**
+     * Reports {@code dx} on the tick the east knockback moves the player, which starts with the feet 0.1 to 0.5 above
+     * the floor and ends on it.
+     */
     private static PredictionResult knockedNearTheFloor(int pendingTicks, double dx) throws Exception {
         try (var f = new JavaTickFixture()) {
             // The box's west face is 0.2 over the floor's east edge at x = 9.
@@ -154,7 +165,8 @@ class JavaSneakEdgeAirborneTest {
             }
             if (transaction == -1) transaction = f.velocity(knockback);
             f.pongThrough(transaction);
-            return f.tick(position.add(dx, vy, 0.0), false);
+            assertTrue(position.y + vy < FLOOR_Y, "the fall stops short of the floor");
+            return f.tick(new Vec3(position.x + dx, FLOOR_Y, position.z), true);
         }
     }
 

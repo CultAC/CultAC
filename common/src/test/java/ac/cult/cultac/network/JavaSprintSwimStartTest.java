@@ -105,9 +105,12 @@ class JavaSprintSwimStartTest {
                 double y = swimPitch(f, velocity.y, lookY, position, tick == 0);
                 Vec3 input = ClientMoveInput.of(f, FORWARD, 1.0F, 0.02F, yaw);
                 delta = new Vec3(velocity.x + input.x, y, velocity.z + input.z);
-                position = position.add(delta);
+                // Entity#collide stops a sinking swimmer on the pool floor; Entity#move then zeroes its fall.
+                boolean lands = position.y + y < FLOOR_Y;
+                position = new Vec3(position.x + delta.x, lands ? FLOOR_Y : position.y + y, position.z + delta.z);
+                if (lands) y = 0.0;
                 String where = "yaw " + yaw + " pitch " + pitch + " stop tick " + tick;
-                assertExact(f.tick(position, false), where);
+                assertExact(f.tick(position, lands), where);
                 assertEquals(tick == 0 ? Pose.SWIMMING : Pose.STANDING, f.player.pose, where);
                 velocity = new Vec3(delta.x * 0.8F, fluidFalling(y <= 0.0, y * 0.8F), delta.z * 0.8F);
             }
@@ -264,7 +267,7 @@ class JavaSprintSwimStartTest {
             assertEquals(0, sprintG.violations, "a latched swimmer is SprintG");
 
             water(f, false);
-            groundTick(f, state, yaw);
+            dryTickAfterTheSwim(f, state, yaw);
             assertFalse(f.player.swimState.swimming(), "the swim outlived leaving the water");
             assertEquals(Pose.STANDING, f.player.pose);
 
@@ -285,6 +288,19 @@ class JavaSprintSwimStartTest {
         assertExact(f.tick(state[0], true), "ground tick");
         double friction = 0.6F * 0.91F;
         state[1] = new Vec3(delta.x * friction, 0.0, delta.z * friction);
+    }
+
+    /**
+     * The tick after the water is gone. A sprinter has no fluid gravity, so the last water tick moved with no vertical
+     * velocity and Entity#move left onGround false: LivingEntity#travelInAir adds Player#getFlyingSpeed's sprinting
+     * 0.025999999F with the 0.91F friction. The pose is still SWIMMING until Player#updatePlayerPose, which
+     * LocalPlayer#isMovingSlowly counts as crawling out of water.
+     */
+    private static void dryTickAfterTheSwim(JavaTickFixture f, Vec3[] state, float yaw) {
+        Vec3 delta = state[1].add(ClientMoveInput.of(f, FORWARD_SPRINT, 0.3F, 0.025999999F, yaw));
+        state[0] = state[0].add(delta.x, 0.0, delta.z);
+        assertExact(f.tick(state[0], false), "dry tick after the swim");
+        state[1] = new Vec3(delta.x * 0.91F, 0.0, delta.z * 0.91F);
     }
 
     // LivingEntity#travelInWater on the floor: speed 0.02F and the sprinting 0.9F slowDown.

@@ -16,6 +16,7 @@ import ac.cult.cultac.checks.impl.badpackets.BadPacketsM;
 import ac.cult.cultac.checks.impl.combat.FairReach;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.prediction.SimulationContext;
+import ac.cult.cultac.checks.impl.prediction.runner.SimulationProcessor;
 import ac.cult.cultac.events.packets.listeners.PacketPlayerRespawn;
 import ac.cult.cultac.network.codec.ModelRegistryNamesState;
 import ac.cult.cultac.network.event.PacketSendEvent;
@@ -445,19 +446,21 @@ public final class PacketPlayerRespawnLifecycleTest {
         }
     }
 
-    /** ClientPacketListener#handleRespawn copies the boosted delta movement into the new level with KEEP_ENTITY_DATA. */
+    /**
+     * ClientPacketListener#handleRespawn copies the delta movement, which holds the boost FireworkRocketEntity#tick
+     * last gave, into the new level only with KEEP_ENTITY_DATA. The new ClientLevel holds none of the old level's
+     * rockets.
+     */
     @Test
     public void aDimensionChangeKeepsTheLastBoostOnlyWithKeptEntityData() throws Exception {
         OfflineCultTestBootstrap.installConfig();
+        Vec3 boosted = new Vec3(0.4, 0.1, 1.2);
         for (byte kept : new byte[] {ClientboundRespawn.KEEP_ENTITY_DATA, 0}) {
             CultPlayer player = offlineJavaPlayer();
             try {
                 player.compensatedFireworks.addNewFirework(7);
-                SimulationContext gliding = mock(SimulationContext.class);
-                when(gliding.isGliding()).thenReturn(true);
-                PredictionResult tick = mock(PredictionResult.class);
-                when(tick.getSimulationContext()).thenReturn(gliding);
-                player.compensatedFireworks.onPredictionComplete(new PredictionComplete(tick));
+                SimulationProcessor simulation = player.checkManager.getListener(SimulationProcessor.class);
+                simulation.seedStartingVelocity(boosted);
                 assertEquals(1, player.compensatedFireworks.getMaxFireworksAppliedPossible());
 
                 var nether = new ClientboundRespawn(
@@ -472,12 +475,11 @@ public final class PacketPlayerRespawnLifecycleTest {
                 player.lastTransactionReceived.set(1);
                 player.latencyUtils.handleNettySyncTransaction(1);
 
+                assertEquals("kept " + kept, 0, player.compensatedFireworks.getMaxFireworksAppliedPossible());
                 assertEquals(
                         "kept " + kept,
-                        kept != 0 ? 1 : 0,
-                        player.compensatedFireworks.getMaxFireworksAppliedPossible());
-                player.compensatedFireworks.onPredictionComplete(new PredictionComplete(tick));
-                assertEquals(0, player.compensatedFireworks.getMaxFireworksAppliedPossible());
+                        java.util.Set.of(kept != 0 ? boosted : Vec3.ZERO),
+                        simulation.getValidPlayerStartingVels());
             } finally {
                 OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
             }

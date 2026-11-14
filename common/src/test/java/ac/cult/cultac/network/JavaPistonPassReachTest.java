@@ -74,7 +74,8 @@ class JavaPistonPassReachTest {
             var crowded = replay(f, context, crowdedPass(), position);
 
             assertTrue(alone.moved(), "the near piston must shove the player for this comparison to mean anything");
-            assertEquals(0.5 + 0.31, alone.state().position().x, 1e-9);
+            // The shove clears the box's west face, half the float width 0.6F from the centre, plus 0.01.
+            assertEquals(0.5 + 0.6F / 2 + 0.01, alone.state().position().x, 1e-9);
             assertSameResult(alone, crowded);
             assertEquals(pathPositions(alone.path()), pathPositions(crowded.path()));
         }
@@ -125,7 +126,7 @@ class JavaPistonPassReachTest {
             assertEquals(position, missed.state().position());
 
             var chained = replay(f, context, new ClientBlockEntityPass(List.of(carry, later), GAME_TIME), position);
-            assertEquals(3.5 - 0.31, chained.state().position().x, 1e-9);
+            assertEquals(3.5 - (0.6F / 2 + 0.01), chained.state().position().x, 1e-9);
             assertEquals(position.z, chained.state().position().z, 1e-12);
         }
     }

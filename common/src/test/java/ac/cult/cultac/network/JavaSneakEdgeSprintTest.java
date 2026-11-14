@@ -111,9 +111,10 @@ class JavaSneakEdgeSprintTest {
             }
 
             // Released, still crouched from the previous keys and past the edge: the hidden walking velocity moves.
+            // Entity#collide resolves Y first, on the floor the box still overhangs, so this tick keeps the ground.
             f.input(SPRINT);
             delta = velocity.add(ClientMoveInput.of(f, SPRINT, 0.3F, 0.1F, yaw));
-            assertExact(f.tick(position.add(delta.x, -0.0784000015258789, delta.z), false));
+            assertExact(f.tick(position.add(delta.x, 0.0, delta.z), true));
         }
     }
 
@@ -160,8 +161,14 @@ class JavaSneakEdgeSprintTest {
                 assertExact(f.tick(position, true));
                 velocity = new Vec3(delta.x * friction, 0.0, delta.z * friction);
             }
+            // Entity#collide resolves Y first, on the floor the box still overhangs, so the release keeps the ground.
             f.input(SPRINT);
             delta = velocity.add(ClientMoveInput.of(f, SPRINT, 0.3F, quadrupledSpeed, yaw));
+            position = position.add(delta.x, 0.0, delta.z);
+            assertExact(f.tick(position, true));
+            velocity = new Vec3(delta.x * friction, 0.0, delta.z * friction);
+            // The first tick past the edge still reads onGround: the ground speed and friction, and the resting fall.
+            delta = velocity.add(ClientMoveInput.of(f, SPRINT, 1.0F, quadrupledSpeed, yaw));
             position = position.add(delta.x, -0.0784000015258789, delta.z);
             assertExact(f.tick(position, false));
             velocity = new Vec3(delta.x * friction, 0.0, delta.z * friction);

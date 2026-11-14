@@ -21,6 +21,9 @@ public class GeyserBlockStateMappingsTest {
             assertNotNull(stream);
             return stream;
         });
+        // A palette without data driven blocks has no such resource.
+        when(geyser.getBootstrap().getResourceOrNull(anyString()))
+                .thenAnswer(call -> GeyserImpl.class.getClassLoader().getResourceAsStream(call.getArgument(0)));
         var instance = GeyserImpl.class.getDeclaredField("instance");
         instance.setAccessible(true);
         Object previous = instance.get(null);
@@ -28,6 +31,12 @@ public class GeyserBlockStateMappingsTest {
         var previousSkulls = BlockRegistries.CUSTOM_SKULLS.get();
         var previousCustomBlocks = BlockRegistries.CUSTOM_BLOCKS.get();
         try {
+            // BuiltInJavaRegistries#bootstrap opens the block registry to the block populators before it is frozen;
+            // the rest of it needs a running Geyser.
+            var blocks = org.geysermc.geyser.registry.java.BuiltInJavaRegistries.BLOCK;
+            var open = blocks.getClass().getDeclaredMethod("allowUnsafeAccess");
+            open.setAccessible(true);
+            open.invoke(blocks);
             org.geysermc.geyser.level.block.Blocks.AIR.javaId();
             var skull = new org.geysermc.geyser.registry.type.CustomSkull("cultac_palette_test");
             BlockRegistries.CUSTOM_SKULLS.set(new it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap<>());

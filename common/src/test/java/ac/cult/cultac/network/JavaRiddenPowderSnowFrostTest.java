@@ -45,7 +45,7 @@ class JavaRiddenPowderSnowFrostTest {
     @MethodSource("ac.cult.cultac.network.JavaPistonReleaseCases#releases")
     void theServersFrostSlowsTheRiddenHorse(String release, ClientVersion version) throws Exception {
         try (var f = stuckHorse(version)) {
-            f.input(FORWARD);
+            pressForward(f);
             double z = START.z;
             for (int ticksFrozen = 12; ticksFrozen <= 15; ticksFrozen++) {
                 freeze(f, ticksFrozen, ticksFrozen);
@@ -66,8 +66,8 @@ class JavaRiddenPowderSnowFrostTest {
     @MethodSource("ac.cult.cultac.network.JavaPistonReleaseCases#releases")
     void olderClientsReplaceTheServersFrostAfterTravel(String release, ClientVersion version) throws Exception {
         try (var f = stuckHorse(version)) {
+            pressForward(f);
             freeze(f, 70, 12);
-            f.input(FORWARD);
             double z = START.z;
             for (int tick = 0; tick < 3; tick++) {
                 boolean replaced = tick > 0 && version.isOlderThan(ClientVersion.V_1_21_5);
@@ -101,12 +101,22 @@ class JavaRiddenPowderSnowFrostTest {
             f.setPassengers(HORSE, List.of(f.player.entityID));
             f.pongThrough(f.player.lastTransactionSent.get());
             f.input(NONE);
-            for (int tick = 0; tick < 6; tick++) assertVehicleExact(f.rideTick(START, true), tick);
+            // The horse mounts with no velocity: its first Entity#move does not collide below and reports it airborne.
+            for (int tick = 0; tick < 6; tick++) assertVehicleExact(f.rideTick(START, tick != 0), tick);
             ready = true;
             return f;
         } finally {
             if (!ready) f.close();
         }
+    }
+
+    /**
+     * The rider presses forward. ClientLevel#tickNonPassenger ticks the horse before LocalPlayer#rideTick stores the
+     * pressed keys in zza, so AbstractHorse#getRiddenInput reads them one tick later and this tick's horse stays.
+     */
+    private static void pressForward(JavaTickFixture f) {
+        f.input(FORWARD);
+        assertVehicleExact(f.rideTick(START, true), 0);
     }
 
     /** The server's tick: SetEntityData with DATA_TICKS_FROZEN, then UpdateAttributes with its frost. */

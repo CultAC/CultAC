@@ -82,7 +82,8 @@ class JavaRemoteRideableFrostTest {
             f.pongThrough(f.player.lastTransactionSent.get());
             // Released, so the passenger's own travel stays put on its floor; the horse still reads the walk's zza.
             f.input(NONE);
-            assertVehicleExact(f.rideTick(new Vec3(HORSE_AT.x, FLOOR_Y, HORSE_AT.z + move(frost)), true), 0);
+            // The horse mounts with no velocity: its first Entity#move does not collide below and reports it airborne.
+            assertVehicleExact(f.rideTick(new Vec3(HORSE_AT.x, FLOOR_Y, HORSE_AT.z + move(frost)), false), 0);
             assertFalse(f.player.getSetbackTeleportUtil().isPendingSetback(), release);
         }
     }

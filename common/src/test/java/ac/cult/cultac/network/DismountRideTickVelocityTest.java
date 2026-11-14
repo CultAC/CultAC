@@ -31,6 +31,8 @@ import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
+import ac.cult.cultac.utils.inventory.Inventory;
+import ac.cult.cultac.utils.inventory.ItemUtil;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.math.Vec3;
 import java.lang.reflect.Field;
@@ -494,8 +496,10 @@ class DismountRideTickVelocityTest {
     }
 
     /**
-     * Entity#baseTick keeps the previous tick's box-wide powder snow contact, and LivingEntity
-     * #handleRelativeFrictionAndCalculateMovement climbs 0.2 with it and the jump key while the feet are in air.
+     * LivingEntity#handleRelativeFrictionAndCalculateMovement climbs 0.2 with the jump key only for an entity
+     * PowderSnowBlock#canEntityWalkOnPowderSnow accepts, here by its leather boots. From 1.21.5 it reads the
+     * previous tick's box-wide powder snow contact, which Entity#baseTick keeps, while the feet are in air; before
+     * that it reads Entity#getInBlockState, the air at the rider's feet, and the rider only falls.
      */
     @ParameterizedTest
     @MethodSource("endings")
@@ -503,6 +507,11 @@ class DismountRideTickVelocityTest {
         try (var f = fixture(version);
                 var ignored = observeOnly(true)) {
             ride(f, new Vec3(0.75, FLOOR_Y, 0.5), NONE);
+            f.player
+                    .getInventory()
+                    .inventory
+                    .getInventoryStorage()
+                    .setItem(Inventory.SLOT_BOOTS, ItemUtil.modelItems().stack("minecraft:leather_boots", 1));
             Vec3 seat = rideTickSeat(f);
             BlockPos beside = BlockPos.containing(seat.x + 0.5, seat.y, seat.z);
             assertTrue(BlockPos.containing(seat.x, seat.y, seat.z).getX() != beside.getX());
@@ -513,7 +522,8 @@ class DismountRideTickVelocityTest {
             dismount(f, removeSeat);
             f.input(NONE);
             f.player.compensatedWorld.updateBlock(beside, BlockIds.AIR.defaultState());
-            PredictionResult move = f.tick(position(f).add(0, (0.2 - 0.08) * 0.98F, 0), false);
+            double left = version.isOlderThan(ClientVersion.V_1_21_5) ? FALL : (0.2 - 0.08) * 0.98F;
+            PredictionResult move = f.tick(position(f).add(0, left, 0), false);
             assertTrue(exact(move), describe(move));
         }
     }

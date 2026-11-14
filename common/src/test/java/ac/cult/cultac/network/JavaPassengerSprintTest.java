@@ -60,7 +60,8 @@ class JavaPassengerSprintTest {
             sprintA.violations = 0;
 
             for (int tick = 0; tick < 3; tick++) {
-                PredictionResult result = f.rideTick(START, true);
+                // The camel mounts with no velocity: its first Entity#move does not collide below.
+                PredictionResult result = f.rideTick(START, tick != 0);
                 assertEquals(0.0, sprintA.violations, "SprintA on tick " + tick);
                 assertTrue(exact(result) && !result.isExempt(), "tick " + tick + ": " + describe(result));
             }
@@ -84,8 +85,14 @@ class JavaPassengerSprintTest {
             f.pongThrough(f.player.lastTransactionSent.get());
             f.player.isSprinting = true;
 
+            // The camel mounts with no velocity. Each LivingEntity#travelInWater then leaves 0.8F of its fall less
+            // gravity / 16, and LivingEntity#floatInLiquidWhileRidden adds 0.04F: the camel rises off the floor.
+            double y = START.y;
+            double velocity = 0.0;
             for (int tick = 0; tick < 3; tick++) {
-                PredictionResult result = f.rideTick(START, true);
+                y += velocity;
+                velocity = velocity * 0.8F - 0.08 / 16.0 + 0.04F;
+                PredictionResult result = f.rideTick(new Vec3(START.x, y, START.z), false);
                 assertTrue(
                         result.getSimulationContext().getWorldData().isInWater(),
                         "tick " + tick + " in water: " + describe(result));

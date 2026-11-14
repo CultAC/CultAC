@@ -349,12 +349,13 @@ class JavaRiddenPistonVersionsTest {
             BlockPos base = new BlockPos(0, FLOOR_Y, -2);
             extend(f, base, 3, piston(f, base, "south", "minecraft:stone"));
 
+            // 26.3 reports after the block-entity pass, whose horizontal Entity#move(PISTON) clears the ground.
             double velocity = GROUND_INPUT;
             double z = 0.5 + 0.01 + HALF_WIDTH;
-            assertExact(f.rideTick(new Vec3(0.5, FLOOR_Y, z), true));
+            assertExact(f.rideTick(new Vec3(0.5, FLOOR_Y, z), false));
             velocity = velocity * GROUND_FRICTION + GROUND_INPUT;
             z = 1.0 + 0.01 + HALF_WIDTH;
-            assertExact(f.rideTick(new Vec3(0.5, FLOOR_Y, z), true));
+            assertExact(f.rideTick(new Vec3(0.5, FLOOR_Y, z), false));
             for (int tick = 0; tick < 2; tick++) {
                 velocity = velocity * GROUND_FRICTION + GROUND_INPUT;
                 z += velocity;
@@ -394,7 +395,10 @@ class JavaRiddenPistonVersionsTest {
             f.setPassengers(HORSE, List.of(f.player.entityID));
             f.pongThrough(f.player.lastTransactionSent.get());
             f.input(NONE);
-            for (int tick = 0; tick < 6; tick++) assertExact(f.rideTick(position, true));
+            // The root mounts with no velocity. LivingEntity#travel moves before its gravity, so a horse's first
+            // Entity#move does not collide below and reports it airborne; AbstractBoat#tick falls before it moves.
+            boolean fallsBeforeMoving = type == EntityTypeIds.OAK_BOAT;
+            for (int tick = 0; tick < 6; tick++) assertExact(f.rideTick(position, tick != 0 || fallsBeforeMoving));
             ready = true;
             return f;
         } finally {

@@ -368,7 +368,9 @@ class JavaCamelPoseTest {
         f.player.packetEntityReplication.onSetPassengers(event, f.player, packet);
         event.tasksAfter().forEach(Runnable::run);
         f.pongThrough(f.player.lastTransactionSent.get());
-        assertTrue(exact(f.rideTick(SEAT, true)));
+        // The camel mounts with no velocity: its first Entity#move does not collide below and reports it airborne.
+        var first = f.rideTick(SEAT, false);
+        assertTrue(exact(first), describe(first));
         return f;
     }
 

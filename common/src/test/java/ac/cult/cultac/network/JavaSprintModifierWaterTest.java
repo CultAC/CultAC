@@ -13,6 +13,7 @@ import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.protocol.ConnectionPhase;
 import ac.cult.cultac.protocol.packet.ClientboundPackets;
 import ac.cult.cultac.protocol.packet.ServerboundPackets;
+import ac.cult.cultac.protocol.packet.clientbound.ClientboundAddEntity;
 import ac.cult.cultac.protocol.packet.clientbound.ClientboundUpdateAttributes;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundInteract;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
@@ -22,6 +23,7 @@ import ac.cult.cultac.protocol.value.BlockPos;
 import ac.cult.cultac.protocol.value.Hand;
 import ac.cult.cultac.protocol.value.InteractAction;
 import ac.cult.cultac.protocol.value.PlayerCommandAction;
+import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
@@ -123,8 +125,17 @@ class JavaSprintModifierWaterTest {
         return new Vec3(velocity.x * 0.6, 0.0, velocity.z * 0.6);
     }
 
-    /** MultiPlayerGameMode#attack on an entity the server never sent: the reset is only possible. */
-    private static void attack(JavaTickFixture f) {
+    /**
+     * MultiPlayerGameMode#attack on a player whose spawn is still in flight: Minecraft#startAttack attacks only an
+     * entity the client holds, and the client has not proven it holds this one, so the reset is only possible.
+     */
+    private void attack(JavaTickFixture f) {
+        Vec3 at = position.add(0.0, 0.0, 2.5);
+        var add = new ClientboundAddEntity(99, "minecraft:player", new Vec3d(at.x, at.y, at.z), 0, 0, 0);
+        var spawn = new PacketSendEvent<>(
+                f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.ADD_ENTITY, add, false);
+        f.player.packetEntityReplication.onAddEntity(spawn, f.player, add);
+        spawn.tasksAfter().forEach(Runnable::run);
         var attack = new ServerboundInteract(99, InteractAction.ATTACK, Hand.MAIN_HAND, Optional.empty(), false);
         new PacketPlayerAttack().onInteract(f.event(ServerboundPackets.INTERACT, attack), f.player, attack);
     }

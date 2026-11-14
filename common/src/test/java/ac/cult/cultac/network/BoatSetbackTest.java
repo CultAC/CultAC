@@ -224,9 +224,12 @@ class BoatSetbackTest {
         }
     }
 
-    /** AbstractBoat#floatBoat in the air: 0.9 friction and 0.04 gravity, then no input. */
+    /**
+     * AbstractBoat#floatBoat in the air: 0.9 friction and the gravity AbstractBoat#getDefaultGravity returns, the
+     * double 0.04, then no input.
+     */
     private static Vec3 floatBoatInAir(Vec3 velocity) {
-        return new Vec3(velocity.x * 0.9F, velocity.y - 0.04F, velocity.z * 0.9F);
+        return new Vec3(velocity.x * 0.9F, velocity.y - 0.04, velocity.z * 0.9F);
     }
 
     private static float groundFriction(int blocks) {

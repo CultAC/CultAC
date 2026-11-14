@@ -112,7 +112,8 @@ class JavaMovementAttributeTest {
             ride(f, 100);
 
             f.input(NONE);
-            assertExact(f.rideTick(seat, true));
+            // The pig mounts with no velocity: its first Entity#move does not collide below and reports it airborne.
+            assertExact(f.rideTick(seat, false));
             assertExact(f.rideTick(seat, true));
         }
     }

@@ -29,6 +29,8 @@ class JavaRavagerRoarTest {
     private static final int RAVAGER = 100;
     private static final Vec3 START = new Vec3(0.5, 64, 0.5);
     private static final Vec3 PUSH = new Vec3(0, 0.2, -2);
+    /** The first move of a standing player the roar pushed: Entity#push adds to the gravity its last travel left. */
+    private static final Vec3 PUSHED = PUSH.add(0, JavaTickFixture.RESTING_Y, 0);
 
     private static PacketEntityRavager ravager(JavaTickFixture f) {
         f.player.compensatedEntities.addEntity(RAVAGER, EntityTypeIds.RAVAGER, START.add(0, 0, 2), 0, 0, 0);
@@ -59,7 +61,7 @@ class JavaRavagerRoarTest {
             f.place(START, Vec3.ZERO);
             ravager(f);
             f.pongThrough(event(f, RAVAGER, 69));
-            clean(f.tick(START.add(PUSH), false));
+            clean(f.tick(START.add(PUSHED), false));
             assertTrue(f.player
                     .compensatedEntities
                     .ravagerRoars
@@ -68,11 +70,11 @@ class JavaRavagerRoarTest {
             var carry = assertInstanceOf(
                     JavaPredictionCarry.class,
                     f.player.checkManager.getSimulationProcessor().getCurrentPredictionCarry());
-            Vec3 next = new Vec3(0, (0.2 - 0.08) * (double) 0.98F, -2 * (double) (0.6F * 0.91F));
+            Vec3 next = new Vec3(0, (PUSHED.y - 0.08) * (double) 0.98F, -2 * (double) (0.6F * 0.91F));
             assertTrue(
                     carry.states().stream().anyMatch(state -> state.velocity().distanceTo(next) <= 1e-12),
                     carry.toString());
-            clean(f.tick(START.add(PUSH).add(next), false));
+            clean(f.tick(START.add(PUSHED).add(next), false));
         }
     }
 
@@ -134,7 +136,7 @@ class JavaRavagerRoarTest {
                         destination,
                         Vec3.ZERO,
                         relative ? Set.of(Relative.DELTA_X, Relative.DELTA_Y, Relative.DELTA_Z) : Set.of());
-                clean(f.tick(relative ? destination.add(PUSH) : destination, false));
+                clean(f.tick(relative ? destination.add(PUSHED) : destination, false));
             }
         }
     }
@@ -147,7 +149,7 @@ class JavaRavagerRoarTest {
             event(f, RAVAGER, 69);
             f.pongThrough(event(f, RAVAGER, 69));
             f.player.compensatedEntities.removeEntity(RAVAGER);
-            clean(f.tick(START.add(PUSH).add(PUSH), false));
+            clean(f.tick(START.add(PUSHED).add(PUSH), false));
         }
     }
 
@@ -160,7 +162,7 @@ class JavaRavagerRoarTest {
             // packet phase reads the old position, not the future commonTick position toward that target.
             ravager.onBundledPositionSyncTransaction(0.5, 64, 5.5, f.player);
             f.pongThrough(event(f, RAVAGER, 69));
-            clean(f.tick(START.add(PUSH), false));
+            clean(f.tick(START.add(PUSHED), false));
         }
     }
 

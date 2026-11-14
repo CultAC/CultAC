@@ -193,14 +193,18 @@ class JavaBedWakeMovementTest {
             Vec3 sleepPosition = new Vec3(0.5, FLOOR_Y + sleepHeight, 0.5);
             f.teleport(sleepPosition, new RelativeFlag(0));
             f.input(FORWARD);
-            Vec3 airInput = ClientMoveInput.of(f, FORWARD, 1.0F, 0.02F, 0.0F);
-            Vec3 beforeBed = sleepPosition.add(airInput);
-            assertTrue(exact(f.tick(beforeBed, false)));
+            // The teleport leaves onGround as the floor set it, so this travel adds the walking input and takes the
+            // friction of the bed under it; with no vertical velocity Entity#move then clears onGround.
+            Vec3 groundInput = ClientMoveInput.of(f, FORWARD, 1.0F, 0.1F, 0.0F);
+            Vec3 beforeBed = sleepPosition.add(groundInput);
+            PredictionResult travel = f.tick(beforeBed, false);
+            assertTrue(exact(travel), describe(travel));
 
             sleepingPos(f, Optional.of(HEAD));
             assertEquals(sleepPosition, new Vec3(f.player.x, f.player.y, f.player.z));
             f.input(NONE);
-            Vec3 carried = new Vec3(airInput.x * (double) 0.91F, -0.08D * (double) 0.98F, airInput.z * (double) 0.91F);
+            double friction = 0.6F * 0.91F;
+            Vec3 carried = new Vec3(groundInput.x * friction, -0.08D * (double) 0.98F, groundInput.z * friction);
             Vec3 travelled = sleepPosition.add(carried);
             boolean lands = travelled.y < FLOOR_Y + restHeight;
             if (lands) travelled = new Vec3(travelled.x, FLOOR_Y + restHeight, travelled.z);
@@ -235,7 +239,8 @@ class JavaBedWakeMovementTest {
 
     /**
      * Before its first Entity#rideTick the passenger is still where Entity#startRiding found it, so the sleeping
-     * position moves it to the bed all the same. The dismount keeps the zero delta movement it mounted with.
+     * position moves it to the bed all the same. Entity#startRiding leaves the delta movement alone, so the dismount
+     * keeps the one it mounted with: the gravity LivingEntity#travel left it standing on the floor.
      */
     @Test
     void aPassengerThatHasNotRiddenYetIsDismountedOnTheBed() throws Exception {
@@ -246,7 +251,7 @@ class JavaBedWakeMovementTest {
 
             sleepingPos(f, Optional.of(HEAD));
             dismountArmorStand(f);
-            PredictionResult result = f.tick(new Vec3(0.5, FLOOR_Y + 0.6875, 0.5), false);
+            PredictionResult result = f.tick(new Vec3(0.5, FLOOR_Y + 0.6875 + JavaTickFixture.RESTING_Y, 0.5), false);
 
             assertTrue(exact(result), describe(result));
         }

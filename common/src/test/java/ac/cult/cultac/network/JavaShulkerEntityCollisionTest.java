@@ -15,6 +15,7 @@ import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.packet.serverbound.ServerboundPlayerInput;
+import ac.cult.cultac.protocol.value.GameMode;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityShulker;
 import ac.cult.cultac.utils.math.VanillaMath;
@@ -140,19 +141,25 @@ class JavaShulkerEntityCollisionTest {
     @ValueSource(booleans = {false, true})
     void aShulkerRidingAPlayerStepsWhileFrozen(boolean self) throws Exception {
         try (var f = legacyFixture()) {
+            // The local player idles on the floor, away from the shulker and the other player.
+            f.place(new Vec3(-5.5, FLOOR_Y, -5.5), Vec3.ZERO);
+            f.input(NONE);
             shulker(f);
             var entities = f.player.compensatedEntities;
-            if (!self) entities.addEntity(PLAYER, EntityTypeIds.PLAYER, new Vec3(5.0, FLOOR_Y, 5.0), 0, 0, 0);
+            if (!self) f.addRemotePlayer(PLAYER, new Vec3(5.0, FLOOR_Y, 5.0), GameMode.SURVIVAL);
+            f.setPassengers(self ? f.player.entityID : PLAYER, List.of(SHULKER));
+            f.pongThrough(f.player.lastTransactionSent.get());
+            // Entity#positionRider seats the shulker before the peek arrives: Shulker#setPos clears DATA_PEEK_ID when a
+            // ticked shulker changes block.
+            f.tickEnd();
             PacketEntityShulker shulker = (PacketEntityShulker) entities.getEntity(SHULKER);
-            shulker.mount(self ? entities.getSelf() : entities.getEntity(PLAYER));
             peek(f, 100);
             f.player.packetStateData.serverTicksFrozen = true;
-            ticks(f, 10);
+            for (int tick = 0; tick < 10; tick++) f.tickEnd();
             float amount = 0.0F;
             for (int tick = 0; tick < 10; tick++) amount += 0.05F;
             SimpleCollisionBox closed = new SimpleCollisionBox(0.0, FLOOR_Y, 0.0, 1.0, FLOOR_Y + 1, 1.0);
-            double grow = Math.max(physicalPeek(amount), physicalPeek(amount + 0.05F));
-            assertEquals(FLOOR_Y + 1 + grow, shulker.movementBoxAt(closed).maxY);
+            assertEquals(FLOOR_Y + 1 + (double) physicalPeek(amount), shulker.movementBoxAt(closed).maxY);
         }
     }
 
@@ -193,8 +200,12 @@ class JavaShulkerEntityCollisionTest {
         return proof;
     }
 
+    /** ClientLevel#tickEntities of {@code ticks} client ticks, each running Shulker#tick's updatePeekAmount. */
     private static void ticks(JavaTickFixture f, int ticks) {
-        for (int tick = 0; tick < ticks; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
+        for (int tick = 0; tick < ticks; tick++) {
+            f.player.compensatedEntities.tickClientEntities(entity -> entity.onMovement(f.player));
+            f.player.packetStateData.acceptedClientTick++;
+        }
     }
 
     // Shulker#getPhysicalPeek on a 1.21.4 client.

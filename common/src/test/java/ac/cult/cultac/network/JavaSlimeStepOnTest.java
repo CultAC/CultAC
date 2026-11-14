@@ -73,7 +73,9 @@ class JavaSlimeStepOnTest {
         try (var f = new JavaTickFixture()) {
             Vec3 slid = slide(f);
             Vec3 carried = carried(scale, scale);
-            return exact(f.tick(slid.add(carried), true));
+            // LivingEntity#aiStep zeroes the carried fall, which is under 0.003, so Entity#move collides with nothing
+            // below and leaves onGround false.
+            return exact(f.tick(slid.add(carried), false));
         }
     }
 

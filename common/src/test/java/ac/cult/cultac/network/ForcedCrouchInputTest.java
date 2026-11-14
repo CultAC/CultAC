@@ -164,7 +164,8 @@ class ForcedCrouchInputTest {
             int refusal = f.player.lastTransactionSent.get();
             f.player.compensatedWorld.queueServerBlockUpdate(0, FLOOR_Y + 1, 0, TOP_SLAB, refusal);
             f.player.compensatedWorld.handlePredictionConfirmation(1, refusal);
-            walk(f, state[0], state[1], 1.0F, 2, "refusal in flight");
+            // One more upright tick would walk the standing box into the slabs around the mined block.
+            walk(f, state[0], state[1], 1.0F, 1, "refusal in flight");
         }
     }
 

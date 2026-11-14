@@ -139,7 +139,8 @@ class AttackTargetDampingTest {
     void aSpawnWhoseProofArrivesInABurstStaysPossibleUntilThen() throws Exception {
         try (var s = new SprintingAttacker(false)) {
             s.spawn(SPAWNED, "minecraft:player");
-            for (int tick = 0; tick < 15; tick++) assertTrue(exact(s.move(1.0D)));
+            // Ten ticks: the attacker's fall keeps it above the floor through the last move.
+            for (int tick = 0; tick < 10; tick++) assertTrue(exact(s.move(1.0D)));
             s.attack(SPAWNED);
             PredictionResult r = s.move(1.0D);
             assertTrue(exact(r), describe(r));

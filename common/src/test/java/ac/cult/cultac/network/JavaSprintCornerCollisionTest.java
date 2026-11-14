@@ -1,6 +1,7 @@
 package ac.cult.cultac.network;
 
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
+import static ac.cult.cultac.network.JavaTickFixture.assertRejected;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -69,8 +70,10 @@ class JavaSprintCornerCollisionTest {
     /**
      * The real client's recorded moves from {@link #landingInACornerKeepsTheSprint}, replayed without the
      * STOP_SPRINTING it sent after the jump. That test asserts the jump's collision is hard, on which
-     * LocalPlayer#shouldStopRunSprinting stops the sprint; SprintE adds one violation for each later move that still
-     * sprints.
+     * LocalPlayer#shouldStopRunSprinting stops the sprint; SprintE adds a violation for the later move that still
+     * sprints and that Simulation accepts. The recorded moves are a walking client's: the first stays under
+     * Simulation's threshold as a sprinting one, and Simulation rejects the second, which leaves its collision
+     * unknown to SprintE.
      */
     @Test
     void sprintContinuingAfterAHardCollisionAddsViolations() throws Exception {
@@ -79,10 +82,15 @@ class JavaSprintCornerCollisionTest {
             c.move(121.45130624068176, 73.41999998688698, 165.69999998807907, false);
             f.player.xRot = -353.29773F;
             f.player.yRot = 29.72565F;
-            c.move(1.0, 121.4102639754279, 73.7531999805212, 165.69999998807907, false);
+            PredictionResult kept = f.tick(new Vec3(121.4102639754279, 73.7531999805212, 165.69999998807907), false);
+            assertTrue(kept.getOffset() < 1.0E-3, describe(kept));
+            assertEquals(1.0, c.sprintE.violations, describe(kept));
             f.player.xRot = -352.76086F;
             f.player.yRot = 30.195354F;
-            c.move(2.0, 121.37044541000586, 74.00133597911214, 165.71944371692285, false);
+            PredictionResult rejected =
+                    f.tick(new Vec3(121.37044541000586, 74.00133597911214, 165.71944371692285), false);
+            assertRejected(rejected, "Strafe");
+            assertEquals(1.0, c.sprintE.violations, describe(rejected));
         }
     }
 
@@ -455,7 +463,9 @@ class JavaSprintCornerCollisionTest {
     private record Client(JavaTickFixture f, SprintE sprintE) {
         /** Stands on the floor at y with the deltaMovement its ground move from (fromX, fromZ) left. */
         void groundStart(double fromX, double fromZ, double x, double y, double z) {
-            f.place(new Vec3(x, y, z), new Vec3((x - fromX) * GROUND_FRICTION, 0.0, (z - fromZ) * GROUND_FRICTION));
+            f.place(
+                    new Vec3(x, y, z),
+                    new Vec3((x - fromX) * GROUND_FRICTION, JavaTickFixture.RESTING_Y, (z - fromZ) * GROUND_FRICTION));
             f.player.onGround = true;
             f.player.lastOnGround = true;
             f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.TRUE);

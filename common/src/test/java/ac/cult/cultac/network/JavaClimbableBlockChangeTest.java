@@ -51,14 +51,24 @@ class JavaClimbableBlockChangeTest {
         }
     }
 
-    /** A ladder the server sets at the feet may have reached the client before the movement it answered. */
+    /**
+     * A ladder the server sets at the feet may have reached the client before the movement it answered:
+     * LivingEntity#handleOnClimbable then holds the fall at 0.15. The 0.2 rise needs horizontalCollision or jumping,
+     * which a still client in the open has neither of.
+     */
     @Test
     void aLadderTheServerSetsAtTheFeetKeepsTheClimbPossible() throws Exception {
         try (var f = new JavaTickFixture()) {
             fall(f);
             change(f, new BlockPos(0, 69, 0), false);
-            PredictionResult result = f.tick(new Vec3(0.5, Y - FALL + CLIMB, 0.5), false);
+            PredictionResult result = f.tick(new Vec3(0.5, Y - FALL - (double) 0.15F, 0.5), false);
             assertTrue(exact(result), describe(result));
+        }
+        try (var f = new JavaTickFixture()) {
+            fall(f);
+            change(f, new BlockPos(0, 69, 0), false);
+            PredictionResult result = f.tick(new Vec3(0.5, Y - FALL + CLIMB, 0.5), false);
+            assertFalse(exact(result), describe(result));
         }
     }
 

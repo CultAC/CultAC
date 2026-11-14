@@ -63,14 +63,21 @@ class JavaFireworkGlideTest {
         }
     }
 
-    /** The attachment stays possible on every tick until its ping returns, here 40 ticks later. */
+    /**
+     * The client attaches the rocket after twenty gliding ticks: FireworkRocketEntity#tick boosts after that tick's
+     * travel and after each later one.
+     */
     @Test
-    void aRocketAppliedLateWhileItsPingIsOutstandingBoostsEachLaterGlide() throws Exception {
+    void aRocketAppliedLateBoostsEachLaterGlide() throws Exception {
         try (var f = gliding()) {
-            attachRocket(f);
+            // The boosted glide leaves the fixture's chunks, and a rocket ticks only in a chunk the client has loaded.
+            for (int x = -4; x <= 1; x++) {
+                for (int z = -1; z <= 5; z++) f.player.compensatedWorld.ensureValidationChunkLoaded(x, z);
+            }
             Vec3 velocity = CARRIED;
             Vec3 position = FROM;
             for (int tick = 0; tick < 40; tick++) {
+                if (tick == 20) attachRocket(f);
                 // LivingEntity#aiStep zeroes a vertical speed under 0.003 before travel.
                 Vec3 move = glide(f, Math.abs(velocity.y) < 0.003 ? velocity.multiply(1, 0, 1) : velocity);
                 position = position.add(move);
@@ -190,17 +197,14 @@ class JavaFireworkGlideTest {
         }
     }
 
-    /** The client may already hold a water block whose placement is still in flight. */
+    /** Water the client set since its last tick holds the glider in its next travel, with no tick between. */
     @Test
-    void aGliderThatMayHaveEnteredWaterStartsItsWaterTravelFromTheBoost() throws Exception {
+    void aGliderInWaterSetSinceItsLastTickStartsItsWaterTravelFromTheBoost() throws Exception {
         try (var f = boostedGlider()) {
             Vec3 first = glide(f, CARRIED);
             fillWater(f);
             PredictionResult result = f.tick(FROM.add(first).add(boost(f, first)), false);
-            assertTrue(result.getSimulationContext().getWorldData().isInLiquid()
-                    || result.getAnyReality().stream().anyMatch(r -> r.getSimulationContext().getWorldData().isInLiquid()));
-            assertTrue(!result.getSimulationContext().getWorldData().isInLiquid()
-                    || result.getAnyReality().stream().anyMatch(r -> !r.getSimulationContext().getWorldData().isInLiquid()));
+            assertTrue(result.getSimulationContext().getWorldData().isInLiquid());
             assertExact(result);
         }
         try (var f = boostedGlider()) {

@@ -114,6 +114,10 @@ class JavaRiddenRootGroundTest {
     }
 
     private static PacketEntityHorse mount(JavaTickFixture f, Vec3 start) {
+        // The rider waits on the floor it last reported: an unplaced player would fall through the ticks before the
+        // mount, which send no position.
+        f.place(new Vec3(start.x, FLOOR_Y, start.z), Vec3.ZERO);
+        f.player.packetStateData.packetPlayerOnGround = true;
         f.player.compensatedEntities.addEntity(HORSE, EntityTypeIds.HORSE, start, 0, 0, 0);
         PacketEntityHorse horse = (PacketEntityHorse) f.player.compensatedEntities.getEntity(HORSE);
         horse.hasSaddle = true;

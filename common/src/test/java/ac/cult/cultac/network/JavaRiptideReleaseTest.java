@@ -265,10 +265,10 @@ class JavaRiptideReleaseTest {
 
         /** One ridden tick that the camel's move must match exactly. */
         PredictionResult rideTick(JavaTickFixture f) {
-            boolean onFloor = deltaY == 0;
             y += deltaY;
             deltaY = deltaY * 0.8F - 0.08 / 16.0 + 0.04F;
-            PredictionResult result = f.rideTick(new Vec3(SHALLOWS.x, y, SHALLOWS.z), onFloor);
+            // The camel mounts with no velocity and then rises: no Entity#move of its attempts a downward Y.
+            PredictionResult result = f.rideTick(new Vec3(SHALLOWS.x, y, SHALLOWS.z), false);
             assertTrue(exact(result), describe(result));
             return result;
         }

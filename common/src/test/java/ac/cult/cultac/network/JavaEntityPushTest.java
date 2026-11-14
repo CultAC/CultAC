@@ -732,7 +732,10 @@ class JavaEntityPushTest {
         try (var f = mountedAtHubSpawn(true)) {
             PredictionResult pushed = f.tick(STANDING.add(HUB_PUSH_X, 0, HUB_PUSH_Z), true);
             assertFalse(pushed.hasFlag(InputKeys.class), describe(pushed));
-            assertEquals(1, pushed.getSimulationContext().getWorldData().getNumPushing());
+            // The push is in the deltaMovement the travel starts from; Entity#positionRider has seated the rider away
+            // by the time the player moves.
+            assertEquals(HUB_PUSH_X, pushed.getInitialStartingVel().x, 1.0E-12);
+            assertEquals(HUB_PUSH_Z, pushed.getInitialStartingVel().z, 1.0E-12);
             assertExact(pushed);
         }
     }
@@ -744,7 +747,7 @@ class JavaEntityPushTest {
             f.tickEnd();
             f.tickEnd();
             PredictionResult late = f.tick(STANDING.add(HUB_PUSH_X, 0, HUB_PUSH_Z), true);
-            assertTrue(late.hasFlag(InputKeys.class), describe(late));
+            JavaTickFixture.assertRejected(late, "Speed");
         }
     }
 
@@ -757,7 +760,7 @@ class JavaEntityPushTest {
             f.pongThrough(f.player.lastTransactionSent.get());
             f.tickEnd();
             PredictionResult remounted = f.tick(STANDING.add(HUB_PUSH_X, 0, HUB_PUSH_Z), true);
-            assertTrue(remounted.hasFlag(InputKeys.class), describe(remounted));
+            JavaTickFixture.assertRejected(remounted, "Speed");
         }
     }
 
@@ -1150,8 +1153,7 @@ class JavaEntityPushTest {
             f.place(STANDING, Vec3.ZERO);
             f.input(NONE);
             PacketEntity entity = entity(f, 100, SNAP_FROM);
-            // Entity#move's zero Y attempt clears ground on the local authoritative instance.
-            assertExact(f.tick(STANDING, false));
+            assertExact(f.tick(STANDING, true));
             entity.onBundleFirstTransaction(true, true, SNAP_STEPPING_DX, 0, 0, f.player);
             entity.onSecondTransaction();
             assertExact(f.tick(STANDING, true));
@@ -1263,6 +1265,8 @@ class JavaEntityPushTest {
     private static JavaTickFixture loadingBesideOther() throws Exception {
         JavaTickFixture f = new JavaTickFixture();
         f.place(LOADING, Vec3.ZERO);
+        // The LocalPlayer has not travelled yet: its deltaMovement holds no gravity.
+        f.player.checkManager.getSimulationProcessor().seedStartingVelocity(Vec3.ZERO);
         f.input(NONE);
         f.player.packetStateData.playerLoadedIntoLevel = false;
         entity(f, 100, LOADING_OTHER);
@@ -1471,6 +1475,9 @@ class JavaEntityPushTest {
         event.tasksAfter().forEach(Runnable::run);
         f.pongThrough(f.player.lastTransactionSent.get());
         entities.entityMap.get(RIDER).mount(entities.entityMap.get(100));
+        // As in seatSlime, the passenger is established: run the prior tick's positionRider pass.
+        entities.tickClientEntities(entity -> {});
+        f.player.packetStateData.acceptedClientTick++;
     }
 
     /** A set_passengers putting zombie 100 on the player, its ping answered or not. */

@@ -11,7 +11,6 @@ import ac.cult.cultac.bedrock.replay.offline.OfflineCultTestBootstrap;
 import ac.cult.cultac.checks.impl.combat.PlayerHitboxes;
 import ac.cult.cultac.checks.impl.combat.PlayerReach;
 import ac.cult.cultac.checks.impl.combat.ReachCheck.MeasuredAttack;
-import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.checks.impl.vehicle.VehicleGround;
 import ac.cult.cultac.network.codec.ObservedPacketValues;
@@ -68,7 +67,6 @@ class CamelReceivedSittingTest {
     private static final float CAMEL_YAW = -56.25F;
 
     private static final float RIDER_YAW = -37.5F;
-    private static final double GROUNDED_Y = -0.0784000015258789;
     /** Camel#getRiddenSpeed: movement_speed 0.09 plus 0.1 for a sprinting controller with no dash cooldown. */
     private static final float SPEED = 0.09F + 0.1F;
     /** LivingEntity#moveRelative for the ridden input's 0.98F on 0.6-friction ground. */
@@ -103,11 +101,13 @@ class CamelReceivedSittingTest {
             f.pongThrough(f.player.lastTransactionSent.get());
             f.input(IDLE);
             f.tickEnd();
-            f.player.checkManager.getSimulationProcessor().seedStartingVelocity(new Vec3(0, GROUNDED_Y, 0));
-            f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.TRUE);
 
-            for (char ground : IDLE_GROUND.toCharArray())
-                assertExact(ride(f, START, RIDER_YAW, CAMEL_YAW, ground == 'T'));
+            // The camel mounts with no velocity: its first Entity#move does not collide below.
+            for (int tick = 0; tick < IDLE_GROUND.length(); tick++) {
+                boolean ground = IDLE_GROUND.charAt(tick) == 'T';
+                if (tick > 0 && !ground) stopFall(f);
+                assertExact(ride(f, START, RIDER_YAW, CAMEL_YAW, ground));
+            }
             f.input(FORWARD_SPRINT);
             f.command(PlayerCommandAction.START_SPRINTING);
             // The root ticked on the idle keys before LocalPlayer#aiStep read the pressed ones.
@@ -117,7 +117,9 @@ class CamelReceivedSittingTest {
                     f.input(IDLE);
                     f.command(PlayerCommandAction.STOP_SPRINTING);
                 }
-                assertExact(ride(f, START, RIDER_YAW, CAMEL_YAW, STAND_UP_GROUND.charAt(tick) == 'T'));
+                boolean ground = STAND_UP_GROUND.charAt(tick) == 'T';
+                if (!ground) stopFall(f);
+                assertExact(ride(f, START, RIDER_YAW, CAMEL_YAW, ground));
             }
 
             f.input(FORWARD_SPRINT);
@@ -219,6 +221,15 @@ class CamelReceivedSittingTest {
 
     private static Vec3 onFloor(double x, double z, double originX, double originZ) {
         return new Vec3(x - originX, FLOOR_Y, z - originZ);
+    }
+
+    /**
+     * The server's set_entity_motion with the delta its own camel keeps under a rider, none. LivingEntity#travelInAir
+     * moves before its gravity, so the camel's next Entity#move does not collide below and reports it off the ground.
+     */
+    private static void stopFall(JavaTickFixture f) {
+        f.entityMotion(CAMEL, Vec3.ZERO);
+        f.pongThrough(f.player.lastTransactionSent.get());
     }
 
     /** One client tick: the rider's Rot, the camel's move and the tick end. */
