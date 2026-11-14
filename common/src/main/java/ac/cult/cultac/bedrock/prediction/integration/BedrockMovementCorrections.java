@@ -201,13 +201,7 @@ public final class BedrockMovementCorrections {
     public PredictionCommit prepareFrame(CultPlayer player, BedrockAuthInputFrame frame, PredictionCommit current) {
         var vehicle = BedrockVehicleControl.controlledVehicle(player);
         bind(vehicle, vehicle == null ? -1 : frame.getPredictedVehicleId());
-        return rewind.apply(
-                player,
-                current,
-                frame.getPosition() == null ? null : BedrockVectorAdapter.toBedrock(frame.getPosition()),
-                frame.getReportedEndOfTickVelocity() == null
-                        ? null
-                        : BedrockVectorAdapter.toBedrock(frame.getReportedEndOfTickVelocity()));
+        return rewind.apply(player, current);
     }
 
     public BedrockSimulation.Input prepareInput(BedrockSimulation.Input input) {

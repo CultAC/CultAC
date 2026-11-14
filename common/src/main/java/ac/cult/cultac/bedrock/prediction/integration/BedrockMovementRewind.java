@@ -8,7 +8,6 @@ import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
-import ac.cult.cultac.checks.impl.prediction.SimulationContext.HardCollidingEntityCollision;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
@@ -121,60 +120,33 @@ final class BedrockMovementRewind {
     }
 
     PredictionCommit apply(CultPlayer player, PredictionCommit current) {
-        return apply(player, current, null, null);
-    }
-
-    /**
-     * Takes the queued updates before the tick that reports {@code position} and {@code velocity}. A replay that
-     * meets solid actors the client may show away from Cult's boxes for them may have met them or missed them: it is
-     * run both with them and without, and the one that ends where that tick started is the client's. A tick's
-     * reported velocity is about the move it made, so it started near its position less that velocity.
-     */
-    PredictionCommit apply(CultPlayer player, PredictionCommit current, Vec3d position, Vec3d velocity) {
         if (updates.isEmpty()) return current;
         if (player == null) return apply(null, current, (state, world) -> world);
         var actors = player.bedrockState.movementCorrections.replaySolidActors(player);
-        Vec3d next = position == null || !actors.wanders()
-                ? null
-                : velocity == null ? position : position.subtract(velocity);
         return apply(
                 player,
                 current,
                 (state, world) -> worlds.replayWorld(player, state, world),
                 // A replayed tick meets the solid actors its live tick met, at their replay boxes.
-                (frame, state, world) ->
-                        BedrockReplayCollisionWorld.withNearbyActors(world, met(actors, frame, state, false)),
-                next == null
-                        ? null
-                        : (frame, state, world) ->
-                                BedrockReplayCollisionWorld.withNearbyActors(world, met(actors, frame, state, true)),
-                next);
-    }
-
-    private static List<HardCollidingEntityCollision> met(
-            BedrockSolidActors.Replay actors,
-            BedrockActorHistory.Frame frame,
-            BedrockMovementState state,
-            boolean settled) {
-        return frame.solidActors() == null
-                ? actors.around(reachStart(state), settled)
-                : actors.met(frame.solidActors(), settled);
+                (frame, state, world) -> BedrockReplayCollisionWorld.withNearbyActors(
+                        world,
+                        frame.solidActors() == null
+                                ? actors.around(reachStart(state))
+                                : actors.met(frame.solidActors())));
     }
 
     PredictionCommit apply(
             CultPlayer player,
             PredictionCommit current,
             BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> worldSampler) {
-        return apply(player, current, worldSampler, (frame, state, world) -> world, null, null);
+        return apply(player, current, worldSampler, (frame, state, world) -> world);
     }
 
     private PredictionCommit apply(
             CultPlayer player,
             PredictionCommit current,
             BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> worldSampler,
-            BedrockReplayTick.Actors actorSampler,
-            BedrockReplayTick.Actors otherActors,
-            Vec3d next) {
+            BedrockReplayTick.Actors actorSampler) {
         if (updates.isEmpty()) return current;
         List<Entry> entries = BedrockProfileState.profileEntries(current.carry());
         if (entries.isEmpty()) {
@@ -258,10 +230,7 @@ final class BedrockMovementRewind {
         }
         // One replay, from the oldest frame any update marked, takes them all.
         if (replays) {
-            // A ridden actor reports its rider's position, which does not tell where its own replay ended.
-            var replayed = live.isVehicle()
-                    ? authoritative.replay(worldSampler, actorSampler)
-                    : authoritative.replay(worldSampler, actorSampler, otherActors, next);
+            var replayed = authoritative.replay(worldSampler, actorSampler);
             if (!replayed.isEmpty()) {
                 entries = replayed;
                 for (var event : unrecorded) entries = taken(entries, event);

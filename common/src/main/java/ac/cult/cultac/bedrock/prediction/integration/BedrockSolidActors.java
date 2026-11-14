@@ -149,9 +149,7 @@ public final class BedrockSolidActors {
      * A replay meets every solid actor at one box for all of its ticks, whenever they first ran: an actor still
      * interpolating at its latest target, any other at the box it shows now. An actor the last live tick met keeps
      * the box that tick saved once its interpolation ended or it was removed. This does not advance the actor's
-     * ordinary interpolation or change the box the next live move meets. A client before 1.26.60 may show a moving
-     * actor away from Cult's box for it, so which of its replayed ticks met that actor, and how deep inside it they
-     * started, is not known: the replay marks those actors.
+     * ordinary interpolation or change the box the next live move meets.
      */
     static Replay replay(CultPlayer player, List<Nearby> nearby) {
         if (nearby == null) return Replay.NONE;
@@ -161,8 +159,6 @@ public final class BedrockSolidActors {
         CompensatedEntities entities = player.compensatedEntities;
         PacketEntity rootOfSelf = entities.rootOfSelf();
         SimpleCollisionBox box = new SimpleCollisionBox();
-        var shownElsewhere = player.bedrockState.solidActorBuffer.legacy;
-        Set<HardCollidingEntityCollision> wandering = Collections.newSetFromMap(new IdentityHashMap<>());
         for (PacketEntity entity : entities.entityMap.values()) {
             var met = saved.remove(entity);
             if (!entity.bedrockCollidable || entities.sharesRootVehicleWithSelf(entity, rootOfSelf)) continue;
@@ -180,60 +176,36 @@ public final class BedrockSolidActors {
                         entity.bedrockShownBox(player, box).copy(), depenetrationLimit(entity), 0.0F);
             }
             actors.add(new Nearby(entity, NO_CLIENT_ACTOR, collision));
-            if (shownElsewhere.wanders(entity.getEntityId())) wandering.add(collision);
         }
         // Removed since the last live tick.
-        saved.forEach((entity, collision) -> {
-            actors.add(new Nearby(entity, NO_CLIENT_ACTOR, collision));
-            if (shownElsewhere.wanders(entity.getEntityId())) wandering.add(collision);
-        });
-        return new Replay(player, actors, wandering);
+        saved.forEach((entity, collision) -> actors.add(new Nearby(entity, NO_CLIENT_ACTOR, collision)));
+        return new Replay(player, actors);
     }
 
     /**
      * The solid actors of one replay. Each replayed tick meets the actors its own live tick met ({@link Met}), at
      * their replay boxes; a tick recorded without them meets those within {@link #REACH} of its replayed start.
-     * {@code wandering} are the actors the client may show away from those boxes; with {@code settled} a tick meets
-     * only the others.
      */
-    record Replay(CultPlayer player, List<Nearby> actors, Set<HardCollidingEntityCollision> wandering) {
-        static final Replay NONE = new Replay(null, List.of(), Set.of());
+    record Replay(CultPlayer player, List<Nearby> actors) {
+        static final Replay NONE = new Replay(null, List.of());
 
-        /** Whether the client may show any solid actor away from the box this replay meets it at. */
-        boolean wanders() {
-            return player != null
-                    && (!wandering.isEmpty() || player.bedrockState.solidActorBuffer.legacyClientOnly.wanders());
-        }
-
-        private boolean wanders(long runtimeId) {
-            return player.bedrockState.solidActorBuffer.legacyClientOnly.wanders(
-                    (int) (runtimeId ^ (runtimeId >>> 32)));
-        }
-
-        List<HardCollidingEntityCollision> around(SimpleCollisionBox start, boolean settled) {
+        List<HardCollidingEntityCollision> around(SimpleCollisionBox start) {
             if (player == null) return List.of();
             SimpleCollisionBox reach = start.expand(REACH);
             List<HardCollidingEntityCollision> met = new ArrayList<>();
-            for (var actor : actors) {
-                if (settled && wandering.contains(actor.collision())) continue;
-                if (actor.collision().box().isIntersected(reach)) met.add(actor.collision());
-            }
-            player.bedrockState.clientActors.colliders(reach, (runtimeId, actor, placed, sent, shown, stepsLeft) -> {
-                if (settled && wanders(runtimeId)) return;
-                met.add(new HardCollidingEntityCollision(actor, BedrockDepenetrationLimit.SOLID_ACTOR, 0.0F));
-            });
+            for (var actor : actors) if (actor.collision().box().isIntersected(reach)) met.add(actor.collision());
+            player.bedrockState.clientActors.colliders(
+                    reach,
+                    (SimpleCollisionBox actor) -> met.add(
+                            new HardCollidingEntityCollision(actor, BedrockDepenetrationLimit.SOLID_ACTOR, 0.0F)));
             return met;
         }
 
-        List<HardCollidingEntityCollision> met(Met live, boolean settled) {
+        List<HardCollidingEntityCollision> met(Met live) {
             if (player == null || live.isEmpty()) return List.of();
             List<HardCollidingEntityCollision> met = new ArrayList<>();
-            for (var actor : actors) {
-                if (settled && wandering.contains(actor.collision())) continue;
-                if (live.entities().contains(actor.entity())) met.add(actor.collision());
-            }
+            for (var actor : actors) if (live.entities().contains(actor.entity())) met.add(actor.collision());
             for (long runtimeId : live.clientActors()) {
-                if (settled && wanders(runtimeId)) continue;
                 SimpleCollisionBox box = player.bedrockState.clientActors.collider(runtimeId);
                 if (box != null)
                     met.add(new HardCollidingEntityCollision(box, BedrockDepenetrationLimit.SOLID_ACTOR, 0.0F));
