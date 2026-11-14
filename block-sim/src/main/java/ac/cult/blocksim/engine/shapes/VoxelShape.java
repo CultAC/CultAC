@@ -21,6 +21,8 @@ public final class VoxelShape {
         this.coords = coords; this.cubeCoordinateAxes = cubeCoordinateAxes; this.cubeShape = cubeShape; this.cells = cells;
         xSize = coords[0].length - 1; ySize = coords[1].length - 1; zSize = coords[2].length - 1;
     }
+    /** This shape over cells that no read resizes, so threads may share it and every shape moved from it. */
+    public VoxelShape shared() { return new VoxelShape(coords, cubeCoordinateAxes, cubeShape, BitSet.valueOf(cells.toLongArray())); }
     public boolean isEmpty() { return cells.isEmpty(); }
     public double[] coordinates(int axis) { return coords[axis].clone(); }
     /** Read-only scalar access, including every internal grid face used by stepping. */

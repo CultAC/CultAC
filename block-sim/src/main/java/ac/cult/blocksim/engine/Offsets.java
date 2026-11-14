@@ -19,9 +19,16 @@ public final class Offsets {
         if (!"XZ".equals(type) && !"XYZ".equals(type)) throw new IllegalArgumentException("Unbound offset type for " + block.key());
         long seed = seed(pos.x(), 0, pos.z());
         float maxHorizontal = Float.parseFloat(block.bindings().get("getMaxHorizontalOffset"));
-        double x = Math.max(-maxHorizontal, Math.min(maxHorizontal, ((float) (seed & 15L) / 15.0F - 0.5) * 0.5));
-        double z = Math.max(-maxHorizontal, Math.min(maxHorizontal, ((float) (seed >> 8 & 15L) / 15.0F - 0.5) * 0.5));
-        double y = "XYZ".equals(type) ? ((float) (seed >> 4 & 15L) / 15.0F - 1.0) * Float.parseFloat(block.bindings().get("getMaxVerticalOffset")) : 0;
+        double x = horizontal(seed, 0, maxHorizontal);
+        double z = horizontal(seed, 8, maxHorizontal);
+        double y = "XYZ".equals(type) ? vertical(seed, Float.parseFloat(block.bindings().get("getMaxVerticalOffset"))) : 0;
         return new Offset(x, y, z);
     }
+
+    /** One horizontal axis from the four seed bits at shift, clamped to the maximum. */
+    public static double horizontal(long seed, int shift, float max) {
+        return Math.max(-max, Math.min(max, ((float) (seed >> shift & 15L) / 15.0F - 0.5) * 0.5));
+    }
+
+    public static double vertical(long seed, float max) { return ((float) (seed >> 4 & 15L) / 15.0F - 1.0) * max; }
 }
