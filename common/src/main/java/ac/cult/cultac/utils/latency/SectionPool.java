@@ -286,6 +286,8 @@ public final class SectionPool {
 
     static void releaseSectionReference(
             String dimension, int chunkX, int sectionIndex, int chunkZ, CachedSection section) {
+        // A pool holds only sections it has marked shared.
+        if (section == CANONICAL_AIR || !section.isShared()) return;
         SectionPoolRegistry.releaseSectionReference(dimension, chunkX, sectionIndex, chunkZ, section);
     }
 
