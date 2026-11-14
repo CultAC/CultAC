@@ -898,6 +898,16 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         if (vehicleTeleportData != null && vehicleTeleportData.getEntityId() == packetRoot.getEntityId()) {
             if (vehicleTeleportData.getApplication() != VehicleTeleportData.Application.ENTITY_TELEPORT) {
                 player.compensatedEntities.vehicles.applyAcceptedVehicleCorrection(packetRoot, vehicleTeleportData);
+                SetBackData setback = teleportData.getSetback();
+                DesyncStatus horseOnGround = setback == null ? null : setback.getHorseOnGround();
+                if (horseOnGround != null && !player.isBedrockMovement()) {
+                    // The horse leaves the setback with the onGround of the move that reached its position, so
+                    // AbstractHorse#tickRidden starts no jump there from the air.
+                    packetRoot.onGround = horseOnGround.determinePessimistically();
+                    player.checkManager
+                            .getSimulationProcessor()
+                            .setLastOnGround(DesyncStatus.fromBoolean(packetRoot.onGround));
+                }
                 Vec3 physical = packetRoot.clientPhysicalPosition;
                 player.x = physical.x;
                 player.y = physical.y;
