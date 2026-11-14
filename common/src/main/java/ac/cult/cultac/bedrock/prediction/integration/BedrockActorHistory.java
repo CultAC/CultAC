@@ -264,6 +264,38 @@ public final class BedrockActorHistory {
         return List.copyOf(states);
     }
 
+    /**
+     * As {@link #replay(BiFunction, BedrockReplayTick.Actors)}, for a replay the client may have run with either
+     * {@code actors} or {@code others} for its solid actors. Both run from the same frames, and the history keeps the
+     * one that ends nearer {@code next}, where the client's next tick started: the one with {@code actors} when
+     * neither is nearer.
+     */
+    List<Entry> replay(
+            BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> world,
+            BedrockReplayTick.Actors actors,
+            BedrockReplayTick.Actors others,
+            Vec3d next) {
+        if (others == null || next == null || marks.isEmpty()) return replay(world, actors);
+        BedrockActorHistory other = copy();
+        List<Entry> ends = replay(world, actors);
+        List<Entry> otherEnds = other.replay(world, others);
+        if (!(distance(otherEnds, next) < distance(ends, next))) return ends;
+        frames.clear();
+        frames.addAll(other.frames);
+        sequence = other.sequence;
+        departed = other.departed;
+        return otherEnds;
+    }
+
+    private static double distance(List<Entry> ends, Vec3d position) {
+        double nearest = Double.POSITIVE_INFINITY;
+        for (Entry end : ends)
+            nearest = Math.min(
+                    nearest,
+                    end.state().physicalFeetPosition().subtract(position).length());
+        return nearest;
+    }
+
     public void advance(
             Frame frame, BiFunction<BedrockMovementState, BedrockWorldSnapshot, BedrockWorldSnapshot> world) {
         if (frames.isEmpty() || frame.tick() != newestTick() + 1) {

@@ -67,6 +67,21 @@ public final class BedrockLegacyActorEnvelope {
         return offsets;
     }
 
+    /**
+     * Whether the client may show actor {@code entityId} off Cult's box for it, as its last {@link #buffer} call left
+     * it.
+     */
+    public boolean wanders(int entityId) {
+        Track track = tracks.get(entityId);
+        return track != null && track.reached > 0.0F;
+    }
+
+    /** Whether the client may show any actor off Cult's box for it. */
+    public boolean wanders() {
+        for (Track track : tracks.values()) if (track.reached > 0.0F) return true;
+        return false;
+    }
+
     public void clear() {
         tracks.clear();
     }
@@ -84,6 +99,8 @@ public final class BedrockLegacyActorEnvelope {
         private final double[] low = new double[3];
         private final double[] high = new double[3];
         private long shownTick = Long.MIN_VALUE;
+        // The buffer the last tick that read this track gave its actor.
+        private float reached;
 
         void record(long tick, Vec3 sent) {
             readTick = tick;
@@ -139,7 +156,8 @@ public final class BedrockLegacyActorEnvelope {
                 reach = Math.max(reach, Math.abs(sample.y() - shown.y));
                 reach = Math.max(reach, Math.abs(sample.z() - shown.z));
             }
-            return (float) reach;
+            reached = (float) reach;
+            return reached;
         }
     }
 }

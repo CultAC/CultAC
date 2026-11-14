@@ -60,6 +60,52 @@ public final class BedrockReplaySolidActorMembershipTest {
         assertTrue(Math.abs(end.physicalFeetPosition().x() - client[1]) > 0.02);
     }
 
+    @Test
+    public void aReplayThatMayHaveMissedAnActorIsTheOneTheNextTickStartedFrom() {
+        BedrockReplayTick.Actors met = (recorded, state, world) -> world(true);
+        BedrockReplayTick.Actors missed = (recorded, state, world) -> world;
+        var blocked = marked().replay((state, world) -> world, met).getFirst().state();
+        var free = marked().replay((state, world) -> world, missed).getFirst().state();
+        assertTrue(free.physicalFeetPosition()
+                        .subtract(blocked.physicalFeetPosition())
+                        .length()
+                > 1.0);
+
+        var history = marked();
+        var ends = history.replay((state, world) -> world, met, missed, free.physicalFeetPosition());
+        assertEquals(free, ends.getFirst().state());
+        assertEquals(free, history.current().getFirst().state());
+
+        history = marked();
+        ends = history.replay((state, world) -> world, met, missed, blocked.physicalFeetPosition());
+        assertEquals(blocked, ends.getFirst().state());
+        assertEquals(blocked, history.current().getFirst().state());
+    }
+
+    /** The live ticks as a history whose replay starts after its first frame. */
+    private static BedrockActorHistory marked() {
+        var history = new BedrockActorHistory();
+        for (int i = 0; i < LIVE.length; i++) {
+            var observed = at(i);
+            history.record(new BedrockActorHistory.Frame(
+                    (long) LIVE[i][0],
+                    input(at(Math.max(0, i - 1)), i),
+                    List.of(new BedrockProfileState.Entry(observed, BedrockMobJumpComponentState.DEFAULT)),
+                    List.of(new BedrockProfileState.Entry(observed, BedrockMobJumpComponentState.DEFAULT)),
+                    null,
+                    Vec3d.ZERO,
+                    Vec3d.ZERO,
+                    observed.physicalFeetPosition(),
+                    observed.velocity(),
+                    List.of(),
+                    null,
+                    null,
+                    GHAST));
+        }
+        history.mark((long) LIVE[0][0]);
+        return history;
+    }
+
     private interface Membership {
         BedrockSolidActors.Met at(long tick);
     }
