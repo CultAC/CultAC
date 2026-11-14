@@ -3,7 +3,6 @@ package ac.cult.blocksim.behavior;
 import ac.cult.blocksim.data.BlockDefinition;
 import ac.cult.blocksim.engine.BlockPos;
 import ac.cult.blocksim.engine.Direction;
-import ac.cult.blocksim.engine.Offsets;
 import ac.cult.blocksim.engine.SimLevel;
 import ac.cult.blocksim.engine.shapes.Shapes;
 import ac.cult.blocksim.engine.shapes.VoxelShape;
@@ -12,13 +11,13 @@ import java.util.Set;
 
 public final class BambooStalkBehavior extends BlockBehavior {
     private final Set<String> supports;
+    private final OffsetShapeTable collisions = new OffsetShapeTable(BambooStalkBehavior::shape);
     public BambooStalkBehavior(Set<String> supports) { this.supports = Set.copyOf(supports); }
 
     @Override
-    public VoxelShape collisionShape(SimLevel level, int state, BlockPos pos) {
-        var offset = Offsets.offset(level.registry().block(state), pos);
-        return Shapes.create(6.5 / 16, 0, 6.5 / 16, 9.5 / 16, 1, 9.5 / 16).move(offset.x(), offset.y(), offset.z());
-    }
+    public VoxelShape collisionShape(SimLevel level, int state, BlockPos pos) { return collisions.get(level, state, pos); }
+
+    private static VoxelShape shape(SimLevel level, int state) { return Shapes.create(6.5 / 16, 0, 6.5 / 16, 9.5 / 16, 1, 9.5 / 16); }
 
     @Override
     public VoxelShape supportShape(SimLevel level, int state, BlockPos pos) { return collisionShape(level, state, pos); }
