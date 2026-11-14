@@ -42,6 +42,10 @@ public final class ClientAttackStrength {
                 if (claimedSlotChanged) maxTicker = Math.min(maxTicker, 1);
             }
             lastMainHand = mainHand.copy();
+        } else if (lastMainHand.patch() != mainHand.patch()
+                || lastMainHand.capturedPrototype() != mainHand.capturedPrototype()) {
+            // An equal stack: its copy shares the held stack's components, so later ticks compare them by reference.
+            lastMainHand = mainHand.copy();
         }
     }
 
