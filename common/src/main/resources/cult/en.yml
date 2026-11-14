@@ -1,5 +1,10 @@
 # CultAC-specific configuration.
 cult:
+  # Skip all checks for Bedrock players (Geyser/Floodgate) or for Java players.
+  # Both editions are checked by default.
+  exempt-bedrock-players: false
+  exempt-java-players: false
+
   checks:
     bedrock-movement:
       # Flag when the Bedrock validation offset reaches this value.

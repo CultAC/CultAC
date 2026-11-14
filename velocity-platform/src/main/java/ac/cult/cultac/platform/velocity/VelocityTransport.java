@@ -108,7 +108,7 @@ final class VelocityTransport {
             boolean translated = bedrock != null || clients.isBedrock(player.getUniqueId());
             // A Bedrock session needs the Geyser bridge's tap; never inspect it as a Java client.
             if (translated && bedrock == null) {
-                refuse(player, REFUSED, "Bedrock session without a Geyser bridge", null);
+                refuseUnbridged(player);
                 return null;
             }
         } catch (Throwable failure) {
@@ -134,6 +134,12 @@ final class VelocityTransport {
             }
             return null;
         }));
+    }
+
+    /** A Bedrock session without a Geyser bridge joins uninspected where Bedrock players are exempt, else not at all. */
+    static void refuseUnbridged(Player player) {
+        if (CultAPI.INSTANCE.getConfigManager().isExemptBedrockPlayers()) return;
+        refuse(player, REFUSED, "Bedrock session without a Geyser bridge", null);
     }
 
     /** Disconnects a client CultAC cannot inspect unless failing open lets it join uninspected. */

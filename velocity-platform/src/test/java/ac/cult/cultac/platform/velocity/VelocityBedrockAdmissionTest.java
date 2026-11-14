@@ -1,13 +1,16 @@
 package ac.cult.cultac.platform.velocity;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import ac.cult.cultac.CultAPI;
+import ac.cult.cultac.manager.config.BaseConfigManager;
 import ac.cult.cultac.platform.api.PlatformLoader;
 import com.velocitypowered.api.plugin.PluginManager;
 import com.velocitypowered.api.proxy.Player;
@@ -16,6 +19,7 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import java.lang.reflect.Field;
 import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -23,6 +27,28 @@ class VelocityBedrockAdmissionTest {
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void bedrockPlayerWithoutBridgeIsDisconnectedUnlessObserveOnly(boolean observeOnly) throws Exception {
+        verify(attach(VelocityClientAdmissionTest.observeOnly(observeOnly)), times(observeOnly ? 0 : 1))
+                .disconnect(VelocityTransport.REFUSED);
+    }
+
+    /** Exempt Bedrock players are neither inspected nor refused, even where CultAC fails closed. */
+    @Test
+    void exemptBedrockPlayerWithoutBridgeJoinsUninspected() throws Exception {
+        var player = attach(new BaseConfigManager() {
+            @Override
+            public boolean isExemptBedrockPlayers() {
+                return true;
+            }
+
+            @Override
+            public boolean failsOpen() {
+                return false;
+            }
+        });
+        verify(player, never()).disconnect(any());
+    }
+
+    private static Player attach(BaseConfigManager configManager) throws Exception {
         var proxy = mock(ProxyServer.class);
         var plugins = mock(PluginManager.class);
         when(proxy.getPluginManager()).thenReturn(plugins);
@@ -39,11 +65,10 @@ class VelocityBedrockAdmissionTest {
         loader.setAccessible(true);
         Object originalLoader = loader.get(CultAPI.INSTANCE);
         loader.set(CultAPI.INSTANCE, mock(PlatformLoader.class, RETURNS_DEEP_STUBS));
-        Object config =
-                VelocityClientAdmissionTest.swap("configManager", VelocityClientAdmissionTest.observeOnly(observeOnly));
+        Object config = VelocityClientAdmissionTest.swap("configManager", configManager);
         try {
             platform.attach(player, channel);
-            verify(player, times(observeOnly ? 0 : 1)).disconnect(VelocityTransport.REFUSED);
+            return player;
         } finally {
             VelocityClientAdmissionTest.swap("configManager", config);
             loader.set(CultAPI.INSTANCE, originalLoader);

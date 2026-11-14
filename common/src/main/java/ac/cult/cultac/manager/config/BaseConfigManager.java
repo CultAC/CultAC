@@ -92,6 +92,12 @@ public class BaseConfigManager {
     @Getter
     private boolean bedrockMovementSetbacksEnabled = true;
 
+    @Getter
+    private boolean exemptBedrockPlayers = false;
+
+    @Getter
+    private boolean exemptJavaPlayers = false;
+
     private static double nonNegativeElse(ConfigManager config, String key, double fallback) {
         double value = config.getDoubleElse(key, fallback);
         return value >= 0 ? value : fallback;
@@ -185,6 +191,8 @@ public class BaseConfigManager {
         bedrockMovementVelocityFlagThreshold =
                 nonNegativeElse(config, "cult.checks.bedrock-movement.velocity-flag-threshold", 0.001D);
         bedrockMovementSetbacksEnabled = config.getBooleanElse("cult.checks.bedrock-movement.enable-setbacks", true);
+        exemptBedrockPlayers = config.getBooleanElse("cult.exempt-bedrock-players", false);
+        exemptJavaPlayers = config.getBooleanElse("cult.exempt-java-players", false);
     }
 
     /** {@code CULTAC_OBSERVE_ONLY} when it reads true/1/yes or false/0/no, else {@code observe-only}. */

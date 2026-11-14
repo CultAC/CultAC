@@ -75,14 +75,27 @@ public class PlayerDataManager {
         if (isExemptUser(user)) return false;
         if (!ChannelHelper.isOpen(user.getChannel())) return false;
 
-        // Match CultAC: permission state belongs to the exact Cult connection.
         CultPlayer cultPlayer = getPlayer(user);
+        if (isPlatformExempt(user, cultPlayer)) {
+            exemptUser(user);
+            return false;
+        }
+
+        // Match CultAC: permission state belongs to the exact Cult connection.
         if (cultPlayer != null && cultPlayer.hasPermission("cult.exempt")) {
             exemptUser(user);
             return false;
         }
 
         return true;
+    }
+
+    /** Whether the server operator turned checking off for this connection's edition. */
+    private boolean isPlatformExempt(User user, @Nullable CultPlayer cultPlayer) {
+        var config = CultAPI.INSTANCE.getConfigManager();
+        if (config == null || !(config.isExemptBedrockPlayers() || config.isExemptJavaPlayers())) return false;
+        boolean bedrock = cultPlayer != null ? cultPlayer.isBedrockMovement() : isBedrock(user);
+        return bedrock ? config.isExemptBedrockPlayers() : config.isExemptJavaPlayers();
     }
 
     @Nullable
@@ -237,11 +250,12 @@ public class PlayerDataManager {
     }
 
     private BedrockPlayerState initialBedrockState(User user) {
+        return isBedrock(user) ? createBedrockState(user.getUUID()) : null;
+    }
+
+    private boolean isBedrock(User user) {
         // A bridge matched to this socket is authoritative even before Geyser registers its UUID.
-        if (user.getCultConnection().bedrockBridge() != null || isKnownBedrockPlayer(user.getUUID())) {
-            return createBedrockState(user.getUUID());
-        }
-        return null;
+        return user.getCultConnection().bedrockBridge() != null || isKnownBedrockPlayer(user.getUUID());
     }
 
     private BedrockPlayerState createBedrockState(UUID uuid) {
