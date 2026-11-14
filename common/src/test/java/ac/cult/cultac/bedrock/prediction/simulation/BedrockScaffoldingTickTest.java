@@ -9,6 +9,7 @@ import ac.cult.cultac.bedrock.prediction.geometry.BlockPosition;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
+import ac.cult.cultac.bedrock.prediction.input.BedrockInputMode;
 import ac.cult.cultac.bedrock.prediction.model.AttributeState;
 import ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags;
 import ac.cult.cultac.bedrock.prediction.model.BedrockEffectState;
@@ -127,6 +128,46 @@ public final class BedrockScaffoldingTickTest {
         BedrockMovementContext resting = layer(119, true);
         var descending = tick(above(resting, 120.5796890258789D, falling), sneak(1L, false), resting, false);
         assertEquals(-STEP, moved(descending).y(), 2.0E-5D);
+    }
+
+    // A touch player falls through with the descend control of its own input mode, and stays up on sneak alone.
+    @Test
+    public void touchFallsThroughOnlyWithItsOwnDescendControl() {
+        BedrockMovementContext world = column(64, 67);
+        String touch = BedrockInputMode.TOUCH.inputData();
+
+        var descending = tick(inside(world, 66.0D, Vec3d.ZERO, false), touch(1L, touch, "DESCEND_BLOCK"), world);
+        assertEquals(-STEP, moved(descending).y(), 2.0E-6D);
+
+        var sneaking = tick(
+                inside(world, 66.0D, Vec3d.ZERO, false),
+                touch(1L, touch, "SNEAKING", "SNEAK_DOWN", "WANT_DOWN"),
+                world);
+        assertEquals(0.0D, moved(sneaking).y(), 2.0E-6D);
+        assertEquals(-0.0784D, sneaking.predictedVelocity().y(), 1.0E-6D);
+    }
+
+    private static BedrockInputFrame touch(long tick, String... inputData) {
+        boolean sneak = Set.of(inputData).contains("SNEAKING");
+        return new BedrockInputFrame(tick, 0.0F, 0.0F, false, sneak, false, Set.of(inputData));
+    }
+
+    private static BedrockMovementResult tick(
+            BedrockMovementState state, BedrockInputFrame frame, BedrockMovementContext world) {
+        var snapshot = BedrockSnapshotResolver.forState(BedrockWorldSnapshot.fromContext(world), state, frame);
+        return BedrockSimulation.candidates(new BedrockSimulation.Input(
+                        state,
+                        frame,
+                        frame.intent(),
+                        snapshot,
+                        true,
+                        BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
+                        BedrockMobJumpComponentState.DEFAULT,
+                        true,
+                        false,
+                        Vec3d.ZERO))
+                .getFirst()
+                .movementResult();
     }
 
     private static BedrockMovementState above(BedrockMovementContext world, double feetY, Vec3d velocity) {

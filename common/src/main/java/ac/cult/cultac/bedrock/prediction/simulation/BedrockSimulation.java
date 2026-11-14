@@ -104,11 +104,11 @@ public final class BedrockSimulation {
     }
 
     /**
-     * Sneak falls through scaffolding or powder snow whenever the row below the feet holds it,
-     * whatever else is held. Nothing else decides the branch, so there is one candidate.
+     * The descend control of the frame's input mode falls through scaffolding or powder snow whenever the row
+     * below the feet holds it, whatever else is held. Nothing else decides the branch, so there is one candidate.
      */
     private static boolean descendRequested(BedrockMovementState state, Input input) {
-        return input.intent().vertical().descendInput()
+        return input.intent().vertical().descendThroughBlock()
                 && state.climbableContact().descendAllowed();
     }
 

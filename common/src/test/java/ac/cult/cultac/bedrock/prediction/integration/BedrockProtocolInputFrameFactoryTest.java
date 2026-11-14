@@ -7,6 +7,7 @@ import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockClientPoseState;
 import java.util.Set;
 import java.util.UUID;
+import org.cloudburstmc.protocol.bedrock.data.InputMode;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
 import org.junit.Test;
 
@@ -69,6 +70,49 @@ public final class BedrockProtocolInputFrameFactoryTest {
         assertTrue(requestOnly.intent().swimmingRequested());
         assertFalse(requestOnly.intent().pose().swimming());
         assertFalse(requestOnly.intent().pose().startSwimming());
+    }
+
+    @Test
+    public void theBlockClimbControlsReachTheInternalFrame() {
+        long[] flags = rawFlags(PlayerAuthInputData.ASCEND_BLOCK, PlayerAuthInputData.DESCEND_BLOCK);
+        BedrockAuthInputFrame authFrame = BedrockAuthInputFrame.builder(UUID.randomUUID())
+                .inputMode(InputMode.TOUCH.ordinal())
+                .rawInputFlags(flags[0])
+                .rawInputFlagsHigh(flags[1])
+                .build();
+
+        var intent = new BedrockProtocolInputFrameFactory()
+                .create(authFrame, 1L, BedrockClientPoseState.STANDING, false, false, Set.of())
+                .intent();
+
+        assertTrue(intent.vertical().ascendBlock());
+        assertTrue(intent.vertical().descendThroughBlock());
+    }
+
+    @Test
+    public void theInputModeDecidesWhetherSneakDescendsThroughABlock() {
+        long[] flags =
+                rawFlags(PlayerAuthInputData.SNEAKING, PlayerAuthInputData.SNEAK_DOWN, PlayerAuthInputData.WANT_DOWN);
+
+        assertTrue(sneakDescendsThroughBlock(flags, InputMode.MOUSE.ordinal()));
+        assertTrue(sneakDescendsThroughBlock(flags, -1));
+        assertFalse(sneakDescendsThroughBlock(flags, InputMode.TOUCH.ordinal()));
+        assertFalse(sneakDescendsThroughBlock(flags, InputMode.GAMEPAD.ordinal()));
+        assertFalse(sneakDescendsThroughBlock(flags, InputMode.UNDEFINED.ordinal()));
+        assertFalse(sneakDescendsThroughBlock(flags, InputMode.MOTION_CONTROLLER.ordinal()));
+    }
+
+    private static boolean sneakDescendsThroughBlock(long[] flags, int inputMode) {
+        BedrockAuthInputFrame authFrame = BedrockAuthInputFrame.builder(UUID.randomUUID())
+                .inputMode(inputMode)
+                .rawInputFlags(flags[0])
+                .rawInputFlagsHigh(flags[1])
+                .build();
+        return new BedrockProtocolInputFrameFactory()
+                .create(authFrame, 1L, BedrockClientPoseState.STANDING, false, false, Set.of())
+                .intent()
+                .vertical()
+                .descendThroughBlock();
     }
 
     private static long[] rawFlags(PlayerAuthInputData... inputs) {

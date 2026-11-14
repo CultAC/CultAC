@@ -336,8 +336,8 @@ public final class BedrockSimulationStructureTest {
 
     @Test
     public void powderSnowDescendBranchPassesThroughItsCollisionShape() {
-        BedrockInputFrame frame =
-                new BedrockInputFrame(1L, 0.0F, 0.0F, false, true, false, Set.of("WANT_DOWN", "START_SNEAKING"));
+        BedrockInputFrame frame = new BedrockInputFrame(
+                1L, 0.0F, 0.0F, false, true, false, Set.of("SNEAKING", "WANT_DOWN", "START_SNEAKING"));
         BedrockMovementState state = BedrockMovementState.fromPhysicalFeet(
                         new Vec3d(0.5D, 1.0D, 0.5D),
                         new Vec3d(0.18D, -0.0784D, -0.18D),

@@ -15,8 +15,8 @@ import org.junit.Test;
 public final class BedrockPowderSnowDescendTest {
     @Test
     public void powderSnowBelowProducesPointFifteenDescendAction() {
-        BedrockInputFrame frame =
-                new BedrockInputFrame(1L, 0.0F, 0.0F, false, true, false, Set.of("WANT_DOWN", "START_SNEAKING"));
+        BedrockInputFrame frame = new BedrockInputFrame(
+                1L, 0.0F, 0.0F, false, true, false, Set.of("SNEAKING", "WANT_DOWN", "START_SNEAKING"));
         BedrockClimbState climb = BedrockClimbMovement.resolveActions(
                 state(),
                 frame,

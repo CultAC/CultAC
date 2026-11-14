@@ -71,8 +71,7 @@ public final class BedrockClimbMovement {
     record ClimbInput(boolean descend, boolean upward) {
         static ClimbInput from(BedrockInputFrame frame, BedrockInputIntent intent) {
             return new ClimbInput(
-                    BedrockLiquidVerticalMovement.descendInput(intent),
-                    intent.vertical().upwardClimbInput(frame.jumping()));
+                    intent.vertical().descendThroughBlock(), intent.vertical().upwardClimbInput(frame.jumping()));
         }
     }
 }

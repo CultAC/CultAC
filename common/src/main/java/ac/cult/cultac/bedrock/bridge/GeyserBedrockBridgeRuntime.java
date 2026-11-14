@@ -2543,12 +2543,7 @@ public final class GeyserBedrockBridgeRuntime {
                 .moveVector(moveVector.x(), moveVector.z())
                 .rawInputFlags(rawInputFlags(inputData))
                 .rawInputFlagsHigh(rawInputFlagsHigh(inputData))
-                .jumping(hasAnyInput(
-                        inputData,
-                        PlayerAuthInputData.JUMP_DOWN,
-                        PlayerAuthInputData.JUMPING,
-                        PlayerAuthInputData.START_JUMPING,
-                        PlayerAuthInputData.AUTO_JUMPING_IN_WATER))
+                .jumping(BedrockAuthInputFrame.requestsJump(inputData::contains))
                 .jumpStarted(inputData.contains(PlayerAuthInputData.START_JUMPING))
                 .jumpPressedRaw(inputData.contains(PlayerAuthInputData.JUMP_PRESSED_RAW))
                 .jumpCurrentRaw(inputData.contains(PlayerAuthInputData.JUMP_CURRENT_RAW))
