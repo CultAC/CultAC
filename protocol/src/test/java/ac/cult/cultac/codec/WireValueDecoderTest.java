@@ -1309,6 +1309,22 @@ class WireValueDecoderTest {
                     direct.componentEncodings().get(entry.getKey()).bytes());
         if (original.wirePatch() != null)
             assertArrayEquals(original.wirePatch().bytes(), direct.wirePatch().bytes());
+        if (!creative) {
+            input.readerIndex(start);
+            var reused = decoder.item(version, input, names, PortableNbtTest.MODEL, noReuse());
+            assertEquals(end, input.readerIndex());
+            assertEquals(direct.components(), reused.components(), version + "/reused components");
+            assertEquals(direct.componentLayouts(), reused.componentLayouts(), version + "/reused layouts");
+            assertEquals(
+                    direct.componentEncodings().keySet(),
+                    reused.componentEncodings().keySet());
+            for (var entry : direct.componentEncodings().entrySet())
+                assertArrayEquals(
+                        entry.getValue().bytes(),
+                        reused.componentEncodings().get(entry.getKey()).bytes());
+            if (direct.wirePatch() != null)
+                assertArrayEquals(direct.wirePatch().bytes(), reused.wirePatch().bytes());
+        }
         return original;
     }
 }
