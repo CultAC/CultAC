@@ -1389,6 +1389,51 @@ public class CultPlayer implements GrimUser {
         return false;
     }
 
+    /**
+     * {@link #canPlayerFitWithinBlocksAndEntitiesWhen} for the crouching pose where the crouching box at the position
+     * is known to be empty of blocks: only its entity part is left to test.
+     * Call on this player's packet thread only: the query uses per-player scratch boxes.
+     */
+    public boolean crouchFitsGivenBlocksEmpty(double x, double y, double z) {
+        SimpleCollisionBox box = GetBoundingBox.getBoundingBoxFromPosAndSize(
+                        fitBox, x, y, z, Pose.CROUCHING.width * getScale(), Pose.CROUCHING.height * getScale())
+                .expand(-1.0E-7D);
+        return hasNoEntityCollision(box);
+    }
+
+    /**
+     * {@link #mayFitOnlyCrouchingWhen} where {@link #mayPlayerFitWithinBlocksAndEntitiesWhen} is known to hold for the
+     * crouching pose at the position.
+     * Call on this player's packet thread only: the query uses per-player scratch boxes.
+     */
+    public boolean mayFitOnlyCrouchingGivenCrouchMayFit(double x, double y, double z) {
+        SimpleCollisionBox crouching = GetBoundingBox.getBoundingBoxFromPosAndSize(
+                        fitBox, x, y, z, Pose.CROUCHING.width * getScale(), Pose.CROUCHING.height * getScale())
+                .expand(-1.0E-7D);
+        SimpleCollisionBox standing = GetBoundingBox.getBoundingBoxFromPosAndSize(
+                        fitStandingBox, x, y, z, Pose.STANDING.width * getScale(), Pose.STANDING.height * getScale())
+                .expand(-1.0E-7D);
+        SimpleCollisionBox band = fitBandBox.set(
+                standing.minX, crouching.maxY, standing.minZ, standing.maxX, standing.maxY, standing.maxZ);
+        if (!Collisions.isEmpty(this, band, y)) return true;
+        PacketEntity riding = compensatedEntities.getSelf().getRiding();
+        SimpleCollisionBox entityBox = fitEntityBox;
+        SimpleCollisionBox scratch = fitEntityScratch;
+        List<PacketEntity> candidates = compensatedEntities.poseCollisionCandidates();
+        for (int c = 0, size = candidates.size(); c < size; c++) {
+            PacketEntity entity = candidates.get(c);
+            if (!canCollideWithForPoseCheck(riding, entity)
+                    || !collidesWithPoseBox(entity, standing, entityBox, scratch)) {
+                continue;
+            }
+            for (int i = 0, count = entity.possibleMovementCollisionBoxCandidateCount(); i < count; i++) {
+                SimpleCollisionBox candidate = entity.possibleMovementCollisionBoxCandidate(i, entityBox);
+                if (candidate.isIntersected(band) && !candidate.isIntersected(crouching)) return true;
+            }
+        }
+        return false;
+    }
+
     private static boolean overlapsAtEachPossiblePosition(
             PacketEntity entity, SimpleCollisionBox playerBox, SimpleCollisionBox entityBox) {
         for (int i = 0, count = entity.possibleMovementCollisionBoxCandidateCount(); i < count; i++) {

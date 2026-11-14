@@ -223,9 +223,18 @@ public final class ReportedKeyInput {
         if (!player.mayPlayerFitWithinBlocksAndEntitiesWhen(Pose.CROUCHING, from.x, from.y, from.z)) {
             return slows(out, 1.0F);
         }
-        boolean crouchFits = player.canPlayerFitWithinBlocksAndEntitiesWhen(Pose.CROUCHING, from.x, from.y, from.z);
+        // The crouching scan above holds for the queries below unless a clock-read border moved since it ran.
+        boolean scanned = player.checkManager.getWorldBorder().hasClockIndependentDiameter();
+        boolean crouchFits = scanned
+                ? player.crouchFitsGivenBlocksEmpty(from.x, from.y, from.z)
+                : player.canPlayerFitWithinBlocksAndEntitiesWhen(Pose.CROUCHING, from.x, from.y, from.z);
         if (context.isLastSneaking()) return crouchFits ? slows(out, sneaking) : slows(out, sneaking, 1.0F);
-        if (player.isInBed || !player.mayFitOnlyCrouchingWhen(from.x, from.y, from.z)) return slows(out, 1.0F);
+        if (player.isInBed
+                || !(scanned
+                        ? player.mayFitOnlyCrouchingGivenCrouchMayFit(from.x, from.y, from.z)
+                        : player.mayFitOnlyCrouchingWhen(from.x, from.y, from.z))) {
+            return slows(out, 1.0F);
+        }
         return crouchFits && !player.mayPlayerFitWithinBlocksAndEntitiesWhen(Pose.STANDING, from.x, from.y, from.z)
                 ? slows(out, sneaking)
                 : slows(out, sneaking, 1.0F);
