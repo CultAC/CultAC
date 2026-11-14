@@ -19,6 +19,7 @@ import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockSnapshotResolver;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
+import ac.cult.cultac.bedrock.prediction.world.BedrockClimbableContact;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
 import ac.cult.cultac.bedrock.prediction.world.BedrockWorldSnapshot;
 import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
@@ -75,22 +76,107 @@ public final class BedrockAutoClimbTickTest {
         assertEquals(0.2D, result.predictedVelocity().y(), 1.0E-6D);
     }
 
+    // A touch player holding the block ascend control rises 0.15 a tick against a stone wall, its box in a
+    // scaffolding column at x -49 and a vine column at x -50. On the tick the centre of its feet crosses from
+    // the scaffolding into the vine it still moves the 0.15 of the scaffolding and reports 0.2 afterwards: the
+    // wall climb starts from the vine, whatever scaffolding the box reaches.
+    @Test
+    public void aWallHitInAVineClimbsWhileTheBoxReachesScaffolding() {
+        BedrockMovementContext world = vineBesideScaffolding();
+        Vec3d feet = new Vec3d(-48.99607849121094D, 123.05221557617188D, 3.6999995708465576D);
+        var contact =
+                BedrockClimbableContact.fromBlockWorld(world.worldState().blockCollisionWorld(), feet, 0.6D, 1.8D);
+        assertTrue(contact.scaffolding());
+        assertFalse(contact.ladder());
+        var state = BedrockMovementState.fromPhysicalFeet(
+                        feet,
+                        new Vec3d(-0.02391263097524643D, 0.06860000640153885D, 0.0D),
+                        BedrockInputFrame.idle(0L),
+                        BedrockCollisionFlags.AIR)
+                .withClimbableContact(contact);
+        BedrockInputFrame frame = new BedrockInputFrame(
+                1L,
+                -1.8117676F,
+                -16.76677F,
+                true,
+                false,
+                true,
+                Set.of("ASCEND_BLOCK", "SPRINTING", "SPRINT_DOWN", "JUMP_CURRENT_RAW", "INPUT_MODE_TOUCH"));
+
+        var result = tick(world, state, frame, new Vec3d(-0.05174095D, 0.0D, 0.99866056D));
+
+        assertTrue(result.predictedState().collisionFlags().horizontalCollision());
+        assertTrue(result.predictedState().climbableContact().scaffolding());
+        assertTrue(result.predictedState().climbableContact().ladder());
+        assertEquals(0.15D, moved(result).y(), 2.0E-6D);
+        assertEquals(0.0D, moved(result).z(), 1.0E-6D);
+        assertEquals(0.2D, result.predictedVelocity().y(), 1.0E-6D);
+    }
+
+    // Climbing that vine with no control held, its box still reaching the scaffolding column, the client rises
+    // 0.2 a tick and reports 0.2 after each: the climb goes on tick after tick.
+    @Test
+    public void aWallClimbInAVineGoesOnWhileTheBoxReachesScaffolding() {
+        BedrockMovementContext world = vineBesideScaffolding();
+        Vec3d feet = new Vec3d(-49.252782821655273D, 120.19231414794922D, 3.7000007629394531D);
+        var contact =
+                BedrockClimbableContact.fromBlockWorld(world.worldState().blockCollisionWorld(), feet, 0.6D, 1.8D);
+        assertTrue(contact.scaffolding());
+        assertTrue(contact.ladder());
+        var state = BedrockMovementState.fromPhysicalFeet(
+                        feet,
+                        new Vec3d(0.07430530339479446D, 0.20000000298023224D, 0.0D),
+                        BedrockInputFrame.idle(0L),
+                        BedrockCollisionFlags.AIR)
+                .withClimbableContact(contact);
+        BedrockInputFrame frame =
+                new BedrockInputFrame(1L, 5.438217F, 8.432114F, false, false, false, Set.of("INPUT_MODE_TOUCH"));
+
+        var result = tick(world, state, frame, new Vec3d(0.60397583D, 0.0D, 0.7970027D));
+
+        assertTrue(result.predictedState().collisionFlags().horizontalCollision());
+        assertEquals(0.2D, moved(result).y(), 4.0E-6D);
+        assertEquals(0.0D, moved(result).z(), 1.0E-6D);
+        assertEquals(0.2D, result.predictedVelocity().y(), 1.0E-6D);
+    }
+
+    /** A vine column at x -50 and a scaffolding column at x -49, both against a stone wall at z 4. */
+    private static BedrockMovementContext vineBesideScaffolding() {
+        List<PlacedBlockCollision> blocks = new ArrayList<>();
+        for (int y = 119; y <= 126; y++) {
+            blocks.add(PlacedBlockCollision.manual(
+                    new BlockPosition(-50, y, 4),
+                    "minecraft:stone",
+                    "minecraft:stone",
+                    List.of(new WorldCollisionBox(-52.0D, y, 4.0D, -48.0D, y + 1.0D, 5.0D))));
+            blocks.add(PlacedBlockCollision.manual(
+                    new BlockPosition(-50, y, 3),
+                    "minecraft:vine[east=false,north=false,south=true,up=false,west=false]",
+                    "minecraft:vine",
+                    List.of(),
+                    Set.of(BlockContactBehavior.CLIMBABLE)));
+            blocks.add(PlacedBlockCollision.manual(
+                    new BlockPosition(-49, y, 3),
+                    "minecraft:scaffolding[bottom=false,distance=0,waterlogged=false]",
+                    "minecraft:scaffolding",
+                    List.of(),
+                    Set.of(BlockContactBehavior.CLIMBABLE, BlockContactBehavior.SCAFFOLDING)));
+        }
+        return context(blocks);
+    }
+
     private static Vec3d moved(BedrockMovementResult result) {
         return result.predictedPosition().subtract(result.previousState().physicalFeetPosition());
     }
 
     private static BedrockMovementResult tick(List<PlacedBlockCollision> blocks) {
-        BedrockMovementContext world = new BedrockMovementContext(
-                BedrockEffectState.NONE,
-                AttributeState.DEFAULT,
-                new WorldContactState(Medium.AIR, FluidState.NONE, new BlockCollisionWorld(blocks)),
-                EquipmentState.NONE,
-                EntityContactState.NONE,
-                MovementModifierState.NONE,
-                PlayerDimensionsState.DEFAULT);
         var state = BedrockMovementState.fromPhysicalFeet(
                 FEET, VELOCITY, BedrockInputFrame.idle(0L), BedrockCollisionFlags.AIR);
-        BedrockInputFrame frame = BedrockInputFrame.idle(1L);
+        return tick(context(blocks), state, BedrockInputFrame.idle(1L), Vec3d.ZERO);
+    }
+
+    private static BedrockMovementResult tick(
+            BedrockMovementContext world, BedrockMovementState state, BedrockInputFrame frame, Vec3d control) {
         var snapshot = BedrockSnapshotResolver.forState(BedrockWorldSnapshot.fromContext(world), state, frame);
         return BedrockSimulation.candidates(new BedrockSimulation.Input(
                         state,
@@ -102,9 +188,20 @@ public final class BedrockAutoClimbTickTest {
                         BedrockMobJumpComponentState.DEFAULT,
                         true,
                         false,
-                        Vec3d.ZERO))
+                        control))
                 .getFirst()
                 .movementResult();
+    }
+
+    private static BedrockMovementContext context(List<PlacedBlockCollision> blocks) {
+        return new BedrockMovementContext(
+                BedrockEffectState.NONE,
+                AttributeState.DEFAULT,
+                new WorldContactState(Medium.AIR, FluidState.NONE, new BlockCollisionWorld(blocks)),
+                EquipmentState.NONE,
+                EntityContactState.NONE,
+                MovementModifierState.NONE,
+                PlayerDimensionsState.DEFAULT);
     }
 
     /** A stone floor and the stone block at x 353 the player runs into. */
