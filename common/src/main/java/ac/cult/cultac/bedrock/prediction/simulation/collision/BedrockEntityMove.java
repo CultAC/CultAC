@@ -168,6 +168,8 @@ public final class BedrockEntityMove {
         Vec3d requestedDelta = requestedPosition.subtract(current.physicalFeetPosition());
         List<BlockCollision> shapes = BedrockCollisionSweep.collisionObstacles(blockCollisionWorld);
         WorldCollisionBox start = current.collisionBox(dimensions);
+        // Only solid actors raise the limit, and the move fetches every one of them wherever it stands.
+        BedrockDepenetrationLimit collectedLimit = BedrockCollisionClipper.maximumDepenetration(current, shapes);
         var placement = BedrockSolidActorPositions.place(
                 shapes,
                 start,
@@ -175,14 +177,132 @@ public final class BedrockEntityMove {
                 nominalEnd == null ? requestedDelta : nominalEnd,
                 current.coordinateFrame(),
                 BedrockSolidActorOrders.positionChanges(solidActorOrder),
-                BedrockSolidActorOrders.nominalContacts(solidActorOrder));
-        List<BlockCollision> collisionShapes = placement == null ? shapes : placement.shapes();
+                BedrockSolidActorOrders.nominalContacts(solidActorOrder),
+                BedrockSolidActorOrders.overlapChanges(solidActorOrder),
+                false,
+                collectedLimit);
+        Placed placed = null;
+        int steppedOver = 0;
+        if (placement != null && placement.onset() != 0 && canStep) {
+            // An actor brought into the move's way stops it only where it cannot be stepped onto. The same actor a
+            // little nearer is one the move steps onto, wherever in its way the client shows it.
+            var within = BedrockSolidActorPositions.place(
+                    shapes,
+                    start,
+                    requestedDelta,
+                    nominalEnd == null ? requestedDelta : nominalEnd,
+                    current.coordinateFrame(),
+                    BedrockSolidActorOrders.positionChanges(solidActorOrder),
+                    BedrockSolidActorOrders.nominalContacts(solidActorOrder),
+                    BedrockSolidActorOrders.overlapChanges(solidActorOrder),
+                    true,
+                    collectedLimit);
+            if (within != null && within.onset() == placement.onset()) {
+                Placed over = sweepPlaced(
+                        current,
+                        frame,
+                        dimensions,
+                        velocity,
+                        requestedDelta,
+                        within.shapes(),
+                        fetchBox,
+                        solidActorOrder,
+                        canStep,
+                        maxUpStep,
+                        flying,
+                        start);
+                if (stepsOver(over, within.onset(), requestedDelta, nominalEnd, current)) {
+                    placement = within;
+                    placed = over;
+                    steppedOver = within.onset();
+                }
+            }
+        }
+        if (placed == null) {
+            placed = sweepPlaced(
+                    current,
+                    frame,
+                    dimensions,
+                    velocity,
+                    requestedDelta,
+                    placement == null ? shapes : placement.shapes(),
+                    fetchBox,
+                    solidActorOrder,
+                    canStep,
+                    maxUpStep,
+                    flying,
+                    start);
+        }
+        Result result = placed.result();
+        CollisionMove collisionMove = placed.move();
+        BedrockActorOrderCrossing crossing = BedrockActorOrderCrossing.then(
+                collisionMove.baseMove().actorOrder(),
+                collisionMove.steppedUp() ? collisionMove.selectedMove().actorOrder() : null);
+        if (solidActorOrder == 0) {
+            int axes = crossing == null ? 0 : BedrockSolidActorOrders.decidedAxes(crossing.exactAxes());
+            int order = axes == 0 ? 0 : BedrockSolidActorOrders.collected(axes, crossing.belowWon());
+            var range = crossing == null ? null : crossing.range(axes);
+            int contacts = range == null ? 0 : range.bufferedAxes();
+            int positionAxes = BedrockSolidActorPositions.axes(
+                    shapes,
+                    start,
+                    requestedDelta,
+                    result.position().subtract(current.physicalFeetPosition()),
+                    contacts,
+                    current.coordinateFrame(),
+                    collectedLimit);
+            order = BedrockSolidActorOrders.withPositionStates(order, positionAxes, contacts);
+            if (collisionMove.steppedUp()) {
+                int overlapAxes = BedrockSolidActorPositions.overlapAxes(
+                        shapes,
+                        start,
+                        requestedDelta,
+                        contacts,
+                        collided(result),
+                        current.coordinateFrame(),
+                        collectedLimit);
+                order = BedrockSolidActorOrders.withOverlapStates(order, overlapAxes, contacts);
+            }
+            return result.withSolidActorOrder(order, range);
+        }
+        var range = crossing == null ? null : crossing.range(BedrockSolidActorOrders.axes(solidActorOrder));
+        if (placement != null) {
+            int contacts = collided(result);
+            int actorContacts = range == null ? 0 : range.bufferedAxes();
+            int nominalContacts = BedrockSolidActorOrders.nominalContacts(solidActorOrder);
+            int realized = (~nominalContacts & actorContacts & contacts) | (nominalContacts & ~contacts);
+            solidActorOrder =
+                    BedrockSolidActorOrders.withRealizedPositions(solidActorOrder, realized & placement.changed());
+            if (steppedOver != 0) {
+                solidActorOrder = BedrockSolidActorOrders.withSteppedPositions(solidActorOrder, steppedOver);
+                placement = placement.steppedOver(steppedOver);
+            }
+            if (BedrockSolidActorOrders.realizesPositionState(solidActorOrder, contacts))
+                range = placement.range(range);
+        }
+        return result.withSolidActorOrder(solidActorOrder, range);
+    }
+
+    /** The move through {@code collisionShapes}, met in {@code solidActorOrder}, with its step. */
+    private static Placed sweepPlaced(
+            BedrockMovementState current,
+            BedrockInputFrame frame,
+            PlayerDimensionsState dimensions,
+            Vec3d velocity,
+            Vec3d requestedDelta,
+            List<BlockCollision> collisionShapes,
+            WorldCollisionBox fetchBox,
+            int solidActorOrder,
+            boolean canStep,
+            double maxUpStep,
+            boolean flying,
+            WorldCollisionBox start) {
         List<BlockCollision> obstacles = BedrockCollisionFetchBox.fetched(collisionShapes, fetchBox);
         if (solidActorOrder != 0) {
             obstacles = BedrockSolidActorOrders.arrange(
                     obstacles,
                     solidActorOrder,
-                    current.collisionBox(dimensions),
+                    start,
                     current.coordinateFrame(),
                     BedrockCollisionClipper.maximumDepenetration(current, obstacles));
         }
@@ -198,38 +318,32 @@ public final class BedrockEntityMove {
                         collisionShapes)
                 .withPreCastPosition(
                         preCastPosition(start, collisionMove.selectedMove().appliedDelta(), current));
-        BedrockActorOrderCrossing crossing = BedrockActorOrderCrossing.then(
-                collisionMove.baseMove().actorOrder(),
-                collisionMove.steppedUp() ? collisionMove.selectedMove().actorOrder() : null);
-        if (solidActorOrder == 0) {
-            int axes = crossing == null ? 0 : BedrockSolidActorOrders.decidedAxes(crossing.exactAxes());
-            int order = axes == 0 ? 0 : BedrockSolidActorOrders.collected(axes, crossing.belowWon());
-            var range = crossing == null ? null : crossing.range(axes);
-            int contacts = range == null ? 0 : range.bufferedAxes();
-            int positionAxes = BedrockSolidActorPositions.axes(
-                    shapes,
-                    start,
-                    requestedDelta,
-                    result.position().subtract(current.physicalFeetPosition()),
-                    contacts,
-                    current.coordinateFrame());
-            order = BedrockSolidActorOrders.withPositionStates(order, positionAxes, contacts);
-            return result.withSolidActorOrder(order, range);
-        }
-        var range = crossing == null ? null : crossing.range(BedrockSolidActorOrders.axes(solidActorOrder));
-        if (placement != null) {
-            int contacts = (result.xCollision() ? 1 : 0)
-                    | (result.verticalCollision() ? 2 : 0)
-                    | (result.zCollision() ? 4 : 0);
-            int actorContacts = range == null ? 0 : range.bufferedAxes();
-            int nominalContacts = BedrockSolidActorOrders.nominalContacts(solidActorOrder);
-            int realized = (~nominalContacts & actorContacts & contacts) | (nominalContacts & ~contacts);
-            solidActorOrder =
-                    BedrockSolidActorOrders.withRealizedPositions(solidActorOrder, realized & placement.changed());
-            if (BedrockSolidActorOrders.realizesPositionState(solidActorOrder, contacts))
-                range = placement.range(range);
-        }
-        return result.withSolidActorOrder(solidActorOrder, range);
+        return new Placed(result, collisionMove);
+    }
+
+    private record Placed(Result result, CollisionMove move) {}
+
+    /** The axes the move ends collided along (X 1, Y 2, Z 4). */
+    private static int collided(Result result) {
+        return (result.xCollision() ? 1 : 0) | (result.verticalCollision() ? 2 : 0) | (result.zCollision() ? 4 : 0);
+    }
+
+    /**
+     * Whether a step carried the move over the actors brought into its way along {@code axes}: the sweep stopped at
+     * each, the step did not, and the move ends somewhere other than {@code nominalEnd}, where it ends without them.
+     */
+    private static boolean stepsOver(
+            Placed placed, int axes, Vec3d requestedDelta, Vec3d nominalEnd, BedrockMovementState current) {
+        if (!placed.move().steppedUp() || (collided(placed.result()) & axes) != 0) return false;
+        Vec3d swept = placed.move().baseMove().appliedDelta();
+        if ((axes & 1) != 0 && swept.x() == BedrockCollisionSweep.f(requestedDelta.x())) return false;
+        if ((axes & 2) != 0 && swept.y() == BedrockCollisionSweep.f(requestedDelta.y())) return false;
+        if ((axes & 4) != 0 && swept.z() == BedrockCollisionSweep.f(requestedDelta.z())) return false;
+        return nominalEnd == null
+                || !placed.result()
+                        .position()
+                        .subtract(current.physicalFeetPosition())
+                        .equals(nominalEnd);
     }
 
     private static Vec3d preCastPosition(WorldCollisionBox start, Vec3d appliedMove, BedrockMovementState current) {

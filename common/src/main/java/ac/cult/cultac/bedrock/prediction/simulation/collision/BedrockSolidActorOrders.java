@@ -25,12 +25,18 @@ import java.util.List;
  *
  * <p>The existing moving-actor position budget may also change contact onset or release on each axis. Bits 8..10
  * name those axes, 11..13 the selected changes, 14..16 the nominal buffered-actor contacts and 17..19 the changes
- * realized by the normal collision pass. Their eight combinations multiply the actor orders, giving at most
- * {@link #MAX_VARIANTS} current-tick moves. Only the selected movement state is retained for the following tick.
+ * realized by the normal collision pass. Their eight combinations multiply the actor orders.
+ *
+ * <p>An onset can also carry the move over the actor instead of stopping it: an actor the move steps onto. Bits
+ * 20..22 name the selected onsets a step realized that way. Where a step carried the nominal move over an actor that
+ * ended its sweep along an axis, the same budget may show that actor inside the box instead, which moves the box out
+ * before the step: bits 23..25 name those axes and 26..28 the selected ones, which multiply the moves again, to at
+ * most {@link #MAX_VARIANTS} current-tick moves. Only the selected movement state is retained for the following
+ * tick.
  */
 public final class BedrockSolidActorOrders {
     public static final int MAX_ORDERS = 4;
-    public static final int MAX_VARIANTS = MAX_ORDERS * 8;
+    public static final int MAX_VARIANTS = MAX_ORDERS * 8 * 8;
     private static final int ARRANGED = 1 << 6;
     private static final int COLLECTED = 1 << 7;
     private static final int[] AXIS_PRIORITY = {0, 2, 1};
@@ -62,7 +68,8 @@ public final class BedrockSolidActorOrders {
 
     /**
      * The {@code index}th variant, from 1 below {@link #variants(int)}, of the tick whose collected order is {@code
-     * collected}: the first index bits flip decided actor orders, followed by contact-position states.
+     * collected}: the first index bits flip decided actor orders, followed by contact-position states and by the
+     * actors shown inside the box.
      */
     public static int order(int collected, int index) {
         int axes = axes(collected);
@@ -77,18 +84,47 @@ public final class BedrockSolidActorOrders {
         for (int axis : AXIS_PRIORITY) {
             if ((positions & 1 << axis) != 0 && (index >> bit++ & 1) != 0) positionChanges |= 1 << axis;
         }
+        int overlaps = overlapAxes(collected);
+        int overlapChanges = 0;
+        for (int axis : AXIS_PRIORITY) {
+            if ((overlaps & 1 << axis) != 0 && (index >> bit++ & 1) != 0) overlapChanges |= 1 << axis;
+        }
         return ARRANGED
                 | axes
                 | ((collected >> 3 & 7) ^ flipped) << 3
                 | (positions << 8)
                 | (positionChanges << 11)
-                | (collected & (7 << 14));
+                | (collected & (7 << 14))
+                | (overlaps << 23)
+                | (overlapChanges << 26);
     }
 
     /** The same actor-position budget can decide contact onset or release on each axis. */
     static int withPositionStates(int order, int axes, int nominalContacts) {
         if (axes == 0) return order;
         return order | ARRANGED | COLLECTED | axes << 8 | nominalContacts << 14;
+    }
+
+    /**
+     * Along {@code axes} a step carried the move over an actor that the same budget may show inside the box, among
+     * the {@code nominalContacts}.
+     */
+    static int withOverlapStates(int order, int axes, int nominalContacts) {
+        if (axes == 0) return order;
+        return order | ARRANGED | COLLECTED | axes << 23 | nominalContacts << 14;
+    }
+
+    static int overlapAxes(int order) {
+        return order >> 23 & 7;
+    }
+
+    static int overlapChanges(int order) {
+        return order >> 26 & 7;
+    }
+
+    /** The selected onsets along {@code stepped} carried the move over their actor instead of stopping it. */
+    static int withSteppedPositions(int order, int stepped) {
+        return order | stepped << 17 | stepped << 20;
     }
 
     static int positionAxes(int order) {
@@ -104,14 +140,21 @@ public final class BedrockSolidActorOrders {
     }
 
     public static int variants(int order) {
-        return count(axes(order)) * count(positionAxes(order));
+        return count(axes(order)) * count(positionAxes(order)) * count(overlapAxes(order));
     }
 
-    /** A requested contact-state change must survive the ordinary sweep, its blocks and any step. */
+    /**
+     * A requested contact-state change must survive the ordinary sweep, its blocks and any step, unless the step is
+     * what an onset gave the move; an actor shown inside the box must leave the move collided along its axis. One
+     * axis takes one change.
+     */
     public static boolean realizesPositionState(int order, int contacts) {
         int changed = positionChanges(order);
+        int overlaps = overlapChanges(order);
+        if ((changed & overlaps) != 0 || (contacts & overlaps) != overlaps) return false;
         if ((order >> 17 & changed) != changed) return false;
-        return ((contacts ^ nominalContacts(order)) & changed) == changed;
+        int stopped = changed & ~(order >> 20);
+        return ((contacts ^ nominalContacts(order)) & stopped) == stopped;
     }
 
     static int withRealizedPositions(int order, int realized) {

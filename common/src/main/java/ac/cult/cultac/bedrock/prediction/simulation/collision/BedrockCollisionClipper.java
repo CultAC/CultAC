@@ -264,20 +264,39 @@ final class BedrockCollisionClipper {
         return obstacle.block().map(BedrockDepenetrationLimit::buffer).orElse(0.0F);
     }
 
-    /** A buffered actor's separated face that a bounded translation can bring into contact. */
-    static BufferedFace bufferedFace(BlockCollision obstacle, WorldCollisionBox moving, BedrockCoordinateFrame frame) {
+    /**
+     * A buffered actor's face that a bounded translation can move: the separated face it can bring into contact, or
+     * the face an overlap within {@code maximumDepenetration} moves the box out through, which it can take back out
+     * of the box.
+     */
+    static BufferedFace bufferedFace(
+            BlockCollision obstacle,
+            WorldCollisionBox moving,
+            BedrockCoordinateFrame frame,
+            BedrockDepenetrationLimit maximumDepenetration) {
         float budget = buffer(obstacle);
         if (budget <= 0.0F) return null;
         AabbClip clip = clipCollide(obstacle.box(), moving, frame);
-        if (clip.bound() == Bound.NONE || clip.penetration() != 0.0F) return null;
+        if (clip.bound() == Bound.NONE) return null;
+        int direction = clip.bound() == Bound.AT_MOST ? 1 : -1;
+        if (clip.penetration() != 0.0F) {
+            // A deeper overlap leaves the actor out of the move: it has no face the move meets.
+            return clip.penetration() > clip.axis().component(maximumDepenetration)
+                    ? null
+                    : new BufferedFace(clip.axis().ordinal(), clip.edge(), budget, direction, true);
+        }
         if (clip.bound() == Bound.AT_MOST && clip.edge() >= 0.0F
                 || clip.bound() == Bound.AT_LEAST && clip.edge() <= 0.0F) {
-            return new BufferedFace(clip.axis().ordinal(), clip.edge(), budget, clip.bound() == Bound.AT_MOST ? 1 : -1);
+            return new BufferedFace(clip.axis().ordinal(), clip.edge(), budget, direction, false);
         }
         return null;
     }
 
-    record BufferedFace(int axis, float edge, float budget, int direction) {}
+    /**
+     * {@code edge} is the gap to a separated face, or for an {@code overlapping} one how far the overlap moves the box
+     * out; {@code direction} is the side of the box the actor lies on.
+     */
+    record BufferedFace(int axis, float edge, float budget, int direction, boolean overlapping) {}
 
     /**
      * Where an actor-ended axis may end within its position budget. Separated faces retain the requested move's
