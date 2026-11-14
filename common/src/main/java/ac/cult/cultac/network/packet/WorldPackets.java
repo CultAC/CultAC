@@ -13,6 +13,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.IntUnaryOperator;
 import java.util.function.LongSupplier;
+import org.jetbrains.annotations.ApiStatus;
 
 /** Consumed world data; block states use the bundled model's numeric IDs. */
 public final class WorldPackets {
@@ -200,6 +201,12 @@ public final class WorldPackets {
         @Override
         public long[] motionBlocking() {
             return motionBlocking == null ? null : motionBlocking.clone();
+        }
+
+        /** {@link #motionBlocking()}'s values in this record's own array, which no caller may write. */
+        @ApiStatus.Internal
+        public long[] motionBlockingValues() {
+            return motionBlocking;
         }
     }
 }
