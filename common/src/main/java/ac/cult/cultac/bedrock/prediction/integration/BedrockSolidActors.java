@@ -110,7 +110,9 @@ public final class BedrockSolidActors {
             var collision =
                     new HardCollidingEntityCollision(box.copy(), depenetrationLimit(entity), actorBuffer, elsewhere);
             solid.add(collision);
-            nearby.add(new Nearby(entity, NO_CLIENT_ACTOR, collision));
+            // A replayed tick meets the actors within reach of its live tick. Which those were is known for a client
+            // that shows an actor at its box; for an earlier one they are all it may have shown that near.
+            if (legacy || box.isIntersected(reach)) nearby.add(new Nearby(entity, NO_CLIENT_ACTOR, collision));
         }
         player.bedrockState.clientActors.colliders(reach, (runtimeId, actor, placed, sent, shown, stepsLeft) -> {
             float actorBuffer = 0.0F;
