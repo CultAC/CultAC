@@ -134,7 +134,16 @@ public final class BedrockFrameSystems {
         }
         if (BedrockWaterSwimControl.applies(facts, input.inputFrame())) {
             velocity = BedrockWaterSwimControl.lookAdjustedVelocity(
-                    velocity, input.inputFrame(), intent, facts.context(), liquidContact.waterHeadInWater());
+                    velocity,
+                    input.inputFrame(),
+                    intent,
+                    facts.context(),
+                    BedrockUnderwaterSensing.headBlock(
+                            input.previousState(),
+                            input.previousState().cameraWater(),
+                            facts.context(),
+                            input.previousState().physicalFeetPosition(),
+                            input.previousState().playerDimensions()));
         }
 
         var horse = input.previousState().horse();
