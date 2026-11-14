@@ -111,7 +111,8 @@ public final class BedrockImmobileTick {
                         BedrockTravelInputControl.sneakMoveScaleAfterTick(
                                 current, facts.context().equipmentState().swiftSneakLevel()),
                         current.penetratingMoves(),
-                        current.geyserBoostTicks()),
+                        current.geyserBoostTicks(),
+                        current.oneWayBoxes()),
                 BedrockMovementState.TickStart.MOVE,
                 prepared.input().previousState().attributes());
         return new Result(next, mobJumpComponent.afterHeldTick(frame.jumping()));

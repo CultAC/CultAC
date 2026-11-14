@@ -15,6 +15,7 @@ import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
 import ac.cult.cultac.bedrock.prediction.world.BedrockClimbableContact;
 import ac.cult.cultac.bedrock.prediction.world.BedrockClimberFlags;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
+import java.util.List;
 import java.util.Objects;
 
 public record BedrockMovementState(
@@ -145,6 +146,20 @@ public record BedrockMovementState(
     public BedrockMovementState withPenetratingMove(boolean penetrating) {
         int value = penetrating ? Math.min(memory.penetratingMoves() + 1, 2) : 0;
         return new BedrockMovementState(motion, actor, memory.withPenetratingMoves(value), tickStart, attributes);
+    }
+
+    /**
+     * The boxes of the doors, trapdoors and fence gates whose cell the actor's box has reached and that its box has
+     * overlapped at every tick since. A block shape inside one of them does not push the actor out.
+     */
+    public List<WorldCollisionBox> oneWayBoxes() {
+        return memory.oneWayBoxes();
+    }
+
+    public BedrockMovementState withOneWayBoxes(List<WorldCollisionBox> boxes) {
+        return boxes.equals(oneWayBoxes())
+                ? this
+                : new BedrockMovementState(motion, actor, memory.withOneWayBoxes(boxes), tickStart, attributes);
     }
 
     public BedrockCoordinateFrame coordinateFrame() {
@@ -753,7 +768,8 @@ public record BedrockMovementState(
                         cameraWater(),
                         sneakMoveScale(),
                         penetratingMoves(),
-                        geyserBoostTicks()),
+                        geyserBoostTicks(),
+                        oneWayBoxes()),
                 TickStart.MOVE,
                 attributes);
     }
@@ -1107,7 +1123,8 @@ public record BedrockMovementState(
             BedrockCameraWaterState cameraWater,
             float sneakMoveScale,
             int penetratingMoves,
-            int geyserBoostTicks) {
+            int geyserBoostTicks,
+            List<WorldCollisionBox> oneWayBoxes) {
         /** The client starts with the plain sneaking move scale until its sneaking system first writes one. */
         public static final float DEFAULT_SNEAK_MOVE_SCALE = 0.3F;
 
@@ -1141,7 +1158,8 @@ public record BedrockMovementState(
                     cameraWater,
                     sneakMoveScale,
                     penetratingMoves,
-                    0);
+                    0,
+                    List.of());
         }
 
         public TickMemory(
@@ -1176,6 +1194,7 @@ public record BedrockMovementState(
         public TickMemory {
             Objects.requireNonNull(dolphinBoost, "dolphinBoost");
             Objects.requireNonNull(cameraWater, "cameraWater");
+            oneWayBoxes = List.copyOf(oneWayBoxes);
             if (geyserBoostTicks < -1)
                 throw new IllegalArgumentException("geyser boost ticks must be -1 or non-negative");
             requireNonNegative("simulationTick", simulationTick);
@@ -1212,7 +1231,8 @@ public record BedrockMovementState(
                     cameraWater,
                     sneakMoveScale,
                     penetratingMoves,
-                    geyserBoostTicks);
+                    geyserBoostTicks,
+                    oneWayBoxes);
         }
 
         TickMemory withFallDistance(float value) {
@@ -1231,7 +1251,8 @@ public record BedrockMovementState(
                     cameraWater,
                     sneakMoveScale,
                     penetratingMoves,
-                    geyserBoostTicks);
+                    geyserBoostTicks,
+                    oneWayBoxes);
         }
 
         TickMemory withItemUseSlowdownTicks(long value) {
@@ -1250,7 +1271,8 @@ public record BedrockMovementState(
                     cameraWater,
                     sneakMoveScale,
                     penetratingMoves,
-                    geyserBoostTicks);
+                    geyserBoostTicks,
+                    oneWayBoxes);
         }
 
         TickMemory withDolphinBoost(BedrockDolphinBoost value) {
@@ -1269,7 +1291,8 @@ public record BedrockMovementState(
                     cameraWater,
                     sneakMoveScale,
                     penetratingMoves,
-                    geyserBoostTicks);
+                    geyserBoostTicks,
+                    oneWayBoxes);
         }
 
         TickMemory withCameraWater(BedrockCameraWaterState value) {
@@ -1288,7 +1311,8 @@ public record BedrockMovementState(
                     value,
                     sneakMoveScale,
                     penetratingMoves,
-                    geyserBoostTicks);
+                    geyserBoostTicks,
+                    oneWayBoxes);
         }
 
         TickMemory withSpin(boolean value) {
@@ -1307,7 +1331,8 @@ public record BedrockMovementState(
                     cameraWater,
                     sneakMoveScale,
                     penetratingMoves,
-                    geyserBoostTicks);
+                    geyserBoostTicks,
+                    oneWayBoxes);
         }
 
         TickMemory withSneakMoveScale(float value) {
@@ -1326,7 +1351,8 @@ public record BedrockMovementState(
                     cameraWater,
                     value,
                     penetratingMoves,
-                    geyserBoostTicks);
+                    geyserBoostTicks,
+                    oneWayBoxes);
         }
 
         TickMemory withPenetratingMoves(int value) {
@@ -1345,7 +1371,8 @@ public record BedrockMovementState(
                     cameraWater,
                     sneakMoveScale,
                     value,
-                    geyserBoostTicks);
+                    geyserBoostTicks,
+                    oneWayBoxes);
         }
 
         TickMemory withGeyserBoostTicks(int value) {
@@ -1364,6 +1391,27 @@ public record BedrockMovementState(
                     cameraWater,
                     sneakMoveScale,
                     penetratingMoves,
+                    value,
+                    oneWayBoxes);
+        }
+
+        TickMemory withOneWayBoxes(List<WorldCollisionBox> value) {
+            return new TickMemory(
+                    simulationTick,
+                    powderSnowTicks,
+                    fallFlyTicks,
+                    fallDistance,
+                    swimAmount,
+                    riptideChargeTicks,
+                    riptideSpinActive,
+                    riptideSpinTicks,
+                    sneakingTicks,
+                    itemUseSlowdownTicks,
+                    dolphinBoost,
+                    cameraWater,
+                    sneakMoveScale,
+                    penetratingMoves,
+                    geyserBoostTicks,
                     value);
         }
 

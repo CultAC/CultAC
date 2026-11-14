@@ -133,6 +133,111 @@ public final class BedrockEndTickBlockPushTest {
         assertEquals(-PUSH, pushed.z(), 1.0E-4D);
     }
 
+    // A door closed on an actor standing in its doorway, in a frame whose origin is (20064, 20176): the reported
+    // velocity kept x and z at 0. A block of another kind with the same shape pushes the same box out.
+    @Test
+    public void doorClosedOnTheBoxInItsCellDoesNotPush() {
+        var frame = new BedrockCoordinateFrame(20064, 20176, 1L);
+        var feet = new Vec3d(20008.564796447754D, 120.0D, 20199.093509674072D);
+        var velocity = new Vec3d(0.0D, -0.07840000092983246D, 0.0D);
+        var lower = new BlockPosition(20008, 120, 20198);
+        var upper = new BlockPosition(20008, 121, 20198);
+
+        var doors = new BlockCollisionWorld(
+                List.of(
+                        panel(lower, "minecraft:oak_door[half=lower,open=false]", "minecraft:wooden_door"),
+                        panel(upper, "minecraft:oak_door[half=upper,open=false]", "minecraft:wooden_door")),
+                frame);
+        var closed = BedrockEndTickBlockPush.apply(travelTick(doors), standing(feet, velocity, frame));
+        assertEquals(velocity, closed.velocity());
+        assertEquals(List.of(northPanel(lower), northPanel(upper)), closed.oneWayBoxes());
+
+        var walls = new BlockCollisionWorld(
+                List.of(
+                        panel(lower, "minecraft:stone", "minecraft:stone"),
+                        panel(upper, "minecraft:stone", "minecraft:stone")),
+                frame);
+        var pushed = BedrockEndTickBlockPush.apply(travelTick(walls), standing(feet, velocity, frame));
+        assertEquals(PUSH, Math.hypot(pushed.velocity().x(), pushed.velocity().z()), 1.0E-7D);
+        assertEquals(List.of(), pushed.oneWayBoxes());
+    }
+
+    // A trapdoor closed onto the feet of an actor standing in its cell: twenty ticks reported no push.
+    @Test
+    public void trapdoorClosedOntoTheFeetDoesNotPush() {
+        var frame = new BedrockCoordinateFrame(20000, 20160, 1L);
+        var feet = new Vec3d(20011.51249D, 120.0D, 20195.60945D);
+        var velocity = new Vec3d(0.0D, -0.07840000092983246D, 0.0D);
+        var slab = new WorldCollisionBox(20011.0D, 120.0D, 20195.0D, 20012.0D, 120.1825D, 20196.0D);
+        var world = new BlockCollisionWorld(
+                List.of(PlacedBlockCollision.manual(
+                        new BlockPosition(20011, 120, 20195),
+                        "minecraft:oak_trapdoor",
+                        "minecraft:trapdoor",
+                        List.of(slab))),
+                frame);
+
+        assertEquals(
+                velocity,
+                BedrockEndTickBlockPush.apply(travelTick(world), standing(feet, velocity, frame))
+                        .velocity());
+    }
+
+    // A fence gate's box does not excuse a block of another kind the box also overlaps.
+    @Test
+    public void blockBesideAOneWayBlockStillPushes() {
+        var gate = PlacedBlockCollision.manual(
+                new BlockPosition(17, 120, 20),
+                "minecraft:oak_fence_gate[open=false]",
+                "minecraft:fence_gate",
+                List.of(new WorldCollisionBox(17.0D, 120.0D, 20.375D, 18.0D, 121.5D, 20.625D)));
+        var blocks = new ArrayList<PlacedBlockCollision>(walled().blocks());
+        blocks.add(gate);
+
+        Vec3d pushed = push(
+                new BlockCollisionWorld(blocks),
+                new Vec3d(17.539060D, FEET_Y, 20.240938D),
+                new Vec3d(0.001859D, 0.0D, 0.096058D));
+
+        assertEquals(new Vec3d(0.001859D, 0.0D, PUSH), pushed);
+    }
+
+    // A kept box outlives its cell while the box still overlaps it, and goes once a tick starts clear of it.
+    @Test
+    public void keptBoxLastsWhileTheStartingBoxOverlapsIt() {
+        var panel = northPanel(new BlockPosition(17, 120, 19));
+        var world = new BlockCollisionWorld(List.of(cube(17, 119, 20)));
+        var feet = new Vec3d(17.5D, 120.0D, 20.2995D);
+        var idle = new Vec3d(0.0D, -0.0784D, 0.0D);
+        var touching = standing(feet, idle, BedrockCoordinateFrame.IDENTITY).withOneWayBoxes(List.of(panel));
+        var clear = standing(new Vec3d(17.5D, 120.0D, 20.3D), idle, BedrockCoordinateFrame.IDENTITY)
+                .withOneWayBoxes(List.of(panel));
+
+        assertEquals(List.of(panel), BedrockOneWayBoxes.afterTick(touching, touching.collisionBox(), world));
+        assertEquals(List.of(), BedrockOneWayBoxes.afterTick(clear, clear.collisionBox(), world));
+    }
+
+    private static BedrockMovementState standing(Vec3d feet, Vec3d velocity, BedrockCoordinateFrame frame) {
+        return BedrockMovementState.fromPhysicalFeet(
+                        feet, velocity, BedrockInputFrame.idle(0L), BedrockCollisionFlags.ON_GROUND)
+                .withCoordinateFrame(frame);
+    }
+
+    /** A block whose shape is a closed door's panel on the north-facing side of its cell. */
+    private static PlacedBlockCollision panel(BlockPosition position, String javaState, String bedrockIdentifier) {
+        return PlacedBlockCollision.manual(position, javaState, bedrockIdentifier, List.of(northPanel(position)));
+    }
+
+    private static WorldCollisionBox northPanel(BlockPosition position) {
+        return new WorldCollisionBox(
+                position.x(),
+                position.y(),
+                position.z() + 0.8175D,
+                position.x() + 1.0D,
+                position.y() + 1.0D,
+                position.z() + 1.0D);
+    }
+
     private static WorldCollisionBox withMaxZ(WorldCollisionBox box, double maxZ) {
         return new WorldCollisionBox(box.minX(), box.minY(), box.minZ(), box.maxX(), box.maxY(), maxZ);
     }

@@ -2,18 +2,16 @@ package ac.cult.cultac.bedrock.prediction.simulation;
 
 import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
-import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
 import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockBlockSurfaceMovement;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
-import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import ac.cult.cultac.checks.impl.prediction.stage.world.WorldStageBuilder;
-import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.math.Vec3;
 
 /**
  * Pushes the velocity a tick ends with out of the blocks its box overlaps, after travel and the
  * end-of-tick velocity effects. The push only raises a slower axis to its speed, it never adds to a faster one.
- * A box no more than one float step inside a block only touches it and is not pushed.
+ * A box no more than one float step inside a block only touches it and is not pushed. A door, trapdoor or fence gate
+ * whose cell the box reaches does not push either, see {@link BedrockOneWayBoxes}.
  */
 final class BedrockEndTickBlockPush {
     private static final float PUSH_SPEED = 0.1F;
@@ -48,37 +46,33 @@ final class BedrockEndTickBlockPush {
         // against the block shapes in the same float coordinates its collision uses.
         var world = movement.movementContext().worldState().blockCollisionWorld();
         var frame = world.coordinateFrame();
-        var box = local(state.collisionBox(movement.movementContext().playerDimensionsState()), frame);
+        var end = state.collisionBox(movement.movementContext().playerDimensionsState());
+        var box = BedrockOneWayBoxes.local(end, frame);
+        var oneWay = BedrockOneWayBoxes.afterTick(movement.previousState(), end, world);
+        BedrockMovementState kept = state.withOneWayBoxes(oneWay);
+        var passable = oneWay.stream()
+                .map(passed -> BedrockOneWayBoxes.local(passed, frame))
+                .toList();
         // Only blocks push: an actor the box overlaps is left through the move or not at all.
         var shapes = world.blocks().stream()
                 .filter(block -> !block.isEntityCollision())
                 .flatMap(block -> block.collisionBoxes().stream())
-                .map(shape -> local(shape, frame))
+                .map(shape -> BedrockOneWayBoxes.local(shape, frame))
+                .filter(shape -> !BedrockOneWayBoxes.inside(shape, passable))
                 .toList();
         Vec3 direction = WorldStageBuilder.moveTowardsClosestSpaceBedrock(box, shapes);
-        if (direction == null) return state;
+        if (direction == null) return kept;
         float x = (float) direction.x;
         float z = (float) direction.z;
         float length = (float) Math.sqrt(x * x + z * z);
-        if (length < MIN_DIRECTION_LENGTH) return state;
-        var velocity = state.velocity();
-        return state.withVelocityAndCollisionFlags(
+        if (length < MIN_DIRECTION_LENGTH) return kept;
+        var velocity = kept.velocity();
+        return kept.withVelocityAndCollisionFlags(
                 new Vec3d(
                         pushed(velocity.x(), x / length, standingSlowdown),
                         velocity.y(),
                         pushed(velocity.z(), z / length, standingSlowdown)),
-                state.collisionFlags());
-    }
-
-    /** The box in the frame's float coordinates, where a float step is the one collision rounds to. */
-    private static SimpleCollisionBox local(WorldCollisionBox box, BedrockCoordinateFrame frame) {
-        return new SimpleCollisionBox(
-                frame.localX(box.minX()),
-                (float) box.minY(),
-                frame.localZ(box.minZ()),
-                frame.localX(box.maxX()),
-                (float) box.maxY(),
-                frame.localZ(box.maxZ()));
+                kept.collisionFlags());
     }
 
     private static double pushed(double velocity, float direction, float standingSlowdown) {
