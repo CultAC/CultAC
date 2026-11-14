@@ -126,8 +126,8 @@ final class BedrockMovementRewind {
     /**
      * Takes the queued updates before the tick that reports {@code position} and {@code velocity}. A client before
      * 1.26.60 shows each actor where it was sent some delay before, one delay the server does not see, so which
-     * solid actors each replayed tick met depends on it. The replay runs once for each delay that gives its ticks
-     * different actors, and the one that tick started from is the client's.
+     * solid actors each replayed tick met depends on it. The replay runs with the delay that puts the most of them
+     * within reach and with the one that puts the fewest, and the one that tick started from is the client's.
      */
     PredictionCommit apply(CultPlayer player, PredictionCommit current, Vec3d position, Vec3d velocity) {
         if (updates.isEmpty()) return current;
@@ -147,22 +147,36 @@ final class BedrockMovementRewind {
     }
 
     /**
-     * One history delay, in ticks, for each different way the held frames met their solid actors, the shortest
-     * first: only the shortest unless {@code every}.
+     * The history delays, in ticks, a replay runs with: the shortest, and when delays put different solid actors
+     * within reach of the held frames, also the one that puts the fewest there. The two bound how much those actors
+     * can have stopped the replayed ticks. A replay costs a tick of work for every frame, so no more than two run.
+     * Only the shortest unless {@code both}.
      */
-    private List<Integer> delays(boolean every) {
-        var delays = new ArrayList<Integer>();
-        var seen = new java.util.HashSet<List<java.util.BitSet>>();
+    private List<Integer> delays(boolean both) {
+        if (!both) return List.of(0);
         var frames = authoritative.frames();
-        for (int delay = 0; delay <= (every ? BedrockLegacyActorEnvelope.WINDOW_TICKS : 0); delay++) {
-            var met = new ArrayList<java.util.BitSet>();
-            for (var frame : frames) {
-                if (frame.solidActors() != null && !frame.solidActors().delays().isEmpty())
-                    met.add(frame.solidActors().met(delay));
-            }
-            if (seen.add(met)) delays.add(delay);
+        var shortest = met(frames, 0);
+        int fewest = 0, count = Integer.MAX_VALUE;
+        for (int delay = 1; delay <= BedrockLegacyActorEnvelope.WINDOW_TICKS; delay++) {
+            var met = met(frames, delay);
+            if (met.equals(shortest)) continue;
+            int actors = 0;
+            for (var frame : met) actors += frame.cardinality();
+            if (actors >= count) continue;
+            count = actors;
+            fewest = delay;
         }
-        return delays;
+        return fewest == 0 ? List.of(0) : List.of(0, fewest);
+    }
+
+    /** For each held frame that met actors whose reach depends on the delay, those it met at {@code delay} ticks. */
+    private static List<java.util.BitSet> met(List<BedrockActorHistory.Frame> frames, int delay) {
+        var met = new ArrayList<java.util.BitSet>();
+        for (var frame : frames) {
+            if (frame.solidActors() != null && !frame.solidActors().delays().isEmpty())
+                met.add(frame.solidActors().met(delay));
+        }
+        return met;
     }
 
     PredictionCommit apply(
