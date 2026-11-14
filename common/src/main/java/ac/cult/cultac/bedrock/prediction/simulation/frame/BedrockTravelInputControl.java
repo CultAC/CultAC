@@ -91,10 +91,8 @@ public final class BedrockTravelInputControl {
     private static boolean actualSneakingMovement(BedrockInputFrame frame, BedrockMovementState current) {
         return BedrockPoseInputData.sneakingBeforeActions(frame, current.sneakingTicks() > 0L)
                 || BedrockPoseInputData.crawlingBeforeActions(frame, current.horizontalPose())
-                || frame.inputData().contains("SNEAKING")
-                || frame.inputData().contains("SNEAK_CURRENT_RAW")
-                || frame.inputData().contains("SNEAK_PRESSED_RAW")
-                || frame.inputData().contains("SNEAK_TOGGLE_DOWN");
+                || frame.inputData().contains("SNEAK_DOWN")
+                || frame.inputData().contains("DESCEND");
     }
 
     private static ItemUseSlowdown itemUseSlowdown(

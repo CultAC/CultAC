@@ -29,6 +29,24 @@ public final class BedrockAuthInputFrameTest {
         assertFalse(requestsJump(PlayerAuthInputData.WANT_UP, PlayerAuthInputData.ASCEND));
     }
 
+    @Test
+    public void onlyTheSneakControlHoldsASneakNotTheSneakButtonBits() {
+        assertTrue(holdsSneak(PlayerAuthInputData.SNEAK_DOWN));
+        assertTrue(holdsSneak(PlayerAuthInputData.SNEAK_DOWN, PlayerAuthInputData.SNEAK_RELEASED_RAW));
+        assertFalse(holdsSneak(
+                PlayerAuthInputData.SNEAK_TOGGLE_DOWN,
+                PlayerAuthInputData.SNEAK_CURRENT_RAW,
+                PlayerAuthInputData.SNEAK_PRESSED_RAW,
+                PlayerAuthInputData.STOP_SNEAKING));
+        assertFalse(holdsSneak(PlayerAuthInputData.DESCEND));
+    }
+
+    private static boolean holdsSneak(PlayerAuthInputData... held) {
+        Set<PlayerAuthInputData> inputData = EnumSet.noneOf(PlayerAuthInputData.class);
+        inputData.addAll(Set.of(held));
+        return BedrockAuthInputFrame.holdsSneak(inputData::contains);
+    }
+
     private static boolean requestsJump(PlayerAuthInputData... held) {
         Set<PlayerAuthInputData> inputData = EnumSet.noneOf(PlayerAuthInputData.class);
         inputData.addAll(Set.of(held));

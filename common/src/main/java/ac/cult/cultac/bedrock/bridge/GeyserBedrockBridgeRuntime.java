@@ -2548,21 +2548,8 @@ public final class GeyserBedrockBridgeRuntime {
                 .jumpPressedRaw(inputData.contains(PlayerAuthInputData.JUMP_PRESSED_RAW))
                 .jumpCurrentRaw(inputData.contains(PlayerAuthInputData.JUMP_CURRENT_RAW))
                 .wantUp(inputData.contains(PlayerAuthInputData.WANT_UP))
-                .sneaking(hasAnyInput(
-                        inputData,
-                        PlayerAuthInputData.SNEAK_CURRENT_RAW,
-                        PlayerAuthInputData.SNEAK_DOWN,
-                        PlayerAuthInputData.SNEAKING,
-                        PlayerAuthInputData.START_SNEAKING,
-                        PlayerAuthInputData.DESCEND,
-                        PlayerAuthInputData.SNEAK_TOGGLE_DOWN))
-                .startSneaking(hasAnyInput(
-                        inputData,
-                        PlayerAuthInputData.START_SNEAKING,
-                        PlayerAuthInputData.SNEAK_PRESSED_RAW,
-                        PlayerAuthInputData.SNEAKING,
-                        PlayerAuthInputData.SNEAK_DOWN,
-                        PlayerAuthInputData.SNEAK_CURRENT_RAW))
+                .sneaking(BedrockAuthInputFrame.holdsSneak(inputData::contains))
+                .startSneaking(inputData.contains(PlayerAuthInputData.START_SNEAKING))
                 .stopSneaking(inputData.contains(PlayerAuthInputData.STOP_SNEAKING))
                 .sprinting(inputData.contains(PlayerAuthInputData.SPRINTING))
                 .startSwimming(inputData.contains(PlayerAuthInputData.START_SWIMMING))

@@ -401,7 +401,7 @@ public final class BedrockPlayerState {
         SNEAKING {
             @Override
             BedrockClientPoseState apply(BedrockClientPoseState state, BedrockAuthInputFrame frame) {
-                if (frame.isStopSneaking() || frame.hasRawInputFlag(PlayerAuthInputData.SNEAK_RELEASED_RAW)) {
+                if (frame.isStopSneaking()) {
                     return state.withSneaking(false);
                 }
                 return frame.hasRawInputFlag(PlayerAuthInputData.SNEAKING) ? state.withSneaking(true) : state;

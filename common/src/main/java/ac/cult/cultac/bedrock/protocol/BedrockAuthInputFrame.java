@@ -198,6 +198,14 @@ public final class BedrockAuthInputFrame implements AuthoredMovementFrame {
                 || held.test(PlayerAuthInputData.ASCEND_BLOCK);
     }
 
+    /**
+     * A player sneaks while its sneak control is down. With sneak set to toggle that control stays down from one press
+     * of the sneak button to the next, so the button's own press, hold and release bits say nothing about sneaking.
+     */
+    public static boolean holdsSneak(Predicate<PlayerAuthInputData> held) {
+        return held.test(PlayerAuthInputData.SNEAK_DOWN);
+    }
+
     public boolean hasRawInputFlag(PlayerAuthInputData input) {
         int ordinal = input.ordinal();
         if (ordinal < Long.SIZE) {

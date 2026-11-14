@@ -70,21 +70,8 @@ final class OfflineBedrockAuthInputCapture {
                 .jumpPressedRaw(hasFlag(rawInputFlags, PlayerAuthInputData.JUMP_PRESSED_RAW))
                 .jumpCurrentRaw(hasFlag(rawInputFlags, PlayerAuthInputData.JUMP_CURRENT_RAW))
                 .wantUp(hasFlag(rawInputFlags, PlayerAuthInputData.WANT_UP))
-                .sneaking(hasAnyFlag(
-                        rawInputFlags,
-                        PlayerAuthInputData.SNEAK_CURRENT_RAW,
-                        PlayerAuthInputData.SNEAK_DOWN,
-                        PlayerAuthInputData.SNEAKING,
-                        PlayerAuthInputData.START_SNEAKING,
-                        PlayerAuthInputData.DESCEND,
-                        PlayerAuthInputData.SNEAK_TOGGLE_DOWN))
-                .startSneaking(hasAnyFlag(
-                        rawInputFlags,
-                        PlayerAuthInputData.START_SNEAKING,
-                        PlayerAuthInputData.SNEAK_PRESSED_RAW,
-                        PlayerAuthInputData.SNEAKING,
-                        PlayerAuthInputData.SNEAK_DOWN,
-                        PlayerAuthInputData.SNEAK_CURRENT_RAW))
+                .sneaking(BedrockAuthInputFrame.holdsSneak(flag -> hasFlag(rawInputFlags, flag)))
+                .startSneaking(hasFlag(rawInputFlags, PlayerAuthInputData.START_SNEAKING))
                 .stopSneaking(hasFlag(rawInputFlags, PlayerAuthInputData.STOP_SNEAKING))
                 .sprinting(hasFlag(rawInputFlags, PlayerAuthInputData.SPRINTING))
                 .startSwimming(hasFlag(rawInputFlags, PlayerAuthInputData.START_SWIMMING))
