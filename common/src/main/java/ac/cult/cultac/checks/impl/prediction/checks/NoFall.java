@@ -60,9 +60,18 @@ public class NoFall implements EngineCheck {
             }
         } else if (forward != null) {
             boolean reported = result.getSimulationContext().isOnGround();
-            if (reported != forward.verticalCollisionBelow()) {
+            desiredOnGround = forward.verticalCollisionBelow();
+            if (reported != desiredOnGround) {
                 result.addFlag(noFallPseudo, () -> String.valueOf(reported), 0.1);
                 flaggedNoFall = true;
+            } else if (reported
+                    && !endsOnFloor(downCollide, travelY, stuckSpeedY)
+                    && !canStandAtDestination(player, result)) {
+                // The move that collided below ended on the floor it hit. A claim sent from above that floor is not
+                // that move's, and Entity#checkFallDamage would clear the server's fall distance for it.
+                result.addFlag(noFallPseudo, () -> "true", 0.1);
+                flaggedNoFall = true;
+                desiredOnGround = false;
             }
         } else if (result.getSimulationContext().isOnGround()
                 && !endsOnFloor(downCollide, travelY, stuckSpeedY)
@@ -96,9 +105,7 @@ public class NoFall implements EngineCheck {
         }
 
         if (flaggedNoFall) {
-            result.setDesiredOnGround(passEndsMove
-                    ? pass.result().state().onGround()
-                    : forward != null ? forward.verticalCollisionBelow() : desiredOnGround);
+            result.setDesiredOnGround(passEndsMove ? pass.result().state().onGround() : desiredOnGround);
         }
     }
 
