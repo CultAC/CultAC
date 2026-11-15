@@ -75,6 +75,29 @@ public class BedrockQueuedAttributeTest {
         }
     }
 
+    @Test
+    public void twoValuesStampedWithOneTickAndDroppedWithTheQueueLeaveTheSecond() throws Exception {
+        OfflineCultTestBootstrap.installConfig();
+        CultPlayer player = OfflineBedrockReplayRunnerTest.offlinePlayer();
+        try {
+            SetbackFixtures.setLoaded(player.getSetbackTeleportUtil(), true);
+            var corrections = player.bedrockState.movementCorrections;
+            var self = player.compensatedEntities.getSelf();
+            process(player, 1);
+            corrections.attributes(player, self, 0, movement(0.1F, false));
+            process(player, 2);
+            // A respawn resends a stale value and the backend's own follows, both stamped with the tick the client
+            // answered the teleport on. The client took both and moved at the second; a reset (the teleport
+            // accepted) drops the queue before a frame takes them.
+            corrections.attributes(player, self, 2, movement(0.05F, true));
+            corrections.attributes(player, self, 2, movement(0.1F, true));
+            corrections.clear();
+            assertEquals(0.1F, state(player).movementAttribute().current(), 0);
+        } finally {
+            OfflineBedrockReplayRunnerTest.closeOfflinePlayer(player);
+        }
+    }
+
     private static ac.cult.cultac.checks.impl.prediction.PredictionResult process(CultPlayer player, long tick) {
         var position = new Vec3(2, 65, 3);
         var frame = BedrockAuthInputFrame.builder(player.user.getUUID())

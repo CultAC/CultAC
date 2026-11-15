@@ -329,13 +329,22 @@ final class BedrockMovementRewind {
                 || update.event() instanceof BedrockReplayContextEvent context && context.movementAttribute() != null;
     }
 
-    /** Removes the queued attribute updates and returns those that change the actor, in arrival order. */
+    /**
+     * Removes the queued attribute updates and returns those that change the actor, in arrival order. Records the
+     * stamped ones on their frames, so only for a history that is dropped next.
+     */
     List<BedrockReplayAttributeEvent> drainAttributes() {
         var changes = new ArrayList<BedrockReplayAttributeEvent>();
         updates.removeIf(update -> {
             if (!(update.event() instanceof BedrockReplayAttributeEvent event)) return false;
             boolean stale = update.historical() && update.tick() < authoritative.oldestTick();
-            if (!update.historical() || stale || !authoritative.matches(update.tick(), event)) changes.add(event);
+            if (!update.historical() || stale) changes.add(event);
+            // As when a frame takes it, a stamped value is compared with its tick after the earlier stamped values,
+            // so a second value of one tick still changes what the first left.
+            else if (!authoritative.matches(update.tick(), event)) {
+                changes.add(event);
+                authoritative.attach(update.tick(), event);
+            }
             return true;
         });
         return changes;
@@ -381,7 +390,9 @@ final class BedrockMovementRewind {
                 input,
                 entries,
                 entries,
-                vector.isKnockback() ? input.previousState().velocity() : null,
+                // An untimed motion changes the live velocity only: a replay runs this frame again from the velocity
+                // the replayed tick before it ends with. A timed motion is recorded as its own event instead.
+                null,
                 addition,
                 external,
                 BedrockVectorAdapter.toBedrock(auth.getPosition()),
