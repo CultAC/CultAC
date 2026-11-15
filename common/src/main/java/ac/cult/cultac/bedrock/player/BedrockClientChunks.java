@@ -4,7 +4,12 @@ import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 
 /**
- * The chunk columns the Bedrock client holds, in world chunk coordinates.
+ * The chunk columns the Bedrock client holds.
+ *
+ * <p>The client knows only the coordinates it is sent, so it keys its columns by them: a shifted origin moves none of
+ * them, and a column it holds at the chunk coordinates of its own frame stays committed across the shift, holding the
+ * blocks it was last sent there. The methods take world coordinates and the frame the client had when it received
+ * them, and keep each column under the coordinates of that frame.
  *
  * <p>The client keeps a column only while one of its views covers it, and drops it the moment none does; a column
  * it has not received inside them holds nothing. A chunk publisher update moves the publisher view to the circle of
@@ -18,6 +23,10 @@ import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
  * client answers the marker written behind it. The client's own moves narrow it. A tick it moves in a column commits
  * that column and every column it received before it; a tick it holds in one leaves that column and every column it
  * received after it uncommitted.
+ *
+ * <p>Nothing bounds how long a received column may stay uncommitted. A teleport that places the actor in such a column
+ * leaves the client either holding it there or moving it from the first tick the column may commit until the actor's
+ * first move there, however long that takes.
  */
 public final class BedrockClientChunks {
     private static final long ANY_TICK = Long.MIN_VALUE;
@@ -48,7 +57,17 @@ public final class BedrockClientChunks {
     private final Long2LongOpenHashMap earliest = new Long2LongOpenHashMap();
     private final Long2LongOpenHashMap latest = new Long2LongOpenHashMap();
     private final Long2LongOpenHashMap order = new Long2LongOpenHashMap();
+    // Column -> first client tick a move proved its blocks there.
+    private final Long2LongOpenHashMap committed = new Long2LongOpenHashMap();
+
+    {
+        committed.defaultReturnValue(Long.MAX_VALUE);
+    }
+
     private long received;
+    // The column a teleport placed the actor in, until a move commits it.
+    private boolean arrived;
+    private long arrival;
     private boolean bounded;
     private int minX, minZ, maxX, maxZ;
     private boolean spawnView;
@@ -64,7 +83,9 @@ public final class BedrockClientChunks {
      * {@code acknowledgedAfterTick}; returns whether it was new. A column no view covers is dropped as it commits.
      */
     public boolean receive(BedrockCoordinateFrame frame, int chunkX, int chunkZ, long acknowledgedAfterTick) {
-        if (bounded && !viewed(frame, chunkX, chunkZ)) return false;
+        chunkX -= frame.originX() >> 4;
+        chunkZ -= frame.originZ() >> 4;
+        if (bounded && !viewed(chunkX, chunkZ)) return false;
         long key = key(chunkX, chunkZ);
         if (earliest.containsKey(key)) return false;
         boolean any = acknowledgedAfterTick == ANY_TICK;
@@ -85,16 +106,19 @@ public final class BedrockClientChunks {
      */
     public void publish(BedrockCoordinateFrame frame, int blockX, int blockZ, int radius) {
         bounded = true;
+        blockX -= frame.originX();
+        blockZ -= frame.originZ();
         minX = (blockX - radius) >> 4;
         maxX = (blockX + radius) >> 4;
         minZ = (blockZ - radius) >> 4;
         maxZ = (blockZ + radius) >> 4;
         earliest.keySet().removeIf(key -> {
             int x = (int) (key >> 32), z = (int) key;
-            boolean outside = !viewed(frame, x, z);
+            boolean outside = !viewed(x, z);
             if (outside) {
                 latest.remove(key);
                 order.remove(key);
+                committed.remove(key);
             }
             return outside;
         });
@@ -107,13 +131,13 @@ public final class BedrockClientChunks {
         spawnZ = localBlockZ;
     }
 
-    /** Whether a view of the client covers a column, in world chunk coordinates, while its frame is {@code frame}. */
-    private boolean viewed(BedrockCoordinateFrame frame, int chunkX, int chunkZ) {
+    /** Whether a view of the client covers a column, in the chunk coordinates of the client's frame. */
+    private boolean viewed(int chunkX, int chunkZ) {
         if (circle(chunkX, chunkZ, minX, maxX, minZ, maxZ)) return true;
         if (!spawnView) return false;
         return circle(
-                chunkX - (frame.originX() >> 4),
-                chunkZ - (frame.originZ() >> 4),
+                chunkX,
+                chunkZ,
                 (spawnX - SPAWN_VIEW_RADIUS) >> 4,
                 (spawnX + SPAWN_VIEW_RADIUS) >> 4,
                 (spawnZ - SPAWN_VIEW_RADIUS) >> 4,
@@ -137,6 +161,8 @@ public final class BedrockClientChunks {
         earliest.clear();
         latest.clear();
         order.clear();
+        committed.clear();
+        arrived = false;
         bounded = false;
     }
 
@@ -145,7 +171,15 @@ public final class BedrockClientChunks {
         if (!bounded) return Hold.FREE;
         long key = column(frame, x, z);
         if (!earliest.containsKey(key) || tick < earliest.get(key)) return Hold.HELD;
-        return tick > latest.get(key) ? Hold.FREE : Hold.EITHER;
+        if (tick <= latest.get(key)) return Hold.EITHER;
+        boolean uncommitted = tick < committed.get(key);
+        return arrived && key == arrival && earliest.get(key) != ANY_TICK && uncommitted ? Hold.EITHER : Hold.FREE;
+    }
+
+    /** A teleport placed the actor at the given world position in {@code frame}. */
+    public void arrive(BedrockCoordinateFrame frame, double x, double z) {
+        arrived = true;
+        arrival = column(frame, x, z);
     }
 
     /** The client moved an actor at the given world position in the given tick. */
@@ -156,6 +190,7 @@ public final class BedrockClientChunks {
         for (var entry : order.long2LongEntrySet()) {
             if (entry.getLongValue() <= at) {
                 long column = entry.getLongKey();
+                committed.put(column, Math.min(committed.get(column), tick));
                 latest.put(column, Math.min(latest.get(column), tick - 1));
                 earliest.put(column, Math.min(earliest.get(column), tick));
             }
@@ -211,11 +246,9 @@ public final class BedrockClientChunks {
         maxZ = other.maxZ;
     }
 
-    /** The column under the floor of the client's float position, in world chunk coordinates. */
+    /** The column under the floor of the client's float position, in the chunk coordinates of its frame. */
     private static long column(BedrockCoordinateFrame frame, double x, double z) {
-        return key(
-                ((int) Math.floor(frame.localX(x)) >> 4) + (frame.originX() >> 4),
-                ((int) Math.floor(frame.localZ(z)) >> 4) + (frame.originZ() >> 4));
+        return key((int) Math.floor(frame.localX(x)) >> 4, (int) Math.floor(frame.localZ(z)) >> 4);
     }
 
     private static long key(int chunkX, int chunkZ) {

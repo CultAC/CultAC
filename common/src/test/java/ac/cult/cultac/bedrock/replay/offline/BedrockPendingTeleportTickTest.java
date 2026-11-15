@@ -349,16 +349,17 @@ public class BedrockPendingTeleportTickTest {
 
     // stuck-21 (1.26.40.5): a teleport at 1676 into a column whose marker the client answered after 1675. The
     // client commits the column on a worker thread: it held the actor at 1677, two ticks after the answer, and let it
-    // fall from 1678. A column commits one to three ticks after that answer; until it moves, either may happen.
+    // fall from 1678. A column may commit from the tick after that answer; until the actor moves, either may happen.
     @Test
     public void anActorHeldUntilTheThirdTickAfterItsColumnArrivedIsNotFlagged() {
         assertEquals(0, heldThroughTheCommitWindow(1), 0);
     }
 
-    // The client never kept a column uncommitted three ticks after answering its marker: a hold there flags.
+    // Nothing bounds how long the client keeps a column uncommitted: held at its teleport target three ticks after the
+    // answer, the actor is not flagged either.
     @Test
-    public void anActorHeldPastTheCommitWindowIsFlagged() {
-        assertTrue(heldThroughTheCommitWindow(2) > 0);
+    public void anActorHeldAtItsTeleportTargetPastTheThirdTickIsNotFlagged() {
+        assertEquals(0, heldThroughTheCommitWindow(2), 0);
     }
 
     private static double heldThroughTheCommitWindow(int heldTicks) {

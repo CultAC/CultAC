@@ -123,11 +123,62 @@ public class BedrockClientChunksTest {
     public void theColumnIsTheOneUnderTheClientsFloatPosition() {
         var chunks = new BedrockClientChunks();
         var frame = new BedrockCoordinateFrame(16 * 1000, 0, 1);
-        chunks.publish(16 * 1000, 0, 80);
-        chunks.receive(1000, 0, 0);
+        chunks.publish(frame, 16 * 1000, 0, 80);
+        chunks.receive(frame, 1000, 0, 0);
         // 16015.9999999 is 15.9999999 in the frame, which rounds to the float 16.0: the next column.
         assertEquals(HELD, chunks.hold(frame, 16 * 1000 + 15.9999999, 8, 10));
         assertEquals(FREE, chunks.hold(frame, 16 * 1000 + 15.99, 8, 10));
+    }
+
+    // Nothing bounds how long the client keeps a column uncommitted: in the column a teleport placed the actor in, the
+    // client may hold it from the tick after the column's marker until its first move there. Other columns keep their
+    // window.
+    @Test
+    public void theColumnATeleportPlacedTheActorInMayCommitAtAnyLaterTickUntilItMovesThere() {
+        var chunks = new BedrockClientChunks();
+        chunks.publish(16, 0, 80);
+        chunks.receive(0, 0, 100);
+        chunks.receive(1, 0, 100);
+        chunks.arrive(BedrockCoordinateFrame.IDENTITY, 8, 8);
+        assertEquals(HELD, hold(chunks, 8, 8, 100));
+        assertEquals(EITHER, hold(chunks, 8, 8, 101));
+        assertEquals(EITHER, hold(chunks, 8, 8, 500));
+        assertEquals(FREE, hold(chunks, 24, 8, 103));
+        chunks.held(BedrockCoordinateFrame.IDENTITY, 8, 8, 500);
+        assertEquals(EITHER, hold(chunks, 8, 8, 501));
+        chunks.moved(BedrockCoordinateFrame.IDENTITY, 8, 8, 502);
+        assertEquals(FREE, hold(chunks, 8, 8, 503));
+        // A later arrival in the committed column finds it committed.
+        chunks.arrive(BedrockCoordinateFrame.IDENTITY, 8, 8);
+        assertEquals(FREE, hold(chunks, 8, 8, 600));
+    }
+
+    // A column written before Cult had the player holds its blocks from any tick, wherever the actor arrives.
+    @Test
+    public void anArrivalInAColumnHeldFromAnyTickIsFree() {
+        var written = new BedrockClientChunks();
+        written.publish(0, 0, 80);
+        written.written(0, 0);
+        var chunks = new BedrockClientChunks();
+        chunks.replace(written.copy());
+        chunks.arrive(BedrockCoordinateFrame.IDENTITY, 8, 8);
+        assertEquals(FREE, hold(chunks, 8, 8, 10));
+    }
+
+    // The client knows only the coordinates it is sent: a shifted origin moves none of its columns. The column it held
+    // at chunk (1, 1) of its frame before the shift is the one under chunk (1, 1) after it, and the server's column
+    // there, sent in the shifted frame, is no new column.
+    @Test
+    public void aShiftedOriginKeepsEveryColumnAtTheCoordinatesOfTheClientsFrame() {
+        var before = new BedrockCoordinateFrame(19984, 20304, 1);
+        var after = new BedrockCoordinateFrame(39984, 39984, 2);
+        var chunks = new BedrockClientChunks();
+        chunks.publish(before, 19984 + 25, 20304 + 23, 80);
+        assertTrue(chunks.receive(before, (19984 >> 4) + 1, (20304 >> 4) + 1, 100));
+        chunks.publish(after, 40000, 40000, 80);
+        assertEquals(FREE, chunks.hold(after, 40000.5, 40000.5, 200));
+        assertFalse(chunks.receive(after, 40000 >> 4, 40000 >> 4, 200));
+        assertEquals(HELD, chunks.hold(after, 39984 + 3 * 16 + 8, 40000.5, 200));
     }
 
     @Test

@@ -364,6 +364,16 @@ public final class BedrockMovementEngine implements MovementEngine {
                         .withVelocityAndCollisionFlags(velocity, entry.state().collisionFlags()));
             }
             result.setProfileResult(bedrockResult.withNextTickBaseState(entry.state()));
+            // A handled teleport places the actor: the column it lands in may commit at any later tick.
+            if (player != null
+                    && player.bedrockState != null
+                    && result.getSimulationContext().isBedrockTeleportTick()) {
+                var placed = entry.state();
+                player.bedrockState.clientChunks.arrive(
+                        placed.coordinateFrame(),
+                        placed.physicalFeetPosition().x(),
+                        placed.physicalFeetPosition().z());
+            }
             List<Entry> entries = List.of(entry);
             return new PredictionCommit(
                     new BedrockNextTickStates(entries),
