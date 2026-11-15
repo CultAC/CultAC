@@ -56,6 +56,15 @@ public class PacketEntitySelf extends PacketEntity {
         isDead = old.isDead;
     }
 
+    /**
+     * A respawn or a server switch's LOGIN replaces the Java player, but Geyser keeps its session player: the Bedrock
+     * actor keeps its runtime ID and the attributes last written to it until wire updates replace them.
+     */
+    public void keepBedrockActorFrom(PacketEntitySelf old) {
+        bedrockRuntimeId = old.bedrockRuntimeId;
+        bedrockAttributes = old.bedrockAttributes;
+    }
+
     // LivingEntity#deathTime: the client ticks LivingEntity#baseTick has run LocalPlayer#tickDeath in.
     private int deathTime;
     private boolean removedFromLevel;

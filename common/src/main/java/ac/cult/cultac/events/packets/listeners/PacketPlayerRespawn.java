@@ -142,6 +142,9 @@ public class PacketPlayerRespawn {
         clearFairReachLevel(player);
         player.compensatedEntities.vehicles.clearServerVehicle();
         final PacketEntitySelf freshSelf = new PacketEntitySelf(player);
+        // Geyser's JavaLoginTranslator keeps the session player for a server switch and resends only its movement
+        // speed (SessionPlayerEntity#resetAttributes). The first LOGIN precedes the actor's creation.
+        if (player.isBedrockMovement()) freshSelf.keepBedrockActorFrom(player.compensatedEntities.playerEntity);
         player.compensatedEntities.loginsSent++;
         player.compensatedEntities.playerEntity = freshSelf;
         // ClientPacketListener#handleLogin clears clientLoaded until ServerboundPlayerLoadedPacket.
@@ -165,9 +168,6 @@ public class PacketPlayerRespawn {
         // identity-compared deque with the constructor-time instance, so re-seed it from the
         // replacement or isSelf() stays false forever after every login.
         player.cameraEntity.reset();
-        // Preserve the current Bedrock jump strength across Geyser backend switches.
-        // Geyser's SessionPlayerEntity.resetAttributes only sends movement speed
-        // (SessionPlayerEntity.java:462-471), so the Bedrock player keeps this value.
         player.compensatedEntities.resetClientTickOrder();
         player.compensatedEntities
                 .getSelf()
@@ -418,10 +418,8 @@ public class PacketPlayerRespawn {
             final PacketEntitySelf oldSelf = player.compensatedEntities.playerEntity;
             final PacketEntitySelf respawnedSelf = new PacketEntitySelf(player, oldSelf);
             if (player.isBedrockMovement()) {
-                // Java replaces its player here; the Bedrock actor keeps attributes until wire updates replace them.
                 // Geyser's JavaRespawnTranslator restores the actor's health on every respawn.
-                respawnedSelf.bedrockRuntimeId = oldSelf.bedrockRuntimeId;
-                respawnedSelf.bedrockAttributes = oldSelf.bedrockAttributes;
+                respawnedSelf.keepBedrockActorFrom(oldSelf);
             } else if (keepEntityData) {
                 respawnedSelf.keepEntityDataFrom(oldSelf);
             }
