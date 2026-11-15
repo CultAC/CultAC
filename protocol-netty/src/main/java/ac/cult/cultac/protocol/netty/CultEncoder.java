@@ -1145,7 +1145,9 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
     /** Local bundle cursor during expansion; it never changes the emitted wire state. */
     private static final class Batch extends Output {
         boolean inside;
-        // A leading ping opens the flush bundle for this expansion, so it needs no bundle of its own.
+        // A leading ping that starts this expansion opens the flush bundle ahead of all of it, so it needs no bundle
+        // of its own. One that leads a later write, such as a write after the packet, opens the flush bundle only
+        // there, behind the frames before it.
         boolean lead;
 
         Batch(boolean inside) {
@@ -1153,9 +1155,9 @@ public final class CultEncoder extends ChannelOutboundHandlerAdapter {
         }
 
         void add(Frame frame) {
+            if (frame.lead && isEmpty()) lead = true;
             addLast(frame);
             if (frame.type == ClientboundPackets.BUNDLE_DELIMITER) inside = !inside;
-            lead |= frame.lead;
         }
     }
 
