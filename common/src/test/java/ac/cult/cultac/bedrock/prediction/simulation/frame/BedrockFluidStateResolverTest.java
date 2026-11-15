@@ -14,8 +14,10 @@ import ac.cult.cultac.bedrock.prediction.model.EquipmentState;
 import ac.cult.cultac.bedrock.prediction.model.Medium;
 import ac.cult.cultac.bedrock.prediction.model.MovementModifierState;
 import ac.cult.cultac.bedrock.prediction.model.PlayerDimensionsState;
+import ac.cult.cultac.bedrock.prediction.simulation.postmove.BedrockEntityInsideMovement;
 import ac.cult.cultac.bedrock.prediction.world.BedrockMovementContext;
 import ac.cult.cultac.bedrock.prediction.world.BlockCollisionWorld;
+import ac.cult.cultac.bedrock.prediction.world.BubbleColumnLayer;
 import ac.cult.cultac.bedrock.prediction.world.EntityContactState;
 import ac.cult.cultac.bedrock.prediction.world.FluidState;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
@@ -90,6 +92,35 @@ public class BedrockFluidStateResolverTest {
         assertTrue(bubbleLayersAt(column, new Vec3d(0.7015D, 0.0D, 0.5D)));
         assertFalse(bubbleLayersAt(column, new Vec3d(1.5D, 0.9995D, 0.5D)));
         assertTrue(bubbleLayersAt(column, new Vec3d(1.5D, 0.9985D, 0.5D)));
+    }
+
+    @Test
+    public void bubbleColumnBlocksPushInXThenYThenZOrder() {
+        // A drag-down column two blocks wide and two tall with air above; the box straddles both columns and both
+        // layers, so each column pushes inside then above.
+        List<PlacedBlockCollision> blocks = new ArrayList<>();
+        for (int x = 0; x <= 1; x++) {
+            for (int y = 0; y <= 1; y++) {
+                blocks.add(PlacedBlockCollision.manual(
+                        new BlockPosition(x, y, 0),
+                        "minecraft:bubble_column[drag=true]",
+                        "minecraft:bubble_column",
+                        Map.of("drag_down", true),
+                        List.of()));
+            }
+        }
+        BedrockMovementContext resolved = BedrockFluidStateResolver.withFluidStateFromBlockWorld(
+                contextWithWorld(new BlockCollisionWorld(blocks)), new Vec3d(1.0D, 0.58D, -0.23D));
+
+        assertEquals(
+                List.of(
+                        BubbleColumnLayer.inside(0, true),
+                        BubbleColumnLayer.above(1, true),
+                        BubbleColumnLayer.inside(0, true),
+                        BubbleColumnLayer.above(1, true)),
+                resolved.worldState().fluidState().bubbleColumnState().layers());
+        Vec3d pushed = BedrockEntityInsideMovement.applyBubbleColumns(resolved, new Vec3d(0.0D, -0.47D, 0.0D));
+        assertEquals(-0.33D, pushed.y(), 1.0E-9D);
     }
 
     private static boolean bubbleLayersAt(BlockCollisionWorld world, Vec3d feet) {

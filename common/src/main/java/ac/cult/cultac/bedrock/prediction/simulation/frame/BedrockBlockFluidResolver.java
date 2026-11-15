@@ -11,7 +11,6 @@ import ac.cult.cultac.bedrock.prediction.world.FluidCurrentState;
 import ac.cult.cultac.bedrock.prediction.world.FluidState;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -55,9 +54,10 @@ final class BedrockBlockFluidResolver {
         int maxY = (int) Math.ceil(actorBox.maxY()) - 1;
         int minZ = (int) Math.floor(actorBox.minZ());
         int maxZ = (int) Math.ceil(actorBox.maxZ()) - 1;
-        for (int y = minY; y <= maxY; y++) {
-            for (int z = minZ; z <= maxZ; z++) {
-                for (int x = minX; x <= maxX; x++) {
+        // Blocks are visited x-major, then y, then z; each bubble column block pushes once in that order.
+        for (int x = minX; x <= maxX; x++) {
+            for (int y = minY; y <= maxY; y++) {
+                for (int z = minZ; z <= maxZ; z++) {
                     BlockPosition position = new BlockPosition(x, y, z);
                     PlacedBlockCollision block = byPosition.get(position);
                     if (block != null) {
@@ -135,7 +135,6 @@ final class BedrockBlockFluidResolver {
         FluidCurrentState currentState = liquidCurrent
                 ? fluidCurrentStateFor(liquidMovementMedium, currentX, currentY, currentZ)
                 : FluidCurrentState.NONE;
-        bubbleLayers.sort(Comparator.comparingInt(BubbleColumnLayer::blockY));
         FluidState fluidState = new FluidState(
                 liquidCurrent,
                 currentPositiveX,
