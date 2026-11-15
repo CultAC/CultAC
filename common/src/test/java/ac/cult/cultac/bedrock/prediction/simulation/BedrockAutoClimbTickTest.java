@@ -193,6 +193,30 @@ public final class BedrockAutoClimbTickTest {
         assertEquals(0.2D, result.predictedVelocity().y(), 1.0E-6D);
     }
 
+    // Falling clear of the wall with the centre of its feet in the vine and its box reaching the scaffolding
+    // column, the client caps the fall at 0.2 a tick and reports the capped fall after gravity and drag.
+    @Test
+    public void aFallInAVineIsCappedWhileTheBoxReachesScaffolding() {
+        BedrockMovementContext world = vineBesideScaffolding();
+        Vec3d feet = new Vec3d(-49.272D, 122.5D, 3.311D);
+        var contact =
+                BedrockClimbableContact.fromBlockWorld(world.worldState().blockCollisionWorld(), feet, 0.6D, 1.8D);
+        assertTrue(contact.scaffolding());
+        assertTrue(contact.ladder());
+        var state = BedrockMovementState.fromPhysicalFeet(
+                        feet,
+                        new Vec3d(0.0D, -0.274399995803833D, 0.0D),
+                        BedrockInputFrame.idle(0L),
+                        BedrockCollisionFlags.AIR)
+                .withClimbableContact(contact);
+
+        var result = tick(world, state, BedrockInputFrame.idle(1L), Vec3d.ZERO);
+
+        assertFalse(result.predictedState().collisionFlags().horizontalCollision());
+        assertEquals(-0.2D, moved(result).y(), 1.0E-6D);
+        assertEquals(-0.2744D, result.predictedVelocity().y(), 1.0E-6D);
+    }
+
     /** A vine column at x -50 and a scaffolding column at x -49, both against a stone wall at z 4. */
     private static BedrockMovementContext vineBesideScaffolding() {
         List<PlacedBlockCollision> blocks = new ArrayList<>();
