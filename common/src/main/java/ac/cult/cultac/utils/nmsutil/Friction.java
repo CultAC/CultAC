@@ -6,6 +6,7 @@ import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.MovementEffect;
 import ac.cult.cultac.utils.data.MainSupportingBlockData;
+import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHappyGhast;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityNautilus;
 import ac.cult.cultac.utils.math.CultMath;
@@ -14,6 +15,7 @@ import java.util.List;
 
 public final class Friction {
     private static final List<Boolean> NOT_SPRINTING = List.of(false);
+    private static final List<Boolean> SPRINTING = List.of(true);
 
     private Friction() {}
 
@@ -90,7 +92,7 @@ public final class Friction {
             int start = out.size();
             // LivingEntity#travelInWater reads one isSprinting for both its slowdown and
             // getFluidFallingAdjustedMovement, so each sprint state keeps its own pair.
-            List<Boolean> sprinting = travellerSprinting(context);
+            List<Boolean> sprinting = travellerSprinting(player, context);
             for (int i = 0, size = sprinting.size(); i < size; i++) {
                 double friction = getSwimFriction(context, sprinting.get(i));
                 if (!Double.isFinite(friction)) {
@@ -108,7 +110,7 @@ public final class Friction {
             int start = out.size();
             if (shallowLava) {
                 Vec3 withFriction = playerVelocity.multiply(0.5, 0.8F, 0.5);
-                List<Boolean> sprinting = travellerSprinting(context);
+                List<Boolean> sprinting = travellerSprinting(player, context);
                 for (int i = 0, size = sprinting.size(); i < size; i++) {
                     addFluidFallingAdjustedMovement(
                             out, start, false, gravity, falling, sprinting.get(i), withFriction, keepBranches);
@@ -152,14 +154,15 @@ public final class Friction {
     }
 
     /**
-     * LivingEntity#isSprinting of the traveller during travel. A vehicle travels with its own flag, which only cats,
-     * ocelots and players ever set, so a ridden mob never sprints. The player reads this tick's frozen
-     * SimulationContext candidates; mutable CultPlayer sprint state may already reflect a later packet.
+     * LivingEntity#isSprinting of the traveller during travel. A vehicle travels with its own shared sprinting flag,
+     * which vanilla sets only on cats, ocelots and players, so a ridden mob sprints only where the server's entity
+     * data says so. The player reads this tick's frozen SimulationContext candidates; mutable CultPlayer sprint state
+     * may already reflect a later packet.
      */
-    private static List<Boolean> travellerSprinting(SimulationContext context) {
-        return context.getVehicle() != null
-                ? NOT_SPRINTING
-                : context.getIsSprinting().getStates();
+    private static List<Boolean> travellerSprinting(CultPlayer player, SimulationContext context) {
+        PacketEntity vehicle = context.getVehicle();
+        if (vehicle == null) return context.getIsSprinting().getStates();
+        return !player.isBedrockMovement() && (vehicle.actionSharedFlags & 8) != 0 ? SPRINTING : NOT_SPRINTING;
     }
 
     /**
