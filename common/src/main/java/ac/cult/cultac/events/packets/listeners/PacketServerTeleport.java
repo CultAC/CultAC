@@ -1,5 +1,6 @@
 package ac.cult.cultac.events.packets.listeners;
 
+import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.prediction.integration.BedrockVehicleControl;
 import ac.cult.cultac.network.CultPacketHandler;
 import ac.cult.cultac.network.event.PacketReceiveEvent;
@@ -98,6 +99,8 @@ public class PacketServerTeleport {
         Integer serverVehicle = player.compensatedEntities.vehicles.serverPlayerVehicle;
         if (vehicle == null || serverVehicle == null || serverVehicle != vehicle.getEntityId() || event.isCancelled())
             return;
+        // Observing sends no correction of its own, so the server's answer goes to the client as it is.
+        if (CultAPI.INSTANCE.getConfigManager().isObserveOnly()) return;
         event.setCancelled(true);
         int vehicleId = vehicle.getEntityId();
         Vec3 position = new Vec3(
