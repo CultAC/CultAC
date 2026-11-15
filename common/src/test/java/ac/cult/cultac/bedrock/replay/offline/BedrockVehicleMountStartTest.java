@@ -16,6 +16,7 @@ import ac.cult.cultac.bedrock.prediction.state.BedrockBoatProperties;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockCoordinateFrame;
+import ac.cult.cultac.bedrock.protocol.BedrockProtocolVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
 import ac.cult.cultac.utils.math.Vec3;
@@ -85,7 +86,7 @@ class BedrockVehicleMountStartTest {
 
     private static PacketEntity spawnBoat(CultPlayer player, double z) {
         player.bedrockState.offerAuthInputFrame(BedrockAuthInputFrame.builder(player.playerUUID)
-                .protocolVersion(944)
+                .protocolVersion(BedrockProtocolVersion.V1_26_60.protocol())
                 .build());
         player.compensatedEntities.addEntity(BOAT, EntityTypeIds.OAK_BOAT, new Vec3(X, Y, z), 0.0F, 0.0F, 0);
         PacketEntity boat = player.compensatedEntities.getEntity(BOAT);

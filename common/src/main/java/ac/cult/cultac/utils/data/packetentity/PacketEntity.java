@@ -74,6 +74,8 @@ public class PacketEntity {
     // Where the last two Bedrock client ticks found this actor before their lerp steps, the later one first.
     private Vec3 bedrockTickStart;
     private Vec3 bedrockEarlierTickStart;
+    // Whether a Bedrock client tick has run for this actor since it spawned, remote or as the predicted vehicle.
+    private boolean bedrockClientTicked;
     // The box size and scale Geyser last sent this actor (WIDTH, HEIGHT, SCALE) that the client has applied: a Bedrock
     // client's actor box is width and height times scale, a player's following its pose. NaN until known.
     public float bedrockWidth = Float.NaN;
@@ -382,6 +384,17 @@ public class PacketEntity {
     public void beginBedrockClientTick() {
         bedrockEarlierTickStart = bedrockTickStart;
         bedrockTickStart = clientPhysicalPosition;
+        bedrockClientTicked = true;
+    }
+
+    /** Whether a Bedrock client tick has run for this actor since it spawned. */
+    public boolean hasBedrockClientTick() {
+        return bedrockClientTicked;
+    }
+
+    /** A Bedrock client tick runs for this actor as the vehicle the client predicts. */
+    public void beginBedrockPredictedTick() {
+        bedrockClientTicked = true;
     }
 
     /**
