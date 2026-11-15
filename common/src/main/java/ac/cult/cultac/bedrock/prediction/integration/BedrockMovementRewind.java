@@ -27,6 +27,9 @@ final class BedrockMovementRewind {
     private final BedrockActorHistory authoritative;
     private final List<Update> updates = new ArrayList<>();
     private boolean initialUpdates;
+    // A stamped attribute value was recorded since the last replay: until the next one, every stamped value is taken
+    // as a change, whatever its frame had.
+    private boolean attributeRecorded;
     private final BedrockEffectClock glideBoost = new BedrockEffectClock();
     // A correction within this distance, squared, of what its frame reported is the state the client already has.
     private static final double TAKEN_DISTANCE_SQUARED = 1.0E-5D;
@@ -51,6 +54,7 @@ final class BedrockMovementRewind {
         authoritative.clear();
         updates.clear();
         initialUpdates = false;
+        attributeRecorded = false;
     }
 
     /** The actor's timed effects were reset: none runs for the client any more. */
@@ -235,12 +239,17 @@ final class BedrockMovementRewind {
             if (attributes) {
                 var event = stale ? update.event().ordinary() : update.event();
                 // The client uses an attribute value from its first tick after the packet and never re-runs
-                // the ticks since the stamp with it. A stamped value equal to that tick's own changes nothing.
-                if (update.historical() && !stale && authoritative.matches(update.tick(), event)) continue;
+                // the ticks since the stamp with it. A stamped value equal to that tick's own changes nothing,
+                // unless another stamped value was recorded since the last replay.
+                if (update.historical() && !stale && !attributeRecorded && authoritative.matches(update.tick(), event))
+                    continue;
+                if (update.historical()) attributeRecorded = true;
                 // A stamped value is recorded on its own frame, so a later replay runs the frames since with it.
                 if (!update.historical() || stale || !authoritative.attach(update.tick(), event))
                     authoritative.ordinary(event);
-                entries = taken(entries, event);
+                // A stamped value taken replaces the live attribute in full, even at a value the live state has
+                // already reached: a modifier an effect added since goes with it.
+                entries = taken(entries, event.ordinary());
                 continue;
             }
             if (!update.historical()) {
@@ -284,6 +293,7 @@ final class BedrockMovementRewind {
                 entries = replayed;
                 for (var event : unrecorded) entries = taken(entries, event);
             }
+            attributeRecorded = false;
         }
         updates.clear();
         updates.addAll(deferred);
@@ -341,9 +351,10 @@ final class BedrockMovementRewind {
             if (!update.historical() || stale) changes.add(event);
             // As when a frame takes it, a stamped value is compared with its tick after the earlier stamped values,
             // so a second value of one tick still changes what the first left.
-            else if (!authoritative.matches(update.tick(), event)) {
+            else if (attributeRecorded || !authoritative.matches(update.tick(), event)) {
                 changes.add(event);
                 authoritative.attach(update.tick(), event);
+                attributeRecorded = true;
             }
             return true;
         });

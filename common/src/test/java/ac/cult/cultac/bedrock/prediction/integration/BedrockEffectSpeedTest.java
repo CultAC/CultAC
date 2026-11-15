@@ -5,12 +5,17 @@ import static org.junit.Assert.assertSame;
 
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.input.BedrockInputFrame;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockProfileState.Entry;
 import ac.cult.cultac.bedrock.prediction.model.BedrockCollisionFlags;
+import ac.cult.cultac.bedrock.prediction.simulation.BedrockForwardTick;
+import ac.cult.cultac.bedrock.prediction.simulation.BedrockSimulation;
+import ac.cult.cultac.bedrock.prediction.simulation.frame.BedrockMobJumpComponentState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementAttributeState;
 import ac.cult.cultac.bedrock.prediction.state.BedrockMovementState;
 import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.Test;
 
 /**
@@ -83,6 +88,170 @@ public final class BedrockEffectSpeedTest {
                         new BedrockMovementAttributeState(slowed, 0, 1024, 0, 1024, slowed, List.of()),
                         true));
         assertSame(current, rewind.apply(null, current));
+    }
+
+    /**
+     * Speed V and the value that carries it, stamped on the frame it arrived after, then speed swapped for slowness II
+     * before the next value arrives. The stamped value was not the frame's own, so it replaces the live attribute in
+     * full although the live state had already reached it with the speed modifier: the removal finds no speed
+     * modifier, and the slowness applies to the stamped 0.2. A walking jump then moves 0.19797 + 0.14 * 0.98 forward,
+     * as the client's 0.33517 did, not at 0.07.
+     */
+    @Test
+    public void aStampedValueTheFrameDidNotHaveReplacesTheModifiersTheLiveStateTook() {
+        var history = new BedrockActorHistory();
+        var entry = new Entry(
+                BedrockMovementState.fromPhysicalFeet(
+                                new Vec3d(289, 82, -86),
+                                new Vec3d(0, -0.0784F, 0),
+                                BedrockInputFrame.idle(0),
+                                BedrockCollisionFlags.ON_GROUND)
+                        .withMovementAttribute(BedrockMovementAttributeState.serverValue(0.1F, false)),
+                BedrockMobJumpComponentState.DEFAULT);
+        for (long tick = 1; tick <= 6; tick++) {
+            var frame = tick(entry, tick, false);
+            history.record(frame);
+            entry = frame.end().getFirst();
+        }
+        var rewind = new BedrockMovementRewind(history);
+
+        rewind.queue(0, false, effect(1, 5));
+        rewind.queue(6, true, value(0.2F));
+        var published = rewind.apply(null, commit(history.current()));
+        entry = BedrockProfileState.profileEntries(published.carry()).getFirst();
+        assertEquals(0.2F, entry.state().movementAttribute().current(), EPSILON);
+        for (long tick = 7; tick <= 10; tick++) {
+            var frame = tick(entry, tick, false);
+            history.record(frame);
+            entry = frame.end().getFirst();
+        }
+
+        rewind.queue(0, false, effect(1, 0));
+        rewind.queue(0, false, effect(2, 2));
+        published = rewind.apply(null, commit(history.current()));
+        entry = BedrockProfileState.profileEntries(published.carry()).getFirst();
+        assertEquals(0.14F, entry.state().movementAttribute().current(), EPSILON);
+
+        // The jump tick the client reported, from its landing velocity.
+        var landed = new Entry(
+                entry.state()
+                        .withVelocityAndCollisionFlags(
+                                new Vec3d(0, -0.0784F, 0.19796695F),
+                                entry.state().collisionFlags()),
+                entry.mobJumpComponent());
+        var jump = tick(landed, 11, true).end().getFirst().state();
+        double forward = jump.physicalFeetPosition().z()
+                - landed.state().physicalFeetPosition().z();
+        assertEquals(0.335167, forward, 0.001);
+    }
+
+    /**
+     * While a stamped value recorded since the last replay is pending, a later one is taken in full even when it equals
+     * its frame. Sprinting under slowness II, the slowness is swapped for speed V together with a stale value that
+     * still carries the slowness (0.091, its frame's own): the client drops the speed modifier it just took and jumps
+     * at 0.091, 0.26244 + 0.2 + 0.091 * 0.98 forward as its 0.55161 did, not at 0.182.
+     */
+    @Test
+    public void aPendingStampedValueMakesTheNextOneReplaceTheLiveAttributeEvenAtItsFramesValue() {
+        var history = new BedrockActorHistory();
+        var entry = new Entry(
+                BedrockMovementState.fromPhysicalFeet(
+                                new Vec3d(289, 82, -86),
+                                new Vec3d(0, -0.0784F, 0),
+                                BedrockInputFrame.idle(0),
+                                BedrockCollisionFlags.ON_GROUND)
+                        .withMovementAttribute(BedrockMovementAttributeState.serverValue(0.2F, true))
+                        .withSprinting(true),
+                BedrockMobJumpComponentState.DEFAULT);
+        for (long tick = 1; tick <= 6; tick++) {
+            var frame = tick(entry, tick, false, true);
+            history.record(frame);
+            entry = frame.end().getFirst();
+        }
+        var rewind = new BedrockMovementRewind(history);
+        assertEquals(0.26F, entry.state().movementAttribute().current(), EPSILON);
+
+        // Speed for slowness, with the value that carries it: not its frame's 0.26, so it is recorded.
+        rewind.queue(0, false, effect(1, 0));
+        rewind.queue(0, false, effect(2, 2));
+        rewind.queue(6, true, sprintingValue(0.07F));
+        var published = rewind.apply(null, commit(history.current()));
+        entry = BedrockProfileState.profileEntries(published.carry()).getFirst();
+        assertEquals(0.091F, entry.state().movementAttribute().current(), EPSILON);
+        for (long tick = 7; tick <= 10; tick++) {
+            var frame = tick(entry, tick, false, true);
+            history.record(frame);
+            entry = frame.end().getFirst();
+        }
+
+        // Slowness for speed, with a value that still carries the slowness: its frame's own 0.091.
+        rewind.queue(0, false, effect(2, 0));
+        rewind.queue(0, false, effect(1, 5));
+        rewind.queue(10, true, sprintingValue(0.07F));
+        published = rewind.apply(null, commit(history.current()));
+        entry = BedrockProfileState.profileEntries(published.carry()).getFirst();
+        assertEquals(0.091F, entry.state().movementAttribute().current(), EPSILON);
+
+        var landed = new Entry(
+                entry.state()
+                        .withVelocityAndCollisionFlags(
+                                new Vec3d(0, -0.0784F, 0.2624262F),
+                                entry.state().collisionFlags()),
+                entry.mobJumpComponent());
+        var jump = tick(landed, 11, true, true).end().getFirst().state();
+        double forward = jump.physicalFeetPosition().z()
+                - landed.state().physicalFeetPosition().z();
+        assertEquals(0.5516062, forward, 0.001);
+    }
+
+    private static BedrockActorHistory.Frame tick(Entry previous, long tick, boolean jumping) {
+        return tick(previous, tick, jumping, false);
+    }
+
+    private static BedrockActorHistory.Frame tick(Entry previous, long tick, boolean jumping, boolean sprinting) {
+        var flags = new java.util.HashSet<>(Set.of("UP"));
+        if (jumping) flags.addAll(Set.of("JUMPING", "JUMP_DOWN", "START_JUMPING", "WANT_UP"));
+        if (sprinting) flags.addAll(Set.of("SPRINTING", "SPRINT_DOWN"));
+        var input = new BedrockInputFrame(tick, 0, 0, jumping, false, sprinting, Set.copyOf(flags));
+        var request = new BedrockSimulation.Input(
+                previous.state(),
+                input,
+                input.intent(),
+                BedrockActorHistoryTest.ground(),
+                true,
+                BedrockSimulation.DEFAULT_MAX_AUTO_STEP,
+                previous.mobJumpComponent(),
+                true,
+                false,
+                new Vec3d(0, 0, 1));
+        var movement = BedrockForwardTick.simulate(request).getFirst();
+        var state = movement.movementResult().predictedState();
+        var entries = List.of(
+                new Entry(BedrockForwardTick.finish(movement.movementResult(), state), movement.mobJumpComponent()));
+        return new BedrockActorHistory.Frame(
+                tick,
+                request,
+                entries,
+                entries,
+                null,
+                Vec3d.ZERO,
+                Vec3d.ZERO,
+                state.physicalFeetPosition(),
+                state.velocity(),
+                List.of());
+    }
+
+    private static BedrockReplayAttributeEvent sprintingValue(float base) {
+        return new BedrockReplayAttributeEvent(
+                Map.of("minecraft:movement", BedrockMovementAttributeState.serverValue(base, true)), true);
+    }
+
+    private static BedrockReplayAttributeEvent value(float movement) {
+        return new BedrockReplayAttributeEvent(
+                Map.of(
+                        "minecraft:movement",
+                        new BedrockMovementAttributeState(movement, 0, 1024, 0, 1024, movement, List.of())),
+                true);
     }
 
     @Test
