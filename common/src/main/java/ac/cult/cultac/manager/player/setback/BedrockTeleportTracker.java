@@ -351,8 +351,10 @@ public final class BedrockTeleportTracker {
                     pending -> pending.getBedrockProvenance() == BedrockTeleportProvenance.CULT_SETBACK
                             && !operation.equals(pending.getBedrockOperation()));
         }
-        // A retry is another emission of the same operation, not a new transport-only move.
-        if (operation != null) {
+        // A setback's retry is another emission of the same setback, not a new transport-only move. Any other retry,
+        // such as Geyser's for a teleport its client has not confirmed yet, is a teleport of its own: the client takes
+        // every emission it receives, after it took and answered any earlier one, and answers each.
+        if (operation != null && provenance == BedrockTeleportProvenance.CULT_SETBACK) {
             for (TeleportData pending : pendingTeleports) {
                 if (operation.equals(pending.getBedrockOperation())) {
                     boolean confirmed = pending.isBedrockOriginConfirmed()
@@ -395,10 +397,13 @@ public final class BedrockTeleportTracker {
             BedrockCoordinateFrame frame,
             Vec3 localPacketTarget) {
         for (TeleportData pending : pendingTeleports) {
-            // A receipt for an earlier identical emission still proves this operation's origin.
-            // Operation identity alone is insufficient if a later emission changed its destination.
+            // A receipt for an earlier identical emission of a setback still proves the setback's origin. Operation
+            // identity alone is insufficient if a later emission changed its destination. Another emission's receipt
+            // proves only that emission: a later one can still be on its way.
             if ((pending.getBedrockTransportRevision() == transportRevision
-                            || operation != null && operation.equals(pending.getBedrockOperation()))
+                            || operation != null
+                                    && operation.provenance() == BedrockTeleportProvenance.CULT_SETBACK
+                                    && operation.equals(pending.getBedrockOperation()))
                     && sameBedrockDestination(pending, frame, localPacketTarget)) {
                 pending.setBedrockOriginConfirmed(true);
             }
