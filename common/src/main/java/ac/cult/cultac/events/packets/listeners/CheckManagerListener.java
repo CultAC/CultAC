@@ -1220,6 +1220,8 @@ public class CheckManagerListener implements OpaqueReceiveListener {
         if (event.isCancelled() && !event.isSynthetic()) return false;
         // Where a loaded client's LocalPlayer#sendChanges would have sent this tick's MoveVehicle.
         if (!event.isSynthetic()) JavaLoadingRootTick.travel(player);
+        // Where a loaded client's LocalPlayer#sendChanges must have sent it and did not.
+        if (!event.isSynthetic()) JavaUnreportedRootTick.travel(player);
         // LivingEntity#baseTick runs LocalPlayer#tickDeath first. Its removal skips this tick's aiStep, while the
         // rest of Player#tick, attack ticker included, still runs. A synthetic tick end is a timeout, not a client
         // tick.
