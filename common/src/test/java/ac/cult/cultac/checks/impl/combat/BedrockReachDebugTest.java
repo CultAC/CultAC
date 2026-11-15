@@ -44,6 +44,6 @@ class BedrockReachDebugTest {
     }
 
     private static BedrockAttackPick pick(Vec3 feet, Vec3 hit, BedrockEye... eyes) {
-        return new BedrockAttackPick(feet, feet, hit, 1.0E-5, 0, 0, 0, 0, false, 5.7, List.of(eyes));
+        return new BedrockAttackPick(feet, feet, hit, 1.0E-5, 0, 0, 0, 0, false, List.of(eyes));
     }
 }

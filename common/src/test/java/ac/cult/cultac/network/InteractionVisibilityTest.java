@@ -827,7 +827,7 @@ class InteractionVisibilityTest {
     }
 
     @Test
-    void aBedrockClientKeepsAHitInThePickMarginOnlyWhenItsRayMeetsNoBlock() throws Exception {
+    void aBedrockClientKeepsAHitInThePickMarginWhateverBlocksLieAlongItsRay() throws Exception {
         try (var setup = new Setup()) {
             var entities = setup.check(BedrockEntityReach.class);
             var hitboxes = setup.check(BedrockEntityHitboxes.class);
@@ -837,46 +837,23 @@ class InteractionVisibilityTest {
             var player = bedrockAttacker(setup);
             player.compensatedEntities.addEntity(
                     42, EntityTypeIds.ZOMBIE, new Vec3(player.x, player.y, player.z + 2.5), 0, 0, 0);
-            // Where views 0.35 and 0.25 to the side of the zombie's centre enter its box grown by the pick margin,
-            // 0.15 above its feet; only the second crosses its box without the margin.
-            Vec3 margin = new Vec3(player.x + 0.35, player.y + 0.15, player.z + 2.1);
-            Vec3 crossing = new Vec3(player.x + 0.25, player.y + 0.15, player.z + 2.1);
+            // Where views 0.35 to the side of the zombie's centre enter its box grown by the pick margin, 0.15 above
+            // its feet and at eye height; neither crosses its box without the margin.
+            Vec3 low = new Vec3(player.x + 0.35, player.y + 0.15, player.z + 2.1);
+            Vec3 level = new Vec3(player.x + 0.35, player.y + 1.62, player.z + 2.1);
 
-            bedrockAttackAt(player, entities, margin);
-            assertEquals(0, hitboxes.violations, "the view met no block");
-
-            // A floor every view toward the hits meets, from any eye height, within the pick ray.
+            // A floor every view toward the low hit meets, from any eye height, and a wall 3.5 blocks ahead.
             for (int x = -1; x <= 2; x++) {
                 for (int z = -2; z <= 4; z++) setup.block(x, 63, z, "stone");
             }
-            bedrockAttackAt(player, entities, crossing);
-            assertEquals(0, hitboxes.violations, "the view crossed the zombie's box before the floor");
-            bedrockAttackAt(player, entities, margin);
-            assertEquals(1, hitboxes.violations, "the client keeps the floor its view met");
-            assertEquals(0, entities.violations);
-        }
-    }
-
-    @Test
-    void aBedrockTouchClientKeepsAHitInThePickMarginWhateverBlocksLieAlongItsRay() throws Exception {
-        try (var setup = new Setup()) {
-            var entities = setup.check(BedrockEntityReach.class);
-            var hitboxes = setup.check(BedrockEntityHitboxes.class);
-            setup.fixture.player.x = .5;
-            setup.fixture.player.y = 64;
-            setup.fixture.player.z = -1.5;
-            var player = bedrockAttacker(setup);
-            player.compensatedEntities.addEntity(
-                    42, EntityTypeIds.ZOMBIE, new Vec3(player.x, player.y, player.z + 2.5), 0, 0, 0);
-            // Where a ray 0.35 to the side of the zombie's centre enters its box grown by the pick margin, at eye
-            // height; it never crosses the box without the margin, and meets a wall 3.5 blocks ahead.
-            Vec3 margin = new Vec3(player.x + 0.35, player.y + 1.62, player.z + 2.1);
             wall(setup, 2);
 
-            touchAttackAt(player, entities, margin);
+            bedrockAttackAt(player, entities, low);
+            assertEquals(0, hitboxes.violations, "a mouse keeps the hit past the floor");
+            bedrockAttackAt(player, entities, level);
+            assertEquals(0, hitboxes.violations, "a mouse keeps the hit past the wall");
+            touchAttackAt(player, entities, level);
             assertEquals(0, hitboxes.violations, "a touch screen keeps the hit past the wall");
-            bedrockAttackAt(player, entities, margin);
-            assertEquals(1, hitboxes.violations, "a mouse keeps the wall its view met");
             assertEquals(0, entities.violations);
         }
     }
