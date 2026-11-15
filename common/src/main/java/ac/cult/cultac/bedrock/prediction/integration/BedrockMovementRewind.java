@@ -390,9 +390,9 @@ final class BedrockMovementRewind {
                 input,
                 entries,
                 entries,
-                // An untimed motion changes the live velocity only: a replay runs this frame again from the velocity
-                // the replayed tick before it ends with. A timed motion is recorded as its own event instead.
-                null,
+                // An untimed motion the tick began with; BedrockActorHistory#replay says when a replay keeps it. A
+                // timed motion is recorded as its own event instead.
+                vector.isKnockback() ? input.previousState().velocity() : null,
                 addition,
                 external,
                 BedrockVectorAdapter.toBedrock(auth.getPosition()),

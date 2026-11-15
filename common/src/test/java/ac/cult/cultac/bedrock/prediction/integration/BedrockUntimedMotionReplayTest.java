@@ -35,19 +35,25 @@ import ac.cult.cultac.checks.impl.prediction.SimulationContext;
 import ac.cult.cultac.utils.data.TransactionVel;
 import ac.cult.cultac.utils.math.Vec3;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.Test;
 
-/** A motion sent without a tick changes the live velocity only; a replay runs its frame again without it. */
+/**
+ * A motion sent without a tick changes the velocity the newest frame ended with. A replay that starts at that frame
+ * keeps it; one that starts earlier runs that frame's end again without it.
+ */
 public final class BedrockUntimedMotionReplayTest {
-    // An elytra glide pressed against a wall with a rocket boost running, pitch 25 down: client positions (feet) and
-    // reported velocities, ticks 3015 to 3024. Before 3016 and before 3021 the server sent the motion
-    // (0, -0.637, 0) without a tick; the client took each on the following tick. A replay from before 3016 ran on
-    // 3024: its position there is that of the ticks run again without either motion.
+    // Elytra glides pressed against a wall with a rocket boost running, pitch 25 down: client positions (eye) and
+    // reported velocities. The server sent the motion (0, -0.637, 0) without a tick; the client took it on the tick
+    // after it arrived.
     private static final double EYE = 1.62001D;
     private static final float PITCH = 25.000366F;
     private static final float YAW = -1.5258789E-5F;
-    private static final double[][] CLIENT = {
+    // Ticks 3014 to 3024; motions before 3016 and 3021. A boost start marked 3014's successor and the boost stop
+    // replayed from there over both motions.
+    private static final double[][] EARLIER = {
+        {17.500874, 135.10695, -72.357376, 1.4588847E-4, -0.6574944, 1.5212429},
         {17.50102, 134.44539, -71.3, 1.4779321E-4, -0.66155636, 0.0},
         {17.501097, 133.79297, -71.3, 7.550481E-5, -0.65242213, 0.0},
         {17.501205, 133.1337, -71.3, 1.09196044E-4, -0.6592752, 0.0},
@@ -59,41 +65,61 @@ public final class BedrockUntimedMotionReplayTest {
         {17.501904, 129.169, -71.3, 1.2423022E-4, -0.6623795, 0.0},
         {17.502258, 128.46422, -71.3, 1.363516E-4, -0.664874, 0.0},
     };
-    private static final long FIRST = 3015;
+    // Ticks 4061 to 4064; a motion before 4063. The boost stop stamped 4062 arrived after tick 4063 and replayed
+    // from 4062.
+    private static final double[][] AT_ANCHOR = {
+        {65.50145, 131.8075, 216.7, 1.3093825E-4, -0.66374844, 0.0},
+        {65.50159, 131.14313, 216.7, 1.3393167E-4, -0.6643691, 0.0},
+        {65.50166, 130.4906, 216.7, 7.550567E-5, -0.6525319, 0.0},
+        {65.50177, 129.83128, 216.7, 1.09196815E-4, -0.6593245, 0.0},
+    };
 
     @Test
-    public void aReplayRunsTheFramesOfUntimedMotionsWithoutThem() {
-        var world = wall();
+    public void aReplayFromBeforeTheFrameAMotionArrivedAfterRunsWithoutIt() {
+        assertReplay(
+                EARLIER, 3014, Map.of(3016L, new Vec3d(0, -0.63718486, 0), 3021L, new Vec3d(0, -0.63742906, 0)), 3014);
+    }
+
+    @Test
+    public void aReplayFromTheFrameAMotionArrivedAfterKeepsIt() {
+        assertReplay(AT_ANCHOR, 4061, Map.of(4063L, new Vec3d(0, -0.63742906, 0)), 4062);
+    }
+
+    /**
+     * Records the live ticks of {@code client} from {@code first}, each taking the motion keyed by its tick, replays
+     * from {@code anchor} and checks the client's last tick from the replayed end.
+     */
+    private static void assertReplay(double[][] client, long first, Map<Long, Vec3d> motions, long anchor) {
+        var world = wall(client[client.length - 1][2] + 0.3D);
         var history = new BedrockActorHistory();
         var rewind = new BedrockMovementRewind(history);
         var entry = new BedrockProfileState.Entry(
                 BedrockMovementState.fromPhysicalFeet(
-                                feet(CLIENT[0]), velocity(CLIENT[0]), frame(FIRST - 1), BedrockCollisionFlags.AIR)
+                                feet(client[0]), velocity(client[0]), frame(first - 1), BedrockCollisionFlags.AIR)
                         .withGliding(true),
                 BedrockMobJumpComponentState.DEFAULT);
-        // The frame the replay starts from, ending where the client reported it.
-        rewind.record(null, result(FIRST, request(entry, FIRST, null, world), world, false), commit(entry));
-        for (long tick = FIRST + 1; tick <= FIRST + 8; tick++) {
-            Vec3d motion =
-                    tick == 3016 ? new Vec3d(0, -0.63718486, 0) : tick == 3021 ? new Vec3d(0, -0.63742906, 0) : null;
+        // The first frame, ending where the client reported it.
+        rewind.record(null, result(first, request(entry, first, null, world), world, false), commit(entry));
+        long last = first + client.length - 1;
+        for (long tick = first + 1; tick < last; tick++) {
+            Vec3d motion = motions.get(tick);
             var request = request(entry, tick, motion, world);
             entry = tick(request);
             rewind.record(null, result(tick, request, world, motion != null), commit(entry));
-            double[] client = CLIENT[(int) (tick - FIRST)];
+            double[] row = client[(int) (tick - first)];
             assertEquals(
                     "live tick " + tick,
-                    client[1] - EYE,
+                    row[1] - EYE,
                     entry.state().physicalFeetPosition().y(),
                     1.0E-3);
         }
 
-        // The replay starts at the frame an earlier update marked and runs every frame since.
-        history.mark(FIRST);
+        history.mark(anchor);
         var replayed = history.replay((state, snapshot) -> snapshot, (frame, state, snapshot) -> snapshot);
-        var after = tick(request(replayed.getFirst(), FIRST + 9, null, world));
-        double[] client = CLIENT[9];
-        assertEquals(client[1] - EYE, after.state().physicalFeetPosition().y(), 1.0E-3);
-        assertEquals(client[4], after.state().velocity().y(), 1.0E-3);
+        var after = tick(request(replayed.getFirst(), last, null, world));
+        double[] row = client[client.length - 1];
+        assertEquals(row[1] - EYE, after.state().physicalFeetPosition().y(), 1.0E-3);
+        assertEquals(row[4], after.state().velocity().y(), 1.0E-3);
     }
 
     private static BedrockProfileState.Entry tick(BedrockSimulation.Input request) {
@@ -176,12 +202,12 @@ public final class BedrockUntimedMotionReplayTest {
         return new Vec3d(row[3], row[4], row[5]);
     }
 
-    private static BedrockWorldSnapshot wall() {
+    private static BedrockWorldSnapshot wall(double z) {
         var wall = PlacedBlockCollision.manual(
-                new BlockPosition(0, 100, -71),
+                new BlockPosition(0, 100, (int) Math.floor(z)),
                 "minecraft:stone",
                 "minecraft:stone",
-                List.of(new WorldCollisionBox(0, 100, -71, 40, 160, -70)));
+                List.of(new WorldCollisionBox(0, 100, z, 80, 160, z + 1)));
         return BedrockWorldSnapshot.fromContext(new BedrockMovementContext(
                 BedrockEffectState.NONE,
                 AttributeState.DEFAULT,

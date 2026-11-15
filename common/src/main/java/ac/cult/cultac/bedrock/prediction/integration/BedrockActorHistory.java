@@ -253,7 +253,7 @@ public final class BedrockActorHistory {
         int anchor = index(start);
         Frame first = anchor >= 0 ? frames.get(anchor) : departed != null && departed.tick() == start ? departed : null;
         if (first == null) return current();
-        List<Entry> states = applyEvents(first.beforeEvents(), first.events());
+        List<Entry> states = applyEvents(withUntimedMotion(first.beforeEvents(), anchor + 1), first.events());
         var active = new ArrayList<Event>();
         if (anchor < 0) active.addAll(first.events());
         else frames.set(anchor, first.withEnd(first.beforeEvents(), states, first.events()));
@@ -266,6 +266,21 @@ public final class BedrockActorHistory {
             frames.set(i, frame.withEnd(before, states, frame.events()));
         }
         return List.copyOf(states);
+    }
+
+    /**
+     * The states a replay starts from. An untimed motion changes the velocity the newest frame ended with, so the frame
+     * it arrived after keeps it when a replay starts there, before that frame's own updates; a replay from an earlier
+     * frame runs that frame's end again without it.
+     */
+    private List<Entry> withUntimedMotion(List<Entry> anchorEnd, int next) {
+        if (next < 0 || next >= frames.size()) return anchorEnd;
+        Vec3d motion = frames.get(next).imposedVelocity();
+        if (motion == null) return anchorEnd;
+        return anchorEnd.stream()
+                .map(entry -> entry.withState(entry.state()
+                        .withVelocityAndCollisionFlags(motion, entry.state().collisionFlags())))
+                .toList();
     }
 
     /**
