@@ -26,8 +26,6 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 public final class BedrockClientBlockShapeMappings {
-    // The bundled generator targets the latest Java version supported by this CultAC build.
-    private static final ClientVersion CATALOG_JAVA_VERSION = ClientVersion.V_26_2;
     private static final BedrockCollisionOverrideCatalog NATIVE_FALLBACK =
             BedrockCollisionOverrideCatalog.nativeFallback();
     private static final AtomicReference<Snapshot> SNAPSHOT = new AtomicReference<>(Snapshot.empty());
@@ -37,15 +35,16 @@ public final class BedrockClientBlockShapeMappings {
     public static void initialize() {
         BedrockCollisionOverrideCatalog artifact = BedrockCollisionOverrideCatalog.bundled();
         int nativeModelProtocol = ProtocolVersion.V26_3.protocol();
+        ClientVersion catalogVersion = ClientVersion.fromProtocolVersion(artifact.javaProtocol());
         int[] mappings = BedrockServerStateMappings.create(
                 nativeModelProtocol,
                 ac.cult.blocksim.data.DataTables.defaults().registry().stateCount(),
-                CATALOG_JAVA_VERSION.getProtocolVersion(),
+                artifact.javaProtocol(),
                 artifact.javaStateCount());
-        Snapshot snapshot = build(artifact.forServerStates(mappings));
+        Snapshot snapshot = build(artifact.forServerStates(mappings), catalogVersion);
         SNAPSHOT.set(snapshot);
         LogUtil.info("[ClientBlockShapes] Bedrock collision cache: native model protocol " + nativeModelProtocol
-                + " -> catalog protocol " + CATALOG_JAVA_VERSION.getProtocolVersion() + ", " + mappings.length
+                + " -> catalog protocol " + artifact.javaProtocol() + ", " + mappings.length
                 + " translated states, " + snapshot.staticMovementCount() + " static movement states, "
                 + snapshot.dynamicMovementCount() + " dynamic movement states.");
     }
@@ -84,6 +83,10 @@ public final class BedrockClientBlockShapeMappings {
     }
 
     static Snapshot build(BedrockCollisionOverrideCatalog catalog) {
+        return build(catalog, ClientVersion.fromProtocolVersion(ProtocolVersion.V26_3.protocol()));
+    }
+
+    static Snapshot build(BedrockCollisionOverrideCatalog catalog, ClientVersion catalogVersion) {
         Map<Integer, Entry> entries = new HashMap<>();
         for (int id = 0;
                 id < ac.cult.blocksim.data.DataTables.defaults().registry().stateCount();
@@ -105,7 +108,7 @@ public final class BedrockClientBlockShapeMappings {
                 continue;
             }
             Optional<CollisionBox> movement = override.map(shape -> fromLocalBoxes(shape.boxes()))
-                    .or(() -> VersionedJavaBlockShapes.movement(CATALOG_JAVA_VERSION, javaStateId, 0, 0, 0));
+                    .or(() -> VersionedJavaBlockShapes.movement(catalogVersion, javaStateId, 0, 0, 0));
             movement.ifPresent(shape -> entries.put(javaStateId, new Entry(shape, false, false)));
         }
         return new Snapshot(Map.copyOf(entries), catalog.shapeCount(), catalog);
