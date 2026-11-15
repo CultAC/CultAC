@@ -58,7 +58,7 @@ class VehicleFluidCurrentTest {
         }
     }
 
-    /** The same ride with its ninth move shifted 0.005 along the current is not the pig's move. */
+    /** The same ride with its ninth move shifted 0.006 along the current, past VehicleOffset's 0.005, is not the pig's. */
     @Test
     void aSteeredPigOffItsCurrentTrackIsRejected() throws Exception {
         Vec3 seat = new Vec3(0.5, FLOOR_Y, 0.5);
@@ -69,11 +69,12 @@ class VehicleFluidCurrentTest {
             for (int tick = 0; tick < TICKS + 2; tick++) {
                 Vec3 delta = velocity.add(WATER_SCALE, 0.0, WATER_INPUT);
                 at = at.add(delta);
-                assertVehicleExact(f.rideTick(at, true), tick);
+                // The passive pig stood without velocity, so its first Entity#move has no fall to collide below with.
+                assertVehicleExact(f.rideTick(at, tick != 0), tick);
                 velocity = delta.scale(WATER_DRAG);
             }
             Vec3 delta = velocity.add(WATER_SCALE, 0.0, WATER_INPUT);
-            PredictionResult result = f.rideTick(at.add(delta.x + 0.005, 0.0, delta.z), true);
+            PredictionResult result = f.rideTick(at.add(delta.x + 0.006, 0.0, delta.z), true);
             assertFlagged(result);
         }
     }
@@ -175,7 +176,8 @@ class VehicleFluidCurrentTest {
      * Rides the steered vehicle along +z (yaw 0) for {@link #TICKS} ticks from rest at {@code seat}: each tick moves
      * by its velocity, {@code current} and the 0.02F input, and carries the move times {@code drag} horizontally.
      * With {@code midWater} the vehicle is off the floor: its fall is slowed by 0.8F and grows by {@code gravity} a
-     * tick. Otherwise the floor stops each tick's fall.
+     * tick. Otherwise the floor stops each tick's fall; the first tick starts without one, so its Entity#move does not
+     * collide below and reports the vehicle off the ground.
      */
     private static void walk(
             JavaTickFixture f, Vec3 seat, Vec3 current, double drag, boolean midWater, double gravity) {
@@ -184,7 +186,7 @@ class VehicleFluidCurrentTest {
         for (int tick = 0; tick < TICKS; tick++) {
             Vec3 delta = velocity.add(current).add(0.0, 0.0, WATER_INPUT);
             at = at.add(delta);
-            assertVehicleExact(f.rideTick(at, !midWater), tick);
+            assertVehicleExact(f.rideTick(at, !midWater && tick != 0), tick);
             double fall = midWater ? delta.y * WATER_DRAG - gravity : 0.0;
             velocity = new Vec3(delta.x * drag, fall, delta.z * drag);
         }

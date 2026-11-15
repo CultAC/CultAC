@@ -8,6 +8,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import ac.cult.blocksim.data.DataTables;
+import ac.cult.cultac.CultAPI;
 import ac.cult.cultac.bedrock.MovementPlatform;
 import ac.cult.cultac.bedrock.player.BedrockPlayerState;
 import ac.cult.cultac.bedrock.prediction.BedrockPredictionResult;
@@ -15,6 +16,8 @@ import ac.cult.cultac.bedrock.prediction.BedrockPredictionTrigger;
 import ac.cult.cultac.bedrock.prediction.api.BedrockMovementResult;
 import ac.cult.cultac.bedrock.prediction.geometry.Vec3d;
 import ac.cult.cultac.bedrock.prediction.geometry.WorldCollisionBox;
+import ac.cult.cultac.bedrock.prediction.integration.BedrockReplayAttributeEvent;
+import ac.cult.cultac.bedrock.prediction.state.BedrockMovementAttributeState;
 import ac.cult.cultac.bedrock.prediction.world.PlacedBlockCollision;
 import ac.cult.cultac.bedrock.protocol.BedrockAuthInputFrame;
 import ac.cult.cultac.bedrock.protocol.BedrockMoveVector;
@@ -46,6 +49,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.cloudburstmc.protocol.bedrock.data.PlayerAuthInputData;
@@ -454,9 +458,12 @@ public final class OfflineBedrockReplayRunnerTest {
         seedInitialVelocity(player, initialVelocity);
 
         List<FlagSample> bedrockMovementFlags = new ArrayList<>();
+        SprintAttributeAnswers sprintAttributeAnswers = new SprintAttributeAnswers();
         int processed = 0;
         for (BedrockAuthInputFrame frame : frames.subList(firstReplayFrame, frames.size())) {
             replayEvents.applyBeforeOrAt(player, frame.getClientTick());
+            sprintAttributeAnswers.applyBefore(player, frame.getClientTick());
+            sprintAttributeAnswers.observe(frame);
             player.bedrockState.offerAuthInputFrame(frame);
             PredictionResult result = player.checkManager
                     .getSimulationProcessor()
@@ -475,6 +482,57 @@ public final class OfflineBedrockReplayRunnerTest {
         closeOfflinePlayer(player);
         assertTrue(processed > 1);
         return new ReplayResult(bedrockMovementFlags, injection);
+    }
+
+    /**
+     * The captures hold no clientbound packets, so the replay supplies the one answer that changes the speed their
+     * players move with. The bridge they were recorded behind answers every sprint change it forwards with the
+     * movement attribute as a bare value, the sprint in the value and no modifier listed, two ticks after the input
+     * that caused it. A bare value replaces the modifiers the actor holds: once a sprint start is answered, the stop
+     * that follows has no sprint modifier left to remove, and the actor keeps the answered speed until the stop is
+     * answered too.
+     */
+    private static final class SprintAttributeAnswers {
+        private static final long ROUND_TRIP_TICKS = 2L;
+        private static final float WALK_SPEED = 0.1F;
+        private static final float SPRINT_SPEED = 0.13F;
+
+        private final List<long[]> pending = new ArrayList<>();
+        private boolean forwardedSprint;
+
+        /** Applies the answers that reach the actor before {@code tick}. */
+        void applyBefore(CultPlayer player, long tick) {
+            while (!pending.isEmpty() && pending.getFirst()[0] <= tick) {
+                boolean sprinting = pending.removeFirst()[1] != 0L;
+                player.bedrockState.movementCorrections.attributes(
+                        player,
+                        player.compensatedEntities.getSelf(),
+                        tick - 1L,
+                        new BedrockReplayAttributeEvent(
+                                Map.of(
+                                        "minecraft:movement",
+                                        new BedrockMovementAttributeState(
+                                                sprinting ? SPRINT_SPEED : WALK_SPEED,
+                                                0.0F,
+                                                1024.0F,
+                                                0.0F,
+                                                1024.0F,
+                                                WALK_SPEED,
+                                                List.of())),
+                                false));
+            }
+        }
+
+        /** The bridge forwards the last sprint action of an input, and only when it changes the sprint it holds. */
+        void observe(BedrockAuthInputFrame frame) {
+            boolean stop = frame.hasRawInputFlag(PlayerAuthInputData.STOP_SPRINTING);
+            boolean start = !stop && frame.hasRawInputFlag(PlayerAuthInputData.START_SPRINTING);
+            if (!start && !stop || start == forwardedSprint) {
+                return;
+            }
+            forwardedSprint = start;
+            pending.add(new long[] {frame.getClientTick() + ROUND_TRIP_TICKS, start ? 1L : 0L});
+        }
     }
 
     private static void printReplayDebug(BedrockAuthInputFrame frame, PredictionResult result) {
@@ -1980,13 +2038,14 @@ public final class OfflineBedrockReplayRunnerTest {
 
     /**
      * A rejected Bedrock frame is corrected by rewinding the client to the engine's own state: no teleport is queued,
-     * and the model stays where it stood at {@code boundary} instead of following the claim.
+     * and the model stays where it stood at {@code boundary}. It follows the claim by no more than the one step a
+     * tick the model reconciles its position by, to the precision of the stored floats.
      */
     private static void assertHeldAtBoundary(CultPlayer player, Vec3 boundary) {
         assertFalse(player.getSetbackTeleportUtil().isPendingSetback());
-        assertEquals(boundary.x, player.x, 0.01D);
-        assertEquals(boundary.y, player.y, 0.01D);
-        assertEquals(boundary.z, player.z, 0.01D);
+        double step = CultAPI.INSTANCE.getConfigManager().getBedrockMovementPositionReconciliationStep();
+        double moved = new Vec3(player.x, player.y, player.z).distanceTo(boundary);
+        assertTrue("moved " + moved, moved <= step + 1.0E-5D);
     }
 
     @Test

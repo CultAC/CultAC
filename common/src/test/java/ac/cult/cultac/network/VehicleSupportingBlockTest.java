@@ -105,14 +105,20 @@ class VehicleSupportingBlockTest {
         }
     }
 
-    /** AbstractBoat#tick calls Entity#move before LocalPlayer sends its root's ground bit. */
+    /**
+     * AbstractBoat#tick calls Entity#move before LocalPlayer sends its root's ground bit: the move is the boat's own
+     * and only its ground claim is rejected.
+     */
     @Test
     void aBoatLandingOnStoneCannotClaimAirborne() throws Exception {
         try (var f = new JavaTickFixture()) {
             PacketEntity boat = mount(
                     f, EntityTypeIds.OAK_BOAT, new Vec3(0.5, FLOOR_Y + 0.1, 0.5), new Vec3(0, -0.16, 0), false);
 
-            assertSupport(ON_FLOOR, ride(f, new Vec3(0.5, FLOOR_Y, 0.5), false));
+            PredictionResult landing = ride(f, new Vec3(0.5, FLOOR_Y, 0.5), false);
+            assertEquals(List.of("GroundSpoof"), flagNames(landing), describe(landing));
+            assertTrue(landing.getOffset() < 1.0E-5, describe(landing));
+            assertEquals(ON_FLOOR, landing.getSimulationContext().getWorldData().getMainSupportingBlockPos());
             assertTrue(f.player.checkManager.getCheck(VehicleGround.class).violations > 0);
             assertTrue(boat.onGround, "the false claim became the next boat tick's ground state");
         }
@@ -195,6 +201,12 @@ class VehicleSupportingBlockTest {
         PredictionResult result = f.player.checkManager.getSimulationProcessor().getLastPrediction();
         assertTrue(result != null && result != before, "the vehicle move was not predicted");
         return result;
+    }
+
+    private static List<String> flagNames(PredictionResult result) {
+        return result.getFlags().stream()
+                .map(flag -> flag.getCheck().getCheckName())
+                .toList();
     }
 
     private static void assertSupport(MainSupportingBlockData expected, PredictionResult result) {

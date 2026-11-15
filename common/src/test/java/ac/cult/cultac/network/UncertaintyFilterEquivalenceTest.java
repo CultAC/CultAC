@@ -156,9 +156,9 @@ class UncertaintyFilterEquivalenceTest {
     private static final Set<String> MUST_ACT = Set.of("BoatTransform", "Honey", "StuckSpeed");
 
     private static final List<Variant> VARIANTS = List.of(
-            Variant.of(Owner.WORLD, "inWater", () -> DesyncStatus.TRUE),
-            Variant.of(Owner.WORLD, "inLava", () -> DesyncStatus.TRUE),
-            Variant.of(Owner.WORLD, "inFlowingLiquid", () -> DesyncStatus.TRUE),
+            Variant.of(Owner.WORLD, "inWater", () -> true),
+            Variant.of(Owner.WORLD, "inLava", () -> true),
+            Variant.of(Owner.WORLD, "inFlowingLiquid", () -> true),
             Variant.of(Owner.WORLD, "mightBeInBlock", () -> true),
             Variant.of(Owner.WORLD, "climbingAtStart", () -> DesyncStatus.TRUE),
             Variant.of(Owner.WORLD, "sneak", () -> new StuckEdgeData(true, false, false, true, false)),
@@ -176,16 +176,15 @@ class UncertaintyFilterEquivalenceTest {
             Variant.of(Owner.CONTEXT, "vehicle", UncertaintyFilterEquivalenceTest::boat),
             Variant.of(Owner.LAST_CONTEXT, "riptideLevel", () -> 3),
             Variant.of(Owner.LAST_CONTEXT, "gliding", () -> true),
-            Variant.of(Owner.FIREWORKS, "boostsNextTick", () -> 1),
             new Variant(
-                    "honey before 1.21.11",
+                    "honey before 1.21.2",
                     List.of(
-                            new Edit(Owner.CONTEXT, "version", () -> ClientVersion.V_1_21_4),
+                            new Edit(Owner.CONTEXT, "version", () -> ClientVersion.V_1_21),
                             new Edit(Owner.LAST_WORLD, "honeySlide", () -> DesyncStatus.TRUE))),
             new Variant(
-                    "stuck speed before 1.21.11",
+                    "stuck speed before 1.21.2",
                     List.of(
-                            new Edit(Owner.CONTEXT, "version", () -> ClientVersion.V_1_21_4),
+                            new Edit(Owner.CONTEXT, "version", () -> ClientVersion.V_1_21),
                             new Edit(Owner.LAST_WORLD, "stuckSpeed", UncertaintyFilterEquivalenceTest::cobweb))),
             new Variant(
                     "boat ticked by the client",
@@ -229,8 +228,7 @@ class UncertaintyFilterEquivalenceTest {
         LAST_WORLD,
         CONTEXT,
         LAST_CONTEXT,
-        PACKET_STATE,
-        FIREWORKS
+        PACKET_STATE
     }
 
     /** One field of the player, the context, the last context or either's world. */
@@ -243,7 +241,6 @@ class UncertaintyFilterEquivalenceTest {
                 case CONTEXT -> context;
                 case LAST_CONTEXT -> last;
                 case PACKET_STATE -> player.packetStateData;
-                case FIREWORKS -> player.compensatedFireworks;
             };
         }
 

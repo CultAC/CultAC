@@ -79,6 +79,11 @@ class WaterTouchEquivalenceTest {
 
     static boolean reference(CultPlayer player, SimpleCollisionBox entityBox) {
         var box = entityBox.copy().expand(-0.001);
+        // EntityFluidInteraction#hasFluidAndLoaded: no contact unless every chunk of the cells, widened by one block
+        // in x and z, is loaded.
+        for (int x = (int) Math.floor(box.minX) - 1 >> 4; x <= (int) Math.ceil(box.maxX) >> 4; x++)
+            for (int z = (int) Math.floor(box.minZ) - 1 >> 4; z <= (int) Math.ceil(box.maxZ) >> 4; z++)
+                if (!player.compensatedWorld.isChunkLoaded(x, z)) return false;
         for (int x = (int) Math.floor(box.minX); x < Math.ceil(box.maxX); x++)
             for (int y = (int) Math.floor(box.minY); y < Math.ceil(box.maxY); y++)
                 for (int z = (int) Math.floor(box.minZ); z < Math.ceil(box.maxZ); z++) {

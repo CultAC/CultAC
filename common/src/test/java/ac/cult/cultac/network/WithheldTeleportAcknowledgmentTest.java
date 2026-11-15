@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ac.cult.cultac.manager.player.SetbackTeleportUtil;
+import ac.cult.cultac.manager.player.setback.JavaTeleportTracker;
 import ac.cult.cultac.network.protocol.teleport.RelativeFlag;
 import ac.cult.cultac.utils.math.Vec3;
 import java.lang.reflect.Field;
@@ -65,8 +65,8 @@ class WithheldTeleportAcknowledgmentTest {
     }
 
     private static Collection<?> acknowledgments(JavaTickFixture f) throws Exception {
-        Field field = SetbackTeleportUtil.class.getDeclaredField("javaTeleportAcknowledgments");
+        Field field = JavaTeleportTracker.class.getDeclaredField("javaTeleportAcknowledgments");
         field.setAccessible(true);
-        return (Collection<?>) field.get(f.player.getSetbackTeleportUtil());
+        return (Collection<?>) field.get(f.player.getSetbackTeleportUtil().javaTeleports());
     }
 }

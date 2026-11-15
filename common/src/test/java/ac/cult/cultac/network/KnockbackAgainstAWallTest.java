@@ -61,11 +61,15 @@ class KnockbackAgainstAWallTest {
         }
     }
 
+    /**
+     * ClientPacketListener#handleExplosion adds its knockback to the velocity the player has, so the resting gravity
+     * stays and Entity#move still lands the player.
+     */
     @Test
     void theWallStopsAnExplosionsKnockback() throws Exception {
         try (var f = fixture(true, NONE)) {
             f.explosion(INTO_WALL);
-            PredictionResult result = f.tick(START, false);
+            PredictionResult result = f.tick(START, true);
             assertTrue(exact(result), describe(result));
             assertEquals(0.0, f.player.checkManager.getExplosionHandler().violations);
         }

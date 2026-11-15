@@ -44,6 +44,11 @@ class VehicleWallCollisionTest {
     private static final double GROUND_FRICTION = 0.6F * 0.91F;
     /** AbstractBoat#floatBoat scales a boat on land by its ground friction, ice's 0.98F. */
     private static final double ICE_FRICTION = 0.98F;
+    /**
+     * LivingEntity#getFluidFallingAdjustedMovement: the fall of gravity / 16 a tick in water leaves a vehicle resting
+     * on the floor, which its next Entity#move collides below with.
+     */
+    private static final double WATER_FALL = -0.08 / 16.0;
     /** The gap a vehicle's box leaves to the wall in the stopping cases. */
     private static final double GAP = 0.001;
 
@@ -345,11 +350,12 @@ class VehicleWallCollisionTest {
                 f.setPassengers(VEHICLE + 1, List.of(VEHICLE + 2));
             }
             f.pongThrough(f.player.lastTransactionSent.get());
-            // The move follows the client ticks CompensatedVehicleState tracks after a vehicle switch.
-            for (int tick = 0; tick < 5; tick++) assertExact(f.rideTick(seat, true));
+            // The move follows the client ticks CompensatedVehicleState tracks after a vehicle switch. A happy ghast
+            // has no gravity, so its level Entity#move never collides below and reports it off the ground.
+            for (int tick = 0; tick < 5; tick++) assertExact(f.rideTick(seat, false));
             f.input(FORWARD);
-            assertExact(f.rideTick(seat, true));
-            return f.rideTick(new Vec3(seat.x, seat.y, seat.z + dz), true);
+            assertExact(f.rideTick(seat, false));
+            return f.rideTick(new Vec3(seat.x, seat.y, seat.z + dz), false);
         }
     }
 
@@ -363,7 +369,7 @@ class VehicleWallCollisionTest {
         Vec3 seat = new Vec3(2.0 - 0.05 - HORSE_HALF_WIDTH, FLOOR_Y, 2.9 + HORSE_HALF_WIDTH);
         for (boolean clipped : new boolean[] {true, false}) {
             try (var f = ridden(EntityTypeIds.HORSE, seat)) {
-                carry(f, seat, new Vec3(0.19, 0.0, 0.198));
+                carry(f, seat, new Vec3(0.19, WATER_FALL, 0.198));
                 flowingWater(f, true);
                 column(f, 2, 2);
                 double x = 2.0 - HORSE_HALF_WIDTH + (clipped ? 0.0 : 0.01);
@@ -383,7 +389,7 @@ class VehicleWallCollisionTest {
         Vec3 seat = new Vec3(2.9 + HORSE_HALF_WIDTH, FLOOR_Y, 2.0 - 0.05 - HORSE_HALF_WIDTH);
         for (boolean clipped : new boolean[] {true, false}) {
             try (var f = ridden(EntityTypeIds.HORSE, seat)) {
-                carry(f, seat, new Vec3(0.198, 0.0, 0.19));
+                carry(f, seat, new Vec3(0.198, WATER_FALL, 0.19));
                 flowingWater(f, false);
                 column(f, 2, 2);
                 double z = 2.0 - HORSE_HALF_WIDTH + (clipped ? 0.0 : 0.01);
@@ -404,7 +410,7 @@ class VehicleWallCollisionTest {
         Vec3 seat = new Vec3(2.4375 - 0.05 - HORSE_HALF_WIDTH, FLOOR_Y, 5.0 - 0.05 - HORSE_HALF_WIDTH);
         for (boolean clipped : new boolean[] {true, false}) {
             try (var f = ridden(EntityTypeIds.HORSE, seat)) {
-                carry(f, seat, new Vec3(0.19, 0.0, 0.198));
+                carry(f, seat, new Vec3(0.19, WATER_FALL, 0.198));
                 flowingWater(f, true);
                 PredictionScenarios.fill(f, 0, 64, 5, 3, 64, 5, BlockIds.STONE.defaultState());
                 PredictionScenarios.fill(f, 2, 65, 3, 2, 65, 3, block("minecraft:glass_pane"));
@@ -540,7 +546,9 @@ class VehicleWallCollisionTest {
         f.setPassengers(VEHICLE, List.of(f.player.entityID));
         f.pongThrough(f.player.lastTransactionSent.get());
         // These geometry cases start after the existing five-tick vehicle-switch window, including rejection cases.
-        for (int tick = 0; tick < 6; tick++) assertExact(f.rideTick(seat, true));
+        // The root mounts with no velocity, and LivingEntity#travel moves before its gravity: its first Entity#move
+        // does not collide below and reports it airborne.
+        for (int tick = 0; tick < 6; tick++) assertExact(f.rideTick(seat, tick != 0));
     }
 
     /** The server's UpdateAttributes setting the vehicle's step_height base to {@code value}. */
@@ -577,10 +585,12 @@ class VehicleWallCollisionTest {
                     ac.cult.cultac.utils.nmsutil.WaterCurrent.calculateWaterCurrent(f.player, context, seat, Vec3.ZERO);
             // Entity#baseTick applies the current before travel. Holding this setup stationary requires the
             // opposite starting velocity; zero velocity would legitimately drift before the collision case.
-            f.player
-                    .checkManager
-                    .getSimulationProcessor()
-                    .seedStartingVelocity(current == null ? Vec3.ZERO : new Vec3(-current.x, 0, -current.z));
+            if (current != null) {
+                f.player
+                        .checkManager
+                        .getSimulationProcessor()
+                        .seedStartingVelocity(new Vec3(-current.x, WATER_FALL, -current.z));
+            }
             assertExact(f.rideTick(seat, true));
         }
         f.player.checkManager.getSimulationProcessor().seedStartingVelocity(velocity);

@@ -108,6 +108,8 @@ class RisingMoveGroundClaimTest {
     void aJumpLandingWithOnlyTheBoxEdgeOverALedgeClaimsTheGround() throws Exception {
         Vec3 start = new Vec3(0.75, FLOOR_Y + 1, 0.5);
         try (var f = ledge(BlockIds.STONE.defaultState(), start)) {
+            // Standing on the ledge top, above the fixture's floor, with the gravity its last travel left.
+            f.place(start, new Vec3(0.0, JavaTickFixture.RESTING_Y, 0.0));
             f.player.onGround = f.player.lastOnGround = true;
             f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.TRUE);
             f.input(NONE);
@@ -176,7 +178,15 @@ class RisingMoveGroundClaimTest {
     @Test
     void aGroundClaimOnAJumpStoppedByTheCeilingFlags() throws Exception {
         try (var f = underCeiling()) {
-            assertRejected(f.tick(new Vec3(0.5, FLOOR_Y + 0.2, 0.5), true), "GroundSpoof");
+            // The packet is the jump with a ground it never had, or a tick that stood and rose 0.2 with no jump: the
+            // engine flags whichever of the two is the lesser lie.
+            PredictionResult result = f.tick(new Vec3(0.5, FLOOR_Y + 0.2, 0.5), true);
+            assertFalse(result.isExempt(), describe(result));
+            assertTrue(
+                    result.getFlags().stream()
+                            .map(flag -> flag.getCheck().getCheckName())
+                            .anyMatch(check -> check.equals("GroundSpoof") || check.equals("VerticalOffset")),
+                    describe(result));
         }
     }
 

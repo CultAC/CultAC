@@ -68,7 +68,9 @@ class JavaVehicleControlRegainTest {
             ac.cult.cultac.events.packets.listeners.CheckManagerListener.receiveGeneric(f.event(ServerboundPackets.SET_CARRIED_ITEM, selected), f.player);
             float speed = (float) (0.25D * 0.225D);
             float move = speed * (0.21600002F / (0.6F * 0.6F * 0.6F));
-            assertVehicleExact(f.rideTick(START.add(0, 0, move), true), f.player.packetStateData.acceptedClientTick);
+            // The passive pig stood without velocity: its first Entity#move does not collide below and reports it
+            // airborne, while LivingEntity#travelInAir still reads the ground friction of the tick before.
+            assertVehicleExact(f.rideTick(START.add(0, 0, move), false), f.player.packetStateData.acceptedClientTick);
             var processor = f.player.checkManager.getSimulationProcessor();
             var ground = processor.getLastOnGround();
             var carry = processor.getCurrentPredictionCarry();
@@ -94,7 +96,9 @@ class JavaVehicleControlRegainTest {
             ac.cult.cultac.events.packets.listeners.CheckManagerListener.receiveGeneric(f.event(ServerboundPackets.SET_CARRIED_ITEM, control), f.player);
             float riddenSpeed = (float) (0.25D * 0.225D);
             float firstMove = riddenSpeed * (0.21600002F / (0.6F * 0.6F * 0.6F));
-            assertVehicleExact(f.rideTick(START.add(0, 0, firstMove), true), f.player.packetStateData.acceptedClientTick);
+            // The passive pig stood without velocity: its first Entity#move does not collide below and reports it
+            // airborne, while LivingEntity#travelInAir still reads the ground friction of the tick before.
+            assertVehicleExact(f.rideTick(START.add(0, 0, firstMove), false), f.player.packetStateData.acceptedClientTick);
             var release = new ServerboundSetCarriedItem(1);
             ac.cult.cultac.events.packets.listeners.CheckManagerListener.receiveGeneric(f.event(ServerboundPackets.SET_CARRIED_ITEM, release), f.player);
             Vec3 start = START.add(0, 3, 0);

@@ -30,9 +30,12 @@ import org.mockito.Mockito;
 /**
  * A standing client sends nothing while LocalPlayer#sendPosition sees no move within 2.0E-4 of xLast, no turn, and
  * onGround equal to lastOnGround, until its 20-tick position reminder. A player_position leaves Entity#onGround,
- * lastOnGround and xLast alone, so a teleport onto the spot the player stands on is followed by no packet at all; a
- * respawn's new LocalPlayer starts from xLast 0 and lastOnGround false, so its first tick sends a position. A ridden
- * tick sends passenger Rot outside sendPosition and writes neither xLast nor lastOnGround.
+ * lastOnGround, xLast and positionReminder alone, but its absolute delta movement replaces the resting gravity with
+ * zero: the next LivingEntity#travel moves by nothing, Entity#move grounds only a move stopped on its way down, and
+ * the tick sends StatusOnly off the ground; the tick after falls by the gravity that travel added, lands and sends
+ * StatusOnly on it. A respawn's new LocalPlayer starts from xLast 0 and lastOnGround false, so its first tick sends a
+ * position. A ridden tick sends passenger Rot outside sendPosition and writes neither xLast, lastOnGround nor
+ * positionReminder.
  */
 class StandingStillThroughTeleportTest {
     private static final Vec3 STANDING = new Vec3(0.5, FLOOR_Y, 0.5);
@@ -48,7 +51,8 @@ class StandingStillThroughTeleportTest {
             int teleport = sendTeleport(f, 1, STANDING);
             f.pongThrough(teleport);
             accept(f, 1, STANDING);
-            committed.addAll(tickEnds(f, UNSENT));
+            committed.addAll(landingAfterTheTeleport(f));
+            committed.addAll(tickEnds(f, UNSENT - 2));
             committed.add(f.tick(STANDING, true));
             assertClean(f, committed);
         }
@@ -65,9 +69,11 @@ class StandingStillThroughTeleportTest {
             accept(f, 1, STANDING);
             // A ping sent after the teleport stays unanswered for a while.
             int later = f.player.sendTrailingTransaction();
-            committed.addAll(tickEnds(f, 8));
+            committed.addAll(landingAfterTheTeleport(f));
+            committed.addAll(tickEnds(f, 6));
             f.pongThrough(later);
-            committed.addAll(tickEnds(f, UNSENT - 8));
+            // The ticks before the teleport count toward the reminder too.
+            committed.addAll(tickEnds(f, UNSENT - 6 - 8));
             committed.add(f.tick(STANDING, true));
             assertClean(f, committed);
         }
@@ -85,8 +91,8 @@ class StandingStillThroughTeleportTest {
                     STANDING.x, STANDING.y, STANDING.z, f.player.xRot, f.player.yRot, false, false, true, true);
             f.listener.onMovePlayer(f.event(ServerboundPackets.MOVE_PLAYER, posRot), f.player, posRot);
             f.pongThrough(f.player.lastTransactionSent.get());
-            f.tickEnd();
-            committed.addAll(tickEnds(f, UNSENT));
+            committed.addAll(landingAfterTheTeleport(f));
+            committed.addAll(tickEnds(f, UNSENT - 2));
             committed.add(f.tick(STANDING, true));
             assertClean(f, committed);
         }
@@ -103,8 +109,10 @@ class StandingStillThroughTeleportTest {
             accept(f, 1000, SPAWN);
             f.player.packetStateData.playerLoadedIntoLevel = true;
             f.pongThrough(f.player.lastTransactionSent.get());
-            committed.add(f.tick(SPAWN, true));
-            committed.addAll(tickEnds(f, UNSENT));
+            // The new LocalPlayer's first travel moves by nothing, so the position it sends is off the ground.
+            committed.add(f.tick(SPAWN, false));
+            committed.add(statusTick(f, true));
+            committed.addAll(tickEnds(f, UNSENT - 1));
             committed.add(f.tick(SPAWN, true));
             assertClean(f, committed);
         }
@@ -127,7 +135,8 @@ class StandingStillThroughTeleportTest {
             int teleport = sendTeleport(f, 1, STANDING);
             f.pongThrough(teleport);
             accept(f, 1, STANDING);
-            committed.addAll(tickEnds(f, UNSENT - 5));
+            committed.addAll(landingAfterTheTeleport(f));
+            committed.addAll(tickEnds(f, UNSENT - 2));
             committed.add(f.tick(STANDING, true));
             assertClean(f, committed);
         }
@@ -162,6 +171,23 @@ class StandingStillThroughTeleportTest {
         new PacketServerTeleport().onAcceptTeleportation(event, f.player, packet);
         assertFalse(event.isCancelled(), "the teleport acceptance was rejected");
         f.pongThrough(f.player.lastTransactionSent.get());
+    }
+
+    /**
+     * The two client ticks after a player_position with no delta movement onto the floor: StatusOnly off the ground,
+     * then StatusOnly on it; the predictions they committed.
+     */
+    private static List<PredictionResult> landingAfterTheTeleport(JavaTickFixture f) {
+        return List.of(statusTick(f, false), statusTick(f, true));
+    }
+
+    /** A client tick that sends StatusOnly with {@code onGround}; the prediction it committed. */
+    private static PredictionResult statusTick(JavaTickFixture f, boolean onGround) {
+        PredictionResult before = f.player.checkManager.getSimulationProcessor().getLastPrediction();
+        f.statusTick(onGround, false);
+        PredictionResult after = f.player.checkManager.getSimulationProcessor().getLastPrediction();
+        assertTrue(after != before, "the status tick committed no prediction");
+        return after;
     }
 
     /** {@code ticks} client ticks that send only ServerboundClientTickEndPacket; the predictions they committed. */

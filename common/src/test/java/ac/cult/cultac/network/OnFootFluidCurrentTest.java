@@ -124,7 +124,10 @@ class OnFootFluidCurrentTest {
             try (var f = channel(protocol, client, BlockIds.LAVA, 1)) {
                 JavaTickFixture.setField(CompensatedWorld.class, f.player.compensatedWorld, "fastLava", fastLava);
                 double scale = fastLava ? FAST_LAVA_SCALE : LAVA_SCALE;
-                wade(f, new Vec3(-2.5, FLOOR_Y, 0.5), DOWNSTREAM, FORWARD, scale, (float) LAVA_DRAG, 6);
+                // From 26.1 LivingEntity#checkFallDamage refreshes Entity#updateFluidInteraction, lava included, for
+                // an entity that is not in water.
+                boolean pushedAgain = client.isNewerThanOrEquals(ClientVersion.V_26_1);
+                wade(f, new Vec3(-2.5, FLOOR_Y, 0.5), DOWNSTREAM, FORWARD, scale, (float) LAVA_DRAG, 6, pushedAgain);
             }
         }
     }
@@ -208,6 +211,22 @@ class OnFootFluidCurrentTest {
             double scale,
             float drag,
             int ticks) {
+        wade(f, start, yaw, keys, scale, drag, ticks, false);
+    }
+
+    /**
+     * {@link #wade} for a fluid whose current is {@code pushedAgain} inside the travel's Entity#move: that push follows
+     * the move the tick reports and is carried, with the move, into the next tick.
+     */
+    private static void wade(
+            JavaTickFixture f,
+            Vec3 start,
+            float yaw,
+            ServerboundPlayerInput keys,
+            double scale,
+            float drag,
+            int ticks,
+            boolean pushedAgain) {
         f.player.xRot = yaw;
         f.player.yRot = 0.0F;
         f.place(start, Vec3.ZERO);
@@ -220,7 +239,8 @@ class OnFootFluidCurrentTest {
             position = position.add(delta.x, 0.0, delta.z);
             PredictionResult result = f.tick(position, true);
             assertTrue(exact(result), "tick " + tick + ": " + describe(result));
-            velocity = new Vec3(delta.x * drag, 0.0, delta.z * drag);
+            Vec3 carried = pushedAgain ? delta.add(currentFor(delta, scale)) : delta;
+            velocity = new Vec3(carried.x * drag, 0.0, carried.z * drag);
         }
     }
 
@@ -249,7 +269,9 @@ class OnFootFluidCurrentTest {
     /**
      * A sprinter on the floor of the two-deep channel swims from its second sprinting tick: Entity#updateSwimming,
      * then Player#updatePlayerPose's 0.6 swimming box, whose cells still all flow +x. LivingEntity#travelInWater slows
-     * a sprinter by 0.9F.
+     * a sprinter by 0.9F. LivingEntity#getFluidFallingAdjustedMovement gives a sprinter no gravity: its first
+     * sprinting travel still lands with the gravity of the tick before, and every travel after it has no vertical part
+     * for Entity#move to stop, so it reports the air.
      */
     @ParameterizedTest
     @MethodSource("versions")
@@ -274,7 +296,7 @@ class OnFootFluidCurrentTest {
                     Vec3 pushed = threshold(f, velocity.add(currentFor(velocity, WATER_SCALE)));
                     Vec3 delta = pushed.add(ClientMoveInput.of(f, keys, 1.0F, 0.02F, yaw));
                     position = position.add(delta.x, 0.0, delta.z);
-                    PredictionResult result = f.tick(position, true);
+                    PredictionResult result = f.tick(position, tick < 2);
                     assertTrue(exact(result), "yaw " + yaw + " tick " + tick + ": " + describe(result));
                     float drag = sprinting ? 0.9F : WATER_DRAG;
                     velocity = new Vec3(delta.x * drag, 0.0, delta.z * drag);
@@ -285,13 +307,13 @@ class OnFootFluidCurrentTest {
     }
 
     /**
-     * A source replacing the level 1 water beside the player's cell turns that cell's flow from +x towards -z. The
-     * change can still be ahead of the client for the ticks after it, so the move keeps the current of either flow,
-     * and no candidate goes without a current.
+     * A source replacing the level 1 water beside the player's cell turns that cell's flow from +x towards -z.
+     * FlowingFluid#getFlow reads the blocks the client's level holds when Entity#baseTick runs, so every move after the
+     * client took the change is carried by the new flow alone, and no candidate goes without a current.
      */
     @ParameterizedTest
     @MethodSource("versions")
-    void aRecentFlowChangeBesideThePlayerKeepsTheCurrentOfEitherFlow(ProtocolVersion protocol, ClientVersion client)
+    void aFlowChangeBesideThePlayerTurnsItsCurrent(ProtocolVersion protocol, ClientVersion client)
             throws Exception {
         try (var f = channel(protocol, client, BlockIds.WATER, 1)) {
             Vec3 position = drift(f);
@@ -309,7 +331,7 @@ class OnFootFluidCurrentTest {
                 PredictionResult result = f.tick(position, true);
                 assertTrue(exact(result), "tick " + tick + ": " + describe(result));
                 assertTrue(carriesTheWaterCurrent(result), "tick " + tick + ": a candidate without the water current");
-                assertTrue(carriesWaterCurrent(result, oldCurrent), "tick " + tick + ": no candidate with the old flow");
+                assertFalse(carriesWaterCurrent(result, oldCurrent), "tick " + tick + ": a candidate with the old flow");
                 assertTrue(carriesWaterCurrent(result, newCurrent), "tick " + tick + ": no candidate with the new flow");
                 velocity = new Vec3(delta.x * WATER_DRAG, 0.0, delta.z * WATER_DRAG);
             }

@@ -74,6 +74,13 @@ class PlayerCollisionBoxesParityTest {
                 compare(f.player, queries, query, "step " + step + " " + query);
             }
         }
+        // A boat alone in the level, then at a box whose bounds are out of order, which every query fails on.
+        CompensatedEntities entities = f.player.compensatedEntities;
+        entities.clearEntityMap();
+        spawn(f, 3000, EntityTypeIds.OAK_BOAT, new Vec3(1, Y, 1), 0);
+        compare(f.player, queries, ClientEntityQueryCandidateTest.NEAR, "a boat alone");
+        entities.getEntity(3000).setPositionRaw(new SimpleCollisionBox().set(1, Y, 1, 0.5, Y + 0.5, 0.5));
+        compare(f.player, queries, ClientEntityQueryCandidateTest.NEAR, "a boat with its bounds out of order");
     }
 
     private void compare(CultPlayer player, ClientEntityQueries queries, Box query, String where) {
@@ -206,7 +213,7 @@ class PlayerCollisionBoxesParityTest {
         var search = query.inflate(1.0E-7);
         SimpleCollisionBox candidate = null;
         for (var entity : player.compensatedEntities.entityMap.values()) {
-            if (!present(player, entity) || spectator(player, entity) || !collidable(entity)) continue;
+            if (!present(entity) || spectator(player, entity) || !collidable(entity)) continue;
             if (candidate == null) candidate = new SimpleCollisionBox();
             for (int i = 0, count = entity.possibleMovementCollisionBoxCandidateCount(); i < count; i++) {
                 var bounds = entity.toBoundingBox(player, entity.possibleMovementCollisionBoxCandidate(i, candidate));
@@ -225,9 +232,10 @@ class PlayerCollisionBoxesParityTest {
         return entity instanceof PacketEntityHappyGhast ghast && !ghast.isBaby && ghast.actionAlive && ghast.staysStill;
     }
 
-    private static boolean present(CultPlayer player, PacketEntity entity) {
-        return (!(entity instanceof PacketEntityPlayer remote) || remote.actionPresent)
-                && !player.compensatedEntities.isUntrackedRider(entity);
+    // Entity#canCollideWith leaves out only a passenger of the source's own vehicle: a rider of any other vehicle
+    // still collides, at the seat its vehicle gives it.
+    private static boolean present(PacketEntity entity) {
+        return !(entity instanceof PacketEntityPlayer remote) || remote.actionPresent;
     }
 
     private static boolean spectator(CultPlayer player, PacketEntity entity) {

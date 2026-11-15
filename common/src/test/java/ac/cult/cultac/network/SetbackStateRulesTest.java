@@ -197,7 +197,9 @@ class SetbackStateRulesTest {
                 assertTrue(exact(before), "shot " + shot + " before the answer: " + describe(before));
                 pitch -= 1.5F;
                 answer(f, 60 + shot, leading, STANDING, pitch);
-                PredictionResult after = f.tick(STANDING, true);
+                // PositionMoveRotation#calculateAbsolute takes the packet's zero delta for the axes without a DELTA
+                // flag: the tick after the teleport has no fall to collide below with and reports the player airborne.
+                PredictionResult after = f.tick(STANDING, false);
                 assertTrue(exact(after), "shot " + shot + " after the answer: " + describe(after));
                 assertTrue(teleports.getRequiredSetBack().isPlugin(), "shot " + shot + " caused a setback");
             }

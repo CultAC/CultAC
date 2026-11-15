@@ -34,9 +34,11 @@ import ac.cult.cultac.utils.nmsutil.WatchableIndexUtil;
 import org.junit.jupiter.api.Test;
 
 /**
- * Captured 1.21.11 and 26.3 clients that keep LocalPlayer#modifyInput's use multiplier after the server's completion (entity event
- * 9) or their own release_use_item ended the use: the reported keys still move them at the use's speed. Moves that the
- * ended use's multiplier does not produce still flag.
+ * Captured 1.21.11 and 26.3 clients whose main-hand use ends, by the server's completion (entity event 9) or their own
+ * release_use_item, while the use key stays down and a shield is in the off hand. Minecraft#handleKeybinds starts the
+ * shield's use in the tick the first use ends, so LocalPlayer#modifyInput keeps scaling the reported keys by a use's
+ * multiplier. With no use in progress the keys move at the walking speed from the first tick, and a move at a use's
+ * speed flags.
  */
 class ItemUseEndedInputKeysTest {
     private static final ServerboundPlayerInput NONE =
@@ -146,15 +148,19 @@ class ItemUseEndedInputKeysTest {
     private int sequence = 200;
 
     /**
-     * The client sends use_item again before it handles entity event 9 for its last stack, the server never
-     * confirms that use, and the client keeps moving its forward keys at the use's speed after the completion.
+     * The client sends use_item again before it handles entity event 9 for its last stack, raises its shield in the
+     * tick it handles the event, and keeps moving its forward keys at a use's speed.
      */
     @Test
     void walkingAtTheUseSpeedAfterTheCompletionIsNotFlagged() throws Exception {
         try (var f = new JavaTickFixture()) {
             startCompletedRun(f);
             for (int row = COMPLETED_EVENT_ROW; row < COMPLETED_RUN.length; row++) {
-                if (row == COMPLETED_EVENT_ROW + 1) usingFlags(f, (byte) 0);
+                if (row == COMPLETED_EVENT_ROW) {
+                    holdShield(f);
+                    use(f, Hand.OFF_HAND);
+                }
+                if (row == COMPLETED_EVENT_ROW + 1) usingFlags(f, (byte) 3);
                 PredictionResult result = replay(f, COMPLETED_RUN[row], COMPLETED_SHIFT_X, COMPLETED_SHIFT_Z);
                 assertTrue(exact(result), "seq " + (12918 + row) + " " + flags(result));
             }
@@ -163,8 +169,8 @@ class ItemUseEndedInputKeysTest {
     }
 
     /**
-     * The client restarts the use, releases it in the next tick, and moves its forward keys at the use's
-     * speed on that tick and the next, when it handles entity event 9 and the server's stop.
+     * The client restarts the use, releases it in the next tick with its shield raised in its place, and moves its
+     * forward keys at a use's speed on that tick and the next, when it handles entity event 9.
      */
     @Test
     void walkingAtTheUseSpeedAfterTheClientsReleaseIsNotFlagged() throws Exception {
@@ -172,6 +178,7 @@ class ItemUseEndedInputKeysTest {
             f.player.food = 10;
             f.player.getInventory().inventory.getInventoryStorage()
                     .setItem(Inventory.HOTBAR_OFFSET, ItemUtil.modelItems().stack("minecraft:baked_potato", 26));
+            holdShield(f);
             use(f, Hand.MAIN_HAND);
             usingFlags(f, (byte) 1);
             double[] from = RELEASED_RUN[0];
@@ -185,18 +192,20 @@ class ItemUseEndedInputKeysTest {
             use(f, Hand.MAIN_HAND);
             assertExactRow(f, RELEASED_RUN[3], RELEASED_SHIFT_X, RELEASED_SHIFT_Z, 12825);
             release(f);
+            use(f, Hand.OFF_HAND);
             f.input(SPRINT_KEY_FORWARD);
             assertExactRow(f, RELEASED_RUN[4], RELEASED_SHIFT_X, RELEASED_SHIFT_Z, 12826);
             complete(f);
-            usingFlags(f, (byte) 0);
+            use(f, Hand.OFF_HAND);
+            usingFlags(f, (byte) 3);
             assertExactRow(f, RELEASED_RUN[5], RELEASED_SHIFT_X, RELEASED_SHIFT_Z, 12827);
             assertNoFlags(f);
         }
     }
 
     /**
-     * A 1.21.11 client eats its last apple, sends no use_item for that hand again, and keeps moving its
-     * forward-left keys at the use's speed after entity event 9 and the server's stop.
+     * A 1.21.11 client eats its last apple, sends no use_item for that hand again, raises its shield in the tick it
+     * handles entity event 9, and keeps moving its forward-left keys at a use's speed.
      */
     @Test
     void walkingAtTheUseSpeedAfterTheLastStackIsCompletedIsNotFlagged() throws Exception {
@@ -204,6 +213,7 @@ class ItemUseEndedInputKeysTest {
             f.player.food = 10;
             f.player.getInventory().inventory.getInventoryStorage()
                     .setItem(Inventory.HOTBAR_OFFSET, ItemUtil.modelItems().stack("minecraft:apple", 1));
+            holdShield(f);
             use(f, Hand.MAIN_HAND);
             usingFlags(f, (byte) 1);
             double[] from = LAST_STACK_RUN[0];
@@ -215,9 +225,11 @@ class ItemUseEndedInputKeysTest {
             f.input(SPRINT_KEY_FORWARD_LEFT);
             for (int row = 2; row < LAST_STACK_RUN.length; row++) {
                 int seq = LAST_STACK_FIRST_SEQ + row;
-                if (seq == 8651) complete(f);
-                if (seq == 8652) usingFlags(f, (byte) 0);
-                if (seq == 8655) use(f, Hand.OFF_HAND);
+                if (seq == 8651) {
+                    complete(f);
+                    use(f, Hand.OFF_HAND);
+                }
+                if (seq == 8652) usingFlags(f, (byte) 3);
                 if (seq == 8659) f.input(SPRINT_KEY_FORWARD);
                 assertExactRow(f, LAST_STACK_RUN[row], LAST_STACK_SHIFT_X, LAST_STACK_SHIFT_Z, seq);
             }
@@ -227,7 +239,8 @@ class ItemUseEndedInputKeysTest {
 
     /**
      * A 1.21.11 client eating a golden apple from hotbar slot 4 lands, jumps, takes knockback in the tick it
-     * handles entity event 9, changes slots twice, lands again and moves its forward-right keys at the use's speed.
+     * handles entity event 9 and raises its shield, changes slots twice, lands again and moves its forward-right keys
+     * at a use's speed.
      */
     @Test
     void walkingAtTheUseSpeedAfterACompletionInTheAirIsNotFlagged() throws Exception {
@@ -235,6 +248,7 @@ class ItemUseEndedInputKeysTest {
             f.player.food = 20;
             f.player.getInventory().inventory.getInventoryStorage()
                     .setItem(Inventory.HOTBAR_OFFSET + 4, ItemUtil.modelItems().stack("minecraft:golden_apple", 6));
+            holdShield(f);
             selectSlot(f, 4);
             use(f, Hand.MAIN_HAND);
             usingFlags(f, (byte) 1);
@@ -251,8 +265,9 @@ class ItemUseEndedInputKeysTest {
                 if (seq == 951) {
                     f.pongThrough(f.velocity(new Vec3(-0.19630104376487822, 0.24812305438564364, 0.3485320148934872)));
                     complete(f);
+                    use(f, Hand.OFF_HAND);
                 }
-                if (seq == 952) usingFlags(f, (byte) 0);
+                if (seq == 952) usingFlags(f, (byte) 3);
                 if (seq == 954) selectSlot(f, 1);
                 if (seq == 958) {
                     selectSlot(f, 0);
@@ -269,19 +284,16 @@ class ItemUseEndedInputKeysTest {
         }
     }
 
-    /** The use's speed stays a reality for a bounded run of client ticks after the completion, not for good. */
+    /**
+     * LocalPlayer#modifyInput scales the keys by the use's multiplier only while LocalPlayer#isUsingItem holds.
+     * LivingEntity#completeUsingItem ends the use through LocalPlayer#stopUsingItem when the client handles entity
+     * event 9, and no later packet starts one here, so the first aiStep after it moves the keys at the walking speed.
+     */
     @Test
-    void walkingAtTheUseSpeedLongAfterTheCompletionIsFlagged() throws Exception {
+    void walkingAtTheUseSpeedOnTheTickAfterTheCompletionIsFlagged() throws Exception {
         try (var f = completedStraightWalk()) {
             double velocity = steadySlowedVelocity();
-            double z = 0.0;
-            PredictionResult result = null;
-            for (int tick = 0; tick < 12; tick++) {
-                z += velocity + SLOWED;
-                velocity = (velocity + SLOWED) * FRICTION;
-                result = f.tick(new Vec3(0.5, FLOOR_Y, z - 6.0), true);
-                if (tick < 11) assertTrue(exact(result), "tick " + tick + " " + flags(result));
-            }
+            PredictionResult result = f.tick(new Vec3(0.5, FLOOR_Y, velocity + SLOWED - 6.0), true);
             assertTrue(rejectsKeys(result), flags(result));
         }
     }
@@ -414,6 +426,14 @@ class ItemUseEndedInputKeysTest {
         double velocity = 0.0;
         for (int tick = 0; tick < 6; tick++) velocity = (velocity + SLOWED) * FRICTION;
         return velocity;
+    }
+
+    private static void holdShield(JavaTickFixture f) {
+        f.player
+                .getInventory()
+                .inventory
+                .getInventoryStorage()
+                .setItem(Inventory.SLOT_OFFHAND, ItemUtil.modelItems().stack("minecraft:shield", 1));
     }
 
     private void use(JavaTickFixture f, Hand hand) {

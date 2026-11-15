@@ -415,7 +415,10 @@ class BadPacketsJBoatUseYawTest {
                 yaw = clampRotation(turned, boatYaw);
                 if (yaw != turned) clamped++;
                 rot(f, yaw);
-                moveBoat(f, new Vec3d(boat.x, boat.y, boat.z), boatYaw);
+                // fromEntity reports the active path's target position and rotation, while controlBoat and
+                // positionRider above turned the boat's own yaw.
+                Vec3 reported = steps > 0 ? target : boat;
+                moveBoat(f, new Vec3d(reported.x, reported.y, reported.z), steps > 0 ? targetYaw : boatYaw);
                 f.tickEnd();
                 if (tick == 0) f.pongThrough(nextPing);
             }
@@ -486,7 +489,10 @@ class BadPacketsJBoatUseYawTest {
                 if (yaw != turned) clamped++;
                 boat = boat.add(DRIFT);
                 rot(f, yaw);
-                moveBoat(f, new Vec3d(boat.x, boat.y, boat.z), boatYaw);
+                // fromEntity reports the active path's target position and rotation, while controlBoat and
+                // positionRider above turned the boat's own yaw.
+                Vec3 reported = steps > 0 ? target : boat;
+                moveBoat(f, new Vec3d(reported.x, reported.y, reported.z), steps > 0 ? targetYaw : boatYaw);
                 f.tickEnd();
             }
             assertTrue(clamped > 0);

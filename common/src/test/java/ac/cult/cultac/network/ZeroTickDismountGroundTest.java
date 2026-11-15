@@ -117,7 +117,9 @@ class ZeroTickDismountGroundTest {
             float speed = (float) ((double) 0.1F * (1.0D + (double) 0.3F));
             double axis = speed / Math.sqrt(2.0D);
             if (excessive) axis += 0.2D;
-            var result = f.tick(START.add(-axis, 0.0D, axis), true);
+            // The teleport left no vertical velocity: Entity#move does not collide below and reports the player
+            // airborne, while LivingEntity#travelInAir still reads the friction of the ground it stood on.
+            var result = f.tick(START.add(-axis, 0.0D, axis), false);
             if (excessive) {
                 assertTrue(result.getOffset() > 1.0E-5, describe(result));
                 assertTrue(result.getFlagSeverity() > 0.0D, describe(result));

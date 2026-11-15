@@ -46,8 +46,8 @@ class JavaWalkBesideBoatTest {
     void walkingAlongABoatsSideKeepsTheWholeMove() throws Exception {
         for (double gap : GAPS) {
             try (var f = new JavaTickFixture()) {
-                boatBeside(f, gap);
-                along(f, FORWARD, 1.0F, false, gap);
+                double boatX = boatBeside(f, gap);
+                along(f, FORWARD, 1.0F, false, gap, boatX);
             }
         }
     }
@@ -56,8 +56,8 @@ class JavaWalkBesideBoatTest {
     void sneakingAlongABoatsSideIsSneakSlowed() throws Exception {
         for (double gap : GAPS) {
             try (var f = new JavaTickFixture()) {
-                boatBeside(f, gap);
-                along(f, SNEAK_FORWARD, SNEAKING_SPEED, true, gap);
+                double boatX = boatBeside(f, gap);
+                along(f, SNEAK_FORWARD, SNEAKING_SPEED, true, gap, boatX);
             }
         }
     }
@@ -94,8 +94,9 @@ class JavaWalkBesideBoatTest {
                 boatBeside(f, gap);
                 start(f, FORWARD, TOWARDS, false);
                 Vec3 input = ClientMoveInput.of(f, FORWARD, 1.0F, SPEED, TOWARDS);
+                // Entity#collide steps the grounded player onto the boat, so a move that stays on the floor is not its.
                 PredictionResult clipped = f.tick(START.add(gap, 0.0, input.z), true);
-                assertRejected(clipped, "InputKeys");
+                assertRejected(clipped, "VerticalOffset");
             }
         }
     }
@@ -106,8 +107,9 @@ class JavaWalkBesideBoatTest {
             try (var f = new JavaTickFixture()) {
                 boatBeside(f, gap);
                 start(f, NONE, ALONG, false);
+                // No key is held and the player carries no horizontal velocity: LivingEntity#travel moves it nowhere.
                 PredictionResult drift = f.tick(START.add(0.0, 0.0, 0.05), true);
-                assertRejected(drift, "InputKeys");
+                assertRejected(drift, "Speed");
             }
         }
     }
@@ -175,6 +177,23 @@ class JavaWalkBesideBoatTest {
         return dx / distance * Math.min(1.0, 1.0 / distance) * 0.05F;
     }
 
+    /**
+     * The impulse Entity#push gives a player at {@code at} from a boat at {@code boat} on the same floor, when
+     * AbstractBoat#tick's box, the boat inflated by 0.2F horizontally, reaches the player's: the offset between them
+     * over the square root of its larger axis, at most that offset, times 0.05F.
+     */
+    private static Vec3 boatPush(Vec3 at, Vec3 boat) {
+        double reach = BOAT_HALF_WIDTH + 0.2F + 0.3F;
+        double dx = at.x - boat.x;
+        double dz = at.z - boat.z;
+        if (Math.abs(dx) >= reach || Math.abs(dz) >= reach) return Vec3.ZERO;
+        double distance = Math.max(Math.abs(dx), Math.abs(dz));
+        if (distance < 0.01F) return Vec3.ZERO;
+        distance = Math.sqrt(distance);
+        double scale = Math.min(1.0, 1.0 / distance) / distance * 0.05F;
+        return new Vec3(dx * scale, 0.0, dz * scale);
+    }
+
     /** Adds the boat {@code gap} east of the player's box and returns its centre's x. */
     private static double boatBeside(JavaTickFixture f, double gap) {
         Vec3 boat = new Vec3(START.x + 0.3F + gap + BOAT_HALF_WIDTH, FLOOR_Y, START.z);
@@ -190,11 +209,16 @@ class JavaWalkBesideBoatTest {
         f.input(keys);
     }
 
-    /** {@link #TICKS} ticks of {@code keys} along the boat's side and past its end, each exact. */
+    /**
+     * {@link #TICKS} ticks of {@code keys} along the side of the boat centred at {@code boatX} and past its end, each
+     * exact. The boat stops none of the move along its side; AbstractBoat#tick, which runs after the player's, pushes
+     * the player away while its inflated box reaches the player's, and the next move carries that push.
+     */
     private static void along(
-            JavaTickFixture f, ServerboundPlayerInput keys, float factor, boolean sneaking, double gap)
+            JavaTickFixture f, ServerboundPlayerInput keys, float factor, boolean sneaking, double gap, double boatX)
             throws Exception {
         start(f, keys, ALONG, sneaking);
+        Vec3 boat = new Vec3(boatX, FLOOR_Y, START.z);
         Vec3 position = START;
         Vec3 velocity = Vec3.ZERO;
         for (int tick = 0; tick < TICKS; tick++) {
@@ -202,7 +226,7 @@ class JavaWalkBesideBoatTest {
             position = position.add(delta.x, 0.0, delta.z);
             PredictionResult result = f.tick(position, true);
             assertTrue(exact(result), gap + " tick " + tick + ": " + describe(result));
-            velocity = new Vec3(delta.x * GROUND_FRICTION, 0.0, delta.z * GROUND_FRICTION);
+            velocity = new Vec3(delta.x * GROUND_FRICTION, 0.0, delta.z * GROUND_FRICTION).add(boatPush(position, boat));
         }
     }
 }

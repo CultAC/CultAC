@@ -79,6 +79,9 @@ class LegacyHorseJumpLandingTest {
             setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_1_21_4);
             Vec3 start = new Vec3(268.7063696741703, 62.0, 114.33237331752738).add(SHIFT);
             Vec3 lastMove = new Vec3(0.47415174220674317, 0.0, 0.010775570707039606);
+            // Until it mounts the rider stands on the floor, which its last movement packet reported.
+            f.place(start, Vec3.ZERO);
+            f.player.packetStateData.packetPlayerOnGround = true;
             mount(f, start, new Vec3(lastMove.x * GROUND_FRICTION, GROUNDED_Y, lastMove.z * GROUND_FRICTION));
 
             for (int tick = 0; tick < MOVES.length; tick++) {

@@ -15,7 +15,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Entity#collide clips each axis only against shapes ahead of the move: a wall behind the player never shortens a
- * move away from it, and a wall ahead stops a move into it.
+ * move away from it, and a wall ahead stops a move into it. A set_entity_motion with no vertical part replaces the
+ * resting gravity, and Entity#move grounds only a move stopped on its way down, so the knocked tick reports the air.
  */
 class WallCollisionDirectionTest {
     private static final ServerboundPlayerInput NONE =
@@ -31,7 +32,7 @@ class WallCollisionDirectionTest {
     void knockbackAwayFromTheWallMovesThePlayer() throws Exception {
         try (var f = fixture(FLUSH, true, false, NONE, 0.0F)) {
             f.pongThrough(f.velocity(new Vec3(0.5, 0.0, 0.0)));
-            PredictionResult result = f.tick(FLUSH.add(0.5, 0, 0), true);
+            PredictionResult result = f.tick(FLUSH.add(0.5, 0, 0), false);
             assertTrue(exact(result), describe(result));
             assertEquals(0.0, antiKb(f));
         }
@@ -41,7 +42,7 @@ class WallCollisionDirectionTest {
     void stayingAtTheWallUnderKnockbackAwayFromItFlags() throws Exception {
         try (var f = fixture(FLUSH, true, false, NONE, 0.0F)) {
             f.pongThrough(f.velocity(new Vec3(0.5, 0.0, 0.3)));
-            PredictionResult result = f.tick(FLUSH.add(0, 0, 0.3), true);
+            PredictionResult result = f.tick(FLUSH.add(0, 0, 0.3), false);
             assertTrue(result.getOffset() > 1.0E-3, describe(result));
             assertTrue(antiKb(f) > 0, describe(result));
         }
@@ -51,7 +52,7 @@ class WallCollisionDirectionTest {
     void takingPartOfTheKnockbackAwayFromTheWallFlags() throws Exception {
         try (var f = fixture(FLUSH, true, false, NONE, 0.0F)) {
             f.pongThrough(f.velocity(new Vec3(0.5, 0.0, 0.3)));
-            PredictionResult result = f.tick(FLUSH.add(0.25, 0, 0.3), true);
+            PredictionResult result = f.tick(FLUSH.add(0.25, 0, 0.3), false);
             assertTrue(result.getOffset() > 1.0E-3, describe(result));
             assertTrue(antiKb(f) > 0, describe(result));
         }
@@ -61,7 +62,7 @@ class WallCollisionDirectionTest {
     void knockbackIntoTheWallStopsAtIt() throws Exception {
         try (var f = fixture(FLUSH, true, false, NONE, 0.0F)) {
             f.pongThrough(f.velocity(new Vec3(-0.5, 0.0, 0.3)));
-            PredictionResult result = f.tick(FLUSH.add(0, 0, 0.3), true);
+            PredictionResult result = f.tick(FLUSH.add(0, 0, 0.3), false);
             assertTrue(exact(result), describe(result));
             assertEquals(0.0, antiKb(f));
         }
@@ -72,7 +73,7 @@ class WallCollisionDirectionTest {
         for (double direction : new double[] {1.0, -1.0}) {
             try (var f = fixture(CORRIDOR, true, true, NONE, 0.0F)) {
                 f.pongThrough(f.velocity(new Vec3(0.5 * direction, 0.0, 0.0)));
-                PredictionResult result = f.tick(CORRIDOR.add(0.2 * direction, 0, 0), true);
+                PredictionResult result = f.tick(CORRIDOR.add(0.2 * direction, 0, 0), false);
                 assertTrue(exact(result), direction + " " + describe(result));
                 assertEquals(0.0, antiKb(f));
             }
@@ -83,7 +84,7 @@ class WallCollisionDirectionTest {
     void stoppingShortOfTheCorridorWallUnderKnockbackFlags() throws Exception {
         try (var f = fixture(CORRIDOR, true, true, NONE, 0.0F)) {
             f.pongThrough(f.velocity(new Vec3(0.5, 0.0, 0.0)));
-            PredictionResult result = f.tick(CORRIDOR, true);
+            PredictionResult result = f.tick(CORRIDOR, false);
             assertTrue(antiKb(f) > 0, describe(result));
         }
     }
@@ -127,7 +128,7 @@ class WallCollisionDirectionTest {
                 assertTrue(exact(waiting), tick + " " + describe(waiting));
             }
             f.pongThrough(proof);
-            PredictionResult result = f.tick(FLUSH.add(0.5, 0, 0.3), true);
+            PredictionResult result = f.tick(FLUSH.add(0.5, 0, 0.3), false);
             assertTrue(exact(result), describe(result));
             assertEquals(0.0, antiKb(f));
         }

@@ -79,6 +79,11 @@ class SaddleControlSwitchTest {
     private static final short STEP = 600;
 
     private static final double PATH = STEP / 4096.0;
+    /**
+     * The passive root stood without velocity, and LivingEntity#travel moves before its gravity: the Entity#move of
+     * its first controlled tick does not collide below, so that tick alone reports it off the ground.
+     */
+    private static final int FIRST_CONTROLLED = 0;
 
     @Test
     void theRootFinishesTheServerPathItWasFollowing() throws Exception {
@@ -111,12 +116,16 @@ class SaddleControlSwitchTest {
         }
     }
 
-    /** Controlled ticks from interpolation step {@code first} of 3: no ridden input, so the path alone moves it. */
+    /**
+     * Controlled ticks from interpolation step {@code first} of 3: no ridden input, so the path alone moves it. The
+     * passive root carried no velocity, so the Entity#move of its first controlled travel does not collide below and
+     * reports it off the ground.
+     */
     private static void assertFinishesPath(JavaTickFixture f, int first) {
         for (int step = first; step <= 3; step++) {
             assertTrue(controls(f), "step " + step);
             // MoveVehicle.fromEntity reports the path target while interpolation is active.
-            PredictionResult result = f.rideTick(START.add(PATH, 0, 0), true);
+            PredictionResult result = f.rideTick(START.add(PATH, 0, 0), step != first);
             assertTrue(exact(result), "step " + step + ": " + describe(result));
             assertEquals(
                     START.x + PATH * ((float) step / 3.0F),
@@ -136,7 +145,7 @@ class SaddleControlSwitchTest {
             assertTrue(controls(f));
 
             for (int tick = 0; tick < 3; tick++) {
-                PredictionResult result = f.rideTick(START, true);
+                PredictionResult result = f.rideTick(START, tick != FIRST_CONTROLLED);
                 assertTrue(exact(result), "tick " + tick + ": " + describe(result));
             }
             assertEquals(0, badPackets.violations);
@@ -157,7 +166,7 @@ class SaddleControlSwitchTest {
             assertTrue(controls(f));
 
             for (int tick = 0; tick < 3; tick++) {
-                PredictionResult result = f.rideTick(START, true);
+                PredictionResult result = f.rideTick(START, tick != FIRST_CONTROLLED);
                 assertTrue(exact(result), "tick " + tick + ": " + describe(result));
             }
             saddle(f);
@@ -187,7 +196,7 @@ class SaddleControlSwitchTest {
         try (var f = ridden()) {
             BadPacketsVehicle badPackets = enabled(f, BadPacketsVehicle.class);
             saddle(f);
-            PredictionResult controlled = f.rideTick(START, true);
+            PredictionResult controlled = f.rideTick(START, false);
             assertTrue(exact(controlled), describe(controlled));
             openMountScreen(f, saddleItem());
             click(f, 0, 0, WindowClickType.PICKUP, Map.of(0, SimItemStack.EMPTY), saddleItem());
@@ -208,7 +217,7 @@ class SaddleControlSwitchTest {
             BadPacketsVehicle badPackets = enabled(f, BadPacketsVehicle.class);
             openMountScreen(f, SimItemStack.EMPTY);
             SaddleClick.SHIFT.perform(f);
-            PredictionResult controlled = f.rideTick(START, true);
+            PredictionResult controlled = f.rideTick(START, false);
             assertTrue(exact(controlled), describe(controlled));
 
             setSlot(f, 0, SimItemStack.EMPTY);
@@ -271,7 +280,7 @@ class SaddleControlSwitchTest {
             assertTrue(controls(f));
 
             for (int tick = 0; tick < 3; tick++) {
-                PredictionResult result = f.rideTick(START, true);
+                PredictionResult result = f.rideTick(START, tick != FIRST_CONTROLLED);
                 assertTrue(exact(result), "tick " + tick + ": " + describe(result));
             }
             assertEquals(0, badPackets.violations);
@@ -442,7 +451,7 @@ class SaddleControlSwitchTest {
         try (var f = ridden()) {
             BadPacketsVehicle badPackets = enabled(f, BadPacketsVehicle.class);
             saddle(f);
-            PredictionResult controlled = f.rideTick(START, true);
+            PredictionResult controlled = f.rideTick(START, false);
             assertTrue(exact(controlled), describe(controlled));
 
             sendSaddle(f, SimItemStack.EMPTY);
@@ -507,7 +516,7 @@ class SaddleControlSwitchTest {
             BadPacketsVehicle badPackets = enabled(f, BadPacketsVehicle.class);
             saddle(f);
             for (int tick = 0; tick < switchWindowTicks(); tick++) {
-                PredictionResult result = f.rideTick(START, true);
+                PredictionResult result = f.rideTick(START, tick != FIRST_CONTROLLED);
                 assertTrue(exact(result), "tick " + tick + ": " + describe(result));
             }
             handBack.prepare(f);
@@ -531,7 +540,7 @@ class SaddleControlSwitchTest {
             saddle(f);
             for (int tick = 0; tick < switchWindowTicks(); tick++) {
                 assertTrue(switchWindowOpen(f, DONKEY), "tick " + tick);
-                PredictionResult result = f.rideTick(START, true);
+                PredictionResult result = f.rideTick(START, tick != FIRST_CONTROLLED);
                 assertTrue(exact(result), "tick " + tick + ": " + describe(result));
             }
 

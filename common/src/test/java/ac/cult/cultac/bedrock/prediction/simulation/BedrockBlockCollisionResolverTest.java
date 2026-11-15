@@ -426,13 +426,11 @@ public final class BedrockBlockCollisionResolverTest {
 
     @Test
     public void bedLandingAppliesReboundBeforeForwardCarry() {
-        BlockCollisionWorld world = collisionWorld(List.of(PlacedBlockCollision.manual(
-                new BlockPosition(302, 82, -91),
-                "minecraft:bed",
-                "minecraft:bed[facing=north,occupied=false,part=foot]",
-                List.of(new WorldCollisionBox(302.0D, 82.0D, -91.0D, 303.0D, 82.5625D, -90.0D)))));
-        Vec3d currentFeet = new Vec3d(302.8486328125D, 82.12128448486328D, -90.72260284423828D);
-        Vec3d requestedMove = new Vec3d(0.0450445556640625D, -0.44482332468032837D, -0.020571365356445312D);
+        // The player falls beside the bed, flush against its side. The fall ends on the floor within the move, so the
+        // move that the bed's side blocks steps up onto the bed, and the bed it then stands on bounces it.
+        BlockCollisionWorld world = collisionWorld(List.of(bed(302, "foot"), bed(303, "head"), stoneFloor()));
+        Vec3d currentFeet = new Vec3d(302.79913330078125D, 82.12128448486328D, -90.69999694824219D);
+        Vec3d requestedMove = new Vec3d(0.04949951171875D, -0.44482332468032837D, -0.02260589599609375D);
         BedrockMovementState current = state(currentFeet, requestedMove, BedrockCollisionFlags.AIR);
         BedrockEntityMove.Result collisionResult = BedrockEntityMove.move(
                 current,
@@ -567,12 +565,8 @@ public final class BedrockBlockCollisionResolverTest {
     }
 
     @Test
-    public void bedReplayTick97StepsFromHorizontalOverlapWhileFalling() {
-        BlockCollisionWorld world = collisionWorld(List.of(PlacedBlockCollision.manual(
-                new BlockPosition(302, 82, -91),
-                "minecraft:bed",
-                "minecraft:bed[facing=north,occupied=false,part=foot]",
-                List.of(new WorldCollisionBox(302.0D, 82.0D, -91.0D, 303.0D, 82.5625D, -90.0D)))));
+    public void bedReplayTick97StepsOntoTheBedFromTheFloorTheFallEndsOn() {
+        BlockCollisionWorld world = collisionWorld(List.of(bed(302, "foot"), bed(303, "head"), stoneFloor()));
         Vec3d previousFeet = new Vec3d(302.79913330078125D, 82.12128448486328D, -90.69999694824219D);
         Vec3d requestedMove = new Vec3d(0.04949951171875D, -0.44482332468032837D, -0.02260589599609375D);
         BedrockMovementState current = state(

@@ -1,6 +1,7 @@
 package ac.cult.cultac.network;
 
 import static ac.cult.cultac.network.JavaTickFixture.FLOOR_Y;
+import static ac.cult.cultac.network.JavaTickFixture.RESTING_Y;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.setField;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -12,6 +13,7 @@ import ac.cult.blocksim.data.BlockProps;
 import ac.cult.blocksim.data.Components;
 import ac.cult.blocksim.data.DataTables;
 import ac.cult.blocksim.engine.SimItemStack;
+import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
 import ac.cult.cultac.checks.impl.prediction.PredictionResult;
 import ac.cult.cultac.network.event.PacketSendEvent;
 import ac.cult.cultac.network.protocol.ClientVersion;
@@ -38,6 +40,11 @@ class UnsentTickCarriesVelocityTest {
             new ServerboundPlayerInput(false, false, false, false, false, true, false);
     private static final Vec3 AIR = new Vec3(0.5, FLOOR_Y + 26, 0.5);
     private static final Vec3 GROUND = new Vec3(0.5, FLOOR_Y, 0.5);
+    /**
+     * The vertical velocity of a player at rest on the floor under water: Entity#move's collision zeroes it and
+     * LivingEntity#getFluidFallingAdjustedMovement takes a sixteenth of gravity from it.
+     */
+    private static final double WATER_RESTING_Y = -0.08 / 16.0;
 
     /** From rest the first LivingEntity#travelInAir moves by zero and only then applies gravity. */
     @Test
@@ -54,7 +61,7 @@ class UnsentTickCarriesVelocityTest {
     @Test
     void tickEndsAloneAfterTheFloorIsRemovedAreJudgedAsAFall() throws Exception {
         try (var f = new JavaTickFixture()) {
-            f.place(GROUND, Vec3.ZERO);
+            stand(f, GROUND);
             f.input(NONE);
             for (int tick = 0; tick < 10; tick++) {
                 f.tickEnd();
@@ -93,7 +100,7 @@ class UnsentTickCarriesVelocityTest {
         try (var f = new JavaTickFixture()) {
             f.player.isSneaking = true;
             f.player.refreshPlayerPose();
-            f.place(new Vec3(9.2, FLOOR_Y, 0.5), Vec3.ZERO);
+            stand(f, new Vec3(9.2, FLOOR_Y, 0.5));
             f.input(SNEAK);
             for (int tick = 0; tick < 100; tick++) {
                 f.tickEnd();
@@ -106,7 +113,7 @@ class UnsentTickCarriesVelocityTest {
     void standingIdleUnderWaterStaysClean() throws Exception {
         try (var f = new JavaTickFixture()) {
             f.water(new BlockPos(-2, FLOOR_Y, -2), new BlockPos(2, FLOOR_Y + 3, 2));
-            f.place(GROUND, Vec3.ZERO);
+            stand(f, GROUND, WATER_RESTING_Y);
             f.input(NONE);
             for (int tick = 0; tick < 100; tick++) {
                 f.tickEnd();
@@ -140,8 +147,7 @@ class UnsentTickCarriesVelocityTest {
             }
             settle(f);
             Vec3 at = new Vec3(0.5, FLOOR_Y + 4, 0.5);
-            f.place(at, Vec3.ZERO);
-            f.player.onGround = f.player.lastOnGround = true;
+            stand(f, at);
             f.input(NONE);
             idle(f, 100);
             assertEquals(at.y, f.player.y);
@@ -173,7 +179,7 @@ class UnsentTickCarriesVelocityTest {
             settle(f);
             f.player.isSneaking = true;
             f.player.refreshPlayerPose();
-            f.place(GROUND, Vec3.ZERO);
+            stand(f, GROUND);
             f.input(SNEAK);
             idle(f, 100);
             assertEquals(GROUND.y, f.player.y);
@@ -185,8 +191,8 @@ class UnsentTickCarriesVelocityTest {
     void standingIdleOnTheFloorOfADraggingBubbleColumnStaysClean() throws Exception {
         try (var f = new JavaTickFixture()) {
             bubbleColumn(f, true, FLOOR_Y + 6);
-            f.place(GROUND, Vec3.ZERO);
-            f.player.onGround = f.player.lastOnGround = true;
+            // BubbleColumnBlock#entityInside's drag pulls the velocity the water travel left down by 0.03.
+            stand(f, GROUND, WATER_RESTING_Y - 0.03);
             f.input(NONE);
             idle(f, 100);
             assertEquals(GROUND.y, f.player.y);
@@ -225,7 +231,7 @@ class UnsentTickCarriesVelocityTest {
     @Test
     void idleTicksWhileAVelocityIsInFlightStayClean() throws Exception {
         try (var f = new JavaTickFixture()) {
-            f.place(GROUND, Vec3.ZERO);
+            stand(f, GROUND);
             f.input(NONE);
             Vec3 knockback = new Vec3(0.2, 0.36, 0.0);
             int proof = f.velocity(knockback);
@@ -238,17 +244,16 @@ class UnsentTickCarriesVelocityTest {
         }
     }
 
-    /** A client older than 1.21.2 ends no tick the server sees, so a tick it never reported may still have run. */
+    /** 1.21.2, the first client with ServerboundClientTickEndPacket, already ends every tick: none starts from rest. */
     @Test
-    void aClientWithoutTickEndsMayStartFromRest() throws Exception {
+    void theOldestClientWithTickEndsNeverStartsFromRest() throws Exception {
         try (var f = new JavaTickFixture()) {
-            setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_1_21);
+            setField(CultPlayer.class, f.player, "resolvedClientVersion", ClientVersion.V_1_21_2);
             f.place(AIR, Vec3.ZERO);
             f.input(NONE);
             f.tickEnd();
             assertClean(last(f));
-            f.tickEnd();
-            assertClean(last(f));
+            assertUnsentTicksFallUntilSetBack(f);
         }
     }
 
@@ -265,11 +270,27 @@ class UnsentTickCarriesVelocityTest {
             }
         }
         settle(f);
-        f.place(at, Vec3.ZERO);
-        f.player.onGround = f.player.lastOnGround = true;
+        stand(f, at);
         f.input(input);
         idle(f, ticks);
         assertEquals(at.y, f.player.y);
+    }
+
+    /** A player that has been standing at {@code at} in air, with the velocity LivingEntity#travelInAir leaves it. */
+    private static void stand(JavaTickFixture f, Vec3 at) {
+        stand(f, at, RESTING_Y);
+    }
+
+    /**
+     * A player that has been standing at {@code at} with the vertical velocity {@code vy} its last travel left it:
+     * Entity#move grounded it, and LocalPlayer#sendPosition's lastOnGround is the ground it last reported, so a tick
+     * that stays on the ground sends no StatusOnly.
+     */
+    private static void stand(JavaTickFixture f, Vec3 at, double vy) {
+        f.place(at, new Vec3(0.0, vy, 0.0));
+        f.player.onGround = f.player.lastOnGround = true;
+        f.player.checkManager.getSimulationProcessor().setLastOnGround(DesyncStatus.TRUE);
+        f.player.packetStateData.packetPlayerOnGround = true;
     }
 
     private static void sneakingIdleOn(int climbable, Vec3 at) throws Exception {
