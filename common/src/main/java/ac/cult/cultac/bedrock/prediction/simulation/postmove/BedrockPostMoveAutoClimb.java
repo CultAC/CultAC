@@ -25,11 +25,8 @@ final class BedrockPostMoveAutoClimb {
             BedrockPostMoveContext context, BedrockCollisionFlags flags, BedrockClimbableContact nextClimbableContact) {
         // Only the climbable block the centre of the feet is in starts the climb. Scaffolding is
         // not one: it is ascended by jumping. Scaffolding the box reaches beside that block does
-        // not stop the climb either.
-        return !context.inWater()
-                && !context.inLava()
-                && !context.intent().jump().start()
-                && nextClimbableContact.ladder()
-                && flags.horizontalCollision();
+        // not stop the climb either. A jump started this tick does not stop it: the climb replaces
+        // the jump's velocity after the move.
+        return !context.inWater() && !context.inLava() && nextClimbableContact.ladder() && flags.horizontalCollision();
     }
 }
