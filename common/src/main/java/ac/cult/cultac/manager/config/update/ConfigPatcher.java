@@ -276,25 +276,23 @@ public final class ConfigPatcher {
         // the block-list items we're about to insert below.
         scrubInlineListFromKeyLine(keyPosition.lineIndex);
 
-        int blockStartLine = -1, blockEndLine = keyPosition.lineIndex + 1, listIndent = -1;
+        // The block runs from its first item to the last line of its last item. Comments and blank lines between items
+        // go with it; those after the last item belong to whatever follows. Items may sit at the key's own indent.
+        int blockStartLine = -1, blockEndLine = -1, listIndent = -1;
         for (int i = keyPosition.lineIndex + 1; i < lines.size(); i++) {
             String line = lines.get(i);
-            if (line.trim().isEmpty() || line.trim().startsWith("#")) {
-                if (blockStartLine != -1) blockEndLine = i + 1; // Include comments/blank lines within the block
-                continue;
-            }
+            String trimmed = line.trim();
+            if (trimmed.isEmpty() || trimmed.startsWith("#")) continue;
             int currentIndent = getIndentation(line);
-            if (currentIndent <= keyPosition.indent) {
-                blockEndLine = i;
-                break;
+            boolean item = trimmed.startsWith("-")
+                    && (listIndent == -1 ? currentIndent >= keyPosition.indent : currentIndent == listIndent);
+            if (!item && currentIndent <= Math.max(keyPosition.indent, listIndent)) break;
+            if (blockStartLine == -1) {
+                if (!item) break;
+                blockStartLine = i;
+                listIndent = currentIndent;
             }
-            if (line.trim().startsWith("-")) {
-                if (blockStartLine == -1) {
-                    blockStartLine = i;
-                    listIndent = currentIndent;
-                }
-                blockEndLine = i + 1;
-            }
+            blockEndLine = i + 1;
         }
         if (blockStartLine == -1) {
             blockStartLine = keyPosition.lineIndex + 1;
