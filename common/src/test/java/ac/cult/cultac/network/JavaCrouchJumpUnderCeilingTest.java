@@ -5,6 +5,7 @@ import static ac.cult.cultac.network.JavaTickFixture.assertRejected;
 import static ac.cult.cultac.network.JavaTickFixture.describe;
 import static ac.cult.cultac.network.JavaTickFixture.exact;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ac.cult.blocksim.data.BlockIds;
@@ -134,12 +135,15 @@ class JavaCrouchJumpUnderCeilingTest {
     }
 
     /**
-     * A setback into the floor's top block, then a jump on a tick that sends no position: the engine accepts a rise
-     * past the jump's 0.42, which Entity#collide cannot lengthen into, so it is no clip of the jump, and the client
-     * that stays where it is afterwards carries no rise. Positions, inputs and rotations from a real client.
+     * A teleport into the floor's top block, then a jump on a tick that sends only its rotation.
+     * ClientPacketListener#handleMovePlayer answers the teleport without touching LocalPlayer's xLast, yLast and zLast,
+     * and LocalPlayer#sendPosition withholds a position only within 2.0E-4 of them: the floor the client last sent,
+     * 0.513 above the teleport and 0.44 beside it, where no jump from inside the block ends. The tick is rejected, and
+     * the next one starts from the engine's own travel: Entity#move zeroes deltaMovement.y only where Entity#collide
+     * changed the move, and the jump rose its 0.42 unclipped.
      */
     @Test
-    void aRiseLongerThanTheJumpCarriesNoJumpVelocity() throws Exception {
+    void aWithheldPositionNoJumpReachesIsRejectedAndCarriesTheJump() throws Exception {
         try (var f = new JavaTickFixture(ProtocolVersion.V1_21_11, ClientVersion.V_1_21_11);
                 var ignored = JavaTickFixture.observeOnly()) {
             f.player.compensatedWorld.ensureValidationChunkLoaded(-53, -46);
@@ -151,7 +155,7 @@ class JavaCrouchJumpUnderCeilingTest {
                 }
             }
             for (int tick = 0; tick < 3; tick++) f.player.compensatedWorld.removeInvalidPistonLikeStuff();
-            Vec3 setback = new Vec3(-834.3350948955106, 62.48687499891035, -734.8960140180537);
+            Vec3 teleport = new Vec3(-834.3350948955106, 62.48687499891035, -734.8960140180537);
             Vec3 floor = new Vec3(STANDING_X, STANDING_FLOOR, STANDING_Z);
             f.place(floor, RESTING);
             f.player.onGround = f.player.lastOnGround = true;
@@ -159,21 +163,14 @@ class JavaCrouchJumpUnderCeilingTest {
             f.player.yRot = f.player.lastTickYRot = 2719.457F;
             f.player.xRot = f.player.lastTickXRot = 12.131311F;
             check(f, "floor", floor, true);
-            f.teleport(setback, new RelativeFlag(0));
+            f.teleport(teleport, new RelativeFlag(0));
             f.input(new ServerboundPlayerInput(true, false, true, false, true, false, false));
             assertRejected(rotationTick(f, 2726.071F, 11.777883F), "VerticalOffset");
-            f.input(new ServerboundPlayerInput(true, false, false, true, true, false, false));
-            float[][] rotations = {
-                {2791.5312F, 20.638859F}, {2839.345F, 22.835169F}, {2842.5513F, 23.542028F}, {2842.5513F, 23.542028F}
-            };
-            for (int tick = 0; tick < rotations.length; tick++) {
-                PredictionResult still = rotationTick(f, rotations[tick][0], rotations[tick][1]);
-                assertTrue(
-                        still.getFlags().stream()
-                                .map(flag -> flag.getCheck().getCheckName())
-                                .noneMatch(name -> name.equals("VerticalOffset") || name.equals("Simulation")),
-                        "still " + tick + ": " + describe(still));
-            }
+            // LivingEntity#travel after the jump's Entity#move: (0.42F - 0.08) * 0.98F.
+            double carried = ((double) 0.42F - 0.08) * (double) 0.98F;
+            var velocities = f.player.checkManager.getSimulationProcessor().getValidPlayerStartingVels();
+            assertFalse(velocities.isEmpty());
+            for (Vec3 velocity : velocities) assertEquals(carried, velocity.y, 1.0E-12, velocity.toString());
         }
     }
 
